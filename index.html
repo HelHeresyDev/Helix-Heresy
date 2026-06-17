@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rogue Genesis</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Rogue Genesis</h1>
+          <div class="subtitle">Slime genetics prototype</div>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <span id="clockReadout">Day 1 00:00</span>
+          <span id="pauseReadout">Paused</span>
+          <span id="storageReadout">Storage 0/12</span>
+        </div>
+        <div class="top-actions">
+          <button id="pauseBtn" type="button">Pause</button>
+          <button id="newRunBtn" type="button">New Run</button>
+          <button id="exportFolderBtn" type="button">Export to Folder</button>
+          <button id="exportFileBtn" type="button">Export File</button>
+          <label class="file-button">
+            Import
+            <input id="importFileInput" type="file" accept="application/json,.json">
+          </label>
+        </div>
+      </header>
+
+      <aside id="queueDrawer" class="queue-drawer collapsed" aria-labelledby="queueTitle">
+        <button id="queueToggleBtn" class="queue-toggle" type="button" aria-expanded="false" aria-controls="queueDrawerBody">
+          <span id="queueBadge" class="queue-badge">0</span>
+          <span>Queue</span>
+          <span id="queueNextReadout" class="queue-next">Clear</span>
+        </button>
+        <div id="queueDrawerBody" class="queue-drawer-body">
+          <div class="panel-heading">
+            <div>
+              <h2 id="queueTitle">Time Queue</h2>
+              <p id="queueSummary">No pending work</p>
+            </div>
+          </div>
+          <div class="time-controls">
+            <input id="skipAmountInput" type="number" min="1" value="30" aria-label="Minutes to skip">
+            <button id="skipTimeBtn" type="button">Skip</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
+        </div>
+      </aside>
+
+      <main class="lab-grid" id="labRoot" aria-live="polite">
+        <section class="panel dna-panel" aria-labelledby="dnaTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="dnaTitle">Genome Foundry</h2>
+              <p id="sequenceStatus">24-base-pair slime genome</p>
+            </div>
+            <div class="panel-actions">
+              <button id="loadSelectedGenomeBtn" type="button" disabled>Load Selected</button>
+              <button id="randomGenomeBtn" type="button">Random Genome</button>
+            </div>
+          </div>
+
+          <div id="helixGrid" class="ascii-helix" aria-label="Editable ASCII DNA helix"></div>
+
+          <label class="field-label" for="sequenceInput">Sequence</label>
+          <div class="sequence-row">
+            <input id="sequenceInput" class="sequence-input" type="text" spellcheck="false" maxlength="24" autocomplete="off">
+            <button id="copySequenceBtn" type="button">Copy</button>
+          </div>
+
+          <div class="subpanel mutation-bench">
+            <div class="subpanel-title">Mutation Bench</div>
+            <div id="lockSummary" class="bench-summary">0 locked regions</div>
+            <div class="bench-actions">
+              <button id="randomUnlockedBtn" type="button">Randomize Unlocked</button>
+              <button id="lockAllBtn" type="button">Lock All</button>
+              <button id="clearLocksBtn" type="button">Clear Locks</button>
+            </div>
+            <div id="regionLockGrid" class="region-lock-grid"></div>
+          </div>
+
+          <div class="foundry-actions">
+            <button id="synthesizeBtn" class="primary" type="button">Synthesize Slime</button>
+            <button id="applyKnownBtn" type="button">Apply Known Outcome</button>
+          </div>
+
+          <div id="knownEditor" class="known-editor hidden">
+            <label class="field-label" for="knownTraitSelect">Known Trait</label>
+            <select id="knownTraitSelect"></select>
+            <label class="field-label" for="knownOutcomeSelect">Discovered Outcome</label>
+            <select id="knownOutcomeSelect"></select>
+            <button id="confirmKnownBtn" type="button">Apply</button>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Predicted Outcomes</div>
+            <div id="predictionList" class="prediction-list"></div>
+          </div>
+        </section>
+
+        <section class="panel lab-panel" aria-labelledby="labTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="labTitle">Living Samples</h2>
+              <p id="selectedSlimeSummary">No slime selected</p>
+            </div>
+            <button id="releaseBtn" type="button" disabled>Release</button>
+          </div>
+
+          <div id="slimeList" class="slime-list"></div>
+
+          <div class="test-bank">
+            <div class="subpanel-title">Tests</div>
+            <div id="testButtons" class="test-buttons"></div>
+          </div>
+
+          <div class="breeding-bank">
+            <div class="subpanel-title">Breeding</div>
+            <div class="breeding-row">
+              <select id="parentASelect"></select>
+              <select id="parentBSelect"></select>
+              <button id="breedBtn" type="button">Begin</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel journal-panel" aria-labelledby="journalTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="journalTitle">Journal</h2>
+              <p id="journalModeReadout">Automatic</p>
+            </div>
+          </div>
+          <div id="journalContent"></div>
+        </section>
+
+        <section class="panel scientist-panel" aria-labelledby="scientistTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="scientistTitle">Scientist</h2>
+              <p>Vitals and skills</p>
+            </div>
+          </div>
+
+          <div class="vital-grid">
+            <div class="vital-row">
+              <span>Health</span>
+              <strong id="healthReadout">100/100</strong>
+            </div>
+            <div class="vital-row">
+              <span>Stamina</span>
+              <strong id="staminaReadout">100/100</strong>
+            </div>
+            <div class="vital-row">
+              <span>Mana</span>
+              <strong id="manaReadout">100/100</strong>
+            </div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Skills</div>
+            <div id="skillList" class="skill-list"></div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Rest</div>
+            <div class="rest-actions">
+              <button id="restFullBtn" type="button">Rest Until Full</button>
+              <input id="restMinutesInput" type="number" min="1" value="30" aria-label="Rest minutes">
+              <button id="restCustomBtn" type="button">Rest</button>
+            </div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">XP Cheat</div>
+            <div class="cheat-row">
+              <input id="xpCommandInput" type="text" spellcheck="false" placeholder="observation 5000">
+              <button id="xpCommandBtn" type="button">Add XP</button>
+            </div>
+            <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
+          </div>
+        </section>
+
+        <section class="panel log-panel" aria-labelledby="logTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="logTitle">Lab Log</h2>
+              <p>Recent operational events</p>
+            </div>
+          </div>
+          <div id="eventLog" class="event-log"></div>
+        </section>
+      </main>
+
+      <div id="seedReadout" class="seed-corner">Seed: none</div>
+    </div>
+
+    <div id="setupOverlay" class="setup-overlay">
+      <form id="setupForm" class="setup-card">
+        <h2>New Slime Run</h2>
+        <label class="field-label" for="seedInput">Seed</label>
+        <div class="sequence-row">
+          <input id="seedInput" type="text" autocomplete="off">
+          <button id="randomSeedBtn" type="button">Random</button>
+        </div>
+
+        <label class="field-label" for="journalModeSelect">Journal Mode</label>
+        <select id="journalModeSelect">
+          <option value="auto">Automatic</option>
+          <option value="manual">Manual Template</option>
+          <option value="none">None</option>
+        </select>
+
+        <label class="field-label" for="complexitySelect">Genetic Complexity</label>
+        <select id="complexitySelect">
+          <option value="clean">Clean</option>
+          <option value="linked">Linked</option>
+          <option value="entangled">Entangled</option>
+        </select>
+
+        <button class="primary full-width" type="submit">Enter Lab</button>
+      </form>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
