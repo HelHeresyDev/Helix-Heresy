@@ -130,6 +130,12 @@
     { id: "corpse", label: "Corpse Processing" },
     { id: "disposal", label: "Waste Disposal" }
   ];
+  const CORPSE_STATE_POLICY_DEFS = [
+    { key: "fresh", label: "Fresh", defaultTarget: false },
+    { key: "decaying", label: "Decaying", defaultTarget: false },
+    { key: "spoiled", label: "Spoiled", defaultTarget: true },
+    { key: "ruined", label: "Ruined", defaultTarget: true }
+  ];
   const RESOURCE_DEFS = [
     { key: "biomass", label: "Biomass", initial: 50 },
     { key: "geneticMaterial", label: "Genetic Material", initial: 0 },
@@ -137,12 +143,35 @@
     { key: "waste", label: "Waste", initial: 0 }
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
+  const RESOURCE_ALIASES = {
+    ...Object.fromEntries(RESOURCE_DEFS.flatMap((resource) => [
+      [normalizeCommandName(resource.key), resource.key],
+      [normalizeCommandName(resource.label), resource.key]
+    ])),
+    genetic: "geneticMaterial",
+    residue: "elementalResidue",
+    elemental: "elementalResidue"
+  };
+  const SLIME_STAT_DEFS = [
+    { key: "bodyIntegrity", label: "Body Integrity", initial: 100, max: 100 },
+    { key: "nutrition", label: "Nutrition", initial: 50, max: 100 },
+    { key: "currentMass", label: "Current Mass", initial: 100, max: 100 },
+    { key: "divisionPressure", label: "Division Pressure", initial: 0, max: 100 },
+    { key: "stress", label: "Stress", initial: 0, max: 100 }
+  ];
+  const SLIME_STAT_BY_KEY = Object.fromEntries(SLIME_STAT_DEFS.map((stat) => [stat.key, stat]));
+  const SLIME_LIFESPAN_MULTIPLIER = 12;
+  const MASS_REGROWTH_NUTRITION_FLOOR = 15;
+  const MASS_REGROWTH_NUTRITION_COST = 0.45;
+  const DIVISION_NUTRITION_THRESHOLD = 70;
+  const DIVISION_INTEGRITY_THRESHOLD = 80;
+  const DIVISION_STRESS_LIMIT = 40;
   const SYNTHESIS_BIOMASS_COST = 10;
   const CORPSE_PROCESSING_BIOMASS_GAIN = 3;
   const CORPSE_PROCESSING_WASTE_GAIN = 1;
   const WASTE_DISPOSAL_UNIT = 1;
   const WASTE_DISPOSAL_RESIDUE_INTERVAL = 3;
-  const WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS = 60;
+  const WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS = 10;
   const WASTE_DISPOSAL_SLOW_OBSERVATION = 1440;
   const WASTE_DISPOSAL_CONTAMINATION_HEAT = 2;
   const FRESH_NECROPSY_GENETIC_GAIN = 1;
@@ -217,7 +246,7 @@
     { id: "byproduct", label: "Byproduct Collection", traits: ["byproduct"], duration: 14, skillId: "materialsAnalysis", xp: 20 },
     { id: "behavior", label: "Behavior Observation", traits: ["behavior"], duration: 9, skillId: "ethology", xp: 20 },
     { id: "stress", label: "Stress Test", traits: ["stability", "lifespan"], duration: 16, skillId: "physiology", xp: 25 },
-    { id: "breeding", label: "Breeding Survey", traits: ["brood", "growth"], duration: 18, skillId: "reproductiveBiology", xp: 30 },
+    { id: "breeding", label: "Reproduction Survey", traits: ["brood", "growth"], duration: 18, skillId: "reproductiveBiology", xp: 30 },
     { id: "lifespan", label: "Lifespan Study", traits: ["lifespan"], duration: 20, skillId: "physiology", xp: 25 }
   ];
 
@@ -243,6 +272,7 @@
       lastHeatDecayAt: null,
       resources: defaultResources(),
       wasteTags: {},
+      policies: defaultPolicies(),
       currentGenome: "",
       queueDrawerOpen: false,
       slimes: [],
@@ -276,6 +306,20 @@
 
   function defaultResources() {
     return Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource.initial]));
+  }
+
+  function defaultSlimeStats() {
+    return Object.fromEntries(
+      SLIME_STAT_DEFS.map((stat) => [stat.key, { current: stat.initial, max: stat.max }])
+    );
+  }
+
+  function defaultPolicies() {
+    return {
+      corpseProcessingTargets: Object.fromEntries(
+        CORPSE_STATE_POLICY_DEFS.map((stateDef) => [stateDef.key, stateDef.defaultTarget])
+      )
+    };
   }
 
   function init() {
@@ -341,6 +385,8 @@
       "parentASelect",
       "parentBSelect",
       "breedBtn",
+      "policySummary",
+      "corpsePolicyList",
       "healthReadout",
       "staminaReadout",
       "manaReadout",
@@ -352,6 +398,9 @@
       "xpCommandInput",
       "xpCommandBtn",
       "xpCommandStatus",
+      "resourceCommandInput",
+      "resourceCommandBtn",
+      "resourceCommandStatus",
       "journalModeReadout",
       "journalContent",
       "queueDrawer",
@@ -571,14 +620,20 @@
         return;
       }
       if (!isBreedable(parentA) || !isBreedable(parentB)) {
-        addEvent("Breeding requires living mature slimes.");
+        addEvent("Forced recombination requires living mature slimes.");
+        persist();
+        render();
+        return;
+      }
+      if (!canAddContainedSlime()) {
+        addEvent("Forced recombination requires at least one open containment pod.");
         persist();
         render();
         return;
       }
       startStaminaTask({
         type: "breed",
-        label: `Breed ${parentA.name} x ${parentB.name}`,
+        label: `Forced Recombination ${parentA.name} x ${parentB.name}`,
         baseDuration: 18,
         skillId: "reproductiveBiology",
         baseXp: 30,
@@ -611,6 +666,17 @@
       if (event.key === "Enter") {
         event.preventDefault();
         runXpCommand();
+      }
+    });
+
+    dom.resourceCommandBtn.addEventListener("click", () => {
+      runResourceCommand();
+    });
+
+    dom.resourceCommandInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runResourceCommand();
       }
     });
 
@@ -809,6 +875,10 @@
     if (jobEvent) {
       events.push(jobEvent);
     }
+    const metabolismEvent = nextSlimeMetabolismEvent();
+    if (metabolismEvent) {
+      events.push(metabolismEvent);
+    }
     const staminaEvent = nextVitalFullEvent("stamina");
     if (staminaEvent) {
       events.push(staminaEvent);
@@ -870,15 +940,16 @@
     const expired = expireSlimes();
     const corpseChanges = updateCorpses();
     const jobChanges = updateCreatureJobs(minutes);
+    const metabolismChanged = updateSlimeMetabolism(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || completed || vitalsChanged || heatChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || metabolismChanged || completed || vitalsChanged || heatChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + completed + (vitalsChanged ? 1 : 0) + (heatChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + metabolismChanged + completed + (vitalsChanged ? 1 : 0) + (heatChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -1014,7 +1085,7 @@
 
   function createSlime(genome, source, options = {}) {
     const evaluated = evaluateGenome(genome);
-    const lifespanMinutes = evaluated.traits.lifespan.meta.lifeMinutes;
+    const lifespanMinutes = slimeLifespanMinutes(evaluated);
     const slime = {
       id: `slime-${state.nextSlimeNumber}`,
       name: `RG-${String(state.nextSlimeNumber).padStart(3, "0")}`,
@@ -1022,12 +1093,15 @@
       source,
       createdAt: state.clock,
       deathAt: state.clock + lifespanMinutes,
+      lifecycleVersion: 1,
       matureAt: options.matureAt ?? state.clock,
       mature: options.mature ?? true,
-      status: "contained",
+      status: options.status || "contained",
       job: "idle",
       jobProgress: 0,
       jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
       revealed: {},
       measured: {},
       traitObservations: {},
@@ -1038,11 +1112,15 @@
     return slime;
   }
 
+  function slimeLifespanMinutes(evaluated) {
+    return effectiveLifespanMinutes(evaluated.traits.lifespan.meta);
+  }
+
   function completeBreeding(task) {
     const parentA = findSlime(task.data.parentAId);
     const parentB = findSlime(task.data.parentBId);
     if (!parentA || !parentB || !isBreedable(parentA) || !isBreedable(parentB)) {
-      addEvent("Breeding run could not complete.");
+      addEvent("Forced recombination could not complete.");
       return;
     }
     const evalA = evaluateGenome(parentA.genome);
@@ -1050,19 +1128,31 @@
     const broodAverage = (evalA.traits.brood.meta.count + evalB.traits.brood.meta.count) / 2;
     const rng = seedRng(`${state.seed}:breed:${task.id}:${state.clock}`);
     const broodCount = clamp(Math.round(broodAverage + Math.floor(rng() * 3) - 1), 1, 8);
+    const openSlots = Math.max(0, STORAGE_CAPACITY - containedSlimeCount());
+    const offspringCount = Math.min(broodCount, openSlots);
+    if (offspringCount <= 0) {
+      addEvent("Forced recombination could not complete; no containment pod was open.");
+      return;
+    }
     const growthAverage = (evalA.traits.growth.meta.growthMinutes + evalB.traits.growth.meta.growthMinutes) / 2;
+    const bodyCount = offspringCount + 2;
+    const massShare = (slimeStat(parentA, "currentMass").current + slimeStat(parentB, "currentMass").current) / bodyCount;
+    const nutritionShare = (slimeStat(parentA, "nutrition").current + slimeStat(parentB, "nutrition").current) / bodyCount;
     const created = [];
     const revealSummary = emptyRevealSummary();
-    for (let i = 0; i < broodCount; i += 1) {
-      if (!canAddContainedSlime()) {
-        addEvent("Remaining offspring diverted; containment is full.");
-        break;
-      }
-      const childGenome = crossoverGenome(parentA.genome, parentB.genome, seedRng(`${state.seed}:child:${task.id}:${i}`));
+    for (let i = 0; i < offspringCount; i += 1) {
+      const childGenome = forcedRecombinationGenome(parentA.genome, parentB.genome, seedRng(`${state.seed}:child:${task.id}:${i}`), parentA, parentB);
       const growthMinutes = Math.max(4, Math.round(growthAverage * (0.8 + rng() * 0.4)));
-      const child = createSlime(childGenome, "Bred", {
+      const child = createSlime(childGenome, "Recombined", {
         mature: false,
-        matureAt: state.clock + growthMinutes
+        matureAt: state.clock + growthMinutes,
+        stats: {
+          bodyIntegrity: { current: 90, max: 100 },
+          nutrition: { current: nutritionShare, max: 100 },
+          currentMass: { current: massShare, max: 100 },
+          divisionPressure: { current: 0, max: 100 },
+          stress: { current: 12, max: 100 }
+        }
       });
       mergeRevealSummary(revealSummary, revealTraits(child, ["size", "shape", "consistency", "appendages", "color"]));
       createTask({
@@ -1073,8 +1163,19 @@
       });
       created.push(child.name);
     }
-    awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Breeding");
-    addEvent(`Breeding produced ${created.length} offspring.`);
+    setSlimeStat(parentA, "currentMass", massShare);
+    setSlimeStat(parentB, "currentMass", massShare);
+    setSlimeStat(parentA, "nutrition", nutritionShare);
+    setSlimeStat(parentB, "nutrition", nutritionShare);
+    setSlimeStat(parentA, "divisionPressure", 0);
+    setSlimeStat(parentB, "divisionPressure", 0);
+    adjustSlimeStat(parentA, "stress", 8);
+    adjustSlimeStat(parentB, "stress", 8);
+    awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Forced Recombination");
+    addEvent(`Forced recombination produced ${created.length} offspring and divided parent mass across ${bodyCount} bodies.`);
+    if (offspringCount < broodCount) {
+      addEvent(`${broodCount - offspringCount} potential offspring could not be stabilized because containment was full.`);
+    }
   }
 
   function completeNecropsy(task) {
@@ -1290,10 +1391,15 @@
     let expired = 0;
     const survivors = [];
     for (const slime of state.slimes) {
-      if (slime.status !== "dead" && slime.deathAt <= state.clock) {
-        const deathReason = slime.deathCause || "lifespan";
+      if (slime.status !== "dead" && (slime.deathAt <= state.clock || slimeStat(slime, "bodyIntegrity").current <= 0)) {
+        const deathReason = slimeStat(slime, "bodyIntegrity").current <= 0
+          ? slime.deathCause || "body integrity failure"
+          : slime.deathCause || "lifespan";
         const corpse = createCorpseFromSlime(slime, deathReason);
-        const causeText = deathReason === "waste exposure" ? "succumbed to waste exposure" : "reached the end of its lifespan";
+        const causeText = {
+          "waste exposure": "succumbed to waste exposure",
+          "body integrity failure": "collapsed from body integrity failure"
+        }[deathReason] || "reached the end of its lifespan";
         addEvent(`${slime.name} ${causeText} and became a ${corpse.storage === "overflow" ? "corpse overflow" : "waste drum specimen"}.`);
         expired += 1;
       } else {
@@ -1872,6 +1978,7 @@
     renderJobs();
     renderTests();
     renderBreeding();
+    renderPolicies();
     renderScientist();
     renderTasks();
     renderJournal();
@@ -2120,8 +2227,12 @@
     const breedable = state.slimes.filter(isBreedable);
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["reproductiveBiology", "slimeHandling"]);
     const duration = adjustedDuration(18, "reproductiveBiology");
-    dom.breedBtn.textContent = `Begin (${formatDuration(duration)}, ${cost} STA)`;
-    const reason = breedable.length < 2 ? "Breeding requires two mature slimes." : staminaBlockReason(cost);
+    dom.breedBtn.textContent = `Force Recombination (${formatDuration(duration)}, ${cost} STA)`;
+    const reason = breedable.length < 2
+      ? "Forced recombination requires two mature slimes."
+      : !canAddContainedSlime()
+        ? "Forced recombination requires at least one open containment pod."
+        : staminaBlockReason(cost);
     setActionButtonState(dom.breedBtn, Boolean(reason), reason);
   }
 
@@ -2137,7 +2248,12 @@
   function renderSlimes() {
     dom.slimeList.textContent = "";
     const selected = getSelectedSlime();
-    dom.selectedSlimeSummary.textContent = selected ? `${selected.name} - ${selected.status}` : "No slime selected";
+    dom.selectedSlimeSummary.textContent = "";
+    if (selected) {
+      dom.selectedSlimeSummary.append(slimeNameLink(selected), document.createTextNode(` - ${selected.status}`));
+    } else {
+      dom.selectedSlimeSummary.textContent = "No slime selected";
+    }
     refreshReleaseButtonState();
 
     if (state.slimes.length === 0) {
@@ -2148,13 +2264,14 @@
     for (const slime of state.slimes) {
       const card = document.createElement("article");
       card.className = `slime-card${slime.id === state.selectedSlimeId ? " selected" : ""}${slime.status === "dead" ? " dead" : ""}`;
+      card.dataset.slimeCard = slime.id;
       card.addEventListener("click", () => {
         state.selectedSlimeId = slime.id;
         persist();
         render();
       });
       const title = document.createElement("h3");
-      title.append(textEl("span", slime.name), textEl("span", slime.status));
+      title.append(slimeNameLink(slime, "entity-link-title"), textEl("span", slime.status));
       const meta = document.createElement("div");
       meta.className = "slime-meta";
       const evaluated = evaluateGenome(slime.genome);
@@ -2168,6 +2285,7 @@
       meta.append(chip(slime.genome));
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
+        card.append(renderSlimeStats(slime));
         card.append(renderTraitGrid(slime, evaluated));
       }
       dom.slimeList.append(card);
@@ -2190,9 +2308,12 @@
       const evaluated = evaluateGenome(corpse.genome);
       const card = document.createElement("article");
       card.className = `corpse-card corpse-${corpseFreshness(corpse)}${corpse.storage === "overflow" ? " overflow" : ""}`;
+      card.dataset.corpseCard = corpse.id;
 
       const title = document.createElement("h3");
-      title.append(textEl("span", `${corpse.name} remains`), textEl("span", corpseStateLabel(corpse)));
+      const name = document.createElement("span");
+      name.append(corpseNameLink(corpse, "entity-link-title"), document.createTextNode(" remains"));
+      title.append(name, textEl("span", corpseStateLabel(corpse)));
 
       const meta = document.createElement("div");
       meta.className = "slime-meta";
@@ -2243,9 +2364,10 @@
       return slime.job !== "idle";
     }).length;
     const eligibleCorpses = (state.corpses || []).filter(isCorpseProcessingTarget).length;
+    const protectedCorpses = policyProtectedCorpseCount();
     const wasteUnits = resourceAmount("waste");
     dom.jobSummary.textContent = living.length
-      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}; ${formatNumber(wasteUnits)} Waste`
+      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} Waste`
       : "No living creatures available for jobs.";
 
     if (!living.length) {
@@ -2261,7 +2383,7 @@
       const details = document.createElement("div");
       const header = document.createElement("div");
       header.className = "job-row-header";
-      header.append(textEl("strong", slime.name), textEl("span", slime.mature ? slime.status : "immature"));
+      header.append(slimeNameLink(slime, "entity-link-strong"), textEl("span", slime.mature ? slime.status : "immature"));
 
       const meta = document.createElement("div");
       meta.className = "job-meta";
@@ -2270,7 +2392,7 @@
         const suitability = observedCorpseProcessingSuitability(slime);
         meta.append(chip(suitability.known ? `estimated ${suitability.band.toLowerCase()}` : "suitability unknown"));
         const target = findCorpse(slime.jobTargetCorpseId);
-        meta.append(chip(target ? `target ${target.name}` : "no eligible corpse"));
+        meta.append(target ? targetCorpseChip(target) : chip(corpseProcessingUnavailableText()));
         if (target) {
           const remainingChip = chip(jobRemainingText(slime));
           remainingChip.dataset.jobRemaining = slime.id;
@@ -2413,7 +2535,7 @@
       assignCorpseTarget(slime, reservedCorpseTargets(slime.id));
       addEvent(slime.jobTargetCorpseId
         ? `${slime.name} assigned to corpse processing.`
-        : `${slime.name} assigned to corpse processing; no eligible corpse is waiting.`);
+        : `${slime.name} assigned to corpse processing; ${corpseProcessingUnavailableText()} is waiting.`);
     } else if (nextJob === "disposal") {
       ensureJobKnowledge(slime, "disposal");
       addEvent(resourceAmount("waste") > 0
@@ -2434,6 +2556,174 @@
     return updateCorpseProcessingJobs(elapsed) + updateWasteDisposalJobs(elapsed);
   }
 
+  function updateSlimeMetabolism(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of [...(state.slimes || [])]) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      const massBefore = slimeStat(slime, "currentMass").current;
+      const pressureBefore = slimeStat(slime, "divisionPressure").current;
+      const regrew = updateSlimeMassRegrowth(slime, elapsed);
+      const pressureChanged = updateDivisionPressure(slime, elapsed, massBefore >= 100);
+      const split = tryNaturalSplit(slime);
+      if (regrew || pressureChanged || split) {
+        changes += 1;
+      }
+      const massAfter = slimeStat(slime, "currentMass").current;
+      const pressureAfter = slimeStat(slime, "divisionPressure").current;
+      if (massBefore < 100 && massAfter >= 100 && pressureAfter <= pressureBefore) {
+        addEvent(`${slime.name} regrew to full mass.`);
+      }
+    }
+    return changes;
+  }
+
+  function updateSlimeMassRegrowth(slime, minutes) {
+    const mass = slimeStat(slime, "currentMass");
+    const nutrition = slimeStat(slime, "nutrition");
+    if (mass.current >= mass.max || nutrition.current <= MASS_REGROWTH_NUTRITION_FLOOR) {
+      return false;
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
+    const growthRate = mass.max / (growthMinutes * 12);
+    const availableNutrition = Math.max(0, nutrition.current - MASS_REGROWTH_NUTRITION_FLOOR);
+    const gain = Math.min(
+      mass.max - mass.current,
+      minutes * growthRate,
+      availableNutrition / MASS_REGROWTH_NUTRITION_COST
+    );
+    if (gain <= 0) {
+      return false;
+    }
+    adjustSlimeStat(slime, "currentMass", gain);
+    adjustSlimeStat(slime, "nutrition", -gain * MASS_REGROWTH_NUTRITION_COST);
+    return true;
+  }
+
+  function updateDivisionPressure(slime, minutes, startedAtFullMass) {
+    const pressure = slimeStat(slime, "divisionPressure");
+    const conditions = divisionReadiness(slime);
+    const required = divisionPressureMinutes(slime);
+    if (conditions.ready && startedAtFullMass) {
+      slime.splitBlocked = false;
+      const gain = minutes * (pressure.max / required);
+      const before = pressure.current;
+      adjustSlimeStat(slime, "divisionPressure", gain);
+      const after = slimeStat(slime, "divisionPressure").current;
+      if (before < pressure.max && after >= pressure.max) {
+        addEvent(`${slime.name} reached natural division pressure.`);
+      }
+      return after !== before;
+    }
+    if (pressure.current <= 0) {
+      slime.splitBlocked = false;
+      return false;
+    }
+    const decay = minutes * (pressure.max / Math.max(60, required / 2));
+    adjustSlimeStat(slime, "divisionPressure", -decay);
+    slime.splitBlocked = false;
+    return true;
+  }
+
+  function divisionReadiness(slime) {
+    if (!slime || slime.status === "dead" || !slime.mature) {
+      return { ready: false, reason: "immature" };
+    }
+    if (slimeStat(slime, "currentMass").current < 100) {
+      return { ready: false, reason: "not full mass" };
+    }
+    if (slimeStat(slime, "nutrition").current < DIVISION_NUTRITION_THRESHOLD) {
+      return { ready: false, reason: "not fed enough" };
+    }
+    if (slimeStat(slime, "bodyIntegrity").current < DIVISION_INTEGRITY_THRESHOLD) {
+      return { ready: false, reason: "body integrity too low" };
+    }
+    if (slimeStat(slime, "stress").current > DIVISION_STRESS_LIMIT) {
+      return { ready: false, reason: "too stressed" };
+    }
+    return { ready: true, reason: "" };
+  }
+
+  function divisionPressureMinutes(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const brood = Math.max(1, Number(evaluated.traits.brood.meta?.count) || 1);
+    const growth = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
+    const stabilityRisk = Math.max(1, Number(evaluated.traits.stability.meta?.risk) || 5);
+    return clamp(Math.round(360 + brood * 90 + growth * 4 + Math.max(0, stabilityRisk - 3) * 30), 360, 2880);
+  }
+
+  function tryNaturalSplit(slime) {
+    if (slimeStat(slime, "divisionPressure").current < 100 || !divisionReadiness(slime).ready) {
+      return false;
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const broodCount = Math.max(1, Number(evaluated.traits.brood.meta?.count) || 1);
+    const openSlots = Math.max(0, STORAGE_CAPACITY - containedSlimeCount());
+    if (openSlots < broodCount) {
+      if (!slime.splitBlocked) {
+        addEvent(`${slime.name} is ready to split, but containment lacks ${broodCount} open pod${broodCount === 1 ? "" : "s"}.`);
+      }
+      slime.splitBlocked = true;
+      return false;
+    }
+    const bodyCount = broodCount + 1;
+    const massShare = slimeStat(slime, "currentMass").current / bodyCount;
+    const nutritionShare = slimeStat(slime, "nutrition").current / bodyCount;
+    const parentIntegrity = slimeStat(slime, "bodyIntegrity").current;
+    const parentStress = slimeStat(slime, "stress").current;
+    const rng = seedRng(`${state.seed}:split:${slime.id}:${state.clock}:${state.nextSlimeNumber}`);
+    const growthMinutes = Math.max(4, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
+    const created = [];
+    for (let i = 0; i < broodCount; i += 1) {
+      const childGenome = naturalSplitGenome(slime, rng, i);
+      const child = createSlime(childGenome, "Split", {
+        mature: false,
+        matureAt: state.clock + Math.round(growthMinutes * (0.75 + rng() * 0.5)),
+        stats: {
+          bodyIntegrity: { current: clamp(parentIntegrity - 5, 20, 100), max: 100 },
+          nutrition: { current: nutritionShare, max: 100 },
+          currentMass: { current: massShare, max: 100 },
+          divisionPressure: { current: 0, max: 100 },
+          stress: { current: clamp(parentStress + 5, 0, 100), max: 100 }
+        }
+      });
+      created.push(child);
+      createTask({
+        type: "mature",
+        label: `Mature ${child.name}`,
+        duration: Math.max(1, child.matureAt - state.clock),
+        data: { slimeId: child.id }
+      });
+    }
+    setSlimeStat(slime, "currentMass", massShare);
+    setSlimeStat(slime, "nutrition", nutritionShare);
+    adjustSlimeStat(slime, "stress", Math.min(20, 4 + broodCount));
+    setSlimeStat(slime, "divisionPressure", 0);
+    slime.splitBlocked = false;
+    addEvent(`${slime.name} split into ${broodCount} offspring, dividing its mass across ${bodyCount} bodies.`);
+    return created.length > 0;
+  }
+
+  function naturalSplitGenome(slime, rng, offset) {
+    const evaluated = evaluateGenome(slime.genome);
+    const brood = Math.max(1, Number(evaluated.traits.brood.meta?.count) || 1);
+    const stabilityRisk = Math.max(1, Number(evaluated.traits.stability.meta?.risk) || 5);
+    let mutationCount = 1;
+    if (rng() < 0.25 + stabilityRisk * 0.035) {
+      mutationCount += 1;
+    }
+    if (brood >= 5 && rng() < 0.35) {
+      mutationCount += 1;
+    }
+    return mutateGenome(slime.genome, rng, mutationCount + (offset % 2 === 0 && rng() < 0.2 ? 1 : 0));
+  }
+
   function updateCorpseProcessingJobs(elapsed) {
     let changes = 0;
     const workers = state.slimes.filter((slime) => {
@@ -2450,15 +2740,10 @@
       }
     }
     for (const slime of workers) {
-      let assignedTargetNow = false;
       if (!slime.jobTargetCorpseId && assignCorpseTarget(slime, reserved)) {
-        assignedTargetNow = true;
         changes += 1;
       }
       if (!slime.jobTargetCorpseId) {
-        continue;
-      }
-      if (assignedTargetNow) {
         continue;
       }
       let remaining = elapsed;
@@ -2468,25 +2753,38 @@
           reserved.delete(slime.jobTargetCorpseId);
           slime.jobTargetCorpseId = null;
           slime.jobProgress = 0;
+          slime.jobNutritionGained = 0;
           changes += 1;
           break;
         }
+        const suitability = corpseProcessingSuitability(slime);
+        const effects = corpseProcessingEffects(slime, target, suitability);
         const duration = corpseProcessingDuration(slime);
         const needed = Math.max(0, duration - slime.jobProgress);
         if (remaining < needed) {
+          const fromProgress = slime.jobProgress;
           slime.jobProgress += remaining;
+          applyCorpseProcessingNutrition(slime, effects, fromProgress, slime.jobProgress, duration);
           remaining = 0;
+          changes += 1;
           break;
         }
+        applyCorpseProcessingNutrition(slime, effects, slime.jobProgress, duration, duration);
         remaining -= needed;
+        const nutritionGained = slime.jobNutritionGained || 0;
         removeCorpseRecord(target.id);
         reserved.delete(target.id);
         addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN });
-        addWaste(CORPSE_PROCESSING_WASTE_GAIN, corpseWasteTags(target));
-        addEvent(`${slime.name} processed ${target.name} remains, recovering ${CORPSE_PROCESSING_BIOMASS_GAIN} Biomass and producing ${CORPSE_PROCESSING_WASTE_GAIN} Waste.`);
+        addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target));
+        applyCorpseProcessingEffects(slime, target, suitability, effects);
+        addEvent(`${slime.name} processed ${target.name} remains, recovering ${CORPSE_PROCESSING_BIOMASS_GAIN} Biomass and producing ${CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste} Waste${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
         slime.jobProgress = 0;
         slime.jobTargetCorpseId = null;
+        slime.jobNutritionGained = 0;
         changes += 1;
+        if (!canWorkJob(slime)) {
+          break;
+        }
         assignCorpseTarget(slime, reserved);
       }
     }
@@ -2528,7 +2826,7 @@
         observeSlowWasteDisposal(slime, suitability);
         remaining -= step;
         changes += 1;
-        if (slime.deathAt <= state.clock) {
+        if (!canWorkJob(slime)) {
           break;
         }
         if (slime.jobProgress < duration) {
@@ -2573,6 +2871,62 @@
       .sort((a, b) => a.time - b.time)[0] || null;
   }
 
+  function nextSlimeMetabolismEvent() {
+    const events = [];
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      const massEvent = nextSlimeFullMassEvent(slime);
+      if (massEvent) {
+        events.push(massEvent);
+      }
+      const divisionEvent = nextDivisionPressureEvent(slime);
+      if (divisionEvent) {
+        events.push(divisionEvent);
+      }
+    }
+    return events
+      .filter((event) => Number.isFinite(event.time) && event.time >= state.clock)
+      .sort((a, b) => a.time - b.time)[0] || null;
+  }
+
+  function nextSlimeFullMassEvent(slime) {
+    const mass = slimeStat(slime, "currentMass");
+    const nutrition = slimeStat(slime, "nutrition");
+    if (mass.current >= mass.max || nutrition.current <= MASS_REGROWTH_NUTRITION_FLOOR) {
+      return null;
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
+    const growthRate = mass.max / (growthMinutes * 12);
+    const availableNutrition = Math.max(0, nutrition.current - MASS_REGROWTH_NUTRITION_FLOOR);
+    const possibleGain = availableNutrition / MASS_REGROWTH_NUTRITION_COST;
+    const needed = mass.max - mass.current;
+    if (possibleGain < needed) {
+      return null;
+    }
+    return {
+      time: state.clock + needed / growthRate,
+      label: `${slime.name} full mass`,
+      type: "metabolism"
+    };
+  }
+
+  function nextDivisionPressureEvent(slime) {
+    const pressure = slimeStat(slime, "divisionPressure");
+    if (pressure.current >= pressure.max || !divisionReadiness(slime).ready) {
+      return null;
+    }
+    const required = divisionPressureMinutes(slime);
+    const minutes = (pressure.max - pressure.current) / (pressure.max / required);
+    return {
+      time: state.clock + minutes,
+      label: `${slime.name} division pressure`,
+      type: "metabolism"
+    };
+  }
+
   function assignCorpseTarget(slime, reserved = reservedCorpseTargets(slime.id)) {
     const target = chooseCorpseProcessingTarget(reserved);
     if (!target) {
@@ -2582,6 +2936,7 @@
     }
     slime.jobTargetCorpseId = target.id;
     slime.jobProgress = 0;
+    slime.jobNutritionGained = 0;
     reserved.add(target.id);
     return true;
   }
@@ -2608,15 +2963,44 @@
   }
 
   function wasteTargetPriority(corpse) {
-    return corpseFreshness(corpse) === "ruined" ? 0 : 1;
+    const priority = { ruined: 0, spoiled: 1, decaying: 2, fresh: 3 };
+    return priority[corpseFreshness(corpse)] ?? 4;
   }
 
   function isCorpseProcessingTarget(corpse) {
-    if (!corpse || corpse.storage !== "drum") {
+    if (!isCorpseProcessingCandidate(corpse)) {
       return false;
     }
-    const freshness = corpseFreshness(corpse);
-    return freshness === "ruined" || freshness === "spoiled";
+    return Boolean(corpseProcessingTargets()[corpseFreshness(corpse)]);
+  }
+
+  function isCorpseProcessingCandidate(corpse) {
+    return Boolean(corpse && corpse.storage === "drum" && CORPSE_STATE_POLICY_DEFS.some((stateDef) => stateDef.key === corpseFreshness(corpse)));
+  }
+
+  function policyProtectedCorpseCount() {
+    return (state.corpses || []).filter((corpse) => isCorpseProcessingCandidate(corpse) && !isCorpseProcessingTarget(corpse)).length;
+  }
+
+  function corpseProcessingUnavailableText() {
+    return policyProtectedCorpseCount() ? "no policy-approved corpse" : "no eligible corpse";
+  }
+
+  function refreshCorpseProcessingTargets() {
+    for (const slime of state.slimes || []) {
+      normalizeSlimeJob(slime);
+      if (slime.job === "corpse" && !isCorpseProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
+        slime.jobTargetCorpseId = null;
+        slime.jobProgress = 0;
+        slime.jobNutritionGained = 0;
+      }
+    }
+    const reserved = reservedCorpseTargets();
+    for (const slime of state.slimes || []) {
+      if (slime.job === "corpse" && canWorkJob(slime) && !slime.jobTargetCorpseId) {
+        assignCorpseTarget(slime, reserved);
+      }
+    }
   }
 
   function removeCorpseRecord(corpseId) {
@@ -2625,6 +3009,7 @@
       if (slime.job === "corpse" && slime.jobTargetCorpseId === corpseId) {
         slime.jobTargetCorpseId = null;
         slime.jobProgress = 0;
+        slime.jobNutritionGained = 0;
       }
     }
   }
@@ -2640,19 +3025,22 @@
       slime.job = "idle";
     }
     slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
+    slime.jobNutritionGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
     slime.jobTargetCorpseId ||= null;
     slime.jobKnowledge = normalizeJobKnowledge(slime.jobKnowledge);
     if (slime.job !== "corpse") {
       slime.jobTargetCorpseId = null;
+      slime.jobNutritionGained = 0;
     }
     if (slime.job === "idle") {
       slime.jobProgress = 0;
       slime.jobTargetCorpseId = null;
+      slime.jobNutritionGained = 0;
     }
   }
 
   function canWorkJob(slime) {
-    return Boolean(slime && slime.status !== "dead" && slime.mature);
+    return Boolean(slime && slime.status !== "dead" && slime.mature && slimeStat(slime, "bodyIntegrity").current > 0);
   }
 
   function corpseProcessingDuration(slime) {
@@ -2861,6 +3249,15 @@
   }
 
   function observedCorpseProcessingSuitability(slime) {
+    const learned = ensureJobKnowledge(slime, "corpse");
+    if (learned.band) {
+      return {
+        known: true,
+        score: 0,
+        band: learned.band,
+        reasons: learned.reason ? [learned.reason] : []
+      };
+    }
     const evaluated = evaluateGenome(slime.genome);
     const traits = evaluated.traits;
     const knownKeys = ["element", "consistency", "diet", "behavior", "stability", "size", "shape"]
@@ -2973,6 +3370,76 @@
     };
   }
 
+  function corpseProcessingEffects(slime, corpse, suitability) {
+    const tags = new Set(evaluateGenome(slime.genome).traits.diet.meta?.tags || []);
+    const freshness = corpseFreshness(corpse);
+    const quality = {
+      fresh: 1.2,
+      decaying: 0.8,
+      spoiled: 0.35,
+      ruined: 0.25
+    }[freshness] || 0.25;
+    let baseNutrition = 1;
+    if (tags.has("corpse")) {
+      baseNutrition = 8;
+    } else if (tags.has("decay")) {
+      baseNutrition = 5;
+    } else if (tags.has("organic")) {
+      baseNutrition = 3;
+    } else if (tags.has("waste")) {
+      baseNutrition = 2;
+    }
+    const nutrition = Math.max(0, Math.round(baseNutrition * quality * (0.4 + suitability.score / 90)));
+    const materialStress = { fresh: 1, decaying: 2, spoiled: 5, ruined: 2 }[freshness] || 2;
+    const materialDamage = { fresh: 0, decaying: 1, spoiled: 2, ruined: 0 }[freshness] || 0;
+    const stress = Math.max(0, Math.round(Math.max(0, 55 - suitability.score) / 12 + materialStress - (nutrition >= 6 ? 1 : 0)));
+    const bodyDamage = Math.max(0, Math.round(Math.max(0, 45 - suitability.score) / 15 + materialDamage));
+    const extraWaste = Math.max(0, (suitability.score < 25 ? 1 : 0) + (freshness === "spoiled" ? 1 : 0) + (nutrition === 0 ? 1 : 0));
+    return { nutrition, stress, bodyDamage, extraWaste };
+  }
+
+  function applyCorpseProcessingNutrition(slime, effects, fromProgress, toProgress, duration) {
+    const totalNutrition = Math.max(0, Number(effects?.nutrition) || 0);
+    const safeDuration = Math.max(1, Number(duration) || 1);
+    const start = clamp(Number(fromProgress) || 0, 0, safeDuration);
+    const end = clamp(Number(toProgress) || 0, 0, safeDuration);
+    if (!totalNutrition || end <= start) {
+      return 0;
+    }
+    const alreadyGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
+    const expectedGained = totalNutrition * (end / safeDuration);
+    const gained = Math.max(0, Math.min(totalNutrition - alreadyGained, expectedGained - alreadyGained));
+    if (gained > 0) {
+      adjustSlimeStat(slime, "nutrition", gained);
+      slime.jobNutritionGained = alreadyGained + gained;
+    }
+    return gained;
+  }
+
+  function applyCorpseProcessingEffects(slime, corpse, suitability, effects) {
+    const knowledge = ensureJobKnowledge(slime, "corpse");
+    knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
+    if (effects.stress) {
+      adjustSlimeStat(slime, "stress", effects.stress);
+    } else if (suitability.score >= 70 && effects.nutrition >= 4) {
+      adjustSlimeStat(slime, "stress", -1);
+    }
+    if (effects.bodyDamage) {
+      adjustSlimeStat(slime, "bodyIntegrity", -effects.bodyDamage);
+      learnJobFit(slime, "corpse", suitability.score < 25 ? "Hazardous" : "Poor", `${corpseStateLabel(corpse).toLowerCase()} corpse strain`);
+      addEvent(`${slime.name} lost ${effects.bodyDamage} Body Integrity processing ${corpse.name}.`);
+    } else if (suitability.score >= 70 && knowledge.completedUnits >= 2) {
+      learnJobFit(slime, "corpse", "Good", "clean corpse processing");
+    } else if (suitability.score >= 40 && knowledge.completedUnits >= 2) {
+      learnJobFit(slime, "corpse", "Adequate", "completed corpse processing");
+    } else if (suitability.score < 25) {
+      learnJobFit(slime, "corpse", "Poor", "messy corpse processing");
+    }
+    if (effects.extraWaste) {
+      learnJobFit(slime, "corpse", "Poor", "messy corpse processing");
+    }
+  }
+
   function observedWasteDisposalSuitability(slime) {
     const knowledge = ensureJobKnowledge(slime, "disposal");
     if (!knowledge.band) {
@@ -2987,36 +3454,48 @@
   }
 
   function applyWasteDisposalExposure(slime, suitability, minutes) {
-    const rate = wasteDisposalExposureRate(slime, suitability);
-    if (rate <= 0) {
+    const damageRate = wasteDisposalExposureRate(slime, suitability);
+    const stressRate = wasteDisposalStressRate(slime, suitability);
+    const damage = Math.max(0, minutes * damageRate);
+    const stress = Math.max(0, minutes * stressRate);
+    if (damage <= 0 && stress <= 0) {
       return 0;
     }
-    const loss = minutes * rate;
-    if (loss <= 0) {
-      return 0;
+    if (damage > 0) {
+      if (slimeStat(slime, "bodyIntegrity").current - damage <= 0) {
+        slime.deathCause = "waste exposure";
+      }
+      adjustSlimeStat(slime, "bodyIntegrity", -damage);
     }
-    slime.deathAt -= loss;
-    if (slime.deathAt <= state.clock) {
-      slime.deathCause = "waste exposure";
+    if (stress > 0) {
+      adjustSlimeStat(slime, "stress", stress);
     }
     const knowledge = ensureJobKnowledge(slime, "disposal");
-    knowledge.exposureLoss = Math.max(0, Number(knowledge.exposureLoss) || 0) + loss;
+    knowledge.exposureLoss = Math.max(0, Number(knowledge.exposureLoss) || 0) + damage;
     knowledge.nextExposureNoticeLoss ||= WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS;
     if (knowledge.exposureLoss >= knowledge.nextExposureNoticeLoss) {
       learnWasteDisposalFit(slime, suitability.score < 25 ? "Hazardous" : "Poor", "waste exposure");
-      addEvent(`${slime.name} is degrading from waste exposure.`);
+      addEvent(`${slime.name} is taking body damage from waste exposure.`);
       knowledge.nextExposureNoticeLoss += WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS;
     }
-    return loss;
+    return damage;
   }
 
   function wasteDisposalExposureRate(slime, suitability = wasteDisposalSuitability(slime)) {
     const score = suitability.score;
     const evaluated = evaluateGenome(slime.genome);
     const stabilityRisk = Number(evaluated.traits.stability.meta?.risk) || 5;
-    const badness = Math.max(0, 50 - score) / 50;
+    const badness = Math.max(0, 55 - score) / 55;
     const instability = Math.max(0, stabilityRisk - 5);
-    return badness * 0.12 + instability * 0.015;
+    return badness * 0.015 + instability * 0.002;
+  }
+
+  function wasteDisposalStressRate(slime, suitability = wasteDisposalSuitability(slime)) {
+    const score = suitability.score;
+    const stabilityRisk = wasteDisposalStabilityRisk(slime);
+    const badness = Math.max(0, 60 - score) / 60;
+    const instability = Math.max(0, stabilityRisk - 5);
+    return badness * 0.025 + instability * 0.003;
   }
 
   function observeSlowWasteDisposal(slime, suitability) {
@@ -3036,6 +3515,15 @@
     const knowledge = ensureJobKnowledge(slime, "disposal");
     knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
     knowledge.residueProgress = Math.max(0, Number(knowledge.residueProgress) || 0) + (suitability.score >= 75 ? 2 : 1);
+    const nutrition = wasteDisposalNutritionGain(slime, suitability);
+    if (nutrition) {
+      adjustSlimeStat(slime, "nutrition", nutrition);
+    }
+    if (suitability.score >= 60 && nutrition) {
+      adjustSlimeStat(slime, "stress", -1);
+    } else if (suitability.score < 25) {
+      adjustSlimeStat(slime, "stress", 2);
+    }
     let residue = 0;
     while (knowledge.residueProgress >= WASTE_DISPOSAL_RESIDUE_INTERVAL) {
       residue += 1;
@@ -3056,7 +3544,25 @@
       learnWasteDisposalFit(slime, "Hazardous", "contamination during disposal");
       addEvent(`${slime.name} leaked contamination during waste disposal.`);
     }
-    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}.`);
+    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${nutrition ? `, gaining ${nutrition} Nutrition` : ""}.`);
+  }
+
+  function wasteDisposalNutritionGain(slime, suitability) {
+    const tags = new Set(evaluateGenome(slime.genome).traits.diet.meta?.tags || []);
+    let base = 0;
+    if (tags.has("waste")) {
+      base += 4;
+    }
+    if (tags.has("contaminated") || tags.has("hazardous")) {
+      base += 2;
+    }
+    if (tags.has("decay")) {
+      base += 1;
+    }
+    if (!base || suitability.score < 25) {
+      return 0;
+    }
+    return Math.max(0, Math.round(base * (0.45 + suitability.score / 120)));
   }
 
   function wasteDisposalStabilityRisk(slime) {
@@ -3071,17 +3577,17 @@
       return null;
     }
     const knowledge = ensureJobKnowledge(slime, "disposal");
-    const currentLoss = Math.max(0, Number(knowledge.exposureLoss) || 0);
-    const nextLoss = Math.max(knowledge.nextExposureNoticeLoss || WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS, currentLoss + 0.01);
+    const currentDamage = Math.max(0, Number(knowledge.exposureLoss) || 0);
+    const nextDamage = Math.max(knowledge.nextExposureNoticeLoss || WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS, currentDamage + 0.01);
     return {
-      time: state.clock + (nextLoss - currentLoss) / rate,
+      time: state.clock + (nextDamage - currentDamage) / rate,
       label: `${slime.name} waste exposure`,
       type: "job"
     };
   }
 
-  function learnWasteDisposalFit(slime, band, reason) {
-    const knowledge = ensureJobKnowledge(slime, "disposal");
+  function learnJobFit(slime, jobId, band, reason) {
+    const knowledge = ensureJobKnowledge(slime, jobId);
     const rank = { Poor: 1, Adequate: 2, Good: 3, Hazardous: 4 };
     const current = rank[knowledge.band] || 0;
     const next = rank[band] || 0;
@@ -3089,6 +3595,10 @@
       knowledge.band = band;
       knowledge.reason = reason;
     }
+  }
+
+  function learnWasteDisposalFit(slime, band, reason) {
+    learnJobFit(slime, "disposal", band, reason);
   }
 
   function jobSuitabilityBand(score) {
@@ -3172,6 +3682,29 @@
     return slot;
   }
 
+  function renderSlimeStats(slime) {
+    const section = document.createElement("div");
+    section.className = "slime-stats subpanel";
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Condition";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    for (const stat of SLIME_STAT_DEFS) {
+      const value = slimeStat(slime, stat.key);
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      row.append(
+        textEl("span", stat.label),
+        textEl("strong", formatSlimeStatValue(stat.key, value)),
+        textEl("em", slimeStatBand(stat.key, value))
+      );
+      grid.append(row);
+    }
+    section.append(title, grid);
+    return section;
+  }
+
   function renderTraitGrid(slime, evaluated = evaluateGenome(slime.genome)) {
     const grid = document.createElement("div");
     grid.className = "trait-grid subpanel";
@@ -3235,6 +3768,32 @@
       select.value = previous;
     } else if (preferredId && slimes.some((slime) => slime.id === preferredId)) {
       select.value = preferredId;
+    }
+  }
+
+  function renderPolicies() {
+    state.policies = normalizePolicies(state.policies);
+    dom.corpsePolicyList.textContent = "";
+    const targets = state.policies.corpseProcessingTargets;
+    const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
+    dom.policySummary.textContent = enabled.length
+      ? `Corpse Processing targets ${enabled.join(", ").toLowerCase()} corpses.`
+      : "Corpse Processing has no automatic targets.";
+    for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
+      const label = document.createElement("label");
+      label.className = "policy-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = Boolean(targets[stateDef.key]);
+      input.addEventListener("change", () => {
+        state.policies.corpseProcessingTargets[stateDef.key] = input.checked;
+        refreshCorpseProcessingTargets();
+        addEvent(`${stateDef.label} corpses ${input.checked ? "allowed" : "protected"} by Corpse Processing policy.`);
+        persist();
+        render();
+      });
+      label.append(input, textEl("span", stateDef.label));
+      dom.corpsePolicyList.append(label);
     }
   }
 
@@ -3319,6 +3878,31 @@
     render();
   }
 
+  function runResourceCommand() {
+    const command = dom.resourceCommandInput.value.trim();
+    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
+    if (!match) {
+      dom.resourceCommandStatus.textContent = "Use format: biomass 100";
+      return;
+    }
+    const resourceKey = RESOURCE_ALIASES[normalizeCommandName(match[1])];
+    const amount = Math.floor(Number(match[2]));
+    if (!resourceKey || !Number.isFinite(amount) || amount <= 0) {
+      dom.resourceCommandStatus.textContent = "Unknown resource or invalid amount.";
+      return;
+    }
+    if (resourceKey === "waste") {
+      addWaste(amount, ["cheat"]);
+    } else {
+      addResource(resourceKey, amount);
+    }
+    dom.resourceCommandInput.value = "";
+    dom.resourceCommandStatus.textContent = `Added ${formatNumber(amount)} ${resourceLabel(resourceKey)}.`;
+    addEvent(`${resourceLabel(resourceKey)} increased by ${formatNumber(amount)} via cheat command.`);
+    persist();
+    render();
+  }
+
   function renderTasks() {
     dom.taskList.textContent = "";
     renderQueueShell();
@@ -3332,13 +3916,15 @@
       const row = document.createElement("div");
       row.className = "task-row";
       const label = document.createElement("div");
+      const title = document.createElement("strong");
+      appendLinkedEntityText(title, task.label);
       const remaining = textEl("span", `${formatDuration(task.dueAt - state.clock)} remaining`);
       remaining.dataset.taskRemaining = task.id;
       const meta = document.createElement("div");
       meta.className = "task-meta";
       remaining.className = "task-chip";
       meta.append(taskChip(taskCategory(task)), taskChip(formatClock(task.dueAt)), remaining);
-      label.append(textEl("strong", task.label), meta);
+      label.append(title, meta);
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "Finish";
@@ -3377,7 +3963,7 @@
       return "Lab Test";
     }
     if (task.type === "breed") {
-      return "Breeding";
+      return "Recombination";
     }
     if (task.type === "necropsy") {
       return "Necropsy";
@@ -3495,7 +4081,9 @@
     for (const event of events) {
       const row = document.createElement("div");
       row.className = "event-row";
-      row.append(textEl("span", formatClock(event.time)), textEl("span", event.message));
+      const message = document.createElement("span");
+      appendLinkedEntityText(message, event.message);
+      row.append(textEl("span", formatClock(event.time)), message);
       dom.eventLog.append(row);
     }
   }
@@ -4011,7 +4599,7 @@
       return estimateQuantity(meta.growthMinutes, "duration", traitKey, contextKey);
     }
     if (traitKey === "lifespan") {
-      return estimateQuantity(meta.lifeMinutes, "duration", traitKey, contextKey);
+      return estimateQuantity(effectiveLifespanMinutes(meta), "duration", traitKey, contextKey);
     }
     return "";
   }
@@ -4054,9 +4642,13 @@
       return `${formatDuration(meta.growthMinutes)} to maturity`;
     }
     if (traitKey === "lifespan") {
-      return `${formatDuration(meta.lifeMinutes)} expected lifespan`;
+      return `${formatDuration(effectiveLifespanMinutes(meta))} expected lifespan`;
     }
     return "";
+  }
+
+  function effectiveLifespanMinutes(meta = {}) {
+    return Math.max(1, Math.round((Number(meta.lifeMinutes) || 240) * SLIME_LIFESPAN_MULTIPLIER));
   }
 
   function estimateQuantity(value, kind, traitKey, contextKey) {
@@ -4627,6 +5219,98 @@
     return state.scientist.vitals[key];
   }
 
+  function slimeStats(slime) {
+    slime.stats = normalizeSlimeStats(slime.stats);
+    return slime.stats;
+  }
+
+  function slimeStat(slime, key) {
+    return slimeStats(slime)[key] || normalizeSlimeStats()[key];
+  }
+
+  function setSlimeStat(slime, key, value) {
+    const def = SLIME_STAT_BY_KEY[key];
+    if (!slime || !def) {
+      return null;
+    }
+    const stats = slimeStats(slime);
+    const current = clamp(Number(value) || 0, 0, stats[key].max);
+    stats[key].current = current;
+    if (key === "bodyIntegrity" && current <= 0) {
+      slime.deathCause ||= "body integrity failure";
+    }
+    return stats[key];
+  }
+
+  function adjustSlimeStat(slime, key, delta) {
+    const current = slimeStat(slime, key);
+    return setSlimeStat(slime, key, current.current + (Number(delta) || 0));
+  }
+
+  function normalizeSlimeStats(candidate = {}) {
+    const normalized = {};
+    for (const stat of SLIME_STAT_DEFS) {
+      const raw = candidate?.[stat.key];
+      if (raw && typeof raw === "object") {
+        const max = Math.max(1, Math.floor(Number(raw.max) || stat.max));
+        const current = clamp(Number(raw.current) || 0, 0, max);
+        normalized[stat.key] = { current, max };
+      } else {
+        const value = Number(raw);
+        normalized[stat.key] = {
+          current: clamp(Number.isFinite(value) ? value : stat.initial, 0, stat.max),
+          max: stat.max
+        };
+      }
+    }
+    return normalized;
+  }
+
+  function formatSlimeStatValue(key, value) {
+    if (key === "currentMass" || key === "divisionPressure") {
+      return `${formatNumber(value.current)}%`;
+    }
+    return `${formatNumber(value.current)}/${formatNumber(value.max)}`;
+  }
+
+  function slimeStatBand(key, value) {
+    const current = Number(value?.current) || 0;
+    const max = Math.max(1, Number(value?.max) || 100);
+    const percent = (current / max) * 100;
+    if (key === "bodyIntegrity") {
+      if (percent >= 85) return "Pristine";
+      if (percent >= 60) return "Stable";
+      if (percent >= 30) return "Damaged";
+      return "Failing";
+    }
+    if (key === "nutrition") {
+      if (percent <= 10) return "Starved";
+      if (percent <= 35) return "Hungry";
+      if (percent <= 75) return "Steady";
+      if (percent <= 95) return "Sated";
+      return "Saturated";
+    }
+    if (key === "currentMass") {
+      if (percent >= 100) return "Full";
+      if (percent >= 75) return "Regrowing";
+      if (percent >= 40) return "Reduced";
+      return "Fragmented";
+    }
+    if (key === "divisionPressure") {
+      if (percent >= 100) return "Ready";
+      if (percent >= 70) return "Rising";
+      if (percent >= 25) return "Building";
+      return "Dormant";
+    }
+    if (key === "stress") {
+      if (percent < 20) return "Calm";
+      if (percent < 50) return "Uneasy";
+      if (percent < 80) return "Strained";
+      return "Panicked";
+    }
+    return "Unknown";
+  }
+
   function resourceAmount(key) {
     return ensureResources()[key] || 0;
   }
@@ -4796,6 +5480,25 @@
     return String(tag || "").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   }
 
+  function corpseProcessingTargets() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.corpseProcessingTargets;
+  }
+
+  function normalizePolicies(candidate) {
+    const fallback = defaultPolicies();
+    return {
+      ...fallback,
+      ...(candidate || {}),
+      corpseProcessingTargets: Object.fromEntries(
+        CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
+          stateDef.key,
+          Boolean(candidate?.corpseProcessingTargets?.[stateDef.key] ?? fallback.corpseProcessingTargets[stateDef.key])
+        ])
+      )
+    };
+  }
+
   function adjustedDuration(baseDuration, skillId) {
     return Math.max(1, Math.ceil(baseDuration * skillReductionMultiplier(skillLevel(skillId))));
   }
@@ -4901,6 +5604,29 @@
       result += source[i];
     }
     return result;
+  }
+
+  function forcedRecombinationGenome(genomeA, genomeB, rng, parentA, parentB) {
+    const crossed = crossoverGenome(genomeA, genomeB, rng);
+    const riskA = Number(evaluateGenome(parentA.genome).traits.stability.meta?.risk) || 5;
+    const riskB = Number(evaluateGenome(parentB.genome).traits.stability.meta?.risk) || 5;
+    let mutationCount = rng() < 0.35 + ((riskA + riskB) / 2) * 0.035 ? 1 : 0;
+    if (rng() < 0.12) {
+      mutationCount += 1;
+    }
+    return mutateGenome(crossed, rng, mutationCount);
+  }
+
+  function mutateGenome(genome, rng, mutationCount) {
+    const bases = normalizeGenomeLength(genome, state.seed, "mutate") || randomGenome(rng);
+    const chars = bases.split("");
+    const count = Math.max(0, Math.floor(Number(mutationCount) || 0));
+    for (let i = 0; i < count; i += 1) {
+      const index = Math.floor(rng() * chars.length);
+      const choices = BASES.filter((base) => base !== chars[index]);
+      chars[index] = choices[Math.floor(rng() * choices.length)];
+    }
+    return chars.join("");
   }
 
   function pairCodes() {
@@ -5105,6 +5831,159 @@
     return marker;
   }
 
+  function slimeNameLink(slime, extraClass = "") {
+    return entityLink(slime.name, `Open ${slime.name}`, extraClass, () => {
+      focusSlime(slime.id);
+    });
+  }
+
+  function corpseNameLink(corpse, extraClass = "") {
+    return entityLink(corpse.name, `Find ${corpse.name} remains`, extraClass, () => {
+      focusCorpse(corpse.id);
+    });
+  }
+
+  function entityLink(label, title, extraClass, action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `entity-link${extraClass ? ` ${extraClass}` : ""}`;
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      action();
+    });
+    return button;
+  }
+
+  function targetCorpseChip(corpse) {
+    const element = document.createElement("span");
+    element.className = "slime-chip";
+    element.append(document.createTextNode("target "), corpseNameLink(corpse, "entity-link-chip"));
+    return element;
+  }
+
+  function appendLinkedEntityText(parent, text) {
+    const refs = linkableEntityRefs();
+    let cursor = 0;
+    const message = String(text || "");
+    while (cursor < message.length) {
+      const next = nextEntityReference(message, cursor, refs);
+      if (!next) {
+        parent.append(document.createTextNode(message.slice(cursor)));
+        break;
+      }
+      if (next.index > cursor) {
+        parent.append(document.createTextNode(message.slice(cursor, next.index)));
+      }
+      parent.append(next.ref.kind === "slime"
+        ? entityLink(next.ref.name, `Open ${next.ref.name}`, "", () => focusSlime(next.ref.id))
+        : entityLink(next.ref.name, `Find ${next.ref.name} remains`, "", () => focusCorpse(next.ref.id)));
+      cursor = next.index + next.ref.name.length;
+    }
+  }
+
+  function linkableEntityRefs() {
+    const refs = [];
+    const seen = new Set();
+    for (const slime of state.slimes || []) {
+      if (!slime?.name || seen.has(`slime:${slime.name}`)) {
+        continue;
+      }
+      seen.add(`slime:${slime.name}`);
+      refs.push({ kind: "slime", id: slime.id, name: slime.name });
+    }
+    for (const corpse of state.corpses || []) {
+      if (!corpse?.name || seen.has(`corpse:${corpse.name}`)) {
+        continue;
+      }
+      seen.add(`corpse:${corpse.name}`);
+      refs.push({ kind: "corpse", id: corpse.id, name: corpse.name });
+    }
+    return refs.sort((a, b) => b.name.length - a.name.length);
+  }
+
+  function nextEntityReference(message, cursor, refs) {
+    let best = null;
+    for (const ref of refs) {
+      const index = message.indexOf(ref.name, cursor);
+      if (index < 0) {
+        continue;
+      }
+      if (!best || index < best.index || (index === best.index && ref.name.length > best.ref.name.length)) {
+        best = { index, ref };
+      }
+    }
+    return best;
+  }
+
+  function focusSlime(slimeId, options = {}) {
+    const slime = findSlime(slimeId);
+    if (!slime) {
+      return;
+    }
+    state.selectedSlimeId = slime.id;
+    persist();
+    render();
+    requestAnimationFrame(() => {
+      const card = elementByDataset("slimeCard", slime.id);
+      focusEntityCard(card, options);
+    });
+  }
+
+  function focusCorpse(corpseId, options = {}) {
+    const corpse = findCorpse(corpseId);
+    if (!corpse) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      const card = elementByDataset("corpseCard", corpse.id);
+      focusEntityCard(card, options);
+    });
+  }
+
+  function focusEntityCard(card, options = {}) {
+    if (!card) {
+      return;
+    }
+    const container = card.closest(".slime-list, .corpse-list");
+    const behavior = options.animate === false ? "auto" : "smooth";
+    if (container) {
+      scrollCardWithinContainer(container, card, behavior);
+    } else {
+      card.scrollIntoView({ block: "start", inline: "nearest", behavior });
+    }
+    if (options.animate === false) {
+      return;
+    }
+    card.classList.remove("focus-pulse");
+    void card.offsetWidth;
+    card.classList.add("focus-pulse");
+    window.setTimeout(() => {
+      card.classList.remove("focus-pulse");
+    }, 1400);
+  }
+
+  function scrollCardWithinContainer(container, card, behavior) {
+    const containerRect = container.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const margin = parseFloat(window.getComputedStyle(card).scrollMarginTop) || 0;
+    const targetTop = container.scrollTop + cardRect.top - containerRect.top - margin;
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior
+    });
+  }
+
+  function elementByDataset(key, value) {
+    return [...document.querySelectorAll(`[data-${kebabCase(key)}]`)]
+      .find((element) => element.dataset[key] === value) || null;
+  }
+
+  function kebabCase(value) {
+    return String(value).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  }
+
   function textEl(tag, text) {
     const element = document.createElement(tag);
     element.textContent = text;
@@ -5177,6 +6056,7 @@
     next.scientist = normalizeScientist(next.scientist);
     next.resources = normalizeResources(next.resources);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
+    next.policies = normalizePolicies(next.policies);
     next.queueDrawerOpen = next.queueDrawerOpen !== false;
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
     next.knownResultKeys ||= {};
@@ -5200,6 +6080,7 @@
       next.corpses.reduce((max, corpse) => Math.max(max, numericSuffix(corpse.id)), 0) + 1
     );
     next.currentGenome = normalizeGenomeLength(next.currentGenome || "", next.seed, "current") || randomGenome(seedRng(`${next.seed}:starter`));
+    geneMap = buildGeneMap(next.seed, next.complexity);
     for (const task of next.tasks) {
       if (task?.data?.genome) {
         task.data.genome = normalizeGenomeLength(task.data.genome, next.seed, `task:${task.id}`);
@@ -5216,9 +6097,21 @@
       slime.measured ||= {};
       slime.traitObservations ||= {};
       slime.testsRun ||= [];
+      slime.stats = normalizeSlimeStats(slime.stats);
+      normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);
     }
     return next;
+  }
+
+  function normalizeSlimeLifecycle(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const targetDeathAt = (Number(slime.createdAt) || 0) + slimeLifespanMinutes(evaluated);
+    if ((Number(slime.lifecycleVersion) || 0) < 1) {
+      slime.deathAt = Math.max(Number(slime.deathAt) || 0, targetDeathAt);
+      slime.lifecycleVersion = 1;
+    }
+    slime.splitBlocked = Boolean(slime.splitBlocked);
   }
 
   function prepareCorpseState() {

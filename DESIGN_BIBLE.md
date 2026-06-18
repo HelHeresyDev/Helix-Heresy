@@ -42,15 +42,15 @@ A slime’s body is usually distributed and partially replaceable. This makes ma
 
 Each slime has a core that functions as its vital biological center and animantic anchor. The body can often be damaged or partially destroyed while the slime survives, but destruction of the core kills the creature. The core is also a natural place to connect future systems such as soul imprinting, animancy, necropsy value, core corruption, cloning, mutation instability, and catastrophic job failure.
 
-Slimes reproduce primarily by splitting rather than sexual breeding. A mature slime that consumes enough material can become nutritionally saturated, and sustained fullness creates reproductive pressure. This should not mean a slime instantly splits the moment it eats enough. Instead, fullness should create a readiness state or chance for natural division over time. Depending on the slime’s traits, reproduction may look like splitting, budding, fracturing, shedding, leaking off daughter masses, or separating into offspring.
+Slimes reproduce primarily by splitting rather than sexual breeding. A mature slime that consumes enough material can become nutritionally saturated, and sustained fullness creates reproductive pressure. This does not mean a slime instantly splits the moment it eats enough. Instead, the slime must reach full current mass and remain full, fed, stable, and low-stress long enough for Division Pressure to accumulate. Depending on the slime’s traits, reproduction may look like splitting, budding, fracturing, shedding, leaking off daughter masses, or separating into offspring.
 
-A mature slime can only split when it has reached its natural maximum size. The genetic Size trait represents the slime’s target mature size, while current size or current mass can temporarily fall below that target after injury, starvation, or reproduction. Nutrition and feeding allow a slime to rebuild toward its natural maximum, but being well-fed is not enough to split if the slime has not fully regrown.
+A mature slime can only split when it has reached its natural maximum size. The genetic Size trait represents the slime’s target mature size, while Current Mass can temporarily fall below that target after injury, starvation, or reproduction. Nutrition and feeding allow a slime to rebuild toward its natural maximum, but being well-fed is not enough to split if the slime has not fully regrown.
 
-Slime splitting obeys mass conservation. A slime does not magically create new biomatter when it divides; it divides its existing body mass between the parent and offspring. After a normal split, the parent is temporarily reduced in size and the offspring begins below full mature size. Both must feed and regrow before they can reach their natural maximum. Because splitting requires full size, repeated splitting without enough food should be impossible rather than merely producing smaller and smaller slimes.
+Slime splitting obeys strict mass conservation. A slime does not magically create new biomatter when it divides; it divides its existing body mass between the parent and offspring. Brood Size determines how many offspring a natural split tries to produce, so high-brood slimes create more bodies but each body begins smaller and weaker. After a normal split, the parent is temporarily reduced in size and the offspring begin below full mature size. Both must feed and regrow before they can reach their natural maximum. Because splitting requires full size and sustained fullness, repeated splitting without enough food is impossible rather than merely producing smaller and smaller slimes.
 
 Natural slime reproduction is unstable. Offspring are based mostly on the parent’s genome, but artificial slime biology is crude, magically reactive, and easy to perturb, so natural splitting should carry a meaningful mutation chance. Traits such as brood size, growth speed, stability, consistency, nutrition, and laboratory conditions can eventually influence how often splitting occurs, how many offspring are produced, and how chaotic the mutations are.
 
-The current breeding concept should eventually be reframed for slimes. Single-parent reproduction should be treated as natural splitting, induced splitting, budding, forced mitosis, or consistency-specific separation. Two-parent slime “breeding” should represent laboratory intervention rather than natural reproduction, such as core fusion, genome splicing, sample grafting, reagent-mediated recombination, or forced genetic exchange before division. This allows crossbreeding to remain as a mechanic while keeping slime biology distinct.
+The current breeding concept has been reframed for slimes. Single-parent reproduction is natural splitting for now, with future room for induced splitting, budding, forced mitosis, or consistency-specific separation. Two-parent slime “breeding” is Forced Recombination: laboratory intervention such as core fusion, genome splicing, sample grafting, reagent-mediated recombination, or forced genetic exchange before division. This allows crossbreeding to remain as a mechanic while keeping slime biology distinct.
 
 Mutation should not be pure chaos in every situation. Natural splitting after sustained fullness can have a higher mutation chance, while controlled laboratory splitting can reduce mutation risk at the cost of time, equipment, resources, or skill. Forced recombination can allow two-parent mixing but carry greater instability. This gives the player choices between reliable replication, risky experimentation, and deliberate genetic recombination.
 
@@ -59,7 +59,7 @@ The practical rule for slimes is that they are generalist scavengers by default 
 
 ## Design Vision
 
-Helix Heresy should feel like running an unsafe little arcane biology lab. The player should not start with a complete wiki. They should learn by making creatures, testing them, comparing notes, and breeding toward goals they only partially understand.
+Helix Heresy should feel like running an unsafe little arcane biology lab. The player should not start with a complete wiki. They should learn by making creatures, testing them, comparing notes, and steering reproduction or recombination toward goals they only partially understand.
 
 Core design pillars:
 
@@ -67,7 +67,7 @@ Core design pillars:
 - Strange but readable creatures: generated specimens should be easy to imagine, not just lists of numbers.
 - Lab capability matters: skills improve execution, while equipment and resources should eventually unlock what tests are possible.
 - Weird biology is allowed: clashing traits can create awkward or weak creatures instead of being forbidden.
-- Breeding should feel experimental: the player can aim for known traits, but unusual combinations should remain possible.
+- Reproduction and recombination should feel experimental: the player can aim for known traits, but unusual combinations should remain possible.
 
 ## Campaign Vision
 
@@ -134,7 +134,7 @@ Likely future systems:
 - Mutation as a risk layered on top of deterministic genetics.
 - Creature stats derived from physical compatibility, affinity, stability, and biology.
 - More meaningful containment, risk, escape, and lab safety systems.
-- Breeding goals and practical uses for creatures.
+- Reproduction goals, recombination goals, and practical uses for creatures.
 - Creature jobs such as production, hazardous disposal, defense, spying, assassination, construction support, and research assistance.
 - Intelligent created species that can act as assistants or agents while carrying betrayal and autonomy risks.
 - Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
@@ -162,6 +162,7 @@ Open design questions:
 - Seeded procedural gene mapping for repeatable runs.
 - Slime synthesis from 26-base genomes with a Biomass cost.
 - Core stockpile resources: Biomass, Genetic Material, Elemental Residue, and Waste.
+- Slime condition stats for Body Integrity, Nutrition, Current Mass, Division Pressure, and Stress.
 - Genetic shape and appendage traits.
 - Genetic body consistency.
 - Shape-aware size dimensions.
@@ -171,7 +172,8 @@ Open design questions:
 - Observable traits with scientist estimate ranges.
 - Diet outcomes have hidden categories that can support job suitability and future feeding systems.
 - Timed tests that can reveal more precise trait information.
-- Breeding and crossbreeding between mature samples.
+- Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.
+- Forced Recombination as the current two-parent lab intervention, with parent and offspring mass shared instead of free full-sized copies.
 - Lifespan, maturity, living sample storage, release, and containment states.
 - Deceased specimens move out of living storage and into waste drums.
 - Corpse states include fresh, decaying, spoiled, ruined, and overflow pressure.
@@ -180,13 +182,14 @@ Open design questions:
 - Fresh necropsy recovers a small amount of Genetic Material.
 - Dumping corpses outside removes them from waste drums while increasing Heat.
 - Heat is shown as a status band, with hidden exact values, delayed passive decay, and a floor based on the highest band reached.
+- Dedicated Policies panel for automation rules, including Corpse Processing target states.
 - Creature Jobs panel with idle assignment, Corpse Processing, and Waste Disposal.
-- Corpse Processing uses creature traits and diet categories to process only ruined or spoiled waste-drum corpses into Biomass and tagged Waste.
-- Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output and suitability learned through observed speed, exposure, and contamination.
+- Corpse Processing uses creature traits, diet categories, and policy-approved corpse states to turn waste-drum corpses into Biomass and tagged Waste while affecting slime condition.
+- Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output, condition-stat effects, and suitability learned through observed speed, exposure, and contamination.
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and individual skills.
 - Stamina costs, passive regeneration, and queued rest actions.
-- XP cheat command for testing skill progression.
+- XP and resource cheat commands for testing skill progression and resource-gated systems.
 - Paused start with selectable time speeds from real-time through accelerated waits.
 - Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
 - Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.

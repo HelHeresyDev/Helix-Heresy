@@ -65,6 +65,38 @@ button.blocked-action:disabled {
   opacity: 0.82;
 }
 
+.entity-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entity-link:hover,
+.entity-link:focus-visible {
+  color: var(--cyan);
+  text-decoration: underline;
+  outline: none;
+}
+
+.entity-link:focus-visible {
+  box-shadow: 0 0 0 2px rgba(124, 205, 201, 0.28);
+}
+
+.entity-link-title,
+.entity-link-strong {
+  font-weight: 700;
+}
+
+.entity-link-chip {
+  color: var(--text);
+}
+
 .primary {
   background: #2e4526;
   border-color: #54783e;
@@ -453,6 +485,8 @@ h2 {
 .trait-grid,
 .journal-map,
 .skill-list,
+.slime-stat-grid,
+.policy-list,
 .resource-list,
 .vital-grid {
   display: grid;
@@ -465,6 +499,7 @@ h2 {
 
 .vital-row,
 .resource-row,
+.slime-stat-row,
 .skill-row {
   padding: 0.5rem;
   background: var(--panel-2);
@@ -473,17 +508,40 @@ h2 {
 }
 
 .vital-row,
-.resource-row {
+.resource-row,
+.slime-stat-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
 }
 
 .vital-row span,
 .resource-row span,
+.slime-stat-row span,
 .skill-meta {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.slime-stat-row em {
+  color: var(--green);
+  font-style: normal;
+  font-size: 0.78rem;
+}
+
+.policy-list {
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.policy-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
 }
 
 .skill-row {
@@ -1106,6 +1164,7 @@ h2 {
 
 .slime-card,
 .corpse-card {
+  scroll-margin-top: 0.5rem;
   border: 1px solid var(--line);
   background: var(--panel-2);
   border-radius: 8px;
@@ -1118,6 +1177,11 @@ h2 {
 
 .slime-card.selected {
   border-color: var(--cyan);
+}
+
+.slime-card.focus-pulse,
+.corpse-card.focus-pulse {
+  animation: entity-focus-pulse 1.35s ease-out;
 }
 
 .corpse-card {
@@ -1279,6 +1343,10 @@ h2 {
   align-self: center;
 }
 
+.task-row .entity-link {
+  align-self: baseline;
+}
+
 .event-log {
   display: grid;
   gap: 0.45rem;
@@ -1286,6 +1354,21 @@ h2 {
 
 .event-row {
   grid-template-columns: 6rem minmax(0, 1fr);
+}
+
+@keyframes entity-focus-pulse {
+  0% {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 0 rgba(124, 205, 201, 0.42);
+  }
+
+  60% {
+    box-shadow: 0 0 0 6px rgba(124, 205, 201, 0.08);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 205, 201, 0);
+  }
 }
 
 .journal-tools {

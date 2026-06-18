@@ -137,11 +137,11 @@
           </div>
 
           <div class="breeding-bank">
-            <div class="subpanel-title">Breeding</div>
+            <div class="subpanel-title">Reproduction</div>
             <div class="breeding-row">
               <select id="parentASelect"></select>
               <select id="parentBSelect"></select>
-              <button id="breedBtn" type="button">Begin</button>
+              <button id="breedBtn" type="button">Force Recombination</button>
             </div>
           </div>
         </section>
@@ -154,6 +154,20 @@
             </div>
           </div>
           <div id="journalContent"></div>
+        </section>
+
+        <section class="panel policy-panel" aria-labelledby="policyTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="policyTitle">Policies</h2>
+              <p id="policySummary">Automation rules</p>
+            </div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Corpse Processing Targets</div>
+            <div id="corpsePolicyList" class="policy-list"></div>
+          </div>
         </section>
 
         <section class="panel scientist-panel" aria-labelledby="scientistTitle">
@@ -205,6 +219,15 @@
               <button id="xpCommandBtn" type="button">Add XP</button>
             </div>
             <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-title">Resource Cheat</div>
+            <div class="cheat-row">
+              <input id="resourceCommandInput" type="text" spellcheck="false" placeholder="biomass 100">
+              <button id="resourceCommandBtn" type="button">Add Resource</button>
+            </div>
+            <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount.</p>
           </div>
         </section>
 
