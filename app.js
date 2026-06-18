@@ -19,9 +19,9 @@
   const ELEMENT_AFFINITY_MAX_INDEX = 15;
   const DISPLAY_REGION_KEYS = [
     "size",
+    "shape",
+    "appendages",
     "color",
-    "texture",
-    "movement",
     "behavior",
     "diet",
     "byproduct",
@@ -33,6 +33,9 @@
   ];
   const TRAIT_SYMBOLS = {
     size: "□",
+    shape: "#",
+    appendages: "+",
+    weight: "w",
     color: "■",
     texture: "≋",
     movement: "→",
@@ -98,13 +101,13 @@
   const REGION_DEFS = [
     { key: "size", label: "Size", test: "visual" },
     { key: "color", label: "Color", test: "visual" },
-    { key: "texture", label: "Texture", test: "visual" },
+    { key: "shape", label: "Shape", test: "visual" },
     { key: "behavior", label: "Behavior", test: "behavior" },
     { key: "diet", label: "Diet", test: "feed" },
     { key: "byproduct", label: "Byproduct", test: "byproduct" },
     { key: "element", label: "Element", test: "element" },
     { key: "stability", label: "Stability", test: "containment" },
-    { key: "movement", label: "Movement", test: "visual" },
+    { key: "appendages", label: "Appendages", test: "visual" },
     { key: "brood", label: "Brood Size", test: "breeding" },
     { key: "growth", label: "Growth Speed", test: "breeding" },
     { key: "lifespan", label: "Lifespan", test: "lifespan" }
@@ -116,9 +119,30 @@
 
   const GENOME_LENGTH = REGION_DEFS.length * 2;
   const REGION_BY_KEY = Object.fromEntries(REGION_DEFS.map((region) => [region.key, region]));
+  const VIRTUAL_TRAIT_DEFS = {
+    weight: { key: "weight", label: "Weight", virtual: true },
+    movement: { key: "movement", label: "Movement", virtual: true }
+  };
   const DISPLAY_REGION_DEFS = DISPLAY_REGION_KEYS.map((key) => REGION_BY_KEY[key]);
+  const SLIME_DISPLAY_KEYS = [
+    "size",
+    "shape",
+    "appendages",
+    "color",
+    "weight",
+    "movement",
+    "behavior",
+    "diet",
+    "byproduct",
+    "element",
+    "stability",
+    "brood",
+    "growth",
+    "lifespan"
+  ];
+  const SLIME_DISPLAY_DEFS = SLIME_DISPLAY_KEYS.map((key) => REGION_BY_KEY[key] || VIRTUAL_TRAIT_DEFS[key]);
   const TESTS = [
-    { id: "visual", label: "Visual Survey", traits: ["size", "color", "texture", "movement"], duration: 4, skillId: "observation", xp: 15 },
+    { id: "visual", label: "Visual Survey", traits: ["size", "shape", "appendages", "color"], duration: 4, skillId: "observation", xp: 15 },
     { id: "feed", label: "Feed Test", traits: ["diet"], duration: 8, skillId: "nutrition", xp: 20 },
     { id: "element", label: "Element Exposure", traits: ["element"], duration: 10, skillId: "arcaneChemistry", xp: 20 },
     { id: "containment", label: "Containment Test", traits: ["stability"], duration: 12, skillId: "physiology", xp: 25 },
@@ -694,7 +718,7 @@
         mature: false,
         matureAt: state.clock + growthMinutes
       });
-      mergeRevealSummary(revealSummary, revealTraits(child, ["size", "color", "texture", "movement"]));
+      mergeRevealSummary(revealSummary, revealTraits(child, ["size", "shape", "appendages", "color"]));
       createTask({
         type: "mature",
         label: `Mature ${child.name}`,
@@ -919,23 +943,23 @@
         ["ember gold", "#d69d3a"],
         ["opal pale", "#d7cdea"]
       ],
-      texture: [
-        "watery",
-        "gelatinous",
-        "rubbery",
-        "foamy",
-        "grainy",
-        "sticky",
-        "glassy",
-        "ropey",
-        "velvet-slick",
-        "clotted",
-        "bubbled",
-        "oily",
-        "fibrous",
-        "crystalline",
-        "powdered",
-        "elastic"
+      shape: [
+        "cubic",
+        "spherical",
+        "humanoid-ish",
+        "dog-shaped",
+        "blob",
+        "puddle",
+        "worm-like",
+        "columnar",
+        "conical",
+        "flat sheet",
+        "mound",
+        "disc",
+        "branching",
+        "star-like",
+        "mushroom-shaped",
+        "shell-like"
       ],
       behavior: [
         "idle pooling",
@@ -1027,23 +1051,23 @@
         ["predatory", 8],
         ["dormant", 1]
       ],
-      movement: [
-        "oozing",
-        "pulsing",
-        "hopping",
-        "rolling",
-        "climbing",
-        "flattening",
-        "threading",
-        "dripping",
-        "sliding",
-        "bouncing",
-        "flowing uphill",
-        "anchoring",
-        "skittering",
-        "floating",
-        "splattering",
-        "burrowing"
+      appendages: [
+        "none",
+        "two tendrils",
+        "four tendrils",
+        "grasping pseudopods",
+        "stub legs",
+        "limb-like arms",
+        "cilia fringe",
+        "spines",
+        "fins",
+        "wing-like membranes",
+        "feeler stalks",
+        "tail-like rudder",
+        "rootlets",
+        "hook claws",
+        "asymmetrical limbs",
+        "dissolving nubs"
       ],
       brood: [
         ["single offspring", 1],
@@ -1332,7 +1356,7 @@
       row.append(
         traitLabelEl(region, known ? knownOutcomeMarker(region.key, known, evaluated.traits[region.key]) : null),
         known
-          ? traitValueEl(region.key, evaluated.traits[region.key], formatKnownOutcome(known))
+          ? traitValueEl(region.key, evaluated.traits[region.key], formatKnownPrediction(region.key, known, evaluated.traits[region.key], state.currentGenome))
           : textEl("span", "Undiscovered")
       );
       dom.predictionList.append(row);
@@ -1484,13 +1508,13 @@
     const grid = document.createElement("div");
     grid.className = "trait-grid subpanel";
     const evaluated = evaluateGenome(slime.genome);
-    for (const region of DISPLAY_REGION_DEFS) {
-      const outcome = slimeTraitMarkerOutcome(slime, region.key, evaluated.traits[region.key]);
+    for (const region of SLIME_DISPLAY_DEFS) {
+      const outcome = region.virtual ? null : slimeTraitMarkerOutcome(slime, region.key, evaluated.traits[region.key]);
       const row = document.createElement("div");
       row.className = "trait-row";
       row.append(
         traitLabelEl(region, outcome),
-        traitValueEl(region.key, evaluated.traits[region.key], formatTraitValue(slime, region.key, evaluated.traits[region.key]))
+        traitValueEl(region.key, evaluated.traits[region.key], formatTraitValue(slime, region.key, evaluated.traits[region.key], evaluated))
       );
       grid.append(row);
     }
@@ -1831,7 +1855,13 @@
     }
   }
 
-  function formatTraitValue(slime, traitKey, outcome) {
+  function formatTraitValue(slime, traitKey, outcome, evaluated = null) {
+    if (traitKey === "weight") {
+      return formatDerivedWeight(slime, evaluated);
+    }
+    if (traitKey === "movement") {
+      return formatDerivedMovement(slime, evaluated);
+    }
     const label = slime.revealed?.[traitKey];
     if (!label) {
       return "Unknown";
@@ -1877,15 +1907,252 @@
     return reading ? `${item.label} (${reading})` : item.label;
   }
 
+  function formatKnownPrediction(traitKey, item, outcome, genome) {
+    if (traitKey === "size") {
+      const reading = estimatedReading(traitKey, outcome, genome);
+      return reading ? `${item.label} (${reading})` : item.label;
+    }
+    return formatKnownOutcome(item);
+  }
+
+  function formatDerivedWeight(slime, evaluated = null) {
+    if (!slime.revealed?.size || !slime.revealed?.shape) {
+      return "Unknown";
+    }
+    const profile = physicalProfile(slime.genome, evaluated);
+    if (!profile) {
+      return "Unknown";
+    }
+    const [low, high] = estimateBounds(profile.weightKg, "weight", slime.genome);
+    return `${formatWeight(low)} - ${formatWeight(high)}`;
+  }
+
+  function formatDerivedMovement(slime, evaluated = null) {
+    if (!slime.revealed?.shape || !slime.revealed?.appendages) {
+      return "Unknown";
+    }
+    const profile = physicalProfile(slime.genome, evaluated);
+    return profile?.movement || "Unknown";
+  }
+
+  function estimatedSizeReading(outcome, genome = "") {
+    const volume = sizeVolumeCm3(outcome);
+    const shape = shapeLabelForGenome(genome);
+    const [low, high] = estimateBounds(volume, "size", genome);
+    const estimatedVolume = (low + high) / 2;
+    return `about ${formatShapeDimensions(shape, estimatedVolume)}`;
+  }
+
+  function exactSizeReading(outcome) {
+    return formatShapeDimensions("blob", sizeVolumeCm3(outcome));
+  }
+
+  function physicalProfile(genome, evaluated = null) {
+    const cleaned = cleanGenome(genome || "");
+    if (cleaned.length !== GENOME_LENGTH) {
+      return null;
+    }
+    const traits = evaluated?.traits || evaluateGenome(cleaned).traits;
+    const shape = baseOutcomeLabel(traits.shape) || "blob";
+    const appendages = baseOutcomeLabel(traits.appendages) || "none";
+    const element = baseOutcomeLabel(traits.element) || "none";
+    const volumeCm3 = sizeVolumeCm3(traits.size);
+    const density = elementDensity(traits.element);
+    const weightKg = (volumeCm3 * density) / 1000;
+    return {
+      shape,
+      appendages,
+      element,
+      volumeCm3,
+      density,
+      weightKg,
+      movement: derivedMovement(cleaned, { shape, appendages, element, weightKg, elementOutcome: traits.element })
+    };
+  }
+
+  function shapeLabelForGenome(genome) {
+    const cleaned = cleanGenome(genome || "");
+    if (cleaned.length !== GENOME_LENGTH || !geneMap?.traitMaps?.shape) {
+      return "blob";
+    }
+    return baseOutcomeLabel(evaluateGenome(cleaned).traits.shape) || "blob";
+  }
+
+  function sizeVolumeCm3(outcome) {
+    const baseLabel = baseOutcomeLabel(outcome);
+    return SIZE_VOLUME_CM3[baseLabel] || Math.round((outcome?.meta?.mass || 1) * 420);
+  }
+
+  function elementDensity(outcome) {
+    const label = baseOutcomeLabel(outcome);
+    const affinity = elementAffinity(outcome) / 100;
+    const targets = {
+      none: 1,
+      flame: 0.55,
+      frost: 0.9,
+      storm: 0.65,
+      stone: 2.4,
+      shadow: 0.55,
+      light: 0.25,
+      water: 1.05,
+      wind: 0.3,
+      wood: 0.75,
+      metal: 3.8,
+      poison: 1.2,
+      acid: 1.15,
+      dream: 0.2,
+      gravity: 3,
+      ether: 0.15,
+      null: 1.8
+    };
+    const target = targets[label] ?? 1;
+    return Math.max(0.05, 1 + (target - 1) * affinity);
+  }
+
+  function formatShapeDimensions(shape, volumeCm3) {
+    const safeVolume = Math.max(1, Number(volumeCm3) || 1);
+    const root = Math.cbrt(safeVolume);
+    if (shape === "cubic") {
+      const side = root;
+      return `${formatLength(side)} tall x ${formatLength(side)} wide x ${formatLength(side)} long`;
+    }
+    if (shape === "spherical") {
+      const diameter = Math.cbrt((6 * safeVolume) / Math.PI);
+      return `${formatLength(diameter)} diameter`;
+    }
+    if (shape === "humanoid-ish") {
+      const height = Math.cbrt(safeVolume * 9);
+      return `${formatLength(height)} tall, ${formatLength(height * 0.38)} arms, ${formatLength(height * 0.48)} legs`;
+    }
+    if (shape === "dog-shaped") {
+      const length = Math.cbrt(safeVolume * 5.5);
+      return `${formatLength(length * 0.45)} shoulder height, ${formatLength(length)} body length`;
+    }
+    if (shape === "puddle" || shape === "flat sheet") {
+      const depth = clamp(root * (shape === "puddle" ? 0.08 : 0.12), 1, 22);
+      const spread = 2 * Math.sqrt(safeVolume / (Math.PI * depth));
+      return `${formatLength(spread)} spread, ${formatLength(depth)} deep`;
+    }
+    if (shape === "worm-like") {
+      const length = Math.cbrt(safeVolume * 30);
+      const thickness = Math.sqrt(safeVolume / (Math.PI * length)) * 2;
+      return `${formatLength(length)} long, ${formatLength(thickness)} thick`;
+    }
+    if (shape === "columnar") {
+      const height = Math.cbrt(safeVolume * 4);
+      const diameter = Math.sqrt((4 * safeVolume) / (Math.PI * height));
+      return `${formatLength(height)} tall, ${formatLength(diameter)} across`;
+    }
+    if (shape === "conical") {
+      const height = Math.cbrt((12 * safeVolume) / Math.PI);
+      const diameter = Math.sqrt((12 * safeVolume) / (Math.PI * height));
+      return `${formatLength(height)} tall, ${formatLength(diameter)} base`;
+    }
+    if (shape === "disc") {
+      const thickness = clamp(root * 0.22, 2, 40);
+      const diameter = 2 * Math.sqrt(safeVolume / (Math.PI * thickness));
+      return `${formatLength(diameter)} across, ${formatLength(thickness)} thick`;
+    }
+    if (shape === "branching" || shape === "star-like") {
+      const span = Math.cbrt(safeVolume * 8);
+      return `${formatLength(span)} span, ${formatLength(root * 0.34)} core thickness`;
+    }
+    if (shape === "mushroom-shaped") {
+      const height = Math.cbrt(safeVolume * 3.2);
+      return `${formatLength(height)} tall, ${formatLength(height * 0.72)} cap width`;
+    }
+    if (shape === "shell-like") {
+      const length = Math.cbrt(safeVolume * 3.6);
+      return `${formatLength(length)} long, ${formatLength(length * 0.62)} wide, ${formatLength(length * 0.32)} high`;
+    }
+    const height = Math.cbrt(safeVolume * 0.75);
+    const width = Math.sqrt(safeVolume / height);
+    return `${formatLength(height)} tall, ${formatLength(width)} wide`;
+  }
+
+  function derivedMovement(genome, profile) {
+    const shapePools = {
+      "cubic": ["rocks from edge to edge", "drags one face forward", "tips and settles"],
+      "spherical": ["rolls", "wobbles", "bounces", "pulses forward"],
+      "humanoid-ish": ["lurches", "stagger-walks", "crawls", "hops"],
+      "dog-shaped": ["pads along", "scuttles", "bounds", "crawls low"],
+      "blob": ["oozes", "pulses", "slumps forward", "heaves"],
+      "puddle": ["seeps", "spreads", "oozes", "drips"],
+      "worm-like": ["slithers", "inches forward", "coils and pulls", "wriggles"],
+      "columnar": ["leans and slides", "pivots", "topples forward"],
+      "conical": ["spins slowly", "scrapes forward", "tips and rights itself"],
+      "flat sheet": ["ripples", "slides", "folds forward", "spreads"],
+      "mound": ["slumps", "heaves", "oozes"],
+      "disc": ["rolls on edge", "slides", "wobbles"],
+      "branching": ["pulls by branches", "crawls unevenly", "anchors and reaches"],
+      "star-like": ["pulls point by point", "skitters unevenly", "sprawls forward"],
+      "mushroom-shaped": ["wobbles", "hops", "totters"],
+      "shell-like": ["scrapes forward", "drags its shell", "slides"]
+    };
+    const appendagePools = {
+      "two tendrils": ["pulls itself by tendrils", "grapples forward"],
+      "four tendrils": ["tendril-walks", "climbs by tendrils"],
+      "grasping pseudopods": ["knuckle-pulls", "grasps and drags"],
+      "stub legs": ["stump-hops", "shuffles"],
+      "limb-like arms": ["crawls on arm-masses", "hauls itself forward"],
+      "cilia fringe": ["ripples on cilia", "glides"],
+      "spines": ["ratchets forward", "anchors and jerks"],
+      "fins": ["flutters", "paddles"],
+      "wing-like membranes": ["strained-flutters", "glides"],
+      "feeler stalks": ["probes before moving", "feeler-crawls"],
+      "tail-like rudder": ["tail-pushes", "sways forward"],
+      "rootlets": ["roots and creeps", "anchors and slides"],
+      "hook claws": ["hooks and pulls", "clambers"],
+      "asymmetrical limbs": ["limps unevenly", "lurches sideways"],
+      "dissolving nubs": ["tries to crawl", "smears forward"]
+    };
+    const elementPools = {
+      flame: ["flickers forward"],
+      frost: ["slides on frost"],
+      storm: ["jolts forward"],
+      stone: ["grinds forward"],
+      shadow: ["slips between shadows"],
+      light: ["drifts"],
+      water: ["flows"],
+      wind: ["drifts"],
+      wood: ["roots and creeps"],
+      metal: ["drags heavily"],
+      poison: ["seeps"],
+      acid: ["sizzles forward"],
+      dream: ["wanders dreamily"],
+      gravity: ["anchors and drags"],
+      ether: ["floats"],
+      null: ["stutters through wards"]
+    };
+    const options = [...(shapePools[profile.shape] || shapePools.blob)];
+    if (appendagePools[profile.appendages]) {
+      options.push(...appendagePools[profile.appendages]);
+    }
+    if (elementAffinity(profile.elementOutcome) >= 65 && elementPools[profile.element]) {
+      options.push(...elementPools[profile.element]);
+    }
+    if (profile.weightKg >= 80) {
+      options.push("drags heavily", "slumps under its mass");
+    }
+    if ((profile.shape === "puddle" || profile.shape === "flat sheet") && profile.appendages !== "none") {
+      options.push("tries to crawl while smearing");
+    }
+    const rng = seedRng(`${state.seed}:movement:${genome}:${profile.shape}:${profile.appendages}:${profile.element}`);
+    return options[Math.floor(rng() * options.length)] || "oozes";
+  }
+
   function estimatedReading(traitKey, outcome, contextKey = "") {
     const meta = outcome.meta || {};
     const baseLabel = outcome.label.split(" / ")[0];
     const index = Number.isFinite(meta.index) ? meta.index : stringHash(`${traitKey}:${outcome.label}`) % 16;
     if (traitKey === "size") {
-      return estimateQuantity(SIZE_VOLUME_CM3[baseLabel] || Math.round((meta.mass || 1) * 420), "volume", traitKey, contextKey);
+      return estimatedSizeReading(outcome, contextKey);
     }
     if (traitKey === "color") {
       return makeColorObservation(outcome).reading;
+    }
+    if (traitKey === "shape" || traitKey === "appendages") {
+      return "";
     }
     if (traitKey === "texture") {
       return estimateQuantity(120 + index * index * 95, "viscosity", traitKey, contextKey);
@@ -1925,10 +2192,13 @@
     const baseLabel = outcome.label.split(" / ")[0];
     const index = Number.isFinite(meta.index) ? meta.index : stringHash(`${traitKey}:${outcome.label}`) % 16;
     if (traitKey === "size") {
-      return formatVolume(SIZE_VOLUME_CM3[baseLabel] || Math.round((meta.mass || 1) * 420));
+      return exactSizeReading(outcome);
     }
     if (traitKey === "color") {
       return `${String(meta.color || "#000000").toUpperCase()} swatch`;
+    }
+    if (traitKey === "shape" || traitKey === "appendages") {
+      return "";
     }
     if (traitKey === "texture") {
       return `${formatNumber(120 + index * index * 95)} cP viscosity`;
@@ -2289,6 +2559,29 @@
   function parseHexColor(hex) {
     const clean = String(hex).replace(/[^0-9a-f]/gi, "").padEnd(6, "0").slice(0, 6);
     return [0, 2, 4].map((start) => parseInt(clean.slice(start, start + 2), 16));
+  }
+
+  function formatLength(valueCm) {
+    const safe = Math.max(0, Number(valueCm) || 0);
+    if (safe >= 100) {
+      const meters = safe / 100;
+      return `${formatDecimal(meters, meters >= 10 ? 1 : 2)} m`;
+    }
+    if (safe < 1) {
+      return `${formatDecimal(safe * 10, 1)} mm`;
+    }
+    return `${formatDecimal(safe, safe >= 10 ? 0 : 1)} cm`;
+  }
+
+  function formatWeight(valueKg) {
+    const safe = Math.max(0, Number(valueKg) || 0);
+    if (safe >= 1000) {
+      return `${formatDecimal(safe / 1000, 2)} t`;
+    }
+    if (safe >= 1) {
+      return `${formatDecimal(safe, safe >= 10 ? 1 : 2)} kg`;
+    }
+    return `${formatNumber(safe * 1000)} g`;
   }
 
   function formatVolume(valueCm3) {
