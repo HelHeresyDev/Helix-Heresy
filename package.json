@@ -1,0 +1,23 @@
+{
+  "name": "helix-heresy",
+  "version": "1.0.0",
+  "description": "Helix Heresy is a desktop-focused static browser prototype about forbidden slime genetics, laboratory discovery, and questionable science.",
+  "main": "app.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HelHeresyDev/Helix-Heresy.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/HelHeresyDev/Helix-Heresy/issues"
+  },
+  "homepage": "https://github.com/HelHeresyDev/Helix-Heresy#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "@types/node": "^25.9.3"
+  }
+}

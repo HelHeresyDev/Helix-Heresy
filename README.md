@@ -1,6 +1,6 @@
-# Rogue Genesis
+# Helix Heresy
 
-Rogue Genesis is a desktop-focused static browser prototype about slime genetics, laboratory discovery, and questionable science.
+Helix Heresy is a desktop-focused static browser prototype about forbidden slime genetics, laboratory discovery, and questionable science.
 
 The current build lets the player edit a 24-base-pair slime genome, synthesize living samples, run timed tests, breed specimens, and build up a scientist through stamina-gated actions and skill XP.
 
@@ -44,7 +44,7 @@ The game is currently designed for desktop play.
 
 ## Saves
 
-Rogue Genesis stores local progress in browser `localStorage`. Saves can also be exported and imported as JSON files from inside the game.
+Helix Heresy stores local progress in browser `localStorage`. Saves can also be exported and imported as JSON files from inside the game.
 
 ## Development Notes
 

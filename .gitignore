@@ -6,9 +6,18 @@ Thumbs.db
 
 # Local saves and exported runs
 *.save.json
+helix-heresy-save*.json
 rogue-genesis-save*.json
 
 # Future dependency/build folders
 node_modules/
 dist/
 build/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+coverage/

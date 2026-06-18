@@ -1,8 +1,9 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "rogue-genesis-v1-save";
-  const SAVE_FILE_NAME = "rogue-genesis-save.json";
+  const STORAGE_KEY = "helix-heresy-v1-save";
+  const LEGACY_STORAGE_KEYS = ["rogue-genesis-v1-save"];
+  const SAVE_FILE_NAME = "helix-heresy-save.json";
   const BASES = ["A", "C", "G", "T"];
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
@@ -15,6 +16,7 @@
   const DEFAULT_VITAL_MAX = 100;
   const BASE_ACTION_STAMINA = 10;
   const HANDLING_STAMINA = 3;
+  const ELEMENT_AFFINITY_MAX_INDEX = 15;
   const DISPLAY_REGION_KEYS = [
     "size",
     "color",
@@ -43,23 +45,19 @@
     growth: "↑",
     lifespan: "⌛"
   };
-  const ELEMENT_SYMBOLS = {
-    none: "--",
-    flame: "△",
-    frost: "*",
-    storm: "↯",
-    stone: "■",
-    shadow: "◑",
-    light: "☼",
-    water: "≈",
-    wind: "∿",
-    wood: "♣",
-    metal: "⬢",
-    poison: "!",
-    acid: "⌁",
-    dream: "◌",
-    gravity: "↓",
-    ether: "✦"
+  const COLOR_FAMILY_SWATCHES = {
+    black: "#111111",
+    white: "#F2F0E8",
+    gray: "#888888",
+    clear: "#D8F5FF",
+    brown: "#6B4F3C",
+    red: "#C83D3D",
+    orange: "#D98242",
+    yellow: "#E6D45F",
+    green: "#75B86B",
+    blue: "#6EA9D6",
+    purple: "#8061C5",
+    pink: "#D979A7"
   };
   const SIZE_VOLUME_CM3 = {
     threadlike: 8,
@@ -662,6 +660,7 @@
       status: "contained",
       revealed: {},
       measured: {},
+      traitObservations: {},
       testsRun: []
     };
     state.nextSlimeNumber += 1;
@@ -720,7 +719,9 @@
     for (const traitKey of traitKeys) {
       const result = evaluated.traits[traitKey];
       const key = knowledgeKey(traitKey, evaluated.details[traitKey].codes);
-      const repeatKey = `${options.measured ? "measured" : "observed"}:${key}`;
+      const measured = Boolean(options.measured && traitKey !== "color");
+      const observation = traitKey === "color" ? makeColorObservation(result) : null;
+      const repeatKey = `${measured ? "measured" : "observed"}:${key}`;
       const wasKnown = Boolean(state.knownResultKeys[repeatKey]);
       if (wasKnown) {
         const repeats = state.resultRepeats[repeatKey] || 0;
@@ -732,11 +733,16 @@
         state.knownResultKeys[repeatKey] = true;
         state.resultRepeats[repeatKey] = 0;
       }
-      slime.revealed[traitKey] = result.label;
-      if (options.measured) {
+      slime.revealed[traitKey] = observation?.label || result.label;
+      if (observation) {
+        slime.traitObservations ||= {};
+        slime.traitObservations[traitKey] = observation;
+        delete slime.measured[traitKey];
+      }
+      if (measured) {
         slime.measured[traitKey] = true;
       }
-      recordDiscovery(slime, traitKey, evaluated, { measured: Boolean(options.measured) });
+      recordDiscovery(slime, traitKey, evaluated, { measured, observation });
     }
     return summary;
   }
@@ -750,11 +756,24 @@
     state.discoveries[traitKey] ||= {};
     const entry = state.discoveries[traitKey][key] ||= {
       trait: traitKey,
-      label: evaluated.traits[traitKey].label,
+      label: options.observation?.label || evaluated.traits[traitKey].label,
       codes: detail.codes,
       sample: slime.genome,
       discoveredAt: state.clock
     };
+    if (traitKey === "color" && options.observation) {
+      const currentTier = Number.isFinite(entry.observationTier) ? entry.observationTier : -1;
+      const currentLevel = Number.isFinite(entry.observationLevel) ? entry.observationLevel : -1;
+      if (options.observation.tier > currentTier || options.observation.level >= currentLevel) {
+        entry.label = options.observation.label;
+        entry.estimate = options.observation.reading;
+        entry.swatch = options.observation.swatch;
+        entry.observationTier = options.observation.tier;
+        entry.observationLevel = options.observation.level;
+        entry.observedAt = state.clock;
+      }
+      return;
+    }
     entry.estimate ||= estimatedReading(traitKey, evaluated.traits[traitKey], slime.genome);
     if (options.measured) {
       entry.measurement = preciseReading(traitKey, evaluated.traits[traitKey]);
@@ -1311,8 +1330,10 @@
       const row = document.createElement("div");
       row.className = "prediction-row";
       row.append(
-        traitLabelEl(region, known ? evaluated.traits[region.key] : null),
-        textEl("span", known ? formatKnownOutcome(known) : "Undiscovered")
+        traitLabelEl(region, known ? knownOutcomeMarker(region.key, known, evaluated.traits[region.key]) : null),
+        known
+          ? traitValueEl(region.key, evaluated.traits[region.key], formatKnownOutcome(known))
+          : textEl("span", "Undiscovered")
       );
       dom.predictionList.append(row);
     }
@@ -1464,12 +1485,12 @@
     grid.className = "trait-grid subpanel";
     const evaluated = evaluateGenome(slime.genome);
     for (const region of DISPLAY_REGION_DEFS) {
-      const outcome = slime.revealed?.[region.key] ? evaluated.traits[region.key] : null;
+      const outcome = slimeTraitMarkerOutcome(slime, region.key, evaluated.traits[region.key]);
       const row = document.createElement("div");
       row.className = "trait-row";
       row.append(
         traitLabelEl(region, outcome),
-        textEl("span", formatTraitValue(slime, region.key, evaluated.traits[region.key]))
+        traitValueEl(region.key, evaluated.traits[region.key], formatTraitValue(slime, region.key, evaluated.traits[region.key]))
       );
       grid.append(row);
     }
@@ -1697,9 +1718,23 @@
       const label = traitLabelEl(region);
       label.append(textEl("span", `(${discoveries.length})`));
       const body = document.createElement("span");
-      body.textContent = discoveries.length
-        ? discoveries.map((item) => `${item.codes.map((code) => code.code).join("+")} = ${formatKnownOutcome(item)}`).join("; ")
-        : "No entries";
+      if (discoveries.length) {
+        body.className = "journal-entry-list";
+        for (const [index, item] of discoveries.entries()) {
+          if (index > 0) {
+            body.append(textEl("span", "; "));
+          }
+          const entry = document.createElement("span");
+          entry.className = "journal-entry";
+          entry.append(
+            textEl("span", `${item.codes.map((code) => code.code).join("+")} = `),
+            traitValueEl(region.key, item, formatKnownOutcome(item))
+          );
+          body.append(entry);
+        }
+      } else {
+        body.textContent = "No entries";
+      }
       row.append(label, body);
       wrapper.append(row);
     }
@@ -1801,10 +1836,40 @@
     if (!label) {
       return "Unknown";
     }
+    if (traitKey === "color" && !slime.measured?.[traitKey]) {
+      const observation = slime.traitObservations?.[traitKey];
+      const reading = observation?.reading || "";
+      return reading ? `${label} (${reading})` : label;
+    }
     const reading = slime.measured?.[traitKey]
       ? preciseReading(traitKey, outcome)
       : estimatedReading(traitKey, outcome, slime.genome);
     return reading ? `${label} (${reading})` : label;
+  }
+
+  function traitValueEl(traitKey, outcome, value) {
+    const wrapper = document.createElement("span");
+    wrapper.className = "trait-value";
+    if (traitKey === "element" && value !== "Unknown") {
+      const icon = elementIconEl(outcome);
+      if (icon) {
+        wrapper.append(icon);
+      }
+    }
+    wrapper.append(textEl("span", value));
+    return wrapper;
+  }
+
+  function elementIconEl(outcome) {
+    const label = baseOutcomeLabel(outcome);
+    if (!label || label === "none") {
+      return null;
+    }
+    const icon = document.createElement("span");
+    icon.className = `element-icon element-icon-${label.replace(/[^a-z0-9]+/g, "-")}`;
+    icon.title = label;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
   }
 
   function formatKnownOutcome(item) {
@@ -1820,7 +1885,7 @@
       return estimateQuantity(SIZE_VOLUME_CM3[baseLabel] || Math.round((meta.mass || 1) * 420), "volume", traitKey, contextKey);
     }
     if (traitKey === "color") {
-      return `${estimatedColor(meta.color || "#000000", traitKey, contextKey)} swatch`;
+      return makeColorObservation(outcome).reading;
     }
     if (traitKey === "texture") {
       return estimateQuantity(120 + index * index * 95, "viscosity", traitKey, contextKey);
@@ -1835,7 +1900,7 @@
       return estimateQuantity(0.4 + index * 0.42, "flow", traitKey, contextKey);
     }
     if (traitKey === "element") {
-      return baseLabel === "none" ? "about 0 thaum flux" : estimateQuantity(12 + index * 7, "flux", traitKey, contextKey);
+      return baseLabel === "none" ? "0 thaums" : estimateQuantity(elementAffinity(outcome), "thaums", traitKey, contextKey);
     }
     if (traitKey === "stability") {
       return estimateQuantity(meta.risk, "risk", traitKey, contextKey);
@@ -1878,7 +1943,7 @@
       return `${formatFlow(0.4 + index * 0.42)} yield`;
     }
     if (traitKey === "element") {
-      return baseLabel === "none" ? "0 thaum flux" : `${formatNumber(12 + index * 7)} thaum flux`;
+      return `${formatNumber(elementAffinity(outcome))} thaums`;
     }
     if (traitKey === "stability") {
       return `risk ${meta.risk}/10`;
@@ -1927,10 +1992,24 @@
     if (kind === "viscosity") {
       return `${formatNumber(low)} - ${formatNumber(high)} cP viscosity`;
     }
-    if (kind === "flux") {
-      return `${formatNumber(low)} - ${formatNumber(high)} thaum flux`;
+    if (kind === "thaums") {
+      return `${formatNumber(clamp(low, 0, 100))} - ${formatNumber(clamp(high, 0, 100))} thaums`;
     }
     return `${formatNumber(low)} - ${formatNumber(high)}`;
+  }
+
+  function elementAffinity(outcome) {
+    const label = baseOutcomeLabel(outcome);
+    if (label === "none") {
+      return 0;
+    }
+    const index = Number.isFinite(outcome?.meta?.index) ? outcome.meta.index : stringHash(`element:${outcome?.label || ""}`) % 16;
+    const normalized = clamp(index, 0, ELEMENT_AFFINITY_MAX_INDEX) / ELEMENT_AFFINITY_MAX_INDEX;
+    return Math.round(1 + normalized * 99);
+  }
+
+  function baseOutcomeLabel(outcome) {
+    return String(outcome?.label || "").split(" / ")[0].toLowerCase();
   }
 
   function estimateBounds(value, traitKey, contextKey) {
@@ -1954,6 +2033,257 @@
       return clamp(channel + shift, 0, 255);
     });
     return `approx. #${channels.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+  }
+
+  function makeColorObservation(outcome) {
+    const level = skillLevel("observation");
+    const tier = colorObservationTier(level);
+    const hex = outcome.meta?.color || "#000000";
+    const rgb = parseHexColor(hex);
+    const hsl = rgbToHsl(rgb);
+    const family = basicColorFamily(hsl, outcome.label);
+    const refined = refinedColorFamily(hsl, family);
+    const label = colorObservationLabel(tier, outcome.label, family, refined, hsl);
+    const swatch = colorObservationSwatch(hex, family, tier);
+    return {
+      label,
+      swatch,
+      tier,
+      level,
+      reading: colorObservationReading(tier)
+    };
+  }
+
+  function colorObservationTier(level) {
+    if (level >= 90) {
+      return 5;
+    }
+    if (level >= 75) {
+      return 4;
+    }
+    if (level >= 50) {
+      return 3;
+    }
+    if (level >= 25) {
+      return 2;
+    }
+    if (level >= 10) {
+      return 1;
+    }
+    return 0;
+  }
+
+  function colorObservationLabel(tier, exactLabel, family, refined, hsl) {
+    if (tier <= 0) {
+      return family;
+    }
+    if (tier === 1) {
+      return modifiedColorName(broadColorModifier(hsl, family), family);
+    }
+    if (tier === 2) {
+      return refined;
+    }
+    if (tier === 3) {
+      return modifiedColorName(nuancedColorModifier(hsl, family), refined);
+    }
+    if (tier === 4) {
+      return `close to ${exactLabel}`;
+    }
+    return exactLabel;
+  }
+
+  function colorObservationReading(tier) {
+    if (tier >= 5) {
+      return "high-confidence visual swatch";
+    }
+    if (tier >= 4) {
+      return "trained visual swatch";
+    }
+    if (tier >= 3) {
+      return "approximate visual swatch";
+    }
+    return "";
+  }
+
+  function basicColorFamily(hsl, label) {
+    if (/\bclear\b/i.test(label)) {
+      return "clear";
+    }
+    if (hsl.l <= 0.12) {
+      return "black";
+    }
+    if (hsl.l >= 0.88 && hsl.s <= 0.28) {
+      return "white";
+    }
+    if (hsl.s <= 0.14) {
+      return "gray";
+    }
+    if (hsl.h >= 22 && hsl.h <= 52 && hsl.l <= 0.42 && hsl.s <= 0.72) {
+      return "brown";
+    }
+    if (hsl.h < 16 || hsl.h >= 344) {
+      return "red";
+    }
+    if (hsl.h < 45) {
+      return "orange";
+    }
+    if (hsl.h < 70) {
+      return "yellow";
+    }
+    if (hsl.h < 165) {
+      return "green";
+    }
+    if (hsl.h < 255) {
+      return "blue";
+    }
+    if (hsl.h < 304) {
+      return "purple";
+    }
+    if (hsl.h < 344) {
+      return "pink";
+    }
+    return "red";
+  }
+
+  function refinedColorFamily(hsl, family) {
+    if (["black", "white", "gray", "clear"].includes(family)) {
+      return neutralColorName(hsl, family);
+    }
+    if (family === "brown") {
+      return hsl.h < 32 ? "red-brown" : "orange-brown";
+    }
+    if (family === "orange") {
+      return hsl.h < 28 ? "red-orange" : "yellow-orange";
+    }
+    if (family === "yellow") {
+      return hsl.h > 58 ? "yellow-green" : "golden yellow";
+    }
+    if (family === "green") {
+      if (hsl.h < 92) {
+        return "yellow-green";
+      }
+      if (hsl.h > 145) {
+        return "blue-green";
+      }
+      return "green";
+    }
+    if (family === "blue") {
+      if (hsl.h < 190) {
+        return "blue-green";
+      }
+      if (hsl.h > 238) {
+        return "violet-blue";
+      }
+      return "blue";
+    }
+    if (family === "purple") {
+      return hsl.h < 280 ? "violet" : "purple";
+    }
+    if (family === "pink") {
+      return hsl.h < 326 ? "rose pink" : "red-pink";
+    }
+    return family;
+  }
+
+  function neutralColorName(hsl, family) {
+    if (family === "clear") {
+      return "clear";
+    }
+    if (family === "white" && hsl.s > 0.08) {
+      return "off-white";
+    }
+    if (family === "gray") {
+      if (hsl.l > 0.68) {
+        return "light gray";
+      }
+      if (hsl.l < 0.34) {
+        return "dark gray";
+      }
+    }
+    return family;
+  }
+
+  function broadColorModifier(hsl, family) {
+    if (["black", "white", "clear"].includes(family)) {
+      return "";
+    }
+    if (hsl.l <= 0.28) {
+      return "dark";
+    }
+    if (hsl.l >= 0.74) {
+      return "pale";
+    }
+    if (hsl.s <= 0.32) {
+      return "dull";
+    }
+    if (hsl.s >= 0.68 && hsl.l >= 0.42) {
+      return "bright";
+    }
+    return "";
+  }
+
+  function nuancedColorModifier(hsl, family) {
+    if (["black", "white", "gray", "clear"].includes(family)) {
+      return "";
+    }
+    if (hsl.l <= 0.3 && hsl.s >= 0.45) {
+      return "deep";
+    }
+    if (hsl.l >= 0.72) {
+      return "pale";
+    }
+    if (hsl.s >= 0.72) {
+      return "vivid";
+    }
+    if (hsl.s <= 0.36) {
+      return "muted";
+    }
+    return "";
+  }
+
+  function modifiedColorName(modifier, colorName) {
+    if (!modifier || colorName.startsWith(`${modifier} `)) {
+      return colorName;
+    }
+    return `${modifier} ${colorName}`;
+  }
+
+  function colorObservationSwatch(hex, family, tier) {
+    const trueRgb = parseHexColor(hex);
+    const baseRgb = parseHexColor(COLOR_FAMILY_SWATCHES[family] || "#888888");
+    const blendAmount = [0, 0.22, 0.42, 0.62, 0.78, 0.9][tier] ?? 0;
+    return rgbToHex(baseRgb.map((channel, index) => {
+      return Math.round(channel + (trueRgb[index] - channel) * blendAmount);
+    }));
+  }
+
+  function rgbToHsl([red, green, blue]) {
+    const r = red / 255;
+    const g = green / 255;
+    const b = blue / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const lightness = (max + min) / 2;
+    const delta = max - min;
+    if (delta === 0) {
+      return { h: 0, s: 0, l: lightness };
+    }
+    const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    let hue;
+    if (max === r) {
+      hue = 60 * (((g - b) / delta) % 6);
+    } else if (max === g) {
+      hue = 60 * ((b - r) / delta + 2);
+    } else {
+      hue = 60 * ((r - g) / delta + 4);
+    }
+    return { h: (hue + 360) % 360, s: saturation, l: lightness };
+  }
+
+  function rgbToHex(channels) {
+    return `#${channels.map((channel) => {
+      return clamp(Math.round(channel), 0, 255).toString(16).padStart(2, "0");
+    }).join("").toUpperCase()}`;
   }
 
   function parseHexColor(hex) {
@@ -2377,6 +2707,32 @@
     return element;
   }
 
+  function slimeTraitMarkerOutcome(slime, traitKey, outcome) {
+    if (!slime.revealed?.[traitKey]) {
+      return null;
+    }
+    if (traitKey === "color" && !slime.measured?.[traitKey]) {
+      const observation = slime.traitObservations?.[traitKey];
+      if (observation?.swatch) {
+        return {
+          label: observation.label,
+          meta: { color: observation.swatch }
+        };
+      }
+    }
+    return outcome;
+  }
+
+  function knownOutcomeMarker(traitKey, item, outcome) {
+    if (traitKey === "color" && item?.swatch && !item.measurement) {
+      return {
+        label: item.label,
+        meta: { color: item.swatch }
+      };
+    }
+    return outcome;
+  }
+
   function traitMarkerEl(traitKey, outcome = null) {
     const marker = document.createElement("span");
     marker.className = `trait-marker trait-marker-${traitKey}`;
@@ -2389,10 +2745,7 @@
       return marker;
     }
 
-    const label = outcome?.label ? outcome.label.split(" / ")[0].toLowerCase() : "";
-    marker.textContent = traitKey === "element" && outcome
-      ? ELEMENT_SYMBOLS[label] || TRAIT_SYMBOLS.element
-      : TRAIT_SYMBOLS[traitKey] || "•";
+    marker.textContent = TRAIT_SYMBOLS[traitKey] || "•";
     marker.title = outcome?.label
       ? `${getRegionLabel(traitKey)}: ${outcome.label}`
       : getRegionLabel(traitKey);
@@ -2443,7 +2796,13 @@
 
   function loadLocalSave() {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      let raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        raw = LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) || null;
+        if (raw) {
+          window.localStorage.setItem(STORAGE_KEY, raw);
+        }
+      }
       if (!raw) {
         return null;
       }
@@ -2468,13 +2827,49 @@
     next.events ||= [];
     next.tasks ||= [];
     next.slimes ||= [];
+    normalizeElementDiscoveries(next);
     for (const slime of next.slimes) {
       slime.revealed ||= {};
       slime.measured ||= {};
+      slime.traitObservations ||= {};
       slime.testsRun ||= [];
     }
     next.currentGenome = cleanGenome(next.currentGenome || "") || randomGenome(seedRng(`${next.seed}:starter`));
     return next;
+  }
+
+  function normalizeElementDiscoveries(next) {
+    const entries = Object.values(next.discoveries?.element || {});
+    if (!entries.length) {
+      return;
+    }
+    const map = buildGeneMap(next.seed, next.complexity);
+    for (const entry of entries) {
+      const outcome = elementOutcomeForDiscovery(map, entry);
+      if (entry.measurement && outcome) {
+        entry.measurement = preciseReading("element", outcome);
+      }
+      if (entry.estimate) {
+        entry.estimate = normalizeThaumUnit(entry.estimate);
+      }
+    }
+  }
+
+  function elementOutcomeForDiscovery(map, entry) {
+    const explicitCode = entry.codes?.find((code) => code.region === "element")?.code;
+    if (explicitCode && map.traitMaps.element[explicitCode]) {
+      return map.traitMaps.element[explicitCode];
+    }
+    const genome = cleanGenome(entry.sample || "");
+    const genomeCode = genome ? getRegionCode(genome, "element") : "";
+    return genomeCode ? map.traitMaps.element[genomeCode] || null : null;
+  }
+
+  function normalizeThaumUnit(reading) {
+    return String(reading)
+      .replace(/\babout 0 thaum flux\b/g, "0 thaums")
+      .replace(/\bthaum flux\b/g, "thaums")
+      .replace(/\bflux\b/g, "thaums");
   }
 
   function normalizeRegionLocks(candidate) {
