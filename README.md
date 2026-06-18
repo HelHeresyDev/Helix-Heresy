@@ -2,136 +2,19 @@
 
 Helix Heresy is a desktop-focused static browser prototype about forbidden creature genetics, laboratory discovery, and questionable science.
 
-The current build starts with slimes as the simplest creature type. It lets the player edit a 26-base-pair slime genome, synthesize living samples, run timed tests, breed specimens, and build up a scientist through stamina-gated actions and skill XP.
+The current build starts with slimes as the simplest creature type. Players edit 26-base genomes, synthesize living samples, discover traits through tests, breed specimens, manage corpses and Heat, and assign creatures to early lab jobs.
 
-The long-term goal is a discovery-driven creature genetics game where the player experiments with strange life forms, learns what their genes do through observation and testing, and gradually turns messy lab notes into practical breeding knowledge.
-
-## Design Vision
-
-Helix Heresy should feel like running an unsafe little arcane biology lab. The player should not start with a complete wiki. They should learn by making creatures, testing them, comparing notes, and breeding toward goals they only partially understand.
-
-Core design pillars:
-
-- Discovery over disclosure: hidden trait outcomes and gene mappings should be learned through play.
-- Strange but readable creatures: generated specimens should be easy to imagine, not just lists of numbers.
-- Lab capability matters: skills improve execution, while equipment and resources should eventually unlock what tests are possible.
-- Weird biology is allowed: clashing traits can create awkward or weak creatures instead of being forbidden.
-- Breeding should feel experimental: the player can aim for known traits, but unusual combinations should remain possible.
-
-## Campaign Vision
-
-The full game should become a browser-based roguelike management game about illegal life creation in a magical world. The prototype is slime-first, but the larger arc is not slime-only: slimes are the first low-gene creature family before stranger, smarter, more dangerous life forms become possible.
-
-The intended long-term loop:
-
-- Experiment on genes and synthesize creatures.
-- Observe results through casual inspection, lab tests, and practical use.
-- Manage money, biomass, reagents, lab space, equipment, time, secrecy, and heat.
-- Hide evidence, contain accidents, and avoid authority attention.
-- Assign creatures to jobs, lab areas, disposal tasks, protection, infiltration, production, or sale.
-- Visit the black market to sell creatures, byproducts, services, and eventually fulfill commissions.
-- Use discoveries, profits, and creatures to expand from a hidden lab into larger operations.
-
-Starting scenarios should define the initial story and resource position. Examples include a protected corporate black-project lab, a legitimate company job hiding secret desert-base construction, and a sewer fugitive start where the authorities are already hunting the player.
-
-Difficulty should be modular rather than a single preset. Settings can affect journal support, gene visibility, authority aggression, resource scarcity, experiment consequences, mutation chaos, and how learnable the DNA puzzle is. Easy settings can be darkly funny and forgiving; hard settings should become tense, secretive, and resource-starved.
-
-Heat is the pressure of being discovered. It should eventually track suspicion, evidence trails, escaped creatures, lab incidents, black market exposure, and direct government attention. On low difficulty it can be background pressure; on high difficulty it should become a constant survival threat.
-
-The black market should grow with reputation. Early sales may be whatever useful creatures or byproducts the player can produce. As reputation rises, customers should commission creatures with specific traits, behaviors, affinities, or jobs.
-
-The late game should escalate from survival and profit into power. The player can recruit people through money or promises, create stronger creatures and eventually intelligent agents, confront the local government, take control of territory, and transition into a global conquest layer. Higher-intelligence creations should be more useful but also more capable of betrayal and non-gene-driven behavior.
-
-## Creature Vision
-
-Creatures should eventually be described as physical beings with form, dimensions, mass, affinity, behavior, and usefulness.
-
-Slimes are the starting point because they are the most basic experimental creature. The broader game should be able to grow into other creature families with their own body plans, constraints, uses, and risks.
-
-Current direction:
-
-- Shape is a genetic trait that describes the creature's body plan.
-- Body consistency is a genetic trait that describes how the creature holds together physically.
-- Appendages are a genetic trait separate from shape.
-- Size describes shape-aware dimensions instead of only total volume.
-- Weight is derived, not genetic.
-- Density is derived primarily from elemental affinity and affinity strength.
-- Movement is derived from shape, appendages, size, weight, and element instead of being directly genetic.
-
-Examples of the intended style:
-
-- `Shape: worm-like`
-- `Body Consistency: elastic gel`
-- `Appendages: grasping pseudopods`
-- `Size: 1.8 m long, 12 cm thick`
-- `Weight: 34 kg`
-- `Movement: pulls itself forward`
-
-Odd combinations are acceptable. A puddle with stub legs or a metal slime with wing-like membranes may become physically awkward, but that awkwardness can later feed into creature stats, mobility, stability, containment difficulty, or combat/work usefulness.
-
-## Future Systems
-
-Likely future systems:
-
-- Starting scenarios with different resources, protection, time pressure, and threats.
-- Modular difficulty settings for journal support, heat, resources, mutation, danger, and gene-map complexity.
-- Heat, suspicion, evidence, raids, cover stories, and lab secrecy.
-- Money, biomass, reagents, lab space, equipment, orders, construction, and black market access.
-- Black market reputation, freeform sales, byproduct markets, and commissioned creature requests.
-- Equipment and resource-gated testing.
-- Test failure or inconclusive results based on skill, equipment, and sample difficulty.
-- Mutation as a risk layered on top of deterministic genetics.
-- Creature stats derived from physical compatibility, affinity, stability, and biology.
-- More meaningful containment, risk, escape, and lab safety systems.
-- Breeding goals and practical uses for creatures.
-- Creature jobs such as production, hazardous disposal, defense, spying, assassination, construction support, and research assistance.
-- Intelligent created species that can act as assistants or agents while carrying betrayal and autonomy risks.
-- Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
-- Corpse disposal and processing chains using equipment, facilities, or living creatures such as acid slimes.
-- Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
-- Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
-- A clearer distinction between casual observation, lab testing, and precise instrument readings.
-- A richer journal that helps the player reason from partial discoveries without spoiling hidden mappings.
-- Null affinity as active anti-magic, distinct from having no affinity.
-
-Open design questions:
-
-- What starting scenarios should ship first, and which difficulty settings should be separate sliders?
-- How should heat be generated, hidden, reduced, or converted into authority actions?
-- When should the game transition from lab survival to local-government conflict and then world conquest?
-- How much should movement affect future mechanics?
-- How should weak or biologically clashing creatures be communicated to the player?
-- What jobs or pressures will make creature stats matter?
-- How much should the lab economy rely on byproducts, contracts, hazards, or research milestones?
+For story background, long-term systems, current design direction, and open questions, see [DESIGN_BIBLE.md](DESIGN_BIBLE.md).
 
 ## Current Prototype
 
-- Clickable ASCII DNA helix with paired bases.
-- Distinct color coding for A, C, G, and T.
-- Seeded procedural gene mapping for repeatable runs.
-- Slime synthesis from 26-base genomes.
-- Genetic shape and appendage traits.
-- Genetic body consistency.
-- Shape-aware size dimensions.
-- Derived weight and derived movement.
-- Discovered-trait identity strip with color, element, shape, and byproduct slots.
-- Broad category icons for discovered shape and byproduct outcomes.
-- Observable traits with scientist estimate ranges.
-- Timed tests that can reveal more precise trait information.
-- Breeding and crossbreeding between mature samples.
-- Lifespan, maturity, living sample storage, release, and containment states.
-- Deceased specimens move out of living storage and into waste drums.
-- Corpse states include fresh, decaying, spoiled, ruined, and overflow pressure.
-- Fresh corpse necropsy reveals remaining unknown genetic traits for that specimen.
-- Necropsy produces an effectiveness report and ruins the corpse without disposing of it.
-- Scientist stat sheet with health, stamina, mana, and individual skills.
-- Stamina costs, passive regeneration, and queued rest actions.
-- XP cheat command for testing skill progression.
-- Paused start with selectable time speeds from real-time through accelerated waits.
-- Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
-- Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.
+- Clickable ASCII DNA helix and seeded procedural gene mapping.
+- Slime synthesis, testing, breeding, lifespan, maturity, and local saves.
+- Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, and movement.
+- Corpse handling with waste drums, decay states, necropsy, dumping, Heat, and Waste Processing jobs.
+- Creature Jobs panel with Idle and Waste Processing assignments.
+- Scientist stamina, mana, skills, XP, timed tasks, speed controls, skip controls, and keyboard shortcuts.
 - Automatic, manual, and disabled journal modes.
-- Local save, import, export, and save-to-folder support.
 
 Trait outcomes and gene mappings are intentionally hidden during normal play so they can be discovered experimentally.
 
@@ -151,10 +34,11 @@ The game is currently designed for desktop play.
 
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
-- `app.js` - Game state, genetics, time simulation, saves, tests, breeding, and rendering.
+- `app.js` - Game state, genetics, time simulation, saves, tests, breeding, jobs, Heat, corpses, and rendering.
+- `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
+- `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
 - `tests/` - Browser automation experiments and smoke tests.
-- `.gitignore` - Local clutter and generated output exclusions.
 
 ## Saves
 

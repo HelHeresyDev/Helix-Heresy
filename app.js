@@ -9,6 +9,23 @@
   const STORAGE_CAPACITY = 12;
   const WASTE_DRUM_CAPACITY = 8;
   const OVERFLOW_EVENT_INTERVAL = 360;
+  const OVERFLOW_HEAT = 4;
+  const HEAT_MAX = 100;
+  const HEAT_DECAY_DELAY = 1440;
+  const HEAT_DECAY_INTERVAL = 360;
+  const HEAT_BANDS = [
+    { id: "quiet", label: "Quiet", min: 0 },
+    { id: "suspicious", label: "Suspicious", min: 20 },
+    { id: "watched", label: "Watched", min: 40 },
+    { id: "investigated", label: "Investigated", min: 60 },
+    { id: "critical", label: "Critical", min: 80 }
+  ];
+  const DUMP_HEAT = {
+    fresh: 6,
+    decaying: 8,
+    spoiled: 10,
+    ruined: 7
+  };
   const REAL_TICK_MS = 250;
   const DEFAULT_TIME_SPEED = "normal";
   const TIME_SPEEDS = [
@@ -90,6 +107,28 @@
     towering: 3200000,
     "room-filling": 8500000
   };
+  const DIET_TAGS = {
+    sugars: ["organic", "clean"],
+    "bone dust": ["corpse", "mineral"],
+    mold: ["organic", "decay"],
+    "scrap metal": ["metal", "mineral"],
+    ash: ["mineral", "burned"],
+    "lamp oil": ["fuel", "chemical"],
+    "raw mana salts": ["arcane", "mineral"],
+    "rotting leaves": ["organic", "plant", "decay"],
+    sand: ["mineral"],
+    "blood residue": ["corpse", "organic"],
+    "paper fiber": ["organic", "plant"],
+    "glass powder": ["mineral", "hazardous"],
+    "coal dust": ["fuel", "mineral"],
+    "meat slurry": ["corpse", "organic"],
+    "sewer film": ["waste", "organic", "contaminated"],
+    "hazard sludge": ["waste", "chemical", "contaminated", "hazardous"]
+  };
+  const CREATURE_JOBS = [
+    { id: "idle", label: "Idle" },
+    { id: "waste", label: "Waste Processing" }
+  ];
 
   const SKILL_DEFS = [
     { id: "observation", label: "Observation" },
@@ -181,6 +220,10 @@
       paused: true,
       timeSpeed: DEFAULT_TIME_SPEED,
       clock: 0,
+      heat: 0,
+      heatPeakBand: "quiet",
+      lastHeatGainAt: null,
+      lastHeatDecayAt: null,
       currentGenome: "",
       queueDrawerOpen: false,
       slimes: [],
@@ -238,6 +281,7 @@
       "seedReadout",
       "storageReadout",
       "wasteReadout",
+      "heatReadout",
       "pauseBtn",
       "timeSpeedSelect",
       "newRunBtn",
@@ -268,6 +312,8 @@
       "slimeList",
       "wasteSummary",
       "corpseList",
+      "jobSummary",
+      "jobList",
       "testButtons",
       "parentASelect",
       "parentBSelect",
@@ -730,6 +776,14 @@
         events.push({ time: corpse.nextOverflowEventAt, label: `${corpse.name} overflow contamination`, type: "overflow" });
       }
     }
+    const heatEvent = nextHeatBandChangeEvent();
+    if (heatEvent) {
+      events.push(heatEvent);
+    }
+    const jobEvent = nextCreatureJobEvent();
+    if (jobEvent) {
+      events.push(jobEvent);
+    }
     const staminaEvent = nextVitalFullEvent("stamina");
     if (staminaEvent) {
       events.push(staminaEvent);
@@ -760,19 +814,45 @@
     };
   }
 
+  function nextHeatBandChangeEvent() {
+    const floor = passiveHeatFloor();
+    if (state.heat <= floor) {
+      return null;
+    }
+    const currentBand = heatBandForValue(state.heat);
+    if (currentBand.id === "quiet") {
+      return null;
+    }
+    const targetHeat = Math.max(floor, currentBand.min - 1);
+    if (targetHeat >= state.heat) {
+      return null;
+    }
+    const lastGain = finiteTime(state.lastHeatGainAt, state.clock);
+    const decayStart = lastGain + HEAT_DECAY_DELAY;
+    const decayFrom = Math.max(finiteTime(state.lastHeatDecayAt, decayStart), decayStart);
+    const pointsNeeded = Math.ceil(state.heat - targetHeat);
+    return {
+      time: decayFrom + pointsNeeded * HEAT_DECAY_INTERVAL,
+      label: `Heat cools to ${heatBandForValue(targetHeat).label}`,
+      type: "heat"
+    };
+  }
+
   function advanceTime(minutes, options = {}) {
     state.clock += minutes;
     const vitalsChanged = recoverVitals(minutes);
+    const heatChanged = updateHeatDecay();
     const expired = expireSlimes();
     const corpseChanges = updateCorpses();
+    const jobChanges = updateCreatureJobs(minutes);
     const completed = completeDueTasks();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || corpseChanges || completed || vitalsChanged) {
+    if (!options.quiet || expired || corpseChanges || jobChanges || completed || vitalsChanged || heatChanged) {
       persist();
     }
-    return expired + corpseChanges + completed + (vitalsChanged ? 1 : 0);
+    return expired + corpseChanges + jobChanges + completed + (vitalsChanged ? 1 : 0) + (heatChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -903,6 +983,9 @@
       matureAt: options.matureAt ?? state.clock,
       mature: options.mature ?? true,
       status: "contained",
+      job: "idle",
+      jobProgress: 0,
+      jobTargetCorpseId: null,
       revealed: {},
       measured: {},
       traitObservations: {},
@@ -1152,6 +1235,7 @@
     state.corpses.unshift(corpse);
     if (storage === "overflow") {
       addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
+      addHeat(OVERFLOW_HEAT);
     }
     return corpse;
   }
@@ -1264,6 +1348,79 @@
     return "spoiled; disposal needed";
   }
 
+  function addHeat(amount) {
+    const gain = Math.max(0, Number(amount) || 0);
+    if (!gain) {
+      return false;
+    }
+    const beforeBand = heatBandForValue(state.heat);
+    state.heat = clamp(Math.round((Number(state.heat) || 0) + gain), 0, HEAT_MAX);
+    const afterBand = heatBandForValue(state.heat);
+    state.lastHeatGainAt = state.clock;
+    state.lastHeatDecayAt = state.clock;
+    const peakIndex = Math.max(heatBandIndex(state.heatPeakBand), heatBandIndex(afterBand.id));
+    state.heatPeakBand = HEAT_BANDS[peakIndex].id;
+    if (heatBandIndex(afterBand.id) > heatBandIndex(beforeBand.id)) {
+      addEvent(`Heat rose to ${afterBand.label}.`);
+    }
+    return true;
+  }
+
+  function updateHeatDecay() {
+    state.heat = clamp(Math.round(Number(state.heat) || 0), 0, HEAT_MAX);
+    const floor = passiveHeatFloor();
+    if (state.heat <= floor) {
+      return false;
+    }
+    const lastGain = finiteTime(state.lastHeatGainAt, state.clock);
+    const decayStart = lastGain + HEAT_DECAY_DELAY;
+    const decayFrom = Math.max(finiteTime(state.lastHeatDecayAt, decayStart), decayStart);
+    if (state.clock < decayFrom + HEAT_DECAY_INTERVAL) {
+      return false;
+    }
+    const points = Math.floor((state.clock - decayFrom) / HEAT_DECAY_INTERVAL);
+    if (points < 1) {
+      return false;
+    }
+    const beforeHeat = state.heat;
+    const beforeBand = heatBandForValue(state.heat);
+    state.heat = Math.max(floor, state.heat - points);
+    state.lastHeatDecayAt = decayFrom + points * HEAT_DECAY_INTERVAL;
+    const afterBand = heatBandForValue(state.heat);
+    if (heatBandIndex(afterBand.id) < heatBandIndex(beforeBand.id)) {
+      addEvent(`Heat cooled to ${afterBand.label}.`);
+    }
+    return state.heat !== beforeHeat;
+  }
+
+  function passiveHeatFloor() {
+    const peakIndex = heatBandIndex(state.heatPeakBand);
+    return HEAT_BANDS[Math.max(0, peakIndex - 1)].min;
+  }
+
+  function heatBandForValue(value) {
+    const heat = clamp(Math.round(Number(value) || 0), 0, HEAT_MAX);
+    for (let index = HEAT_BANDS.length - 1; index >= 0; index -= 1) {
+      if (heat >= HEAT_BANDS[index].min) {
+        return HEAT_BANDS[index];
+      }
+    }
+    return HEAT_BANDS[0];
+  }
+
+  function heatBandIndex(id) {
+    const index = HEAT_BANDS.findIndex((band) => band.id === id);
+    return index >= 0 ? index : 0;
+  }
+
+  function finiteTime(value, fallback) {
+    if (value === null || value === undefined || value === "") {
+      return fallback;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
   function updateCorpses() {
     let changes = 0;
     for (const corpse of state.corpses || []) {
@@ -1275,6 +1432,7 @@
       corpse.lastFreshness = freshness;
       if (corpse.storage === "overflow" && state.clock >= (corpse.nextOverflowEventAt || state.clock)) {
         addEvent(`${corpse.name} overflow corpse is leaking contamination and evidence.`);
+        addHeat(OVERFLOW_HEAT);
         corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
         changes += 1;
       }
@@ -1554,6 +1712,10 @@
     if (key === "stability") {
       return { label: entry[0], meta: { risk: entry[1] } };
     }
+    if (key === "diet") {
+      const label = String(entry);
+      return { label, meta: { index, tags: [...(DIET_TAGS[label] || [])] } };
+    }
     if (key === "brood") {
       return { label: entry[0], meta: { count: entry[1] } };
     }
@@ -1631,7 +1793,7 @@
   function cloneOutcome(outcome) {
     return {
       label: outcome.label,
-      meta: { ...outcome.meta }
+      meta: clonePlainObject(outcome.meta)
     };
   }
 
@@ -1659,6 +1821,7 @@
     renderPredictions();
     renderSlimes();
     renderCorpses();
+    renderJobs();
     renderTests();
     renderBreeding();
     renderScientist();
@@ -1686,6 +1849,10 @@
     dom.wasteReadout.textContent = overflow
       ? `Waste ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} +${overflow}`
       : `Waste ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}`;
+    const heatBand = heatBandForValue(state.heat);
+    dom.heatReadout.textContent = `Heat: ${heatBand.label}`;
+    dom.heatReadout.dataset.heatBand = heatBand.id;
+    dom.heatReadout.title = `Heat is ${heatBand.label.toLowerCase()}. Exact Heat is hidden.`;
     renderVitalReadouts();
     refreshActionControls();
     renderQueueShell();
@@ -1711,6 +1878,18 @@
       const corpse = findCorpse(element.dataset.corpseDecay);
       if (corpse) {
         element.textContent = corpseDecayText(corpse);
+      }
+    }
+    for (const element of document.querySelectorAll("[data-job-remaining]")) {
+      const slime = findSlime(element.dataset.jobRemaining);
+      if (slime && slime.job === "waste") {
+        element.textContent = jobRemainingText(slime);
+      }
+    }
+    for (const element of document.querySelectorAll("[data-job-fill]")) {
+      const slime = findSlime(element.dataset.jobFill);
+      if (slime) {
+        element.style.width = `${jobProgressPercent(slime)}%`;
       }
     }
   }
@@ -1934,6 +2113,7 @@
       life.dataset.slimeLife = slime.id;
       meta.append(maturity);
       meta.append(life);
+      meta.append(chip(creatureJobLabel(slime.job)));
       meta.append(chip(slime.genome));
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
@@ -1982,7 +2162,16 @@
       necropsy.addEventListener("click", () => {
         startNecropsy(corpse);
       });
-      actions.append(necropsy);
+      const dump = document.createElement("button");
+      dump.type = "button";
+      dump.className = "danger-action";
+      dump.textContent = "Dump Outside";
+      const dumpReason = dumpCorpseBlockReason(corpse);
+      setActionButtonState(dump, Boolean(dumpReason), dumpReason);
+      dump.addEventListener("click", () => {
+        dumpCorpseOutside(corpse.id);
+      });
+      actions.append(necropsy, dump);
 
       card.append(title, renderIdentityStrip(corpse, evaluated), meta, actions);
       if (corpse.necropsyReport) {
@@ -1992,6 +2181,82 @@
         card.append(report);
       }
       dom.corpseList.append(card);
+    }
+  }
+
+  function renderJobs() {
+    dom.jobList.textContent = "";
+    const living = state.slimes.filter((slime) => slime.status !== "dead");
+    const active = living.filter((slime) => {
+      normalizeSlimeJob(slime);
+      return slime.job !== "idle";
+    }).length;
+    const eligibleWaste = (state.corpses || []).filter(isWasteProcessingTarget).length;
+    dom.jobSummary.textContent = living.length
+      ? `${active} active jobs; ${eligibleWaste} eligible waste specimen${eligibleWaste === 1 ? "" : "s"}`
+      : "No living creatures available for jobs.";
+
+    if (!living.length) {
+      dom.jobList.append(emptyText("No living workers."));
+      return;
+    }
+
+    for (const slime of living) {
+      normalizeSlimeJob(slime);
+      const row = document.createElement("div");
+      row.className = "job-row";
+
+      const details = document.createElement("div");
+      const header = document.createElement("div");
+      header.className = "job-row-header";
+      header.append(textEl("strong", slime.name), textEl("span", slime.mature ? slime.status : "immature"));
+
+      const meta = document.createElement("div");
+      meta.className = "job-meta";
+      meta.append(chip(creatureJobLabel(slime.job)));
+      if (slime.job === "waste") {
+        const suitability = observedWasteProcessingSuitability(slime);
+        meta.append(chip(suitability.known ? `estimated ${suitability.band.toLowerCase()}` : "suitability unknown"));
+        const target = findCorpse(slime.jobTargetCorpseId);
+        meta.append(chip(target ? `target ${target.name}` : "no eligible waste"));
+        if (target) {
+          const remainingChip = chip(jobRemainingText(slime));
+          remainingChip.dataset.jobRemaining = slime.id;
+          meta.append(remainingChip);
+        }
+      } else {
+        meta.append(chip(canWorkJob(slime) ? "available" : "not ready"));
+      }
+      details.append(header, meta);
+
+      if (slime.job === "waste" && isWasteProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
+        const bar = document.createElement("div");
+        bar.className = "job-progress";
+        const fill = document.createElement("div");
+        fill.className = "job-progress-fill";
+        fill.dataset.jobFill = slime.id;
+        fill.style.width = `${jobProgressPercent(slime)}%`;
+        bar.append(fill);
+        details.append(bar);
+      }
+
+      const select = document.createElement("select");
+      select.className = "job-select";
+      select.dataset.jobSlimeId = slime.id;
+      select.disabled = !canWorkJob(slime);
+      for (const job of CREATURE_JOBS) {
+        const option = document.createElement("option");
+        option.value = job.id;
+        option.textContent = job.label;
+        select.append(option);
+      }
+      select.value = slime.job;
+      select.addEventListener("change", () => {
+        assignCreatureJob(slime.id, select.value);
+      });
+
+      row.append(details, select);
+      dom.jobList.append(row);
     }
   }
 
@@ -2035,6 +2300,424 @@
       return 24;
     }
     return 30;
+  }
+
+  function dumpCorpseOutside(corpseId) {
+    const corpse = findCorpse(corpseId);
+    const reason = dumpCorpseBlockReason(corpse);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return;
+    }
+    removeCorpseRecord(corpse.id);
+    addEvent(`${corpse.name} was dumped outside. Evidence risk increased.`);
+    addHeat(dumpHeatForCorpse(corpse));
+    persist();
+    render();
+  }
+
+  function dumpCorpseBlockReason(corpse) {
+    if (!corpse) {
+      return "Corpse not found.";
+    }
+    if (hasPendingNecropsy(corpse.id)) {
+      return "Necropsy already pending.";
+    }
+    return "";
+  }
+
+  function dumpHeatForCorpse(corpse) {
+    return DUMP_HEAT[corpseFreshness(corpse)] || DUMP_HEAT.decaying;
+  }
+
+  function assignCreatureJob(slimeId, jobId) {
+    const slime = findSlime(slimeId);
+    if (!slime) {
+      return;
+    }
+    normalizeSlimeJob(slime);
+    const nextJob = CREATURE_JOBS.some((job) => job.id === jobId) ? jobId : "idle";
+    if (nextJob !== "idle" && !canWorkJob(slime)) {
+      addEvent(`${slime.name} is not ready for job assignment.`);
+      persist();
+      render();
+      return;
+    }
+    slime.job = nextJob;
+    slime.jobProgress = 0;
+    slime.jobTargetCorpseId = null;
+    if (nextJob === "waste") {
+      assignWasteTarget(slime, reservedWasteTargets(slime.id));
+      addEvent(slime.jobTargetCorpseId
+        ? `${slime.name} assigned to waste processing.`
+        : `${slime.name} assigned to waste processing; no eligible waste is waiting.`);
+    } else {
+      addEvent(`${slime.name} set to idle.`);
+    }
+    persist();
+    render();
+  }
+
+  function updateCreatureJobs(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    let changes = 0;
+    const workers = state.slimes.filter((slime) => {
+      normalizeSlimeJob(slime);
+      return slime.job === "waste" && canWorkJob(slime);
+    });
+    const reserved = new Set();
+    for (const slime of workers) {
+      if (isWasteProcessingTarget(findCorpse(slime.jobTargetCorpseId)) && !reserved.has(slime.jobTargetCorpseId)) {
+        reserved.add(slime.jobTargetCorpseId);
+      } else {
+        slime.jobTargetCorpseId = null;
+        slime.jobProgress = 0;
+      }
+    }
+    for (const slime of workers) {
+      let assignedTargetNow = false;
+      if (!slime.jobTargetCorpseId && assignWasteTarget(slime, reserved)) {
+        assignedTargetNow = true;
+        changes += 1;
+      }
+      if (!slime.jobTargetCorpseId) {
+        continue;
+      }
+      if (assignedTargetNow) {
+        continue;
+      }
+      let remaining = elapsed;
+      while (remaining > 0 && slime.jobTargetCorpseId) {
+        const target = findCorpse(slime.jobTargetCorpseId);
+        if (!isWasteProcessingTarget(target)) {
+          reserved.delete(slime.jobTargetCorpseId);
+          slime.jobTargetCorpseId = null;
+          slime.jobProgress = 0;
+          changes += 1;
+          break;
+        }
+        const duration = wasteProcessingDuration(slime);
+        const needed = Math.max(0, duration - slime.jobProgress);
+        if (remaining < needed) {
+          slime.jobProgress += remaining;
+          remaining = 0;
+          break;
+        }
+        remaining -= needed;
+        removeCorpseRecord(target.id);
+        reserved.delete(target.id);
+        addEvent(`${slime.name} processed ${target.name} remains into inert sludge.`);
+        slime.jobProgress = 0;
+        slime.jobTargetCorpseId = null;
+        changes += 1;
+        assignWasteTarget(slime, reserved);
+      }
+    }
+    return changes;
+  }
+
+  function nextCreatureJobEvent() {
+    const events = [];
+    for (const slime of state.slimes) {
+      normalizeSlimeJob(slime);
+      if (slime.job !== "waste" || !canWorkJob(slime) || !isWasteProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
+        continue;
+      }
+      events.push({
+        time: state.clock + Math.max(0, wasteProcessingDuration(slime) - slime.jobProgress),
+        label: `${slime.name} waste processing`,
+        type: "job"
+      });
+    }
+    return events
+      .filter((event) => Number.isFinite(event.time) && event.time >= state.clock)
+      .sort((a, b) => a.time - b.time)[0] || null;
+  }
+
+  function assignWasteTarget(slime, reserved = reservedWasteTargets(slime.id)) {
+    const target = chooseWasteProcessingTarget(reserved);
+    if (!target) {
+      slime.jobTargetCorpseId = null;
+      slime.jobProgress = 0;
+      return false;
+    }
+    slime.jobTargetCorpseId = target.id;
+    slime.jobProgress = 0;
+    reserved.add(target.id);
+    return true;
+  }
+
+  function reservedWasteTargets(exceptSlimeId = null) {
+    const reserved = new Set();
+    for (const slime of state.slimes || []) {
+      if (slime.id === exceptSlimeId) {
+        continue;
+      }
+      normalizeSlimeJob(slime);
+      if (slime.job === "waste" && isWasteProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
+        reserved.add(slime.jobTargetCorpseId);
+      }
+    }
+    return reserved;
+  }
+
+  function chooseWasteProcessingTarget(reserved = new Set()) {
+    return [...(state.corpses || [])]
+      .filter((corpse) => isWasteProcessingTarget(corpse) && !reserved.has(corpse.id))
+      .sort((a, b) => wasteTargetPriority(a) - wasteTargetPriority(b) || a.diedAt - b.diedAt)
+      [0] || null;
+  }
+
+  function wasteTargetPriority(corpse) {
+    return corpseFreshness(corpse) === "ruined" ? 0 : 1;
+  }
+
+  function isWasteProcessingTarget(corpse) {
+    if (!corpse || corpse.storage !== "drum") {
+      return false;
+    }
+    const freshness = corpseFreshness(corpse);
+    return freshness === "ruined" || freshness === "spoiled";
+  }
+
+  function removeCorpseRecord(corpseId) {
+    state.corpses = (state.corpses || []).filter((corpse) => corpse.id !== corpseId);
+    for (const slime of state.slimes || []) {
+      if (slime.jobTargetCorpseId === corpseId) {
+        slime.jobTargetCorpseId = null;
+        slime.jobProgress = 0;
+      }
+    }
+  }
+
+  function normalizeSlimeJob(slime) {
+    if (!slime) {
+      return;
+    }
+    if (!CREATURE_JOBS.some((job) => job.id === slime.job)) {
+      slime.job = "idle";
+    }
+    slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
+    slime.jobTargetCorpseId ||= null;
+    if (slime.job === "idle") {
+      slime.jobProgress = 0;
+      slime.jobTargetCorpseId = null;
+    }
+  }
+
+  function canWorkJob(slime) {
+    return Boolean(slime && slime.status !== "dead" && slime.mature);
+  }
+
+  function wasteProcessingDuration(slime) {
+    const score = wasteProcessingSuitability(slime).score;
+    return Math.round(clamp(240 - score * 1.8, 45, 240));
+  }
+
+  function jobRemainingText(slime) {
+    if (observedWasteProcessingSuitability(slime).known) {
+      return `${formatDuration(Math.max(0, wasteProcessingDuration(slime) - slime.jobProgress))} remaining`;
+    }
+    return slime.jobProgress > 0 ? "processing underway" : "processing";
+  }
+
+  function jobProgressPercent(slime) {
+    if (slime.job !== "waste" || !isWasteProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
+      return 0;
+    }
+    return Math.round(clamp((slime.jobProgress / wasteProcessingDuration(slime)) * 100, 0, 100));
+  }
+
+  function wasteProcessingSuitability(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const traits = evaluated.traits;
+    const profile = physicalProfile(slime.genome, evaluated);
+    const tags = new Set(traits.diet.meta?.tags || []);
+    let score = 0;
+    const reasons = [];
+    const element = baseOutcomeLabel(traits.element);
+    const consistency = baseOutcomeLabel(traits.consistency);
+    const behavior = baseOutcomeLabel(traits.behavior);
+    const stabilityRisk = Number(traits.stability.meta?.risk) || 5;
+
+    const elementScores = {
+      acid: 42,
+      flame: 30,
+      poison: 28,
+      water: 18,
+      metal: 12,
+      stone: 12,
+      null: 8
+    };
+    if (elementScores[element]) {
+      score += elementScores[element];
+      reasons.push(`${element} affinity`);
+    }
+    const consistencyScores = {
+      watery: 18,
+      "runny gel": 20,
+      "loose jelly": 16,
+      mucous: 18,
+      "tar-like": 14,
+      "grainy slurry": 10,
+      "soft gelatin": 8
+    };
+    if (consistencyScores[consistency]) {
+      score += consistencyScores[consistency];
+      reasons.push(consistency);
+    }
+    if (tags.has("corpse")) {
+      score += 32;
+      reasons.push("corpse-compatible diet");
+    }
+    if (tags.has("waste")) {
+      score += 24;
+      reasons.push("waste diet");
+    }
+    if (tags.has("decay")) {
+      score += 12;
+      reasons.push("decay diet");
+    }
+    if (tags.has("contaminated") || tags.has("hazardous")) {
+      score += 8;
+      reasons.push("hazard-tolerant diet");
+    }
+    if (behavior === "cleaning") {
+      score += 16;
+      reasons.push("cleaning behavior");
+    } else if (behavior === "burrowing" || behavior === "swarming") {
+      score += 8;
+      reasons.push(`${behavior} behavior`);
+    }
+    if ((profile?.weightKg || 0) >= 20) {
+      score += 8;
+    }
+    if ((profile?.weightKg || 0) < 1) {
+      score -= 8;
+    }
+    score -= Math.max(0, stabilityRisk - 5) * 4;
+    score = clamp(Math.round(score), 0, 100);
+    return {
+      score,
+      band: wasteSuitabilityBand(score),
+      reasons
+    };
+  }
+
+  function observedWasteProcessingSuitability(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const traits = evaluated.traits;
+    const knownKeys = ["element", "consistency", "diet", "behavior", "stability", "size", "shape"]
+      .filter((traitKey) => slime.revealed?.[traitKey]);
+    if (!knownKeys.length) {
+      return { known: false, score: 0, band: "Unknown", reasons: [] };
+    }
+
+    let score = 0;
+    const reasons = [];
+    if (slime.revealed?.element) {
+      const element = baseOutcomeLabel(traits.element);
+      const elementScores = {
+        acid: 42,
+        flame: 30,
+        poison: 28,
+        water: 18,
+        metal: 12,
+        stone: 12,
+        null: 8
+      };
+      if (elementScores[element]) {
+        score += elementScores[element];
+        reasons.push(`${element} affinity`);
+      }
+    }
+    if (slime.revealed?.consistency) {
+      const consistency = baseOutcomeLabel(traits.consistency);
+      const consistencyScores = {
+        watery: 18,
+        "runny gel": 20,
+        "loose jelly": 16,
+        mucous: 18,
+        "tar-like": 14,
+        "grainy slurry": 10,
+        "soft gelatin": 8
+      };
+      if (consistencyScores[consistency]) {
+        score += consistencyScores[consistency];
+        reasons.push(consistency);
+      }
+    }
+    if (slime.revealed?.diet) {
+      const tags = new Set(traits.diet.meta?.tags || []);
+      if (tags.has("corpse")) {
+        score += 32;
+        reasons.push("corpse-compatible diet");
+      }
+      if (tags.has("waste")) {
+        score += 24;
+        reasons.push("waste diet");
+      }
+      if (tags.has("decay")) {
+        score += 12;
+        reasons.push("decay diet");
+      }
+      if (tags.has("contaminated") || tags.has("hazardous")) {
+        score += 8;
+        reasons.push("hazard-tolerant diet");
+      }
+    }
+    if (slime.revealed?.behavior) {
+      const behavior = baseOutcomeLabel(traits.behavior);
+      if (behavior === "cleaning") {
+        score += 16;
+        reasons.push("cleaning behavior");
+      } else if (behavior === "burrowing" || behavior === "swarming") {
+        score += 8;
+        reasons.push(`${behavior} behavior`);
+      }
+    }
+    if (slime.revealed?.size && slime.revealed?.shape) {
+      const profile = physicalProfile(slime.genome, evaluated);
+      if ((profile?.weightKg || 0) >= 20) {
+        score += 8;
+      }
+      if ((profile?.weightKg || 0) < 1) {
+        score -= 8;
+      }
+    }
+    if (slime.revealed?.stability) {
+      const stabilityRisk = Number(traits.stability.meta?.risk) || 5;
+      score -= Math.max(0, stabilityRisk - 5) * 4;
+    }
+    score = clamp(Math.round(score), 0, 100);
+    return {
+      known: true,
+      score,
+      band: wasteSuitabilityBand(score),
+      reasons
+    };
+  }
+
+  function wasteSuitabilityBand(score) {
+    if (score >= 75) {
+      return "Excellent";
+    }
+    if (score >= 50) {
+      return "Good";
+    }
+    if (score >= 25) {
+      return "Adequate";
+    }
+    return "Poor";
+  }
+
+  function creatureJobLabel(jobId) {
+    return CREATURE_JOBS.find((job) => job.id === jobId)?.label || CREATURE_JOBS[0].label;
   }
 
   function renderIdentityStrip(slime, evaluated) {
@@ -3898,6 +4581,17 @@
     next.events ||= [];
     next.tasks ||= [];
     next.slimes ||= [];
+    next.heat = clamp(Math.round(Number(next.heat) || 0), 0, HEAT_MAX);
+    const currentHeatBand = heatBandForValue(next.heat);
+    const peakIndex = Math.max(heatBandIndex(next.heatPeakBand), heatBandIndex(currentHeatBand.id));
+    next.heatPeakBand = HEAT_BANDS[peakIndex].id;
+    if (next.heat > 0) {
+      next.lastHeatGainAt = Math.min(finiteTime(next.lastHeatGainAt, next.clock), next.clock);
+      next.lastHeatDecayAt = Math.min(finiteTime(next.lastHeatDecayAt, next.lastHeatGainAt), next.clock);
+    } else {
+      next.lastHeatGainAt = null;
+      next.lastHeatDecayAt = null;
+    }
     next.nextCorpseNumber = Math.max(
       Number(next.nextCorpseNumber) || 1,
       next.corpses.reduce((max, corpse) => Math.max(max, numericSuffix(corpse.id)), 0) + 1
@@ -3919,6 +4613,7 @@
       slime.measured ||= {};
       slime.traitObservations ||= {};
       slime.testsRun ||= [];
+      normalizeSlimeJob(slime);
     }
     return next;
   }
