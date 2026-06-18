@@ -453,6 +453,7 @@ h2 {
 .trait-grid,
 .journal-map,
 .skill-list,
+.resource-list,
 .vital-grid {
   display: grid;
   gap: 0.45rem;
@@ -463,6 +464,7 @@ h2 {
 }
 
 .vital-row,
+.resource-row,
 .skill-row {
   padding: 0.5rem;
   background: var(--panel-2);
@@ -470,13 +472,15 @@ h2 {
   border-radius: 6px;
 }
 
-.vital-row {
+.vital-row,
+.resource-row {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
 }
 
 .vital-row span,
+.resource-row span,
 .skill-meta {
   color: var(--muted);
   font-size: 0.82rem;

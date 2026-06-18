@@ -9,10 +9,11 @@ For story background, long-term systems, current design direction, and open ques
 ## Current Prototype
 
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
-- Slime synthesis, testing, breeding, lifespan, maturity, and local saves.
+- Slime synthesis with Biomass costs, testing, breeding, lifespan, maturity, and local saves.
+- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, and Waste.
 - Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, and movement.
-- Corpse handling with waste drums, decay states, necropsy, dumping, Heat, and Waste Processing jobs.
-- Creature Jobs panel with Idle and Waste Processing assignments.
+- Corpse handling with waste drums, decay states, necropsy, dumping, Heat, and Corpse Processing jobs.
+- Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments.
 - Scientist stamina, mana, skills, XP, timed tasks, speed controls, skip controls, and keyboard shortcuts.
 - Automatic, manual, and disabled journal modes.
 

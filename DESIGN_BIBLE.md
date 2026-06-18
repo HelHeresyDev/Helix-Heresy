@@ -32,6 +32,27 @@ Long-Term Story
 
 The laboratory begins as an illegal biotechnology operation focused on creating increasingly sophisticated lifeforms. Over time, creature intelligence increases and some creations become self-aware, form societies, develop cultures, and create belief systems. Many eventually conclude that the being who designed them, created them, and shapes their world must be divine. The scientist never intends to create a religion, but worship from their creations gradually elevates their soul. What begins as a hidden laboratory eventually becomes a rival source of divinity, culminating in a conflict between a self-made god of biotechnology and the existing divine order.
 
+## Slime Biology
+
+Slimes are the starter creature family because they are simple, durable, adaptable, and biologically permissive. “Slime” is a broad category, not a single body type. Some are gelatinous, but others may be watery, rubbery, crystalline, tar-like, waxen, clay-like, fibrous, foamy, or stranger forms. Their shape, consistency, appendages, element, diet, and behavior determine how they function.
+
+Slimes are asexual scavenger organisms that can consume almost anything, but not necessarily well. A poorly suited slime can still eat corpses, waste, reagents, or strange materials, but it may digest slowly, injure itself, leave residue behind, create contamination, or produce low-quality outputs. Specialized slimes are valuable because they perform the same biological work faster, cleaner, and with less risk.
+
+A slime’s body is usually distributed and partially replaceable. This makes many slimes resistant to ordinary physical damage, since cutting, crushing, puncturing, melting, or removing part of the body may not kill the creature. The exact form of resilience depends on body consistency. A watery slime, brittle crystalline slime, rubbery slime, and tar-like slime should not all react to damage the same way. Ordinary harm should damage body integrity, reduce efficiency, increase stress, or make jobs harder, but it should not automatically shorten natural lifespan.
+
+Each slime has a core that functions as its vital biological center and animantic anchor. The body can often be damaged or partially destroyed while the slime survives, but destruction of the core kills the creature. The core is also a natural place to connect future systems such as soul imprinting, animancy, necropsy value, core corruption, cloning, mutation instability, and catastrophic job failure.
+
+Slimes reproduce primarily by splitting rather than sexual breeding. A mature slime that consumes enough material can become nutritionally saturated, and sustained fullness creates reproductive pressure. This should not mean a slime instantly splits the moment it eats enough. Instead, fullness should create a readiness state or chance for natural division over time. Depending on the slime’s traits, reproduction may look like splitting, budding, fracturing, shedding, leaking off daughter masses, or separating into offspring.
+
+Natural slime reproduction is unstable. Offspring are based mostly on the parent’s genome, but artificial slime biology is crude, magically reactive, and easy to perturb, so natural splitting should carry a meaningful mutation chance. Traits such as brood size, growth speed, stability, consistency, nutrition, and laboratory conditions can eventually influence how often splitting occurs, how many offspring are produced, and how chaotic the mutations are.
+
+The current breeding concept should eventually be reframed for slimes. Single-parent reproduction should be treated as natural splitting, induced splitting, budding, forced mitosis, or consistency-specific separation. Two-parent slime “breeding” should represent laboratory intervention rather than natural reproduction, such as core fusion, genome splicing, sample grafting, reagent-mediated recombination, or forced genetic exchange before division. This allows crossbreeding to remain as a mechanic while keeping slime biology distinct.
+
+Mutation should not be pure chaos in every situation. Natural splitting after sustained fullness can have a higher mutation chance, while controlled laboratory splitting can reduce mutation risk at the cost of time, equipment, resources, or skill. Forced recombination can allow two-parent mixing but carry greater instability. This gives the player choices between reliable replication, risky experimentation, and deliberate genetic recombination.
+
+The practical rule for slimes is that they are generalist scavengers by default and specialists by design. Any slime can attempt crude jobs like corpse consumption, waste disposal, hazardous cleanup, or basic production, but traits should determine whether the job is safe, fast, efficient, or useful. Feeding slimes is therefore not just maintenance; it can also create reproductive pressure, storage problems, mutation opportunities, and new resource-management decisions. Slime biology should support the larger game loop: create strange organisms, study their traits, feed and use them, manage the consequences of their reproduction and waste, and breed or engineer better versions.
+
+
 ## Design Vision
 
 Helix Heresy should feel like running an unsafe little arcane biology lab. The player should not start with a complete wiki. They should learn by making creatures, testing them, comparing notes, and breeding toward goals they only partially understand.
@@ -135,7 +156,8 @@ Open design questions:
 - Clickable ASCII DNA helix with paired bases.
 - Distinct color coding for A, C, G, and T.
 - Seeded procedural gene mapping for repeatable runs.
-- Slime synthesis from 26-base genomes.
+- Slime synthesis from 26-base genomes with a Biomass cost.
+- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, and Waste.
 - Genetic shape and appendage traits.
 - Genetic body consistency.
 - Shape-aware size dimensions.
@@ -151,11 +173,13 @@ Open design questions:
 - Corpse states include fresh, decaying, spoiled, ruined, and overflow pressure.
 - Fresh corpse necropsy reveals remaining unknown genetic traits for that specimen.
 - Necropsy produces an effectiveness report and ruins the corpse without disposing of it.
+- Fresh necropsy recovers a small amount of Genetic Material.
 - Dumping corpses outside removes them from waste drums while increasing Heat.
 - Heat is shown as a status band, with hidden exact values, delayed passive decay, and a floor based on the highest band reached.
-- Creature Jobs panel with idle assignment and Waste Processing.
-- Waste Processing uses creature traits and diet categories to process only ruined or spoiled waste-drum corpses into inert sludge.
-- Visible job suitability is only an estimate from discovered traits; hidden biology can still affect actual job performance.
+- Creature Jobs panel with idle assignment, Corpse Processing, and Waste Disposal.
+- Corpse Processing uses creature traits and diet categories to process only ruined or spoiled waste-drum corpses into Biomass and tagged Waste.
+- Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output and suitability learned through observed speed, exposure, and contamination.
+- Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and individual skills.
 - Stamina costs, passive regeneration, and queued rest actions.
 - XP cheat command for testing skill progression.
