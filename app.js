@@ -7,8 +7,17 @@
   const BASES = ["A", "C", "G", "T"];
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
+  const WASTE_DRUM_CAPACITY = 8;
+  const OVERFLOW_EVENT_INTERVAL = 360;
   const REAL_TICK_MS = 250;
-  const GAME_MINUTES_PER_REAL_SECOND = 1;
+  const DEFAULT_TIME_SPEED = "normal";
+  const TIME_SPEEDS = [
+    { id: "realtime", label: "1x", description: "real-time", minutesPerSecond: 1 / 60 },
+    { id: "normal", label: "60x", description: "1 min/sec", minutesPerSecond: 1 },
+    { id: "fast", label: "300x", description: "5 min/sec", minutesPerSecond: 5 },
+    { id: "very-fast", label: "1800x", description: "30 min/sec", minutesPerSecond: 30 },
+    { id: "hourly", label: "3600x", description: "1 hr/sec", minutesPerSecond: 60 }
+  ];
   const MAX_SKILL_LEVEL = 100;
   const STAMINA_REGEN_MINUTES = 10;
   const MANA_REGEN_MINUTES = 10;
@@ -20,6 +29,7 @@
   const DISPLAY_REGION_KEYS = [
     "size",
     "shape",
+    "consistency",
     "appendages",
     "color",
     "behavior",
@@ -35,9 +45,9 @@
     size: "□",
     shape: "#",
     appendages: "+",
+    consistency: "~",
     weight: "w",
     color: "■",
-    texture: "≋",
     movement: "→",
     behavior: "!",
     diet: "◒",
@@ -110,7 +120,8 @@
     { key: "appendages", label: "Appendages", test: "visual" },
     { key: "brood", label: "Brood Size", test: "breeding" },
     { key: "growth", label: "Growth Speed", test: "breeding" },
-    { key: "lifespan", label: "Lifespan", test: "lifespan" }
+    { key: "lifespan", label: "Lifespan", test: "lifespan" },
+    { key: "consistency", label: "Body Consistency", test: "visual" }
   ].map((region, index) => ({
     ...region,
     start: index * 2,
@@ -127,6 +138,7 @@
   const SLIME_DISPLAY_KEYS = [
     "size",
     "shape",
+    "consistency",
     "appendages",
     "color",
     "weight",
@@ -142,7 +154,7 @@
   ];
   const SLIME_DISPLAY_DEFS = SLIME_DISPLAY_KEYS.map((key) => REGION_BY_KEY[key] || VIRTUAL_TRAIT_DEFS[key]);
   const TESTS = [
-    { id: "visual", label: "Visual Survey", traits: ["size", "shape", "appendages", "color"], duration: 4, skillId: "observation", xp: 15 },
+    { id: "visual", label: "Visual Survey", traits: ["size", "shape", "consistency", "appendages", "color"], duration: 4, skillId: "observation", xp: 15 },
     { id: "feed", label: "Feed Test", traits: ["diet"], duration: 8, skillId: "nutrition", xp: 20 },
     { id: "element", label: "Element Exposure", traits: ["element"], duration: 10, skillId: "arcaneChemistry", xp: 20 },
     { id: "containment", label: "Containment Test", traits: ["stability"], duration: 12, skillId: "physiology", xp: 25 },
@@ -167,13 +179,16 @@
       complexity: "clean",
       scientist: defaultScientist(),
       paused: true,
+      timeSpeed: DEFAULT_TIME_SPEED,
       clock: 0,
       currentGenome: "",
       queueDrawerOpen: false,
       slimes: [],
+      corpses: [],
       tasks: [],
       selectedSlimeId: null,
       nextSlimeNumber: 1,
+      nextCorpseNumber: 1,
       nextTaskNumber: 1,
       discoveries: {},
       regionNotes: {},
@@ -199,10 +214,13 @@
 
   function init() {
     cacheDom();
+    populateTimeSpeedSelect();
+    dom.sequenceInput.maxLength = GENOME_LENGTH;
     bindEvents();
     const loaded = loadLocalSave();
     state = loaded || defaultState();
     geneMap = buildGeneMap(state.seed, state.complexity);
+    prepareCorpseState();
     if (!state.currentGenome) {
       state.currentGenome = randomGenome(seedRng(`${state.seed}:starter`));
     }
@@ -216,9 +234,12 @@
     for (const id of [
       "clockReadout",
       "pauseReadout",
+      "speedReadout",
       "seedReadout",
       "storageReadout",
+      "wasteReadout",
       "pauseBtn",
+      "timeSpeedSelect",
       "newRunBtn",
       "exportFolderBtn",
       "exportFileBtn",
@@ -245,6 +266,8 @@
       "selectedSlimeSummary",
       "releaseBtn",
       "slimeList",
+      "wasteSummary",
+      "corpseList",
       "testButtons",
       "parentASelect",
       "parentBSelect",
@@ -268,6 +291,8 @@
       "queueSummary",
       "skipAmountInput",
       "skipTimeBtn",
+      "skipNextEventBtn",
+      "skipQueueBtn",
       "taskList",
       "eventLog",
       "setupOverlay",
@@ -281,12 +306,23 @@
     }
   }
 
+  function populateTimeSpeedSelect() {
+    dom.timeSpeedSelect.textContent = "";
+    for (const [index, speed] of TIME_SPEEDS.entries()) {
+      const option = document.createElement("option");
+      option.value = speed.id;
+      option.textContent = `${index + 1}: ${speed.label} (${speed.description})`;
+      dom.timeSpeedSelect.append(option);
+    }
+  }
+
   function bindEvents() {
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
       const next = defaultState();
       next.started = true;
-      next.paused = false;
+      next.paused = true;
+      next.timeSpeed = DEFAULT_TIME_SPEED;
       next.seed = cleanSeed(dom.seedInput.value) || makeSeed();
       next.journalMode = dom.journalModeSelect.value;
       next.complexity = dom.complexitySelect.value;
@@ -303,10 +339,11 @@
     });
 
     dom.pauseBtn.addEventListener("click", () => {
-      state.paused = !state.paused;
-      lastTickAt = Date.now();
-      persist();
-      render();
+      togglePause();
+    });
+
+    dom.timeSpeedSelect.addEventListener("change", () => {
+      setTimeSpeed(dom.timeSpeedSelect.value);
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -519,6 +556,16 @@
       render();
     });
 
+    dom.skipNextEventBtn.addEventListener("click", () => {
+      skipToNextEvent();
+    });
+
+    dom.skipQueueBtn.addEventListener("click", () => {
+      skipToNextQueueCompletion();
+    });
+
+    document.addEventListener("keydown", handleTimeShortcut);
+
     dom.exportFileBtn.addEventListener("click", () => {
       downloadSave();
     });
@@ -530,6 +577,48 @@
     dom.importFileInput.addEventListener("change", importSave);
   }
 
+  function handleTimeShortcut(event) {
+    if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
+      return;
+    }
+    if (event.code === "Space") {
+      event.preventDefault();
+      togglePause();
+      return;
+    }
+    if (event.key === "[") {
+      event.preventDefault();
+      changeTimeSpeed(-1);
+      return;
+    }
+    if (event.key === "]") {
+      event.preventDefault();
+      changeTimeSpeed(1);
+      return;
+    }
+    if (/^[1-5]$/.test(event.key)) {
+      event.preventDefault();
+      setTimeSpeedByIndex(Number(event.key));
+      return;
+    }
+    if (event.code === "Period") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        skipToNextQueueCompletion();
+      } else {
+        skipToNextEvent();
+      }
+    }
+  }
+
+  function isTypingTarget(target) {
+    const element = target instanceof Element ? target : null;
+    if (!element) {
+      return false;
+    }
+    return Boolean(element.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
   function tick() {
     const now = Date.now();
     const elapsedSeconds = (now - lastTickAt) / 1000;
@@ -537,7 +626,7 @@
     if (!state?.started || state.paused) {
       return;
     }
-    const changed = advanceTime(elapsedSeconds * GAME_MINUTES_PER_REAL_SECOND, { quiet: true });
+    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().minutesPerSecond, { quiet: true });
     if (changed) {
       render();
     } else {
@@ -545,18 +634,145 @@
     }
   }
 
+  function togglePause() {
+    state.paused = !state.paused;
+    lastTickAt = Date.now();
+    persist();
+    render();
+  }
+
+  function setTimeSpeed(speedId) {
+    const speed = TIME_SPEEDS.find((candidate) => candidate.id === speedId) || timeSpeedById(DEFAULT_TIME_SPEED);
+    state.timeSpeed = speed.id;
+    lastTickAt = Date.now();
+    persist();
+    render();
+  }
+
+  function currentTimeSpeed() {
+    return timeSpeedById(state?.timeSpeed);
+  }
+
+  function timeSpeedById(speedId) {
+    return TIME_SPEEDS.find((speed) => speed.id === speedId) || TIME_SPEEDS.find((speed) => speed.id === DEFAULT_TIME_SPEED);
+  }
+
+  function changeTimeSpeed(step) {
+    const currentIndex = Math.max(0, TIME_SPEEDS.findIndex((speed) => speed.id === currentTimeSpeed().id));
+    const nextIndex = clamp(currentIndex + step, 0, TIME_SPEEDS.length - 1);
+    setTimeSpeed(TIME_SPEEDS[nextIndex].id);
+  }
+
+  function setTimeSpeedByIndex(index) {
+    const speed = TIME_SPEEDS[index - 1];
+    if (speed) {
+      setTimeSpeed(speed.id);
+    }
+  }
+
+  function skipToNextQueueCompletion() {
+    const event = nextQueueEvent();
+    skipToEvent(event, "No queued tasks are waiting.");
+  }
+
+  function skipToNextEvent() {
+    const event = nextMeaningfulEvent();
+    skipToEvent(event, "No upcoming events are waiting.");
+  }
+
+  function skipToEvent(event, emptyMessage) {
+    if (!event) {
+      addEvent(emptyMessage);
+      persist();
+      render();
+      return;
+    }
+    const delta = Math.max(0, event.time - state.clock);
+    advanceTime(delta, { quiet: true });
+    addEvent(delta > 0 ? `Skipped to ${event.label}.` : `${event.label} was ready.`);
+    persist();
+    render();
+  }
+
+  function nextQueueEvent() {
+    const task = [...state.tasks]
+      .sort((a, b) => a.dueAt - b.dueAt)
+      .find((candidate) => candidate.dueAt >= state.clock);
+    return task ? { time: task.dueAt, label: task.label, type: "queue" } : null;
+  }
+
+  function nextMeaningfulEvent() {
+    const events = [];
+    const queueEvent = nextQueueEvent();
+    if (queueEvent) {
+      events.push(queueEvent);
+    }
+    for (const slime of state.slimes) {
+      if (slime.status === "dead") {
+        continue;
+      }
+      if (!slime.mature && slime.matureAt >= state.clock) {
+        events.push({ time: slime.matureAt, label: `${slime.name} maturity`, type: "maturity" });
+      }
+      if (slime.deathAt >= state.clock) {
+        events.push({ time: slime.deathAt, label: `${slime.name} lifespan end`, type: "death" });
+      }
+    }
+    for (const corpse of state.corpses || []) {
+      if (!corpse.ruined) {
+        if (state.clock < corpse.freshUntil) {
+          events.push({ time: corpse.freshUntil, label: `${corpse.name} corpse decay`, type: "corpse" });
+        } else if (state.clock < corpse.spoiledAt) {
+          events.push({ time: corpse.spoiledAt, label: `${corpse.name} corpse spoilage`, type: "corpse" });
+        }
+      }
+      if (corpse.storage === "overflow" && corpse.nextOverflowEventAt && corpse.nextOverflowEventAt >= state.clock) {
+        events.push({ time: corpse.nextOverflowEventAt, label: `${corpse.name} overflow contamination`, type: "overflow" });
+      }
+    }
+    const staminaEvent = nextVitalFullEvent("stamina");
+    if (staminaEvent) {
+      events.push(staminaEvent);
+    }
+    const manaEvent = nextVitalFullEvent("mana");
+    if (manaEvent) {
+      events.push(manaEvent);
+    }
+    return events
+      .filter((event) => Number.isFinite(event.time) && event.time >= state.clock)
+      .sort((a, b) => a.time - b.time)[0] || null;
+  }
+
+  function nextVitalFullEvent(vitalKey) {
+    const vital = scientistVital(vitalKey);
+    if (vital.current >= vital.max) {
+      return null;
+    }
+    if (vitalKey === "stamina" && state.tasks.some((task) => task.type === "rest" || task.data?.staminaCost > 0)) {
+      return null;
+    }
+    const minutesPerPoint = vitalKey === "mana" ? MANA_REGEN_MINUTES : STAMINA_REGEN_MINUTES;
+    const minutes = (vital.max - vital.current) * minutesPerPoint;
+    return {
+      time: state.clock + minutes,
+      label: `${vitalKey} full`,
+      type: "recovery"
+    };
+  }
+
   function advanceTime(minutes, options = {}) {
     state.clock += minutes;
     const vitalsChanged = recoverVitals(minutes);
     const expired = expireSlimes();
+    const corpseChanges = updateCorpses();
     const completed = completeDueTasks();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || completed || vitalsChanged) {
+    if (!options.quiet || expired || corpseChanges || completed || vitalsChanged) {
       persist();
     }
-    return expired + completed + (vitalsChanged ? 1 : 0);
+    return expired + corpseChanges + completed + (vitalsChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -605,6 +821,11 @@
 
     if (task.type === "breed") {
       completeBreeding(task);
+      return;
+    }
+
+    if (task.type === "necropsy") {
+      completeNecropsy(task);
       return;
     }
 
@@ -718,7 +939,7 @@
         mature: false,
         matureAt: state.clock + growthMinutes
       });
-      mergeRevealSummary(revealSummary, revealTraits(child, ["size", "shape", "appendages", "color"]));
+      mergeRevealSummary(revealSummary, revealTraits(child, ["size", "shape", "consistency", "appendages", "color"]));
       createTask({
         type: "mature",
         label: `Mature ${child.name}`,
@@ -729,6 +950,39 @@
     }
     awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Breeding");
     addEvent(`Breeding produced ${created.length} offspring.`);
+  }
+
+  function completeNecropsy(task) {
+    const corpse = findCorpse(task.data.corpseId);
+    if (!corpse || corpse.ruined) {
+      addEvent("Necropsy could not complete; the corpse is no longer viable for examination.");
+      return;
+    }
+    const freshness = corpseFreshness(corpse);
+    const unknownTraits = DISPLAY_REGION_KEYS.filter((traitKey) => !corpse.revealed?.[traitKey]);
+    const revealKeys = necropsyRevealKeys(unknownTraits, freshness, corpse);
+    const revealSummary = revealKeys.length
+      ? revealTraits(corpse, revealKeys, { measured: freshness === "fresh", testId: "necropsy" })
+      : emptyRevealSummary();
+    corpse.necropsyReport = effectivenessReport(corpse, freshness);
+    corpse.necropsyQuality = freshness;
+    corpse.necropsiedAt = state.clock;
+    corpse.ruined = true;
+    corpse.lastFreshness = "ruined";
+    corpse.harvestBlocked = true;
+    awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Necropsy");
+    addEvent(`Necropsy complete for ${corpse.name}. Corpse ruined; disposal still required.`);
+  }
+
+  function necropsyRevealKeys(unknownTraits, freshness, corpse) {
+    if (freshness === "fresh") {
+      return unknownTraits;
+    }
+    if (freshness === "decaying") {
+      const rng = seedRng(`${state.seed}:necropsy:${corpse.id}:${corpse.genome}`);
+      return shuffle([...unknownTraits], rng).slice(0, Math.max(1, Math.ceil(unknownTraits.length / 2)));
+    }
+    return [];
   }
 
   function revealTraits(slime, traitKeys, options = {}) {
@@ -872,17 +1126,160 @@
     return Math.round(100 * Math.pow(level + 1, 2.2));
   }
 
+  function createCorpseFromSlime(slime, deathReason) {
+    state.corpses ||= [];
+    const storage = drummedCorpseCount() < WASTE_DRUM_CAPACITY ? "drum" : "overflow";
+    const diedAt = Number.isFinite(Number(slime.deathAt)) ? Number(slime.deathAt) : state.clock;
+    const corpse = {
+      id: `corpse-${state.nextCorpseNumber++}`,
+      specimenId: slime.id,
+      name: slime.name,
+      genome: slime.genome,
+      source: slime.source,
+      deathReason,
+      diedAt,
+      storage,
+      ruined: false,
+      revealed: { ...(slime.revealed || {}) },
+      measured: { ...(slime.measured || {}) },
+      traitObservations: clonePlainObject(slime.traitObservations || {}),
+      testsRun: [...(slime.testsRun || [])],
+      necropsyReport: "",
+      nextOverflowEventAt: storage === "overflow" ? state.clock + OVERFLOW_EVENT_INTERVAL : null
+    };
+    applyCorpseDecayWindows(corpse);
+    corpse.lastFreshness = corpseFreshness(corpse);
+    state.corpses.unshift(corpse);
+    if (storage === "overflow") {
+      addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
+    }
+    return corpse;
+  }
+
   function expireSlimes() {
     let expired = 0;
+    const survivors = [];
     for (const slime of state.slimes) {
       if (slime.status !== "dead" && slime.deathAt <= state.clock) {
-        slime.status = "dead";
-        slime.mature = false;
-        addEvent(`${slime.name} reached the end of its lifespan.`);
+        const corpse = createCorpseFromSlime(slime, "lifespan");
+        addEvent(`${slime.name} reached the end of its lifespan and became a ${corpse.storage === "overflow" ? "corpse overflow" : "waste drum specimen"}.`);
         expired += 1;
+      } else {
+        survivors.push(slime);
+      }
+    }
+    if (expired) {
+      state.slimes = survivors;
+      if (!findSlime(state.selectedSlimeId)) {
+        state.selectedSlimeId = state.slimes[0]?.id || null;
       }
     }
     return expired;
+  }
+
+  function applyCorpseDecayWindows(corpse) {
+    const profile = corpseDecayProfile(corpse.genome);
+    corpse.decayProfile = profile;
+    corpse.freshUntil = corpse.diedAt + profile.freshMinutes;
+    corpse.spoiledAt = corpse.freshUntil + profile.decayMinutes;
+  }
+
+  function corpseDecayProfile(genome) {
+    const evaluated = evaluateGenome(genome);
+    const profile = physicalProfile(genome, evaluated);
+    const sizeSpeed = clamp(Math.pow((profile?.volumeCm3 || 1000) / 1000, 0.18), 0.45, 2.2);
+    const element = baseOutcomeLabel(evaluated.traits.element) || "none";
+    const consistency = baseOutcomeLabel(evaluated.traits.consistency) || "soft gelatin";
+    const elementSpeed = {
+      none: 1,
+      flame: 1.6,
+      frost: 0.35,
+      storm: 1.15,
+      stone: 0.55,
+      shadow: 0.8,
+      light: 0.75,
+      water: 1.25,
+      wind: 0.8,
+      wood: 1.1,
+      metal: 0.45,
+      poison: 1.45,
+      acid: 2.2,
+      dream: 0.75,
+      gravity: 0.7,
+      ether: 0.6,
+      null: 0.9
+    }[element] || 1;
+    const consistencySpeed = {
+      watery: 1.75,
+      "runny gel": 1.65,
+      syrupy: 1.25,
+      "loose jelly": 1.55,
+      "soft gelatin": 1,
+      mucous: 1.55,
+      foamy: 1.35,
+      "elastic gel": 0.75,
+      rubbery: 0.62,
+      "tar-like": 0.8,
+      waxen: 0.58,
+      "fibrous gel": 0.9,
+      "grainy slurry": 1.15,
+      "crystalline gel": 0.42,
+      "brittle jelly": 0.85,
+      "clay-like": 0.65
+    }[consistency] || 1;
+    const speed = Math.max(0.1, sizeSpeed * elementSpeed * consistencySpeed);
+    const freshMinutes = clamp(Math.round(120 / speed), 15, 1440);
+    const decayMinutes = clamp(Math.round(420 / speed), 30, 3600);
+    return { freshMinutes, decayMinutes, speed, element, consistency };
+  }
+
+  function corpseFreshness(corpse) {
+    if (corpse.ruined) {
+      return "ruined";
+    }
+    if (state.clock < corpse.freshUntil) {
+      return "fresh";
+    }
+    if (state.clock < corpse.spoiledAt) {
+      return "decaying";
+    }
+    return "spoiled";
+  }
+
+  function corpseStateLabel(corpse) {
+    return titleCase(corpseFreshness(corpse));
+  }
+
+  function corpseDecayText(corpse) {
+    const freshness = corpseFreshness(corpse);
+    if (freshness === "fresh") {
+      return `fresh for ${formatDuration(corpse.freshUntil - state.clock)}`;
+    }
+    if (freshness === "decaying") {
+      return `spoils in ${formatDuration(corpse.spoiledAt - state.clock)}`;
+    }
+    if (freshness === "ruined") {
+      return "ruined; disposal needed";
+    }
+    return "spoiled; disposal needed";
+  }
+
+  function updateCorpses() {
+    let changes = 0;
+    for (const corpse of state.corpses || []) {
+      const freshness = corpseFreshness(corpse);
+      if (corpse.lastFreshness && corpse.lastFreshness !== freshness) {
+        addEvent(`${corpse.name} corpse is now ${corpseStateLabel(corpse).toLowerCase()}.`);
+        changes += 1;
+      }
+      corpse.lastFreshness = freshness;
+      if (corpse.storage === "overflow" && state.clock >= (corpse.nextOverflowEventAt || state.clock)) {
+        addEvent(`${corpse.name} overflow corpse is leaking contamination and evidence.`);
+        corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
+        changes += 1;
+      }
+    }
+    return changes;
   }
 
   function buildGeneMap(seed, complexity) {
@@ -960,6 +1357,24 @@
         "star-like",
         "mushroom-shaped",
         "shell-like"
+      ],
+      consistency: [
+        "watery",
+        "runny gel",
+        "syrupy",
+        "loose jelly",
+        "soft gelatin",
+        "mucous",
+        "foamy",
+        "elastic gel",
+        "rubbery",
+        "tar-like",
+        "waxen",
+        "fibrous gel",
+        "grainy slurry",
+        "crystalline gel",
+        "brittle jelly",
+        "clay-like"
       ],
       behavior: [
         "idle pooling",
@@ -1243,6 +1658,7 @@
     renderMutationBench();
     renderPredictions();
     renderSlimes();
+    renderCorpses();
     renderTests();
     renderBreeding();
     renderScientist();
@@ -1258,12 +1674,18 @@
     dom.setupOverlay.classList.toggle("hidden", state.started);
     dom.clockReadout.textContent = formatClock(state.clock);
     dom.pauseReadout.textContent = state.paused ? "Paused" : "Running";
+    dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
+    dom.timeSpeedSelect.value = currentTimeSpeed().id;
     dom.pauseBtn.textContent = state.paused ? "Resume" : "Pause";
     dom.seedReadout.textContent = `Seed: ${state.seed}`;
     const reserved = pendingSynthesisCount();
     dom.storageReadout.textContent = reserved
       ? `Storage ${containedSlimeCount()}+${reserved}/${STORAGE_CAPACITY}`
       : `Storage ${containedSlimeCount()}/${STORAGE_CAPACITY}`;
+    const overflow = overflowCorpseCount();
+    dom.wasteReadout.textContent = overflow
+      ? `Waste ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} +${overflow}`
+      : `Waste ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}`;
     renderVitalReadouts();
     refreshActionControls();
     renderQueueShell();
@@ -1283,6 +1705,12 @@
       const slime = findSlime(element.dataset.slimeMaturity);
       if (slime) {
         element.textContent = slime.mature ? "mature" : `matures in ${formatDuration(slime.matureAt - state.clock)}`;
+      }
+    }
+    for (const element of document.querySelectorAll("[data-corpse-decay]")) {
+      const corpse = findCorpse(element.dataset.corpseDecay);
+      if (corpse) {
+        element.textContent = corpseDecayText(corpse);
       }
     }
   }
@@ -1419,6 +1847,7 @@
     refreshReleaseButtonState();
     refreshTestButtonStates();
     refreshBreedButtonState();
+    refreshCorpseActionStates();
   }
 
   function refreshReleaseButtonState() {
@@ -1466,6 +1895,15 @@
     setActionButtonState(dom.breedBtn, Boolean(reason), reason);
   }
 
+  function refreshCorpseActionStates() {
+    for (const button of dom.corpseList?.querySelectorAll("[data-corpse-id]") || []) {
+      const corpse = findCorpse(button.dataset.corpseId);
+      if (corpse) {
+        refreshNecropsyButton(button, corpse);
+      }
+    }
+  }
+
   function renderSlimes() {
     dom.slimeList.textContent = "";
     const selected = getSelectedSlime();
@@ -1489,6 +1927,7 @@
       title.append(textEl("span", slime.name), textEl("span", slime.status));
       const meta = document.createElement("div");
       meta.className = "slime-meta";
+      const evaluated = evaluateGenome(slime.genome);
       const maturity = chip(slime.mature ? "mature" : `matures in ${formatDuration(slime.matureAt - state.clock)}`);
       maturity.dataset.slimeMaturity = slime.id;
       const life = chip(`life ${formatDuration(Math.max(0, slime.deathAt - state.clock))}`);
@@ -1496,18 +1935,142 @@
       meta.append(maturity);
       meta.append(life);
       meta.append(chip(slime.genome));
-      card.append(title, meta);
+      card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
-        card.append(renderTraitGrid(slime));
+        card.append(renderTraitGrid(slime, evaluated));
       }
       dom.slimeList.append(card);
     }
   }
 
-  function renderTraitGrid(slime) {
+  function renderCorpses() {
+    dom.corpseList.textContent = "";
+    const overflow = overflowCorpseCount();
+    dom.wasteSummary.textContent = overflow
+      ? `${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} drums used; ${overflow} overflow specimen${overflow === 1 ? "" : "s"}`
+      : `${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} waste drums used`;
+
+    if (!state.corpses?.length) {
+      dom.corpseList.append(emptyText("No deceased specimens."));
+      return;
+    }
+
+    for (const corpse of state.corpses) {
+      const evaluated = evaluateGenome(corpse.genome);
+      const card = document.createElement("article");
+      card.className = `corpse-card corpse-${corpseFreshness(corpse)}${corpse.storage === "overflow" ? " overflow" : ""}`;
+
+      const title = document.createElement("h3");
+      title.append(textEl("span", `${corpse.name} remains`), textEl("span", corpseStateLabel(corpse)));
+
+      const meta = document.createElement("div");
+      meta.className = "slime-meta";
+      const storageChip = chip(corpse.storage === "overflow" ? "overflow" : "waste drum");
+      if (corpse.storage === "overflow") {
+        storageChip.classList.add("danger-chip");
+      }
+      const decay = chip(corpseDecayText(corpse));
+      decay.dataset.corpseDecay = corpse.id;
+      meta.append(storageChip, decay, chip(`died ${formatClock(corpse.diedAt)}`), chip(corpse.genome));
+
+      const actions = document.createElement("div");
+      actions.className = "corpse-actions";
+      const necropsy = document.createElement("button");
+      necropsy.type = "button";
+      necropsy.dataset.corpseId = corpse.id;
+      refreshNecropsyButton(necropsy, corpse);
+      necropsy.addEventListener("click", () => {
+        startNecropsy(corpse);
+      });
+      actions.append(necropsy);
+
+      card.append(title, renderIdentityStrip(corpse, evaluated), meta, actions);
+      if (corpse.necropsyReport) {
+        const report = document.createElement("p");
+        report.className = "corpse-report";
+        report.textContent = corpse.necropsyReport;
+        card.append(report);
+      }
+      dom.corpseList.append(card);
+    }
+  }
+
+  function startNecropsy(corpse) {
+    const duration = necropsyDuration(corpse);
+    startStaminaTask({
+      type: "necropsy",
+      label: `Necropsy ${corpse.name}`,
+      baseDuration: duration,
+      skillId: "physiology",
+      baseXp: 35,
+      baseCost: BASE_ACTION_STAMINA,
+      data: { corpseId: corpse.id }
+    });
+  }
+
+  function refreshNecropsyButton(button, corpse) {
+    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["physiology", "slimeHandling"]);
+    const duration = adjustedDuration(necropsyDuration(corpse), "physiology");
+    button.textContent = `Necropsy (${formatDuration(duration)}, ${cost} STA)`;
+    const reason = necropsyBlockReason(corpse, cost);
+    setActionButtonState(button, Boolean(reason), reason);
+  }
+
+  function necropsyBlockReason(corpse, cost) {
+    if (!corpse || corpse.ruined) {
+      return "Corpse is already ruined.";
+    }
+    if (hasPendingNecropsy(corpse.id)) {
+      return "Necropsy already pending.";
+    }
+    return staminaBlockReason(cost);
+  }
+
+  function necropsyDuration(corpse) {
+    const freshness = corpseFreshness(corpse);
+    if (freshness === "fresh") {
+      return 18;
+    }
+    if (freshness === "decaying") {
+      return 24;
+    }
+    return 30;
+  }
+
+  function renderIdentityStrip(slime, evaluated) {
+    const strip = document.createElement("div");
+    strip.className = "identity-strip";
+    strip.setAttribute("aria-label", "Discovered identity traits");
+    for (const traitKey of ["color", "element", "shape", "byproduct"]) {
+      strip.append(identitySlotEl(slime, traitKey, evaluated.traits[traitKey]));
+    }
+    return strip;
+  }
+
+  function identitySlotEl(slime, traitKey, outcome) {
+    const slot = document.createElement("span");
+    slot.className = `identity-slot identity-slot-${traitKey}`;
+    const markerOutcome = slimeTraitMarkerOutcome(slime, traitKey, outcome);
+    if (!markerOutcome) {
+      slot.classList.add("identity-slot-unknown");
+      slot.textContent = "?";
+      slot.title = `${getRegionLabel(traitKey)} unknown`;
+      return slot;
+    }
+
+    const icon = traitIdentityIconEl(traitKey, markerOutcome);
+    if (icon) {
+      slot.append(icon);
+    } else {
+      slot.textContent = "none";
+    }
+    slot.title = `${getRegionLabel(traitKey)}: ${markerOutcome.label}`;
+    return slot;
+  }
+
+  function renderTraitGrid(slime, evaluated = evaluateGenome(slime.genome)) {
     const grid = document.createElement("div");
     grid.className = "trait-grid subpanel";
-    const evaluated = evaluateGenome(slime.genome);
     for (const region of SLIME_DISPLAY_DEFS) {
       const outcome = region.virtual ? null : slimeTraitMarkerOutcome(slime, region.key, evaluated.traits[region.key]);
       const row = document.createElement("div");
@@ -1701,6 +2264,9 @@
     if (task.type === "breed") {
       return "Breeding";
     }
+    if (task.type === "necropsy") {
+      return "Necropsy";
+    }
     if (task.type === "mature") {
       return "Growth";
     }
@@ -1880,14 +2446,49 @@
   function traitValueEl(traitKey, outcome, value) {
     const wrapper = document.createElement("span");
     wrapper.className = "trait-value";
-    if (traitKey === "element" && value !== "Unknown") {
-      const icon = elementIconEl(outcome);
+    if (value !== "Unknown") {
+      const icon = traitRowValueIconEl(traitKey, outcome);
       if (icon) {
         wrapper.append(icon);
       }
     }
     wrapper.append(textEl("span", value));
     return wrapper;
+  }
+
+  function traitRowValueIconEl(traitKey, outcome) {
+    if (traitKey === "element") {
+      return elementIconEl(outcome);
+    }
+    if (traitKey === "shape" || traitKey === "byproduct") {
+      return traitIdentityIconEl(traitKey, outcome);
+    }
+    return null;
+  }
+
+  function traitIdentityIconEl(traitKey, outcome) {
+    if (traitKey === "color" && outcome?.meta?.color) {
+      const icon = document.createElement("span");
+      icon.className = "identity-icon identity-swatch";
+      icon.style.backgroundColor = outcome.meta.color;
+      icon.setAttribute("aria-hidden", "true");
+      return icon;
+    }
+    if (traitKey === "element") {
+      const icon = elementIconEl(outcome);
+      if (icon) {
+        icon.classList.add("identity-icon");
+      }
+      return icon;
+    }
+    const category = traitIconCategory(traitKey, outcome);
+    if (!category) {
+      return null;
+    }
+    const icon = document.createElement("span");
+    icon.className = `trait-category-icon ${traitKey}-icon ${traitKey}-icon-${category}`;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
   }
 
   function elementIconEl(outcome) {
@@ -1900,6 +2501,64 @@
     icon.title = label;
     icon.setAttribute("aria-hidden", "true");
     return icon;
+  }
+
+  function traitIconCategory(traitKey, outcome) {
+    const label = baseOutcomeLabel(outcome);
+    if (traitKey === "shape") {
+      return shapeIconCategory(label);
+    }
+    if (traitKey === "byproduct") {
+      return byproductIconCategory(label);
+    }
+    return "";
+  }
+
+  function shapeIconCategory(label) {
+    const categories = {
+      cubic: "cube",
+      spherical: "sphere",
+      "humanoid-ish": "humanoid",
+      "dog-shaped": "animal",
+      blob: "blob",
+      puddle: "flat",
+      "worm-like": "worm",
+      columnar: "column",
+      conical: "cone",
+      "flat sheet": "flat",
+      mound: "blob",
+      disc: "disc",
+      branching: "branching",
+      "star-like": "radial",
+      "mushroom-shaped": "capped",
+      "shell-like": "shell"
+    };
+    return categories[label] || "";
+  }
+
+  function byproductIconCategory(label) {
+    if (label.includes("droplet") || label.includes("dew")) {
+      return "droplet";
+    }
+    if (label.includes("brine") || label.includes("water") || label.includes("solvent")) {
+      return "liquid";
+    }
+    if (label.includes("mucus") || label.includes("gel") || label.includes("paste")) {
+      return "gel";
+    }
+    if (label.includes("foam") || label.includes("vapor")) {
+      return "vapor";
+    }
+    if (label.includes("resin") || label.includes("wax")) {
+      return "resin";
+    }
+    if (label.includes("crystal") || label.includes("flakes") || label.includes("silt")) {
+      return "mineral";
+    }
+    if (label.includes("pearl")) {
+      return "pearl";
+    }
+    return "";
   }
 
   function formatKnownOutcome(item) {
@@ -1928,11 +2587,46 @@
   }
 
   function formatDerivedMovement(slime, evaluated = null) {
-    if (!slime.revealed?.shape || !slime.revealed?.appendages) {
+    if (!slime.revealed?.shape || !slime.revealed?.consistency || !slime.revealed?.appendages) {
       return "Unknown";
     }
     const profile = physicalProfile(slime.genome, evaluated);
     return profile?.movement || "Unknown";
+  }
+
+  function effectivenessReport(specimen, freshness) {
+    const evaluated = evaluateGenome(specimen.genome);
+    const profile = physicalProfile(specimen.genome, evaluated);
+    const risk = evaluated.traits.stability.meta.risk;
+    const quality = freshness === "fresh"
+      ? "Fresh-tissue analysis"
+      : freshness === "decaying"
+        ? "Degraded-tissue analysis"
+        : "Spoiled-tissue analysis";
+    const shape = visibleTraitLabel(specimen, "shape", evaluated);
+    const consistency = visibleTraitLabel(specimen, "consistency", evaluated);
+    const appendages = visibleTraitLabel(specimen, "appendages", evaluated);
+    const byproduct = visibleTraitLabel(specimen, "byproduct", evaluated);
+    const element = visibleTraitLabel(specimen, "element", evaluated);
+    const behavior = visibleTraitLabel(specimen, "behavior", evaluated);
+    const diet = visibleTraitLabel(specimen, "diet", evaluated);
+    const stability = visibleTraitLabel(specimen, "stability", evaluated);
+    const mobility = specimen.revealed?.shape && specimen.revealed?.consistency && specimen.revealed?.appendages
+      ? profile?.movement || "unknown movement"
+      : "mobility unclear";
+    const weight = specimen.revealed?.size && specimen.revealed?.shape && profile
+      ? formatWeight(profile.weightKg)
+      : "unknown mass";
+    const riskNote = specimen.revealed?.stability
+      ? risk >= 7 ? "high containment risk" : risk >= 4 ? "moderate containment risk" : "low containment risk"
+      : "containment risk unclear";
+    const utilityNote = byproduct === "unknown" ? "utility unclear" : `useful output: ${byproduct}`;
+    const physiologyNote = `${shape}, ${consistency}, ${appendages}; ${weight}`;
+    return `${quality}: ${physiologyNote}. Mobility: ${mobility}. Behavior: ${behavior}; diet: ${diet}. Affinity: ${element}. Stability: ${stability} (${riskNote}). ${utilityNote}.`;
+  }
+
+  function visibleTraitLabel(specimen, traitKey, evaluated) {
+    return specimen.revealed?.[traitKey] || "unknown";
   }
 
   function estimatedSizeReading(outcome, genome = "") {
@@ -1954,6 +2648,7 @@
     }
     const traits = evaluated?.traits || evaluateGenome(cleaned).traits;
     const shape = baseOutcomeLabel(traits.shape) || "blob";
+    const consistency = baseOutcomeLabel(traits.consistency) || "soft gelatin";
     const appendages = baseOutcomeLabel(traits.appendages) || "none";
     const element = baseOutcomeLabel(traits.element) || "none";
     const volumeCm3 = sizeVolumeCm3(traits.size);
@@ -1961,12 +2656,13 @@
     const weightKg = (volumeCm3 * density) / 1000;
     return {
       shape,
+      consistency,
       appendages,
       element,
       volumeCm3,
       density,
       weightKg,
-      movement: derivedMovement(cleaned, { shape, appendages, element, weightKg, elementOutcome: traits.element })
+      movement: derivedMovement(cleaned, { shape, consistency, appendages, element, weightKg, elementOutcome: traits.element })
     };
   }
 
@@ -2089,6 +2785,24 @@
       "mushroom-shaped": ["wobbles", "hops", "totters"],
       "shell-like": ["scrapes forward", "drags its shell", "slides"]
     };
+    const consistencyPools = {
+      "watery": ["runs along cracks", "spills forward"],
+      "runny gel": ["sags forward", "runs in slow ropes"],
+      "syrupy": ["drizzles forward", "stretches and recoils"],
+      "loose jelly": ["wobbles apart and gathers"],
+      "soft gelatin": ["quivers forward"],
+      "mucous": ["slides in slick pulses"],
+      "foamy": ["bubbles forward"],
+      "elastic gel": ["stretches and snaps forward"],
+      "rubbery": ["bounces stiffly"],
+      "tar-like": ["creeps in sticky pulls"],
+      "waxen": ["slides in soft folds"],
+      "fibrous gel": ["tugs itself by strands"],
+      "grainy slurry": ["scrapes in loose clumps"],
+      "crystalline gel": ["scrapes with brittle clicks"],
+      "brittle jelly": ["cracks and reforms forward"],
+      "clay-like": ["lumps forward"]
+    };
     const appendagePools = {
       "two tendrils": ["pulls itself by tendrils", "grapples forward"],
       "four tendrils": ["tendril-walks", "climbs by tendrils"],
@@ -2125,6 +2839,9 @@
       null: ["stutters through wards"]
     };
     const options = [...(shapePools[profile.shape] || shapePools.blob)];
+    if (consistencyPools[profile.consistency]) {
+      options.push(...consistencyPools[profile.consistency]);
+    }
     if (appendagePools[profile.appendages]) {
       options.push(...appendagePools[profile.appendages]);
     }
@@ -2137,7 +2854,7 @@
     if ((profile.shape === "puddle" || profile.shape === "flat sheet") && profile.appendages !== "none") {
       options.push("tries to crawl while smearing");
     }
-    const rng = seedRng(`${state.seed}:movement:${genome}:${profile.shape}:${profile.appendages}:${profile.element}`);
+    const rng = seedRng(`${state.seed}:movement:${genome}:${profile.shape}:${profile.consistency}:${profile.appendages}:${profile.element}`);
     return options[Math.floor(rng() * options.length)] || "oozes";
   }
 
@@ -2151,11 +2868,8 @@
     if (traitKey === "color") {
       return makeColorObservation(outcome).reading;
     }
-    if (traitKey === "shape" || traitKey === "appendages") {
+    if (traitKey === "shape" || traitKey === "consistency" || traitKey === "appendages") {
       return "";
-    }
-    if (traitKey === "texture") {
-      return estimateQuantity(120 + index * index * 95, "viscosity", traitKey, contextKey);
     }
     if (traitKey === "behavior") {
       return estimateQuantity(0.4 + index * 0.33, "latency", traitKey, contextKey);
@@ -2197,11 +2911,8 @@
     if (traitKey === "color") {
       return `${String(meta.color || "#000000").toUpperCase()} swatch`;
     }
-    if (traitKey === "shape" || traitKey === "appendages") {
+    if (traitKey === "shape" || traitKey === "consistency" || traitKey === "appendages") {
       return "";
-    }
-    if (traitKey === "texture") {
-      return `${formatNumber(120 + index * index * 95)} cP viscosity`;
     }
     if (traitKey === "behavior") {
       return `${formatDecimal(0.4 + index * 0.33, 1)}s response latency`;
@@ -2258,9 +2969,6 @@
     }
     if (kind === "latency") {
       return `${formatDecimal(low, 1)} - ${formatDecimal(high, 1)}s response latency`;
-    }
-    if (kind === "viscosity") {
-      return `${formatNumber(low)} - ${formatNumber(high)} cP viscosity`;
     }
     if (kind === "thaums") {
       return `${formatNumber(clamp(low, 0, 100))} - ${formatNumber(clamp(high, 0, 100))} thaums`;
@@ -2750,6 +3458,10 @@
     return state.slimes.find((slime) => slime.id === id) || null;
   }
 
+  function findCorpse(id) {
+    return (state.corpses || []).find((corpse) => corpse.id === id) || null;
+  }
+
   function getSelectedSlime() {
     return findSlime(state.selectedSlimeId);
   }
@@ -2758,8 +3470,20 @@
     return state.tasks.some((task) => task.type === "test" && task.data.slimeId === slimeId && task.data.testId === testId);
   }
 
+  function hasPendingNecropsy(corpseId) {
+    return state.tasks.some((task) => task.type === "necropsy" && task.data.corpseId === corpseId);
+  }
+
   function containedSlimeCount() {
     return state.slimes.filter((slime) => slime.status === "contained").length;
+  }
+
+  function drummedCorpseCount() {
+    return (state.corpses || []).filter((corpse) => corpse.storage === "drum").length;
+  }
+
+  function overflowCorpseCount() {
+    return (state.corpses || []).filter((corpse) => corpse.storage === "overflow").length;
   }
 
   function canAddContainedSlime() {
@@ -2847,6 +3571,22 @@
     return String(value).toUpperCase().replace(/[^ACGT]/g, "").slice(0, GENOME_LENGTH);
   }
 
+  function normalizeGenomeLength(value, seed, contextKey = "genome") {
+    const cleaned = cleanGenome(value);
+    if (!cleaned) {
+      return "";
+    }
+    if (cleaned.length === GENOME_LENGTH) {
+      return cleaned;
+    }
+    const rng = seedRng(`${seed}:genome-migration:${contextKey}:${cleaned}`);
+    let normalized = cleaned;
+    while (normalized.length < GENOME_LENGTH) {
+      normalized += BASES[Math.floor(rng() * BASES.length)];
+    }
+    return normalized.slice(0, GENOME_LENGTH);
+  }
+
   function cleanSeed(value) {
     return String(value).trim().replace(/\s+/g, "-").slice(0, 40);
   }
@@ -2866,11 +3606,13 @@
   }
 
   function crossoverGenome(genomeA, genomeB, rng) {
-    let source = rng() < 0.5 ? genomeA : genomeB;
+    const parentA = normalizeGenomeLength(genomeA, state.seed, "breed:a");
+    const parentB = normalizeGenomeLength(genomeB, state.seed, "breed:b");
+    let source = rng() < 0.5 ? parentA : parentB;
     let result = "";
     for (let i = 0; i < GENOME_LENGTH; i += 1) {
       if (i > 0 && rng() < 0.18) {
-        source = source === genomeA ? genomeB : genomeA;
+        source = source === parentA ? parentB : parentA;
       }
       result += source[i];
     }
@@ -2958,6 +3700,20 @@
     return `${formatNumber(Math.floor(vital.current))}/${formatNumber(vital.max)}`;
   }
 
+  function titleCase(value) {
+    const text = String(value || "");
+    return text ? `${text[0].toUpperCase()}${text.slice(1)}` : "";
+  }
+
+  function clonePlainObject(value) {
+    return JSON.parse(JSON.stringify(value || {}));
+  }
+
+  function numericSuffix(value) {
+    const match = String(value || "").match(/(\d+)$/);
+    return match ? Number(match[1]) || 0 : 0;
+  }
+
   function normalizeCommandName(value) {
     return String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
   }
@@ -3031,11 +3787,31 @@
     marker.className = `trait-marker trait-marker-${traitKey}`;
     marker.setAttribute("aria-hidden", "true");
 
+    if (!outcome) {
+      const hiddenIcon = ["color", "element", "shape", "byproduct"].includes(traitKey);
+      if (hiddenIcon) {
+        marker.classList.add("trait-marker-unknown");
+      }
+      marker.textContent = hiddenIcon ? "?" : TRAIT_SYMBOLS[traitKey] || "?";
+      marker.title = `${getRegionLabel(traitKey)} unknown`;
+      return marker;
+    }
+
     if (traitKey === "color" && outcome?.meta?.color) {
       marker.classList.add("trait-swatch");
       marker.style.backgroundColor = outcome.meta.color;
       marker.title = `${getRegionLabel(traitKey)}: ${outcome.label}`;
       return marker;
+    }
+
+    if (traitKey === "shape" || traitKey === "byproduct") {
+      const icon = traitIdentityIconEl(traitKey, outcome);
+      if (icon) {
+        marker.classList.add("trait-marker-category");
+        marker.append(icon);
+        marker.title = `${getRegionLabel(traitKey)}: ${outcome.label}`;
+        return marker;
+      }
     }
 
     marker.textContent = TRAIT_SYMBOLS[traitKey] || "•";
@@ -3112,23 +3888,92 @@
     next.regionNotes ||= {};
     next.genomeNotes ||= {};
     next.slimeNotes ||= {};
+    next.corpses ||= [];
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist);
     next.queueDrawerOpen = next.queueDrawerOpen !== false;
+    next.timeSpeed = timeSpeedById(next.timeSpeed).id;
     next.knownResultKeys ||= {};
     next.resultRepeats ||= {};
     next.events ||= [];
     next.tasks ||= [];
     next.slimes ||= [];
+    next.nextCorpseNumber = Math.max(
+      Number(next.nextCorpseNumber) || 1,
+      next.corpses.reduce((max, corpse) => Math.max(max, numericSuffix(corpse.id)), 0) + 1
+    );
+    next.currentGenome = normalizeGenomeLength(next.currentGenome || "", next.seed, "current") || randomGenome(seedRng(`${next.seed}:starter`));
+    for (const task of next.tasks) {
+      if (task?.data?.genome) {
+        task.data.genome = normalizeGenomeLength(task.data.genome, next.seed, `task:${task.id}`);
+      }
+    }
     normalizeElementDiscoveries(next);
     for (const slime of next.slimes) {
+      const previousGenome = slime.genome;
+      slime.genome = normalizeGenomeLength(slime.genome || "", next.seed, `slime:${slime.id}`) || randomGenome(seedRng(`${next.seed}:slime:${slime.id}`));
+      if (previousGenome && previousGenome !== slime.genome && next.genomeNotes?.[previousGenome] && !next.genomeNotes[slime.genome]) {
+        next.genomeNotes[slime.genome] = next.genomeNotes[previousGenome];
+      }
       slime.revealed ||= {};
       slime.measured ||= {};
       slime.traitObservations ||= {};
       slime.testsRun ||= [];
     }
-    next.currentGenome = cleanGenome(next.currentGenome || "") || randomGenome(seedRng(`${next.seed}:starter`));
     return next;
+  }
+
+  function prepareCorpseState() {
+    state.corpses ||= [];
+    normalizeCorpseRecords();
+    migrateDeadSlimesToCorpses();
+    state.nextCorpseNumber = Math.max(
+      Number(state.nextCorpseNumber) || 1,
+      state.corpses.reduce((max, corpse) => Math.max(max, numericSuffix(corpse.id)), 0) + 1
+    );
+  }
+
+  function normalizeCorpseRecords() {
+    let drumCount = 0;
+    for (const corpse of state.corpses) {
+      corpse.genome = normalizeGenomeLength(corpse.genome || "", state.seed, `corpse:${corpse.id}`) || randomGenome(seedRng(`${state.seed}:corpse:${corpse.id}`));
+      corpse.revealed ||= {};
+      corpse.measured ||= {};
+      corpse.traitObservations ||= {};
+      corpse.testsRun ||= [];
+      corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
+      corpse.ruined = Boolean(corpse.ruined);
+      corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
+      if (corpse.storage === "drum") {
+        drumCount += 1;
+      }
+      if (!Number.isFinite(Number(corpse.freshUntil)) || !Number.isFinite(Number(corpse.spoiledAt))) {
+        applyCorpseDecayWindows(corpse);
+      }
+      corpse.lastFreshness ||= corpseFreshness(corpse);
+      if (corpse.storage === "overflow" && !corpse.nextOverflowEventAt) {
+        corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
+      }
+    }
+  }
+
+  function migrateDeadSlimesToCorpses() {
+    const survivors = [];
+    let moved = 0;
+    for (const slime of state.slimes || []) {
+      if (slime.status === "dead") {
+        createCorpseFromSlime(slime, "lifespan");
+        moved += 1;
+      } else {
+        survivors.push(slime);
+      }
+    }
+    if (moved) {
+      state.slimes = survivors;
+      if (!findSlime(state.selectedSlimeId)) {
+        state.selectedSlimeId = state.slimes[0]?.id || null;
+      }
+    }
   }
 
   function normalizeElementDiscoveries(next) {
@@ -3262,6 +4107,7 @@
         const payload = JSON.parse(String(reader.result));
         state = normalizeState(payload.state || payload);
         geneMap = buildGeneMap(state.seed, state.complexity);
+        prepareCorpseState();
         addEvent("Save imported.");
         persist();
         render();

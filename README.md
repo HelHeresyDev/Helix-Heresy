@@ -2,7 +2,7 @@
 
 Helix Heresy is a desktop-focused static browser prototype about forbidden creature genetics, laboratory discovery, and questionable science.
 
-The current build starts with slimes as the simplest creature type. It lets the player edit a 24-base-pair slime genome, synthesize living samples, run timed tests, breed specimens, and build up a scientist through stamina-gated actions and skill XP.
+The current build starts with slimes as the simplest creature type. It lets the player edit a 26-base-pair slime genome, synthesize living samples, run timed tests, breed specimens, and build up a scientist through stamina-gated actions and skill XP.
 
 The long-term goal is a discovery-driven creature genetics game where the player experiments with strange life forms, learns what their genes do through observation and testing, and gradually turns messy lab notes into practical breeding knowledge.
 
@@ -51,6 +51,7 @@ Slimes are the starting point because they are the most basic experimental creat
 Current direction:
 
 - Shape is a genetic trait that describes the creature's body plan.
+- Body consistency is a genetic trait that describes how the creature holds together physically.
 - Appendages are a genetic trait separate from shape.
 - Size describes shape-aware dimensions instead of only total volume.
 - Weight is derived, not genetic.
@@ -60,6 +61,7 @@ Current direction:
 Examples of the intended style:
 
 - `Shape: worm-like`
+- `Body Consistency: elastic gel`
 - `Appendages: grasping pseudopods`
 - `Size: 1.8 m long, 12 cm thick`
 - `Weight: 34 kg`
@@ -84,6 +86,9 @@ Likely future systems:
 - Breeding goals and practical uses for creatures.
 - Creature jobs such as production, hazardous disposal, defense, spying, assassination, construction support, and research assistance.
 - Intelligent created species that can act as assistants or agents while carrying betrayal and autonomy risks.
+- Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
+- Corpse disposal and processing chains using equipment, facilities, or living creatures such as acid slimes.
+- Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
 - Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
 - A clearer distinction between casual observation, lab testing, and precise instrument readings.
 - A richer journal that helps the player reason from partial discoveries without spoiling hidden mappings.
@@ -95,7 +100,6 @@ Open design questions:
 - How should heat be generated, hidden, reduced, or converted into authority actions?
 - When should the game transition from lab survival to local-government conflict and then world conquest?
 - How much should movement affect future mechanics?
-- Should body consistency replace texture entirely, stay implied, or return later as a derived property?
 - How should weak or biologically clashing creatures be communicated to the player?
 - What jobs or pressures will make creature stats matter?
 - How much should the lab economy rely on byproducts, contracts, hazards, or research milestones?
@@ -105,18 +109,27 @@ Open design questions:
 - Clickable ASCII DNA helix with paired bases.
 - Distinct color coding for A, C, G, and T.
 - Seeded procedural gene mapping for repeatable runs.
-- Slime synthesis from 24-base genomes.
+- Slime synthesis from 26-base genomes.
 - Genetic shape and appendage traits.
+- Genetic body consistency.
 - Shape-aware size dimensions.
 - Derived weight and derived movement.
+- Discovered-trait identity strip with color, element, shape, and byproduct slots.
+- Broad category icons for discovered shape and byproduct outcomes.
 - Observable traits with scientist estimate ranges.
 - Timed tests that can reveal more precise trait information.
 - Breeding and crossbreeding between mature samples.
 - Lifespan, maturity, living sample storage, release, and containment states.
+- Deceased specimens move out of living storage and into waste drums.
+- Corpse states include fresh, decaying, spoiled, ruined, and overflow pressure.
+- Fresh corpse necropsy reveals remaining unknown genetic traits for that specimen.
+- Necropsy produces an effectiveness report and ruins the corpse without disposing of it.
 - Scientist stat sheet with health, stamina, mana, and individual skills.
 - Stamina costs, passive regeneration, and queued rest actions.
 - XP cheat command for testing skill progression.
-- Collapsible time queue drawer with skip controls.
+- Paused start with selectable time speeds from real-time through accelerated waits.
+- Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
+- Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.
 - Automatic, manual, and disabled journal modes.
 - Local save, import, export, and save-to-folder support.
 

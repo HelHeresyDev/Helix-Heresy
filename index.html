@@ -16,10 +16,13 @@
         <div class="status-strip" aria-live="polite">
           <span id="clockReadout">Day 1 00:00</span>
           <span id="pauseReadout">Paused</span>
+          <span id="speedReadout">Speed 60x</span>
           <span id="storageReadout">Storage 0/12</span>
+          <span id="wasteReadout">Waste 0/8</span>
         </div>
         <div class="top-actions">
           <button id="pauseBtn" type="button">Pause</button>
+          <select id="timeSpeedSelect" aria-label="Time speed"></select>
           <button id="newRunBtn" type="button">New Run</button>
           <button id="exportFolderBtn" type="button">Export to Folder</button>
           <button id="exportFileBtn" type="button">Export File</button>
@@ -46,6 +49,8 @@
           <div class="time-controls">
             <input id="skipAmountInput" type="number" min="1" value="30" aria-label="Minutes to skip">
             <button id="skipTimeBtn" type="button">Skip</button>
+            <button id="skipNextEventBtn" type="button">Next Event</button>
+            <button id="skipQueueBtn" type="button">Next Queue</button>
           </div>
           <div id="taskList" class="task-list"></div>
         </div>
@@ -56,7 +61,7 @@
           <div class="panel-heading">
             <div>
               <h2 id="dnaTitle">Genome Foundry</h2>
-              <p id="sequenceStatus">24-base-pair slime genome</p>
+              <p id="sequenceStatus">26-base-pair slime genome</p>
             </div>
             <div class="panel-actions">
               <button id="loadSelectedGenomeBtn" type="button" disabled>Load Selected</button>
@@ -68,7 +73,7 @@
 
           <label class="field-label" for="sequenceInput">Sequence</label>
           <div class="sequence-row">
-            <input id="sequenceInput" class="sequence-input" type="text" spellcheck="false" maxlength="24" autocomplete="off">
+            <input id="sequenceInput" class="sequence-input" type="text" spellcheck="false" maxlength="26" autocomplete="off">
             <button id="copySequenceBtn" type="button">Copy</button>
           </div>
 
@@ -112,6 +117,12 @@
           </div>
 
           <div id="slimeList" class="slime-list"></div>
+
+          <div class="deceased-bank">
+            <div class="subpanel-title">Waste Drums</div>
+            <p id="wasteSummary" class="journal-meta">0/8 waste drums used</p>
+            <div id="corpseList" class="corpse-list"></div>
+          </div>
 
           <div class="test-bank">
             <div class="subpanel-title">Tests</div>
