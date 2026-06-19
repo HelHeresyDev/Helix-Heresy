@@ -6,7 +6,7 @@ This file contains Codex prompts that are waiting to be discussed and eventually
 
 
 
-Remove a prompt after it has been discussed, implemented, tested, and committed.
+Remove a prompt after it has been discussed, implemented, tested.
 
 
 
@@ -16,27 +16,24 @@ Codex should read `DESIGN\_BIBLE.md` first, then use this file for the current i
 
 Important: Do not implement any prompt from this file immediately. Every prompt must go through a design discussion first. Codex should respond with feedback, concerns, suggestions, and clarifying questions before making code changes. Implementation should only begin after the design has been discussed and I explicitly approve moving forward.
 
+After a prompt has been fully discussed, implemented, and tested, remove that completed prompt from PENDING_PROMPTS.md automatically as part of cleanup for that implementation. Do not remove a prompt just because it has been discussed. Do not remove a prompt just because coding has started. Only remove it after the feature is implemented and tested.
+
+Prototype save compatibility is not a priority unless explicitly requested. It is acceptable to break or reset old local saves while the game is still being tested only by the developer and Codex. Prefer clear code and clean forward design over preserving outdated prototype save structures.
 
 
 \## Current Priority Order
 
 
 
-1\. Diet / Sustenance overhaul
+1\. Environmental feeding effects
 
-2\. Food, feeding, and automatic feeding policy
+2\. Container foundation and synthesis tube
 
-3\. Room foundation and dynamic room attributes
+3\. Container materials and passive suitability
 
-4\. Environmental feeding effects
+4\. Container isolation and environmental exchange
 
-5\. Container foundation and synthesis tube
-
-6\. Container materials and passive suitability
-
-7\. Container isolation and environmental exchange
-
-8\. Active behavior risk and containment incidents
+5\. Active behavior risk and containment incidents
 
 
 
@@ -44,727 +41,13 @@ Important: Do not implement any prompt from this file immediately. Every prompt 
 
 
 
-\## 1. Diet / Sustenance Overhaul
 
 
+\## 1. Environmental Feeding Effects
 
-I  updated the destin bible a bit. Reread it before discussing. 
+In addition to the discussion, I don't think the full genetic sequence is important or scannable information. Therefore it does not belong at the top of a creature card. It should be moved to the bottom. 
 
-Design discussion: Diet / Sustenance trait overhaul.
-
-Do not make code changes yet.
-
-I want feedback on the design before deciding how the Diet trait should be reworked. Challenge assumptions, identify potential issues, suggest alternatives, and ask clarifying questions.
-
-Current situation:
-
-Slimes already have a Diet trait.
-
-Diet currently feels too much like a list of physical things the slime eats.
-
-That does not fully match the intended slime biology.
-
-Slimes are natural magical organisms, not artificial organisms.
-
-Outside the laboratory, slimes are one of the most numerous natural organism families in the world.
-
-The laboratory does not invent slimes; it synthesizes, studies, modifies, accelerates, and redirects existing slime biology.
-
-All slimes are magical by nature.
-
-Elemental affinity is not what makes a slime magical. It is a specialized magical expression within an already magical organism.
-
-A slime with no elemental affinity is still magical.
-
-Some slimes should eat physical matter.
-
-Some slimes should consume corpses, waste, decay, or contaminated material.
-
-Some slimes should passively absorb environmental energy or substances such as light, heat, ambient mana, electricity, moisture, chemical fumes, thaumic leakage, or elemental radiation.
-
-Nutrition, Current Mass, Division Pressure, and Stress already exist as slime condition stats.
-
-Natural splitting requires full current mass, sustained fullness, stability, and low stress.
-
-The Diet/Sustenance system should eventually support feeding, mass recovery, environmental effects, jobs, room systems, containers, and reproduction.
-
-Current goal:
-
-Rework the Diet trait conceptually before creating matching feedstock resources, feeding actions, room-condition systems, or container-isolation systems.
-
-Diet may eventually be renamed or internally reframed as Sustenance.
-
-The UI can still say Diet for now if that is simpler, but the design should support more than normal eating.
-
-The goal is to make the trait categories and outcomes compatible with future feeding, jobs, rooms, and containers.
-
-Core idea:
-
-Diet/Sustenance describes how a slime gains usable energy, Nutrition, and Current Mass.
-
-Because all slimes are naturally magical, some sustenance types can convert energy or environmental resources into mass.
-
-Energy-to-mass conversion is acceptable, but it should be slow, limited, and have environmental consequences.
-
-Passive environmental feeding should not be free infinite growth.
-
-The environment must actually provide the energy or substance being absorbed.
-
-Important distinction:
-
-Diet/Sustenance is what the slime consumes for energy, nutrition, or mass.
-
-Environmental preference is the condition the slime prefers, tolerates, or requires.
-
-Absence states should generally not be treated as food sources.
-
-Darkness, cold, silence, and vacuum are not good sustenance sources by themselves.
-
-A slime may prefer darkness, require darkness to digest, avoid light, or be harmed by bright light, but it should not literally eat darkness.
-
-A frost slime does not eat cold; it might absorb heat, which makes the area colder.
-
-A shadow slime does not eat darkness; it might feed on ambient mana, shadow residue, fear, corpses, psychic energy, or another actual substance.
-
-Possible sustenance categories:
-
-Material Feeders
-
-Consume physical feedstock from inventory.
-
-Examples: sugars, scrap metal, bone dust, meat slurry, sand, paper fiber, glass powder, coal dust.
-
-Usually faster and more direct than environmental feeding.
-
-Requires the player to acquire or generate matching resources.
-
-Likely good for restoring Current Mass.
-
-Waste / Decay Feeders
-
-Consume dead, spoiled, dirty, contaminated, or hazardous material.
-
-Examples: corpses, rotting leaves, sewer film, hazard sludge, blood residue, mold, ash.
-
-Useful for corpse processing, waste disposal, and lab cleanup.
-
-May create Waste, residue, contamination, Stress, or Heat depending on suitability.
-
-Should make some slimes valuable as biological disposal tools.
-
-Environmental Feeders
-
-Passively absorb an actual room or container condition/resource.
-
-Examples: light, heat, ambient mana, electricity, moisture, chemical fumes, thaumic radiation, or elemental leakage.
-
-Can slowly generate Nutrition and Current Mass.
-
-Should be slower than direct material feeding.
-
-Should alter the condition being consumed.
-
-Should consume something actually present in the environment, not an absence state.
-
-Environmental feeding examples:
-
-A heat-feeding slime absorbs heat and makes its immediate environment colder.
-
-This can be useful for refrigeration, corpse preservation, or cooling equipment.
-
-It can also harm nearby creatures that need warmth.
-
-If the room or container is already cold, the heat-feeding slime has less heat to absorb and grows more slowly.
-
-A light-feeding slime needs access to light and may dim its immediate environment.
-
-A mana-feeding slime drains ambient mana.
-
-A moisture-feeding slime dries its surroundings.
-
-An electricity-feeding slime may drain charge or stress equipment.
-
-A chemical-fume feeder may clean the air but require fumes to grow efficiently.
-
-Room and container scope:
-
-The laboratory is intended to contain multiple rooms, such as the main lab, storage room, morgue, bedroom, containment rooms, workrooms, and other specialized areas.
-
-The current prototype only represents one room because room systems have not been implemented yet.
-
-Environmental feeding should affect the slime’s immediate environment.
-
-If a container fully isolates the relevant condition, the container interior changes first.
-
-If the container does not isolate that condition, the room changes.
-
-If the creature is released, the room changes directly.
-
-Example: a heat-feeding slime in an insulated sealed tank cools the tank interior first.
-
-Example: a heat-feeding slime in an open cage cools the room it is in.
-
-Example: a light-feeding slime in an opaque sealed box may starve unless there is an internal light source.
-
-Example: a light-feeding slime in a glass tank under lamps can feed from available light.
-
-Example: a mana-feeding slime in a warded vessel drains internal mana first; in an unwarded room it may drain the room’s ambient mana.
-
-Important scope limits:
-
-This prompt is for the Diet/Sustenance trait overhaul.
-
-Do not implement full room conditions yet.
-
-Do not implement full container isolation yet.
-
-Do not implement feedstock acquisition yet unless we agree that it belongs in this pass.
-
-Do not build the entire feeding economy yet.
-
-Do not rebalance jobs around the new Diet/Sustenance outcomes yet unless a small compatibility update is necessary.
-
-The goal is to design the trait categories and decide how diet outcomes should be structured so later systems can build on them.
-
-Questions for discussion:
-
-Should the trait remain named Diet, or should it be renamed to Sustenance?
-
-What high-level sustenance categories should exist?
-
-Should Material Feeders, Waste / Decay Feeders, and Environmental Feeders be the main categories?
-
-What specific diet outcomes should exist in the first reworked pool?
-
-Which current diet outcomes should be kept, renamed, merged, or removed?
-
-Should each diet outcome have hidden tags such as material, waste, decay, environmental, heat, light, mana, organic, mineral, hazardous, volatile, etc.?
-
-Should diet outcomes determine both Nutrition gain and Current Mass recovery?
-
-Should environmental feeding always be slower than material feeding?
-
-How should magical energy-to-mass conversion be balanced?
-
-How should the system distinguish between what a slime consumes and what environmental conditions it prefers?
-
-Should darkness, cold, silence, and similar absence states be excluded from Diet/Sustenance and handled as habitat preferences instead?
-
-How should environmental feeding eventually interact with rooms and containers?
-
-Should environmental diets be useful as lab infrastructure, such as refrigeration, lighting control, mana draining, air cleaning, drying rooms, or heat regulation?
-
-What risks are there of making Diet too complicated?
-
-What should be explicitly left out until later feedstock, feeding-action, room-condition, and container passes?
-
-What is the smallest design change that makes Diet feel aligned with natural magical slime biology?
-
-Design goals:
-
-Make Diet/Sustenance fit natural magical slime biology.
-
-Support slimes that eat matter, consume waste, or absorb actual environmental resources.
-
-Avoid treating absence states like darkness or cold as literal food.
-
-Separate sustenance sources from environmental preferences.
-
-Make diet outcomes more useful for future feeding, jobs, room systems, and containment.
-
-Allow magical energy-to-mass conversion without making passive feeding overpowered.
-
-Preserve the discovery loop by keeping exact diet mechanics partially learnable through play.
-
-Prepare for future feedstock resources, room-condition systems, and container-isolation systems.
-
-Keep the first pass simple, readable, and expandable.
-
-Do not modify files until we have agreed on the design and scope.
-
-
-
-
-
-\---
-
-
-
-\## 2. Food, Feeding, and Automatic Feeding Policy
-
-
-
-Design discussion: food, feeding, and automatic feeding policy.
-
-Do not make code changes yet.
-
-I want feedback on the design before deciding how the first food system should work. Challenge assumptions, identify potential issues, suggest alternatives, and ask clarifying questions.
-
-Assumption:
-
-The Diet / Sustenance trait overhaul has already been designed or implemented.
-
-Diet/Sustenance now supports material feeders, waste/decay feeders, and environmental feeders.
-
-Slimes have Nutrition, Current Mass, Division Pressure, and Stress.
-
-Natural splitting requires full current mass, sustained fullness, stability, and low stress.
-
-The game already has a Policies panel for automation rules, so feeding should eventually fit into that system.
-
-Current goal:
-
-Add a first-pass food system so slimes can be intentionally fed.
-
-Food should let the player restore Nutrition and Current Mass without relying only on slime corpses.
-
-Add policy support for automatic feeding so the player does not need to manually feed every slime constantly.
-
-The first pass should support testing and gameplay iteration.
-
-Do not implement farms, hunting, suppliers, scavenging expeditions, room conditions, or full production chains yet.
-
-Temporary prototype food economy:
-
-Add food/feedstock stockpiles that match the reworked Diet/Sustenance outcomes.
-
-Food stockpiles should passively increase over time by a simple fixed or configurable amount.
-
-This passive increase is a temporary stand-in for future farms, purchases, scavenging, suppliers, black market goods, decay systems, and room-based production.
-
-The goal is to make feeding testable now without building the full economy yet.
-
-Environmental feeders:
-
-Until room conditions and container isolation are implemented, environmental feeders should be treated as having access to infinite food.
-
-They should be able to gain Nutrition and Current Mass according to their environmental diet without consuming inventory resources.
-
-For now, environmental feeding should have no room/container downsides.
-
-Do not make heat-feeders cool rooms, light-feeders dim rooms, mana-feeders drain rooms, or moisture-feeders dry rooms yet.
-
-Those effects should wait until room conditions and container isolation exist.
-
-This is a temporary prototype simplification, not the final design.
-
-Material feeders:
-
-Material feeders should consume matching feedstock resources from inventory.
-
-Good matches should efficiently restore Nutrition and Current Mass.
-
-Poor matches may still be allowed but should be inefficient, stressful, harmful, or waste-producing depending on the design.
-
-Exact tuning can remain simple for now.
-
-Waste / Decay feeders:
-
-Waste/decay feeders should be able to consume things like corpses, spoiled material, sludge, contaminated food, or waste-related feedstocks.
-
-Good matches should make these slimes useful for cleanup and disposal.
-
-Poor matches may create Stress, Waste, low Nutrition gain, low Current Mass recovery, or Body Integrity damage.
-
-Existing Corpse Processing and Waste Disposal jobs may eventually reuse this feeding logic, but this pass does not need to fully refactor jobs unless necessary.
-
-Automatic feeding policy:
-
-Add a policy that allows the lab to automatically feed slimes when they fall below a chosen Nutrition threshold.
-
-Automatic feeding should use available food stockpiles according to the slime’s Diet/Sustenance.
-
-The policy should avoid wasting rare or dangerous food unless the player allows it.
-
-Automatic feeding should not override player intent when a slime is being deliberately starved, kept underfed, or prevented from reaching reproductive readiness.
-
-The policy should probably support at least a simple on/off toggle in the first pass.
-
-Later versions can support more detailed settings such as preferred food types, minimum reserve amounts, feeding thresholds, and whether to allow food that increases Stress or Waste.
-
-Possible automatic feeding settings:
-
-Auto-feed enabled / disabled.
-
-Feed when Nutrition drops below a threshold.
-
-Feed until Nutrition reaches a target.
-
-Allow or forbid using scarce feedstocks.
-
-Allow or forbid using corpse/decay/waste food.
-
-Allow or forbid feeding that may increase Division Pressure.
-
-Preserve a minimum reserve of each food type.
-
-Prefer best-matching food when available.
-
-Fall back to partial matches only if allowed.
-
-Policy design concern:
-
-Automatic feeding can accidentally push slimes toward natural splitting.
-
-Since sustained fullness and full current mass contribute to Division Pressure, feeding policy should not blindly keep every slime maximally fed unless the player wants reproduction pressure.
-
-There may need to be separate policies for maintenance feeding versus growth/reproduction feeding.
-
-Possible first-pass food categories:
-
-Organic food
-
-Mineral food
-
-Metal food
-
-Arcane food
-
-Fuel / chemical food
-
-Corpse / decay food
-
-Waste / contaminated food
-
-Environmental food, handled as infinite for now
-
-Possible implementation approach:
-
-Add food resources or feedstock resources.
-
-Add passive food income for testing.
-
-Add a manual Feed action for living slimes.
-
-Add a basic automatic feeding policy.
-
-Match the selected or automatic food against the slime’s Diet/Sustenance tags.
-
-Apply Nutrition gain, Current Mass recovery, Stress changes, Waste output, or other simple consequences.
-
-Keep exact numbers easy to tune.
-
-Questions for discussion:
-
-Should food be tracked as individual feedstocks or broad categories?
-
-What food categories best match the reworked Diet/Sustenance outcomes?
-
-How much passive food income should exist for testing?
-
-Should passive food income be global, per food type, or adjustable with testing commands?
-
-Should the manual Feed action choose a specific food type or automatically use the best available food?
-
-Should automatic feeding be part of the existing Policies panel?
-
-What automatic feeding settings are necessary for the first pass?
-
-Should auto-feeding distinguish between maintenance feeding and growth/reproduction feeding?
-
-How should good, partial, and bad diet matches affect Nutrition and Current Mass?
-
-Should bad food increase Stress, create Waste, damage Body Integrity, or simply be inefficient?
-
-How should environmental feeders work during this temporary no-room-conditions phase?
-
-How should auto-feeding avoid wasting scarce or dangerous foods?
-
-How should auto-feeding avoid accidentally causing unwanted reproduction?
-
-What should be left out until farms, suppliers, rooms, containers, and environmental effects are implemented?
-
-What is the smallest implementation that makes feeding useful and testable right now?
-
-Design goals:
-
-Make Diet/Sustenance matter immediately.
-
-Give slimes a normal way to gain Nutrition and Current Mass.
-
-Avoid making corpse-eating the only practical feeding path.
-
-Support environmental feeders without needing room systems yet.
-
-Simulate food supply with passive income until the real economy exists.
-
-Reduce micromanagement through automatic feeding policies.
-
-Preserve player control over whether slimes are merely maintained or pushed toward reproduction.
-
-Keep this first pass simple, testable, and easy to replace later.
-
-Preserve the future direction where food supply, room conditions, and container isolation become meaningful systems.
-
-Do not modify files until we have agreed on the design and scope.
-
-
-
-
-
-\---
-
-
-
-\## 3. Room Foundation and Dynamic Room Attributes
-
-
-
-Design discussion: room foundation and dynamic room attributes.
-
-Do not make code changes yet.
-
-I want feedback on the design before deciding how rooms and room attributes should work. Challenge assumptions, identify potential issues, suggest alternatives, and ask clarifying questions.
-
-Assumption:
-
-The Diet / Sustenance overhaul and first-pass food system are either complete or planned.
-
-Environmental feeders exist conceptually, but their full effects should wait until rooms and room attributes exist.
-
-The laboratory is intended to contain multiple rooms, such as the main lab, storage room, morgue, bedroom, containment rooms, workrooms, and other specialized areas.
-
-The current prototype only represents one room because the room system has not been implemented yet.
-
-Current goal:
-
-Turn the current generic lab space into an actual starting room.
-
-Add a first-pass room system with basic dynamic room attributes.
-
-Keep this as a foundation pass.
-
-Do not implement full environmental feeding effects yet.
-
-Do not implement full container isolation yet.
-
-Do not implement containment incidents yet.
-
-Do not implement room construction or base expansion yet unless there is a strong reason to include a small placeholder.
-
-Core idea:
-
-Rooms should become the spatial layer between the facility and everything inside it.
-
-The current lab should become the starting room, likely called Main Lab.
-
-Future systems should be able to place slimes, containers, corpses, waste, equipment, jobs, and resources in specific rooms.
-
-Room attributes should be dynamic conditions, not static resource buckets.
-
-A room condition should be understood as a balance between current level, baseline level, sources, drains, and recovery/exchange behavior.
-
-Possible initial room attributes:
-
-Temperature
-
-Light
-
-Ambient Mana
-
-Moisture
-
-Contamination / Cleanliness
-
-Electrical Charge
-
-Suggested first-pass defaults for Main Lab:
-
-Temperature: Normal, maintained by outside exchange or basic ventilation.
-
-Light: Lit, maintained by overhead lights.
-
-Ambient Mana: Normal, maintained by background magical leakage or ambient magical saturation.
-
-Moisture: Normal, maintained by ventilation and ordinary air exchange.
-
-Contamination: Low, reduced slowly by ventilation.
-
-Electrical Charge: Stable or None, produced later by equipment or storm effects.
-
-Room attributes as dynamic conditions:
-
-Room attributes should not be static stockpiles.
-
-Each room condition should have a current level.
-
-Each room condition may also have a baseline or target level.
-
-Sources push the condition upward or toward a target.
-
-Drains pull the condition downward or away from a target.
-
-Recovery/exchange behavior moves the room back toward its baseline over time.
-
-The first pass does not need complex HVAC, lighting, electrical, or magical simulation, but the data model should support those ideas later.
-
-Examples of sources:
-
-Overhead lights produce Light.
-
-Ventilation circulates outside air and can affect Temperature, Moisture, Contamination, and fumes.
-
-Lab equipment may produce Heat, Electrical Charge, Contamination, or magical leakage.
-
-Wards, rituals, or reagents may increase Ambient Mana.
-
-Leaks, wet creatures, humidifiers, or water sources may increase Moisture.
-
-Corpses, waste, failed jobs, and accidents may increase Contamination.
-
-Examples of drains:
-
-Heat-feeding slimes remove Heat and lower Temperature.
-
-Light-feeding slimes consume available Light.
-
-Mana-feeding slimes drain Ambient Mana.
-
-Moisture-feeding slimes dry the room.
-
-Electricity-feeding slimes drain Electrical Charge.
-
-Fume-feeding or contamination-feeding slimes may reduce Contamination.
-
-Important design direction:
-
-Room attributes are balances, not buckets.
-
-A heat-feeding slime should not simply remove temperature forever.
-
-It should consume heat while the room is also being warmed by outside air, equipment, lights, bodies, or other sources.
-
-If heat consumption exceeds heat replenishment, the room gets colder.
-
-If heat sources exceed heat consumption, the room stays stable or warms back up.
-
-The same logic should eventually apply to Light, Mana, Moisture, Contamination, and Electrical Charge.
-
-Broad bands may be better than exact values for the player-facing UI.
-
-Exact internal values are fine if useful for tuning.
-
-Examples of future interactions, not necessarily this pass:
-
-Heat-feeding slimes lower room or container temperature.
-
-Light-feeding slimes reduce available light.
-
-Mana-feeding slimes drain ambient mana.
-
-Moisture-feeding slimes dry rooms.
-
-Chemical-fume feeders may reduce contamination or consume fumes.
-
-Morgues benefit from low temperature.
-
-Bedrooms should probably not be contaminated.
-
-Storage rooms may care about moisture, temperature, and cleanliness.
-
-Containment rooms may need specialized conditions.
-
-Some slimes may prefer or suffer from certain room conditions.
-
-Room and container relationship:
-
-Containers should eventually exist inside rooms.
-
-If a container isolates a condition, environmental feeding affects the container interior first.
-
-If a container does not isolate the condition, the room changes.
-
-If a creature is released into a room, it affects the room directly.
-
-This pass does not need to implement container isolation, but the room data model should not block that future design.
-
-Possible implementation approach:
-
-Add a rooms collection to game state.
-
-Create a default Main Lab room for new games.
-
-Migrate old saves by creating Main Lab and placing existing lab contents there by default.
-
-Add basic dynamic room attributes to each room.
-
-Give each attribute a current value and a baseline or target value.
-
-Add simple source/drain/recovery helper functions, even if few systems use them yet.
-
-Add a simple Rooms panel or room summary area.
-
-Make the current prototype behavior continue to work with only one room.
-
-Add helper functions for reading, modifying, clamping, and displaying room attributes.
-
-Keep room attributes mostly passive until later systems use them.
-
-Questions for discussion:
-
-What should the starting room be called?
-
-What room attributes are necessary for the first prototype?
-
-Should room attributes be exact values, broad bands, or both?
-
-Should each room attribute have both current and baseline values?
-
-How should sources, drains, and recovery be represented in the data model?
-
-Should the first pass include actual passive recovery toward baseline, or only prepare for it?
-
-Should the player see exact room values or descriptive labels?
-
-Should the first pass include only Main Lab, or should placeholder rooms like Storage, Morgue, and Bedroom also exist?
-
-How should old saves migrate into the new room system?
-
-What entities should have room assignment now, and what should wait?
-
-Should slimes immediately belong to a room, or should that wait until containers exist?
-
-Should corpses, waste, and jobs belong to rooms in this pass?
-
-How should room attributes be displayed without cluttering the UI?
-
-Should testing commands be added to adjust room attributes for debugging?
-
-What should be explicitly left out until environmental feeding, containers, containment, and room construction are implemented?
-
-What is the smallest implementation that creates a useful room foundation without overbuilding simulation?
-
-Design goals:
-
-Make the laboratory feel like a physical place rather than an abstract screen.
-
-Establish Main Lab as the first real room.
-
-Prepare for future rooms such as storage, morgue, bedroom, containment rooms, and workrooms.
-
-Create basic room attributes needed for environmental feeding and future lab management.
-
-Treat room attributes as dynamic balances with sources and drains, not static buckets.
-
-Avoid overbuilding room construction, room simulation, or containment incidents in this pass.
-
-Keep the first version simple, save-safe, readable, and expandable.
-
-Do not modify files until we have agreed on the design and scope.
-
-
-
-
-
-
-
-\---
-
-
-
-\## 4. Environmental Feeding Effects
-
-
+Also, I think cheats should all live in the cheats tab, so the room cheat should be moved there. 
 
 Design discussion: environmental feeding effects.
 
@@ -774,13 +57,13 @@ I want feedback on the design before deciding how environmental feeding should w
 
 Assumption:
 
-The Diet / Sustenance overhaul has already been designed or implemented.
+The Sustenance overhaul has already been designed or implemented.
 
 The first-pass food system has already been designed or implemented.
 
 Rooms and dynamic room attributes have already been designed or implemented.
 
-Environmental feeders exist as a Diet / Sustenance category.
+Environmental feeders exist as a Sustenance category.
 
 Slimes have condition stats such as Nutrition, Current Mass, Division Pressure, Body Integrity, and Stress.
 
@@ -884,7 +167,7 @@ Absence states are not food.
 
 Darkness, cold, silence, and vacuum should not be treated as sustenance sources.
 
-A slime may prefer darkness or cold, but that is environmental preference, not Diet / Sustenance.
+A slime may prefer darkness or cold, but that is environmental preference, not Sustenance.
 
 A frost slime might absorb heat and thereby make the room colder; it does not eat cold.
 
@@ -928,7 +211,7 @@ Possible first-pass implementation:
 
 Add a periodic environmental feeding update.
 
-For each living slime with an environmental Diet / Sustenance tag, check its current room.
+For each living slime with an environmental Sustenance tag, check its current room.
 
 Identify the matching room condition.
 
@@ -1002,13 +285,13 @@ Do not add absence-state feeding such as eating darkness or cold.
 
 Do not rebalance every job around environmental feeding unless a small compatibility update is necessary.
 
-Keep this pass focused on making environmental Diet / Sustenance interact with dynamic room attributes.
+Keep this pass focused on making environmental Sustenance interact with dynamic room attributes.
 
 Questions for discussion:
 
-Which environmental Diet / Sustenance outcomes should be supported in the first pass?
+Which environmental Sustenance outcomes should be supported in the first pass?
 
-Which room attributes should be consumed by each environmental diet?
+Which room attributes should be consumed by each environmental sustenance?
 
 Should environmental feeding increase Nutrition, Current Mass, or both?
 
@@ -1036,7 +319,7 @@ What is the smallest implementation that makes environmental feeding meaningful 
 
 Design goals:
 
-Make environmental Diet / Sustenance outcomes matter.
+Make environmental Sustenance outcomes matter.
 
 Let slimes gain Nutrition and Current Mass from room conditions.
 
@@ -1064,7 +347,7 @@ Do not modify files until we have agreed on the design and scope.
 
 
 
-\## 5. Container Foundation and Synthesis Tube
+\## 2. Container Foundation and Synthesis Tube
 
 
 
@@ -1294,7 +577,7 @@ Do not modify files until we have agreed on the design and scope.
 
 
 
-\## 6. Container Materials and Passive Suitability
+\## 3. Container Materials and Passive Suitability
 
 
 
@@ -1600,7 +883,7 @@ Do not modify files until we have agreed on the design and scope.
 
 
 
-\## 7. Container Isolation and Environmental Exchange
+\## 4. Container Isolation and Environmental Exchange
 
 
 
@@ -1798,7 +1081,7 @@ If the container blocks access, feeding should slow or stop unless the container
 
 If the container partially isolates the condition, some effect should hit the container and some should leak to the room.
 
-This should make container choice matter for environmental diets.
+This should make container choice matter for environmental sustenance types.
 
 Interactions with room attributes:
 
@@ -1858,7 +1141,7 @@ Design goals:
 
 Make containers matter for environmental feeders.
 
-Connect creature Diet/Sustenance, room attributes, and containment equipment.
+Connect creature Sustenance, room attributes, and containment equipment.
 
 Let players choose between protecting the room and feeding the creature.
 
@@ -1878,7 +1161,7 @@ Do not modify files until we have agreed on the design and scope.
 
 
 
-\## 8. Active Behavior Risk and Containment Incidents
+\## 5. Active Behavior Risk and Containment Incidents
 
 
 
@@ -1902,7 +1185,7 @@ Environmental feeding exists or is planned.
 
 Slimes have condition stats such as Body Integrity, Nutrition, Current Mass, Division Pressure, and Stress.
 
-Slimes have traits such as behavior, stability, size, weight, shape, body consistency, appendages, movement, element, byproduct, and diet.
+Slimes have traits such as behavior, stability, size, weight, shape, body consistency, appendages, movement, element, byproduct, and sustenance.
 
 This prompt is about active behavior risk and containment incidents.
 
@@ -2006,7 +1289,7 @@ Exposure event: scientist or nearby creatures take damage, Stress, contamination
 
 Room condition event: heat drain, light drain, mana drain, fumes, moisture, or charge spreads into the room.
 
-Evidence event: strange noises, smells, leaks, or escaped slime traces increase Heat.
+Evidence event: strange noises, smells, leaks, or escaped slime traces increase Suspicion.
 
 Catastrophic breach: rare severe event from ignored high-risk containment.
 
@@ -2054,17 +1337,17 @@ Possible warning text:
 
 “Container isolation is trapping contamination inside.”
 
-Heat interaction:
+Suspicion interaction:
 
-Not every incident should increase Heat.
+Not every incident should increase Suspicion.
 
 Internal messes may only increase contamination or Stress.
 
-Visible, noisy, smelly, or escaped incidents should increase Heat.
+Visible, noisy, smelly, or escaped incidents should increase Suspicion.
 
-Dumping evidence outside already increases Heat; containment breaches should be another natural Heat source.
+Dumping evidence outside already increases Suspicion; containment breaches should be another natural Suspicion source.
 
-Heat gain should depend on severity and whether the incident leaves evidence outside the lab or draws attention.
+Suspicion gain should depend on severity and whether the incident leaves evidence outside the lab or draws attention.
 
 Room interaction:
 
@@ -2142,7 +1425,7 @@ Should risk be checked continuously, periodically, or only when conditions chang
 
 What incident types should exist in the first pass?
 
-Which incidents should increase Heat?
+Which incidents should increase Suspicion?
 
 Should minor incidents mostly affect Stress, contamination, or container condition?
 
@@ -2174,7 +1457,7 @@ Separate passive containment mismatch from active behavior risk.
 
 Make bad containment create readable consequences.
 
-Connect containment risk to Heat, contamination, room conditions, and container damage.
+Connect containment risk to Suspicion, contamination, room conditions, and container damage.
 
 Make natural splitting create meaningful containment pressure.
 

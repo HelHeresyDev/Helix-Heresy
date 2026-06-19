@@ -36,9 +36,9 @@ The laboratory begins as an illegal biotechnology operation focused on creating 
 
 All slimes are magical by nature. They are not artificial organisms; outside the laboratory, slimes are one of the most numerous natural organism families in the world. The laboratory does not invent slimes, but synthesizes, studies, modifies, accelerates, and redirects existing slime biology. Elemental affinity is not what makes a slime magical. It is a specialized magical expression within an already magical organism, so a slime with no elemental affinity is still magical.
 
-Slimes are the starter creature family because they are simple, durable, adaptable, and biologically permissive. “Slime” is a broad category, not a single body type. Some are gelatinous, but others may be watery, rubbery, crystalline, tar-like, waxen, clay-like, fibrous, foamy, or stranger forms. Their shape, consistency, appendages, element, diet, and behavior determine how they function.
+Slimes are the starter creature family because they are simple, durable, adaptable, and biologically permissive. “Slime” is a broad category, not a single body type. Some are gelatinous, but others may be watery, rubbery, crystalline, tar-like, waxen, clay-like, fibrous, foamy, or stranger forms. Their shape, consistency, appendages, element, sustenance, and behavior determine how they function.
 
-Slimes are asexual scavenger organisms that can consume almost anything, but not necessarily well. A poorly suited slime can still eat corpses, waste, reagents, or strange materials, but it may digest slowly, injure itself, leave residue behind, create contamination, or produce low-quality outputs. Specialized slimes are valuable because they perform the same biological work faster, cleaner, and with less risk.
+Slimes are asexual scavenger organisms that can consume almost anything, but not necessarily well. Each slime has a primary Sustenance adaptation shaped by natural evolution and reproduction, but mismatched food or resources may digest slowly, injure the slime, leave residue behind, create contamination, or produce low-quality outputs. Specialized slimes are valuable because they perform the same biological work faster, cleaner, and with less risk.
 
 A slime’s body is usually distributed and partially replaceable. This makes many slimes resistant to ordinary physical damage, since cutting, crushing, puncturing, melting, or removing part of the body may not kill the creature. The exact form of resilience depends on body consistency. A watery slime, brittle crystalline slime, rubbery slime, and tar-like slime should not all react to damage the same way. Ordinary harm should damage body integrity, reduce efficiency, increase stress, or make jobs harder, but it should not automatically shorten natural lifespan.
 
@@ -56,7 +56,7 @@ The current breeding concept has been reframed for slimes. Single-parent reprodu
 
 Mutation should not be pure chaos in every situation. Natural splitting after sustained fullness can have a higher mutation chance, while controlled laboratory splitting can reduce mutation risk at the cost of time, equipment, resources, or skill. Forced recombination can allow two-parent mixing but carry greater instability. This gives the player choices between reliable replication, risky experimentation, and deliberate genetic recombination.
 
-The practical rule for slimes is that they are generalist scavengers by default and specialists by design. Any slime can attempt crude jobs like corpse consumption, waste disposal, hazardous cleanup, or basic production, but traits should determine whether the job is safe, fast, efficient, or useful. Feeding slimes is therefore not just maintenance; it can also create reproductive pressure, storage problems, mutation opportunities, and new resource-management decisions. Slime biology should support the larger game loop: create strange organisms, study their traits, feed and use them, manage the consequences of their reproduction and waste, and breed or engineer better versions.
+The practical rule for slimes is that they are generalist scavengers by default and specialists by design. Any slime can attempt crude jobs like corpse consumption, waste disposal, hazardous cleanup, or basic production, but traits should determine whether the job is safe, fast, efficient, or useful. Feeding slimes is therefore not just maintenance; it can also create reproductive pressure, storage problems, mutation opportunities, and new resource-management decisions. Sustenance describes the primary pathway a slime uses to turn matter, waste, decay, or environmental resources into Nutrition and Current Mass; environmental sustenance is deliberately slow until room and container resources exist. Slime biology should support the larger game loop: create strange organisms, study their traits, feed and use them, manage the consequences of their reproduction and waste, and breed or engineer better versions.
 
 
 ## Design Vision
@@ -79,7 +79,7 @@ The intended long-term loop:
 
 - Experiment on genes and synthesize creatures.
 - Observe results through casual inspection, lab tests, and practical use.
-- Manage money, biomass, reagents, lab space, equipment, time, secrecy, and heat.
+- Manage money, biomass, reagents, lab space, equipment, time, secrecy, and Suspicion.
 - Hide evidence, contain accidents, and avoid authority attention.
 - Assign creatures to jobs, lab areas, disposal tasks, protection, infiltration, production, or sale.
 - Visit the black market to sell creatures, byproducts, services, and eventually fulfill commissions.
@@ -89,7 +89,7 @@ Starting scenarios should define the initial story and resource position. Exampl
 
 Difficulty should be modular rather than a single preset. Settings can affect journal support, gene visibility, authority aggression, resource scarcity, experiment consequences, mutation chaos, and how learnable the DNA puzzle is. Easy settings can be darkly funny and forgiving; hard settings should become tense, secretive, and resource-starved.
 
-Heat is the pressure of being discovered. It should eventually track suspicion, evidence trails, escaped creatures, lab incidents, black market exposure, and direct government attention. On low difficulty it can be background pressure; on high difficulty it should become a constant survival threat.
+Suspicion is the pressure of being discovered. It should eventually track evidence trails, escaped creatures, lab incidents, black market exposure, and direct government attention. On low difficulty it can be background pressure; on high difficulty it should become a constant survival threat.
 
 The black market should grow with reputation. Early sales may be whatever useful creatures or byproducts the player can produce. As reputation rises, customers should commission creatures with specific traits, behaviors, affinities, or jobs.
 
@@ -127,8 +127,8 @@ Odd combinations are acceptable. A puddle with stub legs or a metal slime with w
 Likely future systems:
 
 - Starting scenarios with different resources, protection, time pressure, and threats.
-- Modular difficulty settings for journal support, heat, resources, mutation, danger, and gene-map complexity.
-- Heat, suspicion, evidence, raids, cover stories, and lab secrecy.
+- Modular difficulty settings for journal support, Suspicion, resources, mutation, danger, and gene-map complexity.
+- Suspicion, evidence, raids, cover stories, and lab secrecy.
 - Money, biomass, reagents, lab space, equipment, orders, construction, and black market access.
 - Black market reputation, freeform sales, byproduct markets, and commissioned creature requests.
 - Equipment and resource-gated testing.
@@ -150,7 +150,7 @@ Likely future systems:
 Open design questions:
 
 - What starting scenarios should ship first, and which difficulty settings should be separate sliders?
-- How should heat be generated, hidden, reduced, or converted into authority actions?
+- How should Suspicion be generated, hidden, reduced, or converted into authority actions?
 - When should the game transition from lab survival to local-government conflict and then world conquest?
 - How much should movement affect future mechanics?
 - How should weak or biologically clashing creatures be communicated to the player?
@@ -163,7 +163,8 @@ Open design questions:
 - Distinct color coding for A, C, G, and T.
 - Seeded procedural gene mapping for repeatable runs.
 - Slime synthesis from 26-base genomes with a Biomass cost.
-- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, and Waste.
+- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstock resources.
+- Passive prototype feedstock income for basic material feedstocks, plus generated Carrion Feedstock and Contaminated Feedstock from relevant systems.
 - Slime condition stats for Body Integrity, Nutrition, Current Mass, Division Pressure, and Stress.
 - Genetic shape and appendage traits.
 - Genetic body consistency.
@@ -172,7 +173,11 @@ Open design questions:
 - Discovered-trait identity strip with color, element, shape, and byproduct slots.
 - Broad category icons for discovered shape and byproduct outcomes.
 - Observable traits with scientist estimate ranges.
-- Diet outcomes have hidden categories that can support job suitability and future feeding systems.
+- Sustenance outcomes have hidden categories that can support job suitability, future feedstocks, environmental feeding, and room/container systems.
+- Manual feeding can restore Nutrition and Current Mass, while bad matches can create Stress, Waste, or Body Integrity damage.
+- Best-match feeding is available once a slime's Sustenance is discovered.
+- Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
+- Room attributes have current values, baselines, passive recovery, and descriptive player-facing bands.
 - Timed tests that can reveal more precise trait information.
 - Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.
 - Forced Recombination as the current two-parent lab intervention, with parent and offspring mass shared instead of free full-sized copies.
@@ -182,16 +187,17 @@ Open design questions:
 - Fresh corpse necropsy reveals remaining unknown genetic traits for that specimen.
 - Necropsy produces an effectiveness report and ruins the corpse without disposing of it.
 - Fresh necropsy recovers a small amount of Genetic Material.
-- Dumping corpses outside removes them from waste drums while increasing Heat.
-- Heat is shown as a status band, with hidden exact values, delayed passive decay, and a floor based on the highest band reached.
-- Dedicated Policies panel for automation rules, including Corpse Processing target states.
+- Dumping corpses outside removes them from waste drums while increasing Suspicion.
+- Suspicion is shown as a status band, with hidden exact values, delayed passive decay, and a floor based on the highest band reached.
+- Dedicated Policies panel for automation rules, including Corpse Processing target states and configurable auto-feeding behavior.
+- Individual slimes can be excluded from global automation for testing or deliberate starvation/growth control.
 - Creature Jobs panel with idle assignment, Corpse Processing, and Waste Disposal.
-- Corpse Processing uses creature traits, diet categories, and policy-approved corpse states to turn waste-drum corpses into Biomass and tagged Waste while affecting slime condition.
+- Corpse Processing uses creature traits, sustenance categories, and policy-approved corpse states to turn waste-drum corpses into Biomass and tagged Waste while affecting slime condition.
 - Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output, condition-stat effects, and suitability learned through observed speed, exposure, and contamination.
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and individual skills.
 - Stamina costs, passive regeneration, and queued rest actions.
-- XP and resource cheat commands for testing skill progression and resource-gated systems.
+- XP, resource, and room cheat commands for testing skill progression, resource-gated systems, and room conditions.
 - Paused start with selectable time speeds from real-time through accelerated waits.
 - Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
 - Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.

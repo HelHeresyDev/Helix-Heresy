@@ -2,7 +2,7 @@
 
 Helix Heresy is a desktop-focused static browser prototype about forbidden creature genetics, laboratory discovery, and questionable science.
 
-The current build starts with slimes as the simplest creature type. Players edit 26-base genomes, synthesize living samples, discover traits through tests, manage slime reproduction, manage corpses and Heat, and assign creatures to early lab jobs.
+The current build starts with slimes as the simplest creature type. Players edit 26-base genomes, synthesize living samples, discover traits through tests, manage slime reproduction, manage corpses and Suspicion, and assign creatures to early lab jobs.
 
 For story background, long-term systems, current design direction, and open questions, see [DESIGN_BIBLE.md](DESIGN_BIBLE.md).
 
@@ -10,10 +10,13 @@ For story background, long-term systems, current design direction, and open ques
 
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
-- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, and Waste.
+- Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstocks for testing feeding systems.
 - Slime reproduction foundation with natural splitting, Forced Recombination, Current Mass, and Division Pressure.
-- Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, and movement.
-- Corpse handling with waste drums, decay states, necropsy, dumping, Heat, and policy-driven Corpse Processing jobs.
+- Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, movement, and Sustenance.
+- Sustenance traits describe a slime's primary feeding adaptation, with broad material, waste/decay, and slow environmental pathways.
+- Manual feeding, best-match feeding after Sustenance discovery, and auto-feeding policies with per-slime automation exclusion.
+- Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
+- Corpse handling with waste drums, decay states, necropsy, dumping, Suspicion, and policy-driven Corpse Processing jobs.
 - Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments that can affect slime condition stats.
 - Scientist stamina, mana, skills, XP/resource cheats, timed tasks, speed controls, skip controls, and keyboard shortcuts.
 - Automatic, manual, and disabled journal modes.
@@ -36,7 +39,7 @@ The game is currently designed for desktop play.
 
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
-- `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Heat, corpses, and rendering.
+- `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
@@ -44,7 +47,7 @@ The game is currently designed for desktop play.
 
 ## Saves
 
-Helix Heresy stores local progress in browser `localStorage`. Saves can also be exported and imported as JSON files from inside the game.
+Helix Heresy stores local progress in browser `localStorage`. Launching the game opens a new/load choice instead of automatically loading the last save. Saves can also be exported and imported as JSON files from inside the game.
 
 ## Development Notes
 

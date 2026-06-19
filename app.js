@@ -2,29 +2,131 @@
   "use strict";
 
   const STORAGE_KEY = "helix-heresy-v1-save";
-  const LEGACY_STORAGE_KEYS = ["rogue-genesis-v1-save"];
   const SAVE_FILE_NAME = "helix-heresy-save.json";
   const BASES = ["A", "C", "G", "T"];
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
   const WASTE_DRUM_CAPACITY = 8;
   const OVERFLOW_EVENT_INTERVAL = 360;
-  const OVERFLOW_HEAT = 4;
-  const HEAT_MAX = 100;
-  const HEAT_DECAY_DELAY = 1440;
-  const HEAT_DECAY_INTERVAL = 360;
-  const HEAT_BANDS = [
+  const OVERFLOW_SUSPICION = 4;
+  const SUSPICION_MAX = 100;
+  const SUSPICION_DECAY_DELAY = 1440;
+  const SUSPICION_DECAY_INTERVAL = 360;
+  const SUSPICION_BANDS = [
     { id: "quiet", label: "Quiet", min: 0 },
     { id: "suspicious", label: "Suspicious", min: 20 },
     { id: "watched", label: "Watched", min: 40 },
     { id: "investigated", label: "Investigated", min: 60 },
     { id: "critical", label: "Critical", min: 80 }
   ];
-  const DUMP_HEAT = {
+  const DUMP_SUSPICION = {
     fresh: 6,
     decaying: 8,
     spoiled: 10,
     ruined: 7
+  };
+  const MAIN_ROOM_ID = "mainLab";
+  const ROOM_ATTRIBUTE_DEFS = [
+    {
+      key: "temperature",
+      label: "Temperature",
+      initial: 50,
+      baseline: 50,
+      recoveryPerHour: 2,
+      bands: [
+        { min: 0, label: "Freezing" },
+        { min: 20, label: "Cold" },
+        { min: 40, label: "Cool" },
+        { min: 45, label: "Normal" },
+        { min: 65, label: "Warm" },
+        { min: 82, label: "Hot" }
+      ]
+    },
+    {
+      key: "light",
+      label: "Light",
+      initial: 60,
+      baseline: 60,
+      recoveryPerHour: 2,
+      bands: [
+        { min: 0, label: "Dark" },
+        { min: 20, label: "Dim" },
+        { min: 45, label: "Lit" },
+        { min: 75, label: "Bright" }
+      ]
+    },
+    {
+      key: "ambientMana",
+      label: "Ambient Mana",
+      initial: 50,
+      baseline: 50,
+      recoveryPerHour: 1,
+      bands: [
+        { min: 0, label: "Depleted" },
+        { min: 25, label: "Thin" },
+        { min: 45, label: "Normal" },
+        { min: 70, label: "Rich" },
+        { min: 88, label: "Saturated" }
+      ]
+    },
+    {
+      key: "moisture",
+      label: "Moisture",
+      initial: 50,
+      baseline: 50,
+      recoveryPerHour: 1.5,
+      bands: [
+        { min: 0, label: "Parched" },
+        { min: 25, label: "Dry" },
+        { min: 42, label: "Normal" },
+        { min: 68, label: "Damp" },
+        { min: 86, label: "Wet" }
+      ]
+    },
+    {
+      key: "contamination",
+      label: "Contamination",
+      initial: 10,
+      baseline: 10,
+      recoveryPerHour: 0.75,
+      bands: [
+        { min: 0, label: "Clean" },
+        { min: 8, label: "Low" },
+        { min: 30, label: "Tainted" },
+        { min: 55, label: "Fouled" },
+        { min: 78, label: "Hazardous" }
+      ]
+    },
+    {
+      key: "electricalCharge",
+      label: "Electrical Charge",
+      initial: 15,
+      baseline: 15,
+      recoveryPerHour: 1,
+      bands: [
+        { min: 0, label: "Dormant" },
+        { min: 12, label: "Stable" },
+        { min: 40, label: "Charged" },
+        { min: 70, label: "Arcing" }
+      ]
+    }
+  ];
+  const ROOM_ATTRIBUTE_BY_KEY = Object.fromEntries(ROOM_ATTRIBUTE_DEFS.map((attribute) => [attribute.key, attribute]));
+  const ROOM_ATTRIBUTE_ALIASES = {
+    temperature: "temperature",
+    temp: "temperature",
+    light: "light",
+    mana: "ambientMana",
+    ambientmana: "ambientMana",
+    ambient: "ambientMana",
+    moisture: "moisture",
+    humidity: "moisture",
+    contamination: "contamination",
+    cleanliness: "contamination",
+    charge: "electricalCharge",
+    electricity: "electricalCharge",
+    electrical: "electricalCharge",
+    electricalcharge: "electricalCharge"
   };
   const REAL_TICK_MS = 250;
   const DEFAULT_TIME_SPEED = "normal";
@@ -50,7 +152,7 @@
     "appendages",
     "color",
     "behavior",
-    "diet",
+    "sustenance",
     "byproduct",
     "element",
     "stability",
@@ -67,7 +169,7 @@
     color: "■",
     movement: "→",
     behavior: "!",
-    diet: "◒",
+    sustenance: "◒",
     byproduct: "◆",
     element: "✦",
     stability: "◇",
@@ -107,23 +209,85 @@
     towering: 3200000,
     "room-filling": 8500000
   };
-  const DIET_TAGS = {
-    sugars: ["organic", "clean"],
-    "bone dust": ["corpse", "mineral"],
-    mold: ["organic", "decay"],
-    "scrap metal": ["metal", "mineral"],
-    ash: ["mineral", "burned"],
-    "lamp oil": ["fuel", "chemical"],
-    "raw mana salts": ["arcane", "mineral"],
-    "rotting leaves": ["organic", "plant", "decay"],
-    sand: ["mineral"],
-    "blood residue": ["corpse", "organic"],
-    "paper fiber": ["organic", "plant"],
-    "glass powder": ["mineral", "hazardous"],
-    "coal dust": ["fuel", "mineral"],
-    "meat slurry": ["corpse", "organic"],
-    "sewer film": ["waste", "organic", "contaminated"],
-    "hazard sludge": ["waste", "chemical", "contaminated", "hazardous"]
+  const SUSTENANCE_TAGS = {
+    "organic feeder": ["material", "organic", "clean"],
+    "carrion feeder": ["material", "corpse", "organic"],
+    "decay feeder": ["waste", "decay", "organic", "corpse"],
+    "filth feeder": ["waste", "organic", "contaminated"],
+    "mineral feeder": ["material", "mineral"],
+    "metal feeder": ["material", "metal", "mineral"],
+    "silicate feeder": ["material", "silicate", "mineral"],
+    "fuel feeder": ["material", "fuel", "chemical", "volatile"],
+    "arcane mineral feeder": ["material", "arcane", "mana", "mineral"],
+    "hazard feeder": ["waste", "chemical", "contaminated", "hazardous"],
+    "heat absorber": ["environmental", "heat"],
+    "light absorber": ["environmental", "light"],
+    "ambient mana absorber": ["environmental", "mana", "arcane"],
+    "moisture absorber": ["environmental", "moisture"],
+    "electrical absorber": ["environmental", "electricity"],
+    "fume absorber": ["environmental", "chemical", "fume", "contaminated"]
+  };
+  const FEEDSTOCK_DEFS = [
+    { key: "organicFeedstock", label: "Organic Feedstock", tags: ["material", "organic", "clean"], passive: true },
+    { key: "mineralFeedstock", label: "Mineral Feedstock", tags: ["material", "mineral"], passive: true },
+    { key: "metalFeedstock", label: "Metal Feedstock", tags: ["material", "metal", "mineral"], passive: true },
+    { key: "silicateFeedstock", label: "Silicate Feedstock", tags: ["material", "silicate", "mineral"], passive: true },
+    { key: "fuelReagent", label: "Fuel Reagent", tags: ["material", "fuel", "chemical", "volatile"], passive: true },
+    { key: "arcaneFeedstock", label: "Arcane Feedstock", tags: ["material", "arcane", "mana"], passive: true },
+    { key: "carrionFeedstock", label: "Carrion Feedstock", tags: ["material", "corpse", "organic", "decay"], passive: false },
+    { key: "contaminatedFeedstock", label: "Contaminated Feedstock", tags: ["waste", "contaminated", "hazardous", "chemical"], passive: false }
+  ];
+  const FEEDSTOCK_BY_KEY = Object.fromEntries(FEEDSTOCK_DEFS.map((feedstock) => [feedstock.key, feedstock]));
+  const PASSIVE_FEEDSTOCK_INCOME_PER_DAY = 1;
+  const CARRION_FEEDSTOCK_PER_CORPSE = 2;
+  const CONTAMINATED_FEEDSTOCK_PER_DIRTY_WASTE = 1;
+  const AUTO_FEED_MODES = [
+    { id: "disabled", label: "Disabled" },
+    { id: "emergency", label: "Emergency" },
+    { id: "maintenance", label: "Maintenance" },
+    { id: "growth", label: "Growth" },
+    { id: "reproduction", label: "Reproduction" }
+  ];
+  const AUTO_FEED_MODE_BY_ID = Object.fromEntries(AUTO_FEED_MODES.map((mode) => [mode.id, mode]));
+  const AUTO_FEED_MASS_GOALS = [
+    { id: "ignore", label: "Ignore mass" },
+    { id: "maintain", label: "Maintain" },
+    { id: "regrow", label: "Regrow" },
+    { id: "full", label: "Push to full" }
+  ];
+  const AUTO_FEED_MASS_GOAL_BY_ID = Object.fromEntries(AUTO_FEED_MASS_GOALS.map((goal) => [goal.id, goal]));
+  const AUTO_FEED_DEFAULTS = {
+    mode: "maintenance",
+    feedBelow: 40,
+    feedUntil: 60,
+    massGoal: "maintain",
+    allowUnknownSustenance: true,
+    usePreferredWhenKnown: true,
+    allowPartialMatches: true,
+    allowBadMatches: false,
+    allowHarmfulFeeding: false,
+    allowCarrion: false,
+    allowContaminated: false,
+    allowReproductionPressure: false,
+    preserveReserve: 0
+  };
+  const PREFERRED_FEEDSTOCKS_BY_SUSTENANCE = {
+    "organic feeder": ["organicFeedstock"],
+    "carrion feeder": ["carrionFeedstock"],
+    "decay feeder": ["carrionFeedstock", "contaminatedFeedstock"],
+    "filth feeder": ["contaminatedFeedstock"],
+    "mineral feeder": ["mineralFeedstock"],
+    "metal feeder": ["metalFeedstock"],
+    "silicate feeder": ["silicateFeedstock"],
+    "fuel feeder": ["fuelReagent"],
+    "arcane mineral feeder": ["arcaneFeedstock"],
+    "hazard feeder": ["contaminatedFeedstock"]
+  };
+  const FEED_MATCH_EFFECTS = {
+    good: { label: "good match", nutrition: 24, mass: 8, stress: -1, bodyDamage: 0, waste: 0 },
+    partial: { label: "partial match", nutrition: 12, mass: 3, stress: 1, bodyDamage: 0, waste: 0 },
+    bad: { label: "poor match", nutrition: 5, mass: 1, stress: 4, bodyDamage: 0, waste: 1 },
+    harmful: { label: "harmful match", nutrition: 2, mass: 0, stress: 8, bodyDamage: 2, waste: 2 }
   };
   const CREATURE_JOBS = [
     { id: "idle", label: "Idle" },
@@ -140,7 +304,8 @@
     { key: "biomass", label: "Biomass", initial: 50 },
     { key: "geneticMaterial", label: "Genetic Material", initial: 0 },
     { key: "elementalResidue", label: "Elemental Residue", initial: 0 },
-    { key: "waste", label: "Waste", initial: 0 }
+    { key: "waste", label: "Waste", initial: 0 },
+    ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
   const RESOURCE_ALIASES = {
@@ -150,7 +315,15 @@
     ])),
     genetic: "geneticMaterial",
     residue: "elementalResidue",
-    elemental: "elementalResidue"
+    elemental: "elementalResidue",
+    organic: "organicFeedstock",
+    mineral: "mineralFeedstock",
+    metal: "metalFeedstock",
+    silicate: "silicateFeedstock",
+    fuel: "fuelReagent",
+    arcane: "arcaneFeedstock",
+    carrion: "carrionFeedstock",
+    contaminated: "contaminatedFeedstock"
   };
   const SLIME_STAT_DEFS = [
     { key: "bodyIntegrity", label: "Body Integrity", initial: 100, max: 100 },
@@ -163,6 +336,7 @@
   const SLIME_LIFESPAN_MULTIPLIER = 12;
   const MASS_REGROWTH_NUTRITION_FLOOR = 15;
   const MASS_REGROWTH_NUTRITION_COST = 0.45;
+  const ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY = 5;
   const DIVISION_NUTRITION_THRESHOLD = 70;
   const DIVISION_INTEGRITY_THRESHOLD = 80;
   const DIVISION_STRESS_LIMIT = 40;
@@ -173,7 +347,7 @@
   const WASTE_DISPOSAL_RESIDUE_INTERVAL = 3;
   const WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS = 10;
   const WASTE_DISPOSAL_SLOW_OBSERVATION = 1440;
-  const WASTE_DISPOSAL_CONTAMINATION_HEAT = 2;
+  const WASTE_DISPOSAL_CONTAMINATION_SUSPICION = 2;
   const FRESH_NECROPSY_GENETIC_GAIN = 1;
 
   const SKILL_DEFS = [
@@ -198,7 +372,7 @@
     { key: "color", label: "Color", test: "visual" },
     { key: "shape", label: "Shape", test: "visual" },
     { key: "behavior", label: "Behavior", test: "behavior" },
-    { key: "diet", label: "Diet", test: "feed" },
+    { key: "sustenance", label: "Sustenance", test: "sustenance" },
     { key: "byproduct", label: "Byproduct", test: "byproduct" },
     { key: "element", label: "Element", test: "element" },
     { key: "stability", label: "Stability", test: "containment" },
@@ -229,7 +403,7 @@
     "weight",
     "movement",
     "behavior",
-    "diet",
+    "sustenance",
     "byproduct",
     "element",
     "stability",
@@ -240,7 +414,7 @@
   const SLIME_DISPLAY_DEFS = SLIME_DISPLAY_KEYS.map((key) => REGION_BY_KEY[key] || VIRTUAL_TRAIT_DEFS[key]);
   const TESTS = [
     { id: "visual", label: "Visual Survey", traits: ["size", "shape", "consistency", "appendages", "color"], duration: 4, skillId: "observation", xp: 15 },
-    { id: "feed", label: "Feed Test", traits: ["diet"], duration: 8, skillId: "nutrition", xp: 20 },
+    { id: "sustenance", label: "Sustenance Test", traits: ["sustenance"], duration: 8, skillId: "nutrition", xp: 20 },
     { id: "element", label: "Element Exposure", traits: ["element"], duration: 10, skillId: "arcaneChemistry", xp: 20 },
     { id: "containment", label: "Containment Test", traits: ["stability"], duration: 12, skillId: "physiology", xp: 25 },
     { id: "byproduct", label: "Byproduct Collection", traits: ["byproduct"], duration: 14, skillId: "materialsAnalysis", xp: 20 },
@@ -266,11 +440,13 @@
       paused: true,
       timeSpeed: DEFAULT_TIME_SPEED,
       clock: 0,
-      heat: 0,
-      heatPeakBand: "quiet",
-      lastHeatGainAt: null,
-      lastHeatDecayAt: null,
+      suspicion: 0,
+      suspicionPeakBand: "quiet",
+      lastSuspicionGainAt: null,
+      lastSuspicionDecayAt: null,
+      rooms: defaultRooms(),
       resources: defaultResources(),
+      feedstockIncomeProgress: {},
       wasteTags: {},
       policies: defaultPolicies(),
       currentGenome: "",
@@ -308,6 +484,29 @@
     return Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource.initial]));
   }
 
+  function defaultRooms() {
+    return [
+      {
+        id: MAIN_ROOM_ID,
+        name: "Main Lab",
+        attributes: defaultRoomAttributes()
+      }
+    ];
+  }
+
+  function defaultRoomAttributes() {
+    return Object.fromEntries(
+      ROOM_ATTRIBUTE_DEFS.map((attribute) => [
+        attribute.key,
+        {
+          current: attribute.initial,
+          baseline: attribute.baseline,
+          recoveryPerHour: attribute.recoveryPerHour
+        }
+      ])
+    );
+  }
+
   function defaultSlimeStats() {
     return Object.fromEntries(
       SLIME_STAT_DEFS.map((stat) => [stat.key, { current: stat.initial, max: stat.max }])
@@ -318,7 +517,8 @@
     return {
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [stateDef.key, stateDef.defaultTarget])
-      )
+      ),
+      feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
 
@@ -327,8 +527,7 @@
     populateTimeSpeedSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
     bindEvents();
-    const loaded = loadLocalSave();
-    state = loaded || defaultState();
+    state = defaultState();
     geneMap = buildGeneMap(state.seed, state.complexity);
     prepareCorpseState();
     if (!state.currentGenome) {
@@ -348,7 +547,7 @@
       "seedReadout",
       "storageReadout",
       "wasteReadout",
-      "heatReadout",
+      "suspicionReadout",
       "pauseBtn",
       "timeSpeedSelect",
       "newRunBtn",
@@ -387,6 +586,12 @@
       "breedBtn",
       "policySummary",
       "corpsePolicyList",
+      "feedingPolicyList",
+      "roomSummary",
+      "roomList",
+      "roomCommandInput",
+      "roomCommandBtn",
+      "roomCommandStatus",
       "healthReadout",
       "staminaReadout",
       "manaReadout",
@@ -416,6 +621,8 @@
       "eventLog",
       "setupOverlay",
       "setupForm",
+      "loadLastSaveBtn",
+      "loadLastSaveStatus",
       "seedInput",
       "randomSeedBtn",
       "journalModeSelect",
@@ -453,6 +660,21 @@
       render();
     });
 
+    dom.loadLastSaveBtn.addEventListener("click", () => {
+      const loaded = loadLocalSave();
+      if (!loaded) {
+        syncSetupForm();
+        return;
+      }
+      state = loaded;
+      state.started = true;
+      geneMap = buildGeneMap(state.seed, state.complexity);
+      prepareCorpseState();
+      addEvent("Loaded local save.");
+      persist();
+      render();
+    });
+
     dom.randomSeedBtn.addEventListener("click", () => {
       dom.seedInput.value = makeSeed();
     });
@@ -472,7 +694,6 @@
       state = defaultState();
       geneMap = buildGeneMap(state.seed, state.complexity);
       syncSetupForm();
-      persist();
       render();
     });
 
@@ -680,6 +901,16 @@
       }
     });
 
+    dom.roomCommandBtn.addEventListener("click", () => {
+      runRoomCommand();
+    });
+
+    dom.roomCommandInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        runRoomCommand();
+      }
+    });
+
     dom.queueToggleBtn.addEventListener("click", () => {
       state.queueDrawerOpen = !state.queueDrawerOpen;
       persist();
@@ -867,9 +1098,9 @@
         events.push({ time: corpse.nextOverflowEventAt, label: `${corpse.name} overflow contamination`, type: "overflow" });
       }
     }
-    const heatEvent = nextHeatBandChangeEvent();
-    if (heatEvent) {
-      events.push(heatEvent);
+    const suspicionEvent = nextSuspicionBandChangeEvent();
+    if (suspicionEvent) {
+      events.push(suspicionEvent);
     }
     const jobEvent = nextCreatureJobEvent();
     if (jobEvent) {
@@ -909,47 +1140,50 @@
     };
   }
 
-  function nextHeatBandChangeEvent() {
-    const floor = passiveHeatFloor();
-    if (state.heat <= floor) {
+  function nextSuspicionBandChangeEvent() {
+    const floor = passiveSuspicionFloor();
+    if (state.suspicion <= floor) {
       return null;
     }
-    const currentBand = heatBandForValue(state.heat);
+    const currentBand = suspicionBandForValue(state.suspicion);
     if (currentBand.id === "quiet") {
       return null;
     }
-    const targetHeat = Math.max(floor, currentBand.min - 1);
-    if (targetHeat >= state.heat) {
+    const targetSuspicion = Math.max(floor, currentBand.min - 1);
+    if (targetSuspicion >= state.suspicion) {
       return null;
     }
-    const lastGain = finiteTime(state.lastHeatGainAt, state.clock);
-    const decayStart = lastGain + HEAT_DECAY_DELAY;
-    const decayFrom = Math.max(finiteTime(state.lastHeatDecayAt, decayStart), decayStart);
-    const pointsNeeded = Math.ceil(state.heat - targetHeat);
+    const lastGain = finiteTime(state.lastSuspicionGainAt, state.clock);
+    const decayStart = lastGain + SUSPICION_DECAY_DELAY;
+    const decayFrom = Math.max(finiteTime(state.lastSuspicionDecayAt, decayStart), decayStart);
+    const pointsNeeded = Math.ceil(state.suspicion - targetSuspicion);
     return {
-      time: decayFrom + pointsNeeded * HEAT_DECAY_INTERVAL,
-      label: `Heat cools to ${heatBandForValue(targetHeat).label}`,
-      type: "heat"
+      time: decayFrom + pointsNeeded * SUSPICION_DECAY_INTERVAL,
+      label: `Suspicion drops to ${suspicionBandForValue(targetSuspicion).label}`,
+      type: "suspicion"
     };
   }
 
   function advanceTime(minutes, options = {}) {
     state.clock += minutes;
     const vitalsChanged = recoverVitals(minutes);
-    const heatChanged = updateHeatDecay();
+    const suspicionChanged = updateSuspicionDecay();
+    const roomChanges = recoverRoomAttributes(minutes);
     const expired = expireSlimes();
     const corpseChanges = updateCorpses();
     const jobChanges = updateCreatureJobs(minutes);
+    const feedstockChanged = updateFeedstockIncome(minutes);
+    const feedingChanged = updateAutoFeeding();
     const metabolismChanged = updateSlimeMetabolism(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || metabolismChanged || completed || vitalsChanged || heatChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || feedstockChanged || feedingChanged || metabolismChanged || completed || vitalsChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + metabolismChanged + completed + (vitalsChanged ? 1 : 0) + (heatChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + feedstockChanged + feedingChanged + metabolismChanged + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -1097,6 +1331,8 @@
       matureAt: options.matureAt ?? state.clock,
       mature: options.mature ?? true,
       status: options.status || "contained",
+      roomId: options.roomId || MAIN_ROOM_ID,
+      automationExcluded: Boolean(options.automationExcluded),
       job: "idle",
       jobProgress: 0,
       jobTargetCorpseId: null,
@@ -1368,6 +1604,7 @@
       source: slime.source,
       deathReason,
       diedAt,
+      roomId: slime.roomId || MAIN_ROOM_ID,
       storage,
       ruined: false,
       revealed: { ...(slime.revealed || {}) },
@@ -1382,7 +1619,7 @@
     state.corpses.unshift(corpse);
     if (storage === "overflow") {
       addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
-      addHeat(OVERFLOW_HEAT);
+      addSuspicion(OVERFLOW_SUSPICION);
     }
     return corpse;
   }
@@ -1502,68 +1739,68 @@
     return "spoiled; disposal needed";
   }
 
-  function addHeat(amount) {
+  function addSuspicion(amount) {
     const gain = Math.max(0, Number(amount) || 0);
     if (!gain) {
       return false;
     }
-    const beforeBand = heatBandForValue(state.heat);
-    state.heat = clamp(Math.round((Number(state.heat) || 0) + gain), 0, HEAT_MAX);
-    const afterBand = heatBandForValue(state.heat);
-    state.lastHeatGainAt = state.clock;
-    state.lastHeatDecayAt = state.clock;
-    const peakIndex = Math.max(heatBandIndex(state.heatPeakBand), heatBandIndex(afterBand.id));
-    state.heatPeakBand = HEAT_BANDS[peakIndex].id;
-    if (heatBandIndex(afterBand.id) > heatBandIndex(beforeBand.id)) {
-      addEvent(`Heat rose to ${afterBand.label}.`);
+    const beforeBand = suspicionBandForValue(state.suspicion);
+    state.suspicion = clamp(Math.round((Number(state.suspicion) || 0) + gain), 0, SUSPICION_MAX);
+    const afterBand = suspicionBandForValue(state.suspicion);
+    state.lastSuspicionGainAt = state.clock;
+    state.lastSuspicionDecayAt = state.clock;
+    const peakIndex = Math.max(suspicionBandIndex(state.suspicionPeakBand), suspicionBandIndex(afterBand.id));
+    state.suspicionPeakBand = SUSPICION_BANDS[peakIndex].id;
+    if (suspicionBandIndex(afterBand.id) > suspicionBandIndex(beforeBand.id)) {
+      addEvent(`Suspicion rose to ${afterBand.label}.`);
     }
     return true;
   }
 
-  function updateHeatDecay() {
-    state.heat = clamp(Math.round(Number(state.heat) || 0), 0, HEAT_MAX);
-    const floor = passiveHeatFloor();
-    if (state.heat <= floor) {
+  function updateSuspicionDecay() {
+    state.suspicion = clamp(Math.round(Number(state.suspicion) || 0), 0, SUSPICION_MAX);
+    const floor = passiveSuspicionFloor();
+    if (state.suspicion <= floor) {
       return false;
     }
-    const lastGain = finiteTime(state.lastHeatGainAt, state.clock);
-    const decayStart = lastGain + HEAT_DECAY_DELAY;
-    const decayFrom = Math.max(finiteTime(state.lastHeatDecayAt, decayStart), decayStart);
-    if (state.clock < decayFrom + HEAT_DECAY_INTERVAL) {
+    const lastGain = finiteTime(state.lastSuspicionGainAt, state.clock);
+    const decayStart = lastGain + SUSPICION_DECAY_DELAY;
+    const decayFrom = Math.max(finiteTime(state.lastSuspicionDecayAt, decayStart), decayStart);
+    if (state.clock < decayFrom + SUSPICION_DECAY_INTERVAL) {
       return false;
     }
-    const points = Math.floor((state.clock - decayFrom) / HEAT_DECAY_INTERVAL);
+    const points = Math.floor((state.clock - decayFrom) / SUSPICION_DECAY_INTERVAL);
     if (points < 1) {
       return false;
     }
-    const beforeHeat = state.heat;
-    const beforeBand = heatBandForValue(state.heat);
-    state.heat = Math.max(floor, state.heat - points);
-    state.lastHeatDecayAt = decayFrom + points * HEAT_DECAY_INTERVAL;
-    const afterBand = heatBandForValue(state.heat);
-    if (heatBandIndex(afterBand.id) < heatBandIndex(beforeBand.id)) {
-      addEvent(`Heat cooled to ${afterBand.label}.`);
+    const beforeSuspicion = state.suspicion;
+    const beforeBand = suspicionBandForValue(state.suspicion);
+    state.suspicion = Math.max(floor, state.suspicion - points);
+    state.lastSuspicionDecayAt = decayFrom + points * SUSPICION_DECAY_INTERVAL;
+    const afterBand = suspicionBandForValue(state.suspicion);
+    if (suspicionBandIndex(afterBand.id) < suspicionBandIndex(beforeBand.id)) {
+      addEvent(`Suspicion dropped to ${afterBand.label}.`);
     }
-    return state.heat !== beforeHeat;
+    return state.suspicion !== beforeSuspicion;
   }
 
-  function passiveHeatFloor() {
-    const peakIndex = heatBandIndex(state.heatPeakBand);
-    return HEAT_BANDS[Math.max(0, peakIndex - 1)].min;
+  function passiveSuspicionFloor() {
+    const peakIndex = suspicionBandIndex(state.suspicionPeakBand);
+    return SUSPICION_BANDS[Math.max(0, peakIndex - 1)].min;
   }
 
-  function heatBandForValue(value) {
-    const heat = clamp(Math.round(Number(value) || 0), 0, HEAT_MAX);
-    for (let index = HEAT_BANDS.length - 1; index >= 0; index -= 1) {
-      if (heat >= HEAT_BANDS[index].min) {
-        return HEAT_BANDS[index];
+  function suspicionBandForValue(value) {
+    const suspicion = clamp(Math.round(Number(value) || 0), 0, SUSPICION_MAX);
+    for (let index = SUSPICION_BANDS.length - 1; index >= 0; index -= 1) {
+      if (suspicion >= SUSPICION_BANDS[index].min) {
+        return SUSPICION_BANDS[index];
       }
     }
-    return HEAT_BANDS[0];
+    return SUSPICION_BANDS[0];
   }
 
-  function heatBandIndex(id) {
-    const index = HEAT_BANDS.findIndex((band) => band.id === id);
+  function suspicionBandIndex(id) {
+    const index = SUSPICION_BANDS.findIndex((band) => band.id === id);
     return index >= 0 ? index : 0;
   }
 
@@ -1573,6 +1810,66 @@
     }
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
+  }
+
+  function recoverRoomAttributes(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    state.rooms = normalizeRooms(state.rooms);
+    let changes = 0;
+    for (const room of state.rooms) {
+      for (const attribute of Object.values(room.attributes)) {
+        const difference = attribute.baseline - attribute.current;
+        if (Math.abs(difference) < 0.01) {
+          continue;
+        }
+        const recovery = Math.max(0, attribute.recoveryPerHour) * (elapsed / 60);
+        if (!recovery) {
+          continue;
+        }
+        attribute.current += Math.sign(difference) * Math.min(Math.abs(difference), recovery);
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function adjustRoomAttribute(roomId, attributeKey, amount) {
+    const room = roomById(roomId);
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    const attribute = room?.attributes?.[attributeKey];
+    const delta = Number(amount);
+    if (!room || !def || !attribute || !Number.isFinite(delta) || !delta) {
+      return false;
+    }
+    const before = attribute.current;
+    attribute.current = clamp(attribute.current + delta, 0, 100);
+    return Math.abs(attribute.current - before) >= 0.01;
+  }
+
+  function roomById(roomId) {
+    state.rooms = normalizeRooms(state.rooms);
+    return state.rooms.find((room) => room.id === roomId) || state.rooms.find((room) => room.id === MAIN_ROOM_ID) || state.rooms[0] || null;
+  }
+
+  function roomName(roomId) {
+    return roomById(roomId)?.name || "Unknown Room";
+  }
+
+  function roomAttributeBand(attributeKey, value) {
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    if (!def) {
+      return { min: 0, label: "Unknown" };
+    }
+    const current = clamp(Number(value) || 0, 0, 100);
+    for (let index = def.bands.length - 1; index >= 0; index -= 1) {
+      if (current >= def.bands[index].min) {
+        return def.bands[index];
+      }
+    }
+    return def.bands[0];
   }
 
   function updateCorpses() {
@@ -1586,7 +1883,7 @@
       corpse.lastFreshness = freshness;
       if (corpse.storage === "overflow" && state.clock >= (corpse.nextOverflowEventAt || state.clock)) {
         addEvent(`${corpse.name} overflow corpse is leaking contamination and evidence.`);
-        addHeat(OVERFLOW_HEAT);
+        addSuspicion(OVERFLOW_SUSPICION);
         corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
         changes += 1;
       }
@@ -1706,23 +2003,23 @@
         "circling",
         "still ambush"
       ],
-      diet: [
-        "sugars",
-        "bone dust",
-        "mold",
-        "scrap metal",
-        "ash",
-        "lamp oil",
-        "raw mana salts",
-        "rotting leaves",
-        "sand",
-        "blood residue",
-        "paper fiber",
-        "glass powder",
-        "coal dust",
-        "meat slurry",
-        "sewer film",
-        "hazard sludge"
+      sustenance: [
+        "organic feeder",
+        "carrion feeder",
+        "decay feeder",
+        "filth feeder",
+        "mineral feeder",
+        "metal feeder",
+        "silicate feeder",
+        "fuel feeder",
+        "arcane mineral feeder",
+        "hazard feeder",
+        "heat absorber",
+        "light absorber",
+        "ambient mana absorber",
+        "moisture absorber",
+        "electrical absorber",
+        "fume absorber"
       ],
       byproduct: [
         "adhesive gel",
@@ -1866,9 +2163,9 @@
     if (key === "stability") {
       return { label: entry[0], meta: { risk: entry[1] } };
     }
-    if (key === "diet") {
+    if (key === "sustenance") {
       const label = String(entry);
-      return { label, meta: { index, tags: [...(DIET_TAGS[label] || [])] } };
+      return { label, meta: { index, tags: [...(SUSTENANCE_TAGS[label] || [])] } };
     }
     if (key === "brood") {
       return { label: entry[0], meta: { count: entry[1] } };
@@ -1979,6 +2276,7 @@
     renderTests();
     renderBreeding();
     renderPolicies();
+    renderRooms();
     renderScientist();
     renderTasks();
     renderJournal();
@@ -2004,10 +2302,10 @@
     dom.wasteReadout.textContent = overflow
       ? `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} +${overflow}`
       : `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}`;
-    const heatBand = heatBandForValue(state.heat);
-    dom.heatReadout.textContent = `Heat: ${heatBand.label}`;
-    dom.heatReadout.dataset.heatBand = heatBand.id;
-    dom.heatReadout.title = `Heat is ${heatBand.label.toLowerCase()}. Exact Heat is hidden.`;
+    const suspicionBand = suspicionBandForValue(state.suspicion);
+    dom.suspicionReadout.textContent = `Suspicion: ${suspicionBand.label}`;
+    dom.suspicionReadout.dataset.suspicionBand = suspicionBand.id;
+    dom.suspicionReadout.title = `Suspicion is ${suspicionBand.label.toLowerCase()}. Exact Suspicion is hidden.`;
     renderVitalReadouts();
     refreshActionControls();
     renderQueueShell();
@@ -2286,6 +2584,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderFeedingControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
       }
       dom.slimeList.append(card);
@@ -2496,7 +2795,7 @@
     }
     removeCorpseRecord(corpse.id);
     addEvent(`${corpse.name} was dumped outside. Evidence risk increased.`);
-    addHeat(dumpHeatForCorpse(corpse));
+    addSuspicion(dumpSuspicionForCorpse(corpse));
     persist();
     render();
   }
@@ -2511,8 +2810,8 @@
     return "";
   }
 
-  function dumpHeatForCorpse(corpse) {
-    return DUMP_HEAT[corpseFreshness(corpse)] || DUMP_HEAT.decaying;
+  function dumpSuspicionForCorpse(corpse) {
+    return DUMP_SUSPICION[corpseFreshness(corpse)] || DUMP_SUSPICION.decaying;
   }
 
   function assignCreatureJob(slimeId, jobId) {
@@ -2556,6 +2855,231 @@
     return updateCorpseProcessingJobs(elapsed) + updateWasteDisposalJobs(elapsed);
   }
 
+  function updateFeedstockIncome(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    state.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(state.feedstockIncomeProgress);
+    let changes = 0;
+    for (const feedstock of FEEDSTOCK_DEFS.filter((candidate) => candidate.passive)) {
+      const gain = elapsed * (PASSIVE_FEEDSTOCK_INCOME_PER_DAY / 1440);
+      const nextProgress = (state.feedstockIncomeProgress[feedstock.key] || 0) + gain;
+      const wholeUnits = Math.floor(nextProgress);
+      state.feedstockIncomeProgress[feedstock.key] = nextProgress - wholeUnits;
+      if (wholeUnits > 0 && addResource(feedstock.key, wholeUnits)) {
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function updateAutoFeeding() {
+    state.policies = normalizePolicies(state.policies);
+    const policy = state.policies.feeding;
+    if (policy.mode === "disabled") {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!canAutoFeedSlime(slime, policy)) {
+        continue;
+      }
+      let guard = 0;
+      while (guard < 12 && shouldAutoFeedSlime(slime, policy)) {
+        const feedstockKey = chooseAutoFeedstock(slime, policy);
+        if (!feedstockKey) {
+          break;
+        }
+        if (!feedSlime(slime, feedstockKey, { source: "auto" })) {
+          break;
+        }
+        changes += 1;
+        guard += 1;
+        if (!canAutoFeedSlime(slime, policy)) {
+          break;
+        }
+      }
+    }
+    return changes;
+  }
+
+  function canAutoFeedSlime(slime, policy) {
+    return Boolean(slime && slime.status !== "dead" && !slime.automationExcluded && policy.mode !== "disabled");
+  }
+
+  function shouldAutoFeedSlime(slime, policy) {
+    const nutrition = slimeStat(slime, "nutrition").current;
+    const mass = slimeStat(slime, "currentMass").current;
+    const target = autoFeedTargetNutrition(policy);
+    if (nutrition >= target) {
+      return false;
+    }
+    const threshold = autoFeedThreshold(policy);
+    if (nutrition < threshold) {
+      return true;
+    }
+    if (policy.mode === "emergency") {
+      return false;
+    }
+    if (policy.mode === "reproduction" && policy.allowReproductionPressure) {
+      return true;
+    }
+    if (["regrow", "full"].includes(policy.massGoal) && mass < 100) {
+      return true;
+    }
+    if (policy.mode === "growth" && mass < 100) {
+      return true;
+    }
+    return false;
+  }
+
+  function autoFeedThreshold(policy) {
+    const base = clamp(Math.round(Number(policy.feedBelow) || AUTO_FEED_DEFAULTS.feedBelow), 1, 100);
+    return policy.mode === "emergency" ? Math.min(base, 25) : base;
+  }
+
+  function autoFeedTargetNutrition(policy) {
+    let target = clamp(Math.round(Number(policy.feedUntil) || AUTO_FEED_DEFAULTS.feedUntil), 1, 100);
+    if (policy.mode === "emergency") {
+      target = Math.min(target, 35);
+    }
+    if (policy.mode === "reproduction" && policy.allowReproductionPressure) {
+      target = Math.max(target, 95);
+    }
+    if (!policy.allowReproductionPressure) {
+      target = Math.min(target, DIVISION_NUTRITION_THRESHOLD - 1);
+    }
+    return target;
+  }
+
+  function chooseAutoFeedstock(slime, policy) {
+    const known = Boolean(slime.revealed?.sustenance);
+    if (!known && !policy.allowUnknownSustenance) {
+      return "";
+    }
+    const available = allowedFeedstockDefs(policy);
+    if (!available.length) {
+      return "";
+    }
+    if (known && policy.usePreferredWhenKnown) {
+      const preferred = preferredFeedstockKeys(slime)
+        .map((key) => FEEDSTOCK_BY_KEY[key])
+        .filter(Boolean)
+        .filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy));
+      if (preferred.length) {
+        return preferred[0].key;
+      }
+    }
+    if (!known) {
+      return available[0]?.key || "";
+    }
+    const ranked = available
+      .map((feedstock) => ({ feedstock, match: feedstockMatch(slime, feedstock.key) }))
+      .filter((entry) => policyAllowsFeedMatch(entry.match.quality, policy))
+      .sort((a, b) => feedMatchRank(b.match.quality) - feedMatchRank(a.match.quality));
+    return ranked[0]?.feedstock.key || "";
+  }
+
+  function allowedFeedstockDefs(policy) {
+    return FEEDSTOCK_DEFS.filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy));
+  }
+
+  function feedstockAllowedByPolicy(feedstock, policy) {
+    if (feedstock.key === "carrionFeedstock" && !policy.allowCarrion) {
+      return false;
+    }
+    if (feedstock.key === "contaminatedFeedstock" && !policy.allowContaminated) {
+      return false;
+    }
+    return true;
+  }
+
+  function feedstockAvailable(feedstockKey, policy = null) {
+    const reserve = Math.max(0, Math.floor(Number(policy?.preserveReserve) || 0));
+    return resourceAmount(feedstockKey) > reserve;
+  }
+
+  function policyAllowsFeedMatch(quality, policy) {
+    if (quality === "good") {
+      return true;
+    }
+    if (quality === "partial") {
+      return policy.allowPartialMatches;
+    }
+    if (quality === "bad") {
+      return policy.allowBadMatches;
+    }
+    if (quality === "harmful") {
+      return policy.allowHarmfulFeeding;
+    }
+    return false;
+  }
+
+  function feedMatchRank(quality) {
+    return { harmful: 0, bad: 1, partial: 2, good: 3 }[quality] || 0;
+  }
+
+  function feedSlime(slime, feedstockKey, options = {}) {
+    const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
+    if (!slime || slime.status === "dead" || !feedstock || resourceAmount(feedstock.key) <= 0) {
+      return false;
+    }
+    const match = feedstockMatch(slime, feedstock.key);
+    const effects = FEED_MATCH_EFFECTS[match.quality] || FEED_MATCH_EFFECTS.bad;
+    addResource(feedstock.key, -1);
+    adjustSlimeStat(slime, "nutrition", effects.nutrition);
+    const mass = slimeStat(slime, "currentMass");
+    const massGain = Math.max(0, Math.min(effects.mass, mass.max - mass.current));
+    if (massGain > 0) {
+      adjustSlimeStat(slime, "currentMass", massGain);
+    }
+    if (effects.stress) {
+      adjustSlimeStat(slime, "stress", effects.stress);
+    }
+    if (effects.bodyDamage) {
+      if (slimeStat(slime, "bodyIntegrity").current - effects.bodyDamage <= 0) {
+        slime.deathCause = "bad feeding";
+      }
+      adjustSlimeStat(slime, "bodyIntegrity", -effects.bodyDamage);
+    }
+    if (effects.waste) {
+      addWaste(effects.waste, ["feeding", ...feedstock.tags]);
+    }
+    addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${effects.nutrition} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}.`);
+    expireSlimes();
+    return true;
+  }
+
+  function feedstockMatch(slime, feedstockKey) {
+    const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
+    const evaluated = evaluateGenome(slime.genome);
+    const label = baseOutcomeLabel(evaluated.traits.sustenance);
+    const preferred = preferredFeedstockKeys(slime);
+    if (preferred.includes(feedstockKey)) {
+      return { quality: "good", label, sharedTags: [...feedstock.tags] };
+    }
+    const sustenanceTags = new Set(evaluated.traits.sustenance.meta?.tags || []);
+    const sharedTags = feedstock.tags.filter((tag) => sustenanceTags.has(tag) && !["material", "waste", "clean"].includes(tag));
+    if (sharedTags.length) {
+      return { quality: "partial", label, sharedTags };
+    }
+    if (feedstock.tags.some((tag) => ["hazardous", "contaminated", "volatile"].includes(tag))) {
+      return { quality: "harmful", label, sharedTags: [] };
+    }
+    return { quality: "bad", label, sharedTags: [] };
+  }
+
+  function preferredFeedstockKeys(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const label = baseOutcomeLabel(evaluated.traits.sustenance);
+    return [...(PREFERRED_FEEDSTOCKS_BY_SUSTENANCE[label] || [])];
+  }
+
+  function bestAvailableFeedstockKey(slime) {
+    return preferredFeedstockKeys(slime).find((key) => resourceAmount(key) > 0) || "";
+  }
+
   function updateSlimeMetabolism(minutes) {
     const elapsed = Math.max(0, Number(minutes) || 0);
     if (!elapsed) {
@@ -2568,10 +3092,11 @@
       }
       const massBefore = slimeStat(slime, "currentMass").current;
       const pressureBefore = slimeStat(slime, "divisionPressure").current;
+      const sustained = updateEnvironmentalSustenance(slime, elapsed);
       const regrew = updateSlimeMassRegrowth(slime, elapsed);
       const pressureChanged = updateDivisionPressure(slime, elapsed, massBefore >= 100);
       const split = tryNaturalSplit(slime);
-      if (regrew || pressureChanged || split) {
+      if (sustained || regrew || pressureChanged || split) {
         changes += 1;
       }
       const massAfter = slimeStat(slime, "currentMass").current;
@@ -2581,6 +3106,28 @@
       }
     }
     return changes;
+  }
+
+  function updateEnvironmentalSustenance(slime, minutes) {
+    const rate = environmentalSustenanceRate(slime);
+    if (rate <= 0) {
+      return false;
+    }
+    const nutrition = slimeStat(slime, "nutrition");
+    if (nutrition.current >= nutrition.max) {
+      return false;
+    }
+    const before = nutrition.current;
+    adjustSlimeStat(slime, "nutrition", minutes * rate);
+    return slimeStat(slime, "nutrition").current !== before;
+  }
+
+  function environmentalSustenanceRate(slime) {
+    const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
+    if (!tags.has("environmental")) {
+      return 0;
+    }
+    return ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY / 1440;
   }
 
   function updateSlimeMassRegrowth(slime, minutes) {
@@ -2775,9 +3322,10 @@
         removeCorpseRecord(target.id);
         reserved.delete(target.id);
         addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN });
+        addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE);
         addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target));
         applyCorpseProcessingEffects(slime, target, suitability, effects);
-        addEvent(`${slime.name} processed ${target.name} remains, recovering ${CORPSE_PROCESSING_BIOMASS_GAIN} Biomass and producing ${CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste} Waste${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
+        addEvent(`${slime.name} processed ${target.name} remains, recovering ${CORPSE_PROCESSING_BIOMASS_GAIN} Biomass, ${CARRION_FEEDSTOCK_PER_CORPSE} Carrion Feedstock, and producing ${CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste} Waste${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
         slime.jobProgress = 0;
         slime.jobTargetCorpseId = null;
         slime.jobNutritionGained = 0;
@@ -2881,6 +3429,10 @@
       if (massEvent) {
         events.push(massEvent);
       }
+      const sustenanceEvent = nextEnvironmentalSustenanceEvent(slime);
+      if (sustenanceEvent) {
+        events.push(sustenanceEvent);
+      }
       const divisionEvent = nextDivisionPressureEvent(slime);
       if (divisionEvent) {
         events.push(divisionEvent);
@@ -2895,7 +3447,10 @@
     const mass = slimeStat(slime, "currentMass");
     const nutrition = slimeStat(slime, "nutrition");
     if (mass.current >= mass.max || nutrition.current <= MASS_REGROWTH_NUTRITION_FLOOR) {
-      return null;
+      const envRate = environmentalSustenanceRate(slime);
+      if (mass.current >= mass.max || envRate <= 0) {
+        return null;
+      }
     }
     const evaluated = evaluateGenome(slime.genome);
     const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
@@ -2904,11 +3459,41 @@
     const possibleGain = availableNutrition / MASS_REGROWTH_NUTRITION_COST;
     const needed = mass.max - mass.current;
     if (possibleGain < needed) {
-      return null;
+      const envRate = environmentalSustenanceRate(slime);
+      const sustainedMassRate = envRate / MASS_REGROWTH_NUTRITION_COST;
+      if (envRate <= 0 || sustainedMassRate <= 0) {
+        return null;
+      }
+      const startDelay = Math.max(0, MASS_REGROWTH_NUTRITION_FLOOR - nutrition.current) / envRate;
+      const fastMass = Math.max(0, possibleGain);
+      const fastTime = fastMass / growthRate;
+      const remainingMass = Math.max(0, needed - fastMass);
+      const sustainedTime = remainingMass / Math.min(growthRate, sustainedMassRate);
+      return {
+        time: state.clock + startDelay + fastTime + sustainedTime,
+        label: `${slime.name} full mass`,
+        type: "metabolism"
+      };
     }
     return {
       time: state.clock + needed / growthRate,
       label: `${slime.name} full mass`,
+      type: "metabolism"
+    };
+  }
+
+  function nextEnvironmentalSustenanceEvent(slime) {
+    const rate = environmentalSustenanceRate(slime);
+    if (rate <= 0 || slimeStat(slime, "currentMass").current < 100) {
+      return null;
+    }
+    const nutrition = slimeStat(slime, "nutrition");
+    if (nutrition.current >= DIVISION_NUTRITION_THRESHOLD) {
+      return null;
+    }
+    return {
+      time: state.clock + (DIVISION_NUTRITION_THRESHOLD - nutrition.current) / rate,
+      label: `${slime.name} sustenance threshold`,
       type: "metabolism"
     };
   }
@@ -3082,7 +3667,7 @@
     const evaluated = evaluateGenome(slime.genome);
     const traits = evaluated.traits;
     const profile = physicalProfile(slime.genome, evaluated);
-    const tags = new Set(traits.diet.meta?.tags || []);
+    const tags = new Set(traits.sustenance.meta?.tags || []);
     let score = 0;
     const reasons = [];
     const element = baseOutcomeLabel(traits.element);
@@ -3118,19 +3703,19 @@
     }
     if (tags.has("corpse")) {
       score += 32;
-      reasons.push("corpse-compatible diet");
+      reasons.push("corpse-compatible sustenance");
     }
     if (tags.has("waste")) {
       score += 26;
-      reasons.push("waste diet");
+      reasons.push("waste sustenance");
     }
     if (tags.has("decay")) {
       score += 12;
-      reasons.push("decay diet");
+      reasons.push("decay sustenance");
     }
     if (tags.has("contaminated") || tags.has("hazardous")) {
       score += 8;
-      reasons.push("hazard-tolerant diet");
+      reasons.push("hazard-tolerant sustenance");
     }
     if (behavior === "cleaning") {
       score += 16;
@@ -3158,7 +3743,7 @@
     const evaluated = evaluateGenome(slime.genome);
     const traits = evaluated.traits;
     const profile = physicalProfile(slime.genome, evaluated);
-    const tags = new Set(traits.diet.meta?.tags || []);
+    const tags = new Set(traits.sustenance.meta?.tags || []);
     let score = 0;
     const reasons = [];
     const element = baseOutcomeLabel(traits.element);
@@ -3198,15 +3783,15 @@
     }
     if (tags.has("waste")) {
       score += 38;
-      reasons.push("waste diet");
+      reasons.push("waste sustenance");
     }
     if (tags.has("contaminated") || tags.has("hazardous")) {
       score += 20;
-      reasons.push("hazard-tolerant diet");
+      reasons.push("hazard-tolerant sustenance");
     }
     if (tags.has("decay")) {
       score += 10;
-      reasons.push("decay diet");
+      reasons.push("decay sustenance");
     }
     if (tags.has("clean")) {
       score -= 14;
@@ -3260,7 +3845,7 @@
     }
     const evaluated = evaluateGenome(slime.genome);
     const traits = evaluated.traits;
-    const knownKeys = ["element", "consistency", "diet", "behavior", "stability", "size", "shape"]
+    const knownKeys = ["element", "consistency", "sustenance", "behavior", "stability", "size", "shape"]
       .filter((traitKey) => slime.revealed?.[traitKey]);
     if (!knownKeys.length) {
       return { known: false, score: 0, band: "Unknown", reasons: [] };
@@ -3308,25 +3893,25 @@
         reasons.push(consistency);
       }
     }
-    if (slime.revealed?.diet) {
-      const tags = new Set(traits.diet.meta?.tags || []);
+    if (slime.revealed?.sustenance) {
+      const tags = new Set(traits.sustenance.meta?.tags || []);
       if (tags.has("corpse")) {
         score += 32;
         clearPositiveEvidence += 32;
-        reasons.push("corpse-compatible diet");
+        reasons.push("corpse-compatible sustenance");
       }
       if (tags.has("waste")) {
         score += 26;
         clearPositiveEvidence += 26;
-        reasons.push("waste diet");
+        reasons.push("waste sustenance");
       }
       if (tags.has("decay")) {
         score += 12;
-        reasons.push("decay diet");
+        reasons.push("decay sustenance");
       }
       if (tags.has("contaminated") || tags.has("hazardous")) {
         score += 8;
-        reasons.push("hazard-tolerant diet");
+        reasons.push("hazard-tolerant sustenance");
       }
     }
     if (slime.revealed?.behavior) {
@@ -3371,7 +3956,7 @@
   }
 
   function corpseProcessingEffects(slime, corpse, suitability) {
-    const tags = new Set(evaluateGenome(slime.genome).traits.diet.meta?.tags || []);
+    const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     const freshness = corpseFreshness(corpse);
     const quality = {
       fresh: 1.2,
@@ -3540,7 +4125,7 @@
       learnWasteDisposalFit(slime, "Poor", "rough waste disposal");
     }
     if (suitability.score < 20 && wasteDisposalStabilityRisk(slime) >= 7) {
-      addHeat(WASTE_DISPOSAL_CONTAMINATION_HEAT);
+      addSuspicion(WASTE_DISPOSAL_CONTAMINATION_SUSPICION);
       learnWasteDisposalFit(slime, "Hazardous", "contamination during disposal");
       addEvent(`${slime.name} leaked contamination during waste disposal.`);
     }
@@ -3548,7 +4133,7 @@
   }
 
   function wasteDisposalNutritionGain(slime, suitability) {
-    const tags = new Set(evaluateGenome(slime.genome).traits.diet.meta?.tags || []);
+    const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     let base = 0;
     if (tags.has("waste")) {
       base += 4;
@@ -3619,7 +4204,7 @@
   }
 
   function corpseProcessingTimingKnown(slime) {
-    return ["element", "consistency", "diet", "behavior", "stability", "size", "shape"]
+    return ["element", "consistency", "sustenance", "behavior", "stability", "size", "shape"]
       .every((traitKey) => slime.revealed?.[traitKey]);
   }
 
@@ -3705,6 +4290,96 @@
     return section;
   }
 
+  function renderFeedingControls(slime) {
+    const section = document.createElement("div");
+    section.className = "feeding-controls subpanel";
+    section.addEventListener("click", (event) => event.stopPropagation());
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Feeding";
+
+    const automationLabel = document.createElement("label");
+    automationLabel.className = "policy-option";
+    const automationInput = document.createElement("input");
+    automationInput.type = "checkbox";
+    automationInput.checked = Boolean(slime.automationExcluded);
+    automationInput.addEventListener("change", () => {
+      slime.automationExcluded = automationInput.checked;
+      addEvent(`${slime.name} ${slime.automationExcluded ? "excluded from" : "returned to"} automation.`);
+      persist();
+      render();
+    });
+    automationLabel.append(automationInput, textEl("span", "Exclude from automation"));
+
+    const row = document.createElement("div");
+    row.className = "feeding-row";
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "Feedstock");
+    for (const feedstock of FEEDSTOCK_DEFS) {
+      const option = document.createElement("option");
+      option.value = feedstock.key;
+      option.textContent = `${feedstock.label} (${formatNumber(resourceAmount(feedstock.key))})${slime.revealed?.sustenance ? ` - ${FEED_MATCH_EFFECTS[feedstockMatch(slime, feedstock.key).quality].label}` : ""}`;
+      select.append(option);
+    }
+
+    const feedButton = document.createElement("button");
+    feedButton.type = "button";
+    feedButton.textContent = "Feed";
+    const feedReason = manualFeedBlockReason(slime, select.value);
+    setActionButtonState(feedButton, Boolean(feedReason), feedReason);
+    select.addEventListener("change", () => {
+      const reason = manualFeedBlockReason(slime, select.value);
+      setActionButtonState(feedButton, Boolean(reason), reason);
+    });
+    feedButton.addEventListener("click", () => {
+      if (feedSlime(slime, select.value, { source: "manual" })) {
+        persist();
+        render();
+      }
+    });
+
+    const bestButton = document.createElement("button");
+    bestButton.type = "button";
+    bestButton.textContent = "Feed Best Match";
+    const bestReason = bestFeedBlockReason(slime);
+    setActionButtonState(bestButton, Boolean(bestReason), bestReason);
+    bestButton.addEventListener("click", () => {
+      const feedstockKey = bestAvailableFeedstockKey(slime);
+      if (feedstockKey && feedSlime(slime, feedstockKey, { source: "manual" })) {
+        persist();
+        render();
+      }
+    });
+
+    row.append(select, feedButton, bestButton);
+    section.append(title, automationLabel, row);
+    return section;
+  }
+
+  function manualFeedBlockReason(slime, feedstockKey) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
+    if (!feedstock) {
+      return "Choose a feedstock.";
+    }
+    return resourceAmount(feedstock.key) > 0 ? "" : `No ${feedstock.label} available.`;
+  }
+
+  function bestFeedBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    if (!slime.revealed?.sustenance) {
+      return "Discover Sustenance first.";
+    }
+    if (!preferredFeedstockKeys(slime).length) {
+      return "Environmental Sustenance has no stockpile feedstock.";
+    }
+    return bestAvailableFeedstockKey(slime) ? "" : "No preferred feedstock available.";
+  }
+
   function renderTraitGrid(slime, evaluated = evaluateGenome(slime.genome)) {
     const grid = document.createElement("div");
     grid.className = "trait-grid subpanel";
@@ -3776,9 +4451,11 @@
     dom.corpsePolicyList.textContent = "";
     const targets = state.policies.corpseProcessingTargets;
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
-    dom.policySummary.textContent = enabled.length
+    const corpseSummary = enabled.length
       ? `Corpse Processing targets ${enabled.join(", ").toLowerCase()} corpses.`
       : "Corpse Processing has no automatic targets.";
+    const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
+    dom.policySummary.textContent = `${corpseSummary} Auto-feeding: ${feedingMode.toLowerCase()}.`;
     for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
       const label = document.createElement("label");
       label.className = "policy-option";
@@ -3794,6 +4471,76 @@
       });
       label.append(input, textEl("span", stateDef.label));
       dom.corpsePolicyList.append(label);
+    }
+    renderFeedingPolicies();
+  }
+
+  function renderFeedingPolicies() {
+    const policy = state.policies.feeding;
+    dom.feedingPolicyList.textContent = "";
+    dom.feedingPolicyList.append(
+      policySelectControl("Mode", "mode", AUTO_FEED_MODES),
+      policyNumberControl("Feed below", "feedBelow", 1, 100),
+      policyNumberControl("Feed until", "feedUntil", 1, 100),
+      policySelectControl("Current Mass goal", "massGoal", AUTO_FEED_MASS_GOALS),
+      policyNumberControl("Preserve reserve", "preserveReserve", 0, 999),
+      policyCheckboxControl("Feed unknown Sustenance", "allowUnknownSustenance"),
+      policyCheckboxControl("Use preferred when known", "usePreferredWhenKnown"),
+      policyCheckboxControl("Allow partial matches", "allowPartialMatches"),
+      policyCheckboxControl("Allow bad matches", "allowBadMatches"),
+      policyCheckboxControl("Allow harmful feeding", "allowHarmfulFeeding"),
+      policyCheckboxControl("Allow carrion", "allowCarrion"),
+      policyCheckboxControl("Allow contaminated", "allowContaminated"),
+      policyCheckboxControl("Allow reproduction pressure", "allowReproductionPressure")
+    );
+    function updatePolicy(key, value) {
+      state.policies.feeding[key] = value;
+      state.policies = normalizePolicies(state.policies);
+      addEvent(`Auto-feeding policy updated: ${key}.`);
+      persist();
+      render();
+    }
+    function policySelectControl(labelText, key, options) {
+      const label = document.createElement("label");
+      label.className = "policy-field";
+      label.append(textEl("span", labelText));
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", labelText);
+      for (const optionDef of options) {
+        const option = document.createElement("option");
+        option.value = optionDef.id;
+        option.textContent = optionDef.label;
+        select.append(option);
+      }
+      select.value = policy[key];
+      select.addEventListener("change", () => updatePolicy(key, select.value));
+      label.append(select);
+      return label;
+    }
+    function policyNumberControl(labelText, key, min, max) {
+      const label = document.createElement("label");
+      label.className = "policy-field";
+      label.append(textEl("span", labelText));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.setAttribute("aria-label", labelText);
+      input.min = String(min);
+      input.max = String(max);
+      input.value = String(policy[key]);
+      input.addEventListener("change", () => updatePolicy(key, clamp(Math.round(Number(input.value) || 0), min, max)));
+      label.append(input);
+      return label;
+    }
+    function policyCheckboxControl(labelText, key) {
+      const label = document.createElement("label");
+      label.className = "policy-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.setAttribute("aria-label", labelText);
+      input.checked = Boolean(policy[key]);
+      input.addEventListener("change", () => updatePolicy(key, input.checked));
+      label.append(input, textEl("span", labelText));
+      return label;
     }
   }
 
@@ -3848,6 +4595,38 @@
     }
   }
 
+  function renderRooms() {
+    state.rooms = normalizeRooms(state.rooms);
+    dom.roomList.textContent = "";
+    dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active`;
+    for (const room of state.rooms) {
+      const card = document.createElement("div");
+      card.className = "room-card";
+      const title = document.createElement("div");
+      title.className = "room-title";
+      title.append(textEl("strong", room.name), textEl("span", roomOccupancySummary(room.id)));
+      const attributes = document.createElement("div");
+      attributes.className = "room-attribute-grid";
+      for (const def of ROOM_ATTRIBUTE_DEFS) {
+        const attribute = room.attributes[def.key];
+        const band = roomAttributeBand(def.key, attribute.current);
+        const row = document.createElement("div");
+        row.className = "room-attribute-row";
+        row.title = `${def.label}: ${formatDecimal(attribute.current, 1)} / baseline ${formatDecimal(attribute.baseline, 1)}`;
+        row.append(textEl("span", def.label), textEl("strong", band.label));
+        attributes.append(row);
+      }
+      card.append(title, attributes);
+      dom.roomList.append(card);
+    }
+  }
+
+  function roomOccupancySummary(roomId) {
+    const living = (state.slimes || []).filter((slime) => slime.status !== "dead" && (slime.roomId || MAIN_ROOM_ID) === roomId).length;
+    const corpses = (state.corpses || []).filter((corpse) => (corpse.roomId || MAIN_ROOM_ID) === roomId).length;
+    return `${living} living; ${corpses} corpse${corpses === 1 ? "" : "s"}`;
+  }
+
   function setActionButtonState(button, disabled, reason = "") {
     button.disabled = disabled;
     button.title = reason;
@@ -3899,6 +4678,36 @@
     dom.resourceCommandInput.value = "";
     dom.resourceCommandStatus.textContent = `Added ${formatNumber(amount)} ${resourceLabel(resourceKey)}.`;
     addEvent(`${resourceLabel(resourceKey)} increased by ${formatNumber(amount)} via cheat command.`);
+    persist();
+    render();
+  }
+
+  function runRoomCommand() {
+    const command = dom.roomCommandInput.value.trim();
+    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
+    if (!match) {
+      dom.roomCommandStatus.textContent = "Use format: temperature -10";
+      return;
+    }
+    const attributeKey = ROOM_ATTRIBUTE_ALIASES[normalizeCommandName(match[1])];
+    const amount = Number(match[2]);
+    if (!attributeKey || !Number.isFinite(amount) || !amount) {
+      dom.roomCommandStatus.textContent = "Unknown room attribute or invalid amount.";
+      return;
+    }
+    const room = roomById(MAIN_ROOM_ID);
+    const roomId = room?.id || MAIN_ROOM_ID;
+    if (!adjustRoomAttribute(roomId, attributeKey, amount)) {
+      dom.roomCommandStatus.textContent = "Room attribute did not change.";
+      return;
+    }
+    const updatedRoom = roomById(roomId);
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    const attribute = updatedRoom.attributes[attributeKey];
+    const band = roomAttributeBand(attributeKey, attribute.current);
+    dom.roomCommandInput.value = "";
+    dom.roomCommandStatus.textContent = `${def.label} adjusted to ${band.label}.`;
+    addEvent(`${updatedRoom.name} ${def.label.toLowerCase()} adjusted to ${band.label} via cheat command.`);
     persist();
     render();
   }
@@ -4312,7 +5121,7 @@
     const byproduct = visibleTraitLabel(specimen, "byproduct", evaluated);
     const element = visibleTraitLabel(specimen, "element", evaluated);
     const behavior = visibleTraitLabel(specimen, "behavior", evaluated);
-    const diet = visibleTraitLabel(specimen, "diet", evaluated);
+    const sustenance = visibleTraitLabel(specimen, "sustenance", evaluated);
     const stability = visibleTraitLabel(specimen, "stability", evaluated);
     const mobility = specimen.revealed?.shape && specimen.revealed?.consistency && specimen.revealed?.appendages
       ? profile?.movement || "unknown movement"
@@ -4325,7 +5134,7 @@
       : "containment risk unclear";
     const utilityNote = byproduct === "unknown" ? "utility unclear" : `useful output: ${byproduct}`;
     const physiologyNote = `${shape}, ${consistency}, ${appendages}; ${weight}`;
-    return `${quality}: ${physiologyNote}. Mobility: ${mobility}. Behavior: ${behavior}; diet: ${diet}. Affinity: ${element}. Stability: ${stability} (${riskNote}). ${utilityNote}.`;
+    return `${quality}: ${physiologyNote}. Mobility: ${mobility}. Behavior: ${behavior}; sustenance: ${sustenance}. Affinity: ${element}. Stability: ${stability} (${riskNote}). ${utilityNote}.`;
   }
 
   function visibleTraitLabel(specimen, traitKey, evaluated) {
@@ -4577,8 +5386,8 @@
     if (traitKey === "behavior") {
       return estimateQuantity(0.4 + index * 0.33, "latency", traitKey, contextKey);
     }
-    if (traitKey === "diet") {
-      return estimateQuantity(30 + index * 17, "intake", traitKey, contextKey);
+    if (traitKey === "sustenance") {
+      return "";
     }
     if (traitKey === "byproduct") {
       return estimateQuantity(0.4 + index * 0.42, "flow", traitKey, contextKey);
@@ -4620,8 +5429,8 @@
     if (traitKey === "behavior") {
       return `${formatDecimal(0.4 + index * 0.33, 1)}s response latency`;
     }
-    if (traitKey === "diet") {
-      return `${formatIntake(30 + index * 17)} intake`;
+    if (traitKey === "sustenance") {
+      return "";
     }
     if (traitKey === "byproduct") {
       return `${formatFlow(0.4 + index * 0.42)} yield`;
@@ -4656,8 +5465,8 @@
     if (kind === "volume") {
       return formatVolumeRange(low, high, value);
     }
-    if (kind === "intake") {
-      return `${formatIntakeRange(low, high, value)} intake`;
+    if (kind === "intake" || kind === "uptake") {
+      return `${formatIntakeRange(low, high, value)} ${kind}`;
     }
     if (kind === "flow") {
       return `${formatFlowRange(low, high, value)} yield`;
@@ -5343,7 +6152,16 @@
     }
     addResource("waste", units);
     addWasteTags(tags, units);
+    if (wasteTagsAreDirty(tags)) {
+      addResource("contaminatedFeedstock", units * CONTAMINATED_FEEDSTOCK_PER_DIRTY_WASTE);
+    }
     return true;
+  }
+
+  function wasteTagsAreDirty(tags) {
+    return (tags || [])
+      .map(normalizeWasteTag)
+      .some((tag) => ["contaminated", "hazardous", "chemical", "toxic", "spoiled", "ruined"].includes(tag));
   }
 
   function spendWaste(amount) {
@@ -5385,6 +6203,10 @@
 
   function corpseWasteTags(corpse) {
     const tags = ["corpse", "biological"];
+    const freshness = corpseFreshness(corpse);
+    if (freshness === "spoiled" || freshness === "ruined") {
+      tags.push("contaminated", freshness);
+    }
     const element = baseOutcomeLabel(evaluateGenome(corpse.genome).traits.element);
     if (element && element !== "none") {
       tags.push(`${element}-tainted`);
@@ -5432,6 +6254,58 @@
     for (const resource of RESOURCE_DEFS) {
       const value = Number(candidate?.[resource.key]);
       normalized[resource.key] = Math.max(0, Math.floor(Number.isFinite(value) ? value : fallback[resource.key]));
+    }
+    return normalized;
+  }
+
+  function normalizeRooms(candidate) {
+    const rooms = Array.isArray(candidate) ? candidate : [];
+    const normalized = rooms
+      .map(normalizeRoom)
+      .filter(Boolean);
+    if (!normalized.some((room) => room.id === MAIN_ROOM_ID)) {
+      normalized.unshift(defaultRooms()[0]);
+    }
+    return normalized;
+  }
+
+  function normalizeRoom(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const id = cleanRoomId(candidate.id) || MAIN_ROOM_ID;
+    return {
+      id,
+      name: String(candidate.name || (id === MAIN_ROOM_ID ? "Main Lab" : titleCase(id))).trim() || "Unnamed Room",
+      attributes: normalizeRoomAttributes(candidate.attributes)
+    };
+  }
+
+  function cleanRoomId(value) {
+    const cleaned = String(value || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    return cleaned || "";
+  }
+
+  function normalizeRoomAttributes(candidate) {
+    const normalized = {};
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      const current = Number(candidate?.[def.key]?.current);
+      const baseline = Number(candidate?.[def.key]?.baseline);
+      const recoveryPerHour = Number(candidate?.[def.key]?.recoveryPerHour);
+      normalized[def.key] = {
+        current: clamp(Number.isFinite(current) ? current : def.initial, 0, 100),
+        baseline: clamp(Number.isFinite(baseline) ? baseline : def.baseline, 0, 100),
+        recoveryPerHour: Math.max(0, Number.isFinite(recoveryPerHour) ? recoveryPerHour : def.recoveryPerHour)
+      };
+    }
+    return normalized;
+  }
+
+  function normalizeFeedstockIncomeProgress(candidate) {
+    const normalized = {};
+    for (const feedstock of FEEDSTOCK_DEFS.filter((item) => item.passive)) {
+      const value = Number(candidate?.[feedstock.key]);
+      normalized[feedstock.key] = clamp(Number.isFinite(value) ? value : 0, 0, 1);
     }
     return normalized;
   }
@@ -5487,9 +6361,31 @@
 
   function normalizePolicies(candidate) {
     const fallback = defaultPolicies();
+    const feeding = {
+      ...AUTO_FEED_DEFAULTS,
+      ...(candidate?.feeding || {})
+    };
+    feeding.mode = AUTO_FEED_MODE_BY_ID[feeding.mode] ? feeding.mode : AUTO_FEED_DEFAULTS.mode;
+    feeding.massGoal = AUTO_FEED_MASS_GOAL_BY_ID[feeding.massGoal] ? feeding.massGoal : AUTO_FEED_DEFAULTS.massGoal;
+    feeding.feedBelow = clamp(Math.round(Number(feeding.feedBelow) || AUTO_FEED_DEFAULTS.feedBelow), 1, 100);
+    feeding.feedUntil = clamp(Math.round(Number(feeding.feedUntil) || AUTO_FEED_DEFAULTS.feedUntil), 1, 100);
+    feeding.preserveReserve = Math.max(0, Math.floor(Number(feeding.preserveReserve) || 0));
+    for (const key of [
+      "allowUnknownSustenance",
+      "usePreferredWhenKnown",
+      "allowPartialMatches",
+      "allowBadMatches",
+      "allowHarmfulFeeding",
+      "allowCarrion",
+      "allowContaminated",
+      "allowReproductionPressure"
+    ]) {
+      feeding[key] = Boolean(feeding[key]);
+    }
     return {
       ...fallback,
       ...(candidate || {}),
+      feeding,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -6008,6 +6904,11 @@
     dom.seedInput.value = state.seed;
     dom.journalModeSelect.value = state.journalMode;
     dom.complexitySelect.value = state.complexity;
+    const hasSave = hasLocalSave();
+    dom.loadLastSaveBtn.disabled = !hasSave;
+    dom.loadLastSaveStatus.textContent = hasSave
+      ? "A local save is available."
+      : "No local save found.";
   }
 
   function savePayload() {
@@ -6028,20 +6929,23 @@
 
   function loadLocalSave() {
     try {
-      let raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        raw = LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) || null;
-        if (raw) {
-          window.localStorage.setItem(STORAGE_KEY, raw);
-        }
-      }
+      const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) {
         return null;
       }
-      return normalizeState(JSON.parse(raw).state);
+      const payload = JSON.parse(raw);
+      return normalizeState(payload.state || payload);
     } catch (error) {
       console.warn("Load failed", error);
       return null;
+    }
+  }
+
+  function hasLocalSave() {
+    try {
+      return Boolean(window.localStorage.getItem(STORAGE_KEY));
+    } catch (error) {
+      return false;
     }
   }
 
@@ -6054,7 +6958,9 @@
     next.corpses ||= [];
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist);
+    next.rooms = normalizeRooms(next.rooms);
     next.resources = normalizeResources(next.resources);
+    next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.policies = normalizePolicies(next.policies);
     next.queueDrawerOpen = next.queueDrawerOpen !== false;
@@ -6064,16 +6970,16 @@
     next.events ||= [];
     next.tasks ||= [];
     next.slimes ||= [];
-    next.heat = clamp(Math.round(Number(next.heat) || 0), 0, HEAT_MAX);
-    const currentHeatBand = heatBandForValue(next.heat);
-    const peakIndex = Math.max(heatBandIndex(next.heatPeakBand), heatBandIndex(currentHeatBand.id));
-    next.heatPeakBand = HEAT_BANDS[peakIndex].id;
-    if (next.heat > 0) {
-      next.lastHeatGainAt = Math.min(finiteTime(next.lastHeatGainAt, next.clock), next.clock);
-      next.lastHeatDecayAt = Math.min(finiteTime(next.lastHeatDecayAt, next.lastHeatGainAt), next.clock);
+    next.suspicion = clamp(Math.round(Number(next.suspicion) || 0), 0, SUSPICION_MAX);
+    const currentSuspicionBand = suspicionBandForValue(next.suspicion);
+    const peakIndex = Math.max(suspicionBandIndex(next.suspicionPeakBand), suspicionBandIndex(currentSuspicionBand.id));
+    next.suspicionPeakBand = SUSPICION_BANDS[peakIndex].id;
+    if (next.suspicion > 0) {
+      next.lastSuspicionGainAt = Math.min(finiteTime(next.lastSuspicionGainAt, next.clock), next.clock);
+      next.lastSuspicionDecayAt = Math.min(finiteTime(next.lastSuspicionDecayAt, next.lastSuspicionGainAt), next.clock);
     } else {
-      next.lastHeatGainAt = null;
-      next.lastHeatDecayAt = null;
+      next.lastSuspicionGainAt = null;
+      next.lastSuspicionDecayAt = null;
     }
     next.nextCorpseNumber = Math.max(
       Number(next.nextCorpseNumber) || 1,
@@ -6097,6 +7003,8 @@
       slime.measured ||= {};
       slime.traitObservations ||= {};
       slime.testsRun ||= [];
+      slime.roomId = next.rooms.some((room) => room.id === slime.roomId) ? slime.roomId : MAIN_ROOM_ID;
+      slime.automationExcluded = Boolean(slime.automationExcluded);
       slime.stats = normalizeSlimeStats(slime.stats);
       normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);
@@ -6131,6 +7039,7 @@
       corpse.revealed ||= {};
       corpse.measured ||= {};
       corpse.traitObservations ||= {};
+      corpse.roomId = next.rooms.some((room) => room.id === corpse.roomId) ? corpse.roomId : MAIN_ROOM_ID;
       corpse.testsRun ||= [];
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);

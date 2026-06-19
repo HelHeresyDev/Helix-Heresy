@@ -186,18 +186,18 @@ h2 {
   white-space: nowrap;
 }
 
-#heatReadout[data-heat-band="suspicious"] {
+#suspicionReadout[data-suspicion-band="suspicious"] {
   border-color: var(--amber);
   color: #ffe1a1;
 }
 
-#heatReadout[data-heat-band="watched"] {
+#suspicionReadout[data-suspicion-band="watched"] {
   border-color: #d48957;
   color: #ffc69d;
 }
 
-#heatReadout[data-heat-band="investigated"],
-#heatReadout[data-heat-band="critical"] {
+#suspicionReadout[data-suspicion-band="investigated"],
+#suspicionReadout[data-suspicion-band="critical"] {
   border-color: var(--red);
   color: #ffd0c6;
 }
@@ -487,6 +487,7 @@ h2 {
 .skill-list,
 .slime-stat-grid,
 .policy-list,
+.room-list,
 .resource-list,
 .vital-grid {
   display: grid;
@@ -530,8 +531,64 @@ h2 {
   font-size: 0.78rem;
 }
 
+.room-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.55rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.room-title,
+.room-attribute-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.room-title span,
+.room-attribute-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.room-attribute-grid {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+}
+
+.room-attribute-row {
+  padding: 0.4rem 0.45rem;
+  background: #171813;
+  border: 1px solid #2c2f25;
+  border-radius: 6px;
+}
+
 .policy-list {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.policy-control-list {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.policy-field {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.policy-field span {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .policy-option {
@@ -1213,6 +1270,17 @@ h2 {
   padding: 0.15rem 0.45rem;
 }
 
+.feeding-controls {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.feeding-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+}
+
 .danger-chip {
   border-color: #7f4a3e;
   color: #ffb8a8;
@@ -1410,6 +1478,12 @@ h2 {
   margin-bottom: 0.9rem;
 }
 
+.launch-actions {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
 .setup-card select,
 .setup-card input {
   width: 100%;
@@ -1483,6 +1557,7 @@ h2 {
 
   .prediction-row,
   .trait-row,
+  .feeding-row,
   .job-row,
   .journal-row,
   .event-row {
