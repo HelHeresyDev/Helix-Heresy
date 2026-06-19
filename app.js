@@ -6,6 +6,7 @@
   const BASES = ["A", "C", "G", "T"];
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
+  const SYNTHESIS_TUBE_ID = "synthesisTube";
   const WASTE_DRUM_CAPACITY = 8;
   const OVERFLOW_EVENT_INTERVAL = 360;
   const OVERFLOW_SUSPICION = 4;
@@ -128,6 +129,178 @@
     electrical: "electricalCharge",
     electricalcharge: "electricalCharge"
   };
+  const CONTAINER_BASE_TYPE_DEFS = [
+    {
+      id: "basicGlassJar",
+      label: "Basic Glass Jar",
+      capacityCm3: 900,
+      maxWeightKg: 6,
+      visibility: "high",
+      seal: 35,
+      gap: 10,
+      durability: 25,
+      comfort: 40,
+      resistances: { acid: 20, flame: 30, frost: 25, storm: 15, poison: 30, mana: 20 },
+      notes: ["High visibility", "Fragile", "Poor seal"]
+    },
+    {
+      id: "sealedGlassTank",
+      label: "Sealed Glass Tank",
+      capacityCm3: 12000,
+      maxWeightKg: 35,
+      visibility: "high",
+      seal: 85,
+      gap: 0,
+      durability: 35,
+      comfort: 50,
+      resistances: { acid: 25, flame: 35, frost: 30, storm: 20, poison: 65, mana: 25 },
+      notes: ["High visibility", "Good seal", "Still fragile"]
+    },
+    {
+      id: "reinforcedTank",
+      label: "Reinforced Tank",
+      capacityCm3: 160000,
+      maxWeightKg: 450,
+      visibility: "medium",
+      seal: 75,
+      gap: 0,
+      durability: 80,
+      comfort: 55,
+      resistances: { acid: 45, flame: 65, frost: 55, storm: 45, poison: 55, mana: 35 },
+      notes: ["Strong frame", "Moderate visibility", "General-purpose containment"]
+    },
+    {
+      id: "ironCage",
+      label: "Iron Cage",
+      capacityCm3: 620000,
+      maxWeightKg: 800,
+      visibility: "medium",
+      seal: 5,
+      gap: 90,
+      durability: 85,
+      comfort: 35,
+      resistances: { acid: 15, flame: 75, frost: 65, storm: 15, poison: 10, mana: 20 },
+      notes: ["High strength", "Large gaps", "Conductive"]
+    },
+    {
+      id: "ceramicVessel",
+      label: "Ceramic Vessel",
+      capacityCm3: 18000,
+      maxWeightKg: 80,
+      visibility: "low",
+      seal: 70,
+      gap: 0,
+      durability: 50,
+      comfort: 45,
+      resistances: { acid: 75, flame: 85, frost: 35, storm: 55, poison: 60, mana: 35 },
+      notes: ["Opaque", "Good corrosion resistance", "Brittle"]
+    },
+    {
+      id: "stoneBasin",
+      label: "Stone Basin",
+      capacityCm3: 360000,
+      maxWeightKg: 1200,
+      visibility: "low",
+      seal: 40,
+      gap: 0,
+      durability: 85,
+      comfort: 40,
+      resistances: { acid: 70, flame: 90, frost: 75, storm: 45, poison: 45, mana: 30 },
+      notes: ["Very heavy", "Open top", "Handles weight well"]
+    },
+    {
+      id: "openTray",
+      label: "Open Tray",
+      capacityCm3: 160000,
+      maxWeightKg: 220,
+      visibility: "high",
+      seal: 0,
+      gap: 100,
+      durability: 35,
+      comfort: 30,
+      resistances: { acid: 35, flame: 35, frost: 35, storm: 25, poison: 10, mana: 15 },
+      notes: ["Excellent access", "No real seal", "Testing only"]
+    },
+    {
+      id: "softLinedBox",
+      label: "Soft-Lined Containment Box",
+      capacityCm3: 24000,
+      maxWeightKg: 45,
+      visibility: "low",
+      seal: 55,
+      gap: 0,
+      durability: 45,
+      comfort: 90,
+      resistances: { acid: 25, flame: 20, frost: 60, storm: 25, poison: 45, mana: 30 },
+      notes: ["Soft-lined", "Good for brittle bodies", "Low visibility"]
+    },
+    {
+      id: "sealedDrainageTank",
+      label: "Sealed Drainage Tank",
+      capacityCm3: 160000,
+      maxWeightKg: 300,
+      visibility: "low",
+      seal: 90,
+      gap: 0,
+      durability: 70,
+      comfort: 50,
+      drainage: true,
+      resistances: { acid: 65, flame: 45, frost: 45, storm: 35, poison: 75, mana: 30 },
+      notes: ["Drainage ports", "Excellent seal", "Low visibility"]
+    },
+    {
+      id: "containmentPod",
+      label: "Containment Pod",
+      capacityCm3: 620000,
+      maxWeightKg: 900,
+      visibility: "medium",
+      seal: 85,
+      gap: 0,
+      durability: 90,
+      comfort: 70,
+      resistances: { acid: 55, flame: 55, frost: 55, storm: 55, poison: 55, mana: 55 },
+      notes: ["Purpose-built", "Ward-ready", "Strong baseline"]
+    }
+  ];
+  const CONTAINER_BASE_TYPE_BY_ID = Object.fromEntries(CONTAINER_BASE_TYPE_DEFS.map((type) => [type.id, type]));
+  const CONTAINER_BASE_TYPE_ALIASES = Object.fromEntries(CONTAINER_BASE_TYPE_DEFS.flatMap((type) => [
+    [normalizeCommandName(type.id), type.id],
+    [normalizeCommandName(type.label), type.id]
+  ]));
+  const CONTAINER_WARD_DEFS = [
+    { id: "acidAbsorbing", label: "Acid-Absorbing Ward", protects: ["acid"], notes: ["Absorbs acid exposure"] },
+    { id: "flameDampening", label: "Flame-Dampening Ward", protects: ["flame", "heat"], notes: ["Dampens flame and heat"] },
+    { id: "frostStabilizing", label: "Frost-Stabilizing Ward", protects: ["frost", "cold"], notes: ["Buffers frost shock"] },
+    { id: "stormGrounding", label: "Storm-Grounding Ward", protects: ["storm", "electric"], notes: ["Grounds storm charge"] },
+    { id: "poisonSealing", label: "Poison-Sealing Ward", protects: ["poison", "toxic", "fume"], notes: ["Seals toxic traces"] },
+    { id: "manaInsulating", label: "Mana-Insulating Ward", protects: ["mana", "arcane", "dream", "ether"], notes: ["Insulates arcane seepage"] },
+    { id: "sealTightening", label: "Seal-Tightening Ward", protects: ["leak"], notes: ["Improves physical sealing"] },
+    { id: "loadBearing", label: "Load-Bearing Ward", protects: ["weight", "gravity"], notes: ["Reinforces against heavy bodies"] }
+  ];
+  const CONTAINER_WARD_BY_ID = Object.fromEntries(CONTAINER_WARD_DEFS.map((ward) => [ward.id, ward]));
+  const CONTAINER_WARD_ALIASES = Object.fromEntries(CONTAINER_WARD_DEFS.flatMap((ward) => [
+    [normalizeCommandName(ward.id), ward.id],
+    [normalizeCommandName(ward.label), ward.id],
+    ...ward.protects.map((tag) => [normalizeCommandName(tag), ward.id])
+  ]));
+  const STARTER_CONTAINER_LOADOUT = [
+    { typeId: "basicGlassJar" },
+    { typeId: "sealedGlassTank" },
+    { typeId: "reinforcedTank" },
+    { typeId: "ironCage" },
+    { typeId: "ceramicVessel" },
+    { typeId: "stoneBasin" },
+    { typeId: "openTray" },
+    { typeId: "softLinedBox" },
+    { typeId: "sealedDrainageTank" },
+    { typeId: "containmentPod", wardIds: ["acidAbsorbing"] },
+    { typeId: "basicGlassJar", wardIds: ["flameDampening"] },
+    { typeId: "ceramicVessel", wardIds: ["frostStabilizing"] },
+    { typeId: "ironCage", wardIds: ["stormGrounding"] },
+    { typeId: "sealedGlassTank", wardIds: ["poisonSealing"] },
+    { typeId: "reinforcedTank", wardIds: ["manaInsulating"] },
+    { typeId: "containmentPod", wardIds: ["sealTightening", "loadBearing"] }
+  ];
   const REAL_TICK_MS = 250;
   const DEFAULT_TIME_SPEED = "normal";
   const TIME_SPEEDS = [
@@ -227,6 +400,68 @@
     "electrical absorber": ["environmental", "electricity"],
     "fume absorber": ["environmental", "chemical", "fume", "contaminated"]
   };
+  const ENVIRONMENTAL_SUSTENANCE_DEFS = [
+    {
+      id: "heat",
+      matchTags: ["heat"],
+      attributeKey: "temperature",
+      sourceLabel: "heat",
+      actionLabel: "absorbing heat",
+      floor: 25,
+      fullAt: 65,
+      drainPerNutrition: 6
+    },
+    {
+      id: "light",
+      matchTags: ["light"],
+      attributeKey: "light",
+      sourceLabel: "light",
+      actionLabel: "absorbing light",
+      floor: 15,
+      fullAt: 75,
+      drainPerNutrition: 6
+    },
+    {
+      id: "mana",
+      matchTags: ["mana", "arcane"],
+      attributeKey: "ambientMana",
+      sourceLabel: "ambient mana",
+      actionLabel: "absorbing ambient mana",
+      floor: 15,
+      fullAt: 70,
+      drainPerNutrition: 6
+    },
+    {
+      id: "moisture",
+      matchTags: ["moisture"],
+      attributeKey: "moisture",
+      sourceLabel: "moisture",
+      actionLabel: "absorbing moisture",
+      floor: 15,
+      fullAt: 68,
+      drainPerNutrition: 6
+    },
+    {
+      id: "electricity",
+      matchTags: ["electricity"],
+      attributeKey: "electricalCharge",
+      sourceLabel: "charge",
+      actionLabel: "absorbing electrical charge",
+      floor: 5,
+      fullAt: 40,
+      drainPerNutrition: 8
+    },
+    {
+      id: "fume",
+      matchTags: ["fume"],
+      attributeKey: "contamination",
+      sourceLabel: "fumes",
+      actionLabel: "absorbing fumes",
+      floor: 8,
+      fullAt: 55,
+      drainPerNutrition: 5
+    }
+  ];
   const FEEDSTOCK_DEFS = [
     { key: "organicFeedstock", label: "Organic Feedstock", tags: ["material", "organic", "clean"], passive: true },
     { key: "mineralFeedstock", label: "Mineral Feedstock", tags: ["material", "mineral"], passive: true },
@@ -337,6 +572,7 @@
   const MASS_REGROWTH_NUTRITION_FLOOR = 15;
   const MASS_REGROWTH_NUTRITION_COST = 0.45;
   const ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY = 5;
+  const ENVIRONMENTAL_SUSTENANCE_AVAILABILITY_POWER = 1.25;
   const DIVISION_NUTRITION_THRESHOLD = 70;
   const DIVISION_INTEGRITY_THRESHOLD = 80;
   const DIVISION_STRESS_LIMIT = 40;
@@ -445,6 +681,7 @@
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
+      containers: defaultContainers(),
       resources: defaultResources(),
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -507,6 +744,27 @@
     );
   }
 
+  function defaultContainers() {
+    return [
+      {
+        id: SYNTHESIS_TUBE_ID,
+        name: "Synthesis Tube",
+        type: "synthesis",
+        typeId: "synthesisTube",
+        wardIds: [],
+        roomId: MAIN_ROOM_ID
+      },
+      ...STARTER_CONTAINER_LOADOUT.map((entry, index) => ({
+        id: `basic-${index + 1}`,
+        name: `${containerTypeLabel(entry.typeId)} ${index + 1}`,
+        type: "basic",
+        typeId: entry.typeId,
+        wardIds: [...(entry.wardIds || [])],
+        roomId: MAIN_ROOM_ID
+      }))
+    ];
+  }
+
   function defaultSlimeStats() {
     return Object.fromEntries(
       SLIME_STAT_DEFS.map((stat) => [stat.key, { current: stat.initial, max: stat.max }])
@@ -561,6 +819,7 @@
       "loadSelectedGenomeBtn",
       "randomGenomeBtn",
       "copySequenceBtn",
+      "synthesisTubeStatus",
       "lockSummary",
       "randomUnlockedBtn",
       "lockAllBtn",
@@ -580,6 +839,8 @@
       "corpseList",
       "jobSummary",
       "jobList",
+      "containerSummary",
+      "containerList",
       "testButtons",
       "parentASelect",
       "parentBSelect",
@@ -592,6 +853,9 @@
       "roomCommandInput",
       "roomCommandBtn",
       "roomCommandStatus",
+      "containerCommandInput",
+      "containerCommandBtn",
+      "containerCommandStatus",
       "healthReadout",
       "staminaReadout",
       "manaReadout",
@@ -762,8 +1026,9 @@
     });
 
     dom.synthesizeBtn.addEventListener("click", () => {
-      if (!canAddContainedSlime()) {
-        addEvent("No containment pod is open.");
+      const synthesisReason = synthesisTubeBlockReason();
+      if (synthesisReason) {
+        addEvent(synthesisReason);
         persist();
         render();
         return;
@@ -811,12 +1076,6 @@
       if (!slime || slime.status === "dead") {
         return;
       }
-      if (slime.status === "released" && containedSlimeCount() >= STORAGE_CAPACITY) {
-        addEvent("No containment pod is open.");
-        persist();
-        render();
-        return;
-      }
       const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
       if (!spendStamina(cost)) {
         addEvent(`Not enough stamina. ${cost} required.`);
@@ -824,8 +1083,21 @@
         render();
         return;
       }
-      slime.status = slime.status === "released" ? "contained" : "released";
-      addEvent(`${slime.name} ${slime.status === "released" ? "released into the lab" : "returned to containment"}.`);
+      if (slime.status === "released") {
+        const container = moveSlimeToOpenPermanentContainer(slime);
+        if (!container) {
+          restoreStamina(cost);
+          addEvent("No open permanent container is available.");
+          persist();
+          render();
+          return;
+        }
+        addEvent(`${slime.name} returned to ${container.name}.`);
+      } else {
+        const previousLocation = containerLabelForSlime(slime);
+        releaseSlime(slime);
+        addEvent(`${slime.name} released from ${previousLocation}.`);
+      }
       awardXp("slimeHandling", 5, "Slime handling");
       persist();
       render();
@@ -847,7 +1119,7 @@
         return;
       }
       if (!canAddContainedSlime()) {
-        addEvent("Forced recombination requires at least one open containment pod.");
+        addEvent("Forced recombination requires at least one open permanent container.");
         persist();
         render();
         return;
@@ -907,7 +1179,19 @@
 
     dom.roomCommandInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
+        event.preventDefault();
         runRoomCommand();
+      }
+    });
+
+    dom.containerCommandBtn.addEventListener("click", () => {
+      runContainerCommand();
+    });
+
+    dom.containerCommandInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runContainerCommand();
       }
     });
 
@@ -1206,15 +1490,16 @@
 
   function completeTask(task) {
     if (task.type === "synthesize") {
-      if (containedSlimeCount() >= STORAGE_CAPACITY) {
+      const tube = synthesisTube();
+      if (!tube || synthesisTubeOccupied()) {
         addResources(task.data.resourceCosts || {});
-        addEvent("Synthesis could not stabilize; no containment pod was open. Reserved resources recovered.");
+        addEvent("Synthesis could not stabilize; the synthesis tube was occupied. Reserved resources recovered.");
         return;
       }
-      const slime = createSlime(task.data.genome, "Synthetic");
+      const slime = createSlime(task.data.genome, "Synthetic", { containerId: tube.id, roomId: tube.roomId });
       const reveal = revealTraits(slime, TESTS.find((test) => test.id === "visual").traits);
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, "Synthesis");
-      addEvent(`${slime.name} stabilized.`);
+      addEvent(`${slime.name} stabilized in the synthesis tube.`);
       state.selectedSlimeId = slime.id;
       return;
     }
@@ -1331,6 +1616,7 @@
       matureAt: options.matureAt ?? state.clock,
       mature: options.mature ?? true,
       status: options.status || "contained",
+      containerId: options.containerId ?? null,
       roomId: options.roomId || MAIN_ROOM_ID,
       automationExcluded: Boolean(options.automationExcluded),
       job: "idle",
@@ -1343,6 +1629,17 @@
       traitObservations: {},
       testsRun: []
     };
+    if (slime.status !== "released" && slime.status !== "dead") {
+      const container = containerById(slime.containerId);
+      if (container) {
+        slime.containerId = container.id;
+        slime.roomId = container.roomId || slime.roomId;
+      } else {
+        slime.containerId = null;
+      }
+    } else {
+      slime.containerId = null;
+    }
     state.nextSlimeNumber += 1;
     state.slimes.unshift(slime);
     return slime;
@@ -1364,10 +1661,10 @@
     const broodAverage = (evalA.traits.brood.meta.count + evalB.traits.brood.meta.count) / 2;
     const rng = seedRng(`${state.seed}:breed:${task.id}:${state.clock}`);
     const broodCount = clamp(Math.round(broodAverage + Math.floor(rng() * 3) - 1), 1, 8);
-    const openSlots = Math.max(0, STORAGE_CAPACITY - containedSlimeCount());
-    const offspringCount = Math.min(broodCount, openSlots);
+    const openContainers = openPermanentContainers();
+    const offspringCount = Math.min(broodCount, openContainers.length);
     if (offspringCount <= 0) {
-      addEvent("Forced recombination could not complete; no containment pod was open.");
+      addEvent("Forced recombination could not complete; no permanent container was open.");
       return;
     }
     const growthAverage = (evalA.traits.growth.meta.growthMinutes + evalB.traits.growth.meta.growthMinutes) / 2;
@@ -1382,6 +1679,8 @@
       const child = createSlime(childGenome, "Recombined", {
         mature: false,
         matureAt: state.clock + growthMinutes,
+        containerId: openContainers[i]?.id || null,
+        roomId: openContainers[i]?.roomId || MAIN_ROOM_ID,
         stats: {
           bodyIntegrity: { current: 90, max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
@@ -1410,7 +1709,7 @@
     awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Forced Recombination");
     addEvent(`Forced recombination produced ${created.length} offspring and divided parent mass across ${bodyCount} bodies.`);
     if (offspringCount < broodCount) {
-      addEvent(`${broodCount - offspringCount} potential offspring could not be stabilized because containment was full.`);
+      addEvent(`${broodCount - offspringCount} potential offspring could not be stabilized because no permanent container was open.`);
     }
   }
 
@@ -1872,6 +2171,364 @@
     return def.bands[0];
   }
 
+  function containerTypeDef(typeId) {
+    return CONTAINER_BASE_TYPE_BY_ID[typeId] || CONTAINER_BASE_TYPE_BY_ID.basicGlassJar;
+  }
+
+  function containerTypeLabel(typeId) {
+    return containerTypeDef(typeId).label;
+  }
+
+  function containerWardDef(wardId) {
+    return CONTAINER_WARD_BY_ID[wardId] || null;
+  }
+
+  function containerWardLabels(wardIds) {
+    return normalizeContainerWardIds(wardIds).map((wardId) => containerWardDef(wardId)?.label).filter(Boolean);
+  }
+
+  function normalizeContainerWardIds(candidate) {
+    const seen = new Set();
+    const wardIds = Array.isArray(candidate) ? candidate : [];
+    return wardIds
+      .map((wardId) => CONTAINER_WARD_BY_ID[wardId] ? wardId : CONTAINER_WARD_ALIASES[normalizeCommandName(wardId)])
+      .filter(Boolean)
+      .filter((wardId) => {
+        if (seen.has(wardId)) {
+          return false;
+        }
+        seen.add(wardId);
+        return true;
+      });
+  }
+
+  function starterContainerForId(containerId) {
+    const match = String(containerId || "").match(/^basic-(\d+)$/);
+    if (!match) {
+      return null;
+    }
+    return STARTER_CONTAINER_LOADOUT[Number(match[1]) - 1] || null;
+  }
+
+  function containerBaseTypeIdFromCommand(value) {
+    const normalized = normalizeCommandName(value);
+    if (!normalized) {
+      return "";
+    }
+    if (CONTAINER_BASE_TYPE_ALIASES[normalized]) {
+      return CONTAINER_BASE_TYPE_ALIASES[normalized];
+    }
+    const partial = CONTAINER_BASE_TYPE_DEFS.find((type) => normalizeCommandName(type.label).includes(normalized));
+    return partial?.id || "";
+  }
+
+  function containerWardIdFromCommand(value) {
+    const normalized = normalizeCommandName(value);
+    if (!normalized) {
+      return "";
+    }
+    if (CONTAINER_WARD_ALIASES[normalized]) {
+      return CONTAINER_WARD_ALIASES[normalized];
+    }
+    const partial = CONTAINER_WARD_DEFS.find((ward) => normalizeCommandName(ward.label).includes(normalized));
+    return partial?.id || "";
+  }
+
+  function hasContainerWard(container, wardId) {
+    return normalizeContainerWardIds(container?.wardIds).includes(wardId);
+  }
+
+  function containerEffectiveSeal(container) {
+    const type = containerTypeDef(container?.typeId);
+    return clamp(type.seal + (hasContainerWard(container, "sealTightening") ? 25 : 0), 0, 100);
+  }
+
+  function containerEffectiveWeightLimit(container) {
+    const type = containerTypeDef(container?.typeId);
+    return type.maxWeightKg * (hasContainerWard(container, "loadBearing") ? 1.6 : 1);
+  }
+
+  function containerProtectsAny(container, tags) {
+    const wanted = new Set((Array.isArray(tags) ? tags : [tags]).map((tag) => normalizeCommandName(tag)));
+    return normalizeContainerWardIds(container?.wardIds).some((wardId) => {
+      const ward = containerWardDef(wardId);
+      return ward?.protects?.some((tag) => wanted.has(normalizeCommandName(tag)));
+    });
+  }
+
+  function containerProtectionLabel(container, tags) {
+    const wanted = new Set((Array.isArray(tags) ? tags : [tags]).map((tag) => normalizeCommandName(tag)));
+    const wardId = normalizeContainerWardIds(container?.wardIds).find((candidate) => {
+      const ward = containerWardDef(candidate);
+      return ward?.protects?.some((tag) => wanted.has(normalizeCommandName(tag)));
+    });
+    return wardId ? containerWardDef(wardId)?.label || "" : "";
+  }
+
+  function passiveContainerSuitability(slime, container) {
+    if (!slime || !container) {
+      return { label: "Unknown", className: "container-band-unknown", reasons: ["No specimen assigned."] };
+    }
+    if (container.type === "synthesis") {
+      return {
+        label: "Perfect Temporary Fit",
+        className: "container-band-good",
+        reasons: ["The synthesis tube is built for temporary universal containment."]
+      };
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const type = containerTypeDef(container.typeId);
+    const revealed = slime.revealed || {};
+    const knownTraits = ["size", "shape", "consistency", "appendages", "element", "byproduct", "stability"]
+      .filter((traitKey) => revealed[traitKey]);
+    if (!profile || !knownTraits.length) {
+      return {
+        label: "Unknown",
+        className: "container-band-unknown",
+        reasons: ["No relevant containment traits discovered yet."]
+      };
+    }
+
+    let score = 100;
+    const reasons = [];
+    const addConcern = (severity, text) => {
+      const weights = { minor: 8, moderate: 18, major: 34, severe: 50 };
+      score -= weights[severity] || 0;
+      reasons.push(text);
+    };
+    const addNote = (text) => {
+      reasons.push(text);
+    };
+    const addThreat = (label, tags, resistanceKey) => {
+      const wardLabel = containerProtectionLabel(container, tags);
+      if (wardLabel) {
+        addNote(`${wardLabel} covers ${label}.`);
+        return;
+      }
+      const resistance = Number(type.resistances?.[resistanceKey]) || 0;
+      if (resistance < 25) {
+        addConcern("severe", `${type.label} has very poor ${label} resistance.`);
+      } else if (resistance < 50) {
+        addConcern("major", `${type.label} has weak ${label} resistance.`);
+      } else if (resistance < 70) {
+        addConcern("minor", `${type.label} only partly resists ${label}.`);
+      }
+    };
+
+    if (revealed.size) {
+      const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+      const currentVolume = profile.volumeCm3 * massFraction;
+      const currentWeight = profile.weightKg * massFraction;
+      const weightLimit = containerEffectiveWeightLimit(container);
+      if (currentVolume > type.capacityCm3) {
+        addConcern("severe", `Current body volume exceeds ${type.label} capacity.`);
+      } else if (currentVolume > type.capacityCm3 * 0.85) {
+        addConcern("moderate", `Current body nearly fills ${type.label}.`);
+      } else if (profile.volumeCm3 > type.capacityCm3) {
+        addConcern("major", `Full mass would outgrow ${type.label}.`);
+      }
+      if (revealed.shape && currentWeight > weightLimit) {
+        addConcern("severe", `Current weight exceeds the container load limit.`);
+      } else if (revealed.shape && profile.weightKg > weightLimit) {
+        addConcern("major", `Full mass may exceed the container load limit.`);
+      }
+    }
+
+    if (revealed.consistency) {
+      const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"];
+      const brittle = ["crystalline gel", "brittle jelly", "clay-like"];
+      if (runny.includes(profile.consistency)) {
+        if (type.gap >= 60) {
+          addConcern("severe", `Runny body can escape through the container gaps.`);
+        } else if (containerEffectiveSeal(container) < 50) {
+          addConcern("major", `Runny body strains the weak seal.`);
+        } else if (containerEffectiveSeal(container) < 75) {
+          addConcern("minor", `Runny body may seep if stressed.`);
+        }
+      }
+      if (brittle.includes(profile.consistency) && type.comfort < 55) {
+        addConcern("moderate", `Brittle body may chip against the hard interior.`);
+      }
+    }
+
+    if (revealed.shape && ["puddle", "flat sheet"].includes(profile.shape)) {
+      if (type.gap >= 50) {
+        addConcern("major", `${profile.shape} form needs a tighter enclosure.`);
+      } else if (containerEffectiveSeal(container) < 55) {
+        addConcern("minor", `${profile.shape} form benefits from a better seal.`);
+      }
+    }
+
+    if (revealed.appendages && profile.appendages !== "none") {
+      if (type.gap >= 60) {
+        addConcern("moderate", `Appendages may reach or snag through large gaps.`);
+      }
+      if (["spines", "hook claws"].includes(profile.appendages) && type.durability < 55) {
+        addConcern("moderate", `${profile.appendages} can score fragile interiors.`);
+      }
+    }
+
+    if (revealed.element) {
+      const element = profile.element;
+      const elementalThreats = {
+        acid: ["acid exposure", ["acid"], "acid"],
+        flame: ["flame exposure", ["flame", "heat"], "flame"],
+        frost: ["frost exposure", ["frost", "cold"], "frost"],
+        storm: ["storm charge", ["storm", "electric"], "storm"],
+        poison: ["poison seepage", ["poison", "toxic", "fume"], "poison"],
+        dream: ["arcane seepage", ["mana", "arcane", "dream"], "mana"],
+        ether: ["ether seepage", ["mana", "arcane", "ether"], "mana"],
+        gravity: ["gravity strain", ["weight", "gravity"], "mana"]
+      };
+      if (elementalThreats[element]) {
+        addThreat(...elementalThreats[element]);
+      }
+      if (["metal", "stone"].includes(element) && profile.weightKg > type.maxWeightKg * 0.8 && !containerProtectsAny(container, ["weight"])) {
+        addConcern("minor", `${element} affinity may become a load problem at full mass.`);
+      }
+    }
+
+    if (revealed.byproduct) {
+      const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
+      if (["acid droplets", "sterile solvent", "alkaline foam"].includes(byproduct)) {
+        addThreat("corrosive byproduct", ["acid"], "acid");
+      }
+      if (["smoke vapor", "numbing paste"].includes(byproduct)) {
+        addThreat("toxic byproduct", ["poison", "fume"], "poison");
+      }
+      if (["mana dew"].includes(byproduct)) {
+        addThreat("arcane byproduct", ["mana", "arcane"], "mana");
+      }
+      if (["cooling brine"].includes(byproduct)) {
+        addThreat("cold brine", ["frost", "cold"], "frost");
+      }
+      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax"].includes(byproduct) && !type.drainage) {
+        addConcern("minor", `${byproduct} may foul containers without drainage.`);
+      }
+    }
+
+    if (revealed.stability) {
+      const risk = Number(evaluated.traits.stability.meta?.risk) || 5;
+      if (risk >= 7 && type.durability < 50) {
+        addConcern("moderate", `High containment risk and fragile material are a poor mix.`);
+      } else if (risk >= 7) {
+        addConcern("minor", `High containment risk warrants monitoring.`);
+      }
+    }
+
+    const label = score >= 80 ? "Good Fit"
+      : score >= 60 ? "Questionable"
+        : score >= 35 ? "Poor Fit"
+          : "Unsuitable";
+    const className = score >= 80 ? "container-band-good"
+      : score >= 60 ? "container-band-questionable"
+        : score >= 35 ? "container-band-poor"
+          : "container-band-unsuitable";
+    return {
+      label,
+      className,
+      reasons: reasons.length ? reasons.slice(0, 4) : ["No obvious conflicts among discovered traits."]
+    };
+  }
+
+  function containerById(containerId) {
+    state.containers = normalizeContainers(state.containers);
+    return state.containers.find((container) => container.id === containerId) || null;
+  }
+
+  function synthesisTube() {
+    return containerById(SYNTHESIS_TUBE_ID) || normalizeContainers(state.containers).find((container) => container.type === "synthesis") || null;
+  }
+
+  function permanentContainers() {
+    state.containers = normalizeContainers(state.containers);
+    return state.containers.filter((container) => container.type === "basic");
+  }
+
+  function containerOccupants(containerId) {
+    return (state.slimes || [])
+      .filter((slime) => slime.status !== "dead" && slime.status !== "released" && slime.containerId === containerId);
+  }
+
+  function synthesisTubeOccupants() {
+    const tube = synthesisTube();
+    return tube ? containerOccupants(tube.id) : [];
+  }
+
+  function synthesisTubeOccupied() {
+    return synthesisTubeOccupants().length > 0;
+  }
+
+  function openPermanentContainers() {
+    return permanentContainers().filter((container) => containerOccupants(container.id).length === 0);
+  }
+
+  function firstOpenPermanentContainer() {
+    return openPermanentContainers()[0] || null;
+  }
+
+  function occupiedPermanentContainerCount() {
+    return permanentContainers().filter((container) => containerOccupants(container.id).length > 0).length;
+  }
+
+  function releasedSlimeCount() {
+    return (state.slimes || []).filter((slime) => slime.status === "released").length;
+  }
+
+  function isInSynthesisTube(slime) {
+    return Boolean(slime && slime.status !== "dead" && slime.containerId === SYNTHESIS_TUBE_ID);
+  }
+
+  function containerLabelForSlime(slime) {
+    if (!slime || slime.status === "dead") {
+      return "Dead";
+    }
+    if (slime.status === "released") {
+      return "Released";
+    }
+    return containerById(slime.containerId)?.name || "Unassigned";
+  }
+
+  function assignSlimeToContainer(slime, containerId) {
+    const container = containerById(containerId);
+    if (!slime || slime.status === "dead" || !container) {
+      return false;
+    }
+    slime.status = "contained";
+    slime.containerId = container.id;
+    slime.roomId = container.roomId || MAIN_ROOM_ID;
+    if (container.type === "synthesis") {
+      slime.job = "idle";
+      slime.jobProgress = 0;
+      slime.jobTargetCorpseId = null;
+      slime.jobNutritionGained = 0;
+    }
+    return true;
+  }
+
+  function releaseSlime(slime) {
+    if (!slime || slime.status === "dead") {
+      return false;
+    }
+    slime.status = "released";
+    slime.containerId = null;
+    slime.job = "idle";
+    slime.jobProgress = 0;
+    slime.jobTargetCorpseId = null;
+    slime.jobNutritionGained = 0;
+    return true;
+  }
+
+  function moveSlimeToOpenPermanentContainer(slime) {
+    const container = firstOpenPermanentContainer();
+    if (!container || !assignSlimeToContainer(slime, container.id)) {
+      return null;
+    }
+    return container;
+  }
+
   function updateCorpses() {
     let changes = 0;
     for (const corpse of state.corpses || []) {
@@ -2272,6 +2929,7 @@
     renderPredictions();
     renderSlimes();
     renderCorpses();
+    renderContainers();
     renderJobs();
     renderTests();
     renderBreeding();
@@ -2284,6 +2942,7 @@
     renderKnownEditor();
     refreshActionControls();
     syncSetupForm();
+    explainDisabledButtons();
   }
 
   function renderLiveReadouts() {
@@ -2294,10 +2953,9 @@
     dom.timeSpeedSelect.value = currentTimeSpeed().id;
     dom.pauseBtn.textContent = state.paused ? "Resume" : "Pause";
     dom.seedReadout.textContent = `Seed: ${state.seed}`;
-    const reserved = pendingSynthesisCount();
-    dom.storageReadout.textContent = reserved
-      ? `Storage ${containedSlimeCount()}+${reserved}/${STORAGE_CAPACITY}`
-      : `Storage ${containedSlimeCount()}/${STORAGE_CAPACITY}`;
+    const released = releasedSlimeCount();
+    const containerText = `Containers ${occupiedPermanentContainerCount()}/${permanentContainers().length}`;
+    dom.storageReadout.textContent = released ? `${containerText}; Released ${released}` : containerText;
     const overflow = overflowCorpseCount();
     dom.wasteReadout.textContent = overflow
       ? `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} +${overflow}`
@@ -2425,8 +3083,9 @@
 
   function renderMutationBench() {
     const lockedCount = REGION_DEFS.filter((region) => isRegionLocked(region.key)).length;
-    dom.loadSelectedGenomeBtn.disabled = !getSelectedSlime();
-    dom.randomUnlockedBtn.disabled = lockedCount === REGION_DEFS.length;
+    const selected = getSelectedSlime();
+    setActionButtonState(dom.loadSelectedGenomeBtn, !selected, "Select a living sample first.");
+    setActionButtonState(dom.randomUnlockedBtn, lockedCount === REGION_DEFS.length, "All genome regions are locked.");
     dom.lockSummary.textContent = `${lockedCount}/${REGION_DEFS.length} regions locked`;
     dom.regionLockGrid.textContent = "";
 
@@ -2456,7 +3115,7 @@
       mutate.type = "button";
       mutate.className = "region-mutate";
       mutate.textContent = "Mutate";
-      mutate.disabled = locked;
+      setActionButtonState(mutate, locked, `${region.label} is locked.`);
       mutate.addEventListener("click", () => {
         mutateRegion(region.key);
       });
@@ -2470,11 +3129,32 @@
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["biofabrication", "slimeHandling"]);
     const duration = adjustedDuration(8, "biofabrication");
     const resourceCosts = { biomass: SYNTHESIS_BIOMASS_COST };
+    renderSynthesisTubeStatus();
     dom.synthesizeBtn.textContent = `Synthesize Slime (${formatDuration(duration)}, ${cost} STA, ${formatResourceBundle(resourceCosts)})`;
-    const reason = !canAddContainedSlime()
-      ? "No containment pod is open."
-      : resourceBlockReason(resourceCosts) || staminaBlockReason(cost);
+    const reason = synthesisTubeBlockReason()
+      || resourceBlockReason(resourceCosts)
+      || staminaBlockReason(cost);
     setActionButtonState(dom.synthesizeBtn, Boolean(reason), reason);
+  }
+
+  function renderSynthesisTubeStatus() {
+    const occupants = synthesisTubeOccupants();
+    if (!occupants.length) {
+      dom.synthesisTubeStatus.textContent = pendingSynthesisCount() > 0 ? "Synthesis in progress." : "Synthesis tube empty.";
+      return;
+    }
+    dom.synthesisTubeStatus.textContent = `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+  }
+
+  function synthesisTubeBlockReason() {
+    const occupants = synthesisTubeOccupants();
+    if (occupants.length) {
+      return `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+    }
+    if (pendingSynthesisCount() > 0) {
+      return "Synthesis already in progress.";
+    }
+    return "";
   }
 
   function refreshActionControls() {
@@ -2492,6 +3172,8 @@
     dom.releaseBtn.textContent = `${releaseLabel} (${cost} STA)`;
     const reason = !selected || selected.status === "dead"
       ? "No living slime selected."
+      : selected.status === "released" && !firstOpenPermanentContainer()
+        ? "No open permanent container is available."
       : staminaBlockReason(cost);
     setActionButtonState(dom.releaseBtn, Boolean(reason), reason);
   }
@@ -2529,7 +3211,7 @@
     const reason = breedable.length < 2
       ? "Forced recombination requires two mature slimes."
       : !canAddContainedSlime()
-        ? "Forced recombination requires at least one open containment pod."
+        ? "Forced recombination requires at least one open permanent container."
         : staminaBlockReason(cost);
     setActionButtonState(dom.breedBtn, Boolean(reason), reason);
   }
@@ -2579,14 +3261,18 @@
       life.dataset.slimeLife = slime.id;
       meta.append(maturity);
       meta.append(life);
+      meta.append(chip(containerLabelForSlime(slime)));
       meta.append(chip(creatureJobLabel(slime.job)));
-      meta.append(chip(slime.genome));
+      if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime)) {
+        meta.append(chip(environmentalSustenanceStatus(slime) || environmentalSustenanceLabel(slime)));
+      }
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
         card.append(renderFeedingControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
       }
+      card.append(renderSlimeGenomeFooter(slime));
       dom.slimeList.append(card);
     }
   }
@@ -2655,6 +3341,143 @@
     }
   }
 
+  function renderContainers() {
+    state.containers = normalizeContainers(state.containers);
+    dom.containerList.textContent = "";
+    const permanent = permanentContainers();
+    const occupied = occupiedPermanentContainerCount();
+    const released = releasedSlimeCount();
+    dom.containerSummary.textContent = `${occupied}/${permanent.length} permanent containers occupied${released ? `; ${released} released` : ""}`;
+
+    const tube = synthesisTube();
+    if (tube) {
+      dom.containerList.append(containerCardEl(tube));
+    }
+
+    for (const container of permanent) {
+      dom.containerList.append(containerCardEl(container));
+    }
+
+    const releasedSlimes = (state.slimes || []).filter((slime) => slime.status === "released");
+    if (releasedSlimes.length) {
+      const card = document.createElement("div");
+      card.className = "container-card released";
+      const title = document.createElement("div");
+      title.className = "container-title";
+      title.append(textEl("strong", "Released Slimes"), textEl("span", `${releasedSlimes.length} loose`));
+      const list = document.createElement("div");
+      list.className = "released-slime-list";
+      for (const slime of releasedSlimes) {
+        const row = document.createElement("div");
+        row.className = "container-occupant-row";
+        row.append(slimeNameLink(slime), textEl("span", roomName(slime.roomId || MAIN_ROOM_ID)));
+        list.append(row);
+      }
+      card.append(title, list);
+      dom.containerList.append(card);
+    }
+  }
+
+  function containerCardEl(container) {
+    const card = document.createElement("div");
+    card.className = `container-card ${container.type}`;
+    const occupants = containerOccupants(container.id);
+    const title = document.createElement("div");
+    title.className = "container-title";
+    const typeLabel = container.type === "synthesis" ? "Synthesis Tube" : containerTypeLabel(container.typeId);
+    title.append(
+      textEl("strong", container.name),
+      textEl("span", container.type === "synthesis" ? "temporary perfect containment" : `${typeLabel}; ${roomName(container.roomId)}`)
+    );
+
+    const meta = document.createElement("div");
+    meta.className = "container-meta";
+    if (container.type === "synthesis") {
+      meta.append(chip("universal temporary containment"));
+    } else {
+      const type = containerTypeDef(container.typeId);
+      meta.append(chip(type.label), chip(`capacity ${formatVolume(type.capacityCm3)}`), chip(`load ${formatWeight(containerEffectiveWeightLimit(container))}`));
+      const wards = containerWardLabels(container.wardIds);
+      if (wards.length) {
+        for (const ward of wards) {
+          meta.append(chip(ward));
+        }
+      } else {
+        meta.append(chip("no wards"));
+      }
+    }
+
+    const occupantList = document.createElement("div");
+    occupantList.className = "container-occupants";
+    if (!occupants.length) {
+      occupantList.append(emptyText(container.type === "synthesis" ? "Tube empty." : "Open."));
+    } else {
+      for (const slime of occupants) {
+        const row = document.createElement("div");
+        row.className = "container-occupant-row";
+        const fit = passiveContainerSuitability(slime, container);
+        const fitLabel = textEl("span", `${slime.mature ? slime.status : "immature"}; ${fit.label}`);
+        fitLabel.className = fit.className;
+        row.append(slimeNameLink(slime), fitLabel);
+        const warnings = document.createElement("div");
+        warnings.className = "container-warning-list";
+        for (const reason of fit.reasons) {
+          warnings.append(chip(reason));
+        }
+        occupantList.append(row, warnings);
+      }
+    }
+
+    card.append(title, meta, occupantList);
+
+    if (container.type === "synthesis" && occupants.length) {
+      const actions = document.createElement("div");
+      actions.className = "container-actions";
+      const moveBtn = document.createElement("button");
+      moveBtn.type = "button";
+      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
+      moveBtn.textContent = `Move to Open Container (${cost} STA)`;
+      const reason = !firstOpenPermanentContainer()
+        ? "No open permanent container is available."
+        : staminaBlockReason(cost);
+      setActionButtonState(moveBtn, Boolean(reason), reason);
+      moveBtn.addEventListener("click", () => moveTubeOccupantToOpenContainer(occupants[0].id));
+      actions.append(moveBtn);
+      card.append(actions);
+    }
+
+    return card;
+  }
+
+  function moveTubeOccupantToOpenContainer(slimeId) {
+    const slime = findSlime(slimeId);
+    if (!slime || !isInSynthesisTube(slime)) {
+      addEvent("No synthesis tube occupant is ready to move.");
+      persist();
+      render();
+      return;
+    }
+    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return;
+    }
+    const container = moveSlimeToOpenPermanentContainer(slime);
+    if (!container) {
+      restoreStamina(cost);
+      addEvent("No open permanent container is available.");
+      persist();
+      render();
+      return;
+    }
+    awardXp("slimeHandling", 5, "Slime handling");
+    addEvent(`${slime.name} assigned to ${container.name}.`);
+    persist();
+    render();
+  }
+
   function renderJobs() {
     dom.jobList.textContent = "";
     const living = state.slimes.filter((slime) => slime.status !== "dead");
@@ -2707,7 +3530,7 @@
           meta.append(remainingChip);
         }
       } else {
-        meta.append(chip(canWorkJob(slime) ? "available" : "not ready"));
+        meta.append(chip(isInSynthesisTube(slime) ? "in synthesis tube" : canWorkJob(slime) ? "available" : "not ready"));
       }
       details.append(header, meta);
 
@@ -2725,7 +3548,9 @@
       const select = document.createElement("select");
       select.className = "job-select";
       select.dataset.jobSlimeId = slime.id;
-      select.disabled = !canWorkJob(slime);
+      const jobReason = jobAssignmentBlockReason(slime);
+      select.disabled = Boolean(jobReason);
+      select.title = jobReason;
       for (const job of CREATURE_JOBS) {
         const option = document.createElement("option");
         option.value = job.id;
@@ -2821,8 +3646,9 @@
     }
     normalizeSlimeJob(slime);
     const nextJob = CREATURE_JOBS.some((job) => job.id === jobId) ? jobId : "idle";
-    if (nextJob !== "idle" && !canWorkJob(slime)) {
-      addEvent(`${slime.name} is not ready for job assignment.`);
+    const jobReason = jobAssignmentBlockReason(slime);
+    if (nextJob !== "idle" && jobReason) {
+      addEvent(`${slime.name} cannot be assigned: ${jobReason}`);
       persist();
       render();
       return;
@@ -2909,6 +3735,9 @@
   }
 
   function shouldAutoFeedSlime(slime, policy) {
+    if (environmentCanCurrentlyFeed(slime)) {
+      return false;
+    }
     const nutrition = slimeStat(slime, "nutrition").current;
     const mass = slimeStat(slime, "currentMass").current;
     const target = autoFeedTargetNutrition(policy);
@@ -3109,25 +3938,129 @@
   }
 
   function updateEnvironmentalSustenance(slime, minutes) {
-    const rate = environmentalSustenanceRate(slime);
-    if (rate <= 0) {
-      return false;
-    }
+    const profile = environmentalSustenanceProfile(slime);
+    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
+    const supply = room ? environmentalSustenanceSupply(room, profile) : null;
+    const rate = supply?.rate || 0;
     const nutrition = slimeStat(slime, "nutrition");
-    if (nutrition.current >= nutrition.max) {
+    const mass = slimeStat(slime, "currentMass");
+    if (!profile || !room || !supply || rate <= 0 || (nutrition.current >= nutrition.max && mass.current >= mass.max)) {
       return false;
     }
     const before = nutrition.current;
-    adjustSlimeStat(slime, "nutrition", minutes * rate);
-    return slimeStat(slime, "nutrition").current !== before;
+    const attribute = room.attributes[profile.attributeKey];
+    const beforeBand = roomAttributeBand(profile.attributeKey, attribute.current);
+    const possibleGain = Math.min(nutrition.max - nutrition.current, minutes * rate);
+    const maxDrain = Math.max(0, attribute.current - profile.floor);
+    const drainPerNutrition = Math.max(0.1, profile.drainPerNutrition);
+    const roomLimitedGain = Math.min(possibleGain, maxDrain / drainPerNutrition);
+    const gain = Math.max(0, roomLimitedGain);
+    if (gain <= 0) {
+      return false;
+    }
+    adjustSlimeStat(slime, "nutrition", gain);
+    const drained = gain * drainPerNutrition;
+    adjustRoomAttribute(room.id, profile.attributeKey, -drained);
+    const changed = slimeStat(slime, "nutrition").current !== before;
+    const afterAttribute = room.attributes[profile.attributeKey];
+    const afterBand = roomAttributeBand(profile.attributeKey, afterAttribute.current);
+    if (changed && slime.revealed?.sustenance && beforeBand.label !== afterBand.label) {
+      const def = ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey];
+      addEvent(`${slime.name} ${profile.actionLabel} from ${room.name}. ${def.label} dropped to ${afterBand.label}.`);
+    }
+    return changed;
   }
 
   function environmentalSustenanceRate(slime) {
+    const profile = environmentalSustenanceProfile(slime);
+    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
+    return room ? environmentalSustenanceSupply(room, profile).rate : 0;
+  }
+
+  function environmentalSustenanceProfile(slime) {
+    if (!slime?.genome) {
+      return null;
+    }
     const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     if (!tags.has("environmental")) {
-      return 0;
+      return null;
     }
-    return ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY / 1440;
+    return ENVIRONMENTAL_SUSTENANCE_DEFS.find((profile) => profile.matchTags.some((tag) => tags.has(tag))) || null;
+  }
+
+  function environmentalSustenanceSupply(room, profile) {
+    const attribute = room?.attributes?.[profile?.attributeKey];
+    if (!attribute) {
+      return { availability: 0, rate: 0 };
+    }
+    const current = clamp(Number(attribute.current) || 0, 0, 100);
+    const floor = clamp(Number(profile.floor) || 0, 0, 100);
+    const fullAt = Math.max(floor + 1, clamp(Number(profile.fullAt) || 100, 0, 100));
+    const rawAvailability = clamp((current - floor) / (fullAt - floor), 0, 1);
+    if (rawAvailability <= 0) {
+      return { availability: 0, rate: 0 };
+    }
+    const availability = Math.pow(rawAvailability, ENVIRONMENTAL_SUSTENANCE_AVAILABILITY_POWER);
+    return {
+      availability,
+      rate: (ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY / 1440) * availability
+    };
+  }
+
+  function hasAvailableEnvironmentalSustenance(slime) {
+    const nutrition = slimeStat(slime, "nutrition");
+    const mass = slimeStat(slime, "currentMass");
+    if (nutrition.current >= nutrition.max && mass.current >= mass.max) {
+      return true;
+    }
+    return environmentalSustenanceRate(slime) > 0;
+  }
+
+  function environmentalSustenanceStatus(slime) {
+    const profile = environmentalSustenanceProfile(slime);
+    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
+    if (!profile || !room) {
+      return "";
+    }
+    const def = ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey];
+    const attribute = room.attributes[profile.attributeKey];
+    const band = roomAttributeBand(profile.attributeKey, attribute.current);
+    const supply = environmentalSustenanceSupply(room, profile);
+    if (supply.rate <= 0) {
+      return `${def.label}: depleted`;
+    }
+    if (supply.availability < 0.2) {
+      return `${def.label}: barely feeding`;
+    }
+    return `${def.label}: ${band.label}`;
+  }
+
+  function environmentalSustenanceLabel(slime) {
+    const profile = environmentalSustenanceProfile(slime);
+    if (!profile) {
+      return "";
+    }
+    return `${profile.sourceLabel} feeder`;
+  }
+
+  function isEnvironmentalSustenance(slime) {
+    return Boolean(environmentalSustenanceProfile(slime));
+  }
+
+  function environmentalSustenanceIsFull(slime) {
+    const nutrition = slimeStat(slime, "nutrition");
+    const mass = slimeStat(slime, "currentMass");
+    return nutrition.current >= nutrition.max && mass.current >= mass.max;
+  }
+
+  function environmentCanCurrentlyFeed(slime) {
+    if (!isEnvironmentalSustenance(slime)) {
+      return false;
+    }
+    if (environmentalSustenanceIsFull(slime)) {
+      return true;
+    }
+    return hasAvailableEnvironmentalSustenance(slime);
   }
 
   function updateSlimeMassRegrowth(slime, minutes) {
@@ -3211,14 +4144,6 @@
     }
     const evaluated = evaluateGenome(slime.genome);
     const broodCount = Math.max(1, Number(evaluated.traits.brood.meta?.count) || 1);
-    const openSlots = Math.max(0, STORAGE_CAPACITY - containedSlimeCount());
-    if (openSlots < broodCount) {
-      if (!slime.splitBlocked) {
-        addEvent(`${slime.name} is ready to split, but containment lacks ${broodCount} open pod${broodCount === 1 ? "" : "s"}.`);
-      }
-      slime.splitBlocked = true;
-      return false;
-    }
     const bodyCount = broodCount + 1;
     const massShare = slimeStat(slime, "currentMass").current / bodyCount;
     const nutritionShare = slimeStat(slime, "nutrition").current / bodyCount;
@@ -3232,6 +4157,9 @@
       const child = createSlime(childGenome, "Split", {
         mature: false,
         matureAt: state.clock + Math.round(growthMinutes * (0.75 + rng() * 0.5)),
+        status: slime.status,
+        containerId: slime.containerId,
+        roomId: slime.roomId,
         stats: {
           bodyIntegrity: { current: clamp(parentIntegrity - 5, 20, 100), max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
@@ -3609,6 +4537,9 @@
     if (!CREATURE_JOBS.some((job) => job.id === slime.job)) {
       slime.job = "idle";
     }
+    if (isInSynthesisTube(slime)) {
+      slime.job = "idle";
+    }
     slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
     slime.jobNutritionGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
     slime.jobTargetCorpseId ||= null;
@@ -3625,7 +4556,23 @@
   }
 
   function canWorkJob(slime) {
-    return Boolean(slime && slime.status !== "dead" && slime.mature && slimeStat(slime, "bodyIntegrity").current > 0);
+    return Boolean(slime && slime.status !== "dead" && slime.mature && !isInSynthesisTube(slime) && slimeStat(slime, "bodyIntegrity").current > 0);
+  }
+
+  function jobAssignmentBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime available.";
+    }
+    if (isInSynthesisTube(slime)) {
+      return "Specimens in the synthesis tube cannot be assigned jobs.";
+    }
+    if (!slime.mature) {
+      return "Immature slimes cannot be assigned jobs.";
+    }
+    if (slimeStat(slime, "bodyIntegrity").current <= 0) {
+      return "Body Integrity is too low for job assignment.";
+    }
+    return "";
   }
 
   function corpseProcessingDuration(slime) {
@@ -4267,6 +5214,13 @@
     return slot;
   }
 
+  function renderSlimeGenomeFooter(slime) {
+    const footer = document.createElement("div");
+    footer.className = "slime-genome-footer";
+    footer.append(textEl("span", "Sequence"), baseSequenceEl(slime.genome, "slime-genome-sequence"));
+    return footer;
+  }
+
   function renderSlimeStats(slime) {
     const section = document.createElement("div");
     section.className = "slime-stats subpanel";
@@ -4575,8 +5529,14 @@
     }
 
     const stamina = scientistVital("stamina");
-    dom.restFullBtn.disabled = stamina.current >= stamina.max || hasPendingRest();
-    dom.restCustomBtn.disabled = hasPendingRest();
+    const restFullReason = hasPendingRest()
+      ? "Rest is already in progress."
+      : stamina.current >= stamina.max
+        ? "Stamina is already full."
+        : "";
+    setActionButtonState(dom.restFullBtn, Boolean(restFullReason), restFullReason);
+    const restCustomReason = hasPendingRest() ? "Rest is already in progress." : "";
+    setActionButtonState(dom.restCustomBtn, Boolean(restCustomReason), restCustomReason);
   }
 
   function renderVitalReadouts() {
@@ -4629,8 +5589,25 @@
 
   function setActionButtonState(button, disabled, reason = "") {
     button.disabled = disabled;
-    button.title = reason;
-    button.classList.toggle("blocked-action", reason.startsWith("Not enough"));
+    const disabledReason = disabled ? reason || "This action is unavailable right now." : "";
+    button.title = disabledReason;
+    if (disabledReason) {
+      button.setAttribute("aria-label", `${button.textContent.trim()}: ${disabledReason}`);
+      button.dataset.disabledReason = disabledReason;
+    } else {
+      button.removeAttribute("aria-label");
+      delete button.dataset.disabledReason;
+    }
+    button.classList.toggle("blocked-action", disabledReason.startsWith("Not enough"));
+  }
+
+  function explainDisabledButtons() {
+    for (const button of document.querySelectorAll("button:disabled")) {
+      if (button.title) {
+        continue;
+      }
+      setActionButtonState(button, true, "This action is unavailable right now.");
+    }
   }
 
   function staminaBlockReason(cost) {
@@ -4710,6 +5687,86 @@
     addEvent(`${updatedRoom.name} ${def.label.toLowerCase()} adjusted to ${band.label} via cheat command.`);
     persist();
     render();
+  }
+
+  function runContainerCommand() {
+    const command = dom.containerCommandInput.value.trim();
+    const match = command.match(/^(\S+)\s+(\S+)(?:\s+(.+))?$/);
+    if (!match) {
+      dom.containerCommandStatus.textContent = "Use format: basic-1 type iron cage";
+      return;
+    }
+    const [, containerId, actionText, valueText = ""] = match;
+    const container = containerById(containerId);
+    if (!container || container.type === "synthesis") {
+      dom.containerCommandStatus.textContent = "Choose a permanent container, such as basic-1.";
+      return;
+    }
+    const action = normalizeCommandName(actionText);
+    const value = valueText.trim();
+    if (["type", "base", "material"].includes(action)) {
+      const typeId = containerBaseTypeIdFromCommand(value);
+      if (!typeId) {
+        dom.containerCommandStatus.textContent = "Unknown container type.";
+        return;
+      }
+      container.typeId = typeId;
+      container.name = `${containerTypeLabel(typeId)} ${numericSuffix(container.id) || ""}`.trim();
+      dom.containerCommandInput.value = "";
+      dom.containerCommandStatus.textContent = `${container.id} changed to ${containerTypeLabel(typeId)}.`;
+      addEvent(`${container.id} changed to ${containerTypeLabel(typeId)} via cheat command.`);
+      persist();
+      render();
+      return;
+    }
+    if (action === "open") {
+      container.typeId = "openTray";
+      container.name = `${containerTypeLabel(container.typeId)} ${numericSuffix(container.id) || ""}`.trim();
+      dom.containerCommandInput.value = "";
+      dom.containerCommandStatus.textContent = `${container.id} changed to ${containerTypeLabel(container.typeId)}.`;
+      addEvent(`${container.id} changed to ${containerTypeLabel(container.typeId)} via cheat command.`);
+      persist();
+      render();
+      return;
+    }
+    if (["add", "ward"].includes(action)) {
+      const wardId = containerWardIdFromCommand(value);
+      if (!wardId) {
+        dom.containerCommandStatus.textContent = "Unknown ward.";
+        return;
+      }
+      container.wardIds = normalizeContainerWardIds([...(container.wardIds || []), wardId]);
+      dom.containerCommandInput.value = "";
+      dom.containerCommandStatus.textContent = `${containerWardDef(wardId).label} added to ${container.id}.`;
+      addEvent(`${containerWardDef(wardId).label} added to ${container.id} via cheat command.`);
+      persist();
+      render();
+      return;
+    }
+    if (action === "remove") {
+      const wardId = containerWardIdFromCommand(value);
+      if (!wardId) {
+        dom.containerCommandStatus.textContent = "Unknown ward.";
+        return;
+      }
+      container.wardIds = normalizeContainerWardIds(container.wardIds).filter((candidate) => candidate !== wardId);
+      dom.containerCommandInput.value = "";
+      dom.containerCommandStatus.textContent = `${containerWardDef(wardId).label} removed from ${container.id}.`;
+      addEvent(`${containerWardDef(wardId).label} removed from ${container.id} via cheat command.`);
+      persist();
+      render();
+      return;
+    }
+    if (action === "clear") {
+      container.wardIds = [];
+      dom.containerCommandInput.value = "";
+      dom.containerCommandStatus.textContent = `Wards cleared from ${container.id}.`;
+      addEvent(`Wards cleared from ${container.id} via cheat command.`);
+      persist();
+      render();
+      return;
+    }
+    dom.containerCommandStatus.textContent = "Use action: type, add, remove, clear, or open.";
   }
 
   function renderTasks() {
@@ -4899,11 +5956,11 @@
 
   function renderKnownEditor() {
     if (state.journalMode !== "auto") {
-      dom.applyKnownBtn.disabled = true;
+      setActionButtonState(dom.applyKnownBtn, true, "Known outcomes require Automatic journal mode.");
       dom.knownEditor.classList.add("hidden");
       return;
     }
-    dom.applyKnownBtn.disabled = false;
+    setActionButtonState(dom.applyKnownBtn, false);
     const previousTrait = dom.knownTraitSelect.value;
     dom.knownTraitSelect.textContent = "";
     for (const region of DISPLAY_REGION_DEFS) {
@@ -6003,7 +7060,7 @@
   }
 
   function canAddContainedSlime() {
-    return containedSlimeCount() + pendingSynthesisCount() < STORAGE_CAPACITY;
+    return openPermanentContainers().length > 0;
   }
 
   function pendingSynthesisCount() {
@@ -6267,6 +7324,72 @@
       normalized.unshift(defaultRooms()[0]);
     }
     return normalized;
+  }
+
+  function normalizeContainers(candidate) {
+    const fallback = defaultContainers();
+    const seen = new Set();
+    const containers = (Array.isArray(candidate) ? candidate : [])
+      .map(normalizeContainer)
+      .filter(Boolean)
+      .filter((container) => {
+        if (seen.has(container.id)) {
+          return false;
+        }
+        seen.add(container.id);
+        return true;
+      });
+    for (const required of fallback) {
+      if (!containers.some((container) => container.id === required.id)) {
+        containers.push(required);
+      }
+    }
+    containers.sort((a, b) => containerSortRank(a) - containerSortRank(b));
+    return containers;
+  }
+
+  function normalizeContainer(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const id = cleanContainerId(candidate.id) || "";
+    const type = candidate.type === "synthesis" ? "synthesis" : "basic";
+    if (!id) {
+      return null;
+    }
+    const starter = starterContainerForId(id);
+    const rawTypeId = String(candidate.typeId || "");
+    const typeId = type === "synthesis"
+      ? "synthesisTube"
+      : CONTAINER_BASE_TYPE_BY_ID[rawTypeId]
+        ? rawTypeId
+        : starter?.typeId || "basicGlassJar";
+    const suffix = numericSuffix(id);
+    const fallbackName = type === "synthesis"
+      ? "Synthesis Tube"
+      : `${containerTypeLabel(typeId)}${suffix ? ` ${suffix}` : ""}`;
+    const rawName = String(candidate.name || "").trim();
+    const staleName = /^Basic Container \d+$/i.test(rawName) || rawName === titleCase(id);
+    return {
+      id,
+      name: staleName ? fallbackName : rawName || fallbackName,
+      type,
+      typeId,
+      wardIds: type === "synthesis" ? [] : normalizeContainerWardIds(candidate.wardIds || starter?.wardIds || []),
+      roomId: cleanRoomId(candidate.roomId) || MAIN_ROOM_ID
+    };
+  }
+
+  function cleanContainerId(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  }
+
+  function containerSortRank(container) {
+    if (container.id === SYNTHESIS_TUBE_ID || container.type === "synthesis") {
+      return -1000;
+    }
+    const match = String(container.id).match(/(\d+)$/);
+    return match ? Number(match[1]) : 1000;
   }
 
   function normalizeRoom(candidate) {
@@ -6905,7 +8028,7 @@
     dom.journalModeSelect.value = state.journalMode;
     dom.complexitySelect.value = state.complexity;
     const hasSave = hasLocalSave();
-    dom.loadLastSaveBtn.disabled = !hasSave;
+    setActionButtonState(dom.loadLastSaveBtn, !hasSave, "No local save found.");
     dom.loadLastSaveStatus.textContent = hasSave
       ? "A local save is available."
       : "No local save found.";
@@ -6959,6 +8082,10 @@
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist);
     next.rooms = normalizeRooms(next.rooms);
+    next.containers = normalizeContainers(next.containers);
+    for (const container of next.containers) {
+      container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
+    }
     next.resources = normalizeResources(next.resources);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
@@ -6993,6 +8120,13 @@
       }
     }
     normalizeElementDiscoveries(next);
+    const validContainerIds = new Set(next.containers.map((container) => container.id));
+    const basicContainerIds = next.containers.filter((container) => container.type === "basic").map((container) => container.id);
+    const existingBasicAssignments = new Set(
+      next.slimes
+        .filter((slime) => slime.status !== "dead" && slime.status !== "released" && basicContainerIds.includes(slime.containerId))
+        .map((slime) => slime.containerId)
+    );
     for (const slime of next.slimes) {
       const previousGenome = slime.genome;
       slime.genome = normalizeGenomeLength(slime.genome || "", next.seed, `slime:${slime.id}`) || randomGenome(seedRng(`${next.seed}:slime:${slime.id}`));
@@ -7004,6 +8138,24 @@
       slime.traitObservations ||= {};
       slime.testsRun ||= [];
       slime.roomId = next.rooms.some((room) => room.id === slime.roomId) ? slime.roomId : MAIN_ROOM_ID;
+      if (slime.status === "dead") {
+        slime.containerId = null;
+      } else if (slime.status === "released") {
+        slime.containerId = null;
+      } else {
+        slime.status = "contained";
+        if (!validContainerIds.has(slime.containerId)) {
+          const openContainerId = basicContainerIds.find((id) => !existingBasicAssignments.has(id));
+          slime.containerId = openContainerId || basicContainerIds[0] || SYNTHESIS_TUBE_ID;
+        }
+        if (basicContainerIds.includes(slime.containerId)) {
+          existingBasicAssignments.add(slime.containerId);
+        }
+        const container = next.containers.find((candidate) => candidate.id === slime.containerId);
+        if (container) {
+          slime.roomId = container.roomId;
+        }
+      }
       slime.automationExcluded = Boolean(slime.automationExcluded);
       slime.stats = normalizeSlimeStats(slime.stats);
       normalizeSlimeLifecycle(slime);
@@ -7039,7 +8191,7 @@
       corpse.revealed ||= {};
       corpse.measured ||= {};
       corpse.traitObservations ||= {};
-      corpse.roomId = next.rooms.some((room) => room.id === corpse.roomId) ? corpse.roomId : MAIN_ROOM_ID;
+      corpse.roomId = state.rooms.some((room) => room.id === corpse.roomId) ? corpse.roomId : MAIN_ROOM_ID;
       corpse.testsRun ||= [];
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);

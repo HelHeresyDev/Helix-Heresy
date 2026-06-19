@@ -269,6 +269,14 @@ h2 {
   grid-column: span 3;
 }
 
+.cheat-panel {
+  grid-column: span 3;
+}
+
+.container-panel {
+  grid-column: span 2;
+}
+
 .panel-heading {
   display: flex;
   align-items: flex-start;
@@ -470,6 +478,16 @@ h2 {
   margin-top: 0.75rem;
 }
 
+.cheat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem;
+}
+
+.cheat-grid .subpanel {
+  margin-top: 0;
+}
+
 .subpanel {
   margin-top: 1rem;
   padding-top: 0.8rem;
@@ -487,6 +505,7 @@ h2 {
 .skill-list,
 .slime-stat-grid,
 .policy-list,
+.container-list,
 .room-list,
 .resource-list,
 .vital-grid {
@@ -538,6 +557,77 @@ h2 {
   background: var(--panel-2);
   border: 1px solid #313329;
   border-radius: 6px;
+}
+
+.container-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.container-card.synthesis {
+  border-color: #60583b;
+}
+
+.container-title,
+.container-occupant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.container-title span,
+.container-occupant-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.container-occupants,
+.released-slime-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.container-meta,
+.container-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.container-warning-list {
+  margin-top: -0.15rem;
+  padding-bottom: 0.25rem;
+}
+
+.container-band-good {
+  color: var(--green) !important;
+}
+
+.container-band-questionable {
+  color: var(--amber) !important;
+}
+
+.container-band-poor {
+  color: #ffb86b !important;
+}
+
+.container-band-unsuitable {
+  color: var(--red) !important;
+}
+
+.container-band-unknown {
+  color: var(--muted) !important;
+}
+
+.container-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .room-title,
@@ -1268,6 +1358,25 @@ h2 {
   border: 1px solid #3b3e34;
   border-radius: 999px;
   padding: 0.15rem 0.45rem;
+}
+
+.slime-genome-footer {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #303328;
+}
+
+.slime-genome-footer > span:first-child {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.slime-genome-sequence {
+  line-height: 1.45;
+  word-break: break-all;
 }
 
 .feeding-controls {

@@ -17,7 +17,7 @@
           <span id="clockReadout">Day 1 00:00</span>
           <span id="pauseReadout">Paused</span>
           <span id="speedReadout">Speed 60x</span>
-          <span id="storageReadout">Storage 0/12</span>
+          <span id="storageReadout">Containers 0/12</span>
           <span id="wasteReadout">Drums 0/8</span>
           <span id="suspicionReadout">Suspicion: Quiet</span>
         </div>
@@ -93,6 +93,7 @@
             <button id="synthesizeBtn" class="primary" type="button">Synthesize Slime</button>
             <button id="applyKnownBtn" type="button">Apply Known Outcome</button>
           </div>
+          <p id="synthesisTubeStatus" class="journal-meta">Synthesis tube empty.</p>
 
           <div id="knownEditor" class="known-editor hidden">
             <label class="field-label" for="knownTraitSelect">Known Trait</label>
@@ -146,6 +147,17 @@
           </div>
         </section>
 
+        <section class="panel container-panel" aria-labelledby="containerTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="containerTitle">Containers</h2>
+              <p id="containerSummary">No containers active</p>
+            </div>
+          </div>
+
+          <div id="containerList" class="container-list"></div>
+        </section>
+
         <section class="panel journal-panel" aria-labelledby="journalTitle">
           <div class="panel-heading">
             <div>
@@ -184,15 +196,6 @@
           </div>
 
           <div id="roomList" class="room-list"></div>
-
-          <div class="subpanel">
-            <div class="subpanel-title">Room Cheat</div>
-            <div class="cheat-row">
-              <input id="roomCommandInput" type="text" spellcheck="false" placeholder="temperature -10">
-              <button id="roomCommandBtn" type="button">Adjust Room</button>
-            </div>
-            <p id="roomCommandStatus" class="journal-meta">Use attribute name plus amount.</p>
-          </div>
         </section>
 
         <section class="panel scientist-panel" aria-labelledby="scientistTitle">
@@ -236,23 +239,52 @@
               <button id="restCustomBtn" type="button">Rest</button>
             </div>
           </div>
+        </section>
 
-          <div class="subpanel">
-            <div class="subpanel-title">XP Cheat</div>
-            <div class="cheat-row">
-              <input id="xpCommandInput" type="text" spellcheck="false" placeholder="observation 5000">
-              <button id="xpCommandBtn" type="button">Add XP</button>
+        <section class="panel cheat-panel" aria-labelledby="cheatTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="cheatTitle">Cheats</h2>
+              <p>Prototype testing controls</p>
             </div>
-            <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
           </div>
 
-          <div class="subpanel">
-            <div class="subpanel-title">Resource Cheat</div>
-            <div class="cheat-row">
-              <input id="resourceCommandInput" type="text" spellcheck="false" placeholder="biomass 100">
-              <button id="resourceCommandBtn" type="button">Add Resource</button>
+          <div class="cheat-grid">
+            <div class="subpanel">
+              <div class="subpanel-title">XP Cheat</div>
+              <div class="cheat-row">
+                <input id="xpCommandInput" type="text" spellcheck="false" placeholder="observation 5000">
+                <button id="xpCommandBtn" type="button">Add XP</button>
+              </div>
+              <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
             </div>
-            <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount.</p>
+
+            <div class="subpanel">
+              <div class="subpanel-title">Resource Cheat</div>
+              <div class="cheat-row">
+                <input id="resourceCommandInput" type="text" spellcheck="false" placeholder="biomass 100">
+                <button id="resourceCommandBtn" type="button">Add Resource</button>
+              </div>
+              <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount.</p>
+            </div>
+
+            <div class="subpanel">
+              <div class="subpanel-title">Room Cheat</div>
+              <div class="cheat-row">
+                <input id="roomCommandInput" type="text" spellcheck="false" placeholder="temperature -10">
+                <button id="roomCommandBtn" type="button">Adjust Room</button>
+              </div>
+              <p id="roomCommandStatus" class="journal-meta">Use attribute name plus amount.</p>
+            </div>
+
+            <div class="subpanel">
+              <div class="subpanel-title">Container Cheat</div>
+              <div class="cheat-row">
+                <input id="containerCommandInput" type="text" spellcheck="false" placeholder="basic-1 type iron cage">
+                <button id="containerCommandBtn" type="button">Edit Container</button>
+              </div>
+              <p id="containerCommandStatus" class="journal-meta">Use: basic-1 type/add/remove/clear.</p>
+            </div>
           </div>
         </section>
 
