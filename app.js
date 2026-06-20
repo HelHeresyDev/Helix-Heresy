@@ -7,6 +7,12 @@
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
   const SYNTHESIS_TUBE_ID = "synthesisTube";
+  const SYNTHESIS_TUBE_GEOMETRY = {
+    shape: "tube",
+    internalCm: { diameter: 18, height: 35 },
+    openingCm: { diameter: 12 },
+    openTop: false
+  };
   const WASTE_DRUM_CAPACITY = 8;
   const OVERFLOW_EVENT_INTERVAL = 360;
   const OVERFLOW_SUSPICION = 4;
@@ -26,7 +32,54 @@
     spoiled: 10,
     ruined: 7
   };
+  const CONTAINMENT_INCIDENT_THRESHOLD = 240;
+  const CONTAINMENT_INCIDENT_COOLDOWN = 360;
+  const CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR = 20;
+  const CONTAINER_CONDITION_DEFAULT = 100;
   const MAIN_ROOM_ID = "mainLab";
+  const MENAGERIE_ROOM_ID = "menagerie";
+  const PITS_ROOM_ID = "pits";
+  const ROOM_BASE_DEFS = [
+    {
+      id: MAIN_ROOM_ID,
+      name: "Main Lab",
+      articleName: "the Main Lab",
+      role: "mainLab",
+      roleLabel: "Active lab",
+      description: "Synthesis, testing, and day-to-day lab work.",
+      attributes: {}
+    },
+    {
+      id: MENAGERIE_ROOM_ID,
+      name: "Menagerie",
+      articleName: "the Menagerie",
+      role: "livingStorage",
+      roleLabel: "Living specimen storage",
+      description: "Shelved containers and quiet observation. Stored creatures here cannot work jobs.",
+      attributes: {
+        light: { current: 42, baseline: 42 },
+        ambientMana: { current: 48, baseline: 48 },
+        contamination: { current: 8, baseline: 8 },
+        electricalCharge: { current: 12, baseline: 12 }
+      }
+    },
+    {
+      id: PITS_ROOM_ID,
+      name: "Pits",
+      articleName: "the Pits",
+      role: "corpseProcessing",
+      roleLabel: "Corpse storage and processing",
+      description: "Deep crude pits for remains, decay, disposal, and corpse work.",
+      attributes: {
+        temperature: { current: 45, baseline: 45 },
+        light: { current: 18, baseline: 18 },
+        moisture: { current: 68, baseline: 68 },
+        contamination: { current: 28, baseline: 28, recoveryPerHour: 0.35 }
+      }
+    }
+  ];
+  const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
+  const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const ROOM_ATTRIBUTE_DEFS = [
     {
       key: "temperature",
@@ -133,6 +186,12 @@
     {
       id: "basicGlassJar",
       label: "Basic Glass Jar",
+      geometry: {
+        shape: "cylinder",
+        internalCm: { diameter: 10, height: 12 },
+        openingCm: { diameter: 7 },
+        openTop: false
+      },
       capacityCm3: 900,
       maxWeightKg: 6,
       visibility: "high",
@@ -141,11 +200,25 @@
       durability: 25,
       comfort: 40,
       resistances: { acid: 20, flame: 30, frost: 25, storm: 15, poison: 30, mana: 20 },
+      environmentExchange: {
+        temperature: 0.5,
+        light: 1,
+        ambientMana: 0.75,
+        moisture: 0.5,
+        contamination: 0.5,
+        electricalCharge: 0.25
+      },
       notes: ["High visibility", "Fragile", "Poor seal"]
     },
     {
       id: "sealedGlassTank",
       label: "Sealed Glass Tank",
+      geometry: {
+        shape: "box",
+        internalCm: { length: 40, width: 25, height: 12 },
+        openingCm: { width: 35, height: 20 },
+        openTop: false
+      },
       capacityCm3: 12000,
       maxWeightKg: 35,
       visibility: "high",
@@ -154,11 +227,25 @@
       durability: 35,
       comfort: 50,
       resistances: { acid: 25, flame: 35, frost: 30, storm: 20, poison: 65, mana: 25 },
+      environmentExchange: {
+        temperature: 0.35,
+        light: 1,
+        ambientMana: 0.5,
+        moisture: 0.2,
+        contamination: 0.2,
+        electricalCharge: 0.2
+      },
       notes: ["High visibility", "Good seal", "Still fragile"]
     },
     {
       id: "reinforcedTank",
       label: "Reinforced Tank",
+      geometry: {
+        shape: "box",
+        internalCm: { length: 80, width: 50, height: 40 },
+        openingCm: { width: 60, height: 35 },
+        openTop: false
+      },
       capacityCm3: 160000,
       maxWeightKg: 450,
       visibility: "medium",
@@ -167,11 +254,25 @@
       durability: 80,
       comfort: 55,
       resistances: { acid: 45, flame: 65, frost: 55, storm: 45, poison: 55, mana: 35 },
+      environmentExchange: {
+        temperature: 0.35,
+        light: 0.5,
+        ambientMana: 0.4,
+        moisture: 0.25,
+        contamination: 0.25,
+        electricalCharge: 0.35
+      },
       notes: ["Strong frame", "Moderate visibility", "General-purpose containment"]
     },
     {
       id: "ironCage",
       label: "Iron Cage",
+      geometry: {
+        shape: "cage",
+        internalCm: { length: 100, width: 80, height: 78 },
+        openingCm: { width: 70, height: 60 },
+        openTop: false
+      },
       capacityCm3: 620000,
       maxWeightKg: 800,
       visibility: "medium",
@@ -180,11 +281,25 @@
       durability: 85,
       comfort: 35,
       resistances: { acid: 15, flame: 75, frost: 65, storm: 15, poison: 10, mana: 20 },
+      environmentExchange: {
+        temperature: 1,
+        light: 1,
+        ambientMana: 1,
+        moisture: 1,
+        contamination: 1,
+        electricalCharge: 1
+      },
       notes: ["High strength", "Large gaps", "Conductive"]
     },
     {
       id: "ceramicVessel",
       label: "Ceramic Vessel",
+      geometry: {
+        shape: "cylinder",
+        internalCm: { diameter: 24, height: 40 },
+        openingCm: { diameter: 16 },
+        openTop: false
+      },
       capacityCm3: 18000,
       maxWeightKg: 80,
       visibility: "low",
@@ -193,11 +308,25 @@
       durability: 50,
       comfort: 45,
       resistances: { acid: 75, flame: 85, frost: 35, storm: 55, poison: 60, mana: 35 },
+      environmentExchange: {
+        temperature: 0.25,
+        light: 0,
+        ambientMana: 0.35,
+        moisture: 0.25,
+        contamination: 0.25,
+        electricalCharge: 0.1
+      },
       notes: ["Opaque", "Good corrosion resistance", "Brittle"]
     },
     {
       id: "stoneBasin",
       label: "Stone Basin",
+      geometry: {
+        shape: "basin",
+        internalCm: { length: 100, width: 80, height: 45 },
+        openingCm: { width: 100, height: 80 },
+        openTop: true
+      },
       capacityCm3: 360000,
       maxWeightKg: 1200,
       visibility: "low",
@@ -206,11 +335,25 @@
       durability: 85,
       comfort: 40,
       resistances: { acid: 70, flame: 90, frost: 75, storm: 45, poison: 45, mana: 30 },
+      environmentExchange: {
+        temperature: 0.75,
+        light: 0.75,
+        ambientMana: 0.75,
+        moisture: 0.75,
+        contamination: 0.75,
+        electricalCharge: 0.4
+      },
       notes: ["Very heavy", "Open top", "Handles weight well"]
     },
     {
       id: "openTray",
       label: "Open Tray",
+      geometry: {
+        shape: "tray",
+        internalCm: { length: 100, width: 80, height: 20 },
+        openingCm: { width: 100, height: 80 },
+        openTop: true
+      },
       capacityCm3: 160000,
       maxWeightKg: 220,
       visibility: "high",
@@ -219,11 +362,25 @@
       durability: 35,
       comfort: 30,
       resistances: { acid: 35, flame: 35, frost: 35, storm: 25, poison: 10, mana: 15 },
+      environmentExchange: {
+        temperature: 1,
+        light: 1,
+        ambientMana: 1,
+        moisture: 1,
+        contamination: 1,
+        electricalCharge: 1
+      },
       notes: ["Excellent access", "No real seal", "Testing only"]
     },
     {
       id: "softLinedBox",
       label: "Soft-Lined Containment Box",
+      geometry: {
+        shape: "box",
+        internalCm: { length: 40, width: 30, height: 20 },
+        openingCm: { width: 35, height: 25 },
+        openTop: false
+      },
       capacityCm3: 24000,
       maxWeightKg: 45,
       visibility: "low",
@@ -232,11 +389,25 @@
       durability: 45,
       comfort: 90,
       resistances: { acid: 25, flame: 20, frost: 60, storm: 25, poison: 45, mana: 30 },
+      environmentExchange: {
+        temperature: 0.3,
+        light: 0,
+        ambientMana: 0.35,
+        moisture: 0.25,
+        contamination: 0.3,
+        electricalCharge: 0.15
+      },
       notes: ["Soft-lined", "Good for brittle bodies", "Low visibility"]
     },
     {
       id: "sealedDrainageTank",
       label: "Sealed Drainage Tank",
+      geometry: {
+        shape: "cylinder",
+        internalCm: { diameter: 50, height: 82 },
+        openingCm: { diameter: 35 },
+        openTop: false
+      },
       capacityCm3: 160000,
       maxWeightKg: 300,
       visibility: "low",
@@ -246,11 +417,25 @@
       comfort: 50,
       drainage: true,
       resistances: { acid: 65, flame: 45, frost: 45, storm: 35, poison: 75, mana: 30 },
+      environmentExchange: {
+        temperature: 0.25,
+        light: 0,
+        ambientMana: 0.3,
+        moisture: 0.15,
+        contamination: 0.15,
+        electricalCharge: 0.2
+      },
       notes: ["Drainage ports", "Excellent seal", "Low visibility"]
     },
     {
       id: "containmentPod",
       label: "Containment Pod",
+      geometry: {
+        shape: "pod",
+        internalCm: { diameter: 80, height: 123 },
+        openingCm: { width: 60, height: 50 },
+        openTop: false
+      },
       capacityCm3: 620000,
       maxWeightKg: 900,
       visibility: "medium",
@@ -259,6 +444,14 @@
       durability: 90,
       comfort: 70,
       resistances: { acid: 55, flame: 55, frost: 55, storm: 55, poison: 55, mana: 55 },
+      environmentExchange: {
+        temperature: 0.2,
+        light: 0.35,
+        ambientMana: 0.2,
+        moisture: 0.2,
+        contamination: 0.15,
+        electricalCharge: 0.2
+      },
       notes: ["Purpose-built", "Ward-ready", "Strong baseline"]
     }
   ];
@@ -535,6 +728,9 @@
     { key: "spoiled", label: "Spoiled", defaultTarget: true },
     { key: "ruined", label: "Ruined", defaultTarget: true }
   ];
+  const CORPSE_HANDLING_DEFAULTS = {
+    autoMoveToDrums: false
+  };
   const RESOURCE_DEFS = [
     { key: "biomass", label: "Biomass", initial: 50 },
     { key: "geneticMaterial", label: "Genetic Material", initial: 0 },
@@ -685,6 +881,7 @@
       resources: defaultResources(),
       feedstockIncomeProgress: {},
       wasteTags: {},
+      containmentIncidentProgress: {},
       policies: defaultPolicies(),
       currentGenome: "",
       queueDrawerOpen: false,
@@ -721,27 +918,48 @@
     return Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource.initial]));
   }
 
+
   function defaultRooms() {
-    return [
-      {
-        id: MAIN_ROOM_ID,
-        name: "Main Lab",
-        attributes: defaultRoomAttributes()
-      }
-    ];
+    return ROOM_BASE_DEFS.map((roomDef) => ({
+      id: roomDef.id,
+      name: roomDef.name,
+      articleName: roomDef.articleName,
+      role: roomDef.role,
+      roleLabel: roomDef.roleLabel,
+      description: roomDef.description,
+      attributes: defaultRoomAttributes(roomDef.attributes)
+    }));
   }
 
-  function defaultRoomAttributes() {
+
+
+  function defaultRoomAttributes(overrides = {}) {
     return Object.fromEntries(
-      ROOM_ATTRIBUTE_DEFS.map((attribute) => [
-        attribute.key,
-        {
-          current: attribute.initial,
-          baseline: attribute.baseline,
-          recoveryPerHour: attribute.recoveryPerHour
-        }
-      ])
+      ROOM_ATTRIBUTE_DEFS.map((attribute) => {
+        const override = overrides?.[attribute.key] || {};
+        return [
+          attribute.key,
+          {
+            current: clamp(Number.isFinite(Number(override.current)) ? Number(override.current) : attribute.initial, 0, 100),
+            baseline: clamp(Number.isFinite(Number(override.baseline)) ? Number(override.baseline) : attribute.baseline, 0, 100),
+            recoveryPerHour: Math.max(0, Number.isFinite(Number(override.recoveryPerHour)) ? Number(override.recoveryPerHour) : attribute.recoveryPerHour)
+          }
+        ];
+      })
     );
+  }
+
+
+  function defaultContainerEnvironment() {
+    const env = {};
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      env[def.key] = {
+        current: def.initial,
+        baseline: def.baseline,
+        recoveryPerHour: def.recoveryPerHour
+      };
+    }
+    return env;
   }
 
   function defaultContainers() {
@@ -752,7 +970,9 @@
         type: "synthesis",
         typeId: "synthesisTube",
         wardIds: [],
-        roomId: MAIN_ROOM_ID
+        roomId: MAIN_ROOM_ID,
+        condition: CONTAINER_CONDITION_DEFAULT,
+        environment: defaultContainerEnvironment()
       },
       ...STARTER_CONTAINER_LOADOUT.map((entry, index) => ({
         id: `basic-${index + 1}`,
@@ -760,9 +980,24 @@
         type: "basic",
         typeId: entry.typeId,
         wardIds: [...(entry.wardIds || [])],
-        roomId: MAIN_ROOM_ID
+        roomId: starterContainerRoomId(entry, index),
+        condition: CONTAINER_CONDITION_DEFAULT,
+        environment: defaultContainerEnvironment()
       }))
     ];
+  }
+
+  function starterContainerRoomId(entry, index = 0) {
+    if (entry?.roomId && ROOM_BASE_DEF_BY_ID[entry.roomId]) {
+      return entry.roomId;
+    }
+    if (entry?.typeId === "openTray" || entry?.typeId === "sealedDrainageTank") {
+      return PITS_ROOM_ID;
+    }
+    if (index <= 1) {
+      return MAIN_ROOM_ID;
+    }
+    return MENAGERIE_ROOM_ID;
   }
 
   function defaultSlimeStats() {
@@ -776,6 +1011,7 @@
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [stateDef.key, stateDef.defaultTarget])
       ),
+      corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
       feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
@@ -1453,21 +1689,23 @@
     const vitalsChanged = recoverVitals(minutes);
     const suspicionChanged = updateSuspicionDecay();
     const roomChanges = recoverRoomAttributes(minutes);
+    const envChanges = exchangeContainerEnvironments(minutes);
     const expired = expireSlimes();
-    const corpseChanges = updateCorpses();
+    const corpseChanges = updateCorpses(minutes);
     const jobChanges = updateCreatureJobs(minutes);
     const feedstockChanged = updateFeedstockIncome(minutes);
     const feedingChanged = updateAutoFeeding();
     const metabolismChanged = updateSlimeMetabolism(minutes);
+    const containmentIncidentChanges = updateContainmentIncidents(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || feedstockChanged || feedingChanged || metabolismChanged || completed || vitalsChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + feedstockChanged + feedingChanged + metabolismChanged + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -1891,9 +2129,10 @@
     return Math.round(100 * Math.pow(level + 1, 2.2));
   }
 
+
   function createCorpseFromSlime(slime, deathReason) {
     state.corpses ||= [];
-    const storage = drummedCorpseCount() < WASTE_DRUM_CAPACITY ? "drum" : "overflow";
+    const location = initialCorpseLocationForSlime(slime);
     const diedAt = Number.isFinite(Number(slime.deathAt)) ? Number(slime.deathAt) : state.clock;
     const corpse = {
       id: `corpse-${state.nextCorpseNumber++}`,
@@ -1903,25 +2142,31 @@
       source: slime.source,
       deathReason,
       diedAt,
-      roomId: slime.roomId || MAIN_ROOM_ID,
-      storage,
+      roomId: location.roomId,
+      containerId: location.containerId,
+      storage: location.storage,
+      consumedProgress: 0,
       ruined: false,
       revealed: { ...(slime.revealed || {}) },
       measured: { ...(slime.measured || {}) },
       traitObservations: clonePlainObject(slime.traitObservations || {}),
       testsRun: [...(slime.testsRun || [])],
       necropsyReport: "",
-      nextOverflowEventAt: storage === "overflow" ? state.clock + OVERFLOW_EVENT_INTERVAL : null
+      nextOverflowEventAt: location.storage === "overflow" ? state.clock + OVERFLOW_EVENT_INTERVAL : null
     };
     applyCorpseDecayWindows(corpse);
     corpse.lastFreshness = corpseFreshness(corpse);
     state.corpses.unshift(corpse);
-    if (storage === "overflow") {
+    if (corpseHandlingPolicy().autoMoveToDrums) {
+      tryMoveCorpseToDrum(corpse, { automatic: true, quiet: true });
+    }
+    if (corpse.storage === "overflow") {
       addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
       addSuspicion(OVERFLOW_SUSPICION);
     }
     return corpse;
   }
+
 
   function expireSlimes() {
     let expired = 0;
@@ -1936,7 +2181,7 @@
           "waste exposure": "succumbed to waste exposure",
           "body integrity failure": "collapsed from body integrity failure"
         }[deathReason] || "reached the end of its lifespan";
-        addEvent(`${slime.name} ${causeText} and became a ${corpse.storage === "overflow" ? "corpse overflow" : "waste drum specimen"}.`);
+        addEvent(`${slime.name} ${causeText}; remains are now in ${corpseLocationLabel(corpse)}.`);
         expired += 1;
       } else {
         survivors.push(slime);
@@ -2135,6 +2380,67 @@
     return changes;
   }
 
+  function containerEnvironmentExchange(container) {
+    if (container.id === SYNTHESIS_TUBE_ID || container.typeId === "synthesisTube") {
+      const zeroRates = {};
+      for (const def of ROOM_ATTRIBUTE_DEFS) {
+        zeroRates[def.key] = 0;
+      }
+      return zeroRates;
+    }
+    const type = containerTypeDef(container.typeId);
+    const rates = type?.environmentExchange;
+    if (rates) {
+      return rates;
+    }
+    const zeroRates = {};
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      zeroRates[def.key] = 0;
+    }
+    return zeroRates;
+  }
+
+  function exchangeContainerEnvironments(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    state.containers = normalizeContainers(state.containers);
+    state.rooms = normalizeRooms(state.rooms);
+    let changes = 0;
+    for (const container of state.containers) {
+      const rates = containerEnvironmentExchange(container);
+      const room = roomById(container.roomId || MAIN_ROOM_ID);
+      if (!room) {
+        continue;
+      }
+      container.environment = normalizeContainerEnvironment(container.environment);
+      for (const def of ROOM_ATTRIBUTE_DEFS) {
+        const key = def.key;
+        const rate = Number(rates[key]);
+        if (!rate || rate <= 0) {
+          continue;
+        }
+        const roomValue = Number(room.attributes?.[key]?.current);
+        const envValue = Number(container.environment[key]?.current);
+        if (!Number.isFinite(roomValue) || !Number.isFinite(envValue)) {
+          continue;
+        }
+        const diff = roomValue - envValue;
+        if (Math.abs(diff) < 0.01) {
+          continue;
+        }
+        const step = Math.min(1, rate * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * (elapsed / 60));
+        const delta = step * diff;
+        container.environment[key].current = clamp(envValue + delta, 0, 100);
+        if (Math.abs(delta) >= 0.01) {
+          changes += 1;
+        }
+      }
+    }
+    return changes;
+  }
+
   function adjustRoomAttribute(roomId, attributeKey, amount) {
     const room = roomById(roomId);
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
@@ -2155,6 +2461,45 @@
 
   function roomName(roomId) {
     return roomById(roomId)?.name || "Unknown Room";
+  }
+
+  function roomArticleName(roomId) {
+    const room = roomById(roomId);
+    return room?.articleName || (room?.name ? `the ${room.name}` : "the room");
+  }
+
+  function roomRole(roomId) {
+    return roomById(roomId)?.role || "custom";
+  }
+
+  function roomRoleLabel(roomId) {
+    return roomById(roomId)?.roleLabel || "Custom room";
+  }
+
+  function roomSortRank(room) {
+    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID];
+    const index = order.indexOf(room?.id);
+    return index === -1 ? 100 + String(room?.name || "").localeCompare("zzzz") : index;
+  }
+
+  function roomBlocksJobs(roomId) {
+    return roomRole(roomId) === "livingStorage";
+  }
+
+  function slimeEffectiveRoomId(slime) {
+    if (!slime) return MAIN_ROOM_ID;
+    if (slime.status !== "released" && slime.containerId) {
+      return containerById(slime.containerId)?.roomId || slime.roomId || MAIN_ROOM_ID;
+    }
+    return slime.roomId || MAIN_ROOM_ID;
+  }
+
+  function slimeJobRoomBlockReason(slime) {
+    const roomId = slimeEffectiveRoomId(slime);
+    if (roomBlocksJobs(roomId)) {
+      return `Specimens stored in ${roomArticleName(roomId)} cannot be assigned jobs.`;
+    }
+    return "";
   }
 
   function roomAttributeBand(attributeKey, value) {
@@ -2280,6 +2625,7 @@
     const evaluated = evaluateGenome(slime.genome);
     const profile = physicalProfile(slime.genome, evaluated);
     const type = containerTypeDef(container.typeId);
+    const condition = containerCondition(container);
     const revealed = slime.revealed || {};
     const knownTraits = ["size", "shape", "consistency", "appendages", "element", "byproduct", "stability"]
       .filter((traitKey) => revealed[traitKey]);
@@ -2333,6 +2679,11 @@
         addConcern("severe", `Current weight exceeds the container load limit.`);
       } else if (revealed.shape && profile.weightKg > weightLimit) {
         addConcern("major", `Full mass may exceed the container load limit.`);
+      }
+      if (revealed.shape) {
+        for (const concern of containerDimensionalSuitabilityConcerns(slime, container, profile, { consistencyKnown: Boolean(revealed.consistency) })) {
+          addConcern(concern.severity, concern.text);
+        }
       }
     }
 
@@ -2458,11 +2809,12 @@
   }
 
   function synthesisTubeOccupied() {
-    return synthesisTubeOccupants().length > 0;
+    const tube = synthesisTube();
+    return Boolean(tube && (synthesisTubeOccupants().length > 0 || containerCorpses(tube.id).length > 0));
   }
 
   function openPermanentContainers() {
-    return permanentContainers().filter((container) => containerOccupants(container.id).length === 0);
+    return permanentContainers().filter((container) => containerOccupants(container.id).length === 0 && containerCorpses(container.id).length === 0);
   }
 
   function firstOpenPermanentContainer() {
@@ -2470,7 +2822,7 @@
   }
 
   function occupiedPermanentContainerCount() {
-    return permanentContainers().filter((container) => containerOccupants(container.id).length > 0).length;
+    return permanentContainers().filter((container) => containerOccupants(container.id).length > 0 || containerCorpses(container.id).length > 0).length;
   }
 
   function releasedSlimeCount() {
@@ -2521,6 +2873,35 @@
     return true;
   }
 
+  function moveContainerToRoom(containerId, roomId) {
+    const container = containerById(containerId);
+    const room = roomById(roomId);
+    if (!container || !room || container.type === "synthesis") {
+      return false;
+    }
+    if (container.roomId === room.id) {
+      return false;
+    }
+    const previous = roomArticleName(container.roomId || MAIN_ROOM_ID);
+    container.roomId = room.id;
+    for (const slime of containerOccupants(container.id)) {
+      slime.roomId = room.id;
+      if (roomBlocksJobs(room.id)) {
+        slime.job = "idle";
+        slime.jobProgress = 0;
+        slime.jobTargetCorpseId = null;
+        slime.jobNutritionGained = 0;
+      }
+    }
+    for (const corpse of containerCorpses(container.id)) {
+      corpse.roomId = room.id;
+    }
+    addEvent(`${container.name} moved from ${previous} to ${roomArticleName(room.id)}.`);
+    persist();
+    render();
+    return true;
+  }
+
   function moveSlimeToOpenPermanentContainer(slime) {
     const container = firstOpenPermanentContainer();
     if (!container || !assignSlimeToContainer(slime, container.id)) {
@@ -2529,15 +2910,25 @@
     return container;
   }
 
-  function updateCorpses() {
+
+  function updateCorpses(minutes = 0) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
     let changes = 0;
     for (const corpse of state.corpses || []) {
+      normalizeCorpseLocation(corpse);
+      if (corpseHandlingPolicy().autoMoveToDrums && isLocalCorpse(corpse) && !hasPendingNecropsy(corpse.id)) {
+        changes += tryMoveCorpseToDrum(corpse, { automatic: true }) ? 1 : 0;
+      }
       const freshness = corpseFreshness(corpse);
       if (corpse.lastFreshness && corpse.lastFreshness !== freshness) {
-        addEvent(`${corpse.name} corpse is now ${corpseStateLabel(corpse).toLowerCase()}.`);
+        addEvent(`${corpse.name} corpse is now ${corpseStateLabel(corpse).toLowerCase()} in ${corpseLocationLabel(corpse)}.`);
         changes += 1;
       }
       corpse.lastFreshness = freshness;
+      if (elapsed) {
+        changes += updateLocalCorpseEffects(corpse, elapsed);
+        changes += updateContainerCorpseFeeding(corpse, elapsed);
+      }
       if (corpse.storage === "overflow" && state.clock >= (corpse.nextOverflowEventAt || state.clock)) {
         addEvent(`${corpse.name} overflow corpse is leaking contamination and evidence.`);
         addSuspicion(OVERFLOW_SUSPICION);
@@ -2547,6 +2938,7 @@
     }
     return changes;
   }
+
 
   function buildGeneMap(seed, complexity) {
     const rng = seedRng(`${seed}:gene-map:${complexity}`);
@@ -2957,9 +3349,11 @@
     const containerText = `Containers ${occupiedPermanentContainerCount()}/${permanentContainers().length}`;
     dom.storageReadout.textContent = released ? `${containerText}; Released ${released}` : containerText;
     const overflow = overflowCorpseCount();
+    const localCorpses = localCorpseCount();
+    const localText = localCorpses ? `; Local ${localCorpses}` : "";
     dom.wasteReadout.textContent = overflow
-      ? `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} +${overflow}`
-      : `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}`;
+      ? `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}${localText} +${overflow}`
+      : `Drums ${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY}${localText}`;
     const suspicionBand = suspicionBandForValue(state.suspicion);
     dom.suspicionReadout.textContent = `Suspicion: ${suspicionBand.label}`;
     dom.suspicionReadout.dataset.suspicionBand = suspicionBand.id;
@@ -3147,9 +3541,14 @@
   }
 
   function synthesisTubeBlockReason() {
+    const tube = synthesisTube();
     const occupants = synthesisTubeOccupants();
+    const corpses = tube ? containerCorpses(tube.id) : [];
     if (occupants.length) {
       return `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+    }
+    if (corpses.length) {
+      return `Synthesis tube blocked by ${corpses.map((corpse) => `${corpse.name} remains`).join(", ")}.`;
     }
     if (pendingSynthesisCount() > 0) {
       return "Synthesis already in progress.";
@@ -3231,6 +3630,12 @@
     dom.selectedSlimeSummary.textContent = "";
     if (selected) {
       dom.selectedSlimeSummary.append(slimeNameLink(selected), document.createTextNode(` - ${selected.status}`));
+      const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
+      if (selectedContainer && selected.status !== "dead") {
+        const risk = activeContainmentRisk(selected, selectedContainer);
+        dom.selectedSlimeSummary.append(document.createTextNode(` - Active risk: ${risk.label}`));
+        dom.selectedSlimeSummary.append(activeContainmentRiskDetailsEl(risk));
+      }
     } else {
       dom.selectedSlimeSummary.textContent = "No slime selected";
     }
@@ -3262,7 +3667,7 @@
       meta.append(maturity);
       meta.append(life);
       meta.append(chip(containerLabelForSlime(slime)));
-      meta.append(chip(creatureJobLabel(slime.job)));
+      meta.append(chip(creatureJobLabel(slime.job)), chip(roomName(slimeEffectiveRoomId(slime))));
       if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime)) {
         meta.append(chip(environmentalSustenanceStatus(slime) || environmentalSustenanceLabel(slime)));
       }
@@ -3277,12 +3682,16 @@
     }
   }
 
+
   function renderCorpses() {
     dom.corpseList.textContent = "";
     const overflow = overflowCorpseCount();
+    const localCorpses = localCorpseCount();
+    const baseSummary = `${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} waste drums used`;
+    const localSummary = localCorpses ? `; ${localCorpses} local corpse${localCorpses === 1 ? "" : "s"}` : "";
     dom.wasteSummary.textContent = overflow
-      ? `${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} drums used; ${overflow} overflow specimen${overflow === 1 ? "" : "s"}`
-      : `${drummedCorpseCount()}/${WASTE_DRUM_CAPACITY} waste drums used`;
+      ? `${baseSummary}${localSummary}; ${overflow} overflow specimen${overflow === 1 ? "" : "s"}`
+      : `${baseSummary}${localSummary}`;
 
     if (!state.corpses?.length) {
       dom.corpseList.append(emptyText("No deceased specimens."));
@@ -3290,6 +3699,7 @@
     }
 
     for (const corpse of state.corpses) {
+      normalizeCorpseLocation(corpse);
       const evaluated = evaluateGenome(corpse.genome);
       const card = document.createElement("article");
       card.className = `corpse-card corpse-${corpseFreshness(corpse)}${corpse.storage === "overflow" ? " overflow" : ""}`;
@@ -3302,7 +3712,7 @@
 
       const meta = document.createElement("div");
       meta.className = "slime-meta";
-      const storageChip = chip(corpse.storage === "overflow" ? "overflow" : "waste drum");
+      const storageChip = chip(corpseLocationLabel(corpse));
       if (corpse.storage === "overflow") {
         storageChip.classList.add("danger-chip");
       }
@@ -3341,6 +3751,7 @@
     }
   }
 
+
   function renderContainers() {
     state.containers = normalizeContainers(state.containers);
     dom.containerList.textContent = "";
@@ -3378,10 +3789,728 @@
     }
   }
 
+  // Helper function to generate a compact environment summary
+  function containerEnvironmentSummary(container) {
+    if (!container.environment) return "";
+    
+    const attributes = [];
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      const key = def.key;
+      const value = container.environment[key]?.current || 0;
+      const status = value < 25 ? "low" : value > 75 ? "high" : "normal";
+      attributes.push(`${def.label}: ${value}% (${status})`);
+    }
+    return attributes.join("; ");
+  }
+
+  // Helper function to generate environment warnings
+  function containerEnvironmentWarnings(container) {
+    if (!container.environment) return [];
+
+    const warnings = [];
+    const condition = containerCondition(container);
+    if (condition < 25) {
+      warnings.push("Container condition critical");
+    } else if (condition < 50) {
+      warnings.push("Container condition damaged");
+    } else if (condition < 75) {
+      warnings.push("Container condition worn");
+    }
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      const key = def.key;
+      const value = container.environment[key]?.current || 0;
+      
+      if (value < 25) {
+        warnings.push(`${def.label} low`);
+      } else if (value > 75) {
+        warnings.push(`${def.label} high`);
+      }
+    }
+    return warnings;
+  }
+
+
+  function containerGeometry(container) {
+    if (!container) return null;
+    if (container.id === SYNTHESIS_TUBE_ID || container.typeId === "synthesisTube" || container.type === "synthesis") {
+      return SYNTHESIS_TUBE_GEOMETRY;
+    }
+    return CONTAINER_BASE_TYPE_BY_ID[container.typeId]?.geometry || null;
+  }
+
+  function formatDimensionCm(value) {
+    if (!Number.isFinite(value)) return "?";
+    return String(Math.round(value * 10) / 10);
+  }
+
+  function formatGeometryDimensions(geometry) {
+    if (!geometry?.internalCm) return "unknown size";
+    const dims = geometry.internalCm;
+    if (Number.isFinite(dims.diameter) && Number.isFinite(dims.height)) {
+      return `${formatDimensionCm(dims.diameter)} cm diameter × ${formatDimensionCm(dims.height)} cm tall`;
+    }
+    if (Number.isFinite(dims.length) && Number.isFinite(dims.width) && Number.isFinite(dims.height)) {
+      return `${formatDimensionCm(dims.length)} × ${formatDimensionCm(dims.width)} × ${formatDimensionCm(dims.height)} cm`;
+    }
+    return "unknown size";
+  }
+
+  function formatOpeningDimensions(geometry) {
+    if (!geometry?.openingCm) return "";
+    const opening = geometry.openingCm;
+    if (Number.isFinite(opening.diameter)) {
+      return `${formatDimensionCm(opening.diameter)} cm opening`;
+    }
+    if (Number.isFinite(opening.width) && Number.isFinite(opening.height)) {
+      return `${formatDimensionCm(opening.width)} × ${formatDimensionCm(opening.height)} cm opening`;
+    }
+    return "";
+  }
+
+  function containerGeometrySummary(container) {
+    const geometry = containerGeometry(container);
+    if (!geometry) return "interior size unknown";
+    const opening = formatOpeningDimensions(geometry);
+    const top = geometry.openTop ? "open top" : "closed";
+    return `${formatGeometryDimensions(geometry)} · ${geometry.shape} · ${top}${opening ? ` · ${opening}` : ""}`;
+  }
+
+
+  function containerInteriorMeasure(container) {
+    const geometry = containerGeometry(container);
+    const dims = geometry?.internalCm;
+    if (!dims) return null;
+    if (Number.isFinite(dims.diameter) && Number.isFinite(dims.height)) {
+      return {
+        length: dims.diameter,
+        width: dims.diameter,
+        height: dims.height,
+        maxSpan: Math.max(dims.diameter, dims.height),
+        minSpan: Math.min(dims.diameter, dims.height)
+      };
+    }
+    if (Number.isFinite(dims.length) && Number.isFinite(dims.width) && Number.isFinite(dims.height)) {
+      return {
+        length: dims.length,
+        width: dims.width,
+        height: dims.height,
+        maxSpan: Math.max(dims.length, dims.width, dims.height),
+        minSpan: Math.min(dims.length, dims.width, dims.height)
+      };
+    }
+    return null;
+  }
+
+  function containerOpeningMeasure(container) {
+    const geometry = containerGeometry(container);
+    const opening = geometry?.openingCm;
+    if (!opening) return null;
+    if (Number.isFinite(opening.diameter)) {
+      return {
+        width: opening.diameter,
+        height: opening.diameter,
+        minSpan: opening.diameter,
+        maxSpan: opening.diameter
+      };
+    }
+    if (Number.isFinite(opening.width) && Number.isFinite(opening.height)) {
+      return {
+        width: opening.width,
+        height: opening.height,
+        minSpan: Math.min(opening.width, opening.height),
+        maxSpan: Math.max(opening.width, opening.height)
+      };
+    }
+    return null;
+  }
+
+  function slimeCompressibility(profile, consistencyKnown = true) {
+    const consistency = profile?.consistency || "soft gelatin";
+    if (!consistencyKnown) return 0.65;
+    if (["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(consistency)) return 0.25;
+    if (["soft gelatin", "elastic gel", "bouncy rubber", "sticky taffy", "aerated mousse"].includes(consistency)) return 0.55;
+    if (["dense rubber", "clay-like"].includes(consistency)) return 0.85;
+    if (["crystalline gel", "brittle jelly"].includes(consistency)) return 1.05;
+    return 0.75;
+  }
+
+  function slimeDimensionEstimate(profile, volumeCm3) {
+    const safeVolume = Math.max(1, Number(volumeCm3) || 1);
+    const root = Math.cbrt(safeVolume);
+    const shape = profile?.shape || "blob";
+    if (shape === "cubic") {
+      return { length: root, width: root, height: root, openingNeed: root };
+    }
+    if (shape === "spherical") {
+      const diameter = Math.cbrt((6 * safeVolume) / Math.PI);
+      return { length: diameter, width: diameter, height: diameter, openingNeed: diameter };
+    }
+    if (shape === "humanoid-ish") {
+      const height = Math.cbrt(safeVolume * 9);
+      return { length: height * 0.45, width: height * 0.38, height, openingNeed: height * 0.38 };
+    }
+    if (shape === "dog-shaped") {
+      const length = Math.cbrt(safeVolume * 5.5);
+      return { length, width: length * 0.38, height: length * 0.45, openingNeed: length * 0.38 };
+    }
+    if (shape === "puddle" || shape === "flat sheet") {
+      const depth = clamp(root * (shape === "puddle" ? 0.08 : 0.12), 1, 22);
+      const spread = 2 * Math.sqrt(safeVolume / (Math.PI * depth));
+      return { length: spread, width: spread, height: depth, openingNeed: Math.min(spread, 20) };
+    }
+    if (shape === "worm-like") {
+      const length = Math.cbrt(safeVolume * 30);
+      const thickness = Math.sqrt(safeVolume / (Math.PI * length)) * 2;
+      return { length, width: thickness, height: thickness, openingNeed: thickness };
+    }
+    if (shape === "columnar") {
+      const height = Math.cbrt(safeVolume * 4);
+      const diameter = Math.sqrt((4 * safeVolume) / (Math.PI * height));
+      return { length: diameter, width: diameter, height, openingNeed: diameter };
+    }
+    if (shape === "conical") {
+      const height = Math.cbrt((12 * safeVolume) / Math.PI);
+      const diameter = Math.sqrt((12 * safeVolume) / (Math.PI * height));
+      return { length: diameter, width: diameter, height, openingNeed: diameter };
+    }
+    if (shape === "disc") {
+      const thickness = clamp(root * 0.22, 2, 40);
+      const diameter = 2 * Math.sqrt(safeVolume / (Math.PI * thickness));
+      return { length: diameter, width: diameter, height: thickness, openingNeed: Math.min(diameter, Math.max(thickness, diameter * 0.35)) };
+    }
+    if (shape === "branching" || shape === "star-like") {
+      const span = Math.cbrt(safeVolume * 8);
+      const core = root * 0.34;
+      return { length: span, width: span, height: core, openingNeed: core * 1.5 };
+    }
+    if (shape === "mushroom-shaped") {
+      const height = Math.cbrt(safeVolume * 3.2);
+      return { length: height * 0.72, width: height * 0.72, height, openingNeed: height * 0.72 };
+    }
+    if (shape === "shell-like") {
+      const length = Math.cbrt(safeVolume * 3.6);
+      return { length, width: length * 0.62, height: length * 0.32, openingNeed: length * 0.62 };
+    }
+    const height = Math.cbrt(safeVolume * 0.75);
+    const width = Math.sqrt(safeVolume / height);
+    return { length: width, width, height, openingNeed: width };
+  }
+
+  function containerDimensionalSuitabilityConcerns(slime, container, profile, options = {}) {
+    const interior = containerInteriorMeasure(container);
+    if (!interior || !profile) return [];
+    const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+    const currentDims = slimeDimensionEstimate(profile, profile.volumeCm3 * massFraction);
+    const fullDims = slimeDimensionEstimate(profile, profile.volumeCm3);
+    const compressibility = slimeCompressibility(profile, options.consistencyKnown);
+    const concerns = [];
+    const floorLong = Math.max(interior.length, interior.width);
+    const floorShort = Math.min(interior.length, interior.width);
+    const currentLong = Math.max(currentDims.length, currentDims.width);
+    const currentShort = Math.min(currentDims.length, currentDims.width);
+    const fullLong = Math.max(fullDims.length, fullDims.width);
+    const fullShort = Math.min(fullDims.length, fullDims.width);
+
+    if (currentDims.height > interior.height * (1.25 + (1 - compressibility) * 0.35)) {
+      concerns.push({ severity: compressibility >= 0.9 ? "severe" : "major", text: `Current body height presses against the ${containerTypeLabel(container.typeId)} interior.` });
+    } else if (fullDims.height > interior.height * (1.35 + (1 - compressibility) * 0.35)) {
+      concerns.push({ severity: compressibility >= 0.9 ? "major" : "moderate", text: `Full-size body may become too tall for the ${containerTypeLabel(container.typeId)} interior.` });
+    }
+
+    if (currentLong > floorLong * (1.2 + (1 - compressibility) * 0.5) || currentShort > floorShort * (1.2 + (1 - compressibility) * 0.5)) {
+      concerns.push({ severity: compressibility >= 0.9 ? "severe" : "major", text: `Current body dimensions strain the ${containerTypeLabel(container.typeId)} floor space.` });
+    } else if (fullLong > floorLong * (1.35 + (1 - compressibility) * 0.5) || fullShort > floorShort * (1.35 + (1 - compressibility) * 0.5)) {
+      concerns.push({ severity: compressibility >= 0.9 ? "major" : "moderate", text: `Full-size body may outgrow the ${containerTypeLabel(container.typeId)} interior dimensions.` });
+    }
+
+    const geometry = containerGeometry(container);
+    const opening = containerOpeningMeasure(container);
+    if (opening && !geometry?.openTop) {
+      const openingNeed = currentDims.openingNeed * compressibility;
+      const fullOpeningNeed = fullDims.openingNeed * compressibility;
+      if (openingNeed > opening.minSpan * 1.1) {
+        concerns.push({ severity: compressibility >= 0.9 ? "major" : "moderate", text: `Current body may be difficult to move through the ${containerTypeLabel(container.typeId)} opening.` });
+      } else if (fullOpeningNeed > opening.minSpan * 1.2) {
+        concerns.push({ severity: compressibility >= 0.9 ? "moderate" : "minor", text: `Full-size body may not pass cleanly through the ${containerTypeLabel(container.typeId)} opening.` });
+      }
+    }
+
+    if (geometry?.openTop && ["climbing", "hopping", "scuttling", "clinging"].includes(profile.movement)) {
+      concerns.push({ severity: "minor", text: `Open-top geometry may matter if this slime's movement lets it climb or hop.` });
+    }
+
+    return concerns.slice(0, 3);
+  }
+
+
+
+  function normalizeContainerCondition(value) {
+    const number = Number(value);
+    return clamp(Number.isFinite(number) ? number : CONTAINER_CONDITION_DEFAULT, 0, 100);
+  }
+
+  function containerCondition(container) {
+    if (!container) return CONTAINER_CONDITION_DEFAULT;
+    container.condition = normalizeContainerCondition(container.condition);
+    return container.condition;
+  }
+
+  function adjustContainerCondition(container, delta) {
+    if (!container) return false;
+    const before = containerCondition(container);
+    container.condition = normalizeContainerCondition(before + (Number(delta) || 0));
+    return Math.abs(container.condition - before) >= 0.01;
+  }
+
+  function containerConditionLabel(container) {
+    const condition = containerCondition(container);
+    if (condition < 25) return `${formatNumber(condition)}% critical`;
+    if (condition < 50) return `${formatNumber(condition)}% damaged`;
+    if (condition < 75) return `${formatNumber(condition)}% worn`;
+    return `${formatNumber(condition)}% intact`;
+  }
+
+  function normalizeContainmentIncidentProgress(candidate) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const normalized = {};
+    for (const [key, value] of Object.entries(source)) {
+      if (!key || !value || typeof value !== "object") {
+        continue;
+      }
+      normalized[key] = {
+        progress: Math.max(0, Number(value.progress) || 0),
+        lastIncidentAt: Number.isFinite(Number(value.lastIncidentAt)) ? Number(value.lastIncidentAt) : null
+      };
+    }
+    return normalized;
+  }
+
+  function containmentIncidentKey(slime, container) {
+    return `${container?.id || "room"}:${slime?.id || "unknown"}`;
+  }
+
+  function containmentIncidentRecord(slime, container) {
+    state.containmentIncidentProgress = normalizeContainmentIncidentProgress(state.containmentIncidentProgress);
+    const key = containmentIncidentKey(slime, container);
+    state.containmentIncidentProgress[key] ||= { progress: 0, lastIncidentAt: null };
+    return state.containmentIncidentProgress[key];
+  }
+
+  function cleanupContainmentIncidentProgress() {
+    if (!state?.containmentIncidentProgress) return;
+    const activeKeys = new Set();
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status !== "contained" || !slime.containerId) {
+        continue;
+      }
+      const container = containerById(slime.containerId);
+      if (container) {
+        activeKeys.add(containmentIncidentKey(slime, container));
+      }
+    }
+    for (const key of Object.keys(state.containmentIncidentProgress)) {
+      if (!activeKeys.has(key)) {
+        delete state.containmentIncidentProgress[key];
+      }
+    }
+  }
+
+  function updateContainmentIncidents(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed || !state?.started) {
+      return 0;
+    }
+
+    let changes = 0;
+    cleanupContainmentIncidentProgress();
+
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status !== "contained" || slime.status === "dead" || !slime.containerId) {
+        continue;
+      }
+
+      const container = containerById(slime.containerId);
+      if (!container || container.type === "synthesis") {
+        continue;
+      }
+
+      const risk = activeContainmentRisk(slime, container);
+      const record = containmentIncidentRecord(slime, container);
+
+      if (risk.score < 75) {
+        const before = record.progress;
+        record.progress = Math.max(0, record.progress - CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR * (elapsed / 60));
+        if (Math.abs(record.progress - before) >= 0.01) {
+          changes += 1;
+        }
+        continue;
+      }
+
+      const riskMultiplier = risk.score >= 110 ? 1.6 : 1 + (risk.score - 75) / 80;
+      record.progress += elapsed * riskMultiplier;
+
+      const cooldownReady = record.lastIncidentAt == null || state.clock - record.lastIncidentAt >= CONTAINMENT_INCIDENT_COOLDOWN;
+      if (record.progress >= CONTAINMENT_INCIDENT_THRESHOLD && cooldownReady) {
+        const incident = chooseMinorContainmentIncident(slime, container, risk);
+        triggerMinorContainmentIncident(slime, container, risk, incident);
+        record.progress = 0;
+        record.lastIncidentAt = state.clock;
+        changes += 1;
+      }
+    }
+
+    return changes;
+  }
+
+  function chooseMinorContainmentIncident(slime, container, risk) {
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const seal = containerEffectiveSeal(container);
+    const type = containerTypeDef(container.typeId);
+    const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
+    const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(profile?.consistency);
+    const foulingByproduct = ["adhesive gel", "black resin", "grease pearls", "coagulating wax", "acid droplets", "alkaline foam", "smoke vapor", "numbing paste"].includes(byproduct);
+
+    if ((runny && (seal < 55 || type.gap >= 60)) || risk.potentialReasons.some((reason) => /gap|seal|seep/i.test(reason))) {
+      return "leak";
+    }
+
+    if (foulingByproduct || risk.potentialReasons.some((reason) => /foul|mess|exposure|contamination/i.test(reason))) {
+      return "fouling";
+    }
+
+    if (risk.potentialReasons.some((reason) => /damage|durability|weight|critical|damaged/i.test(reason))) {
+      return "strain";
+    }
+
+    return "disturbance";
+  }
+
+  function triggerMinorContainmentIncident(slime, container, risk, incident) {
+    const incidentLabel = {
+      disturbance: "disturbance",
+      fouling: "fouling",
+      leak: "leak/seep strain",
+      strain: "structural strain"
+    }[incident] || "disturbance";
+
+    let message = `Minor containment incident: ${slime.name} caused ${incidentLabel} in ${container.name}.`;
+    let suspicion = 0;
+
+    if (incident === "fouling") {
+      adjustContainerEnvironment(container, "contamination", 8);
+      adjustContainerCondition(container, -1);
+      adjustSlimeStat(slime, "stress", 2);
+      message += " Interior contamination rose.";
+    } else if (incident === "leak") {
+      adjustContainerEnvironment(container, "contamination", 5);
+      adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", 2);
+      adjustContainerCondition(container, -2);
+      adjustSlimeStat(slime, "stress", 3);
+      suspicion = 1;
+      message += " A small trace reached the room.";
+    } else if (incident === "strain") {
+      adjustContainerCondition(container, -4);
+      adjustSlimeStat(slime, "stress", 2);
+      message += " The container condition worsened.";
+    } else {
+      adjustContainerCondition(container, -1);
+      adjustSlimeStat(slime, "stress", 3);
+      message += " The disturbance raised Stress.";
+    }
+
+    if (risk.label === "Failing") {
+      suspicion += 1;
+    }
+
+    if (suspicion) {
+      addSuspicion(suspicion);
+      message += ` Suspicion +${suspicion}.`;
+    }
+
+    addEvent(message);
+    return true;
+  }
+
+  function adjustContainerEnvironment(container, attributeKey, amount) {
+    if (!container) return false;
+    container.environment = normalizeContainerEnvironment(container.environment);
+    const attribute = container.environment?.[attributeKey];
+    const delta = Number(amount);
+    if (!attribute || !Number.isFinite(delta) || !delta) {
+      return false;
+    }
+    const before = attribute.current;
+    attribute.current = clamp(attribute.current + delta, 0, 100);
+    return Math.abs(attribute.current - before) >= 0.01;
+  }
+
+  function activeContainmentRisk(slime, container) {
+    if (!slime || !container || slime.status === "dead") {
+      return {
+        label: "Unknown",
+        className: "container-band-unknown",
+        score: 0,
+        potential: 0,
+        pressure: 0,
+        potentialReasons: [],
+        pressureReasons: ["No active containment risk can be assessed."],
+        reasons: ["Pressure: No active containment risk can be assessed."]
+      };
+    }
+
+    if (container.type === "synthesis") {
+      return {
+        label: "Suppressed by synthesis tube",
+        className: "container-band-good",
+        score: 5,
+        potential: 5,
+        pressure: 0,
+        potentialReasons: ["The synthesis tube is built for temporary universal containment."],
+        pressureReasons: ["Synthesis tube suppression keeps active containment risk low during temporary stabilization."],
+        reasons: [
+          "Potential: The synthesis tube is built for temporary universal containment.",
+          "Pressure: Synthesis tube suppression keeps active containment risk low during temporary stabilization."
+        ]
+      };
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const type = containerTypeDef(container.typeId);
+    const condition = containerCondition(container);
+    const revealed = slime.revealed || {};
+    const stats = slime.stats || {};
+    const fit = passiveContainerSuitability(slime, container);
+    let potential = 0;
+    let pressure = 0;
+    const potentialReasons = [];
+    const pressureReasons = [];
+    const neutralReasons = [];
+    const reasons = [];
+    const addPotential = (points, text) => {
+      potential += points;
+      potentialReasons.push(text);
+      reasons.push(`Potential: ${text}`);
+    };
+    const addPressure = (points, text) => {
+      pressure += points;
+      pressureReasons.push(text);
+      reasons.push(`Pressure: ${text}`);
+    };
+    const addNeutral = (text) => {
+      neutralReasons.push(text);
+      reasons.push(text);
+    };
+
+    if (fit.label === "Unsuitable") {
+      addPotential(55, "passive fit is unsuitable.");
+    } else if (fit.label === "Poor Fit") {
+      addPotential(35, "passive fit is poor.");
+    } else if (fit.label === "Questionable") {
+      addPotential(18, "passive fit is questionable.");
+    } else if (fit.label === "Unknown") {
+      addPotential(8, "containment fit is still partly unknown.");
+    }
+
+    if (condition < 25) {
+      addPotential(35, "container condition is critical.");
+      addPressure(16, "damaged containment is actively straining.");
+    } else if (condition < 50) {
+      addPotential(22, "container condition is damaged.");
+      addPressure(8, "wear is making containment less reliable.");
+    } else if (condition < 75) {
+      addPotential(8, "container condition is worn.");
+    }
+
+    const localCorpses = containerCorpses(container.id);
+    if (localCorpses.length) {
+      addPotential(10 + localCorpses.length * 4, `${localCorpses.length} corpse${localCorpses.length === 1 ? "" : "s"} sharing this container.`);
+      if (!localCorpses.some((corpse) => corpseFeedingRateForSlime(slime, corpse).rate > 0)) {
+        addPressure(8, "nearby remains are fouling the container.");
+      }
+    }
+
+    if (revealed.size && profile) {
+      const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+      const currentVolume = profile.volumeCm3 * massFraction;
+      if (currentVolume > type.capacityCm3) {
+        addPotential(30, "current body exceeds container capacity.");
+      } else if (currentVolume > type.capacityCm3 * 0.85) {
+        addPotential(14, "current body nearly fills the container.");
+      } else if (profile.volumeCm3 > type.capacityCm3) {
+        addPotential(18, "full-size body would outgrow the container.");
+      }
+    }
+
+    if (revealed.consistency && profile) {
+      const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"];
+      if (runny.includes(profile.consistency)) {
+        if (type.gap >= 60) {
+          addPotential(28, "runny body can exploit large gaps.");
+        } else if (containerEffectiveSeal(container) < 50) {
+          addPotential(18, "runny body strains the container seal.");
+        }
+      }
+    }
+
+    if (revealed.appendages && profile?.appendages && profile.appendages !== "none") {
+      if (type.gap >= 60) {
+        addPotential(12, "appendages can reach through large gaps.");
+      }
+      if (["spines", "hook claws"].includes(profile.appendages) && type.durability < 55) {
+        addPotential(18, `${profile.appendages} can damage weaker materials.`);
+      }
+    }
+
+    if (revealed.element && profile) {
+      const resistanceKey = { acid: "acid", flame: "flame", frost: "frost", storm: "storm", poison: "poison", dream: "mana", ether: "mana", gravity: "mana" }[profile.element];
+      if (resistanceKey && !containerProtectsAny(container, [resistanceKey])) {
+        const resistance = Number(type.resistances?.[resistanceKey]) || 0;
+        if (resistance < 25) {
+          addPotential(28, `${type.label} has very poor ${resistanceKey} resistance.`);
+        } else if (resistance < 50) {
+          addPotential(16, `${type.label} has weak ${resistanceKey} resistance.`);
+        }
+      }
+    }
+
+    if (revealed.byproduct) {
+      const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
+      if (["acid droplets", "sterile solvent", "alkaline foam", "smoke vapor", "numbing paste"].includes(byproduct)) {
+        addPotential(14, `${byproduct} can turn disturbances into messes or exposure risks.`);
+      }
+      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax"].includes(byproduct) && !type.drainage) {
+        addPotential(8, `${byproduct} can foul containers without drainage.`);
+      }
+    }
+
+    const stress = Number(stats.stress?.current ?? slimeStat(slime, "stress").current) || 0;
+    const nutrition = Number(stats.nutrition?.current ?? slimeStat(slime, "nutrition").current) || 0;
+    const integrity = Number(stats.bodyIntegrity?.current ?? slimeStat(slime, "bodyIntegrity").current) || 0;
+    const division = Number(stats.divisionPressure?.current ?? slimeStat(slime, "divisionPressure").current) || 0;
+
+    if (stress >= 75) {
+      addPressure(36, "high Stress is making the slime restless.");
+    } else if (stress >= 55) {
+      addPressure(22, "Stress is elevated.");
+    } else if (stress >= 35) {
+      addPressure(10, "Stress is rising.");
+    }
+
+    if (nutrition <= 15) {
+      addPressure(26, "severe hunger may push the slime to test containment.");
+    } else if (nutrition <= 30) {
+      addPressure(14, "low nutrition increases containment pressure.");
+    }
+
+    if (integrity <= 30) {
+      addPressure(14, "poor body integrity may make behavior less predictable.");
+    }
+
+    if (division >= 80) {
+      addPressure(18, "high division pressure may soon overcrowd containment.");
+    } else if (division >= 55) {
+      addPressure(10, "division pressure is building.");
+    }
+
+    if (revealed.behavior) {
+      const behavior = baseOutcomeLabel(evaluated.traits.behavior);
+      const behaviorPressure = {
+        "vibration hunting": 24,
+        guarding: 18,
+        swarming: 18,
+        burrowing: 18,
+        "still ambush": 14,
+        "sound following": 10,
+        "tool orbiting": 10,
+        "heat seeking": 8,
+        "light seeking": 8,
+        hiding: 6,
+        circling: 6
+      };
+      if (behaviorPressure[behavior]) {
+        addPressure(behaviorPressure[behavior], `${behavior} behavior may test containment.`);
+      }
+      if (behavior === "cleaning") {
+        addNeutral("Pressure: cleaning behavior may reduce some mess risk.");
+      }
+    }
+
+    if (revealed.stability) {
+      const risk = Number(evaluated.traits.stability.meta?.risk) || 5;
+      if (risk >= 8) {
+        addPressure(30, "stability profile is predatory or highly dangerous.");
+      } else if (risk >= 7) {
+        addPressure(22, "stability profile is volatile or erratic.");
+      } else if (risk >= 6) {
+        addPressure(14, "stability profile is somewhat fractious.");
+      } else if (risk <= 2 && pressure > 0) {
+        pressure = Math.max(0, pressure - 6);
+        addNeutral("Pressure: stable temperament slightly reduces active pressure.");
+      }
+    }
+
+    if (potential === 0 && pressure === 0) {
+      addNeutral("No active containment concerns from discovered traits or current condition.");
+    }
+
+    const score = Math.round(potential + pressure);
+    const label = score >= 110 ? "Failing"
+      : score >= 75 ? "Dangerous"
+        : score >= 45 ? "Strained"
+          : score >= 20 ? "Watch"
+            : "Stable";
+    const className = score >= 110 ? "container-band-unsuitable"
+      : score >= 75 ? "container-band-poor"
+        : score >= 45 ? "container-band-questionable"
+          : score >= 20 ? "container-band-questionable"
+            : "container-band-good";
+
+    return {
+      label,
+      className,
+      score,
+      potential: Math.round(potential),
+      pressure: Math.round(pressure),
+      potentialReasons: potentialReasons.slice(0, 4),
+      pressureReasons: pressureReasons.slice(0, 4),
+      reasons: reasons.slice(0, 6)
+    };
+  }
+
+  function activeContainmentRiskDetailsEl(risk) {
+    const details = document.createElement("div");
+    details.className = "container-risk-details";
+
+    const addGroup = (label, value, reasons, emptyMessage) => {
+      const group = document.createElement("div");
+      group.className = "container-risk-group";
+      group.append(textEl("strong", `${label}: `), chip(String(value)));
+
+      const displayedReasons = reasons?.length ? reasons : [emptyMessage];
+      group.append(document.createTextNode(" — "));
+      displayedReasons.forEach((reason, index) => {
+        if (index > 0) {
+          group.append(document.createTextNode(" · "));
+        }
+        group.append(chip(reason));
+      });
+
+      details.append(group);
+    };
+
+    addGroup("Potential", risk?.potential ?? 0, risk?.potentialReasons || [], "no major physical mismatch identified");
+    addGroup("Pressure", risk?.pressure ?? 0, risk?.pressureReasons || [], "no current active pressure identified");
+
+    return details;
+  }
+
   function containerCardEl(container) {
     const card = document.createElement("div");
     card.className = `container-card ${container.type}`;
     const occupants = containerOccupants(container.id);
+    const corpses = containerCorpses(container.id);
     const title = document.createElement("div");
     title.className = "container-title";
     const typeLabel = container.type === "synthesis" ? "Synthesis Tube" : containerTypeLabel(container.typeId);
@@ -3393,10 +4522,10 @@
     const meta = document.createElement("div");
     meta.className = "container-meta";
     if (container.type === "synthesis") {
-      meta.append(chip("universal temporary containment"));
+      meta.append(chip("universal temporary containment"), chip(`condition ${containerConditionLabel(container)}`), chip(`interior ${containerGeometrySummary(container)}`));
     } else {
       const type = containerTypeDef(container.typeId);
-      meta.append(chip(type.label), chip(`capacity ${formatVolume(type.capacityCm3)}`), chip(`load ${formatWeight(containerEffectiveWeightLimit(container))}`));
+      meta.append(chip(type.label), chip(`condition ${containerConditionLabel(container)}`), chip(`capacity ${formatVolume(type.capacityCm3)}`), chip(`load ${formatWeight(containerEffectiveWeightLimit(container))}`), chip(`interior ${containerGeometrySummary(container)}`));
       const wards = containerWardLabels(container.wardIds);
       if (wards.length) {
         for (const ward of wards) {
@@ -3406,24 +4535,86 @@
         meta.append(chip("no wards"));
       }
     }
+    if (container.type !== "synthesis") {
+      meta.append(chip(`${roomRoleLabel(container.roomId)} room`));
+      const roomControl = document.createElement("div");
+      roomControl.className = "container-room-control";
+      roomControl.append(textEl("span", "Room: "));
+      const select = document.createElement("select");
+      select.className = "container-room-select";
+      select.dataset.containerRoomSelect = container.id;
+      for (const room of state.rooms) {
+        const option = document.createElement("option");
+        option.value = room.id;
+        option.textContent = room.name;
+        select.append(option);
+      }
+      select.value = roomById(container.roomId)?.id || MAIN_ROOM_ID;
+      select.addEventListener("change", () => {
+        moveContainerToRoom(container.id, select.value);
+      });
+      roomControl.append(select);
+      meta.append(roomControl);
+    }
+
+     // Add interior environment display
+    if (container.environment) {
+      const interior = document.createElement("div");
+      interior.className = "container-interior";
+      
+      // Show container environment summary
+      const envSummary = containerEnvironmentSummary(container);
+      if (envSummary) {
+        const summaryEl = document.createElement("div");
+        summaryEl.className = "container-environment-summary";
+        summaryEl.textContent = `Interior: ${envSummary}`;
+        interior.append(summaryEl);
+        
+        // Add warnings if relevant
+        const warnings = containerEnvironmentWarnings(container);
+        if (warnings.length > 0) {
+          const warningList = document.createElement("div");
+          warningList.className = "container-environment-warnings";
+          for (const [index, warning] of warnings.entries()) {
+            if (index > 0) {
+              warningList.append(document.createTextNode(" · "));
+            }
+            warningList.append(chip(warning));
+          }
+          interior.append(warningList);
+        }
+      }
+      
+      card.append(interior);
+    }
 
     const occupantList = document.createElement("div");
     occupantList.className = "container-occupants";
-    if (!occupants.length) {
+    if (!occupants.length && !corpses.length) {
       occupantList.append(emptyText(container.type === "synthesis" ? "Tube empty." : "Open."));
     } else {
+      for (const corpse of corpses) {
+        const row = document.createElement("div");
+        row.className = "container-occupant-row corpse-row";
+        row.append(corpseNameLink(corpse), textEl("span", `${corpseStateLabel(corpse)} corpse`), textEl("span", corpseDecayText(corpse)));
+        occupantList.append(row);
+      }
       for (const slime of occupants) {
         const row = document.createElement("div");
         row.className = "container-occupant-row";
         const fit = passiveContainerSuitability(slime, container);
+        const risk = activeContainmentRisk(slime, container);
         const fitLabel = textEl("span", `${slime.mature ? slime.status : "immature"}; ${fit.label}`);
         fitLabel.className = fit.className;
-        row.append(slimeNameLink(slime), fitLabel);
+        const riskLabel = textEl("span", `active risk ${risk.label}`);
+        riskLabel.className = risk.className;
+        row.append(slimeNameLink(slime), fitLabel, riskLabel);
         const warnings = document.createElement("div");
         warnings.className = "container-warning-list";
         for (const reason of fit.reasons) {
           warnings.append(chip(reason));
         }
+        warnings.append(activeContainmentRiskDetailsEl(risk));
         occupantList.append(row, warnings);
       }
     }
@@ -3937,18 +5128,58 @@
     return changes;
   }
 
+  /*  ─────────────────────────────────────────────────────────────
+   *  Phase 4: Immediate-environment source for environmental feeding
+   *  Released slime  → room.attributes
+   *  Contained slime → container.environment (including synthesis tube)
+   *  ─────────────────────────────────────────────────────────────
+   */
+
+  function environmentalSustenanceSource(slime) {
+    if (!slime) return null;
+    const room = roomById(slime.roomId || MAIN_ROOM_ID);
+    if (!room) return null;
+
+    if (slime.status === "contained" && slime.containerId) {
+      const container = containerById(slime.containerId);
+      if (container) {
+        if (!container.environment || Object.keys(container.environment).length === 0) {
+          container.environment = normalizeContainerEnvironment(container.environment);
+        }
+        return {
+          type: "container",
+          label: container.name || container.type || "container",
+          attributes: container.environment,
+          container,
+          room
+        };
+      }
+    }
+
+    return {
+      type: "room",
+      label: room.name || "room",
+      attributes: room.attributes,
+      room
+    };
+  }
+
   function updateEnvironmentalSustenance(slime, minutes) {
     const profile = environmentalSustenanceProfile(slime);
-    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
-    const supply = room ? environmentalSustenanceSupply(room, profile) : null;
+    const source = profile ? environmentalSustenanceSource(slime) : null;
+    const room = source?.room || null;
+    const supply = source ? environmentalSustenanceSupply({ attributes: source.attributes }, profile) : null;
     const rate = supply?.rate || 0;
     const nutrition = slimeStat(slime, "nutrition");
     const mass = slimeStat(slime, "currentMass");
-    if (!profile || !room || !supply || rate <= 0 || (nutrition.current >= nutrition.max && mass.current >= mass.max)) {
+    if (!profile || !source || !room || !supply || rate <= 0 || (nutrition.current >= nutrition.max && mass.current >= mass.max)) {
       return false;
     }
     const before = nutrition.current;
-    const attribute = room.attributes[profile.attributeKey];
+    const attribute = source.attributes[profile.attributeKey];
+    if (!attribute) {
+      return false;
+    }
     const beforeBand = roomAttributeBand(profile.attributeKey, attribute.current);
     const possibleGain = Math.min(nutrition.max - nutrition.current, minutes * rate);
     const maxDrain = Math.max(0, attribute.current - profile.floor);
@@ -3960,21 +5191,32 @@
     }
     adjustSlimeStat(slime, "nutrition", gain);
     const drained = gain * drainPerNutrition;
-    adjustRoomAttribute(room.id, profile.attributeKey, -drained);
+    if (source.type === "room") {
+      adjustRoomAttribute(room.id, profile.attributeKey, -drained);
+    } else {
+      /* Contained slime: drain container interior, not the room */
+      source.attributes[profile.attributeKey].current = clamp(
+        (source.attributes[profile.attributeKey].current || 0) - drained,
+        0, 100
+      );
+    }
     const changed = slimeStat(slime, "nutrition").current !== before;
-    const afterAttribute = room.attributes[profile.attributeKey];
+    const afterAttribute = source.attributes[profile.attributeKey];
     const afterBand = roomAttributeBand(profile.attributeKey, afterAttribute.current);
     if (changed && slime.revealed?.sustenance && beforeBand.label !== afterBand.label) {
       const def = ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey];
-      addEvent(`${slime.name} ${profile.actionLabel} from ${room.name}. ${def.label} dropped to ${afterBand.label}.`);
+      addEvent(`${slime.name} ${profile.actionLabel} from ${source.label}. ${def.label} dropped to ${afterBand.label}.`);
     }
     return changed;
   }
 
   function environmentalSustenanceRate(slime) {
     const profile = environmentalSustenanceProfile(slime);
-    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
-    return room ? environmentalSustenanceSupply(room, profile).rate : 0;
+    if (!profile) return 0;
+    const source = environmentalSustenanceSource(slime);
+    if (!source) return 0;
+    /* Pass a room-like object with the correct environment (container interior or room) */
+    return environmentalSustenanceSupply({ attributes: source.attributes }, profile).rate;
   }
 
   function environmentalSustenanceProfile(slime) {
@@ -4016,23 +5258,35 @@
     return environmentalSustenanceRate(slime) > 0;
   }
 
+
   function environmentalSustenanceStatus(slime) {
     const profile = environmentalSustenanceProfile(slime);
-    const room = profile ? roomById(slime.roomId || MAIN_ROOM_ID) : null;
-    if (!profile || !room) {
+    if (!profile) {
+      return "";
+    }
+    const source = environmentalSustenanceSource(slime);
+    if (!source) {
       return "";
     }
     const def = ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey];
-    const attribute = room.attributes[profile.attributeKey];
+    const attribute = source.attributes[profile.attributeKey];
     const band = roomAttributeBand(profile.attributeKey, attribute.current);
-    const supply = environmentalSustenanceSupply(room, profile);
+    /* Pass a room-like object with the correct environment (container interior or room) */
+    const supply = environmentalSustenanceSupply({ attributes: source.attributes }, profile);
     if (supply.rate <= 0) {
       return `${def.label}: depleted`;
     }
     if (supply.availability < 0.2) {
       return `${def.label}: barely feeding`;
     }
-    return `${def.label}: ${band.label}`;
+    // Check if we're dealing with a container interior
+    if (source.type === "container") {
+      // For contained slimes, show "from {container} interior"
+      return `Absorbing ${def.label.toLowerCase()} from ${source.label || source.container?.name || "container"} interior.`;
+    } else {
+      // For room-based slimes, show "from {room name}"
+      return `Absorbing ${def.label.toLowerCase()} from ${source.label || source.room?.name || "room"}.`;
+    }
   }
 
   function environmentalSustenanceLabel(slime) {
@@ -4537,7 +5791,7 @@
     if (!CREATURE_JOBS.some((job) => job.id === slime.job)) {
       slime.job = "idle";
     }
-    if (isInSynthesisTube(slime)) {
+    if (isInSynthesisTube(slime) || slimeJobRoomBlockReason(slime)) {
       slime.job = "idle";
     }
     slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
@@ -4555,9 +5809,12 @@
     }
   }
 
+
   function canWorkJob(slime) {
-    return Boolean(slime && slime.status !== "dead" && slime.mature && !isInSynthesisTube(slime) && slimeStat(slime, "bodyIntegrity").current > 0);
+    return Boolean(slime && slime.status !== "dead" && slime.mature && !isInSynthesisTube(slime) && !slimeJobRoomBlockReason(slime) && slimeStat(slime, "bodyIntegrity").current > 0);
   }
+
+
 
   function jobAssignmentBlockReason(slime) {
     if (!slime || slime.status === "dead") {
@@ -4565,6 +5822,10 @@
     }
     if (isInSynthesisTube(slime)) {
       return "Specimens in the synthesis tube cannot be assigned jobs.";
+    }
+    const roomReason = slimeJobRoomBlockReason(slime);
+    if (roomReason) {
+      return roomReason;
     }
     if (!slime.mature) {
       return "Immature slimes cannot be assigned jobs.";
@@ -4574,6 +5835,7 @@
     }
     return "";
   }
+
 
   function corpseProcessingDuration(slime) {
     const score = corpseProcessingSuitability(slime).score;
@@ -5400,16 +6662,40 @@
     }
   }
 
+
   function renderPolicies() {
     state.policies = normalizePolicies(state.policies);
     dom.corpsePolicyList.textContent = "";
     const targets = state.policies.corpseProcessingTargets;
+    const handling = corpseHandlingPolicy();
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
     const corpseSummary = enabled.length
       ? `Corpse Processing targets ${enabled.join(", ").toLowerCase()} corpses.`
       : "Corpse Processing has no automatic targets.";
+    const handlingSummary = handling.autoMoveToDrums
+      ? "Corpse handling auto-moves local remains to waste drums when space is available."
+      : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
-    dom.policySummary.textContent = `${corpseSummary} Auto-feeding: ${feedingMode.toLowerCase()}.`;
+    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}.`;
+
+    const autoMoveLabel = document.createElement("label");
+    autoMoveLabel.className = "policy-option";
+    const autoMoveInput = document.createElement("input");
+    autoMoveInput.type = "checkbox";
+    autoMoveInput.checked = Boolean(handling.autoMoveToDrums);
+    autoMoveInput.addEventListener("change", () => {
+      state.policies.corpseHandling.autoMoveToDrums = autoMoveInput.checked;
+      const moved = autoMoveLocalCorpsesToDrums();
+      addEvent(autoMoveInput.checked
+        ? `Corpse handling policy enabled: local corpses will move to waste drums when space is available${moved ? `; moved ${moved} now` : ""}.`
+        : "Corpse handling policy disabled: new corpses will remain where they fall.");
+      refreshCorpseProcessingTargets();
+      persist();
+      render();
+    });
+    autoMoveLabel.append(autoMoveInput, textEl("span", "Auto-move local corpses to waste drums"));
+    dom.corpsePolicyList.append(autoMoveLabel);
+
     for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
       const label = document.createElement("label");
       label.className = "policy-option";
@@ -5428,6 +6714,7 @@
     }
     renderFeedingPolicies();
   }
+
 
   function renderFeedingPolicies() {
     const policy = state.policies.feeding;
@@ -5555,16 +6842,38 @@
     }
   }
 
+
   function renderRooms() {
     state.rooms = normalizeRooms(state.rooms);
     dom.roomList.textContent = "";
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active`;
     for (const room of state.rooms) {
       const card = document.createElement("div");
-      card.className = "room-card";
+      card.className = `room-card room-${room.role || "custom"}`;
       const title = document.createElement("div");
       title.className = "room-title";
       title.append(textEl("strong", room.name), textEl("span", roomOccupancySummary(room.id)));
+
+      const meta = document.createElement("div");
+      meta.className = "room-meta";
+      const metaChips = [chip(room.roleLabel || "Custom room")];
+      if (roomBlocksJobs(room.id)) {
+        metaChips.push(chip("stored creatures cannot work"));
+      }
+      if (room.id === PITS_ROOM_ID) {
+        metaChips.push(chip("corpse work"));
+      }
+      metaChips.forEach((metaChip, index) => {
+        if (index > 0) {
+          meta.append(document.createTextNode(" · "));
+        }
+        meta.append(metaChip);
+      });
+
+      const description = document.createElement("p");
+      description.className = "room-description";
+      description.textContent = room.description || "";
+
       const attributes = document.createElement("div");
       attributes.className = "room-attribute-grid";
       for (const def of ROOM_ATTRIBUTE_DEFS) {
@@ -5576,16 +6885,24 @@
         row.append(textEl("span", def.label), textEl("strong", band.label));
         attributes.append(row);
       }
-      card.append(title, attributes);
+      card.append(title, meta);
+      if (description.textContent) {
+        card.append(description);
+      }
+      card.append(attributes);
       dom.roomList.append(card);
     }
   }
 
+
+
   function roomOccupancySummary(roomId) {
-    const living = (state.slimes || []).filter((slime) => slime.status !== "dead" && (slime.roomId || MAIN_ROOM_ID) === roomId).length;
+    const containers = (state.containers || []).filter((container) => (container.roomId || MAIN_ROOM_ID) === roomId).length;
+    const living = (state.slimes || []).filter((slime) => slime.status !== "dead" && slimeEffectiveRoomId(slime) === roomId).length;
     const corpses = (state.corpses || []).filter((corpse) => (corpse.roomId || MAIN_ROOM_ID) === roomId).length;
-    return `${living} living; ${corpses} corpse${corpses === 1 ? "" : "s"}`;
+    return `${containers} container${containers === 1 ? "" : "s"}; ${living} living; ${corpses} corpse${corpses === 1 ? "" : "s"}`;
   }
+
 
   function setActionButtonState(button, disabled, reason = "") {
     button.disabled = disabled;
@@ -7059,6 +8376,211 @@
     return (state.corpses || []).filter((corpse) => corpse.storage === "overflow").length;
   }
 
+
+  function localCorpseCount() {
+    return (state.corpses || []).filter(isLocalCorpse).length;
+  }
+
+  function corpseHandlingPolicy() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.corpseHandling;
+  }
+
+  function isLocalCorpse(corpse) {
+    return Boolean(corpse && (corpse.storage === "container" || corpse.storage === "room"));
+  }
+
+  function containerCorpses(containerId) {
+    return (state.corpses || []).filter((corpse) => corpse.storage === "container" && corpse.containerId === containerId);
+  }
+
+  function initialCorpseLocationForSlime(slime) {
+    if (slime?.status === "contained" && slime.containerId && containerById(slime.containerId)) {
+      const container = containerById(slime.containerId);
+      return {
+        storage: "container",
+        containerId: container.id,
+        roomId: container.roomId || slime.roomId || MAIN_ROOM_ID
+      };
+    }
+    return {
+      storage: "room",
+      containerId: null,
+      roomId: slime?.roomId || MAIN_ROOM_ID
+    };
+  }
+
+  function normalizeCorpseLocation(corpse) {
+    const allowed = new Set(["drum", "overflow", "container", "room"]);
+    if (!allowed.has(corpse.storage)) {
+      corpse.storage = "drum";
+    }
+    if (corpse.storage === "container") {
+      const container = containerById(corpse.containerId);
+      if (container) {
+        corpse.containerId = container.id;
+        corpse.roomId = container.roomId || corpse.roomId || MAIN_ROOM_ID;
+      } else {
+        corpse.storage = "room";
+        corpse.containerId = null;
+      }
+    }
+    if (corpse.storage === "room") {
+      corpse.containerId = null;
+      corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
+    }
+    if (corpse.storage === "drum" || corpse.storage === "overflow") {
+      corpse.containerId = null;
+      corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
+    }
+    if (corpse.storage !== "overflow") {
+      corpse.nextOverflowEventAt = null;
+    } else {
+      corpse.nextOverflowEventAt ||= state.clock + OVERFLOW_EVENT_INTERVAL;
+    }
+    return corpse;
+  }
+
+  function corpseLocationLabel(corpse) {
+    normalizeCorpseLocation(corpse);
+    if (corpse.storage === "drum") {
+      return "waste drum";
+    }
+    if (corpse.storage === "overflow") {
+      return "overflow";
+    }
+    if (corpse.storage === "container") {
+      return containerById(corpse.containerId)?.name || "unknown container";
+    }
+    return roomName(corpse.roomId || MAIN_ROOM_ID);
+  }
+
+  function tryMoveCorpseToDrum(corpse, options = {}) {
+    if (!corpse || corpse.storage === "drum" || corpse.storage === "overflow") {
+      return false;
+    }
+    if (hasPendingNecropsy(corpse.id)) {
+      return false;
+    }
+    if (drummedCorpseCount() >= WASTE_DRUM_CAPACITY) {
+      if (options.automatic && !options.quiet) {
+        addEvent(`${corpse.name} remains in ${corpseLocationLabel(corpse)}; no waste drum is available.`);
+      }
+      return false;
+    }
+    const from = corpseLocationLabel(corpse);
+    corpse.storage = "drum";
+    corpse.containerId = null;
+    corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
+    corpse.nextOverflowEventAt = null;
+    if (!options.quiet) {
+      addEvent(`${corpse.name} remains moved from ${from} to a waste drum.`);
+    }
+    refreshCorpseProcessingTargets();
+    return true;
+  }
+
+  function autoMoveLocalCorpsesToDrums() {
+    let moved = 0;
+    for (const corpse of state.corpses || []) {
+      if (isLocalCorpse(corpse) && tryMoveCorpseToDrum(corpse, { automatic: true, quiet: true })) {
+        moved += 1;
+      }
+    }
+    return moved;
+  }
+
+  function updateLocalCorpseEffects(corpse, elapsed) {
+    if (!isLocalCorpse(corpse) || corpse.ruined) {
+      return 0;
+    }
+    const freshness = corpseFreshness(corpse);
+    const contaminationPerDay = {
+      fresh: 0.8,
+      decaying: 3,
+      spoiled: 6,
+      ruined: 4
+    }[freshness] || 2;
+    const delta = contaminationPerDay * (elapsed / 1440);
+    let changed = 0;
+    if (corpse.storage === "container") {
+      const container = containerById(corpse.containerId);
+      changed += adjustContainerEnvironment(container, "contamination", delta) ? 1 : 0;
+      const incompatible = containerOccupants(corpse.containerId)
+        .filter((slime) => !corpseFeedingRateForSlime(slime, corpse).rate);
+      for (const slime of incompatible) {
+        adjustSlimeStat(slime, "stress", 0.5 * (elapsed / 1440));
+      }
+    } else if (corpse.storage === "room") {
+      changed += adjustRoomAttribute(corpse.roomId || MAIN_ROOM_ID, "contamination", delta) ? 1 : 0;
+    }
+    return changed;
+  }
+
+  function updateContainerCorpseFeeding(corpse, elapsed) {
+    if (corpse.storage !== "container" || corpse.ruined) {
+      return 0;
+    }
+    const occupants = containerOccupants(corpse.containerId)
+      .filter((slime) => slime.id !== corpse.specimenId);
+    if (!occupants.length) {
+      return 0;
+    }
+
+    let changes = 0;
+    for (const slime of occupants) {
+      const feeding = corpseFeedingRateForSlime(slime, corpse);
+      if (feeding.rate <= 0) {
+        continue;
+      }
+      const nutritionGain = feeding.rate * (elapsed / 1440);
+      if (nutritionGain <= 0) {
+        continue;
+      }
+      adjustSlimeStat(slime, "nutrition", nutritionGain);
+      adjustSlimeStat(slime, "currentMass", nutritionGain * 0.2);
+      adjustSlimeStat(slime, "stress", -nutritionGain * 0.1);
+      corpse.consumedProgress = clamp((Number(corpse.consumedProgress) || 0) + nutritionGain * feeding.consumption, 0, 100);
+      if (!corpse.feedingNoticed) {
+        corpse.feedingNoticed = true;
+        addEvent(`${slime.name} began feeding on ${corpse.name} remains in ${corpseLocationLabel(corpse)}.`);
+      }
+      changes += 1;
+      if (corpse.consumedProgress >= 100) {
+        addEvent(`${corpse.name} remains were fully consumed in ${corpseLocationLabel(corpse)}.`);
+        removeCorpseRecord(corpse.id);
+        return changes + 1;
+      }
+    }
+    return changes;
+  }
+
+  function corpseFeedingRateForSlime(slime, corpse) {
+    if (!slime || slime.status === "dead") {
+      return { rate: 0, consumption: 0 };
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const tags = new Set(evaluated.traits.sustenance.meta?.tags || []);
+    const freshness = corpseFreshness(corpse);
+    let rate = 0;
+    let consumption = 3;
+    if (tags.has("corpse")) {
+      rate = 18;
+      consumption = 5;
+    } else if (tags.has("decay") && freshness !== "fresh") {
+      rate = 12;
+      consumption = 4;
+    } else if (tags.has("organic")) {
+      rate = 5;
+      consumption = 2;
+    } else if ((tags.has("waste") || tags.has("contaminated")) && (freshness === "spoiled" || freshness === "ruined")) {
+      rate = 8;
+      consumption = 3;
+    }
+    return { rate, consumption };
+  }
+
+
   function canAddContainedSlime() {
     return openPermanentContainers().length > 0;
   }
@@ -7315,16 +8837,21 @@
     return normalized;
   }
 
+
   function normalizeRooms(candidate) {
     const rooms = Array.isArray(candidate) ? candidate : [];
     const normalized = rooms
       .map(normalizeRoom)
       .filter(Boolean);
-    if (!normalized.some((room) => room.id === MAIN_ROOM_ID)) {
-      normalized.unshift(defaultRooms()[0]);
+    for (const required of defaultRooms()) {
+      if (!normalized.some((room) => room.id === required.id)) {
+        normalized.push(required);
+      }
     }
+    normalized.sort((a, b) => roomSortRank(a) - roomSortRank(b));
     return normalized;
   }
+
 
   function normalizeContainers(candidate) {
     const fallback = defaultContainers();
@@ -7376,7 +8903,11 @@
       type,
       typeId,
       wardIds: type === "synthesis" ? [] : normalizeContainerWardIds(candidate.wardIds || starter?.wardIds || []),
-      roomId: cleanRoomId(candidate.roomId) || MAIN_ROOM_ID
+      roomId: type === "synthesis"
+        ? MAIN_ROOM_ID
+        : cleanRoomId(candidate.roomId) || starterContainerRoomId(starter || {}, Math.max(0, (numericSuffix(id) || 1) - 1)),
+      condition: normalizeContainerCondition(candidate.condition),
+      environment: normalizeContainerEnvironment(candidate.environment)
     };
   }
 
@@ -7392,17 +8923,26 @@
     return match ? Number(match[1]) : 1000;
   }
 
+
   function normalizeRoom(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
     }
     const id = cleanRoomId(candidate.id) || MAIN_ROOM_ID;
+    const base = ROOM_BASE_DEF_BY_ID[id] || null;
+    const rawName = String(candidate.name || "").trim();
+    const name = rawName || base?.name || (id === MAIN_ROOM_ID ? "Main Lab" : titleCase(id));
     return {
       id,
-      name: String(candidate.name || (id === MAIN_ROOM_ID ? "Main Lab" : titleCase(id))).trim() || "Unnamed Room",
-      attributes: normalizeRoomAttributes(candidate.attributes)
+      name,
+      articleName: String(candidate.articleName || base?.articleName || `the ${name}`).trim(),
+      role: String(candidate.role || base?.role || "custom").trim(),
+      roleLabel: String(candidate.roleLabel || base?.roleLabel || "Custom room").trim(),
+      description: String(candidate.description || base?.description || "").trim(),
+      attributes: normalizeRoomAttributes(candidate.attributes || base?.attributes)
     };
   }
+
 
   function cleanRoomId(value) {
     const cleaned = String(value || "").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -7422,6 +8962,22 @@
       };
     }
     return normalized;
+  }
+
+  function normalizeContainerEnvironment(candidate) {
+    const env = {};
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      const raw = candidate?.[def.key];
+      const current = Number(raw?.current);
+      const baseline = Number(raw?.baseline);
+      const recoveryPerHour = Number(raw?.recoveryPerHour);
+      env[def.key] = {
+        current: clamp(Number.isFinite(current) ? current : def.initial, 0, 100),
+        baseline: clamp(Number.isFinite(baseline) ? baseline : def.baseline, 0, 100),
+        recoveryPerHour: Math.max(0, Number.isFinite(recoveryPerHour) ? recoveryPerHour : def.recoveryPerHour)
+      };
+    }
+    return env;
   }
 
   function normalizeFeedstockIncomeProgress(candidate) {
@@ -7482,6 +9038,7 @@
     return state.policies.corpseProcessingTargets;
   }
 
+
   function normalizePolicies(candidate) {
     const fallback = defaultPolicies();
     const feeding = {
@@ -7505,10 +9062,16 @@
     ]) {
       feeding[key] = Boolean(feeding[key]);
     }
+    const corpseHandling = {
+      ...CORPSE_HANDLING_DEFAULTS,
+      ...(candidate?.corpseHandling || {})
+    };
+    corpseHandling.autoMoveToDrums = Boolean(corpseHandling.autoMoveToDrums);
     return {
       ...fallback,
       ...(candidate || {}),
       feeding,
+      corpseHandling,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -7517,6 +9080,7 @@
       )
     };
   }
+
 
   function adjustedDuration(baseDuration, skillId) {
     return Math.max(1, Math.ceil(baseDuration * skillReductionMultiplier(skillLevel(skillId))));
@@ -8089,6 +9653,7 @@
     next.resources = normalizeResources(next.resources);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
+    next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
     next.policies = normalizePolicies(next.policies);
     next.queueDrawerOpen = next.queueDrawerOpen !== false;
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
@@ -8184,6 +9749,7 @@
     );
   }
 
+
   function normalizeCorpseRecords() {
     let drumCount = 0;
     for (const corpse of state.corpses) {
@@ -8191,11 +9757,12 @@
       corpse.revealed ||= {};
       corpse.measured ||= {};
       corpse.traitObservations ||= {};
-      corpse.roomId = state.rooms.some((room) => room.id === corpse.roomId) ? corpse.roomId : MAIN_ROOM_ID;
       corpse.testsRun ||= [];
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
+      corpse.consumedProgress = clamp(Number(corpse.consumedProgress) || 0, 0, 100);
       corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
+      normalizeCorpseLocation(corpse);
       if (corpse.storage === "drum") {
         drumCount += 1;
       }
@@ -8208,6 +9775,7 @@
       }
     }
   }
+
 
   function migrateDeadSlimesToCorpses() {
     const survivors = [];

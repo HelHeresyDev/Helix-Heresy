@@ -1,23 +1,32 @@
+# Dependencies
+node_modules/
+
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Local/generated smoke test files
+tmp-*.js
+tmp-*.mjs
+
+# Local saves / exported runs
+*.save.json
+helix-heresy-save*.json
+rogue-genesis-save*.json
+
+# Downloaded/generated replacement bundles
+app_*_bundle.zip
+app_*_pass*.js
+app_*_fix*.js
+
 # OS/editor clutter
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 
-# Local saves and exported runs
-*.save.json
-helix-heresy-save*.json
-rogue-genesis-save*.json
-
-# Future dependency/build folders
-node_modules/
-dist/
-build/
-
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
-coverage/
+# Environment/local config
+.env
+.env.local
