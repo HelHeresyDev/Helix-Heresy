@@ -59,24 +59,45 @@ Use these files as system-specific summaries instead of asking an agent to read 
    - In-transit containers block occupant jobs
    - Hauling adds active containment pressure
    - Pit holes are fixed in Pits and cannot be hauled
-   - Testing shortcut unloads contents into pit holes when hauling to Pits
-   - Testing shortcut loads contents from pit holes when hauling from Pits
+   - Testing shortcut unloads living contents into pit holes when hauling to Pits
+   - Testing shortcut loads living contents from pit holes when hauling from Pits
+
+8. `HANDOFF_PLAYER_CREATURE_INTERACTION.md`
+   - Uses existing Scientist Health for direct handling danger
+   - Open/Close container interactions
+   - Handling methods and knowledge-gated risk previews
+   - Direct corpse/remains Dump/Scrape into pit holes
+   - Direct living slime transfer between same-room containers/pit holes
+   - Stress, health damage, and contamination consequences
+   - No escape/combat/pathfinding systems added yet
 
 ## Current implementation status
 
-The current accepted implementation is incorporated into the tracked project files and has been pushed/should be pushed to `origin/main` after QC.
+The current accepted implementation is incorporated into the current working `app.js` after applying:
 
-The latest accepted feature checkpoint at the time of this index was:
+`app_player_creature_interaction_pass4_fix1_bundle.zip`
 
-`Container Hauling Pass 1 fix1`
+Latest accepted feature checkpoint:
+
+`Player-Creature Interaction Pass 4 fix1`
 
 Status:
 - syntax check passed
-- Container Hauling Pass 1 fix1 smoke test passed
-- 28/28 checks passed
+- Player-Creature Interaction Pass 4 smoke test passed
+- all checks passed
 - console warnings/errors: 0
 - page errors: 0
 - no scope creep detected
+- no slime escaping/combat/pathfinding/full escape systems added
+
+Recommended next Git checkpoint:
+
+```powershell
+git status
+git add app.js "Codex Handoff/SYSTEM_HANDOFF_INDEX.md" "Codex Handoff/HANDOFF_PLAYER_CREATURE_INTERACTION.md"
+git commit -m "Add player creature interaction system"
+git push
+```
 
 ## Workflow recommendation
 
@@ -96,11 +117,15 @@ Use generated zip bundles only as temporary transfer artifacts.
 
 ## Superseded recent transfer bundles
 
-The current tracked `app.js` includes accepted work from:
+The current tracked/accepted `app.js` includes accepted work from:
 - `app_containment_incidents_big_pass_fix2_bundle.zip`
 - `app_corpse_location_pass1_fix1_bundle.zip`
 - `app_rooms_menagerie_pits_pass1_fix1_bundle.zip`
 - `app_pits_hole_containers_pass1_bundle.zip`
 - `app_container_hauling_pass1_fix1_bundle.zip`
+- `app_player_creature_interaction_pass1_bundle.zip`
+- `app_player_creature_interaction_pass2_fix1_bundle.zip`
+- `app_player_creature_interaction_pass3_fix1_bundle.zip`
+- `app_player_creature_interaction_pass4_fix1_bundle.zip`
 
 Intermediate bundles should not be treated as current unless specifically needed for debugging history.

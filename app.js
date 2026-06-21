@@ -82,6 +82,50 @@
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
   const CONTAINER_HAUL_TESTING_PITS_TRANSFER = true;
+  const CONTAINER_INTERACTION_OPEN_DURATION = 8;
+  const CONTAINER_INTERACTION_CLOSE_DURATION = 5;
+  const CONTAINER_INTERACTION_OPEN_STAMINA = 5;
+  const CONTAINER_INTERACTION_CLOSE_STAMINA = 2;
+  const HANDLING_METHOD_DEFS = [
+    {
+      id: "bareHands",
+      label: "Bare hands",
+      description: "Fastest, but offers no protection.",
+      protectionText: "no protection"
+    },
+    {
+      id: "thickGloves",
+      label: "Thick gloves",
+      description: "Reduces contact, contamination, and corpse-handling danger.",
+      protectionText: "reduced contact and contamination risk"
+    },
+    {
+      id: "longTongs",
+      label: "Long tongs",
+      description: "Adds distance from bites, strikes, and contact hazards.",
+      protectionText: "distance from contact and strikes"
+    },
+    {
+      id: "hookPole",
+      label: "Hook pole",
+      description: "Useful for pit covers, grates, and awkward reach.",
+      protectionText: "safer reach for pit covers and grates"
+    },
+    {
+      id: "scraper",
+      label: "Scraper",
+      description: "Best for stuck, spoiled, ruined, or residue-like remains.",
+      protectionText: "better control when removing corpse residue"
+    }
+  ];
+  const HANDLING_METHOD_BY_ID = Object.fromEntries(HANDLING_METHOD_DEFS.map((method) => [method.id, method]));
+  const DEFAULT_HANDLING_METHOD = "bareHands";
+  const REMAINS_DUMP_DURATION = 10;
+  const REMAINS_SCRAPE_DURATION = 16;
+  const REMAINS_DUMP_STAMINA = 6;
+  const REMAINS_SCRAPE_STAMINA = 9;
+  const LIVE_TRANSFER_DURATION = 14;
+  const LIVE_TRANSFER_STAMINA = 8;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
   const CORPSE_HANDLING_DESTINATIONS = [
@@ -980,6 +1024,7 @@
       clock: 0,
       suspicion: 0,
       suspicionPeakBand: "quiet",
+      runEnded: false,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -1118,6 +1163,7 @@
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [stateDef.key, stateDef.defaultTarget])
       ),
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
+      handling: { method: DEFAULT_HANDLING_METHOD },
       feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
@@ -1419,7 +1465,13 @@
         return;
       }
       const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
-      if (!spendStamina(cost)) {
+      if (scientistIsDead()) {
+      addEvent("The scientist is dead.");
+      persist();
+      render();
+      return;
+    }
+    if (!spendStamina(cost)) {
         addEvent(`Not enough stamina. ${cost} required.`);
         persist();
         render();
@@ -1875,6 +1927,11 @@
       return;
     }
 
+    if (task.type === "containerInteraction") {
+      completeContainerInteraction(task);
+      return;
+    }
+
     if (task.type === "mature") {
       const slime = findSlime(task.data.slimeId);
       if (slime && slime.status !== "dead") {
@@ -1906,6 +1963,12 @@
   }
 
   function startStaminaTask({ type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts = {}, data }) {
+    if (scientistIsDead()) {
+      addEvent("The scientist is dead.");
+      persist();
+      render();
+      return false;
+    }
     const cost = adjustedStaminaCost(baseCost, [skillId, "slimeHandling"]);
     const resourceReason = resourceBlockReason(resourceCosts);
     if (resourceReason) {
@@ -3026,6 +3089,941 @@
   }
 
 
+
+
+  function handlingPolicy() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.handling;
+  }
+
+  function currentHandlingMethodId() {
+    return HANDLING_METHOD_BY_ID[handlingPolicy().method] ? handlingPolicy().method : DEFAULT_HANDLING_METHOD;
+  }
+
+  function currentHandlingMethod() {
+    return HANDLING_METHOD_BY_ID[currentHandlingMethodId()] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+  }
+
+  function setHandlingMethod(methodId) {
+    state.policies = normalizePolicies(state.policies);
+    state.policies.handling.method = HANDLING_METHOD_BY_ID[methodId] ? methodId : DEFAULT_HANDLING_METHOD;
+    addEvent(`Handling method set to ${currentHandlingMethod().label}.`);
+    persist();
+    render();
+  }
+
+  function slimeTraitKnown(slime, traitKey) {
+    return Boolean(slime?.revealed?.[traitKey] || slime?.measured?.[traitKey]);
+  }
+
+  function slimeHandlingExperience(slime) {
+    return Math.max(0, Number(slime?.handlingInjuryExperience) || 0);
+  }
+
+  function handlingKnowledgeConfidence(container) {
+    const occupants = containerOccupants(container.id);
+    const unknownFactors = [];
+    const knownFactors = [];
+    let unknownMajor = 0;
+    let knownMajor = 0;
+
+    const condition = containerCondition(container);
+    if (condition <= 25) {
+      knownFactors.push("container condition is critical");
+      knownMajor += 1;
+    } else if (condition <= 50) {
+      knownFactors.push("container condition is damaged");
+      knownMajor += 1;
+    } else if (condition <= 75) {
+      knownFactors.push("container condition is worn");
+    }
+
+    if (isPitHoleContainer(container)) {
+      knownFactors.push("pit-hole access is awkward");
+    }
+
+    for (const slime of occupants) {
+      const stress = slimeStat(slime, "stress").current;
+      if (stress >= 80) {
+        knownFactors.push(`${slime.name} is highly stressed`);
+        knownMajor += 1;
+      } else if (stress >= 50) {
+        knownFactors.push(`${slime.name} is stressed`);
+      }
+
+      const evaluated = evaluateGenome(slime.genome);
+      if (slimeTraitKnown(slime, "behavior")) {
+        const behavior = evaluated.traits.behavior?.id || "";
+        if (["predatory", "vibrational", "territorial"].includes(behavior)) {
+          knownFactors.push(`${slime.name} has a dangerous known behavior`);
+          knownMajor += 1;
+        } else {
+          knownFactors.push(`${slime.name}'s behavior has been observed`);
+        }
+      } else {
+        unknownFactors.push("creature behavior");
+        unknownMajor += 1;
+      }
+
+      if (slimeTraitKnown(slime, "appendages")) {
+        const appendages = evaluated.traits.appendages?.id || "";
+        if (appendages && appendages !== "none") {
+          knownFactors.push("reaching appendages");
+          knownMajor += 1;
+        } else {
+          knownFactors.push("no major appendages observed");
+        }
+      } else {
+        unknownFactors.push("appendages");
+        unknownMajor += 1;
+      }
+
+      if (slimeTraitKnown(slime, "stability")) {
+        knownFactors.push("stability has been tested");
+        knownMajor += 1;
+      } else {
+        unknownFactors.push("stability");
+        unknownMajor += 1;
+      }
+
+      if (!slimeTraitKnown(slime, "element") && !slimeTraitKnown(slime, "byproduct")) {
+        unknownFactors.push("contact hazards");
+        unknownMajor += 1;
+      } else {
+        knownFactors.push("some hazard traits are known");
+      }
+
+      if (slimeHandlingExperience(slime) > 0) {
+        // Prior injury from this exact slime is high-value knowledge and should
+        // remain visible even when other known factors are also present.
+        knownFactors.unshift(`prior handling injury from ${slime.name}`);
+        knownMajor += 2;
+      }
+    }
+
+    const skill = skillLevel("slimeHandling");
+    const expert = skill >= 30;
+    const experienced = occupants.some((slime) => slimeHandlingExperience(slime) > 0);
+    let certainty = "unknown";
+    if (expert || experienced || unknownMajor <= 1) {
+      certainty = "high";
+    } else if (unknownMajor <= 3 && knownMajor >= 1) {
+      certainty = "partial";
+    }
+
+    return {
+      certainty,
+      skill,
+      expert,
+      experienced,
+      unknownMajor,
+      knownMajor,
+      knownFactors: [...new Set(knownFactors)].slice(0, 5),
+      unknownFactors: [...new Set(unknownFactors)].slice(0, 5)
+    };
+  }
+
+  function handlingMethodRiskAdjustment(container, methodId) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    let adjustment = 0;
+    const notes = [];
+
+    if (method.id === "thickGloves") {
+      adjustment -= 8;
+      notes.push("gloves reduce contact and contamination risk");
+      if (containerCorpses(container.id).length) {
+        adjustment -= 6;
+        notes.push("gloves help with corpse contamination");
+      }
+    } else if (method.id === "longTongs") {
+      adjustment -= 10;
+      notes.push("tongs add distance from contact and strikes");
+      if (containerContentsCount(container) > 1) {
+        adjustment += 4;
+        notes.push("tongs are awkward with crowded contents");
+      }
+      if (isPitHoleContainer(container)) {
+        adjustment += 4;
+        notes.push("tongs are awkward over deep pits");
+      }
+    } else if (method.id === "hookPole") {
+      if (isPitHoleContainer(container)) {
+        adjustment -= 12;
+        notes.push("hook pole helps with pit covers and grates");
+      } else {
+        adjustment += 3;
+        notes.push("hook pole is clumsy for ordinary containers");
+      }
+    } else if (method.id === "scraper") {
+      if (containerCorpses(container.id).length) {
+        adjustment -= 12;
+        notes.push("scraper improves control over corpse residue");
+      } else {
+        adjustment += 4;
+        notes.push("scraper is poor for live handling");
+      }
+    } else {
+      notes.push("bare hands offer no protection");
+    }
+
+    return {
+      adjustment,
+      notes,
+      method
+    };
+  }
+
+  function qualitativeHarmEstimate(score, certainty) {
+    if (certainty === "unknown") {
+      return "cannot estimate safely";
+    }
+    if (certainty === "partial") {
+      if (score >= 55) {
+        return "serious to lethal harm possible";
+      }
+      if (score >= 35) {
+        return "moderate to serious harm possible";
+      }
+      if (score >= 15) {
+        return "minor to moderate harm possible";
+      }
+      return "minor harm possible";
+    }
+    if (score >= 55) {
+      return "serious to lethal harm likely";
+    }
+    if (score >= 35) {
+      return "serious harm possible";
+    }
+    if (score >= 15) {
+      return "moderate harm possible";
+    }
+    return "no obvious harm expected";
+  }
+
+  function visibleHandlingRiskBand(score, certainty) {
+    if (certainty === "unknown") {
+      return "Unknown";
+    }
+    if (certainty === "partial") {
+      return "Uncertain";
+    }
+    if (score >= 55) {
+      return "Severe";
+    }
+    if (score >= 35) {
+      return "Dangerous";
+    }
+    if (score >= 15) {
+      return "Risky";
+    }
+    return "Low";
+  }
+
+  function containerAlwaysOpen(container) {
+    return container?.typeId === "openDirtPit";
+  }
+
+  function containerAccessOpen(container) {
+    if (!container || container.type === "synthesis") {
+      return false;
+    }
+    return containerAlwaysOpen(container) || Boolean(container.isOpen);
+  }
+
+  function containerAccessLabel(container) {
+    if (containerAlwaysOpen(container)) {
+      return "open by design";
+    }
+    return containerAccessOpen(container) ? "open" : "closed";
+  }
+
+  function containerInteractionTask(containerId) {
+    return (state.tasks || []).find((task) => task.type === "containerInteraction" && task.data?.containerId === containerId) || null;
+  }
+
+
+  function containerHandlingRisk(container, action = "open", methodId = currentHandlingMethodId()) {
+    if (!container || container.type === "synthesis") {
+      return {
+        band: "None",
+        visibleBand: "None",
+        certainty: "high",
+        className: "container-band-good",
+        score: 0,
+        damage: 0,
+        harmText: "no direct handling risk",
+        method: currentHandlingMethod(),
+        knownFactors: ["The synthesis tube is not opened by hand in this prototype."],
+        unknownFactors: [],
+        methodNotes: [],
+        reasons: ["The synthesis tube is not opened by hand in this prototype."]
+      };
+    }
+
+    const occupants = containerOccupants(container.id);
+    const corpses = containerCorpses(container.id);
+    let score = 0;
+    const internalReasons = [];
+    const add = (points, text) => {
+      score += points;
+      internalReasons.push(text);
+    };
+
+    if (containerAlwaysOpen(container)) {
+      add(6, "this pit is already open by design.");
+    }
+
+    if (isPitHoleContainer(container)) {
+      add(12, "pit holes require awkward, close-range handling.");
+    }
+
+    if (isContainerInTransit(container.id)) {
+      add(8, "the container is already in transit.");
+    }
+
+    const condition = containerCondition(container);
+    if (condition <= 25) {
+      add(14, "container condition is critical.");
+    } else if (condition <= 50) {
+      add(8, "container condition is damaged.");
+    } else if (condition <= 75) {
+      add(4, "container condition is worn.");
+    }
+
+    if (!occupants.length && !corpses.length) {
+      add(0, "the container is empty.");
+    }
+
+    for (const slime of occupants) {
+      const risk = activeContainmentRisk(slime, container);
+      if (/Failing/i.test(risk.label)) {
+        add(30, `${slime.name} has high active containment risk.`);
+      } else if (/Dangerous/i.test(risk.label)) {
+        add(22, `${slime.name} has high active containment risk.`);
+      } else if (/Strained/i.test(risk.label)) {
+        add(12, `${slime.name} has strained active containment risk.`);
+      } else if (/Watch/i.test(risk.label)) {
+        add(6, `${slime.name} needs monitoring.`);
+      }
+      const stress = slimeStat(slime, "stress").current;
+      if (stress >= 80) {
+        add(12, `${slime.name} is highly stressed.`);
+      } else if (stress >= 50) {
+        add(6, `${slime.name} is stressed.`);
+      }
+      const evaluated = evaluateGenome(slime.genome);
+      const behavior = evaluated.traits.behavior?.id || "";
+      if (["predatory", "vibrational", "territorial"].includes(behavior)) {
+        add(10, `${slime.name} may react violently to handling.`);
+      }
+      const appendages = evaluated.traits.appendages?.id || "";
+      if (appendages && appendages !== "none") {
+        add(6, `${slime.name} has appendages that can reach the opening.`);
+      }
+    }
+
+    for (const corpse of corpses) {
+      const freshness = corpseFreshness(corpse);
+      if (freshness === "ruined") {
+        add(10, `${corpse.name} remains are ruined and hazardous.`);
+      } else if (freshness === "spoiled") {
+        add(7, `${corpse.name} remains are spoiled.`);
+      } else if (freshness === "decaying") {
+        add(4, `${corpse.name} remains are decaying.`);
+      } else {
+        add(2, `${corpse.name} remains still carry contamination risk.`);
+      }
+    }
+
+    const methodAdjustment = handlingMethodRiskAdjustment(container, methodId);
+    score = Math.max(0, score + methodAdjustment.adjustment);
+
+    if (action === "close") {
+      score = Math.max(0, Math.round(score * 0.45));
+      internalReasons.unshift("Closing is safer than opening but still requires direct contact.");
+    }
+
+    let band = "Low";
+    let className = "container-band-good";
+    let damage = 0;
+    if (score >= 55) {
+      band = "Severe";
+      className = "container-band-bad";
+      damage = action === "close" ? 12 : 24;
+    } else if (score >= 35) {
+      band = "Dangerous";
+      className = "container-band-bad";
+      damage = action === "close" ? 6 : 12;
+    } else if (score >= 15) {
+      band = "Risky";
+      className = "container-band-watch";
+      damage = action === "close" ? 2 : 4;
+    }
+
+    const confidence = handlingKnowledgeConfidence(container);
+    const visibleBand = visibleHandlingRiskBand(score, confidence.certainty);
+    const harmText = qualitativeHarmEstimate(score, confidence.certainty);
+
+    return {
+      band,
+      visibleBand,
+      certainty: confidence.certainty,
+      className,
+      score,
+      damage,
+      harmText,
+      method: methodAdjustment.method,
+      knownFactors: confidence.knownFactors.length ? confidence.knownFactors : ["no major known hazards"],
+      unknownFactors: confidence.unknownFactors,
+      methodNotes: methodAdjustment.notes,
+      reasons: internalReasons.length ? internalReasons : ["No obvious handling danger."]
+    };
+  }
+
+  function handlingRiskSummary(container) {
+    const action = containerAccessOpen(container) ? "close" : "open";
+    const risk = containerHandlingRisk(container, action, currentHandlingMethodId());
+    const pieces = [
+      `Handling risk: ${risk.visibleBand}`,
+      `Method: ${risk.method.label}`,
+      `Known factors: ${risk.knownFactors.slice(0, 3).join(" · ")}`
+    ];
+    if (risk.unknownFactors.length) {
+      pieces.push(`Unknown factors: ${risk.unknownFactors.slice(0, 4).join(", ")}`);
+    }
+    if (risk.methodNotes.length) {
+      pieces.push(`Protection: ${risk.methodNotes.slice(0, 2).join(" · ")}`);
+    }
+    pieces.push(`Possible harm: ${risk.harmText}`);
+    return pieces.join(". ");
+  }
+
+
+
+
+  function scientistIsDead() {
+    return scientistVital("health").current <= 0 || Boolean(state.runEnded);
+  }
+
+  function damageScientistHealth(amount, reason = "direct handling injury") {
+    const damage = Math.max(0, Math.round(Number(amount) || 0));
+    if (!damage) {
+      return false;
+    }
+    const health = scientistVital("health");
+    const before = health.current;
+    health.current = clamp(before - damage, 0, health.max);
+    addEvent(`Scientist hurt during handling: ${reason}.`);    if (health.current <= 0 && before > 0) {
+      state.runEnded = true;
+      state.paused = true;
+      addEvent("The scientist died. Run ended.");
+    }
+    return true;
+  }
+
+  function containerInteractionBlockReason(container, action) {
+    if (!container) {
+      return "No container selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (container.type === "synthesis") {
+      return "The synthesis tube cannot be opened by hand.";
+    }
+    if (isContainerInTransit(container.id)) {
+      return `${container.name} is being hauled.`;
+    }
+    const existing = containerInteractionTask(container.id);
+    if (existing) {
+      return `${container.name} is already being handled.`;
+    }
+    if (action === "open") {
+      if (containerAccessOpen(container)) {
+        return `${container.name} is already open.`;
+      }
+    } else if (action === "close") {
+      if (containerAlwaysOpen(container)) {
+        return `${container.name} has no cover to close.`;
+      }
+      if (!containerAccessOpen(container)) {
+        return `${container.name} is already closed.`;
+      }
+    } else {
+      return "Unknown handling action.";
+    }
+    return "";
+  }
+
+  function startContainerInteraction(containerId, action) {
+    const container = containerById(containerId);
+    const reason = containerInteractionBlockReason(container, action);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const baseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
+    const cost = adjustedStaminaCost(baseCost, ["slimeHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const duration = adjustedDuration(action === "close" ? CONTAINER_INTERACTION_CLOSE_DURATION : CONTAINER_INTERACTION_OPEN_DURATION, "slimeHandling");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "containerInteraction",
+      label: `${action === "close" ? "Close" : "Open"} ${container.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        containerId: container.id,
+        action,
+        methodId: currentHandlingMethodId(),
+        staminaCost: cost
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} started.`);
+    persist();
+    render();
+    return true;
+  }
+
+
+  function completeContainerInteraction(task) {
+    const container = containerById(task.data?.containerId);
+    const action = task.data?.action;
+    const methodId = HANDLING_METHOD_BY_ID[task.data?.methodId] ? task.data.methodId : currentHandlingMethodId();
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    if (!container) {
+      addEvent("Handling could not complete; the container no longer exists.");
+      return false;
+    }
+    if (action === "dumpRemains" || action === "scrapeRemains") {
+      return completeRemainsHandling(task, container, action, methodId, method);
+    }
+    if (action === "transferLivingSlime") {
+      return completeLiveSlimeTransfer(task, container, methodId, method);
+    }
+    if (action === "open") {
+      const risk = containerHandlingRisk(container, "open", methodId);
+      container.isOpen = true;
+      const occupants = containerOccupants(container.id);
+      for (const slime of occupants) {
+        adjustSlimeStat(slime, "stress", 6 + Math.min(14, Math.round(risk.score / 5)));
+      }
+      if (risk.damage > 0) {
+        damageScientistHealth(risk.damage, `${risk.band.toLowerCase()} handling while opening ${container.name} with ${method.label}`);
+        for (const slime of occupants) {
+          slime.handlingInjuryExperience = Math.max(0, Number(slime.handlingInjuryExperience) || 0) + 1;
+        }
+      }
+      addEvent(`${container.name} opened with ${method.label}. Handling risk ${risk.visibleBand}.`);
+      return true;
+    }
+    if (action === "close") {
+      const risk = containerHandlingRisk(container, "close", methodId);
+      container.isOpen = false;
+      const occupants = containerOccupants(container.id);
+      for (const slime of occupants) {
+        adjustSlimeStat(slime, "stress", 2);
+      }
+      if (risk.damage > 0) {
+        damageScientistHealth(risk.damage, `${risk.band.toLowerCase()} handling while closing ${container.name} with ${method.label}`);
+        for (const slime of occupants) {
+          slime.handlingInjuryExperience = Math.max(0, Number(slime.handlingInjuryExperience) || 0) + 1;
+        }
+      }
+      addEvent(`${container.name} closed with ${method.label}. Handling risk ${risk.visibleBand}.`);
+      return true;
+    }
+    addEvent("Handling could not complete; unknown action.");
+    return false;
+  }
+
+
+
+
+
+  function liveTransferActionLabel() {
+    return "Transfer Living Slime";
+  }
+
+  function liveTransferDestinationAcceptsLiveSlime(container) {
+    if (!container || isContainerInTransit(container.id) || containerContentsCount(container) > 0) {
+      return false;
+    }
+    // Pit holes are handled as destination sites during the transfer action.
+    // Covered pits can be opened as part of the task; they should still be selectable.
+    return isPitHoleContainer(container) || containerAccessOpen(container);
+  }
+
+  function liveTransferSourceAllowsDirectHandling(container) {
+    if (!container) {
+      return false;
+    }
+    // A living slime already in a pit hole can be extracted by working the pit cover/site,
+    // even if the pit is not represented as a normal open container.
+    return isPitHoleContainer(container) || containerAccessOpen(container);
+  }
+
+  function liveTransferDestinationCandidates(sourceContainer) {
+    if (!sourceContainer) {
+      return [];
+    }
+    const sourceRoomId = sourceContainer.roomId || MAIN_ROOM_ID;
+    return permanentContainers()
+      .filter((container) => container.id !== sourceContainer.id)
+      .filter((container) => container.roomId === sourceRoomId)
+      .filter(liveTransferDestinationAcceptsLiveSlime)
+      .sort((a, b) => {
+        const aPit = isPitHoleContainer(a) ? 0 : 1;
+        const bPit = isPitHoleContainer(b) ? 0 : 1;
+        return aPit - bPit || String(a.name).localeCompare(String(b.name));
+      });
+  }
+
+  function liveTransferBlockReason(sourceContainer, destinationContainerId = "") {
+    if (!sourceContainer) {
+      return "No source container selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (sourceContainer.type === "synthesis") {
+      return "Move the slime out of the synthesis tube before direct transfer.";
+    }
+    if (isContainerInTransit(sourceContainer.id)) {
+      return `${sourceContainer.name} is being hauled.`;
+    }
+    if (!liveTransferSourceAllowsDirectHandling(sourceContainer)) {
+      return "Open the source container before transferring a living slime.";
+    }
+    if (containerCorpses(sourceContainer.id).length > 0) {
+      return "Remove corpse remains before transferring a living slime.";
+    }
+    const occupants = containerOccupants(sourceContainer.id);
+    if (!occupants.length) {
+      return "No living slime is in this container.";
+    }
+    if (occupants.length > 1) {
+      return "Separate crowded contents before direct living transfer.";
+    }
+    if (containerInteractionTask(sourceContainer.id)) {
+      return `${sourceContainer.name} is already being handled.`;
+    }
+    const candidates = liveTransferDestinationCandidates(sourceContainer);
+    if (!candidates.length) {
+      return "No open same-room destination container is available.";
+    }
+    const destination = containerById(destinationContainerId) || candidates[0];
+    if (!destination) {
+      return "No destination container selected.";
+    }
+    if (destination.id === sourceContainer.id) {
+      return "Choose a different destination container.";
+    }
+    if (destination.roomId !== sourceContainer.roomId) {
+      return "Direct living transfer requires a same-room destination.";
+    }
+    if (isContainerInTransit(destination.id)) {
+      return `${destination.name} is being hauled.`;
+    }
+    if (!liveTransferDestinationAcceptsLiveSlime(destination)) {
+      return isPitHoleContainer(destination)
+        ? `${destination.name} is not empty.`
+        : "Open the destination container before transfer.";
+    }
+    return "";
+  }
+
+  function startLiveSlimeTransfer(sourceContainerId, destinationContainerId) {
+    const sourceContainer = containerById(sourceContainerId);
+    const reason = liveTransferBlockReason(sourceContainer, destinationContainerId);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const slime = containerOccupants(sourceContainer.id)[0];
+    const destination = containerById(destinationContainerId) || liveTransferDestinationCandidates(sourceContainer)[0];
+    const cost = adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const duration = adjustedDuration(LIVE_TRANSFER_DURATION, "slimeHandling");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "containerInteraction",
+      label: `Transfer ${slime.name} from ${sourceContainer.name} to ${destination.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        containerId: sourceContainer.id,
+        action: "transferLivingSlime",
+        methodId: currentHandlingMethodId(),
+        slimeId: slime.id,
+        destinationContainerId: destination.id,
+        staminaCost: cost
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} started with ${currentHandlingMethod().label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function foulContainerAfterLiveTransfer(container, amount = 4) {
+    if (!container?.environment?.contamination) {
+      return;
+    }
+    container.environment.contamination.current = clamp((Number(container.environment.contamination.current) || 0) + amount, 0, 100);
+  }
+
+  function completeLiveSlimeTransfer(task, sourceContainer, methodId, method) {
+    const slime = findSlime(task.data?.slimeId);
+    const destination = containerById(task.data?.destinationContainerId);
+    if (!slime || slime.status === "dead" || slime.containerId !== sourceContainer.id) {
+      addEvent("Living transfer could not complete; the slime is no longer in the source container.");
+      return false;
+    }
+    if (!destination) {
+      addEvent("Living transfer could not complete; the destination container no longer exists.");
+      return false;
+    }
+    const reason = liveTransferBlockReason(sourceContainer, destination.id);
+    if (reason) {
+      addEvent(`Living transfer could not complete: ${reason}`);
+      return false;
+    }
+
+    const risk = containerHandlingRisk(sourceContainer, "transferLivingSlime", methodId);
+    const destinationRisk = isPitHoleContainer(destination) ? 6 : 0;
+    const effectiveDamage = Math.max(1, risk.damage + Math.round(destinationRisk / 3));
+    if (effectiveDamage > 0) {
+      damageScientistHealth(effectiveDamage, `${risk.band.toLowerCase()} living transfer while moving ${slime.name} from ${sourceContainer.name} to ${destination.name} with ${method.label}`);
+      slime.handlingInjuryExperience = Math.max(0, Number(slime.handlingInjuryExperience) || 0) + 1;
+    }
+
+    adjustSlimeStat(slime, "stress", 10 + Math.min(20, Math.round(risk.score / 4)));
+    foulContainerAfterLiveTransfer(sourceContainer, 4);
+    foulContainerAfterLiveTransfer(destination, isPitHoleContainer(destination) ? 6 : 4);
+
+    if (isPitHoleContainer(destination) && !containerAlwaysOpen(destination)) {
+      destination.isOpen = true;
+    }
+
+    slime.containerId = destination.id;
+    slime.roomId = destination.roomId || sourceContainer.roomId || MAIN_ROOM_ID;
+    slime.status = "contained";
+    slime.job = "idle";
+    slime.jobProgress = 0;
+    slime.jobTargetCorpseId = null;
+    slime.jobNutritionGained = 0;
+
+    addEvent(`${slime.name} transferred from ${sourceContainer.name} to ${destination.name} with ${method.label}.`);
+    return true;
+  }
+
+  function livingContainerOccupantCount(container) {
+    return containerOccupants(container?.id).length;
+  }
+
+  function availablePitHoleForRemains(count = 1) {
+    const needed = Math.max(1, Math.ceil(Number(count) || 1));
+    return pitHoleContainers()
+      .filter((pit) => containerOccupants(pit.id).length === 0)
+      .filter((pit) => pitHoleCorpseCapacity(pit) - pitHoleCorpseCount(pit) >= needed)
+      .sort((a, b) => pitHoleCorpseCount(a) - pitHoleCorpseCount(b) || containerTypeDef(b.typeId).seal - containerTypeDef(a.typeId).seal)
+      [0] || null;
+  }
+
+  function remainsHandlingActionLabel(action) {
+    if (action === "scrapeRemains") {
+      return "Scrape Remains into Pit";
+    }
+    return "Dump Remains into Pit";
+  }
+
+  function remainsHandlingBlockReason(container, action) {
+    if (!container) {
+      return "No container selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (container.type === "synthesis") {
+      return "Move remains out of the synthesis tube before pit disposal.";
+    }
+    if (isPitHoleContainer(container)) {
+      return "Pit holes are already the destination for remains.";
+    }
+    if (container.roomId !== PITS_ROOM_ID) {
+      return "Haul this container to Pits before handling remains.";
+    }
+    if (!containerAccessOpen(container)) {
+      return "Open the container before handling remains.";
+    }
+    if (isContainerInTransit(container.id)) {
+      return `${container.name} is being hauled.`;
+    }
+    if (containerInteractionTask(container.id)) {
+      return `${container.name} is already being handled.`;
+    }
+    const corpses = containerCorpses(container.id);
+    if (!corpses.length) {
+      return "No corpse remains are in this container.";
+    }
+    if (!availablePitHoleForRemains(corpses.length)) {
+      return "No pit hole has room for these remains.";
+    }
+    if (action !== "dumpRemains" && action !== "scrapeRemains") {
+      return "Unknown remains handling action.";
+    }
+    return "";
+  }
+
+  function startRemainsHandling(containerId, action) {
+    const container = containerById(containerId);
+    const reason = remainsHandlingBlockReason(container, action);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const corpses = containerCorpses(container.id);
+    const destinationPit = availablePitHoleForRemains(corpses.length);
+    const baseCost = action === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
+    const cost = adjustedStaminaCost(baseCost, ["slimeHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const duration = adjustedDuration(action === "scrapeRemains" ? REMAINS_SCRAPE_DURATION : REMAINS_DUMP_DURATION, "slimeHandling");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "containerInteraction",
+      label: `${remainsHandlingActionLabel(action)} from ${container.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        containerId: container.id,
+        action,
+        methodId: currentHandlingMethodId(),
+        corpseIds: corpses.map((corpse) => corpse.id),
+        destinationPitId: destinationPit.id,
+        staminaCost: cost
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} started with ${currentHandlingMethod().label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function corpseHandlingRiskModifier(container, action, methodId) {
+    const corpses = containerCorpses(container.id);
+    let extra = 0;
+    for (const corpse of corpses) {
+      const freshness = corpseFreshness(corpse);
+      if (freshness === "ruined") {
+        extra += 10;
+      } else if (freshness === "spoiled") {
+        extra += 7;
+      } else if (freshness === "decaying") {
+        extra += 4;
+      } else {
+        extra += 2;
+      }
+    }
+    if (action === "scrapeRemains") {
+      extra += 6;
+    }
+    if (methodId === "scraper" && action === "scrapeRemains") {
+      extra -= 10;
+    }
+    if (methodId === "thickGloves") {
+      extra -= 5;
+    }
+    if (methodId === "bareHands") {
+      extra += 8;
+    }
+    return Math.max(0, extra);
+  }
+
+  function foulContainerAfterRemainsHandling(container, action) {
+    if (!container?.environment?.contamination) {
+      return;
+    }
+    const increase = action === "scrapeRemains" ? 12 : 8;
+    container.environment.contamination.current = clamp((Number(container.environment.contamination.current) || 0) + increase, 0, 100);
+  }
+
+  function foulPitsAfterRemainsHandling(action) {
+    const room = roomById(PITS_ROOM_ID);
+    if (!room?.attributes?.contamination) {
+      return;
+    }
+    const increase = action === "scrapeRemains" ? 4 : 3;
+    room.attributes.contamination.current = clamp((Number(room.attributes.contamination.current) || 0) + increase, 0, 100);
+  }
+
+  function completeRemainsHandling(task, container, action, methodId, method) {
+    const destinationPit = containerById(task.data?.destinationPitId);
+    if (!destinationPit || !isPitHoleContainer(destinationPit)) {
+      addEvent("Remains handling could not complete; no destination pit is available.");
+      return false;
+    }
+    const corpseIds = Array.isArray(task.data?.corpseIds) ? task.data.corpseIds : [];
+    const corpses = corpseIds
+      .map((corpseId) => state.corpses.find((corpse) => corpse.id === corpseId))
+      .filter((corpse) => corpse?.storage === "container" && corpse.containerId === container.id);
+    if (!corpses.length) {
+      addEvent("Remains handling could not complete; the remains are no longer in the source container.");
+      return false;
+    }
+    if (pitHoleCorpseCapacity(destinationPit) - pitHoleCorpseCount(destinationPit) < corpses.length) {
+      addEvent("Remains handling could not complete; the destination pit no longer has room.");
+      return false;
+    }
+
+    const risk = containerHandlingRisk(container, action, methodId);
+    const extraRisk = corpseHandlingRiskModifier(container, action, methodId);
+    const minimumRemainsDamage = corpses.length ? 1 : 0;
+    const effectiveDamage = Math.max(minimumRemainsDamage, risk.damage + Math.round(extraRisk / 4));
+    if (effectiveDamage > 0) {
+      damageScientistHealth(effectiveDamage, `${risk.band.toLowerCase()} remains handling while ${action === "scrapeRemains" ? "scraping" : "dumping"} ${container.name} with ${method.label}`);
+    }
+
+    for (const corpse of corpses) {
+      corpse.storage = "container";
+      corpse.containerId = destinationPit.id;
+      corpse.roomId = destinationPit.roomId || PITS_ROOM_ID;
+      corpse.nextOverflowEventAt = null;
+    }
+
+    foulContainerAfterRemainsHandling(container, action);
+    foulPitsAfterRemainsHandling(action);
+    const verb = action === "scrapeRemains" ? "scraped" : "dumped";
+    addEvent(`${corpses.length} corpse remain${corpses.length === 1 ? "" : "s"} ${verb} from ${container.name} into ${destinationPit.name} with ${method.label}.`);
+    refreshCorpseProcessingTargets();
+    return true;
+  }
+
   function moveContainerToRoom(containerId, roomId) {
     return startContainerHaul(containerId, roomId);
   }
@@ -3062,6 +4060,9 @@
     if (container.type === "synthesis") {
       return "The synthesis tube cannot be hauled.";
     }
+    if (containerAccessOpen(container) && !containerAlwaysOpen(container)) {
+      return "Close the container before hauling it.";
+    }
     if (isPitHoleContainer(container)) {
       return "Pit holes are built into the Pits and cannot be hauled.";
     }
@@ -3075,8 +4076,8 @@
     if (existing) {
       return `${container.name} is already being hauled to ${roomName(existing.data?.toRoomId)}.`;
     }
-    if (toRoomId === PITS_ROOM_ID && CONTAINER_HAUL_TESTING_PITS_TRANSFER && containerContentsCount(container) > 0 && !availablePitHoleForHaul(container.id)) {
-      return "No pit hole has room for this container's contents.";
+    if (toRoomId === PITS_ROOM_ID && CONTAINER_HAUL_TESTING_PITS_TRANSFER && livingContainerOccupantCount(container) > 0 && !availablePitHoleForHaul(container.id)) {
+      return "No pit hole has room for this container's living contents.";
     }
     return "";
   }
@@ -3182,26 +4183,28 @@
       [0] || null;
   }
 
+
   function pitHoleWithContentsForHaul() {
     return pitHoleContainers()
       .filter((pit) => !isContainerInTransit(pit.id))
-      .filter((pit) => containerOccupants(pit.id).length > 0 || containerCorpses(pit.id).length > 0)
-      .sort((a, b) => containerOccupants(b.id).length - containerOccupants(a.id).length || containerCorpses(b.id).length - containerCorpses(a.id).length)
+      .filter((pit) => containerOccupants(pit.id).length > 0)
+      .sort((a, b) => containerOccupants(b.id).length - containerOccupants(a.id).length)
       [0] || null;
   }
+
+
 
   function unloadContainerContentsToPitForTesting(container) {
     if (isPitHoleContainer(container)) {
       return "";
     }
     const occupants = containerOccupants(container.id);
-    const corpses = containerCorpses(container.id);
-    if (!occupants.length && !corpses.length) {
+    if (!occupants.length) {
       return "";
     }
     const pit = availablePitHoleForHaul(container.id);
     if (!pit) {
-      return "Testing transfer could not unload contents; no pit hole had room.";
+      return "Testing transfer could not unload living contents; no pit hole had room.";
     }
 
     let moved = 0;
@@ -3214,15 +4217,10 @@
       slime.jobNutritionGained = 0;
       moved += 1;
     }
-    for (const corpse of corpses) {
-      corpse.storage = "container";
-      corpse.containerId = pit.id;
-      corpse.roomId = pit.roomId || PITS_ROOM_ID;
-      corpse.nextOverflowEventAt = null;
-      moved += 1;
-    }
-    return moved ? `Testing shortcut: contents were unloaded into ${pit.name}.` : "";
+    return moved ? `Testing shortcut: living contents were unloaded into ${pit.name}.` : "";
   }
+
+
 
   function loadPitContentsIntoContainerForTesting(container) {
     if (isPitHoleContainer(container) || containerContentsCount(container) > 0) {
@@ -3234,7 +4232,6 @@
     }
 
     const occupants = containerOccupants(pit.id);
-    const corpses = containerCorpses(pit.id);
     let moved = 0;
     for (const slime of occupants) {
       slime.containerId = container.id;
@@ -3245,15 +4242,9 @@
       slime.jobNutritionGained = 0;
       moved += 1;
     }
-    for (const corpse of corpses) {
-      corpse.storage = "container";
-      corpse.containerId = container.id;
-      corpse.roomId = container.roomId || PITS_ROOM_ID;
-      corpse.nextOverflowEventAt = null;
-      moved += 1;
-    }
-    return moved ? `Testing shortcut: contents were loaded from ${pit.name}.` : "";
+    return moved ? `Testing shortcut: living contents were loaded from ${pit.name}.` : "";
   }
+
 
 
   function moveSlimeToOpenPermanentContainer(slime) {
@@ -3694,7 +4685,7 @@
   function renderLiveReadouts() {
     dom.setupOverlay.classList.toggle("hidden", state.started);
     dom.clockReadout.textContent = formatClock(state.clock);
-    dom.pauseReadout.textContent = state.paused ? "Paused" : "Running";
+    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : state.paused ? "Paused" : "Running";
     dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
     dom.timeSpeedSelect.value = currentTimeSpeed().id;
     dom.pauseBtn.textContent = state.paused ? "Resume" : "Pause";
@@ -4691,6 +5682,10 @@
       addPressure(14, "the container is currently being hauled.");
     }
 
+    if (containerAccessOpen(container)) {
+      addPressure(18, "the container is open during direct handling.");
+    }
+
     const localCorpses = containerCorpses(container.id);
     if (localCorpses.length) {
       addPotential(10 + localCorpses.length * 4, `${localCorpses.length} corpse${localCorpses.length === 1 ? "" : "s"} sharing this container.`);
@@ -4904,7 +5899,7 @@
       }
     }
     if (container.type !== "synthesis") {
-      meta.append(chip(`${roomRoleLabel(container.roomId)} room`));
+      meta.append(chip(`${roomRoleLabel(container.roomId)} room`), chip(`access ${containerAccessLabel(container)}`));
       if (isPitHoleContainer(container)) {
         meta.append(chip(`pit corpses ${pitHoleCorpseCount(container)}/${pitHoleCorpseCapacity(container)}`));
       }
@@ -4972,6 +5967,14 @@
       card.append(interior);
     }
 
+    if (container.type !== "synthesis") {
+      const handling = document.createElement("div");
+      handling.className = "container-handling-risk";
+      handling.textContent = handlingRiskSummary(container);
+      handling.dataset.handlingRisk = containerHandlingRisk(container, containerAccessOpen(container) ? "close" : "open", currentHandlingMethodId()).visibleBand;
+      card.append(handling);
+    }
+
     const occupantList = document.createElement("div");
     occupantList.className = "container-occupants";
     if (!occupants.length && !corpses.length) {
@@ -5004,6 +6007,79 @@
     }
 
     card.append(title, meta, occupantList);
+
+    if (container.type !== "synthesis") {
+      const actions = document.createElement("div");
+      actions.className = "container-actions";
+      const action = containerAccessOpen(container) ? "close" : "open";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = action === "close" ? `Close Container (${adjustedStaminaCost(CONTAINER_INTERACTION_CLOSE_STAMINA, ["slimeHandling"])} STA)` : `Open Container (${adjustedStaminaCost(CONTAINER_INTERACTION_OPEN_STAMINA, ["slimeHandling"])} STA)`;
+      if (action === "open") {
+        button.dataset.openContainerId = container.id;
+      } else {
+        button.dataset.closeContainerId = container.id;
+      }
+      const reason = containerInteractionBlockReason(container, action)
+        || staminaBlockReason(adjustedStaminaCost(action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA, ["slimeHandling"]));
+      setActionButtonState(button, Boolean(reason), reason);
+      button.title = `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+      button.addEventListener("click", () => startContainerInteraction(container.id, action));
+      actions.append(button);
+
+      if (!isPitHoleContainer(container) && containerCorpses(container.id).length) {
+        for (const remainsAction of ["dumpRemains", "scrapeRemains"]) {
+          const remainsBtn = document.createElement("button");
+          remainsBtn.type = "button";
+          const baseCost = remainsAction === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
+          remainsBtn.textContent = `${remainsHandlingActionLabel(remainsAction)} (${adjustedStaminaCost(baseCost, ["slimeHandling"])} STA)`;
+          remainsBtn.dataset.remainsAction = remainsAction;
+          remainsBtn.dataset.remainsContainerId = container.id;
+          const remainsReason = remainsHandlingBlockReason(container, remainsAction)
+            || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
+          setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
+          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+          remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
+          actions.append(remainsBtn);
+        }
+      }
+
+      if (containerOccupants(container.id).length) {
+        const transferWrap = document.createElement("div");
+        transferWrap.className = "container-live-transfer";
+        const transferSelect = document.createElement("select");
+        transferSelect.dataset.liveTransferSelect = container.id;
+        const candidates = liveTransferDestinationCandidates(container);
+        if (candidates.length) {
+          for (const candidate of candidates) {
+            const option = document.createElement("option");
+            option.value = candidate.id;
+            option.textContent = `${candidate.name} (${roomName(candidate.roomId)})`;
+            transferSelect.append(option);
+          }
+        } else {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No open same-room destination";
+          transferSelect.append(option);
+        }
+
+        const transferBtn = document.createElement("button");
+        transferBtn.type = "button";
+        transferBtn.textContent = `${liveTransferActionLabel()} (${adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"])} STA)`;
+        transferBtn.dataset.liveTransferContainerId = container.id;
+        const selectedDestinationId = transferSelect.value;
+        const transferReason = liveTransferBlockReason(container, selectedDestinationId)
+          || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
+        setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
+        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+        transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
+        transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
+        actions.append(transferWrap);
+      }
+
+      card.append(actions);
+    }
 
     if (container.type === "synthesis" && occupants.length) {
       const actions = document.createElement("div");
@@ -7082,6 +8158,23 @@
   function renderPolicies() {
     state.policies = normalizePolicies(state.policies);
     dom.corpsePolicyList.textContent = "";
+    const methodLabel = document.createElement("label");
+    methodLabel.className = "policy-option";
+    methodLabel.append(textEl("span", "Handling method"));
+    const methodSelect = document.createElement("select");
+    methodSelect.dataset.handlingMethodSelect = "true";
+    for (const method of HANDLING_METHOD_DEFS) {
+      const option = document.createElement("option");
+      option.value = method.id;
+      option.textContent = method.label;
+      methodSelect.append(option);
+    }
+    methodSelect.value = currentHandlingMethodId();
+    methodSelect.title = currentHandlingMethod().description;
+    methodSelect.addEventListener("change", () => setHandlingMethod(methodSelect.value));
+    methodLabel.append(methodSelect);
+    dom.corpsePolicyList.append(methodLabel);
+
     const targets = state.policies.corpseProcessingTargets;
     const handling = corpseHandlingPolicy();
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
@@ -7266,11 +8359,24 @@
     setActionButtonState(dom.restCustomBtn, Boolean(restCustomReason), restCustomReason);
   }
 
+
   function renderVitalReadouts() {
-    dom.healthReadout.textContent = formatVital(scientistVital("health"));
+    const health = scientistVital("health");
+    dom.healthReadout.textContent = `${formatVital(health)}${state.runEnded ? " — DEAD" : ""}`;
+    dom.healthReadout.dataset.healthState = state.runEnded || health.current <= 0
+      ? "dead"
+      : health.current <= health.max * 0.25
+        ? "critical"
+        : health.current <= health.max * 0.5
+          ? "hurt"
+          : "healthy";
+    dom.healthReadout.title = state.runEnded
+      ? "The scientist is dead. The run has ended."
+      : "Scientist Health. Direct creature handling can damage this.";
     dom.staminaReadout.textContent = formatVital(scientistVital("stamina"));
     dom.manaReadout.textContent = formatVital(scientistVital("mana"));
   }
+
 
   function renderResources() {
     dom.resourceList.textContent = "";
@@ -7593,6 +8699,9 @@
     }
     if (task.type === "containerHaul") {
       return "Hauling";
+    }
+    if (task.type === "containerInteraction") {
+      return "Handling";
     }
     if (task.type === "mature") {
       return "Growth";
@@ -9401,8 +10510,20 @@
         ? MAIN_ROOM_ID
         : cleanRoomId(candidate.roomId) || starterContainerRoomId(starter || {}, Math.max(0, (numericSuffix(id) || 1) - 1)),
       condition: normalizeContainerCondition(candidate.condition),
+      isOpen: normalizeContainerOpenState(candidate),
       environment: normalizeContainerEnvironment(candidate.environment)
     };
+  }
+
+  function normalizeContainerOpenState(candidate) {
+    if (candidate?.type === "synthesis") {
+      return false;
+    }
+    const typeId = String(candidate?.typeId || "");
+    if (typeId === "openDirtPit") {
+      return true;
+    }
+    return Boolean(candidate?.isOpen);
   }
 
   function cleanContainerId(value) {
@@ -9562,11 +10683,15 @@
     };
     corpseHandling.autoMoveToDrums = Boolean(corpseHandling.autoMoveToDrums);
     corpseHandling.destination = CORPSE_HANDLING_DESTINATION_BY_ID[corpseHandling.destination] ? corpseHandling.destination : CORPSE_HANDLING_DEFAULTS.destination;
+    const handling = {
+      method: HANDLING_METHOD_BY_ID[candidate?.handling?.method] ? candidate.handling.method : DEFAULT_HANDLING_METHOD
+    };
     return {
       ...fallback,
       ...(candidate || {}),
       feeding,
       corpseHandling,
+      handling,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -10140,6 +11265,10 @@
     next.corpses ||= [];
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist);
+    next.runEnded = Boolean(next.runEnded) || next.scientist.vitals.health.current <= 0;
+    if (next.runEnded) {
+      next.paused = true;
+    }
     next.rooms = normalizeRooms(next.rooms);
     next.containers = normalizeContainers(next.containers);
     for (const container of next.containers) {
