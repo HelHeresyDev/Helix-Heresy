@@ -39,6 +39,16 @@
   const MAIN_ROOM_ID = "mainLab";
   const MENAGERIE_ROOM_ID = "menagerie";
   const PITS_ROOM_ID = "pits";
+  const BEDROOM_ROOM_ID = "bedroom";
+  const DOOR_STATE_OPEN = "open";
+  const DOOR_STATE_CLOSED = "closed";
+  const DOOR_POLICY_DEFS = [
+    { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
+    { id: "leaveOpenAfterUse", label: "Leave open after use", description: "Movement opens doors as needed and leaves them open afterward." },
+    { id: "closeAfterUse", label: "Close after use", description: "Movement closes doors after passing through, even if they were already open." }
+  ];
+  const DOOR_POLICY_BY_ID = Object.fromEntries(DOOR_POLICY_DEFS.map((policy) => [policy.id, policy]));
+  const DEFAULT_DOOR_POLICY_ID = "leaveAsSet";
   const ROOM_BASE_DEFS = [
     {
       id: MAIN_ROOM_ID,
@@ -55,7 +65,7 @@
         floorAreaM2: 120,
         volumeM3: 360
       },
-      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID],
+      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID],
       attributes: {}
     },
     {
@@ -103,6 +113,31 @@
         light: { current: 18, baseline: 18 },
         moisture: { current: 68, baseline: 68 },
         contamination: { current: 28, baseline: 28, recoveryPerHour: 0.35 }
+      }
+    },
+    {
+      id: BEDROOM_ROOM_ID,
+      name: "Bedroom",
+      articleName: "the Bedroom",
+      role: "restRecovery",
+      roleLabel: "Rest and recovery",
+      description: "A small private room for sleep, recovery, and keeping the scientist away from the worst lab air.",
+      geometry: {
+        shape: "rectangular",
+        lengthM: 5,
+        widthM: 4,
+        heightM: 3,
+        floorAreaM2: 20,
+        volumeM3: 60
+      },
+      connections: [MAIN_ROOM_ID],
+      attributes: {
+        temperature: { current: 50, baseline: 50 },
+        light: { current: 35, baseline: 35 },
+        ambientMana: { current: 35, baseline: 35 },
+        moisture: { current: 45, baseline: 45 },
+        contamination: { current: 2, baseline: 2, recoveryPerHour: 1.1 },
+        electricalCharge: { current: 5, baseline: 5 }
       }
     }
   ];
@@ -1158,6 +1193,7 @@
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
       roomObservations: {},
+      doors: defaultDoors(),
       containers: defaultContainers(),
       resources: defaultResources(),
       feedstockIncomeProgress: {},
@@ -1216,6 +1252,23 @@
       observation: null,
       attributes: defaultRoomAttributes(roomDef.attributes)
     }));
+  }
+
+  function defaultDoors() {
+    const doors = {};
+    for (const room of ROOM_BASE_DEFS) {
+      for (const connectedId of room.connections || []) {
+        const key = doorKey(room.id, connectedId);
+        if (!key || doors[key]) {
+          continue;
+        }
+        doors[key] = {
+          roomIds: doorRoomIdsFromKey(key),
+          state: defaultDoorState(room.id, connectedId)
+        };
+      }
+    }
+    return doors;
   }
 
 
@@ -1300,6 +1353,7 @@
       ),
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
       handling: { method: DEFAULT_HANDLING_METHOD },
+      doors: { behavior: DEFAULT_DOOR_POLICY_ID },
       feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
@@ -1371,6 +1425,7 @@
       "breedBtn",
       "policySummary",
       "corpsePolicyList",
+      "doorPolicyList",
       "feedingPolicyList",
       "roomSummary",
       "roomList",
@@ -2831,8 +2886,125 @@
     return roomById(roomId)?.roleLabel || "Custom room";
   }
 
+  function doorKey(roomAId, roomBId) {
+    const a = cleanRoomId(roomAId);
+    const b = cleanRoomId(roomBId);
+    if (!a || !b || a === b) {
+      return "";
+    }
+    return [a, b].sort().join("::");
+  }
+
+  function doorRoomIdsFromKey(key) {
+    return String(key || "").split("::").map(cleanRoomId).filter(Boolean).slice(0, 2);
+  }
+
+  function defaultDoorState(roomAId, roomBId) {
+    const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
+    return ids.has(BEDROOM_ROOM_ID) && ids.has(MAIN_ROOM_ID) ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
+  }
+
+  function doorForConnection(roomAId, roomBId) {
+    state.doors = normalizeDoors(state.doors);
+    const key = doorKey(roomAId, roomBId);
+    return state.doors[key] || null;
+  }
+
+  function doorState(roomAId, roomBId) {
+    return doorForConnection(roomAId, roomBId)?.state || defaultDoorState(roomAId, roomBId);
+  }
+
+  function doorIsOpen(roomAId, roomBId) {
+    return doorState(roomAId, roomBId) === DOOR_STATE_OPEN;
+  }
+
+  function doorStateLabel(roomAId, roomBId) {
+    return doorIsOpen(roomAId, roomBId) ? "open" : "closed";
+  }
+
+  function doorPolicy() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.doors;
+  }
+
+  function currentDoorPolicyDef() {
+    return DOOR_POLICY_BY_ID[doorPolicy().behavior] || DOOR_POLICY_BY_ID[DEFAULT_DOOR_POLICY_ID];
+  }
+
+  function setDoorState(roomAId, roomBId, stateValue, options = {}) {
+    const key = doorKey(roomAId, roomBId);
+    if (!key) {
+      return false;
+    }
+    state.doors = normalizeDoors(state.doors);
+    const door = state.doors[key];
+    if (!door) {
+      return false;
+    }
+    const nextState = stateValue === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
+    if (door.state === nextState) {
+      return false;
+    }
+    door.state = nextState;
+    if (options.event !== false) {
+      addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door ${nextState === DOOR_STATE_OPEN ? "opened" : "closed"}.`);
+    }
+    return true;
+  }
+
+  function setDoorPolicy(policyId) {
+    state.policies = normalizePolicies(state.policies);
+    const nextId = DOOR_POLICY_BY_ID[policyId] ? policyId : DEFAULT_DOOR_POLICY_ID;
+    state.policies.doors.behavior = nextId;
+    addEvent(`Door policy set: ${DOOR_POLICY_BY_ID[nextId].label}.`);
+    persist();
+    render();
+  }
+
+  function doorTransitPlan(route) {
+    const steps = [];
+    for (let index = 0; index < (route || []).length - 1; index += 1) {
+      const fromRoomId = route[index];
+      const toRoomId = route[index + 1];
+      const key = doorKey(fromRoomId, toRoomId);
+      if (!key) {
+        continue;
+      }
+      steps.push({
+        key,
+        fromRoomId,
+        toRoomId,
+        previousState: doorState(fromRoomId, toRoomId)
+      });
+    }
+    return steps;
+  }
+
+  function applyDoorTransitPolicy(steps, actorLabel = "Movement") {
+    const policyId = currentDoorPolicyDef().id;
+    const changed = [];
+    for (const step of steps || []) {
+      if (!step?.key || !state.doors?.[step.key]) {
+        continue;
+      }
+      let finalState = step.previousState === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
+      if (policyId === "leaveOpenAfterUse") {
+        finalState = DOOR_STATE_OPEN;
+      } else if (policyId === "closeAfterUse") {
+        finalState = DOOR_STATE_CLOSED;
+      }
+      if (state.doors[step.key].state !== finalState) {
+        state.doors[step.key].state = finalState;
+        changed.push(`${roomName(step.fromRoomId)} ↔ ${roomName(step.toRoomId)} ${finalState}`);
+      }
+    }
+    if (changed.length) {
+      addEvent(`${actorLabel} door policy applied: ${changed.join(" · ")}.`);
+    }
+  }
+
   function roomSortRank(room) {
-    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID];
+    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID];
     const index = order.indexOf(room?.id);
     return index === -1 ? 100 + String(room?.name || "").localeCompare("zzzz") : index;
   }
@@ -2874,11 +3046,6 @@
     const main = roomById(MAIN_ROOM_ID);
     if (!main) {
       return "";
-    }
-    const left = main.connections?.includes(MENAGERIE_ROOM_ID) ? roomName(MENAGERIE_ROOM_ID) : "";
-    const right = main.connections?.includes(PITS_ROOM_ID) ? roomName(PITS_ROOM_ID) : "";
-    if (left && right) {
-      return `Room map: ${left} ↔ ${main.name} ↔ ${right}`;
     }
     const connected = roomConnectionNames(main);
     return connected.length ? `Room map: ${main.name} ↔ ${connected.join(", ")}` : `Room map: ${main.name}`;
@@ -2949,7 +3116,11 @@
     return (room?.connections || []).filter((connectedId) => roomById(connectedId));
   }
 
-  function roomRouteBetween(fromRoomId, toRoomId) {
+  function roomPassableConnectedIds(roomId, options = {}) {
+    return roomConnectedIds(roomId).filter((connectedId) => options.ignoreDoors || doorIsOpen(roomId, connectedId));
+  }
+
+  function roomRouteBetween(fromRoomId, toRoomId, options = {}) {
     const start = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const target = roomById(toRoomId)?.id || MAIN_ROOM_ID;
     if (start === target) {
@@ -2960,7 +3131,7 @@
     while (queue.length) {
       const route = queue.shift();
       const last = route[route.length - 1];
-      for (const next of roomConnectedIds(last)) {
+      for (const next of roomPassableConnectedIds(last, options)) {
         if (visited.has(next)) {
           continue;
         }
@@ -2972,22 +3143,33 @@
         queue.push(nextRoute);
       }
     }
-    return [start, target];
+    return options.requireReachable ? [] : [start, target];
   }
 
-  function roomRouteLabel(fromRoomId, toRoomId) {
-    const route = roomRouteBetween(fromRoomId, toRoomId);
-    return route.map(roomName).join(" → ");
+  function roomRouteLabel(fromRoomId, toRoomId, options = {}) {
+    const route = roomRouteBetween(fromRoomId, toRoomId, options);
+    return route.length ? route.map(roomName).join(" → ") : "no open route";
   }
 
-  function nextConnectedRoomToward(fromRoomId, toRoomId) {
-    const route = roomRouteBetween(fromRoomId, toRoomId);
-    return route[1] || toRoomId;
+  function nextConnectedRoomToward(fromRoomId, toRoomId, options = {}) {
+    const route = roomRouteBetween(fromRoomId, toRoomId, options);
+    return route[1] || "";
   }
 
   function bestContaminationTargetRoom() {
     return state.rooms
       .map((room) => ({ room, contamination: roomContaminationValue(room.id) }))
+      .sort((a, b) => b.contamination - a.contamination)[0] || null;
+  }
+
+  function bestReachableContaminationTargetRoom(fromRoomId) {
+    return state.rooms
+      .map((room) => ({
+        room,
+        contamination: roomContaminationValue(room.id),
+        route: roomRouteBetween(fromRoomId, room.id, { requireReachable: true })
+      }))
+      .filter((entry) => entry.room.id === fromRoomId || entry.route.length > 0)
       .sort((a, b) => b.contamination - a.contamination)[0] || null;
   }
 
@@ -3008,7 +3190,48 @@
     connections.className = "room-connections";
     connections.textContent = roomConnectionsLabel(room);
     panel.append(connections);
+    const doors = document.createElement("div");
+    doors.className = "room-door-summary";
+    doors.textContent = roomDoorSummaryLabel(room);
+    panel.append(doors);
     panel.title = `Floor area and volume are tracked internally for physical simulation. Shape and crowding are player-facing estimates.`;
+    return panel;
+  }
+
+  function roomDoorSummaryLabel(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    const entries = (room?.connections || []).map((connectedId) => `${roomName(connectedId)} door ${doorStateLabel(room.id, connectedId)}`);
+    return entries.length ? `Doors: ${entries.join(" · ")}` : "Doors: none";
+  }
+
+  function roomDoorControlsEl(room) {
+    const panel = document.createElement("div");
+    panel.className = "room-door-controls";
+    panel.dataset.roomDoorControls = room.id;
+    const connections = roomConnectedIds(room.id);
+    if (!connections.length) {
+      panel.append(textEl("span", "Doors: none"));
+      return panel;
+    }
+    panel.append(textEl("strong", "Doors"));
+    for (const connectedId of connections) {
+      const stateLabel = doorStateLabel(room.id, connectedId);
+      const row = document.createElement("div");
+      row.className = "room-door-row";
+      row.dataset.doorConnection = doorKey(room.id, connectedId);
+      row.append(textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`));
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.doorToggle = doorKey(room.id, connectedId);
+      button.textContent = stateLabel === "open" ? "Close door" : "Open door";
+      button.addEventListener("click", () => {
+        setDoorState(room.id, connectedId, stateLabel === "open" ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
+        persist();
+        render();
+      });
+      row.append(button);
+      panel.append(row);
+    }
     return panel;
   }
 
@@ -4621,6 +4844,7 @@
       return false;
     }
 
+    const haulRoute = roomRouteBetween(container.roomId || MAIN_ROOM_ID, room.id, { ignoreDoors: true });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerHaul",
@@ -4630,11 +4854,14 @@
       data: {
         containerId: container.id,
         fromRoomId: container.roomId || MAIN_ROOM_ID,
-        toRoomId: room.id      }
+        toRoomId: room.id,
+        route: haulRoute,
+        doorTransit: doorTransitPlan(haulRoute)
+      }
     };
     state.tasks.push(task);
-    const haulRoute = roomRouteLabel(container.roomId || MAIN_ROOM_ID, room.id);
-    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)} via ${haulRoute}.`);
+    const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
+    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)} via ${roomRouteLabel(container.roomId || MAIN_ROOM_ID, room.id, { ignoreDoors: true })}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     persist();
     render();
     return true;
@@ -4656,8 +4883,9 @@
 
     container.roomId = toRoom.id;
     syncContainerContentsToRoom(container, toRoom.id);
+    applyDoorTransitPolicy(task.data?.doorTransit, "Container hauling");
 
-    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomRouteLabel(fromRoomId, toRoom.id)}.`);
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomRouteLabel(fromRoomId, toRoom.id, { ignoreDoors: true })}.`);
     refreshCorpseProcessingTargets();
     return true;
   }
@@ -7087,6 +7315,7 @@
     }
     const fromRoomId = scientistRoomId();
     const duration = adjustedDuration(SCIENTIST_MOVE_BASE_DURATION, "observation");
+    const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
@@ -7096,11 +7325,14 @@
       data: {
         fromRoomId,
         toRoomId: target.id,
+        route,
+        doorTransit: doorTransitPlan(route),
         staminaCost: cost
       }
     };
     state.tasks.push(task);
-    addEvent(`Scientist movement started: ${roomName(fromRoomId)} to ${target.name}.`);
+    const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
+    addEvent(`Scientist movement started: ${roomName(fromRoomId)} to ${target.name}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     persist();
     render();
     return true;
@@ -7115,6 +7347,7 @@
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
+    applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     observeScientistRoom();
     addEvent(`Scientist arrived in ${target.name}.`);
     return true;
@@ -7640,12 +7873,22 @@
       }
 
       if (info.seeksContamination) {
-        const bestRoom = bestContaminationTargetRoom();
+        const bestRoom = bestReachableContaminationTargetRoom(slime.roomId);
 
         if (bestRoom && bestRoom.room.id !== slime.roomId && bestRoom.contamination >= roomContaminationValue(slime.roomId) + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
           const fromRoomId = slime.roomId;
           const fromRoom = roomName(fromRoomId);
-          const nextRoomId = nextConnectedRoomToward(fromRoomId, bestRoom.room.id);
+          const nextRoomId = nextConnectedRoomToward(fromRoomId, bestRoom.room.id, { requireReachable: true });
+          if (!nextRoomId || !doorIsOpen(fromRoomId, nextRoomId)) {
+            slime.roomActivity = {
+              type: "seekingContamination",
+              label: "blocked by closed door",
+              roomId: slime.roomId,
+              targetRoomId: bestRoom.room.id,
+              updatedAt: state.clock
+            };
+            continue;
+          }
           slime.roomId = nextRoomId;
           slime.roomActivity = {
             type: "seekingContamination",
@@ -9330,6 +9573,7 @@
   function renderPolicies() {
     state.policies = normalizePolicies(state.policies);
     dom.corpsePolicyList.textContent = "";
+    dom.doorPolicyList.textContent = "";
     const methodLabel = document.createElement("label");
     methodLabel.className = "policy-option";
     methodLabel.append(textEl("span", "Handling method"));
@@ -9347,6 +9591,23 @@
     methodLabel.append(methodSelect);
     dom.corpsePolicyList.append(methodLabel);
 
+    const doorPolicyLabel = document.createElement("label");
+    doorPolicyLabel.className = "policy-option";
+    doorPolicyLabel.append(textEl("span", "Door behavior"));
+    const doorPolicySelect = document.createElement("select");
+    doorPolicySelect.dataset.doorPolicySelect = "true";
+    for (const policyDef of DOOR_POLICY_DEFS) {
+      const option = document.createElement("option");
+      option.value = policyDef.id;
+      option.textContent = policyDef.label;
+      doorPolicySelect.append(option);
+    }
+    doorPolicySelect.value = currentDoorPolicyDef().id;
+    doorPolicySelect.title = currentDoorPolicyDef().description;
+    doorPolicySelect.addEventListener("change", () => setDoorPolicy(doorPolicySelect.value));
+    doorPolicyLabel.append(doorPolicySelect);
+    dom.doorPolicyList.append(doorPolicyLabel);
+
     const targets = state.policies.corpseProcessingTargets;
     const handling = corpseHandlingPolicy();
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
@@ -9357,7 +9618,7 @@
       ? `Corpse handling auto-moves local remains to ${corpseHandlingDestinationLabel(handling).toLowerCase()} when space is available.`
       : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
-    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}.`;
+    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}.`;
 
     const autoMoveLabel = document.createElement("label");
     autoMoveLabel.className = "policy-option";
@@ -9663,7 +9924,7 @@
         row.append(textEl("span", def.label), textEl("strong", band.label));
         attributes.append(row);
       }
-      card.append(title, meta, roomGeometrySummaryEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
+      card.append(title, meta, roomGeometrySummaryEl(room), roomDoorControlsEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
       if (description.textContent) {
         card.append(description);
       }
@@ -12230,6 +12491,40 @@
     return String(tag || "").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   }
 
+  function normalizeDoors(candidate, roomsOverride = null) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const rooms = Array.isArray(roomsOverride) && roomsOverride.length
+      ? roomsOverride
+      : Array.isArray(state?.rooms) && state.rooms.length
+        ? state.rooms
+        : defaultRooms();
+    const normalized = {};
+    const roomIds = new Set(rooms.map((room) => room.id));
+    for (const room of rooms) {
+      for (const connectedId of room.connections || []) {
+        if (!roomIds.has(connectedId)) {
+          continue;
+        }
+        const key = doorKey(room.id, connectedId);
+        if (!key || normalized[key]) {
+          continue;
+        }
+        const existing = source[key];
+        const roomIdsForDoor = doorRoomIdsFromKey(key);
+        const stateValue = existing?.state === DOOR_STATE_CLOSED || existing === DOOR_STATE_CLOSED
+          ? DOOR_STATE_CLOSED
+          : existing?.state === DOOR_STATE_OPEN || existing === DOOR_STATE_OPEN
+            ? DOOR_STATE_OPEN
+            : defaultDoorState(room.id, connectedId);
+        normalized[key] = {
+          roomIds: roomIdsForDoor,
+          state: stateValue
+        };
+      }
+    }
+    return normalized;
+  }
+
   function corpseProcessingTargets() {
     state.policies = normalizePolicies(state.policies);
     return state.policies.corpseProcessingTargets;
@@ -12268,12 +12563,16 @@
     const handling = {
       method: HANDLING_METHOD_BY_ID[candidate?.handling?.method] ? candidate.handling.method : DEFAULT_HANDLING_METHOD
     };
+    const doors = {
+      behavior: DOOR_POLICY_BY_ID[candidate?.doors?.behavior] ? candidate.doors.behavior : DEFAULT_DOOR_POLICY_ID
+    };
     return {
       ...fallback,
       ...(candidate || {}),
       feeding,
       corpseHandling,
       handling,
+      doors,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -13060,6 +13359,7 @@
     }
     next.roomObservations = normalizeRoomObservations(next.roomObservations);
     next.rooms = normalizeRooms(next.rooms);
+    next.doors = normalizeDoors(next.doors, next.rooms);
     for (const room of next.rooms) {
       if (room.observation) {
         next.roomObservations[room.id] = normalizeRoomObservation(room.observation);

@@ -2,16 +2,63 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
+ * Optional visual QC environment variables:
+ *
+ * VISUAL_MONITOR=2
+ *   Moves headed Chromium windows to the second monitor, assuming monitor 2
+ *   is arranged to the right of monitor 1 in Windows display settings.
+ *
+ * VISUAL_WINDOW_X=2560
+ * VISUAL_WINDOW_Y=0
+ *   Override the headed browser window position.
+ *   Use a negative X value if monitor 2 is arranged to the left.
+ *
+ * VISUAL_WINDOW_WIDTH=2560
+ * VISUAL_WINDOW_HEIGHT=1440
+ *   Optional headed browser window size hints.
+ *
+ * VISUAL_MAXIMIZED=1
+ *   Starts the headed Chromium window maximized.
+ *
+ * Example PowerShell:
+ *   $env:VISUAL_MONITOR="2"
+ *   $env:VISUAL_PAUSE_MS=8000
+ *   npx playwright test tests/bedroom-doors-pass1.spec.js --project=chromium --headed
  */
-// import dotenv from 'dotenv';
-// import path from 'path';
-// dotenv.config({ path: path.resolve(__dirname, '.env') });
 
-/**
- * @see https://playwright.dev/docs/test-configuration
- */
+const isVisualMonitorMode = process.env.VISUAL_MONITOR === '2' || Boolean(process.env.VISUAL_WINDOW_X);
+const visualWindowX = process.env.VISUAL_WINDOW_X ?? (process.env.VISUAL_MONITOR === '2' ? '2560' : '0');
+const visualWindowY = process.env.VISUAL_WINDOW_Y ?? '0';
+const visualWindowWidth = process.env.VISUAL_WINDOW_WIDTH ?? '2560';
+const visualWindowHeight = process.env.VISUAL_WINDOW_HEIGHT ?? '1440';
+const shouldMaximizeVisualWindow = process.env.VISUAL_MAXIMIZED !== '0';
+
+// Desktop Chrome device settings include deviceScaleFactor.
+// Playwright does not allow deviceScaleFactor when viewport is null, so visual
+// monitor mode intentionally strips viewport/deviceScaleFactor and lets the
+// real headed browser window define the viewport.
+const { viewport, deviceScaleFactor, ...desktopChromeWithoutViewport } = devices['Desktop Chrome'];
+
+const visualChromiumLaunchOptions = isVisualMonitorMode
+  ? {
+      args: [
+        `--window-position=${visualWindowX},${visualWindowY}`,
+        `--window-size=${visualWindowWidth},${visualWindowHeight}`,
+        ...(shouldMaximizeVisualWindow ? ['--start-maximized'] : []),
+      ],
+    }
+  : undefined;
+
+const chromiumUse = isVisualMonitorMode
+  ? {
+      ...desktopChromeWithoutViewport,
+      viewport: null,
+      launchOptions: visualChromiumLaunchOptions,
+    }
+  : {
+      ...devices['Desktop Chrome'],
+    };
+
 export default defineConfig({
   testDir: './tests',
   /* Run tests in files in parallel */
@@ -37,7 +84,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: chromiumUse,
     },
 
     {
@@ -59,16 +106,6 @@ export default defineConfig({
     //   name: 'Mobile Safari',
     //   use: { ...devices['iPhone 12'] },
     // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
   ],
 
   /* Run your local dev server before starting the tests */
@@ -78,4 +115,3 @@ export default defineConfig({
   //   reuseExistingServer: !process.env.CI,
   // },
 });
-
