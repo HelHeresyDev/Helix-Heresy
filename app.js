@@ -139,6 +139,65 @@
   };
   const SCIENTIST_MOVE_BASE_DURATION = 6;
   const SCIENTIST_MOVE_BASE_STAMINA = 2;
+  const PHYSICAL_STATE_MAX = 100;
+  const PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR = 10;
+  const PHYSICAL_STATE_EXPOSURE_DECAY_PER_HOUR = 3;
+  const PHYSICAL_STATE_REST_RECOVERY_MULTIPLIER = 3;
+  const PHYSICAL_STATE_EVENT_INTERVAL = 60;
+  const PHYSICAL_STATE_BANDS = [
+    { max: 5, label: "Steady" },
+    { max: 20, label: "Uneasy" },
+    { max: 40, label: "Queasy" },
+    { max: 65, label: "Sickened" },
+    { max: 85, label: "Toxic" },
+    { max: Infinity, label: "Failing" }
+  ];
+  const DIAGNOSTIC_CONFIDENCE_BANDS = [
+    { max: 20, label: "uncertain" },
+    { max: 35, label: "rough" },
+    { max: 50, label: "fair" },
+    { max: 70, label: "strong" },
+    { max: Infinity, label: "high" }
+  ];
+  const PHYSICAL_DIAGNOSTIC_TESTS = [
+    { id: "selfCheck", label: "Self-check", resultLabel: "Latest test", quality: 12, duration: 4, staminaCost: 1, skillIds: ["observation", "physiology"] },
+    { id: "basicAssay", label: "Basic assay", resultLabel: "Latest test", quality: 38, duration: 12, staminaCost: 4, skillIds: ["arcaneChemistry", "physiology", "observation"], exactConfidence: 70 }
+  ];
+  const PHYSICAL_DIAGNOSTIC_TEST_BY_ID = Object.fromEntries(PHYSICAL_DIAGNOSTIC_TESTS.map((test) => [test.id, test]));
+  const ROOM_EXPOSURE_BANDS = [
+    { max: 8, label: "Clear", effect: "Physical State may recover here" },
+    { max: 25, label: "Stale", effect: "Physical State may hold steady or recover slowly" },
+    { max: 45, label: "Tainted", effect: "Physical State may worsen slowly" },
+    { max: 65, label: "Fouled", effect: "Physical State may worsen steadily" },
+    { max: 85, label: "Hazardous", effect: "Physical State may worsen quickly" },
+    { max: Infinity, label: "Unlivable", effect: "Physical State may fail rapidly" }
+  ];
+  const ROOM_OBSERVATION_RELIABILITY_BANDS = [
+    { min: 80, label: "High" },
+    { min: 58, label: "Fair" },
+    { min: 32, label: "Uncertain" },
+    { min: 1, label: "Poor" },
+    { min: -Infinity, label: "Unknown" }
+  ];
+  const TOOLTIP_DEFS = {
+    steady: { body: "Steady: no Physical State stamina strain." },
+    uneasy: { body: "Uneasy: something feels off, but actions are not strained yet." },
+    queasy: { body: "Queasy: physical actions cost slightly more stamina." },
+    sickened: { body: "Sickened: physical actions cost more stamina. Rest in a cleaner room is recommended." },
+    toxic: { body: "Toxic: physical actions cost much more stamina and Health may suffer over time." },
+    failing: { body: "Failing: most risky physical work is extremely difficult." },
+    clear: { body: "Clear: this room supports Physical State recovery." },
+    stale: { body: "Stale: Physical State may hold steady or recover slowly." },
+    tainted: { body: "Tainted: Physical State may worsen slowly." },
+    fouled: { body: "Fouled: Physical State may worsen steadily." },
+    hazardous: { body: "Hazardous: Physical State may worsen quickly." },
+    unlivable: { body: "Unlivable: Physical State may fail rapidly." },
+    high: { body: "High reliability: current or very dependable information." },
+    fair: { body: "Fair reliability: useful, but conditions may have changed." },
+    uncertain: { body: "Uncertain reliability: treat the information cautiously." },
+    poor: { body: "Poor reliability: old or unstable information; expect surprises." },
+    unknown: { body: "Unknown reliability: no usable observation." }
+  };
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
@@ -1095,6 +1154,7 @@
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
+      roomObservations: {},
       containers: defaultContainers(),
       resources: defaultResources(),
       feedstockIncomeProgress: {},
@@ -1125,6 +1185,7 @@
     return {
       roomId: MAIN_ROOM_ID,
       physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
+      physicalState: defaultScientistPhysicalState(),
       vitals: {
         health: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
         stamina: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
@@ -1149,6 +1210,7 @@
       description: roomDef.description,
       geometry: normalizeRoomGeometry(roomDef.geometry),
       connections: normalizeRoomConnections(roomDef.connections, roomDef.id),
+      observation: null,
       attributes: defaultRoomAttributes(roomDef.attributes)
     }));
   }
@@ -1378,6 +1440,8 @@
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
       geneMap = buildGeneMap(state.seed, state.complexity);
+      syncRoomObservationMemory();
+      observeScientistRoom();
       addEvent("Run initialized.");
       persist();
       render();
@@ -1393,6 +1457,8 @@
       state.started = true;
       geneMap = buildGeneMap(state.seed, state.complexity);
       prepareCorpseState();
+      syncRoomObservationMemory();
+      observeScientistRoom();
       addEvent("Loaded local save.");
       persist();
       render();
@@ -1916,6 +1982,7 @@
   function advanceTime(minutes, options = {}) {
     state.clock += minutes;
     const vitalsChanged = recoverVitals(minutes);
+    const physicalStateChanged = updateScientistPhysicalExposure(minutes);
     const suspicionChanged = updateSuspicionDecay();
     const roomChanges = recoverRoomAttributes(minutes);
     const envChanges = exchangeContainerEnvironments(minutes);
@@ -1929,13 +1996,15 @@
     const containmentIncidentChanges = updateContainmentIncidents(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
+    syncRoomObservationMemory();
+    const observationChanged = Boolean(observeScientistRoom());
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -2006,6 +2075,11 @@
 
     if (task.type === "containerInteraction") {
       completeContainerInteraction(task);
+      return;
+    }
+
+    if (task.type === "physicalDiagnostic") {
+      completePhysicalDiagnostic(task);
       return;
     }
 
@@ -5183,7 +5257,7 @@
     const duration = adjustedDuration(8, "biofabrication");
     const resourceCosts = { biomass: SYNTHESIS_BIOMASS_COST };
     renderSynthesisTubeStatus();
-    dom.synthesizeBtn.textContent = `Synthesize Slime (${formatDuration(duration)}, ${cost} STA, ${formatResourceBundle(resourceCosts)})`;
+    setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["biofabrication", "slimeHandling"], { duration: formatDuration(duration), suffix: formatResourceBundle(resourceCosts) });
     const reason = synthesisTubeBlockReason()
       || resourceBlockReason(resourceCosts)
       || staminaBlockReason(cost);
@@ -5227,7 +5301,7 @@
     const selected = getSelectedSlime();
     const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
     const releaseLabel = selected?.status === "released" ? "Contain Creature" : "Release into Room";
-    dom.releaseBtn.textContent = `${releaseLabel} (${cost} STA)`;
+    setButtonStaminaLabel(dom.releaseBtn, releaseLabel, HANDLING_STAMINA, ["slimeHandling"]);
     const reason = !selected || selected.status === "dead"
       ? "No living slime selected."
       : selected.status === "released" && !firstOpenPermanentContainer()
@@ -5245,7 +5319,7 @@
       }
       const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"]);
       const duration = adjustedDuration(test.duration, test.skillId);
-      button.textContent = `${test.label} (${formatDuration(duration)}, ${cost} STA)`;
+      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"], { duration: formatDuration(duration) });
       const reason = testBlockReason(test, slime, cost);
       setActionButtonState(button, Boolean(reason), reason);
     }
@@ -5265,7 +5339,7 @@
     const breedable = state.slimes.filter(isBreedable);
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["reproductiveBiology", "slimeHandling"]);
     const duration = adjustedDuration(18, "reproductiveBiology");
-    dom.breedBtn.textContent = `Force Recombination (${formatDuration(duration)}, ${cost} STA)`;
+    setButtonStaminaLabel(dom.breedBtn, "Force Recombination", BASE_ACTION_STAMINA, ["reproductiveBiology", "slimeHandling"], { duration: formatDuration(duration) });
     const reason = breedable.length < 2
       ? "Forced recombination requires two mature slimes."
       : !canAddContainedSlime()
@@ -6335,16 +6409,17 @@
       const action = containerAccessOpen(container) ? "close" : "open";
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = action === "close" ? `Close Container (${adjustedStaminaCost(CONTAINER_INTERACTION_CLOSE_STAMINA, ["slimeHandling"])} STA)` : `Open Container (${adjustedStaminaCost(CONTAINER_INTERACTION_OPEN_STAMINA, ["slimeHandling"])} STA)`;
+      const interactionBaseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
+      setButtonStaminaLabel(button, action === "close" ? "Close Container" : "Open Container", interactionBaseCost, ["slimeHandling"]);
       if (action === "open") {
         button.dataset.openContainerId = container.id;
       } else {
         button.dataset.closeContainerId = container.id;
       }
       const reason = containerInteractionBlockReason(container, action)
-        || staminaBlockReason(adjustedStaminaCost(action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA, ["slimeHandling"]));
+        || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["slimeHandling"]));
       setActionButtonState(button, Boolean(reason), reason);
-      button.title = `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
       button.addEventListener("click", () => startContainerInteraction(container.id, action));
       actions.append(button);
 
@@ -6353,13 +6428,13 @@
           const remainsBtn = document.createElement("button");
           remainsBtn.type = "button";
           const baseCost = remainsAction === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
-          remainsBtn.textContent = `${remainsHandlingActionLabel(remainsAction)} (${adjustedStaminaCost(baseCost, ["slimeHandling"])} STA)`;
+          setButtonStaminaLabel(remainsBtn, remainsHandlingActionLabel(remainsAction), baseCost, ["slimeHandling"]);
           remainsBtn.dataset.remainsAction = remainsAction;
           remainsBtn.dataset.remainsContainerId = container.id;
           const remainsReason = remainsHandlingBlockReason(container, remainsAction)
             || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
-          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
           remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
           actions.append(remainsBtn);
         }
@@ -6387,13 +6462,13 @@
 
         const transferBtn = document.createElement("button");
         transferBtn.type = "button";
-        transferBtn.textContent = `${liveTransferActionLabel()} (${adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"])} STA)`;
+        setButtonStaminaLabel(transferBtn, liveTransferActionLabel(), LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
         transferBtn.dataset.liveTransferContainerId = container.id;
         const selectedDestinationId = transferSelect.value;
         const transferReason = liveTransferBlockReason(container, selectedDestinationId)
           || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
-        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}`;
+        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
         transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
         transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
         actions.append(transferWrap);
@@ -6408,7 +6483,7 @@
       const moveBtn = document.createElement("button");
       moveBtn.type = "button";
       const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
-      moveBtn.textContent = `Move to Open Container (${cost} STA)`;
+      setButtonStaminaLabel(moveBtn, "Move to Open Container", HANDLING_STAMINA, ["slimeHandling"]);
       const reason = !firstOpenPermanentContainer()
         ? "No open permanent container is available."
         : staminaBlockReason(cost);
@@ -6559,7 +6634,7 @@
   function refreshNecropsyButton(button, corpse) {
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["physiology", "slimeHandling"]);
     const duration = adjustedDuration(necropsyDuration(corpse), "physiology");
-    button.textContent = `Necropsy (${formatDuration(duration)}, ${cost} STA)`;
+    setButtonStaminaLabel(button, "Necropsy", BASE_ACTION_STAMINA, ["physiology", "slimeHandling"], { duration: formatDuration(duration) });
     const reason = necropsyBlockReason(corpse, cost);
     setActionButtonState(button, Boolean(reason), reason);
   }
@@ -6975,9 +7050,245 @@
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
+    observeScientistRoom();
     addEvent(`Scientist arrived in ${target.name}.`);
     return true;
   }
+
+
+  function roomExposureBand(value) {
+    const score = clamp(Number(value) || 0, 0, 100);
+    return ROOM_EXPOSURE_BANDS.find((band) => score <= band.max) || ROOM_EXPOSURE_BANDS[ROOM_EXPOSURE_BANDS.length - 1];
+  }
+
+  function roomExposureScore(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    if (!room) {
+      return 0;
+    }
+    const contamination = roomContaminationValue(room.id);
+    const crowdingPressure = Math.max(0, roomCrowdingPressureScore(room)) * 0.65;
+    const freePressure = freeCreaturesInRoom(room.id).length ? Math.min(14, freeCreaturesInRoom(room.id).length * 5) : 0;
+    return clamp(contamination + crowdingPressure + freePressure, 0, 100);
+  }
+
+  function currentRoomExposureFactors(room) {
+    const roomId = room?.id || MAIN_ROOM_ID;
+    const contamination = roomContaminationValue(roomId);
+    const knownFactors = [];
+    const unknownFactors = [];
+    if (contamination >= 78) {
+      knownFactors.push("hazardous contamination");
+    } else if (contamination >= 55) {
+      knownFactors.push("fouled air");
+    } else if (contamination >= 30) {
+      knownFactors.push("tainted residue");
+    } else if (contamination <= 8) {
+      knownFactors.push("cleaner air");
+    } else {
+      knownFactors.push("stale air");
+    }
+
+    const crowding = roomCrowdingLabel(roomId);
+    if (["Busy", "Crowded", "Overpacked"].includes(crowding)) {
+      knownFactors.push(`room is ${crowding.toLowerCase()}`);
+    }
+
+    const freeCreatures = freeCreaturesInRoom(roomId);
+    if (freeCreatures.length) {
+      knownFactors.push(`${freeCreatures.length} uncontained creature${freeCreatures.length === 1 ? "" : "s"} observed`);
+      for (const slime of freeCreatures.slice(0, 2)) {
+        if (slimeHuntingInclination(slime) && (skillLevel("ethology") >= FREE_CREATURE_PRESSURE_HIGH_SKILL || slimeTraitKnown(slime, "behavior"))) {
+          knownFactors.push(`${slime.name} shows hunting behavior`);
+        } else if (!slimeTraitKnown(slime, "behavior") && skillLevel("ethology") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
+          unknownFactors.push(`${slime.name} behavior`);
+        }
+        if (!slimeTraitKnown(slime, "byproduct") && skillLevel("arcaneChemistry") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
+          unknownFactors.push(`${slime.name} contact hazards`);
+        }
+      }
+    }
+
+    return {
+      knownFactors: [...new Set(knownFactors)].slice(0, 5),
+      unknownFactors: [...new Set(unknownFactors)].slice(0, 5)
+    };
+  }
+
+  function roomObservationReliabilityScore(room, observation) {
+    if (!observation) {
+      return 0;
+    }
+    if (scientistObservesRoom(room.id)) {
+      return 100;
+    }
+    let score = 72;
+    const age = Math.max(0, state.clock - (Number(observation.observedAt) || 0));
+    if (age > 360) score -= 36;
+    else if (age > 60) score -= 22;
+    else if (age > 15) score -= 12;
+    else if (age > 3) score -= 5;
+
+    if (observation.freeCreatureCount > 0) {
+      score -= 18;
+    }
+    if (observation.crowdingLabel === "Crowded" || observation.crowdingLabel === "Overpacked") {
+      score -= 10;
+    }
+    if (observation.exposureScore >= 65) {
+      score -= 8;
+    }
+    score += Math.min(12, skillLevel("observation") * 3);
+    return clamp(score, 0, 100);
+  }
+
+  function roomObservationReliabilityLabel(score) {
+    return (ROOM_OBSERVATION_RELIABILITY_BANDS.find((band) => score >= band.min) || ROOM_OBSERVATION_RELIABILITY_BANDS[ROOM_OBSERVATION_RELIABILITY_BANDS.length - 1]).label;
+  }
+
+  function roomObservationReliabilityFactors(room, observation, score) {
+    if (!observation) {
+      return ["no prior observation"];
+    }
+    if (scientistObservesRoom(room.id)) {
+      return ["current observation"];
+    }
+    const factors = [];
+    const age = Math.max(0, state.clock - (Number(observation.observedAt) || 0));
+    if (age > 360) factors.push("old observation");
+    else if (age > 60) factors.push("aging observation");
+    else factors.push("recent observation");
+
+    const creatureUncertaintyKnown =
+      observation.freeCreatureCount > 0 ||
+      (observation.knownFactors || []).some((factor) => /creature|RG-|hunting/i.test(factor)) ||
+      (observation.unknownFactors || []).some((factor) => /creature|behavior|contact hazards|RG-/i.test(factor));
+
+    if (creatureUncertaintyKnown || !scientistObservesRoom(room.id)) {
+      factors.push("creature movement may have changed conditions");
+    }
+    if (observation.exposureScore >= 65) {
+      factors.push("hazardous rooms change quickly");
+    }
+    if (observation.crowdingLabel === "Crowded" || observation.crowdingLabel === "Overpacked") {
+      factors.push("crowded room");
+    }
+    if (score >= 58) {
+      factors.push("stable enough to use cautiously");
+    }
+    return [...new Set(factors)].slice(0, 4);
+  }
+
+  function makeRoomObservation(room) {
+    const exposureScore = roomExposureScore(room);
+    const exposureBand = roomExposureBand(exposureScore);
+    const factors = currentRoomExposureFactors(room);
+    return {
+      observedAt: state.clock,
+      exposureScore: Math.round(exposureScore),
+      exposureBand: exposureBand.label,
+      effect: exposureBand.effect,
+      knownFactors: factors.knownFactors,
+      unknownFactors: factors.unknownFactors,
+      contaminationBand: roomAttributeBand("contamination", roomContaminationValue(room.id)).label,
+      crowdingLabel: roomCrowdingLabel(room.id),
+      freeCreatureCount: freeCreaturesInRoom(room.id).length
+    };
+  }
+
+  function observeScientistRoom() {
+    const room = roomById(scientistRoomId());
+    if (!room) {
+      return null;
+    }
+    const observation = normalizeRoomObservation(makeRoomObservation(room));
+    room.observation = observation;
+    state.roomObservations ||= {};
+    state.roomObservations[room.id] = observation;
+    return observation;
+  }
+
+  function roomExposurePanelEl(room) {
+    const panel = document.createElement("div");
+    panel.className = "room-exposure-panel";
+    panel.dataset.roomExposurePanel = room.id;
+
+    if (scientistObservesRoom(room.id)) {
+      const observation = room.observation || makeRoomObservation(room);
+      const exposureLine = document.createElement("strong");
+      exposureLine.append(document.createTextNode("Room exposure: "), tooltipKeywordEl(observation.exposureBand));
+      panel.append(exposureLine);
+      panel.append(textEl("div", "Information: Current observation"));
+      const reliabilityLine = document.createElement("div");
+      reliabilityLine.append(document.createTextNode("Reliability: "), tooltipKeywordEl("High"));
+      panel.append(reliabilityLine);
+      if (observation.knownFactors?.length) {
+        panel.append(textEl("div", `Known factors: ${observation.knownFactors.join(" · ")}`));
+      }
+      if (observation.unknownFactors?.length) {
+        panel.append(textEl("div", `Unknown factors: ${observation.unknownFactors.join(", ")}`));
+      }
+      panel.append(textEl("div", `Effect: ${observation.effect}`));
+      return panel;
+    }
+
+    const observation = room.observation || state.roomObservations?.[room.id] || null;
+    if (!observation) {
+      const unknownLine = document.createElement("strong");
+      unknownLine.append(document.createTextNode("Room exposure: "), tooltipKeywordEl("Unknown"));
+      panel.append(unknownLine);
+      panel.append(textEl("div", "Information: No observation"));
+      const unknownReliability = document.createElement("div");
+      unknownReliability.append(document.createTextNode("Reliability: "), tooltipKeywordEl("Unknown"));
+      panel.append(unknownReliability);
+      panel.append(textEl("div", "Unknown factors: current contamination, creature movement, residue"));
+      panel.append(textEl("div", "Effect: cannot assess from here"));
+      return panel;
+    }
+
+    const score = roomObservationReliabilityScore(room, observation);
+    const reliability = roomObservationReliabilityLabel(score);
+    const factors = roomObservationReliabilityFactors(room, observation, score);
+
+    const thenLine = document.createElement("strong");
+    thenLine.append(document.createTextNode("Room exposure then: "), tooltipKeywordEl(observation.exposureBand));
+    panel.append(thenLine);
+    panel.append(textEl("div", "Information: Previously observed"));
+    const previousReliability = document.createElement("div");
+    previousReliability.append(document.createTextNode("Reliability: "), tooltipKeywordEl(reliability));
+    panel.append(previousReliability);
+    if (observation.knownFactors?.length) {
+      panel.append(textEl("div", `Known factors then: ${observation.knownFactors.join(" · ")}`));
+    }
+    const uncertainFactors = [
+      ...(observation.unknownFactors || []),
+      "current contamination",
+      "current creature movement"
+    ];
+    panel.append(textEl("div", `Uncertain factors: ${[...new Set(uncertainFactors)].slice(0, 5).join(", ")}`));
+    panel.append(textEl("div", `Reliability factors: ${factors.join(" · ")}`));
+    panel.append(textEl("div", `Effect then: ${observation.effect}`));
+    return panel;
+  }
+
+  function roomMoveWarningText(roomId) {
+    const room = roomById(roomId);
+    if (!room) {
+      return "Unknown destination.";
+    }
+    if (scientistObservesRoom(room.id)) {
+      const observation = room.observation || makeRoomObservation(room);
+      return `Current observation. Room exposure: ${observation.exposureBand}. Reliability: High.`;
+    }
+    const observation = room.observation || state.roomObservations?.[room.id];
+    if (!observation) {
+      return "No observation. Room exposure unknown. Current contamination, creature movement, and residue are unknown.";
+    }
+    const score = roomObservationReliabilityScore(room, observation);
+    const reliability = roomObservationReliabilityLabel(score);
+    return `Previously observed. Room exposure then: ${observation.exposureBand}. Reliability: ${reliability}. Current contamination and creature movement may have changed.`;
+  }
+
 
   function scientistLocationPanelEl(room) {
     const panel = document.createElement("div");
@@ -6994,10 +7305,13 @@
           const target = roomById(targetId);
           const button = document.createElement("button");
           button.type = "button";
-          button.textContent = target.name;
+          const moveCost = setButtonStaminaLabel(button, target.name, SCIENTIST_MOVE_BASE_STAMINA, ["observation"]);
           button.dataset.scientistMoveRoomId = target.id;
-          const reason = scientistMoveBlockReason(target.id) || staminaBlockReason(adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]));
+          const reason = scientistMoveBlockReason(target.id) || staminaBlockReason(moveCost);
           setActionButtonState(button, Boolean(reason), reason);
+          if (!reason) {
+            button.title = `${roomMoveWarningText(target.id)}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]).title}`;
+          }
           button.addEventListener("click", () => startScientistMove(target.id));
           if (index > 0) {
             moves.append(document.createTextNode(" · "));
@@ -8824,7 +9138,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.testId = test.id;
-      button.textContent = `${test.label} (${formatDuration(duration)}, ${cost} STA)`;
+      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"], { duration: formatDuration(duration) });
       const reason = testBlockReason(test, slime, cost);
       setActionButtonState(button, Boolean(reason), reason);
       button.addEventListener("click", () => {
@@ -9030,9 +9344,63 @@
     }
   }
 
+
+  function physicalStatePanelEl() {
+    const physicalState = scientistPhysicalState();
+    const exposure = scientistExposureTrack();
+    const panel = document.createElement("div");
+    panel.className = "physical-state-panel";
+    panel.dataset.physicalStatePanel = "scientist";
+    const stateLine = document.createElement("strong");
+    const physicalBand = physicalStateBand(exposure.current).label;
+    stateLine.append(document.createTextNode("Physical State: "), tooltipKeywordEl(physicalBand));
+    panel.append(stateLine);
+
+    const latest = physicalState.latestTest;
+    const latestLine = document.createElement("div");
+    latestLine.dataset.physicalLatestTest = "summary";
+    latestLine.textContent = latest
+      ? `${latest.label || "Latest test"}: ${latest.summary}`
+      : "Latest test: none";
+    panel.append(latestLine);
+
+    const confidenceLine = document.createElement("div");
+    confidenceLine.dataset.physicalLatestTestConfidence = "confidence";
+    confidenceLine.textContent = latest
+      ? `Confidence: ${latest.confidence}`
+      : "Confidence: none";
+    panel.append(confidenceLine);
+
+    if (latest?.likelySource) {
+      const sourceLine = document.createElement("div");
+      sourceLine.dataset.physicalLatestTestSource = "source";
+      sourceLine.textContent = `Likely source: ${latest.likelySource}`;
+      panel.append(sourceLine);
+    }
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "physical-state-actions";
+    for (const [index, test] of PHYSICAL_DIAGNOSTIC_TESTS.entries()) {
+      const button = document.createElement("button");
+      button.type = "button";
+      setButtonStaminaLabel(button, test.label, test.staminaCost, test.skillIds || ["observation"]);
+      button.dataset.physicalDiagnosticTestId = test.id;
+      const reason = physicalDiagnosticBlockReason(test);
+      setActionButtonState(button, Boolean(reason), reason);
+      button.addEventListener("click", () => startPhysicalDiagnostic(test.id));
+      if (index > 0) {
+        actionRow.append(document.createTextNode(" · "));
+      }
+      actionRow.append(button);
+    }
+    panel.append(actionRow);
+    return panel;
+  }
+
   function renderScientist() {
     renderVitalReadouts();
     renderResources();
+    dom.resourceList.append(physicalStatePanelEl());
     dom.skillList.textContent = "";
     for (const skill of SKILL_DEFS) {
       const progress = skillProgress(skill.id);
@@ -9067,8 +9435,10 @@
         ? "Stamina is already full."
         : "";
     setActionButtonState(dom.restFullBtn, Boolean(restFullReason), restFullReason);
+    dom.restFullBtn.title = restFullReason || "Rest: cleaner rooms accelerate Physical State recovery. Contaminated rooms may not help.";
     const restCustomReason = hasPendingRest() ? "Rest is already in progress." : "";
     setActionButtonState(dom.restCustomBtn, Boolean(restCustomReason), restCustomReason);
+    dom.restCustomBtn.title = restCustomReason || "Rest: cleaner rooms accelerate Physical State recovery. Contaminated rooms may not help.";
   }
 
 
@@ -9103,6 +9473,8 @@
 
   function renderRooms() {
     state.rooms = normalizeRooms(state.rooms);
+    syncRoomObservationMemory();
+    observeScientistRoom();
     dom.roomList.textContent = "";
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
@@ -9144,7 +9516,7 @@
         row.append(textEl("span", def.label), textEl("strong", band.label));
         attributes.append(row);
       }
-      card.append(title, meta, roomGeometrySummaryEl(room), scientistLocationPanelEl(room));
+      card.append(title, meta, roomGeometrySummaryEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
       if (description.textContent) {
         card.append(description);
       }
@@ -9416,6 +9788,9 @@
   }
 
   function taskCategory(task) {
+    if (task.type === "physicalDiagnostic") {
+      return "Diagnostic";
+    }
     if (task.type === "scientistMove") {
       return "Scientist";
     }
@@ -10944,6 +11319,227 @@
     return state.scientist.vitals[key];
   }
 
+
+  function scientistPhysicalState() {
+    state.scientist = normalizeScientist(state.scientist);
+    return state.scientist.physicalState;
+  }
+
+  function scientistExposureTrack() {
+    const physicalState = scientistPhysicalState();
+    physicalState.tracks.exposure ||= defaultScientistPhysicalState().tracks.exposure;
+    return physicalState.tracks.exposure;
+  }
+
+  function physicalStateBand(value = scientistExposureTrack().current) {
+    const current = clamp(Number(value) || 0, 0, PHYSICAL_STATE_MAX);
+    return PHYSICAL_STATE_BANDS.find((band) => current <= band.max) || PHYSICAL_STATE_BANDS[PHYSICAL_STATE_BANDS.length - 1];
+  }
+
+  function exposureSeverityLabel(value = scientistExposureTrack().current) {
+    const current = clamp(Number(value) || 0, 0, PHYSICAL_STATE_MAX);
+    if (current <= 5) return "no meaningful";
+    if (current <= 20) return "mild";
+    if (current <= 40) return "moderate";
+    if (current <= 65) return "serious";
+    if (current <= 85) return "severe";
+    return "critical";
+  }
+
+  function diagnosticConfidenceScore(test) {
+    const skillLevelBest = Math.max(...(test.skillIds || ["observation"]).map((skillId) => skillLevel(skillId)), 0);
+    return clamp((Number(test.quality) || 0) + skillLevelBest * 10, 0, 100);
+  }
+
+  function diagnosticConfidenceLabel(score) {
+    return (DIAGNOSTIC_CONFIDENCE_BANDS.find((band) => score <= band.max) || DIAGNOSTIC_CONFIDENCE_BANDS[DIAGNOSTIC_CONFIDENCE_BANDS.length - 1]).label;
+  }
+
+  function currentExposureLikelySource(room) {
+    const contamination = roomContaminationValue(room?.id || scientistRoomId());
+    if (contamination >= 78) return `hazardous contamination in ${roomName(room?.id || scientistRoomId())}`;
+    if (contamination >= 55) return `fouled room air in ${roomName(room?.id || scientistRoomId())}`;
+    if (contamination >= 30) return `tainted residue in ${roomName(room?.id || scientistRoomId())}`;
+    return "recent contaminated-room exposure";
+  }
+
+  function updateScientistPhysicalExposure(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed || scientistIsDead()) {
+      return false;
+    }
+
+    state.scientist = normalizeScientist(state.scientist);
+    const physicalState = state.scientist.physicalState;
+    physicalState.tracks ||= {};
+    physicalState.tracks.exposure ||= defaultScientistPhysicalState().tracks.exposure;
+    const exposure = physicalState.tracks.exposure;
+
+    const room = roomById(scientistRoomId());
+    const contamination = roomContaminationValue(room?.id || MAIN_ROOM_ID);
+    const before = Number(exposure.current) || 0;
+    const max = Math.max(1, Number(exposure.max) || PHYSICAL_STATE_MAX);
+    let delta = 0;
+
+    if (contamination >= 30) {
+      const contaminationPressure = (contamination - 25) / 75;
+      delta = PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR * contaminationPressure * roomEffectScale(room) * (elapsed / 60);
+      exposure.sourceType = "contamination exposure";
+      exposure.likelySource = currentExposureLikelySource(room);
+    } else {
+      const cleanBonus = contamination <= 8 ? 1.35 : contamination <= 20 ? 1 : 0.55;
+      const restBonus = hasPendingRest() ? PHYSICAL_STATE_REST_RECOVERY_MULTIPLIER : 1;
+      delta = -PHYSICAL_STATE_EXPOSURE_DECAY_PER_HOUR * cleanBonus * restBonus * (elapsed / 60);
+    }
+
+    const nextExposure = clamp(before + delta, 0, max);
+    exposure.current = nextExposure;
+    exposure.max = max;
+    state.scientist.physicalState = physicalState;
+
+    const stamina = scientistVital("stamina");
+    let staminaChanged = false;
+    if (nextExposure >= 40 && !hasPendingRest()) {
+      const staminaDrain = ((nextExposure - 35) / 65) * 3 * (elapsed / 60);
+      const staminaBefore = stamina.current;
+      stamina.current = clamp(stamina.current - staminaDrain, 0, stamina.max);
+      staminaChanged = Math.abs(stamina.current - staminaBefore) >= 0.01;
+    }
+
+    let healthChanged = false;
+    if (nextExposure >= 65) {
+      const damage = ((nextExposure - 60) / 40) * 2.5 * (elapsed / 60);
+      if (damage > 0) {
+        const health = scientistVital("health");
+        const healthBefore = health.current;
+        health.current = clamp(health.current - damage, 0, health.max);
+        healthChanged = Math.abs(health.current - healthBefore) >= 0.01;
+        if (health.current <= 0 && healthBefore > 0) {
+          state.runEnded = true;
+          state.paused = true;
+          addEvent("The scientist collapsed from untreated exposure. Run ended.");
+        }
+      }
+    }
+
+    if (Math.abs(nextExposure - before) >= 0.1) {
+      const direction = nextExposure > before ? "rising" : "falling";
+      if ((state.clock - physicalState.lastExposureEventAt) >= PHYSICAL_STATE_EVENT_INTERVAL) {
+        const roomLabel = roomName(room?.id || MAIN_ROOM_ID);
+        if (direction === "rising") {
+          addEvent(`The air in ${roomLabel} leaves the scientist feeling ${physicalStateBand(nextExposure).label.toLowerCase()}. Physical State pressure is rising.`);
+        } else if (hasPendingRest()) {
+          addEvent(`Rest helps the scientist's body clear lingering exposure. Physical State is improving.`);
+        } else {
+          addEvent(`Cleaner air helps the scientist recover. Physical State is improving.`);
+        }
+        physicalState.lastExposureEventAt = state.clock;
+      }
+    }
+
+    if ((staminaChanged || healthChanged) && (state.clock - physicalState.lastSymptomEventAt) >= PHYSICAL_STATE_EVENT_INTERVAL) {
+      addEvent(`The scientist's ${physicalStateBand(nextExposure).label.toLowerCase()} condition takes a toll.`);
+      physicalState.lastSymptomEventAt = state.clock;
+    }
+
+    state.scientist.physicalState = physicalState;
+    return Math.abs(nextExposure - before) >= 0.01 || staminaChanged || healthChanged;
+  }
+
+  function physicalDiagnosticTask() {
+    return (state.tasks || []).find((task) => task.type === "physicalDiagnostic") || null;
+  }
+
+  function physicalDiagnosticBlockReason(test) {
+    if (!test) {
+      return "Unknown physical-state test.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (physicalDiagnosticTask()) {
+      return "A physical-state test is already in progress.";
+    }
+    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["observation"]);
+    if (!hasStamina(cost)) {
+      return `Not enough stamina. ${cost} required.`;
+    }
+    return "";
+  }
+
+  function startPhysicalDiagnostic(testId) {
+    const test = PHYSICAL_DIAGNOSTIC_TEST_BY_ID[testId];
+    const reason = physicalDiagnosticBlockReason(test);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["observation"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const skillId = test.skillIds?.[0] || "observation";
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "physicalDiagnostic",
+      label: `${test.label}: physical state`,
+      createdAt: state.clock,
+      dueAt: state.clock + adjustedDuration(test.duration, skillId),
+      data: {
+        testId: test.id,
+        staminaCost: cost,
+        skillId,
+        baseXp: test.id === "basicAssay" ? 18 : 6
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${test.label} started.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completePhysicalDiagnostic(task) {
+    const test = PHYSICAL_DIAGNOSTIC_TEST_BY_ID[task.data?.testId] || PHYSICAL_DIAGNOSTIC_TEST_BY_ID.selfCheck;
+    const exposure = scientistExposureTrack();
+    const score = diagnosticConfidenceScore(test);
+    const confidence = diagnosticConfidenceLabel(score);
+    const exact = Boolean(test.exactConfidence && score >= test.exactConfidence);
+    const severity = exposureSeverityLabel(exposure.current);
+    const sourceType = exposure.sourceType || "exposure";
+    const likelySource = exposure.likelySource || "source unclear";
+    let summary;
+    if (exact) {
+      summary = `${sourceType} ${Math.round(exposure.current)}/${Math.round(exposure.max)}`;
+    } else if (score < 20) {
+      summary = `cause unclear; ${severity} exposure signs possible`;
+    } else if (score < 35) {
+      summary = `${severity} exposure signs detected`;
+    } else {
+      summary = `${severity} ${sourceType} likely`;
+    }
+    const latestTest = {
+      testId: test.id,
+      label: test.resultLabel || "Latest test",
+      summary,
+      confidence,
+      sourceType,
+      likelySource,
+      exactValue: exact ? Math.round(exposure.current) : null,
+      testedAt: state.clock
+    };
+    scientistPhysicalState().latestTest = latestTest;
+    awardActionXp(task.data?.skillId || test.skillIds?.[0] || "observation", task.data?.baseXp || 6, emptyRevealSummary(), test.label);
+    addEvent(`${test.label} complete. ${summary}. Confidence: ${confidence}.`);
+    return true;
+  }
+
+
   function slimeStats(slime) {
     slime.stats = normalizeSlimeStats(slime.stats);
     return slime.stats;
@@ -11306,12 +11902,61 @@
       description: String(candidate.description || base?.description || "").trim(),
       geometry: normalizeRoomGeometry(candidate.geometry || base?.geometry),
       connections: normalizeRoomConnections(candidate.connections || base?.connections, id),
+      observation: normalizeRoomObservation(candidate.observation),
       attributes: normalizeRoomAttributes(candidate.attributes || base?.attributes)
     };
   }
 
 
 
+
+  function normalizeRoomObservation(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const exposureScore = clamp(Number(candidate.exposureScore) || 0, 0, 100);
+    const observedAt = Number.isFinite(Number(candidate.observedAt)) ? Number(candidate.observedAt) : 0;
+    const exposureBand = String(candidate.exposureBand || roomExposureBand(exposureScore).label);
+    const effect = String(candidate.effect || roomExposureBand(exposureScore).effect);
+    const knownFactors = Array.isArray(candidate.knownFactors) ? candidate.knownFactors.map(String).filter(Boolean).slice(0, 6) : [];
+    const unknownFactors = Array.isArray(candidate.unknownFactors) ? candidate.unknownFactors.map(String).filter(Boolean).slice(0, 6) : [];
+    return {
+      observedAt,
+      exposureScore,
+      exposureBand,
+      effect,
+      knownFactors,
+      unknownFactors,
+      contaminationBand: String(candidate.contaminationBand || "Unknown"),
+      crowdingLabel: String(candidate.crowdingLabel || "Unknown"),
+      freeCreatureCount: Math.max(0, Math.floor(Number(candidate.freeCreatureCount) || 0))
+    };
+  }
+
+
+  function normalizeRoomObservations(candidate) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const normalized = {};
+    for (const [roomId, observation] of Object.entries(source)) {
+      const cleanId = cleanRoomId(roomId);
+      const normalizedObservation = normalizeRoomObservation(observation);
+      if (cleanId && normalizedObservation) {
+        normalized[cleanId] = normalizedObservation;
+      }
+    }
+    return normalized;
+  }
+
+  function syncRoomObservationMemory() {
+    state.roomObservations = normalizeRoomObservations(state.roomObservations);
+    for (const room of state.rooms || []) {
+      if (room.observation) {
+        state.roomObservations[room.id] = normalizeRoomObservation(room.observation);
+      } else if (state.roomObservations[room.id]) {
+        room.observation = normalizeRoomObservation(state.roomObservations[room.id]);
+      }
+    }
+  }
 
   function normalizeRoomGeometry(candidate = {}) {
     const shape = String(candidate?.shape || "irregular").trim() || "irregular";
@@ -11496,9 +12141,135 @@
     return Math.max(1, Math.ceil(baseDuration * skillReductionMultiplier(skillLevel(skillId))));
   }
 
-  function adjustedStaminaCost(baseCost, skillIds) {
-    const bestLevel = Math.max(...skillIds.filter(Boolean).map((skillId) => skillLevel(skillId)), 0);
-    return Math.max(1, Math.ceil(baseCost * skillReductionMultiplier(bestLevel)));
+  function adjustedStaminaCost(baseCost, skillIds, options = {}) {
+    return adjustedStaminaCostBreakdown(baseCost, skillIds, options).finalCost;
+  }
+
+  function physicalStateActionStrain(label = physicalStateBandSafe().label) {
+    const normalized = String(label || "Steady").toLowerCase();
+    if (normalized === "queasy") {
+      return { label: "Queasy", modifier: 1, text: "Physical actions cost slightly more stamina." };
+    }
+    if (normalized === "sickened") {
+      return { label: "Sickened", modifier: 2, text: "Physical actions cost more stamina." };
+    }
+    if (normalized === "toxic") {
+      return { label: "Toxic", modifier: 4, text: "Physical actions cost much more stamina and Health may suffer over time." };
+    }
+    if (normalized === "failing") {
+      return { label: "Failing", modifier: 6, text: "Most risky physical work is extremely difficult." };
+    }
+    if (normalized === "uneasy") {
+      return { label: "Uneasy", modifier: 0, text: "Something feels off, but actions are not strained yet." };
+    }
+    return { label: "Steady", modifier: 0, text: "No Physical State stamina strain." };
+  }
+
+  function physicalStateBandSafe() {
+    try {
+      return physicalStateBand(scientistExposureTrack().current);
+    } catch {
+      return { label: "Steady" };
+    }
+  }
+
+  function adjustedStaminaCostBreakdown(baseCost, skillIds = [], options = {}) {
+    const base = Math.max(0, Number(baseCost) || 0);
+    const bestLevel = Math.max(...(skillIds || []).filter(Boolean).map((skillId) => skillLevel(skillId)), 0);
+    const multiplierAdjusted = Math.max(1, Math.ceil(base * skillReductionMultiplier(bestLevel)));
+    const levelStepDiscount = Math.floor(bestLevel / 5);
+    const skillAdjusted = Math.max(1, Math.min(multiplierAdjusted, base - levelStepDiscount));
+    const skillDelta = skillAdjusted - base;
+    const strain = options.includePhysicalState === false
+      ? { label: "Steady", modifier: 0, text: "No Physical State stamina strain." }
+      : physicalStateActionStrain();
+    const finalCost = Math.max(1, skillAdjusted + strain.modifier);
+    const netDelta = finalCost - base;
+    const skillLabels = (skillIds || [])
+      .filter(Boolean)
+      .map((skillId) => SKILL_BY_ID[skillId]?.label || skillId);
+    const lines = [`Base cost: ${base} STA`];
+    if (skillDelta < 0) {
+      lines.push(`Skill${skillLabels.length ? ` (${skillLabels.join(", ")})` : ""}: ${skillDelta} STA`);
+    } else if (skillDelta > 0) {
+      lines.push(`Skill adjustment: +${skillDelta} STA`);
+    } else {
+      lines.push("Skill adjustment: +0 STA");
+    }
+    if (strain.modifier > 0) {
+      lines.push(`Physical State: ${strain.label} +${strain.modifier} STA`);
+    } else {
+      lines.push(`Physical State: ${strain.label} +0 STA`);
+    }
+    lines.push(`Final cost: ${finalCost} STA`);
+    return {
+      baseCost: base,
+      bestLevel,
+      skillDelta,
+      physicalStateDelta: strain.modifier,
+      physicalStateLabel: strain.label,
+      physicalStateText: strain.text,
+      finalCost,
+      netDelta,
+      direction: netDelta > 0 ? "negative" : netDelta < 0 ? "positive" : "neutral",
+      title: lines.join("\n")
+    };
+  }
+
+  function staminaCostEl(baseCost, skillIds = [], options = {}) {
+    const breakdown = adjustedStaminaCostBreakdown(baseCost, skillIds, options);
+    const element = document.createElement("span");
+    element.className = "modified-stamina-cost";
+    if (breakdown.direction === "negative") {
+      element.classList.add("modified-stamina-negative");
+    } else if (breakdown.direction === "positive") {
+      element.classList.add("modified-stamina-positive");
+    } else {
+      element.classList.add("modified-stamina-neutral");
+    }
+    element.setAttribute("data-stamina-cost-direction", breakdown.direction);
+    element.dataset.baseStaminaCost = String(breakdown.baseCost);
+    element.dataset.finalStaminaCost = String(breakdown.finalCost);
+    element.textContent = `${breakdown.finalCost} STA`;
+    element.title = breakdown.title;
+    if (breakdown.direction === "negative") {
+      element.style.color = "#b42318";
+    } else if (breakdown.direction === "positive") {
+      element.style.color = "#287d3c";
+    }
+    return element;
+  }
+
+  function setButtonStaminaLabel(button, label, baseCost, skillIds = [], options = {}) {
+    const duration = options.duration ? `${options.duration}, ` : "";
+    const suffix = options.suffix ? `, ${options.suffix}` : "";
+    button.textContent = "";
+    button.append(document.createTextNode(`${label} (${duration}`), staminaCostEl(baseCost, skillIds, options), document.createTextNode(`${suffix})`));
+    const breakdown = adjustedStaminaCostBreakdown(baseCost, skillIds, options);
+    button.setAttribute("data-stamina-cost-direction", breakdown.direction);
+    button.dataset.baseStaminaCost = String(breakdown.baseCost);
+    button.dataset.finalStaminaCost = String(breakdown.finalCost);
+    if (!button.title) {
+      button.title = breakdown.title;
+    }
+    return breakdown.finalCost;
+  }
+
+  function tooltipKeywordEl(label, keyOrText) {
+    const element = document.createElement("span");
+    element.className = "keyword-tooltip";
+    element.dataset.tooltipKeyword = normalizeCommandName(label);
+    element.textContent = label;
+    element.title = tooltipTextFor(label, keyOrText);
+    return element;
+  }
+
+  function tooltipTextFor(label, keyOrText = "") {
+    if (keyOrText && !TOOLTIP_DEFS[keyOrText]) {
+      return String(keyOrText);
+    }
+    const key = keyOrText || normalizeCommandName(label);
+    return TOOLTIP_DEFS[key]?.body || TOOLTIP_DEFS[normalizeCommandName(label)]?.body || String(label);
   }
 
   function skillReductionMultiplier(level) {
@@ -12031,7 +12802,14 @@
         return null;
       }
       const payload = JSON.parse(raw);
-      return normalizeState(payload.state || payload);
+      const loaded = normalizeState(payload.state || payload);
+      const previousState = state;
+      state = loaded;
+      syncRoomObservationMemory();
+      observeScientistRoom();
+      const observed = state;
+      state = previousState;
+      return observed;
     } catch (error) {
       console.warn("Load failed", error);
       return null;
@@ -12059,7 +12837,15 @@
     if (next.runEnded) {
       next.paused = true;
     }
+    next.roomObservations = normalizeRoomObservations(next.roomObservations);
     next.rooms = normalizeRooms(next.rooms);
+    for (const room of next.rooms) {
+      if (room.observation) {
+        next.roomObservations[room.id] = normalizeRoomObservation(room.observation);
+      } else if (next.roomObservations[room.id]) {
+        room.observation = normalizeRoomObservation(next.roomObservations[room.id]);
+      }
+    }
     next.containers = normalizeContainers(next.containers);
     for (const container of next.containers) {
       container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
@@ -12254,6 +13040,46 @@
     return locks;
   }
 
+  function defaultScientistPhysicalState() {
+    return {
+      tracks: {
+        exposure: {
+          current: 0,
+          max: PHYSICAL_STATE_MAX,
+          sourceType: "contamination exposure",
+          likelySource: "no clear source"
+        }
+      },
+      latestTest: null,
+      lastExposureEventAt: -999999,
+      lastSymptomEventAt: -999999
+    };
+  }
+
+  function normalizeScientistPhysicalState(candidate) {
+    const fallback = defaultScientistPhysicalState();
+    const exposureCandidate = candidate?.tracks?.exposure || candidate?.exposure || {};
+    const rawCurrent = Number(exposureCandidate.current);
+    const rawMax = Number(exposureCandidate.max);
+    const max = Math.max(1, Number.isFinite(rawMax) ? rawMax : PHYSICAL_STATE_MAX);
+    const latestTest = candidate?.latestTest && typeof candidate.latestTest === "object"
+      ? { ...candidate.latestTest }
+      : null;
+    return {
+      tracks: {
+        exposure: {
+          current: clamp(Number.isFinite(rawCurrent) ? rawCurrent : 0, 0, max),
+          max,
+          sourceType: String(exposureCandidate.sourceType || fallback.tracks.exposure.sourceType),
+          likelySource: String(exposureCandidate.likelySource || fallback.tracks.exposure.likelySource)
+        }
+      },
+      latestTest,
+      lastExposureEventAt: Number.isFinite(Number(candidate?.lastExposureEventAt)) ? Number(candidate.lastExposureEventAt) : -999999,
+      lastSymptomEventAt: Number.isFinite(Number(candidate?.lastSymptomEventAt)) ? Number(candidate.lastSymptomEventAt) : -999999
+    };
+  }
+
   function normalizeScientistPhysicalPresence(candidate) {
     const fallback = SCIENTIST_DEFAULT_PHYSICAL_PRESENCE;
     const heightM = Number(candidate?.heightM);
@@ -12276,6 +13102,7 @@
     const scientist = {
       roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
+      physicalState: normalizeScientistPhysicalState(candidate?.physicalState),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },
       skills: { ...fallback.skills, ...(candidate?.skills || {}) }
     };
