@@ -175,22 +175,13 @@ Corpse auto-move should feel like a policy, not the default law of the universe.
 
 ## Tests / QC completed
 
-### Initial smoke test
-
-Initial test encountered a test-script bug:
+Initial smoke test encountered a test-script bug:
 - attempted to click disabled `#synthesizeBtn`
 - Playwright timed out because the button was correctly disabled
 
 This was not an app bug.
 
-The disabled reason confirmed:
-`Synthesis tube blocked by RG-001 remains.`
-
-### Corrected smoke test
-
-Corrected test inspected the disabled state instead of clicking it.
-
-Result:
+Corrected smoke test:
 - syntax check passed
 - corrected smoke test passed
 - 23/23 checks passed
@@ -209,27 +200,27 @@ Confirmed behaviors:
 - `localCount: 0`
 - Synthesis Tube then showed empty and was no longer blocked
 - corpse list showed waste drum after auto-move
-- no Menagerie/Pits rooms were added
+- no Menagerie/Pits rooms were added in this pass
 - no combat/raids/injuries/escape systems were added
 
-## Current accepted bundle
+## Repository / implementation status
 
-Latest accepted bundle for this system:
+This system is incorporated into the current tracked `app.js`.
 
-`app_corpse_location_pass1_fix1_bundle.zip`
+The project now uses Git as the main checkpoint and restore system.
 
-This bundle includes the previously accepted systems:
-- container isolation
-- container geometry
-- containment risk
-- minor containment incidents
+Current workflow:
+- Commit only after syntax checks and smoke/QC tests pass.
+- Push accepted checkpoints to `origin/main`.
+- Treat generated zip bundles as temporary transfer artifacts, not the long-term source of truth.
+
 
 ## Known limitations / future work
 
 - No manual corpse movement yet.
 - No room-specific corpse storage yet.
-- No Menagerie or Pits rooms yet.
-- No corpse pit upgrades.
+- Menagerie and Pits are implemented by the later Rooms Foundation system.
+- No corpse pit upgrades yet.
 - No hauling/staff logistics.
 - Corpse Processing still only uses waste-drum corpses.
 - Same-container corpse feeding needs broader playtesting with compatible sustenance traits.

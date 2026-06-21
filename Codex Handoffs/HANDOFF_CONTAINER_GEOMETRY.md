@@ -47,7 +47,7 @@ It is treated separately from normal base container type definitions.
 ### Geometry helper functions
 
 The system includes helpers for:
-- retrieving a container’s geometry
+- retrieving a container's geometry
 - formatting internal dimensions
 - formatting opening dimensions
 - summarizing geometry for UI
@@ -70,6 +70,8 @@ It can warn about dimensional problems such as:
 - opening too narrow for rigid or bulky creatures
 - shallow containers creating fit issues
 - open-top or gap problems for certain forms
+
+This strengthens future active risk because breach potential now has better physical inputs.
 
 ## Important design intent
 
@@ -105,6 +107,18 @@ Geometry Pass 2 smoke test:
 - interior geometry text still appeared
 - console warnings/errors: 0
 - page errors: 0
+
+## Repository / implementation status
+
+This system is incorporated into the current tracked `app.js`.
+
+The project now uses Git as the main checkpoint and restore system.
+
+Current workflow:
+- Commit only after syntax checks and smoke/QC tests pass.
+- Push accepted checkpoints to `origin/main`.
+- Treat generated zip bundles as temporary transfer artifacts, not the long-term source of truth.
+
 
 ## Known limitations / future work
 

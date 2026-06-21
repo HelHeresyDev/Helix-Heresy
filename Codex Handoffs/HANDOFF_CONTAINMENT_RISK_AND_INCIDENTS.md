@@ -111,6 +111,18 @@ This system does not include:
 - advanced staff safety
 - room pathfinding
 
+## Important design intent
+
+Incidents should feel like readable consequences of risky lab management.
+
+They should not feel like random punishment.
+
+Minor incidents should happen before catastrophic systems exist.
+
+The player should understand why risk exists through Potential and Pressure reasons before consequences occur.
+
+The synthesis tube is safe for temporary stabilization but should not become a permanent universal containment solution forever.
+
 ## Tests / QC completed
 
 Integrated Containment Incidents baseline smoke test:
@@ -140,15 +152,17 @@ Targeted containment incident stress retest:
 - page errors: 0
 - no full escapes, combat, deaths, raids, catastrophic breaches, or container destruction
 
-## Current accepted bundle at time of this handoff
+## Repository / implementation status
 
-This system was incorporated into later accepted bundles.
+This system is incorporated into the current tracked `app.js`.
 
-The last standalone accepted incident bundle was:
-`app_containment_incidents_big_pass_fix2_bundle.zip`
+The project now uses Git as the main checkpoint and restore system.
 
-The later accepted corpse-location bundle includes this system:
-`app_corpse_location_pass1_fix1_bundle.zip`
+Current workflow:
+- Commit only after syntax checks and smoke/QC tests pass.
+- Push accepted checkpoints to `origin/main`.
+- Treat generated zip bundles as temporary transfer artifacts, not the long-term source of truth.
+
 
 ## Known limitations / future work
 

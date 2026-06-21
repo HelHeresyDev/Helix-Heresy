@@ -79,7 +79,16 @@
     }
   ];
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
+  const CONTAINER_HAUL_BASE_DURATION = 20;
+  const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
+  const CONTAINER_HAUL_TESTING_PITS_TRANSFER = true;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
+  const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
+  const CORPSE_HANDLING_DESTINATIONS = [
+    { id: "drum", label: "Waste drums" },
+    { id: "pitHole", label: "Pit holes" }
+  ];
+  const CORPSE_HANDLING_DESTINATION_BY_ID = Object.fromEntries(CORPSE_HANDLING_DESTINATIONS.map((destination) => [destination.id, destination]));
   const ROOM_ATTRIBUTE_DEFS = [
     {
       key: "temperature",
@@ -428,6 +437,99 @@
       notes: ["Drainage ports", "Excellent seal", "Low visibility"]
     },
     {
+      id: "openDirtPit",
+      label: "Open Dirt Pit",
+      geometry: {
+        shape: "pit",
+        internalCm: { diameter: 120, height: 220 },
+        openingCm: { diameter: 120 },
+        openTop: true
+      },
+      capacityCm3: 2488000,
+      maxWeightKg: 5000,
+      visibility: "low",
+      seal: 0,
+      gap: 100,
+      durability: 25,
+      comfort: 5,
+      drainage: true,
+      pitHole: true,
+      coverType: "none",
+      corpseCapacity: 8,
+      resistances: { acid: 40, flame: 80, frost: 70, storm: 20, poison: 55, mana: 20 },
+      environmentExchange: {
+        temperature: 1,
+        light: 1,
+        ambientMana: 1,
+        moisture: 1,
+        contamination: 1,
+        electricalCharge: 0.8
+      },
+      notes: ["Literal dirt hole", "No cover", "Best access, worst containment"]
+    },
+    {
+      id: "gratedDirtPit",
+      label: "Grated Dirt Pit",
+      geometry: {
+        shape: "pit",
+        internalCm: { diameter: 120, height: 220 },
+        openingCm: { diameter: 110 },
+        openTop: false
+      },
+      capacityCm3: 2488000,
+      maxWeightKg: 5000,
+      visibility: "low",
+      seal: 15,
+      gap: 45,
+      durability: 50,
+      comfort: 5,
+      drainage: true,
+      pitHole: true,
+      coverType: "grate",
+      corpseCapacity: 7,
+      resistances: { acid: 45, flame: 85, frost: 70, storm: 35, poison: 55, mana: 25 },
+      environmentExchange: {
+        temperature: 0.85,
+        light: 0.7,
+        ambientMana: 0.85,
+        moisture: 0.9,
+        contamination: 0.9,
+        electricalCharge: 0.65
+      },
+      notes: ["Literal dirt hole", "Metal grate", "Balanced access and containment"]
+    },
+    {
+      id: "cappedDirtPit",
+      label: "Capped Dirt Pit",
+      geometry: {
+        shape: "pit",
+        internalCm: { diameter: 120, height: 220 },
+        openingCm: { diameter: 80 },
+        openTop: false
+      },
+      capacityCm3: 2488000,
+      maxWeightKg: 5000,
+      visibility: "none",
+      seal: 55,
+      gap: 4,
+      durability: 70,
+      comfort: 3,
+      drainage: true,
+      pitHole: true,
+      coverType: "cap",
+      corpseCapacity: 6,
+      resistances: { acid: 50, flame: 90, frost: 75, storm: 45, poison: 65, mana: 30 },
+      environmentExchange: {
+        temperature: 0.35,
+        light: 0,
+        ambientMana: 0.35,
+        moisture: 0.45,
+        contamination: 0.4,
+        electricalCharge: 0.25
+      },
+      notes: ["Literal dirt hole", "Heavy cap", "Hardest to access, best early containment"]
+    },
+    {
       id: "containmentPod",
       label: "Containment Pod",
       geometry: {
@@ -486,6 +588,9 @@
     { typeId: "openTray" },
     { typeId: "softLinedBox" },
     { typeId: "sealedDrainageTank" },
+    { typeId: "openDirtPit", name: "Open Dirt Pit 1", roomId: PITS_ROOM_ID },
+    { typeId: "gratedDirtPit", name: "Grated Dirt Pit 1", roomId: PITS_ROOM_ID },
+    { typeId: "cappedDirtPit", name: "Capped Dirt Pit 1", roomId: PITS_ROOM_ID },
     { typeId: "containmentPod", wardIds: ["acidAbsorbing"] },
     { typeId: "basicGlassJar", wardIds: ["flameDampening"] },
     { typeId: "ceramicVessel", wardIds: ["frostStabilizing"] },
@@ -729,7 +834,8 @@
     { key: "ruined", label: "Ruined", defaultTarget: true }
   ];
   const CORPSE_HANDLING_DEFAULTS = {
-    autoMoveToDrums: false
+    autoMoveToDrums: false,
+    destination: "drum"
   };
   const RESOURCE_DEFS = [
     { key: "biomass", label: "Biomass", initial: 50 },
@@ -976,7 +1082,7 @@
       },
       ...STARTER_CONTAINER_LOADOUT.map((entry, index) => ({
         id: `basic-${index + 1}`,
-        name: `${containerTypeLabel(entry.typeId)} ${index + 1}`,
+        name: entry.name || `${containerTypeLabel(entry.typeId)} ${index + 1}`,
         type: "basic",
         typeId: entry.typeId,
         wardIds: [...(entry.wardIds || [])],
@@ -991,7 +1097,7 @@
     if (entry?.roomId && ROOM_BASE_DEF_BY_ID[entry.roomId]) {
       return entry.roomId;
     }
-    if (entry?.typeId === "openTray" || entry?.typeId === "sealedDrainageTank") {
+    if (entry?.typeId === "openTray" || entry?.typeId === "sealedDrainageTank" || isPitHoleTypeId(entry?.typeId)) {
       return PITS_ROOM_ID;
     }
     if (index <= 1) {
@@ -1764,6 +1870,11 @@
       return;
     }
 
+    if (task.type === "containerHaul") {
+      completeContainerHaul(task);
+      return;
+    }
+
     if (task.type === "mature") {
       const slime = findSlime(task.data.slimeId);
       if (slime && slime.status !== "dead") {
@@ -2158,7 +2269,7 @@
     corpse.lastFreshness = corpseFreshness(corpse);
     state.corpses.unshift(corpse);
     if (corpseHandlingPolicy().autoMoveToDrums) {
-      tryMoveCorpseToDrum(corpse, { automatic: true, quiet: true });
+      tryAutoMoveCorpse(corpse, { automatic: true, quiet: true });
     }
     if (corpse.storage === "overflow") {
       addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
@@ -2502,6 +2613,20 @@
     return "";
   }
 
+  function jobRequiresPits(jobId) {
+    return jobId === "corpse" || jobId === "disposal";
+  }
+
+  function slimeJobSpecificBlockReason(slime, jobId) {
+    if (!slime || !jobRequiresPits(jobId)) {
+      return "";
+    }
+    if (slimeEffectiveRoomId(slime) !== PITS_ROOM_ID) {
+      return `${creatureJobLabel(jobId)} requires the Pits.`;
+    }
+    return "";
+  }
+
   function roomAttributeBand(attributeKey, value) {
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
     if (!def) {
@@ -2522,6 +2647,33 @@
 
   function containerTypeLabel(typeId) {
     return containerTypeDef(typeId).label;
+  }
+
+  function isPitHoleTypeId(typeId) {
+    return PIT_HOLE_TYPE_IDS.includes(String(typeId || ""));
+  }
+
+  function isPitHoleContainer(container) {
+    return Boolean(container && isPitHoleTypeId(container.typeId));
+  }
+
+  function pitHoleContainers() {
+    return permanentContainers().filter(isPitHoleContainer);
+  }
+
+  function pitHoleCorpseCapacity(container) {
+    return Math.max(1, Number(containerTypeDef(container?.typeId).corpseCapacity) || 6);
+  }
+
+  function pitHoleCorpseCount(container) {
+    return containerCorpses(container?.id).length;
+  }
+
+  function availablePitHoleContainer() {
+    return pitHoleContainers()
+      .filter((container) => pitHoleCorpseCount(container) < pitHoleCorpseCapacity(container))
+      .sort((a, b) => pitHoleCorpseCount(a) - pitHoleCorpseCount(b) || containerTypeDef(b.typeId).seal - containerTypeDef(a.typeId).seal)
+      [0] || null;
   }
 
   function containerWardDef(wardId) {
@@ -2814,7 +2966,7 @@
   }
 
   function openPermanentContainers() {
-    return permanentContainers().filter((container) => containerOccupants(container.id).length === 0 && containerCorpses(container.id).length === 0);
+    return permanentContainers().filter((container) => !isContainerInTransit(container.id) && containerOccupants(container.id).length === 0 && containerCorpses(container.id).length === 0);
   }
 
   function firstOpenPermanentContainer() {
@@ -2873,20 +3025,141 @@
     return true;
   }
 
+
   function moveContainerToRoom(containerId, roomId) {
+    return startContainerHaul(containerId, roomId);
+  }
+
+
+  function containerHaulTask(containerId) {
+    return (state.tasks || []).find((task) => task.type === "containerHaul" && task.data?.containerId === containerId) || null;
+  }
+
+  function containerHaulDestinationLabel(containerId) {
+    const task = containerHaulTask(containerId);
+    return task ? roomName(task.data?.toRoomId) : "";
+  }
+
+  function isContainerInTransit(containerId) {
+    return Boolean(containerHaulTask(containerId));
+  }
+
+  function containerContentsCount(container) {
+    return containerOccupants(container?.id).length + containerCorpses(container?.id).length;
+  }
+
+  function containerHaulDuration(container, toRoomId) {
+    const contents = containerContentsCount(container);
+    const base = contents ? CONTAINER_HAUL_WITH_CONTENTS_DURATION : CONTAINER_HAUL_BASE_DURATION;
+    const pitsTrip = container?.roomId === PITS_ROOM_ID || toRoomId === PITS_ROOM_ID;
+    return base + (pitsTrip ? 10 : 0);
+  }
+
+  function containerHaulBlockReason(container, toRoomId) {
+    if (!container) {
+      return "No container selected.";
+    }
+    if (container.type === "synthesis") {
+      return "The synthesis tube cannot be hauled.";
+    }
+    if (isPitHoleContainer(container)) {
+      return "Pit holes are built into the Pits and cannot be hauled.";
+    }
+    if (!roomById(toRoomId)) {
+      return "Unknown destination room.";
+    }
+    if (container.roomId === toRoomId) {
+      return `${container.name} is already in ${roomArticleName(toRoomId)}.`;
+    }
+    const existing = containerHaulTask(container.id);
+    if (existing) {
+      return `${container.name} is already being hauled to ${roomName(existing.data?.toRoomId)}.`;
+    }
+    if (toRoomId === PITS_ROOM_ID && CONTAINER_HAUL_TESTING_PITS_TRANSFER && containerContentsCount(container) > 0 && !availablePitHoleForHaul(container.id)) {
+      return "No pit hole has room for this container's contents.";
+    }
+    return "";
+  }
+
+  function startContainerHaul(containerId, toRoomId) {
     const container = containerById(containerId);
-    const room = roomById(roomId);
-    if (!container || !room || container.type === "synthesis") {
+    const room = roomById(toRoomId);
+    const reason = containerHaulBlockReason(container, toRoomId);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
       return false;
     }
-    if (container.roomId === room.id) {
+
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "containerHaul",
+      label: `Haul ${container.name} to ${room.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + containerHaulDuration(container, room.id),
+      data: {
+        containerId: container.id,
+        fromRoomId: container.roomId || MAIN_ROOM_ID,
+        toRoomId: room.id,
+        testingPitsTransfer: CONTAINER_HAUL_TESTING_PITS_TRANSFER
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)}.`);
+    persist();
+    render();
+    return true;
+  }
+
+
+  function completeContainerHaul(task) {
+    const container = containerById(task.data?.containerId);
+    const toRoom = roomById(task.data?.toRoomId);
+    if (!container || !toRoom) {
+      addEvent("Container haul could not complete; the container or room no longer exists.");
       return false;
     }
-    const previous = roomArticleName(container.roomId || MAIN_ROOM_ID);
-    container.roomId = room.id;
+
+    const fromRoomId = container.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
+    const fromLabel = roomArticleName(fromRoomId);
+    const toLabel = roomArticleName(toRoom.id);
+    const transferMessages = [];
+
+    // Move the container itself before any Pits testing shortcut so loaded
+    // contents inherit the destination room instead of the old Pits room.
+    container.roomId = toRoom.id;
+
+    if (task.data?.testingPitsTransfer && fromRoomId === PITS_ROOM_ID && toRoom.id !== PITS_ROOM_ID) {
+      const loadMessage = loadPitContentsIntoContainerForTesting(container);
+      if (loadMessage) {
+        transferMessages.push(loadMessage);
+      }
+    }
+
+    syncContainerContentsToRoom(container, toRoom.id);
+
+    if (task.data?.testingPitsTransfer && toRoom.id === PITS_ROOM_ID) {
+      const unloadMessage = unloadContainerContentsToPitForTesting(container);
+      if (unloadMessage) {
+        transferMessages.push(unloadMessage);
+      }
+    }
+
+    syncContainerContentsToRoom(container, toRoom.id);
+
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel}.${transferMessages.length ? ` ${transferMessages.join(" ")}` : ""}`);
+    refreshCorpseProcessingTargets();
+    return true;
+  }
+
+  function syncContainerContentsToRoom(container, roomId = container?.roomId || MAIN_ROOM_ID) {
+    if (!container) {
+      return;
+    }
     for (const slime of containerOccupants(container.id)) {
-      slime.roomId = room.id;
-      if (roomBlocksJobs(room.id)) {
+      slime.roomId = roomId;
+      if (roomBlocksJobs(roomId) || isContainerInTransit(container.id)) {
         slime.job = "idle";
         slime.jobProgress = 0;
         slime.jobTargetCorpseId = null;
@@ -2894,13 +3167,94 @@
       }
     }
     for (const corpse of containerCorpses(container.id)) {
-      corpse.roomId = room.id;
+      corpse.roomId = roomId;
     }
-    addEvent(`${container.name} moved from ${previous} to ${roomArticleName(room.id)}.`);
-    persist();
-    render();
-    return true;
   }
+
+
+  function availablePitHoleForHaul(excludeContainerId = "") {
+    return pitHoleContainers()
+      .filter((pit) => pit.id !== excludeContainerId)
+      .filter((pit) => !isContainerInTransit(pit.id))
+      .filter((pit) => containerOccupants(pit.id).length === 0)
+      .filter((pit) => pitHoleCorpseCount(pit) < pitHoleCorpseCapacity(pit))
+      .sort((a, b) => pitHoleCorpseCount(a) - pitHoleCorpseCount(b) || containerTypeDef(b.typeId).seal - containerTypeDef(a.typeId).seal)
+      [0] || null;
+  }
+
+  function pitHoleWithContentsForHaul() {
+    return pitHoleContainers()
+      .filter((pit) => !isContainerInTransit(pit.id))
+      .filter((pit) => containerOccupants(pit.id).length > 0 || containerCorpses(pit.id).length > 0)
+      .sort((a, b) => containerOccupants(b.id).length - containerOccupants(a.id).length || containerCorpses(b.id).length - containerCorpses(a.id).length)
+      [0] || null;
+  }
+
+  function unloadContainerContentsToPitForTesting(container) {
+    if (isPitHoleContainer(container)) {
+      return "";
+    }
+    const occupants = containerOccupants(container.id);
+    const corpses = containerCorpses(container.id);
+    if (!occupants.length && !corpses.length) {
+      return "";
+    }
+    const pit = availablePitHoleForHaul(container.id);
+    if (!pit) {
+      return "Testing transfer could not unload contents; no pit hole had room.";
+    }
+
+    let moved = 0;
+    for (const slime of occupants) {
+      slime.containerId = pit.id;
+      slime.roomId = pit.roomId || PITS_ROOM_ID;
+      slime.job = "idle";
+      slime.jobProgress = 0;
+      slime.jobTargetCorpseId = null;
+      slime.jobNutritionGained = 0;
+      moved += 1;
+    }
+    for (const corpse of corpses) {
+      corpse.storage = "container";
+      corpse.containerId = pit.id;
+      corpse.roomId = pit.roomId || PITS_ROOM_ID;
+      corpse.nextOverflowEventAt = null;
+      moved += 1;
+    }
+    return moved ? `Testing shortcut: contents were unloaded into ${pit.name}.` : "";
+  }
+
+  function loadPitContentsIntoContainerForTesting(container) {
+    if (isPitHoleContainer(container) || containerContentsCount(container) > 0) {
+      return "";
+    }
+    const pit = pitHoleWithContentsForHaul();
+    if (!pit) {
+      return "";
+    }
+
+    const occupants = containerOccupants(pit.id);
+    const corpses = containerCorpses(pit.id);
+    let moved = 0;
+    for (const slime of occupants) {
+      slime.containerId = container.id;
+      slime.roomId = container.roomId || PITS_ROOM_ID;
+      slime.job = "idle";
+      slime.jobProgress = 0;
+      slime.jobTargetCorpseId = null;
+      slime.jobNutritionGained = 0;
+      moved += 1;
+    }
+    for (const corpse of corpses) {
+      corpse.storage = "container";
+      corpse.containerId = container.id;
+      corpse.roomId = container.roomId || PITS_ROOM_ID;
+      corpse.nextOverflowEventAt = null;
+      moved += 1;
+    }
+    return moved ? `Testing shortcut: contents were loaded from ${pit.name}.` : "";
+  }
+
 
   function moveSlimeToOpenPermanentContainer(slime) {
     const container = firstOpenPermanentContainer();
@@ -2917,7 +3271,7 @@
     for (const corpse of state.corpses || []) {
       normalizeCorpseLocation(corpse);
       if (corpseHandlingPolicy().autoMoveToDrums && isLocalCorpse(corpse) && !hasPendingNecropsy(corpse.id)) {
-        changes += tryMoveCorpseToDrum(corpse, { automatic: true }) ? 1 : 0;
+        changes += tryAutoMoveCorpse(corpse, { automatic: true }) ? 1 : 0;
       }
       const freshness = corpseFreshness(corpse);
       if (corpse.lastFreshness && corpse.lastFreshness !== freshness) {
@@ -4323,6 +4677,20 @@
       addPotential(8, "container condition is worn.");
     }
 
+    if (isPitHoleContainer(container)) {
+      const coverType = containerTypeDef(container.typeId).coverType || "none";
+      const coverPotential = { none: 28, grate: 18, cap: 8 }[coverType] ?? 16;
+      const coverPressure = { none: 10, grate: 6, cap: 2 }[coverType] ?? 5;
+      addPotential(coverPotential, `${containerTypeDef(container.typeId).label} is a crude dirt-hole containment site.`);
+      if (coverPressure) {
+        addPressure(coverPressure, "pit-hole covers can be challenged by living creatures.");
+      }
+    }
+
+    if (isContainerInTransit(container.id)) {
+      addPressure(14, "the container is currently being hauled.");
+    }
+
     const localCorpses = containerCorpses(container.id);
     if (localCorpses.length) {
       addPotential(10 + localCorpses.length * 4, `${localCorpses.length} corpse${localCorpses.length === 1 ? "" : "s"} sharing this container.`);
@@ -4537,6 +4905,13 @@
     }
     if (container.type !== "synthesis") {
       meta.append(chip(`${roomRoleLabel(container.roomId)} room`));
+      if (isPitHoleContainer(container)) {
+        meta.append(chip(`pit corpses ${pitHoleCorpseCount(container)}/${pitHoleCorpseCapacity(container)}`));
+      }
+      const haulTask = containerHaulTask(container.id);
+      if (haulTask) {
+        meta.append(chip(`hauling to ${roomName(haulTask.data?.toRoomId)}`));
+      }
       const roomControl = document.createElement("div");
       roomControl.className = "container-room-control";
       roomControl.append(textEl("span", "Room: "));
@@ -4550,8 +4925,17 @@
         select.append(option);
       }
       select.value = roomById(container.roomId)?.id || MAIN_ROOM_ID;
+      const selectorBlockedReason = haulTask
+        ? `${container.name} is in transit to ${roomName(haulTask.data?.toRoomId)}.`
+        : isPitHoleContainer(container)
+          ? "Pit holes are built into the Pits and cannot be hauled."
+          : "";
+      select.disabled = Boolean(selectorBlockedReason);
+      select.title = selectorBlockedReason;
       select.addEventListener("change", () => {
-        moveContainerToRoom(container.id, select.value);
+        const destination = select.value;
+        select.value = roomById(container.roomId)?.id || MAIN_ROOM_ID;
+        moveContainerToRoom(container.id, destination);
       });
       roomControl.append(select);
       meta.append(roomControl);
@@ -4721,7 +5105,8 @@
           meta.append(remainingChip);
         }
       } else {
-        meta.append(chip(isInSynthesisTube(slime) ? "in synthesis tube" : canWorkJob(slime) ? "available" : "not ready"));
+        const pitsReason = slimeJobSpecificBlockReason(slime, "corpse");
+        meta.append(chip(isInSynthesisTube(slime) ? "in synthesis tube" : slimeJobRoomBlockReason(slime) ? "not ready" : pitsReason ? "move to Pits for jobs" : canWorkJob(slime) ? "available" : "not ready"));
       }
       details.append(header, meta);
 
@@ -4746,6 +5131,9 @@
         const option = document.createElement("option");
         option.value = job.id;
         option.textContent = job.label;
+        const optionReason = slimeJobSpecificBlockReason(slime, job.id);
+        option.disabled = Boolean(optionReason);
+        option.title = optionReason;
         select.append(option);
       }
       select.value = slime.job;
@@ -4840,6 +5228,13 @@
     const jobReason = jobAssignmentBlockReason(slime);
     if (nextJob !== "idle" && jobReason) {
       addEvent(`${slime.name} cannot be assigned: ${jobReason}`);
+      persist();
+      render();
+      return;
+    }
+    const jobSpecificReason = slimeJobSpecificBlockReason(slime, nextJob);
+    if (nextJob !== "idle" && jobSpecificReason) {
+      addEvent(`${slime.name} cannot be assigned: ${jobSpecificReason}`);
       persist();
       render();
       return;
@@ -5741,9 +6136,20 @@
     return Boolean(corpseProcessingTargets()[corpseFreshness(corpse)]);
   }
 
+
   function isCorpseProcessingCandidate(corpse) {
-    return Boolean(corpse && corpse.storage === "drum" && CORPSE_STATE_POLICY_DEFS.some((stateDef) => stateDef.key === corpseFreshness(corpse)));
+    if (!corpse || !CORPSE_STATE_POLICY_DEFS.some((stateDef) => stateDef.key === corpseFreshness(corpse))) {
+      return false;
+    }
+    if (corpse.storage === "drum") {
+      return true;
+    }
+    if (corpse.storage === "container" && isPitHoleContainer(containerById(corpse.containerId))) {
+      return true;
+    }
+    return false;
   }
+
 
   function policyProtectedCorpseCount() {
     return (state.corpses || []).filter((corpse) => isCorpseProcessingCandidate(corpse) && !isCorpseProcessingTarget(corpse)).length;
@@ -5791,7 +6197,7 @@
     if (!CREATURE_JOBS.some((job) => job.id === slime.job)) {
       slime.job = "idle";
     }
-    if (isInSynthesisTube(slime) || slimeJobRoomBlockReason(slime)) {
+    if (isInSynthesisTube(slime) || slimeJobRoomBlockReason(slime) || (slime.containerId && isContainerInTransit(slime.containerId))) {
       slime.job = "idle";
     }
     slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
@@ -5810,9 +6216,14 @@
   }
 
 
+
+
   function canWorkJob(slime) {
-    return Boolean(slime && slime.status !== "dead" && slime.mature && !isInSynthesisTube(slime) && !slimeJobRoomBlockReason(slime) && slimeStat(slime, "bodyIntegrity").current > 0);
+    return Boolean(slime && slime.status !== "dead" && slime.mature && !isInSynthesisTube(slime) && !(slime.containerId && isContainerInTransit(slime.containerId)) && !slimeJobRoomBlockReason(slime) && slimeStat(slime, "bodyIntegrity").current > 0);
   }
+
+
+
 
 
 
@@ -5822,6 +6233,9 @@
     }
     if (isInSynthesisTube(slime)) {
       return "Specimens in the synthesis tube cannot be assigned jobs.";
+    }
+    if (slime.containerId && isContainerInTransit(slime.containerId)) {
+      return `${slime.name}'s container is being hauled.`;
     }
     const roomReason = slimeJobRoomBlockReason(slime);
     if (roomReason) {
@@ -5835,6 +6249,7 @@
     }
     return "";
   }
+
 
 
   function corpseProcessingDuration(slime) {
@@ -6663,6 +7078,7 @@
   }
 
 
+
   function renderPolicies() {
     state.policies = normalizePolicies(state.policies);
     dom.corpsePolicyList.textContent = "";
@@ -6673,7 +7089,7 @@
       ? `Corpse Processing targets ${enabled.join(", ").toLowerCase()} corpses.`
       : "Corpse Processing has no automatic targets.";
     const handlingSummary = handling.autoMoveToDrums
-      ? "Corpse handling auto-moves local remains to waste drums when space is available."
+      ? `Corpse handling auto-moves local remains to ${corpseHandlingDestinationLabel(handling).toLowerCase()} when space is available.`
       : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
     dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}.`;
@@ -6685,16 +7101,39 @@
     autoMoveInput.checked = Boolean(handling.autoMoveToDrums);
     autoMoveInput.addEventListener("change", () => {
       state.policies.corpseHandling.autoMoveToDrums = autoMoveInput.checked;
-      const moved = autoMoveLocalCorpsesToDrums();
+      const moved = autoMoveLocalCorpses();
       addEvent(autoMoveInput.checked
-        ? `Corpse handling policy enabled: local corpses will move to waste drums when space is available${moved ? `; moved ${moved} now` : ""}.`
+        ? `Corpse handling policy enabled: local corpses will move to ${corpseHandlingDestinationLabel().toLowerCase()} when space is available${moved ? `; moved ${moved} now` : ""}.`
         : "Corpse handling policy disabled: new corpses will remain where they fall.");
       refreshCorpseProcessingTargets();
       persist();
       render();
     });
-    autoMoveLabel.append(autoMoveInput, textEl("span", "Auto-move local corpses to waste drums"));
+    autoMoveLabel.append(autoMoveInput, textEl("span", "Auto-move local corpses"));
     dom.corpsePolicyList.append(autoMoveLabel);
+
+    const destinationLabel = document.createElement("label");
+    destinationLabel.className = "policy-option";
+    destinationLabel.append(textEl("span", "Corpse destination"));
+    const destinationSelect = document.createElement("select");
+    destinationSelect.dataset.corpseDestinationSelect = "true";
+    for (const destination of CORPSE_HANDLING_DESTINATIONS) {
+      const option = document.createElement("option");
+      option.value = destination.id;
+      option.textContent = destination.label;
+      destinationSelect.append(option);
+    }
+    destinationSelect.value = corpseHandlingDestination(handling);
+    destinationSelect.addEventListener("change", () => {
+      state.policies.corpseHandling.destination = CORPSE_HANDLING_DESTINATION_BY_ID[destinationSelect.value] ? destinationSelect.value : CORPSE_HANDLING_DEFAULTS.destination;
+      const moved = state.policies.corpseHandling.autoMoveToDrums ? autoMoveLocalCorpses() : 0;
+      addEvent(`Corpse handling destination set to ${corpseHandlingDestinationLabel().toLowerCase()}${moved ? `; moved ${moved} now` : ""}.`);
+      refreshCorpseProcessingTargets();
+      persist();
+      render();
+    });
+    destinationLabel.append(destinationSelect);
+    dom.corpsePolicyList.append(destinationLabel);
 
     for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
       const label = document.createElement("label");
@@ -6714,6 +7153,7 @@
     }
     renderFeedingPolicies();
   }
+
 
 
   function renderFeedingPolicies() {
@@ -7150,6 +7590,9 @@
     }
     if (task.type === "necropsy") {
       return "Necropsy";
+    }
+    if (task.type === "containerHaul") {
+      return "Hauling";
     }
     if (task.type === "mature") {
       return "Growth";
@@ -8455,6 +8898,51 @@
     return roomName(corpse.roomId || MAIN_ROOM_ID);
   }
 
+  function corpseHandlingDestination(policy = corpseHandlingPolicy()) {
+    return CORPSE_HANDLING_DESTINATION_BY_ID[policy.destination] ? policy.destination : CORPSE_HANDLING_DEFAULTS.destination;
+  }
+
+  function corpseHandlingDestinationLabel(policy = corpseHandlingPolicy()) {
+    return CORPSE_HANDLING_DESTINATION_BY_ID[corpseHandlingDestination(policy)]?.label || "Waste drums";
+  }
+
+  function tryAutoMoveCorpse(corpse, options = {}) {
+    const destination = corpseHandlingDestination();
+    if (destination === "pitHole") {
+      return tryMoveCorpseToPitHole(corpse, options);
+    }
+    return tryMoveCorpseToDrum(corpse, options);
+  }
+
+  function tryMoveCorpseToPitHole(corpse, options = {}) {
+    if (!corpse || corpse.storage === "overflow") {
+      return false;
+    }
+    if (corpse.storage === "container" && isPitHoleContainer(containerById(corpse.containerId))) {
+      return false;
+    }
+    if (hasPendingNecropsy(corpse.id)) {
+      return false;
+    }
+    const pit = availablePitHoleContainer();
+    if (!pit) {
+      if (options.automatic && !options.quiet) {
+        addEvent(`${corpse.name} remains in ${corpseLocationLabel(corpse)}; no pit hole has room.`);
+      }
+      return false;
+    }
+    const from = corpseLocationLabel(corpse);
+    corpse.storage = "container";
+    corpse.containerId = pit.id;
+    corpse.roomId = pit.roomId || PITS_ROOM_ID;
+    corpse.nextOverflowEventAt = null;
+    if (!options.quiet) {
+      addEvent(`${corpse.name} remains moved from ${from} to ${pit.name}.`);
+    }
+    refreshCorpseProcessingTargets();
+    return true;
+  }
+
   function tryMoveCorpseToDrum(corpse, options = {}) {
     if (!corpse || corpse.storage === "drum" || corpse.storage === "overflow") {
       return false;
@@ -8480,15 +8968,21 @@
     return true;
   }
 
+
   function autoMoveLocalCorpsesToDrums() {
+    return autoMoveLocalCorpses();
+  }
+
+  function autoMoveLocalCorpses() {
     let moved = 0;
     for (const corpse of state.corpses || []) {
-      if (isLocalCorpse(corpse) && tryMoveCorpseToDrum(corpse, { automatic: true, quiet: true })) {
+      if (isLocalCorpse(corpse) && tryAutoMoveCorpse(corpse, { automatic: true, quiet: true })) {
         moved += 1;
       }
     }
     return moved;
   }
+
 
   function updateLocalCorpseEffects(corpse, elapsed) {
     if (!isLocalCorpse(corpse) || corpse.ruined) {
@@ -9067,6 +9561,7 @@
       ...(candidate?.corpseHandling || {})
     };
     corpseHandling.autoMoveToDrums = Boolean(corpseHandling.autoMoveToDrums);
+    corpseHandling.destination = CORPSE_HANDLING_DESTINATION_BY_ID[corpseHandling.destination] ? corpseHandling.destination : CORPSE_HANDLING_DEFAULTS.destination;
     return {
       ...fallback,
       ...(candidate || {}),

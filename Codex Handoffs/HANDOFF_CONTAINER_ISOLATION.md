@@ -38,7 +38,7 @@ Examples:
 
 ### Environmental feeding source awareness
 
-Environmental sustenance checks the slime’s immediate source:
+Environmental sustenance checks the slime's immediate source:
 
 - A contained slime feeds from its container interior.
 - A released slime feeds from its room.
@@ -63,23 +63,35 @@ The synthesis tube should be safe as temporary stabilization, not a permanent ge
 ## Tests / QC completed
 
 Basic browser smoke test:
-- Page loaded
-- Title: Helix Heresy
-- Body rendered
-- Container-related text found
-- Console warnings/errors: 0
-- Page errors: 0
+- page loaded
+- title: Helix Heresy
+- body rendered
+- container-related text found
+- console warnings/errors: 0
+- page errors: 0
 
 Targeted feature smoke test:
-- Container list rendered
+- container list rendered
 - Synthesis Tube appeared
-- Interior wording appeared
-- Synthesis tube communicated isolation/interior wording
-- Synthesis completed using keyboard shortcuts
-- Container UI still rendered after synthesis
-- Page did not blank/crash
-- Console warnings/errors: 0
-- Page errors: 0
+- interior wording appeared
+- synthesis tube communicated isolation/interior wording
+- synthesis completed using keyboard shortcuts
+- container UI still rendered after synthesis
+- page did not blank/crash
+- console warnings/errors: 0
+- page errors: 0
+
+## Repository / implementation status
+
+This system is incorporated into the current tracked `app.js`.
+
+The project now uses Git as the main checkpoint and restore system.
+
+Current workflow:
+- Commit only after syntax checks and smoke/QC tests pass.
+- Push accepted checkpoints to `origin/main`.
+- Treat generated zip bundles as temporary transfer artifacts, not the long-term source of truth.
+
 
 ## Known limitations / future work
 
