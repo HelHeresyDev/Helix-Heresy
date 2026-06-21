@@ -184,8 +184,8 @@
     uneasy: { body: "Uneasy: something feels off, but actions are not strained yet." },
     queasy: { body: "Queasy: physical actions cost slightly more stamina." },
     sickened: { body: "Sickened: physical actions cost more stamina. Rest in a cleaner room is recommended." },
-    toxic: { body: "Toxic: physical actions cost much more stamina and Health may suffer over time." },
-    failing: { body: "Failing: most risky physical work is extremely difficult." },
+    toxic: { body: "Toxic: physical actions cost much more stamina. Risky physical actions require confirmation, and Health may suffer over time." },
+    failing: { body: "Failing: risky direct containment work is blocked. Rest, move, or run diagnostics first." },
     clear: { body: "Clear: this room supports Physical State recovery." },
     stale: { body: "Stale: Physical State may hold steady or recover slowly." },
     tainted: { body: "Tainted: Physical State may worsen slowly." },
@@ -196,7 +196,10 @@
     fair: { body: "Fair reliability: useful, but conditions may have changed." },
     uncertain: { body: "Uncertain reliability: treat the information cautiously." },
     poor: { body: "Poor reliability: old or unstable information; expect surprises." },
-    unknown: { body: "Unknown reliability: no usable observation." }
+    unknown: { body: "Unknown reliability: no usable observation." },
+    good: { body: "Good rest quality: cleaner air and low room exposure should help Physical State recover." },
+    poor: { body: "Poor rest quality: the room may slow recovery or allow Physical State to worsen." },
+    unsafe: { body: "Unsafe rest quality: Physical State may continue worsening. Confirm before resting here." }
   };
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
@@ -1674,11 +1677,22 @@
         render();
         return;
       }
-      createRestTask(Math.ceil(missing));
+      const minutes = Math.ceil(missing);
+      if (!confirmUnsafeRestIfNeeded(minutes)) {
+        persist();
+        render();
+        return;
+      }
+      createRestTask(minutes);
     });
 
     dom.restCustomBtn.addEventListener("click", () => {
       const minutes = Math.max(1, Math.floor(Number(dom.restMinutesInput.value) || 1));
+      if (!confirmUnsafeRestIfNeeded(minutes)) {
+        persist();
+        render();
+        return;
+      }
       createRestTask(minutes);
     });
 
@@ -2094,7 +2108,12 @@
 
     if (task.type === "rest") {
       restoreStamina(task.data.restore);
-      addEvent(`Rest complete. Recovered ${formatNumber(task.data.restore)} stamina.`);
+      const quality = task.data?.restQuality || "Unknown";
+      if (quality === "Unsafe") {
+        addEvent(`Rest complete. Recovered ${formatNumber(task.data.restore)} stamina, but unsafe conditions may have worsened Physical State.`);
+      } else {
+        addEvent(`Rest complete. Rest quality ${quality}. Recovered ${formatNumber(task.data.restore)} stamina.`);
+      }
     }
   }
 
@@ -2118,6 +2137,10 @@
       addEvent("The scientist is dead.");
       persist();
       render();
+      return false;
+    }
+    const riskyLabel = riskyTaskPhysicalStateLabel(type, label);
+    if (riskyLabel && !confirmPhysicalStateRiskIfNeeded(riskyLabel)) {
       return false;
     }
     const cost = adjustedStaminaCost(baseCost, [skillId, "slimeHandling"]);
@@ -2157,11 +2180,18 @@
   }
 
   function createRestTask(minutes) {
+    const quality = restQualityInfo();
     createTask({
       type: "rest",
       label: `Rest ${formatDuration(minutes)}`,
       duration: minutes,
-      data: { restore: minutes }
+      data: {
+        restore: minutes,
+        roomId: quality.roomId,
+        restQuality: quality.label,
+        exposureBandAtStart: quality.exposureBand,
+        expectedEffect: quality.expectedEffect
+      }
     });
   }
 
@@ -4047,6 +4077,10 @@
       render();
       return false;
     }
+    const interactionLabel = `${action === "close" ? "closing" : "opening"} ${container.name}`;
+    if (!confirmPhysicalStateRiskIfNeeded(interactionLabel)) {
+      return false;
+    }
     const baseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
     const cost = adjustedStaminaCost(baseCost, ["slimeHandling"]);
     if (!spendStamina(cost)) {
@@ -4235,6 +4269,9 @@
     }
     const slime = containerOccupants(sourceContainer.id)[0];
     const destination = containerById(destinationContainerId) || liveTransferDestinationCandidates(sourceContainer)[0];
+    if (!confirmPhysicalStateRiskIfNeeded(`transferring ${slime.name} from ${sourceContainer.name} to ${destination.name}`)) {
+      return false;
+    }
     const cost = adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
@@ -4382,6 +4419,10 @@
       addEvent(reason);
       persist();
       render();
+      return false;
+    }
+    const handlingLabel = `${remainsHandlingActionLabel(action).toLowerCase()} from ${container.name}`;
+    if (!confirmPhysicalStateRiskIfNeeded(handlingLabel)) {
       return false;
     }
     const corpses = containerCorpses(container.id);
@@ -4542,6 +4583,10 @@
     if (container.type === "synthesis") {
       return "The synthesis tube cannot be hauled.";
     }
+    const physicalBlock = physicalStateRiskBlockReason(`hauling ${container.name}`);
+    if (physicalBlock) {
+      return physicalBlock;
+    }
     if (containerAccessOpen(container) && !containerAlwaysOpen(container)) {
       return "Close the container before hauling it.";
     }
@@ -4569,6 +4614,10 @@
       addEvent(reason);
       persist();
       render();
+      return false;
+    }
+
+    if (!confirmPhysicalStateRiskIfNeeded(`hauling ${container.name} to ${room.name}`)) {
       return false;
     }
 
@@ -6319,7 +6368,7 @@
         ? `${container.name} is in transit to ${roomName(haulTask.data?.toRoomId)}.`
         : isPitHoleContainer(container)
           ? "Pit holes are built into the Pits and cannot be hauled."
-          : "";
+          : physicalStateRiskBlockReason(`hauling ${container.name}`);
       select.disabled = Boolean(selectorBlockedReason);
       select.title = selectorBlockedReason;
       select.addEventListener("change", () => {
@@ -6416,10 +6465,13 @@
       } else {
         button.dataset.closeContainerId = container.id;
       }
+      const physicalRiskLabel = `${action === "close" ? "closing" : "opening"} ${container.name}`;
       const reason = containerInteractionBlockReason(container, action)
+        || physicalStateRiskBlockReason(physicalRiskLabel)
         || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["slimeHandling"]));
       setActionButtonState(button, Boolean(reason), reason);
-      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
+      const physicalRiskTitle = physicalStateRiskTitle(physicalRiskLabel);
+      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
       button.addEventListener("click", () => startContainerInteraction(container.id, action));
       actions.append(button);
 
@@ -6431,10 +6483,13 @@
           setButtonStaminaLabel(remainsBtn, remainsHandlingActionLabel(remainsAction), baseCost, ["slimeHandling"]);
           remainsBtn.dataset.remainsAction = remainsAction;
           remainsBtn.dataset.remainsContainerId = container.id;
+          const remainsRiskLabel = `${remainsHandlingActionLabel(remainsAction).toLowerCase()} from ${container.name}`;
           const remainsReason = remainsHandlingBlockReason(container, remainsAction)
+            || physicalStateRiskBlockReason(remainsRiskLabel)
             || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
-          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
+          const remainsRiskTitle = physicalStateRiskTitle(remainsRiskLabel);
+          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
           remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
           actions.append(remainsBtn);
         }
@@ -6465,10 +6520,13 @@
         setButtonStaminaLabel(transferBtn, liveTransferActionLabel(), LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
         transferBtn.dataset.liveTransferContainerId = container.id;
         const selectedDestinationId = transferSelect.value;
+        const transferRiskLabel = "transferring a living slime";
         const transferReason = liveTransferBlockReason(container, selectedDestinationId)
+          || physicalStateRiskBlockReason(transferRiskLabel)
           || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
-        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
+        const transferRiskTitle = physicalStateRiskTitle(transferRiskLabel);
+        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
         transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
         transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
         actions.append(transferWrap);
@@ -6484,10 +6542,14 @@
       moveBtn.type = "button";
       const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
       setButtonStaminaLabel(moveBtn, "Move to Open Container", HANDLING_STAMINA, ["slimeHandling"]);
+      const tubeMoveRiskLabel = `moving ${occupants[0].name} from the synthesis tube`;
       const reason = !firstOpenPermanentContainer()
         ? "No open permanent container is available."
-        : staminaBlockReason(cost);
+        : physicalStateRiskBlockReason(tubeMoveRiskLabel)
+          || staminaBlockReason(cost);
       setActionButtonState(moveBtn, Boolean(reason), reason);
+      const tubeMoveRiskTitle = physicalStateRiskTitle(tubeMoveRiskLabel);
+      moveBtn.title = reason || `${tubeMoveRiskTitle ? `${tubeMoveRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(HANDLING_STAMINA, ["slimeHandling"]).title}`;
       moveBtn.addEventListener("click", () => moveTubeOccupantToOpenContainer(occupants[0].id));
       actions.append(moveBtn);
       card.append(actions);
@@ -6503,6 +6565,9 @@
       persist();
       render();
       return;
+    }
+    if (!confirmPhysicalStateRiskIfNeeded(`moving ${slime.name} from the synthesis tube`)) {
+      return false;
     }
     const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
     if (!spendStamina(cost)) {
@@ -7288,6 +7353,87 @@
     const reliability = roomObservationReliabilityLabel(score);
     return `Previously observed. Room exposure then: ${observation.exposureBand}. Reliability: ${reliability}. Current contamination and creature movement may have changed.`;
   }
+
+  function restQualityInfo(roomId = scientistRoomId()) {
+    const room = roomById(roomId);
+    const exposureScore = roomExposureScore(room || roomId);
+    const exposureBand = roomExposureBand(exposureScore);
+    const contamination = roomContaminationValue(roomId);
+    const knownFactors = [];
+    const freeCount = freeCreaturesInRoom(roomId).length;
+
+    if (contamination <= 8) {
+      knownFactors.push("cleaner air");
+    } else if (contamination < 30) {
+      knownFactors.push("low room exposure");
+    } else if (contamination < 55) {
+      knownFactors.push("tainted residue");
+    } else if (contamination < 78) {
+      knownFactors.push("fouled air");
+    } else {
+      knownFactors.push("hazardous contamination");
+    }
+
+    const crowding = roomCrowdingLabel(roomId);
+    if (["Crowded", "Overpacked"].includes(crowding)) {
+      knownFactors.push(`room is ${crowding.toLowerCase()}`);
+    }
+
+    if (freeCount > 0) {
+      knownFactors.push("uncontained creature activity");
+    }
+
+    let label = "Good";
+    let expectedEffect = "Physical State may improve";
+    if (exposureBand.label === "Hazardous" || exposureBand.label === "Unlivable" || contamination >= 78 || freeCount > 0) {
+      label = "Unsafe";
+      expectedEffect = "Physical State may continue worsening";
+    } else if (["Tainted", "Fouled"].includes(exposureBand.label) || contamination >= 30) {
+      label = "Poor";
+      expectedEffect = "Physical State recovery may be weak";
+    }
+
+    const title = `${label}\nKnown factors: ${[...new Set(knownFactors)].join(" · ") || "no major hazards observed"}\nExpected effect: ${expectedEffect}`;
+    return {
+      label,
+      exposureBand: exposureBand.label,
+      exposureScore: Math.round(exposureScore),
+      knownFactors: [...new Set(knownFactors)],
+      expectedEffect,
+      title,
+      unsafe: label === "Unsafe",
+      roomId
+    };
+  }
+
+  function restQualityPanelEl() {
+    const info = restQualityInfo();
+    const panel = document.createElement("div");
+    panel.className = "rest-quality-panel";
+    panel.dataset.restQualityPanel = "scientist";
+    const line = document.createElement("div");
+    line.append(document.createTextNode("Rest quality: "), tooltipKeywordEl(info.label, info.title));
+    line.dataset.restQuality = info.label;
+    panel.append(line);
+    return panel;
+  }
+
+  function confirmUnsafeRestIfNeeded(minutes) {
+    const info = restQualityInfo();
+    if (!info.unsafe) {
+      return true;
+    }
+    const message = `Resting here is unsafe.\n${info.expectedEffect}.\n\nContinue resting?`;
+    const accepted = window.confirm(message);
+    if (accepted) {
+      addEvent(`Unsafe rest confirmed in ${roomName(info.roomId)}. Physical State may continue worsening.`);
+    } else {
+      addEvent("Unsafe rest cancelled.");
+    }
+    return accepted;
+  }
+
+
 
 
   function scientistLocationPanelEl(room) {
@@ -9400,7 +9546,7 @@
   function renderScientist() {
     renderVitalReadouts();
     renderResources();
-    dom.resourceList.append(physicalStatePanelEl());
+    dom.resourceList.append(physicalStatePanelEl(), restQualityPanelEl());
     dom.skillList.textContent = "";
     for (const skill of SKILL_DEFS) {
       const progress = skillProgress(skill.id);
@@ -9435,10 +9581,11 @@
         ? "Stamina is already full."
         : "";
     setActionButtonState(dom.restFullBtn, Boolean(restFullReason), restFullReason);
-    dom.restFullBtn.title = restFullReason || "Rest: cleaner rooms accelerate Physical State recovery. Contaminated rooms may not help.";
+    const restQuality = restQualityInfo();
+    dom.restFullBtn.title = restFullReason || restQuality.title;
     const restCustomReason = hasPendingRest() ? "Rest is already in progress." : "";
     setActionButtonState(dom.restCustomBtn, Boolean(restCustomReason), restCustomReason);
-    dom.restCustomBtn.title = restCustomReason || "Rest: cleaner rooms accelerate Physical State recovery. Contaminated rooms may not help.";
+    dom.restCustomBtn.title = restCustomReason || restQuality.title;
   }
 
 
@@ -12171,6 +12318,80 @@
     } catch {
       return { label: "Steady" };
     }
+  }
+
+  function physicalStateRiskGateInfo(actionLabel, options = {}) {
+    const band = physicalStateBandSafe().label;
+    const label = actionLabel || "this action";
+    if (band === "Failing" && !options.allowFailing) {
+      return {
+        band,
+        blocked: true,
+        requiresConfirm: false,
+        message: `The scientist is Failing. They cannot safely perform ${label}. Rest, move, or run a diagnostic first.`
+      };
+    }
+    if (band === "Toxic" && !options.skipToxicConfirm) {
+      return {
+        band,
+        blocked: false,
+        requiresConfirm: true,
+        message: `The scientist is Toxic.\n${label} may worsen their condition or cause injury.\n\nContinue?`
+      };
+    }
+    return { band, blocked: false, requiresConfirm: false, message: "" };
+  }
+
+  function physicalStateRiskBlockReason(actionLabel, options = {}) {
+    const gate = physicalStateRiskGateInfo(actionLabel, options);
+    return gate.blocked ? gate.message : "";
+  }
+
+  function physicalStateRiskTitle(actionLabel, options = {}) {
+    const gate = physicalStateRiskGateInfo(actionLabel, options);
+    if (gate.blocked) {
+      return gate.message;
+    }
+    if (gate.requiresConfirm) {
+      return `Toxic Physical State: confirmation required before ${actionLabel}.`;
+    }
+    return "";
+  }
+
+  function confirmPhysicalStateRiskIfNeeded(actionLabel, options = {}) {
+    const gate = physicalStateRiskGateInfo(actionLabel, options);
+    if (gate.blocked) {
+      addEvent(gate.message);
+      persist();
+      render();
+      return false;
+    }
+    if (!gate.requiresConfirm) {
+      return true;
+    }
+    const accepted = window.confirm(gate.message);
+    const eventMessage = accepted
+      ? `Toxic Physical State confirmed: ${actionLabel}.`
+      : `Toxic Physical State action cancelled: ${actionLabel}.`;
+    if (state.events.at(-1)?.message !== eventMessage) {
+      addEvent(eventMessage);
+    }
+    persist();
+    render();
+    return accepted;
+  }
+
+  function riskyTaskPhysicalStateLabel(type, label) {
+    if (type === "necropsy") {
+      return label || "necropsy";
+    }
+    if (type === "synthesize") {
+      return label || "synthesis work";
+    }
+    if (type === "breed") {
+      return label || "forced recombination";
+    }
+    return "";
   }
 
   function adjustedStaminaCostBreakdown(baseCost, skillIds = [], options = {}) {
