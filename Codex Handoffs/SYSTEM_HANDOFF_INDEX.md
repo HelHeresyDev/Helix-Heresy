@@ -1,6 +1,6 @@
 # Helix Heresy System Handoffs — Index
 
-Date: 2026-06-20
+Date: 2026-06-21
 
 These handoff files summarize implemented systems as standalone references for future Codex/Cline/ChatGPT work.
 
@@ -59,8 +59,9 @@ Use these files as system-specific summaries instead of asking an agent to read 
    - In-transit containers block occupant jobs
    - Hauling adds active containment pressure
    - Pit holes are fixed in Pits and cannot be hauled
-   - Testing shortcut unloads living contents into pit holes when hauling to Pits
-   - Testing shortcut loads living contents from pit holes when hauling from Pits
+   - Current accepted behavior: hauling moves only the container
+   - Living slimes and corpses/remains stay inside hauled containers
+   - Old magical Pits hauling shortcuts have been removed
 
 8. `HANDOFF_PLAYER_CREATURE_INTERACTION.md`
    - Uses existing Scientist Health for direct handling danger
@@ -70,32 +71,57 @@ Use these files as system-specific summaries instead of asking an agent to read 
    - Direct living slime transfer between same-room containers/pit holes
    - Stress, health damage, and contamination consequences
    - No escape/combat/pathfinding systems added yet
+   - Current accepted behavior: Pits hauling shortcut removed; direct actions are required to move contents
+
+9. `HANDOFF_OUT_OF_CONTAINER_SLIME_BEHAVIOR.md`
+   - Uncontained/free slimes have room location and activity
+   - Contained slimes use containment-focused wording
+   - Room cards list observed free creatures
+   - Contamination-seeking/eating free slimes can move between rooms and reduce contamination
+   - Messy free slimes can leave residue and increase contamination
+   - Predatory/hunting intent can appear without attacks
+   - Free creature pressure is observation-gated and knowledge-gated
+   - Unobserved rooms hide names/activities and show `Free creature pressure: Unobserved`
+
+10. `HANDOFF_PHYSICAL_ROOMS.md`
+   - Rooms have physical geometry: length, width, height, floor area, volume, shape
+   - Floor area and volume are explicit, so irregular rooms work
+   - Pits is an irregular pit chamber
+   - Room cards show spatial feel, crowding, shape, and connections
+   - `Open` spatial feel was replaced with `Comfortable`
+   - Room effects scale by floor area/volume
+   - Free creatures move through connected rooms
+   - Hauling events include route text
+   - Scientist has physicalPresence and contributes to crowding
+   - Scientist can move between connected rooms with queued `scientistMove` tasks
 
 ## Current implementation status
 
 The current accepted implementation is incorporated into the current working `app.js` after applying:
 
-`app_player_creature_interaction_pass4_fix1_bundle.zip`
+`app_physical_rooms_pass3_fix1_bundle.zip`
 
 Latest accepted feature checkpoint:
 
-`Player-Creature Interaction Pass 4 fix1`
+`Physical Rooms Pass 3 fix1`
 
 Status:
 - syntax check passed
-- Player-Creature Interaction Pass 4 smoke test passed
-- all checks passed
-- console warnings/errors: 0
-- page errors: 0
+- Physical Rooms Pass 1 smoke test passed
+- Physical Rooms Pass 2 smoke test found one test-script assertion bug, app behavior accepted
+- Physical Rooms Pass 3 smoke test found one test-script regex bug, app behavior accepted
+- Physical Rooms Pass 3 fix1 patched only movement button separators
+- console warnings/errors: 0 in QC runs
+- page errors: 0 in QC runs
 - no scope creep detected
-- no slime escaping/combat/pathfinding/full escape systems added
+- no doors/locks/construction/pathfinding grid/combat/attacks/recapture/full escape/raids added
 
 Recommended next Git checkpoint:
 
 ```powershell
 git status
-git add app.js "Codex Handoff/SYSTEM_HANDOFF_INDEX.md" "Codex Handoff/HANDOFF_PLAYER_CREATURE_INTERACTION.md"
-git commit -m "Add player creature interaction system"
+git add .
+git commit -m "Add physical room system"
 git push
 ```
 
@@ -127,5 +153,11 @@ The current tracked/accepted `app.js` includes accepted work from:
 - `app_player_creature_interaction_pass2_fix1_bundle.zip`
 - `app_player_creature_interaction_pass3_fix1_bundle.zip`
 - `app_player_creature_interaction_pass4_fix1_bundle.zip`
+- `app_pits_hauling_shortcut_cleanup_pass1_bundle.zip`
+- `app_out_of_container_slime_behavior_pass1_fix1_bundle.zip`
+- `app_out_of_container_slime_behavior_pass2_fix1_bundle.zip`
+- `app_physical_rooms_pass1_bundle.zip`
+- `app_physical_rooms_pass2_bundle.zip`
+- `app_physical_rooms_pass3_fix1_bundle.zip`
 
 Intermediate bundles should not be treated as current unless specifically needed for debugging history.

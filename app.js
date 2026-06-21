@@ -47,6 +47,15 @@
       role: "mainLab",
       roleLabel: "Active lab",
       description: "Synthesis, testing, and day-to-day lab work.",
+      geometry: {
+        shape: "rectangular",
+        lengthM: 12,
+        widthM: 10,
+        heightM: 3,
+        floorAreaM2: 120,
+        volumeM3: 360
+      },
+      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID],
       attributes: {}
     },
     {
@@ -56,6 +65,15 @@
       role: "livingStorage",
       roleLabel: "Living specimen storage",
       description: "Shelved containers and quiet observation. Stored creatures here cannot work jobs.",
+      geometry: {
+        shape: "rectangular",
+        lengthM: 14,
+        widthM: 8,
+        heightM: 3,
+        floorAreaM2: 112,
+        volumeM3: 336
+      },
+      connections: [MAIN_ROOM_ID],
       attributes: {
         light: { current: 42, baseline: 42 },
         ambientMana: { current: 48, baseline: 48 },
@@ -70,6 +88,16 @@
       role: "corpseProcessing",
       roleLabel: "Corpse storage and processing",
       description: "Deep crude pits for remains, decay, disposal, and corpse work.",
+      geometry: {
+        shape: "irregular pit chamber",
+        lengthM: 11,
+        widthM: 8,
+        heightM: 4,
+        floorAreaM2: 76,
+        volumeM3: 340,
+        notes: "uneven floor and excavated voids"
+      },
+      connections: [MAIN_ROOM_ID],
       attributes: {
         temperature: { current: 45, baseline: 45 },
         light: { current: 18, baseline: 18 },
@@ -78,6 +106,39 @@
       }
     }
   ];
+  const ROOM_SPATIAL_FEEL_BANDS = [
+    { maxFloorAreaM2: 45, label: "Cramped" },
+    { maxFloorAreaM2: 80, label: "Confined" },
+    { maxFloorAreaM2: 130, label: "Serviceable" },
+    { maxFloorAreaM2: 220, label: "Comfortable" },
+    { maxFloorAreaM2: 400, label: "Expansive" },
+    { maxFloorAreaM2: Infinity, label: "Cavernous" }
+  ];
+  const ROOM_CROWDING_BANDS = [
+    { maxRatio: 0.15, label: "Clear" },
+    { maxRatio: 0.30, label: "Lightly occupied" },
+    { maxRatio: 0.50, label: "Busy" },
+    { maxRatio: 0.75, label: "Crowded" },
+    { maxRatio: Infinity, label: "Overpacked" }
+  ];
+  const ROOM_CONTAINER_FLOOR_LOAD_M2 = {
+    synthesisTube: 4,
+    openDirtPit: 5,
+    gratedDirtPit: 5,
+    cappedDirtPit: 5,
+    default: 2
+  };
+  const ROOM_FREE_CREATURE_FLOOR_LOAD_M2 = 2;
+  const ROOM_CORPSE_FLOOR_LOAD_M2 = 0.75;
+  const ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 = 100;
+  const ROOM_EFFECT_REFERENCE_VOLUME_M3 = 300;
+  const SCIENTIST_DEFAULT_PHYSICAL_PRESENCE = {
+    heightM: 1.75,
+    shoulderWidthM: 0.55,
+    floorLoadM2: 1.0
+  };
+  const SCIENTIST_MOVE_BASE_DURATION = 6;
+  const SCIENTIST_MOVE_BASE_STAMINA = 2;
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
@@ -1063,6 +1124,7 @@
   function defaultScientist() {
     return {
       roomId: MAIN_ROOM_ID,
+      physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
       vitals: {
         health: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
         stamina: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
@@ -1085,6 +1147,8 @@
       role: roomDef.role,
       roleLabel: roomDef.roleLabel,
       description: roomDef.description,
+      geometry: normalizeRoomGeometry(roomDef.geometry),
+      connections: normalizeRoomConnections(roomDef.connections, roomDef.id),
       attributes: defaultRoomAttributes(roomDef.attributes)
     }));
   }
@@ -1935,6 +1999,11 @@
       return;
     }
 
+    if (task.type === "scientistMove") {
+      completeScientistMove(task);
+      return;
+    }
+
     if (task.type === "containerInteraction") {
       completeContainerInteraction(task);
       return;
@@ -2667,6 +2736,178 @@
   function roomBlocksJobs(roomId) {
     return roomRole(roomId) === "livingStorage";
   }
+
+
+  function roomGeometry(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    return normalizeRoomGeometry(room?.geometry);
+  }
+
+  function roomFloorAreaM2(roomOrId) {
+    return roomGeometry(roomOrId).floorAreaM2;
+  }
+
+  function roomVolumeM3(roomOrId) {
+    return roomGeometry(roomOrId).volumeM3;
+  }
+
+  function roomSpatialFeel(roomOrId) {
+    const floorArea = roomFloorAreaM2(roomOrId);
+    return ROOM_SPATIAL_FEEL_BANDS.find((band) => floorArea <= band.maxFloorAreaM2)?.label || "Serviceable";
+  }
+
+  function roomConnectionNames(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    return (room?.connections || []).map(roomName).filter(Boolean);
+  }
+
+  function roomConnectionsLabel(roomOrId) {
+    const names = roomConnectionNames(roomOrId);
+    return names.length ? `Connected to: ${names.join(", ")}` : "Connected to: none";
+  }
+
+  function roomMapSummary() {
+    const main = roomById(MAIN_ROOM_ID);
+    if (!main) {
+      return "";
+    }
+    const left = main.connections?.includes(MENAGERIE_ROOM_ID) ? roomName(MENAGERIE_ROOM_ID) : "";
+    const right = main.connections?.includes(PITS_ROOM_ID) ? roomName(PITS_ROOM_ID) : "";
+    if (left && right) {
+      return `Room map: ${left} ↔ ${main.name} ↔ ${right}`;
+    }
+    const connected = roomConnectionNames(main);
+    return connected.length ? `Room map: ${main.name} ↔ ${connected.join(", ")}` : `Room map: ${main.name}`;
+  }
+
+  function containerRoomFloorLoad(container) {
+    if (!container) {
+      return 0;
+    }
+    return ROOM_CONTAINER_FLOOR_LOAD_M2[container.typeId] || ROOM_CONTAINER_FLOOR_LOAD_M2.default;
+  }
+
+  function roomCrowdingLoadM2(roomId) {
+    const containers = (state.containers || []).filter((container) => (container.roomId || MAIN_ROOM_ID) === roomId);
+    const freeCreatures = (state.slimes || []).filter((slime) => slimeIsUncontained(slime) && slime.status !== "dead" && slimeEffectiveRoomId(slime) === roomId);
+    const localCorpses = (state.corpses || []).filter((corpse) => (corpse.roomId || MAIN_ROOM_ID) === roomId);
+    const containerLoad = containers.reduce((total, container) => total + containerRoomFloorLoad(container), 0);
+    const scientistLoad = scientistRoomId() === roomId ? scientistFloorLoadM2() : 0;
+    return containerLoad + (freeCreatures.length * ROOM_FREE_CREATURE_FLOOR_LOAD_M2) + (localCorpses.length * ROOM_CORPSE_FLOOR_LOAD_M2) + scientistLoad;
+  }
+
+  function roomCrowdingRatio(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    const area = Math.max(1, roomFloorAreaM2(room));
+    return roomCrowdingLoadM2(room?.id || MAIN_ROOM_ID) / area;
+  }
+
+  function roomCrowdingLabel(roomOrId) {
+    const ratio = roomCrowdingRatio(roomOrId);
+    return ROOM_CROWDING_BANDS.find((band) => ratio <= band.maxRatio)?.label || "Busy";
+  }
+
+
+  function roomCrowdingPressureScore(roomOrId) {
+    const ratio = roomCrowdingRatio(roomOrId);
+    if (ratio >= 0.75) return 18;
+    if (ratio >= 0.5) return 12;
+    if (ratio >= 0.3) return 6;
+    if (ratio <= 0.08) return -2;
+    return 0;
+  }
+
+  function roomCrowdingPressureReason(roomOrId) {
+    const label = roomCrowdingLabel(roomOrId);
+    if (["Crowded", "Overpacked"].includes(label)) {
+      return `room is ${label.toLowerCase()}`;
+    }
+    if (label === "Busy") {
+      return "room is busy";
+    }
+    return "";
+  }
+
+  function roomVolumeM3(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    return Math.max(1, Number(roomGeometry(room).volumeM3) || ROOM_EFFECT_REFERENCE_VOLUME_M3);
+  }
+
+  function roomEffectScale(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    const floorAreaScale = clamp(ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 / Math.max(1, roomFloorAreaM2(room)), 0.35, 2.25);
+    const volumeScale = clamp(ROOM_EFFECT_REFERENCE_VOLUME_M3 / roomVolumeM3(room), 0.45, 2.0);
+    return clamp((floorAreaScale + volumeScale) / 2, 0.4, 2.1);
+  }
+
+  function roomConnectedIds(roomId) {
+    const room = roomById(roomId);
+    return (room?.connections || []).filter((connectedId) => roomById(connectedId));
+  }
+
+  function roomRouteBetween(fromRoomId, toRoomId) {
+    const start = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
+    const target = roomById(toRoomId)?.id || MAIN_ROOM_ID;
+    if (start === target) {
+      return [start];
+    }
+    const queue = [[start]];
+    const visited = new Set([start]);
+    while (queue.length) {
+      const route = queue.shift();
+      const last = route[route.length - 1];
+      for (const next of roomConnectedIds(last)) {
+        if (visited.has(next)) {
+          continue;
+        }
+        const nextRoute = [...route, next];
+        if (next === target) {
+          return nextRoute;
+        }
+        visited.add(next);
+        queue.push(nextRoute);
+      }
+    }
+    return [start, target];
+  }
+
+  function roomRouteLabel(fromRoomId, toRoomId) {
+    const route = roomRouteBetween(fromRoomId, toRoomId);
+    return route.map(roomName).join(" → ");
+  }
+
+  function nextConnectedRoomToward(fromRoomId, toRoomId) {
+    const route = roomRouteBetween(fromRoomId, toRoomId);
+    return route[1] || toRoomId;
+  }
+
+  function bestContaminationTargetRoom() {
+    return state.rooms
+      .map((room) => ({ room, contamination: roomContaminationValue(room.id) }))
+      .sort((a, b) => b.contamination - a.contamination)[0] || null;
+  }
+
+  function roomGeometrySummaryEl(room) {
+    const panel = document.createElement("div");
+    panel.className = "room-geometry-summary";
+    panel.dataset.roomGeometrySummary = room.id;
+    const geometry = roomGeometry(room);
+    const shapeLabel = geometry.shape === "irregular pit chamber" ? "Irregular pit chamber" : titleCase(geometry.shape);
+    panel.append(
+      chip(`Size: ${roomSpatialFeel(room)}`),
+      document.createTextNode(" · "),
+      chip(`Crowding: ${roomCrowdingLabel(room)}`),
+      document.createTextNode(" · "),
+      chip(`Shape: ${shapeLabel}`)
+    );
+    const connections = document.createElement("div");
+    connections.className = "room-connections";
+    connections.textContent = roomConnectionsLabel(room);
+    panel.append(connections);
+    panel.title = `Floor area and volume are tracked internally for physical simulation. Shape and crowding are player-facing estimates.`;
+    return panel;
+  }
+
 
   function slimeIsUncontained(slime) {
     return Boolean(slime && slime.status === "released");
@@ -4269,7 +4510,8 @@
         toRoomId: room.id      }
     };
     state.tasks.push(task);
-    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)}.`);
+    const haulRoute = roomRouteLabel(container.roomId || MAIN_ROOM_ID, room.id);
+    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)} via ${haulRoute}.`);
     persist();
     render();
     return true;
@@ -4292,7 +4534,7 @@
     container.roomId = toRoom.id;
     syncContainerContentsToRoom(container, toRoom.id);
 
-    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel}.`);
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomRouteLabel(fromRoomId, toRoom.id)}.`);
     refreshCorpseProcessingTargets();
     return true;
   }
@@ -6661,6 +6903,116 @@
     return (roomId || MAIN_ROOM_ID) === scientistRoomId();
   }
 
+
+  function scientistMoveTask() {
+    return (state.tasks || []).find((task) => task.type === "scientistMove") || null;
+  }
+
+  function scientistMoveBlockReason(toRoomId) {
+    const target = roomById(toRoomId);
+    if (!target) {
+      return "No connected room selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (scientistMoveTask()) {
+      return "The scientist is already moving.";
+    }
+    const fromRoomId = scientistRoomId();
+    if (fromRoomId === target.id) {
+      return "The scientist is already there.";
+    }
+    if (!roomConnectedIds(fromRoomId).includes(target.id)) {
+      return "The scientist can only move to connected rooms.";
+    }
+    return "";
+  }
+
+  function startScientistMove(toRoomId) {
+    const target = roomById(toRoomId);
+    const reason = scientistMoveBlockReason(toRoomId);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const cost = adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const fromRoomId = scientistRoomId();
+    const duration = adjustedDuration(SCIENTIST_MOVE_BASE_DURATION, "observation");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "scientistMove",
+      label: `Move scientist to ${target.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        fromRoomId,
+        toRoomId: target.id,
+        staminaCost: cost
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`Scientist movement started: ${roomName(fromRoomId)} to ${target.name}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completeScientistMove(task) {
+    const target = roomById(task.data?.toRoomId);
+    if (!target) {
+      addEvent("Scientist movement could not complete; the room no longer exists.");
+      return false;
+    }
+    const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
+    state.scientist = normalizeScientist(state.scientist);
+    state.scientist.roomId = target.id;
+    addEvent(`Scientist arrived in ${target.name}.`);
+    return true;
+  }
+
+  function scientistLocationPanelEl(room) {
+    const panel = document.createElement("div");
+    panel.className = "scientist-location-panel";
+    panel.dataset.scientistLocationPanel = room.id;
+    if (scientistRoomId() === room.id) {
+      panel.append(textEl("strong", "Scientist present"));
+      const moveTargets = roomConnectedIds(room.id);
+      if (moveTargets.length) {
+        const moves = document.createElement("div");
+        moves.className = "scientist-move-actions";
+        moves.append(textEl("span", "Move to: "));
+        for (const [index, targetId] of moveTargets.entries()) {
+          const target = roomById(targetId);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = target.name;
+          button.dataset.scientistMoveRoomId = target.id;
+          const reason = scientistMoveBlockReason(target.id) || staminaBlockReason(adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]));
+          setActionButtonState(button, Boolean(reason), reason);
+          button.addEventListener("click", () => startScientistMove(target.id));
+          if (index > 0) {
+            moves.append(document.createTextNode(" · "));
+          }
+          moves.append(button);
+        }
+        panel.append(moves);
+      }
+    } else {
+      panel.append(textEl("span", "Scientist absent"));
+    }
+    return panel;
+  }
+
+
   function freeCreaturesInRoom(roomId) {
     return (state.slimes || []).filter((slime) => slimeIsUncontained(slime) && slime.status !== "dead" && slimeEffectiveRoomId(slime) === roomId);
   }
@@ -6717,9 +7069,13 @@
       };
     }
 
-    let score = creatures.length * 4;
+    let score = creatures.length * 4 + roomCrowdingPressureScore(room);
     let unknownMajor = 0;
     const knownFactors = [`${creatures.length} uncontained creature${creatures.length === 1 ? "" : "s"} observed`];
+    const crowdingReason = roomCrowdingPressureReason(room);
+    if (crowdingReason) {
+      knownFactors.push(crowdingReason);
+    }
     const unknownFactors = [];
     const skill = Math.max(skillLevel("observation"), skillLevel("ethology"), skillLevel("slimeHandling"));
     const highSkill = skill >= FREE_CREATURE_PRESSURE_HIGH_SKILL;
@@ -6824,21 +7180,22 @@
       }
 
       if (info.seeksContamination) {
-        const bestRoom = state.rooms
-          .map((room) => ({ room, contamination: roomContaminationValue(room.id) }))
-          .sort((a, b) => b.contamination - a.contamination)[0];
+        const bestRoom = bestContaminationTargetRoom();
 
         if (bestRoom && bestRoom.room.id !== slime.roomId && bestRoom.contamination >= roomContaminationValue(slime.roomId) + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
-          const fromRoom = roomName(slime.roomId);
-          slime.roomId = bestRoom.room.id;
+          const fromRoomId = slime.roomId;
+          const fromRoom = roomName(fromRoomId);
+          const nextRoomId = nextConnectedRoomToward(fromRoomId, bestRoom.room.id);
+          slime.roomId = nextRoomId;
           slime.roomActivity = {
             type: "seekingContamination",
             label: "seeking contamination",
             roomId: slime.roomId,
+            targetRoomId: bestRoom.room.id,
             updatedAt: state.clock
           };
-          if ((state.clock - (slime.lastRoomMovementEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && (scientistObservesRoom(bestRoom.room.id) || scientistObservesRoom(currentRoom?.id))) {
-            addEvent(`${slime.name} moved from ${fromRoom} to ${roomName(slime.roomId)}, following contamination.`);
+          if ((state.clock - (slime.lastRoomMovementEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && (scientistObservesRoom(nextRoomId) || scientistObservesRoom(currentRoom?.id))) {
+            addEvent(`${slime.name} moved from ${fromRoom} to ${roomName(slime.roomId)}, following contamination through connected rooms.`);
             slime.lastRoomMovementEventAt = state.clock;
           }
           changes += 1;
@@ -6848,7 +7205,7 @@
         const contamination = room?.attributes?.contamination;
         const current = Number(contamination?.current) || 0;
         if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
-          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * (elapsed / 60);
+          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * (elapsed / 60);
           const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
           if (drained > 0) {
             const before = contamination.current;
@@ -6897,7 +7254,7 @@
         const contamination = room?.attributes?.contamination;
         if (room && contamination) {
           const before = contamination.current;
-          const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * (elapsed / 60);
+          const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * roomEffectScale(room) * (elapsed / 60);
           contamination.current = clamp(contamination.current + residue, 0, 100);
           slime.roomActivity = {
             type: "leavingResidue",
@@ -8747,7 +9104,8 @@
   function renderRooms() {
     state.rooms = normalizeRooms(state.rooms);
     dom.roomList.textContent = "";
-    dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active`;
+    const mapSummary = roomMapSummary();
+    dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
       const card = document.createElement("div");
       card.className = `room-card room-${room.role || "custom"}`;
@@ -8786,7 +9144,7 @@
         row.append(textEl("span", def.label), textEl("strong", band.label));
         attributes.append(row);
       }
-      card.append(title, meta);
+      card.append(title, meta, roomGeometrySummaryEl(room), scientistLocationPanelEl(room));
       if (description.textContent) {
         card.append(description);
       }
@@ -9058,6 +9416,9 @@
   }
 
   function taskCategory(task) {
+    if (task.type === "scientistMove") {
+      return "Scientist";
+    }
     if (task.type === "synthesize") {
       return "Scientist";
     }
@@ -10814,6 +11175,7 @@
   }
 
 
+
   function normalizeRooms(candidate) {
     const rooms = Array.isArray(candidate) ? candidate : [];
     const normalized = rooms
@@ -10824,9 +11186,23 @@
         normalized.push(required);
       }
     }
+    const roomIds = new Set(normalized.map((room) => room.id));
+    for (const room of normalized) {
+      room.connections = normalizeRoomConnections(room.connections, room.id)
+        .filter((roomId) => roomIds.has(roomId));
+    }
+    for (const room of normalized) {
+      for (const connectionId of room.connections) {
+        const connected = normalized.find((candidateRoom) => candidateRoom.id === connectionId);
+        if (connected && !connected.connections.includes(room.id)) {
+          connected.connections.push(room.id);
+        }
+      }
+    }
     normalized.sort((a, b) => roomSortRank(a) - roomSortRank(b));
     return normalized;
   }
+
 
 
   function normalizeContainers(candidate) {
@@ -10912,6 +11288,7 @@
   }
 
 
+
   function normalizeRoom(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -10927,10 +11304,50 @@
       role: String(candidate.role || base?.role || "custom").trim(),
       roleLabel: String(candidate.roleLabel || base?.roleLabel || "Custom room").trim(),
       description: String(candidate.description || base?.description || "").trim(),
+      geometry: normalizeRoomGeometry(candidate.geometry || base?.geometry),
+      connections: normalizeRoomConnections(candidate.connections || base?.connections, id),
       attributes: normalizeRoomAttributes(candidate.attributes || base?.attributes)
     };
   }
 
+
+
+
+  function normalizeRoomGeometry(candidate = {}) {
+    const shape = String(candidate?.shape || "irregular").trim() || "irregular";
+    const lengthM = Math.max(1, Number(candidate?.lengthM) || Number(candidate?.approximateLengthM) || 8);
+    const widthM = Math.max(1, Number(candidate?.widthM) || Number(candidate?.approximateWidthM) || 6);
+    const heightM = Math.max(1, Number(candidate?.heightM) || 3);
+    const computedArea = lengthM * widthM;
+    const floorAreaM2 = Math.max(1, Number(candidate?.floorAreaM2) || computedArea);
+    const volumeM3 = Math.max(1, Number(candidate?.volumeM3) || floorAreaM2 * heightM);
+    const notes = String(candidate?.notes || "").trim();
+    return {
+      shape,
+      lengthM,
+      widthM,
+      heightM,
+      floorAreaM2,
+      volumeM3,
+      notes
+    };
+  }
+
+  function normalizeRoomConnections(candidate, selfId = "") {
+    const seen = new Set();
+    const values = Array.isArray(candidate) ? candidate : [];
+    return values
+      .map(cleanRoomId)
+      .filter(Boolean)
+      .filter((roomId) => roomId !== selfId)
+      .filter((roomId) => {
+        if (seen.has(roomId)) {
+          return false;
+        }
+        seen.add(roomId);
+        return true;
+      });
+  }
 
   function cleanRoomId(value) {
     const cleaned = String(value || "").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -11837,10 +12254,28 @@
     return locks;
   }
 
+  function normalizeScientistPhysicalPresence(candidate) {
+    const fallback = SCIENTIST_DEFAULT_PHYSICAL_PRESENCE;
+    const heightM = Number(candidate?.heightM);
+    const shoulderWidthM = Number(candidate?.shoulderWidthM);
+    const floorLoadM2 = Number(candidate?.floorLoadM2);
+    return {
+      heightM: clamp(Number.isFinite(heightM) ? heightM : fallback.heightM, 0.5, 3),
+      shoulderWidthM: clamp(Number.isFinite(shoulderWidthM) ? shoulderWidthM : fallback.shoulderWidthM, 0.2, 2),
+      floorLoadM2: clamp(Number.isFinite(floorLoadM2) ? floorLoadM2 : fallback.floorLoadM2, 0.25, 4)
+    };
+  }
+
+  function scientistFloorLoadM2() {
+    state.scientist = normalizeScientist(state.scientist);
+    return Math.max(0, Number(state.scientist.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
+  }
+
   function normalizeScientist(candidate) {
     const fallback = defaultScientist();
     const scientist = {
       roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
+      physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },
       skills: { ...fallback.skills, ...(candidate?.skills || {}) }
     };
