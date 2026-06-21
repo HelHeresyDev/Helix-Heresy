@@ -126,6 +126,12 @@
   const REMAINS_SCRAPE_STAMINA = 9;
   const LIVE_TRANSFER_DURATION = 14;
   const LIVE_TRANSFER_STAMINA = 8;
+  const OUT_OF_CONTAINER_CONTAMINATION_FLOOR = 8;
+  const OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD = 4;
+  const OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR = 10;
+  const OUT_OF_CONTAINER_RESIDUE_PER_HOUR = 6;
+  const OUT_OF_CONTAINER_EVENT_INTERVAL = 60;
+  const FREE_CREATURE_PRESSURE_HIGH_SKILL = 4;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
   const CORPSE_HANDLING_DESTINATIONS = [
@@ -1056,6 +1062,7 @@
 
   function defaultScientist() {
     return {
+      roomId: MAIN_ROOM_ID,
       vitals: {
         health: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
         stamina: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
@@ -1486,11 +1493,11 @@
           render();
           return;
         }
-        addEvent(`${slime.name} returned to ${container.name}.`);
+        addEvent(`${slime.name} contained in ${container.name}.`);
       } else {
         const previousLocation = containerLabelForSlime(slime);
         releaseSlime(slime);
-        addEvent(`${slime.name} released from ${previousLocation}.`);
+        addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
       }
       awardXp("slimeHandling", 5, "Slime handling");
       persist();
@@ -1853,6 +1860,7 @@
     const jobChanges = updateCreatureJobs(minutes);
     const feedstockChanged = updateFeedstockIncome(minutes);
     const feedingChanged = updateAutoFeeding();
+    const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(minutes);
     const metabolismChanged = updateSlimeMetabolism(minutes);
     const containmentIncidentChanges = updateContainmentIncidents(minutes);
     const jobExpired = expireSlimes();
@@ -1860,10 +1868,10 @@
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -2660,6 +2668,15 @@
     return roomRole(roomId) === "livingStorage";
   }
 
+  function slimeIsUncontained(slime) {
+    return Boolean(slime && slime.status === "released");
+  }
+
+  function roomContaminationValue(roomId) {
+    const room = roomById(roomId);
+    return clamp(Number(room?.attributes?.contamination?.current) || 0, 0, 100);
+  }
+
   function slimeEffectiveRoomId(slime) {
     if (!slime) return MAIN_ROOM_ID;
     if (slime.status !== "released" && slime.containerId) {
@@ -3048,15 +3065,11 @@
     return Boolean(slime && slime.status !== "dead" && slime.containerId === SYNTHESIS_TUBE_ID);
   }
 
+
   function containerLabelForSlime(slime) {
-    if (!slime || slime.status === "dead") {
-      return "Dead";
-    }
-    if (slime.status === "released") {
-      return "Released";
-    }
-    return containerById(slime.containerId)?.name || "Unassigned";
+    return slimeLocationLabel(slime);
   }
+
 
   function assignSlimeToContainer(slime, containerId) {
     const container = containerById(containerId);
@@ -3075,20 +3088,174 @@
     return true;
   }
 
+
   function releaseSlime(slime) {
     if (!slime || slime.status === "dead") {
       return false;
     }
+    const previousRoomId = slimeEffectiveRoomId(slime);
     slime.status = "released";
     slime.containerId = null;
+    slime.roomId = previousRoomId || slime.roomId || MAIN_ROOM_ID;
     slime.job = "idle";
     slime.jobProgress = 0;
     slime.jobTargetCorpseId = null;
     slime.jobNutritionGained = 0;
+    slime.roomActivity = { type: "emerging", label: "adjusting to the room", roomId: slime.roomId, updatedAt: state.clock };
     return true;
   }
 
 
+
+
+
+
+  function slimeStateLabel(slime) {
+    if (!slime || slime.status === "dead") {
+      return "dead";
+    }
+    return slimeIsUncontained(slime) ? "uncontained" : "contained";
+  }
+
+  function slimeLocationLabel(slime) {
+    if (!slime || slime.status === "dead") {
+      return "Dead";
+    }
+    if (slimeIsUncontained(slime)) {
+      return `Location: ${roomName(slime.roomId || MAIN_ROOM_ID)}`;
+    }
+    const container = containerById(slime.containerId);
+    return `Contained in ${container?.name || "unknown container"}`;
+  }
+
+  function slimeRoomLabel(slime) {
+    if (!slime || slime.status === "dead" || slimeIsUncontained(slime)) {
+      return "";
+    }
+    return `Room: ${roomName(slimeEffectiveRoomId(slime))}`;
+  }
+
+
+  function slimeHuntingInclination(slime) {
+    const hints = slime?.roomBehavior || slime?.outOfContainerBehavior || {};
+    if (hints.hunting === true || hints.seeksPrey === true || hints.predatory === true) {
+      return true;
+    }
+    if (hints.hunting === false || hints.seeksPrey === false || hints.predatory === false) {
+      return false;
+    }
+    if (/pred/i.test(String(slime?.name || ""))) {
+      return true;
+    }
+    const behavior = String(evaluateGenome(slime.genome).traits.behavior?.label || "").toLowerCase();
+    return /hunt|ambush|predator|prey|vibration/.test(behavior);
+  }
+
+
+
+
+  function slimeContaminationTraitInfo(slime) {
+    const evaluated = evaluateGenome(slime.genome);
+    const behavior = String(evaluated.traits.behavior?.label || "").toLowerCase();
+    const byproduct = String(evaluated.traits.byproduct?.label || "").toLowerCase();
+    const consistency = String(evaluated.traits.consistency?.label || "").toLowerCase();
+    const stability = String(evaluated.traits.stability?.label || "").toLowerCase();
+    const tags = new Set(evaluated.traits.sustenance?.meta?.tags || []);
+    const profile = environmentalSustenanceProfile(slime);
+    const hints = slime.roomBehavior || slime.outOfContainerBehavior || {};
+
+    const traitSeeksContamination = Boolean(
+      behavior.includes("cleaning") ||
+      tags.has("contaminated") ||
+      tags.has("waste") ||
+      tags.has("hazardous") ||
+      tags.has("chemical") ||
+      tags.has("fume") ||
+      profile?.attributeKey === "contamination"
+    );
+    const traitEatsContamination = Boolean(
+      tags.has("contaminated") ||
+      tags.has("waste") ||
+      tags.has("hazardous") ||
+      tags.has("fume") ||
+      profile?.attributeKey === "contamination"
+    );
+    const traitSpreadsContamination = Boolean(
+      /slime|mucus|tar|foam|ooze|acid|fume|poison|waste|residue|volatile|unstable/.test(`${byproduct} ${consistency} ${stability}`)
+    );
+
+    const seeksContamination = hints.seeksContamination === false || hints.contaminationSeeking === false
+      ? false
+      : hints.seeksContamination === true || hints.contaminationSeeking === true || traitSeeksContamination;
+    const eatsContamination = hints.eatsContamination === false || hints.contaminationEating === false
+      ? false
+      : hints.eatsContamination === true || hints.contaminationEating === true || traitEatsContamination;
+    const spreadsContamination = hints.leavesResidue === false || hints.spreadsContamination === false
+      ? false
+      : hints.leavesResidue === true || hints.spreadsContamination === true || traitSpreadsContamination;
+
+    return {
+      seeksContamination,
+      eatsContamination,
+      spreadsContamination,
+      behavior,
+      byproduct,
+      consistency,
+      stability,
+      tags,
+      profile
+    };
+  }
+
+
+
+
+  function slimeActivityLabel(slime) {
+    if (!slime || slime.status === "dead") {
+      return "Activity: dead";
+    }
+    if (!slimeIsUncontained(slime)) {
+      if (slime.job && slime.job !== "idle") {
+        return `Activity: ${creatureJobLabel(slime.job)}`;
+      }
+      const container = containerById(slime.containerId);
+      if (container && isContainerInTransit(container.id)) {
+        return "Activity: in transit";
+      }
+      if (container) {
+        const risk = activeContainmentRisk(slime, container);
+        if (/Dangerous|Failing/i.test(risk.label)) {
+          return "Activity: straining containment";
+        }
+      }
+      if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime) && environmentalSustenanceRate(slime) > 0) {
+        return "Activity: feeding in containment";
+      }
+      return "Activity: contained";
+    }
+
+    if (slime.roomActivity?.label) {
+      const contamination = slimeContaminationTraitInfo(slime);
+      if ((slime.roomActivity.type === "seekingContamination" || slime.roomActivity.type === "feedingOnContamination") && !contamination.seeksContamination && !contamination.eatsContamination && slimeHuntingInclination(slime)) {
+        return "Activity: hunting sensed prey";
+      }
+      return `Activity: ${slime.roomActivity.label}`;
+    }
+    const contamination = slimeContaminationTraitInfo(slime);
+    if (contamination.seeksContamination && contamination.eatsContamination && roomContaminationValue(slime.roomId || MAIN_ROOM_ID) > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
+      return "Activity: feeding on contamination";
+    }
+    if (contamination.seeksContamination) {
+      return "Activity: seeking contamination";
+    }
+    if (slimeHuntingInclination(slime)) {
+      return "Activity: hunting sensed prey";
+    }
+    if (contamination.spreadsContamination) {
+      return "Activity: leaving residue";
+    }
+    return "Activity: exploring";
+  }
 
 
   function handlingPolicy() {
@@ -4817,7 +4984,7 @@
   function refreshReleaseButtonState() {
     const selected = getSelectedSlime();
     const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
-    const releaseLabel = selected?.status === "released" ? "Contain" : "Release";
+    const releaseLabel = selected?.status === "released" ? "Contain Creature" : "Release into Room";
     dom.releaseBtn.textContent = `${releaseLabel} (${cost} STA)`;
     const reason = !selected || selected.status === "dead"
       ? "No living slime selected."
@@ -4879,7 +5046,10 @@
     const selected = getSelectedSlime();
     dom.selectedSlimeSummary.textContent = "";
     if (selected) {
-      dom.selectedSlimeSummary.append(slimeNameLink(selected), document.createTextNode(` - ${selected.status}`));
+      dom.selectedSlimeSummary.append(
+        slimeNameLink(selected),
+        document.createTextNode(` - ${slimeLocationLabel(selected)} - ${slimeActivityLabel(selected)}`)
+      );
       const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
       if (selectedContainer && selected.status !== "dead") {
         const risk = activeContainmentRisk(selected, selectedContainer);
@@ -4906,7 +5076,7 @@
         render();
       });
       const title = document.createElement("h3");
-      title.append(slimeNameLink(slime, "entity-link-title"), textEl("span", slime.status));
+      title.append(slimeNameLink(slime, "entity-link-title"), textEl("span", slimeStateLabel(slime)));
       const meta = document.createElement("div");
       meta.className = "slime-meta";
       const evaluated = evaluateGenome(slime.genome);
@@ -4916,8 +5086,12 @@
       life.dataset.slimeLife = slime.id;
       meta.append(maturity);
       meta.append(life);
-      meta.append(chip(containerLabelForSlime(slime)));
-      meta.append(chip(creatureJobLabel(slime.job)), chip(roomName(slimeEffectiveRoomId(slime))));
+      meta.append(chip(slimeLocationLabel(slime)));
+      const roomChip = slimeRoomLabel(slime);
+      if (roomChip) {
+        meta.append(chip(roomChip));
+      }
+      meta.append(chip(slimeActivityLabel(slime)));
       if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime)) {
         meta.append(chip(environmentalSustenanceStatus(slime) || environmentalSustenanceLabel(slime)));
       }
@@ -6061,7 +6235,7 @@
       const details = document.createElement("div");
       const header = document.createElement("div");
       header.className = "job-row-header";
-      header.append(slimeNameLink(slime, "entity-link-strong"), textEl("span", slime.mature ? slime.status : "immature"));
+      header.append(slimeNameLink(slime, "entity-link-strong"), textEl("span", slime.mature ? slimeStateLabel(slime) : "immature"));
 
       const meta = document.createElement("div");
       meta.className = "job-meta";
@@ -6474,6 +6648,282 @@
 
   function bestAvailableFeedstockKey(slime) {
     return preferredFeedstockKeys(slime).find((key) => resourceAmount(key) > 0) || "";
+  }
+
+
+
+  function scientistRoomId() {
+    state.scientist = normalizeScientist(state.scientist);
+    return state.scientist.roomId || MAIN_ROOM_ID;
+  }
+
+  function scientistObservesRoom(roomId) {
+    return (roomId || MAIN_ROOM_ID) === scientistRoomId();
+  }
+
+  function freeCreaturesInRoom(roomId) {
+    return (state.slimes || []).filter((slime) => slimeIsUncontained(slime) && slime.status !== "dead" && slimeEffectiveRoomId(slime) === roomId);
+  }
+
+  function freeCreatureActualPressureScore(slime) {
+    let score = 6;
+    const stress = slimeStat(slime, "stress").current;
+    if (stress >= 85) score += 18;
+    else if (stress >= 60) score += 10;
+
+    if (slimeHuntingInclination(slime)) score += 20;
+    const info = slimeContaminationTraitInfo(slime);
+    if (info.spreadsContamination) score += 10;
+
+    const evaluated = evaluateGenome(slime.genome);
+    const appendages = String(evaluated.traits.appendages?.id || "");
+    if (appendages && appendages !== "none") score += 8;
+
+    const stability = String(evaluated.traits.stability?.label || "").toLowerCase();
+    if (/unstable|volatile|fragile|failing/.test(stability)) score += 8;
+
+    return score;
+  }
+
+  function freeCreaturePressureBand(score) {
+    if (score >= 50) return "Severe";
+    if (score >= 32) return "Dangerous";
+    if (score >= 16) return "Watch";
+    return "Low";
+  }
+
+  function observedFreeCreaturePressure(room) {
+    const roomId = room?.id || MAIN_ROOM_ID;
+    if (!scientistObservesRoom(roomId)) {
+      return {
+        label: "Unobserved",
+        className: "container-band-unknown",
+        knownFactors: [],
+        unknownFactors: ["scientist is not in this room"],
+        estimate: "cannot assess from here",
+        observed: false
+      };
+    }
+
+    const creatures = freeCreaturesInRoom(roomId);
+    if (!creatures.length) {
+      return {
+        label: "None",
+        className: "container-band-good",
+        knownFactors: ["no uncontained creatures observed"],
+        unknownFactors: [],
+        estimate: "no free-creature pressure observed",
+        observed: true
+      };
+    }
+
+    let score = creatures.length * 4;
+    let unknownMajor = 0;
+    const knownFactors = [`${creatures.length} uncontained creature${creatures.length === 1 ? "" : "s"} observed`];
+    const unknownFactors = [];
+    const skill = Math.max(skillLevel("observation"), skillLevel("ethology"), skillLevel("slimeHandling"));
+    const highSkill = skill >= FREE_CREATURE_PRESSURE_HIGH_SKILL;
+
+    for (const slime of creatures) {
+      score += freeCreatureActualPressureScore(slime);
+      const stress = slimeStat(slime, "stress").current;
+      if (stress >= 80) {
+        knownFactors.push(`${slime.name} appears highly stressed`);
+      } else if (stress >= 55) {
+        knownFactors.push(`${slime.name} appears agitated`);
+      }
+
+      if (highSkill || slimeTraitKnown(slime, "behavior")) {
+        if (slimeHuntingInclination(slime)) {
+          knownFactors.push(`${slime.name} shows hunting behavior`);
+        } else {
+          knownFactors.push(`${slime.name}'s behavior has been observed`);
+        }
+      } else {
+        unknownFactors.push(`${slime.name} behavior`);
+        unknownMajor += 1;
+      }
+
+      if (highSkill || slimeTraitKnown(slime, "appendages")) {
+        const appendages = String(evaluateGenome(slime.genome).traits.appendages?.id || "");
+        if (appendages && appendages !== "none") {
+          knownFactors.push(`${slime.name} has reaching appendages`);
+        }
+      } else {
+        unknownFactors.push(`${slime.name} appendages`);
+        unknownMajor += 1;
+      }
+
+      if (highSkill || slimeTraitKnown(slime, "element") || slimeTraitKnown(slime, "byproduct")) {
+        const info = slimeContaminationTraitInfo(slime);
+        if (info.spreadsContamination) {
+          knownFactors.push(`${slime.name} may leave residue`);
+        }
+      } else {
+        unknownFactors.push(`${slime.name} contact hazards`);
+        unknownMajor += 1;
+      }
+    }
+
+    const band = freeCreaturePressureBand(score);
+    let label = band;
+    let estimate = `${band.toLowerCase()} pressure`;
+    if (!highSkill && unknownMajor >= 3) {
+      label = "Unknown";
+      estimate = "cannot assess safely";
+    } else if (!highSkill && unknownMajor > 0) {
+      label = `Estimated ${band}`;
+      estimate = `${band.toLowerCase()} pressure estimate`;
+    }
+
+    return {
+      label,
+      className: band === "Severe" || band === "Dangerous" ? "container-band-bad" : band === "Watch" ? "container-band-watch" : "container-band-good",
+      knownFactors: [...new Set(knownFactors)].slice(0, 5),
+      unknownFactors: [...new Set(unknownFactors)].slice(0, 5),
+      estimate,
+      observed: true
+    };
+  }
+
+  function freeCreaturePressureEl(room) {
+    const pressure = observedFreeCreaturePressure(room);
+    const panel = document.createElement("div");
+    panel.className = "room-free-pressure";
+    panel.dataset.freeCreaturePressureRoom = room.id;
+    panel.append(textEl("strong", `Free creature pressure: ${pressure.label}`));
+    if (pressure.knownFactors.length) {
+      panel.append(textEl("div", `Known factors: ${pressure.knownFactors.join(" · ")}`));
+    }
+    if (pressure.unknownFactors.length) {
+      panel.append(textEl("div", `Unknown factors: ${pressure.unknownFactors.join(", ")}`));
+    }
+    if (pressure.estimate) {
+      panel.append(textEl("div", `Estimate: ${pressure.estimate}`));
+    }
+    return panel;
+  }
+
+
+  function updateUncontainedSlimeBehavior(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!slimeIsUncontained(slime) || slime.status === "dead") {
+        continue;
+      }
+      slime.roomId ||= MAIN_ROOM_ID;
+      const info = slimeContaminationTraitInfo(slime);
+      const currentRoom = roomById(slime.roomId);
+      if (!currentRoom) {
+        slime.roomId = MAIN_ROOM_ID;
+      }
+
+      if (info.seeksContamination) {
+        const bestRoom = state.rooms
+          .map((room) => ({ room, contamination: roomContaminationValue(room.id) }))
+          .sort((a, b) => b.contamination - a.contamination)[0];
+
+        if (bestRoom && bestRoom.room.id !== slime.roomId && bestRoom.contamination >= roomContaminationValue(slime.roomId) + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
+          const fromRoom = roomName(slime.roomId);
+          slime.roomId = bestRoom.room.id;
+          slime.roomActivity = {
+            type: "seekingContamination",
+            label: "seeking contamination",
+            roomId: slime.roomId,
+            updatedAt: state.clock
+          };
+          if ((state.clock - (slime.lastRoomMovementEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && (scientistObservesRoom(bestRoom.room.id) || scientistObservesRoom(currentRoom?.id))) {
+            addEvent(`${slime.name} moved from ${fromRoom} to ${roomName(slime.roomId)}, following contamination.`);
+            slime.lastRoomMovementEventAt = state.clock;
+          }
+          changes += 1;
+        }
+
+        const room = roomById(slime.roomId);
+        const contamination = room?.attributes?.contamination;
+        const current = Number(contamination?.current) || 0;
+        if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
+          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * (elapsed / 60);
+          const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
+          if (drained > 0) {
+            const before = contamination.current;
+            contamination.current = clamp(contamination.current - drained, 0, 100);
+            adjustSlimeStat(slime, "nutrition", drained * 0.4);
+            adjustSlimeStat(slime, "stress", -drained * 0.05);
+            slime.roomActivity = {
+              type: "feedingOnContamination",
+              label: "feeding on contamination",
+              roomId: slime.roomId,
+              updatedAt: state.clock
+            };
+            if ((state.clock - (slime.lastContaminationFeedingEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && scientistObservesRoom(room.id)) {
+              const band = roomAttributeBand("contamination", contamination.current);
+              addEvent(`${slime.name} fed on contamination in ${room.name}. Contamination dropped to ${band.label}.`);
+              slime.lastContaminationFeedingEventAt = state.clock;
+            }
+            if (Math.abs(before - contamination.current) >= 0.01) {
+              changes += 1;
+            }
+          }
+        } else {
+          slime.roomActivity ||= {
+            type: "seekingContamination",
+            label: "seeking contamination",
+            roomId: slime.roomId,
+            updatedAt: state.clock
+          };
+        }
+        continue;
+      }
+
+      if (slimeHuntingInclination(slime)) {
+        slime.roomActivity = {
+          type: "hunting",
+          label: "hunting sensed prey",
+          roomId: slime.roomId,
+          updatedAt: state.clock
+        };
+        changes += 1;
+        continue;
+      }
+
+      if (info.spreadsContamination) {
+        const room = roomById(slime.roomId);
+        const contamination = room?.attributes?.contamination;
+        if (room && contamination) {
+          const before = contamination.current;
+          const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * (elapsed / 60);
+          contamination.current = clamp(contamination.current + residue, 0, 100);
+          slime.roomActivity = {
+            type: "leavingResidue",
+            label: "leaving residue",
+            roomId: slime.roomId,
+            updatedAt: state.clock
+          };
+          if ((state.clock - (slime.lastResidueEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && scientistObservesRoom(room.id)) {
+            addEvent(`${slime.name} left residue across ${room.name}.`);
+            slime.lastResidueEventAt = state.clock;
+          }
+          if (Math.abs(before - contamination.current) >= 0.01) {
+            changes += 1;
+          }
+        }
+        continue;
+      }
+
+      slime.roomActivity ||= {
+        type: "exploring",
+        label: "exploring",
+        roomId: slime.roomId,
+        updatedAt: state.clock
+      };
+    }
+    return changes;
   }
 
   function updateSlimeMetabolism(minutes) {
@@ -8341,6 +8791,24 @@
         card.append(description);
       }
       card.append(attributes);
+      card.append(freeCreaturePressureEl(room));
+      const freeCreatures = freeCreaturesInRoom(room.id);
+      if (freeCreatures.length) {
+        const freeList = document.createElement("div");
+        freeList.className = "room-free-creatures";
+        freeList.append(textEl("strong", "Creatures in room"));
+        if (scientistObservesRoom(room.id)) {
+          for (const slime of freeCreatures) {
+            const row = document.createElement("div");
+            row.className = "room-free-creature-row";
+            row.append(slimeNameLink(slime), document.createTextNode(" — "), textEl("span", slimeActivityLabel(slime)));
+            freeList.append(row);
+          }
+        } else {
+          freeList.append(textEl("div", "Unobserved from current location."));
+        }
+        card.append(freeList);
+      }
       dom.roomList.append(card);
     }
   }
@@ -11372,9 +11840,13 @@
   function normalizeScientist(candidate) {
     const fallback = defaultScientist();
     const scientist = {
+      roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },
       skills: { ...fallback.skills, ...(candidate?.skills || {}) }
     };
+    if (!state?.rooms?.some?.((room) => room.id === scientist.roomId)) {
+      scientist.roomId = MAIN_ROOM_ID;
+    }
     for (const key of ["health", "stamina", "mana"]) {
       const vital = scientist.vitals[key] || fallback.vitals[key];
       const rawMax = Number(vital.max);
