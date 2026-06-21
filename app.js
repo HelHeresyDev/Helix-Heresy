@@ -81,7 +81,7 @@
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
-  const CONTAINER_HAUL_TESTING_PITS_TRANSFER = true;
+  // Pits hauling now moves only the container. Contents must be moved by direct interaction.
   const CONTAINER_INTERACTION_OPEN_DURATION = 8;
   const CONTAINER_INTERACTION_CLOSE_DURATION = 5;
   const CONTAINER_INTERACTION_OPEN_STAMINA = 5;
@@ -4076,9 +4076,6 @@
     if (existing) {
       return `${container.name} is already being hauled to ${roomName(existing.data?.toRoomId)}.`;
     }
-    if (toRoomId === PITS_ROOM_ID && CONTAINER_HAUL_TESTING_PITS_TRANSFER && livingContainerOccupantCount(container) > 0 && !availablePitHoleForHaul(container.id)) {
-      return "No pit hole has room for this container's living contents.";
-    }
     return "";
   }
 
@@ -4102,9 +4099,7 @@
       data: {
         containerId: container.id,
         fromRoomId: container.roomId || MAIN_ROOM_ID,
-        toRoomId: room.id,
-        testingPitsTransfer: CONTAINER_HAUL_TESTING_PITS_TRANSFER
-      }
+        toRoomId: room.id      }
     };
     state.tasks.push(task);
     addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)}.`);
@@ -4112,6 +4107,7 @@
     render();
     return true;
   }
+
 
 
   function completeContainerHaul(task) {
@@ -4125,34 +4121,15 @@
     const fromRoomId = container.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     const fromLabel = roomArticleName(fromRoomId);
     const toLabel = roomArticleName(toRoom.id);
-    const transferMessages = [];
 
-    // Move the container itself before any Pits testing shortcut so loaded
-    // contents inherit the destination room instead of the old Pits room.
     container.roomId = toRoom.id;
-
-    if (task.data?.testingPitsTransfer && fromRoomId === PITS_ROOM_ID && toRoom.id !== PITS_ROOM_ID) {
-      const loadMessage = loadPitContentsIntoContainerForTesting(container);
-      if (loadMessage) {
-        transferMessages.push(loadMessage);
-      }
-    }
-
     syncContainerContentsToRoom(container, toRoom.id);
 
-    if (task.data?.testingPitsTransfer && toRoom.id === PITS_ROOM_ID) {
-      const unloadMessage = unloadContainerContentsToPitForTesting(container);
-      if (unloadMessage) {
-        transferMessages.push(unloadMessage);
-      }
-    }
-
-    syncContainerContentsToRoom(container, toRoom.id);
-
-    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel}.${transferMessages.length ? ` ${transferMessages.join(" ")}` : ""}`);
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel}.`);
     refreshCorpseProcessingTargets();
     return true;
   }
+
 
   function syncContainerContentsToRoom(container, roomId = container?.roomId || MAIN_ROOM_ID) {
     if (!container) {
@@ -4173,79 +4150,7 @@
   }
 
 
-  function availablePitHoleForHaul(excludeContainerId = "") {
-    return pitHoleContainers()
-      .filter((pit) => pit.id !== excludeContainerId)
-      .filter((pit) => !isContainerInTransit(pit.id))
-      .filter((pit) => containerOccupants(pit.id).length === 0)
-      .filter((pit) => pitHoleCorpseCount(pit) < pitHoleCorpseCapacity(pit))
-      .sort((a, b) => pitHoleCorpseCount(a) - pitHoleCorpseCount(b) || containerTypeDef(b.typeId).seal - containerTypeDef(a.typeId).seal)
-      [0] || null;
-  }
-
-
-  function pitHoleWithContentsForHaul() {
-    return pitHoleContainers()
-      .filter((pit) => !isContainerInTransit(pit.id))
-      .filter((pit) => containerOccupants(pit.id).length > 0)
-      .sort((a, b) => containerOccupants(b.id).length - containerOccupants(a.id).length)
-      [0] || null;
-  }
-
-
-
-  function unloadContainerContentsToPitForTesting(container) {
-    if (isPitHoleContainer(container)) {
-      return "";
-    }
-    const occupants = containerOccupants(container.id);
-    if (!occupants.length) {
-      return "";
-    }
-    const pit = availablePitHoleForHaul(container.id);
-    if (!pit) {
-      return "Testing transfer could not unload living contents; no pit hole had room.";
-    }
-
-    let moved = 0;
-    for (const slime of occupants) {
-      slime.containerId = pit.id;
-      slime.roomId = pit.roomId || PITS_ROOM_ID;
-      slime.job = "idle";
-      slime.jobProgress = 0;
-      slime.jobTargetCorpseId = null;
-      slime.jobNutritionGained = 0;
-      moved += 1;
-    }
-    return moved ? `Testing shortcut: living contents were unloaded into ${pit.name}.` : "";
-  }
-
-
-
-  function loadPitContentsIntoContainerForTesting(container) {
-    if (isPitHoleContainer(container) || containerContentsCount(container) > 0) {
-      return "";
-    }
-    const pit = pitHoleWithContentsForHaul();
-    if (!pit) {
-      return "";
-    }
-
-    const occupants = containerOccupants(pit.id);
-    let moved = 0;
-    for (const slime of occupants) {
-      slime.containerId = container.id;
-      slime.roomId = container.roomId || PITS_ROOM_ID;
-      slime.job = "idle";
-      slime.jobProgress = 0;
-      slime.jobTargetCorpseId = null;
-      slime.jobNutritionGained = 0;
-      moved += 1;
-    }
-    return moved ? `Testing shortcut: living contents were loaded from ${pit.name}.` : "";
-  }
-
-
+  // Pits hauling shortcut helpers removed: use direct Dump/Scrape/Transfer interactions.
 
   function moveSlimeToOpenPermanentContainer(slime) {
     const container = firstOpenPermanentContainer();
