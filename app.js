@@ -3880,6 +3880,213 @@
     };
   }
 
+  function physicalContainerFitBands() {
+    return ["Comfortable", "Serviceable", "Tight", "Cramped", "Strained", "Overfilled"];
+  }
+
+  function physicalContainerFitBandIndex(label) {
+    const bands = physicalContainerFitBands();
+    const index = bands.indexOf(label);
+    return index >= 0 ? index : 1;
+  }
+
+  function physicalContainerFitWorseBand(a, b) {
+    const bands = physicalContainerFitBands();
+    return bands[Math.max(physicalContainerFitBandIndex(a), physicalContainerFitBandIndex(b))] || b || a || "Serviceable";
+  }
+
+  function physicalContainerFitBandFromRatio(ratio) {
+    if (!Number.isFinite(ratio)) return "Serviceable";
+    if (ratio > 1) return "Overfilled";
+    if (ratio > 0.85) return "Strained";
+    if (ratio > 0.68) return "Cramped";
+    if (ratio > 0.48) return "Tight";
+    if (ratio > 0.22) return "Serviceable";
+    return "Comfortable";
+  }
+
+  function physicalContainerFitBandFromSeverity(severity) {
+    return { minor: "Tight", moderate: "Cramped", major: "Strained", severe: "Overfilled" }[severity] || "Serviceable";
+  }
+
+  function physicalContainerFitClassName(range) {
+    const highIndex = physicalContainerFitBandIndex(range?.high);
+    if (highIndex >= physicalContainerFitBandIndex("Overfilled")) return "container-band-unsuitable";
+    if (highIndex >= physicalContainerFitBandIndex("Strained")) return "container-band-poor";
+    if (highIndex >= physicalContainerFitBandIndex("Cramped")) return "container-band-questionable";
+    return "container-band-good";
+  }
+
+  function physicalContainerFitPrediction(slime, container) {
+    const bands = physicalContainerFitBands();
+    if (!slime || !container) {
+      const confidence = predictionConfidenceFromContext({
+        unknownFactors: ["specimen", "container"],
+        skillIds: ["observation", "slimeHandling", "physiology", "materialsAnalysis"]
+      });
+      return {
+        range: { low: bands[0], high: bands[bands.length - 1] },
+        confidence,
+        knownFactors: [],
+        concerns: [],
+        unknownFactors: ["specimen", "container"],
+        className: "container-band-unknown"
+      };
+    }
+    if (container.type === "synthesis") {
+      const confidence = {
+        label: "Strong",
+        factors: [
+          "the synthesis tube is built for temporary universal containment",
+          "relevant skills: temporary tube design is already known"
+        ]
+      };
+      return {
+        range: { low: "Comfortable", high: "Comfortable" },
+        confidence,
+        knownFactors: ["synthesis tube is designed for temporary universal fit"],
+        concerns: [],
+        unknownFactors: [],
+        className: "container-band-good"
+      };
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const type = containerTypeDef(container.typeId);
+    const revealed = slime.revealed || {};
+    const unknownFactors = [];
+    const knownFactors = [];
+    const concerns = [];
+    let baseBand = type.comfort >= 75 ? "Comfortable" : type.comfort >= 50 ? "Serviceable" : type.comfort >= 30 ? "Tight" : "Cramped";
+
+    if (!revealed.size) {
+      unknownFactors.push("current body volume", "adult size");
+    } else if (profile) {
+      const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+      const currentVolume = profile.volumeCm3 * massFraction;
+      const currentRatio = currentVolume / Math.max(1, Number(type.capacityCm3) || 1);
+      const fullRatio = profile.volumeCm3 / Math.max(1, Number(type.capacityCm3) || 1);
+      const currentBand = physicalContainerFitBandFromRatio(currentRatio);
+      const fullBand = physicalContainerFitBandFromRatio(fullRatio);
+      baseBand = physicalContainerFitWorseBand(baseBand, currentBand);
+      baseBand = physicalContainerFitWorseBand(baseBand, fullBand);
+      knownFactors.push(`current body uses about ${formatNumber(currentRatio * 100)}% of ${type.label} capacity`);
+      if (fullRatio > currentRatio + 0.15) {
+        knownFactors.push(`full-size body could use about ${formatNumber(fullRatio * 100)}% of capacity`);
+      }
+      if (currentBand === "Overfilled") {
+        concerns.push("current body exceeds container capacity");
+      } else if (currentBand === "Strained") {
+        concerns.push("current body nearly fills the container");
+      }
+      if (fullBand === "Overfilled") {
+        concerns.push("full-size body could outgrow the container");
+      } else if (fullBand === "Strained") {
+        concerns.push("full-size body may leave little physical margin");
+      }
+    }
+
+    if (!revealed.shape) {
+      unknownFactors.push("body shape");
+    }
+    if (!revealed.consistency) {
+      unknownFactors.push("body flexibility");
+    }
+    if (revealed.shape && profile) {
+      const dimensionalConcerns = containerDimensionalSuitabilityConcerns(slime, container, profile, { consistencyKnown: Boolean(revealed.consistency) });
+      for (const concern of dimensionalConcerns) {
+        const band = physicalContainerFitBandFromSeverity(concern.severity);
+        baseBand = physicalContainerFitWorseBand(baseBand, band);
+        concerns.push(concern.text);
+      }
+      if (!dimensionalConcerns.length) {
+        knownFactors.push("known body shape has no obvious dimensional conflict");
+      }
+    }
+
+    if (revealed.size && revealed.shape && profile) {
+      const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+      const currentWeight = profile.weightKg * massFraction;
+      const weightLimit = containerEffectiveWeightLimit(container);
+      if (currentWeight > weightLimit) {
+        baseBand = physicalContainerFitWorseBand(baseBand, "Overfilled");
+        concerns.push("current weight exceeds the container load limit");
+      } else if (profile.weightKg > weightLimit) {
+        baseBand = physicalContainerFitWorseBand(baseBand, "Strained");
+        concerns.push("full-size weight may exceed the container load limit");
+      } else {
+        knownFactors.push("known weight is within the container load limit");
+      }
+    }
+
+    if (type.comfort < 35) {
+      concerns.push(`${type.label} has a harsh or cramped interior`);
+    } else if (type.comfort >= 75) {
+      knownFactors.push(`${type.label} has a forgiving interior`);
+    }
+
+    const uniqueUnknown = [...new Set(unknownFactors)].slice(0, 6);
+    const uniqueKnown = [...new Set(knownFactors)].slice(0, 6);
+    const uniqueConcerns = [...new Set(concerns)].slice(0, 6);
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors: uniqueUnknown,
+      knownFactors: uniqueKnown,
+      concerns: uniqueConcerns,
+      clearEvidence: uniqueKnown.length * 10 + uniqueConcerns.length * 8,
+      skillIds: ["observation", "slimeHandling", "physiology", "materialsAnalysis"]
+    });
+    const range = predictionRangeFromBand(bands, baseBand, confidence.label, {
+      unknownLow: "Comfortable",
+      unknownHigh: "Overfilled"
+    });
+    return {
+      range,
+      confidence,
+      knownFactors: uniqueKnown,
+      concerns: uniqueConcerns,
+      unknownFactors: uniqueUnknown,
+      className: physicalContainerFitClassName(range)
+    };
+  }
+
+  function physicalContainerFitTooltip(prediction) {
+    const lines = [
+      `Physical fit range: ${predictionRangeText(prediction?.range)}.`,
+      "Physical fit estimates size, shape, space, opening, weight, and comfort. It is not escape risk."
+    ];
+    if (prediction?.knownFactors?.length) {
+      lines.push(`Known fit factors: ${prediction.knownFactors.join(" · ")}.`);
+    }
+    if (prediction?.concerns?.length) {
+      lines.push(`Fit concerns lowering or widening the range: ${prediction.concerns.join(" · ")}.`);
+    }
+    if (prediction?.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${prediction.unknownFactors.join(", ")}.`);
+    }
+    lines.push(predictionConfidenceTooltip(prediction?.confidence));
+    return lines.join("\n");
+  }
+
+  function physicalContainerFitPredictionEl(slime, container) {
+    const prediction = physicalContainerFitPrediction(slime, container);
+    const line = document.createElement("div");
+    line.className = "container-physical-fit-prediction";
+    line.title = physicalContainerFitTooltip(prediction);
+    line.dataset.physicalFitRange = predictionRangeText(prediction.range);
+    line.dataset.physicalFitConfidence = prediction.confidence.label;
+    const rangeSpan = document.createElement("span");
+    rangeSpan.className = prediction.className;
+    rangeSpan.textContent = `Physical fit: ${predictionRangeText(prediction.range)}`;
+    rangeSpan.title = physicalContainerFitTooltip(prediction);
+    const confidenceSpan = document.createElement("span");
+    confidenceSpan.textContent = `Confidence: ${prediction.confidence.label}`;
+    confidenceSpan.title = predictionConfidenceTooltip(prediction.confidence);
+    line.append(rangeSpan, document.createTextNode(" | "), confidenceSpan);
+    return line;
+  }
+
+
   function containerById(containerId) {
     state.containers = normalizeContainers(state.containers);
     return state.containers.find((container) => container.id === containerId) || null;
@@ -7174,20 +7381,21 @@
       for (const slime of occupants) {
         const row = document.createElement("div");
         row.className = "container-occupant-row";
-        const fit = passiveContainerSuitability(slime, container);
+        const physicalFit = physicalContainerFitPrediction(slime, container);
         const risk = activeContainmentRisk(slime, container);
-        const fitLabel = textEl("span", `${slime.mature ? slime.status : "immature"}; ${fit.label}`);
-        fitLabel.className = fit.className;
+        const statusLabel = textEl("span", slime.mature ? slime.status : "immature");
+        const fitLabel = textEl("span", `physical fit ${predictionRangeText(physicalFit.range)}`);
+        fitLabel.className = physicalFit.className;
+        fitLabel.title = physicalContainerFitTooltip(physicalFit);
+        fitLabel.dataset.physicalFitRange = predictionRangeText(physicalFit.range);
         const riskPrediction = activeContainmentRiskPrediction(risk, slime, container);
         const riskLabel = textEl("span", `active risk ${predictionRangeText(riskPrediction.range)}`);
         riskLabel.className = risk.className;
         riskLabel.title = activeContainmentRiskRangeTooltip(riskPrediction, risk);
-        row.append(slimeNameLink(slime), fitLabel, riskLabel);
+        row.append(slimeNameLink(slime), statusLabel, fitLabel, riskLabel);
         const warnings = document.createElement("div");
         warnings.className = "container-warning-list";
-        for (const reason of fit.reasons) {
-          warnings.append(chip(reason));
-        }
+        warnings.append(physicalContainerFitPredictionEl(slime, container));
         warnings.append(activeContainmentRiskPredictionEl(risk, slime, container));
         occupantList.append(row, warnings);
       }
