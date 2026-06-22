@@ -4515,22 +4515,101 @@
     };
   }
 
+  function handlingRiskPredictionBands() {
+    return ["Low", "Risky", "Dangerous", "Severe"];
+  }
+
+  function handlingHarmPredictionBands() {
+    return ["No obvious harm", "Minor", "Moderate", "Serious", "Lethal"];
+  }
+
+  function handlingHarmBandFromScore(score) {
+    if (score >= 55) return "Serious";
+    if (score >= 35) return "Moderate";
+    if (score >= 15) return "Minor";
+    return "No obvious harm";
+  }
+
+  function directHandlingRiskPrediction(risk) {
+    const unknownFactors = Array.isArray(risk?.unknownFactors) ? risk.unknownFactors : [];
+    const knownFactors = Array.isArray(risk?.knownFactors) ? risk.knownFactors : [];
+    const methodNotes = Array.isArray(risk?.methodNotes) ? risk.methodNotes : [];
+    const concerns = [];
+    if (methodNotes.length) {
+      concerns.push(...methodNotes);
+    }
+    if (risk?.certainty === "unknown") {
+      concerns.push("too many handling hazards are unconfirmed");
+    } else if (risk?.certainty === "partial") {
+      concerns.push("some handling hazards remain uncertain");
+    }
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors,
+      knownFactors,
+      concerns,
+      clearEvidence: (knownFactors.length * 10) + (methodNotes.length * 4),
+      skillIds: ["observation", "slimeHandling", "physiology"]
+    });
+
+    let riskRange;
+    let harmRange;
+    if (confidence.label === "Unknown" || confidence.label === "Rough") {
+      riskRange = { low: "Low", high: "Severe" };
+      harmRange = { low: "No obvious harm", high: "Lethal" };
+    } else {
+      riskRange = predictionRangeFromBand(handlingRiskPredictionBands(), risk?.band || "Low", confidence.label, { unknownLow: "Low", unknownHigh: "Severe" });
+      harmRange = predictionRangeFromBand(handlingHarmPredictionBands(), handlingHarmBandFromScore(Number(risk?.score) || 0), confidence.label, { unknownLow: "No obvious harm", unknownHigh: "Lethal" });
+    }
+
+    return {
+      riskRange,
+      harmRange,
+      confidence,
+      knownFactors,
+      unknownFactors,
+      methodNotes,
+      concerns
+    };
+  }
+
+  function directHandlingRiskTooltip(prediction, risk) {
+    const lines = [
+      `Handling risk range: ${predictionRangeText(prediction?.riskRange)}.`,
+      `Possible harm range: ${predictionRangeText(prediction?.harmRange)}.`,
+      "This is a direct handling assessment, not a guaranteed injury outcome."
+    ];
+    if (prediction?.knownFactors?.length) {
+      lines.push(`Known influences narrowing or shifting the range: ${prediction.knownFactors.join(" · ")}.`);
+    }
+    if (prediction?.methodNotes?.length) {
+      lines.push(`Handling method factors: ${prediction.methodNotes.join(" · ")}.`);
+    }
+    if (prediction?.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${prediction.unknownFactors.join(", ")}.`);
+    }
+    lines.push(predictionConfidenceTooltip(prediction?.confidence));
+    if (Number.isFinite(risk?.damage)) {
+      lines.push("Exact injury damage is not shown as a precise prediction.");
+    }
+    return lines.join("\n");
+  }
+
   function handlingRiskSummary(container) {
     const action = containerAccessOpen(container) ? "close" : "open";
     const risk = containerHandlingRisk(container, action, currentHandlingMethodId());
-    const pieces = [
-      `Handling risk: ${risk.visibleBand}`,
-      `Method: ${risk.method.label}`,
-      `Known factors: ${risk.knownFactors.slice(0, 3).join(" · ")}`
-    ];
-    if (risk.unknownFactors.length) {
-      pieces.push(`Unknown factors: ${risk.unknownFactors.slice(0, 4).join(", ")}`);
-    }
-    if (risk.methodNotes.length) {
-      pieces.push(`Protection: ${risk.methodNotes.slice(0, 2).join(" · ")}`);
-    }
-    pieces.push(`Possible harm: ${risk.harmText}`);
-    return pieces.join(". ");
+    const prediction = directHandlingRiskPrediction(risk);
+    return [
+      `Handling risk: ${predictionRangeText(prediction.riskRange)}`,
+      `Possible harm: ${predictionRangeText(prediction.harmRange)}`,
+      `Confidence: ${prediction.confidence.label}`,
+      `Method: ${risk.method.label}`
+    ].join(" | ");
+  }
+
+  function handlingRiskTitle(container, action = (containerAccessOpen(container) ? "close" : "open"), methodId = currentHandlingMethodId()) {
+    const risk = containerHandlingRisk(container, action, methodId);
+    const prediction = directHandlingRiskPrediction(risk);
+    return directHandlingRiskTooltip(prediction, risk);
   }
 
 
@@ -7070,8 +7149,14 @@
     if (container.type !== "synthesis") {
       const handling = document.createElement("div");
       handling.className = "container-handling-risk";
+      const handlingAction = containerAccessOpen(container) ? "close" : "open";
+      const handlingRisk = containerHandlingRisk(container, handlingAction, currentHandlingMethodId());
+      const handlingPrediction = directHandlingRiskPrediction(handlingRisk);
       handling.textContent = handlingRiskSummary(container);
-      handling.dataset.handlingRisk = containerHandlingRisk(container, containerAccessOpen(container) ? "close" : "open", currentHandlingMethodId()).visibleBand;
+      handling.title = directHandlingRiskTooltip(handlingPrediction, handlingRisk);
+      handling.dataset.handlingRisk = predictionRangeText(handlingPrediction.riskRange);
+      handling.dataset.handlingHarm = predictionRangeText(handlingPrediction.harmRange);
+      handling.dataset.handlingConfidence = handlingPrediction.confidence.label;
       card.append(handling);
     }
 
@@ -7129,7 +7214,8 @@
         || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["slimeHandling"]));
       setActionButtonState(button, Boolean(reason), reason);
       const physicalRiskTitle = physicalStateRiskTitle(physicalRiskLabel);
-      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
+      const directHandlingTitle = handlingRiskTitle(container, action, currentHandlingMethodId());
+      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${directHandlingTitle}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
       button.addEventListener("click", () => startContainerInteraction(container.id, action));
       actions.append(button);
 
@@ -7147,7 +7233,8 @@
             || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
           const remainsRiskTitle = physicalStateRiskTitle(remainsRiskLabel);
-          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
+          const directRemainsHandlingTitle = handlingRiskTitle(container, remainsAction, currentHandlingMethodId());
+          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${directRemainsHandlingTitle}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
           remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
           actions.append(remainsBtn);
         }
@@ -7184,7 +7271,8 @@
           || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
         const transferRiskTitle = physicalStateRiskTitle(transferRiskLabel);
-        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
+        const directTransferHandlingTitle = handlingRiskTitle(container, "transferLivingSlime", currentHandlingMethodId());
+        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${directTransferHandlingTitle}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
         transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
         transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
         actions.append(transferWrap);
