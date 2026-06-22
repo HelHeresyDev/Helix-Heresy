@@ -5948,8 +5948,9 @@
       const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
       if (selectedContainer && selected.status !== "dead") {
         const risk = activeContainmentRisk(selected, selectedContainer);
-        dom.selectedSlimeSummary.append(document.createTextNode(` - Active risk: ${risk.label}`));
-        dom.selectedSlimeSummary.append(activeContainmentRiskDetailsEl(risk));
+        const prediction = activeContainmentRiskPrediction(risk, selected, selectedContainer);
+        dom.selectedSlimeSummary.append(document.createTextNode(` - Active containment risk: ${predictionRangeText(prediction.range)}`));
+        dom.selectedSlimeSummary.append(activeContainmentRiskPredictionEl(risk, selected, selectedContainer));
       }
     } else {
       dom.selectedSlimeSummary.textContent = "No slime selected";
@@ -6816,6 +6817,131 @@
     };
   }
 
+
+  function activeContainmentRiskBands() {
+    return ["Stable", "Watch", "Strained", "Dangerous", "Failing"];
+  }
+
+  function activeContainmentRiskUnknownFactors(slime) {
+    const unknownFactors = [];
+    if (!slime) return ["creature state"];
+    const revealed = slime.revealed || {};
+    if (!revealed.size) unknownFactors.push("adult size");
+    if (!revealed.consistency) unknownFactors.push("body consistency");
+    if (!revealed.appendages) unknownFactors.push("appendages");
+    if (!revealed.element) unknownFactors.push("elemental hazards");
+    if (!revealed.byproduct) unknownFactors.push("byproduct");
+    if (!revealed.behavior) unknownFactors.push("behavior");
+    if (!revealed.stability) unknownFactors.push("stability");
+    return unknownFactors;
+  }
+
+  function activeContainmentRiskKnownFactors(risk, container) {
+    const factors = [];
+    const potentialReasons = Array.isArray(risk?.potentialReasons) ? risk.potentialReasons : [];
+    const pressureReasons = Array.isArray(risk?.pressureReasons) ? risk.pressureReasons : [];
+    factors.push(...potentialReasons.slice(0, 3));
+    factors.push(...pressureReasons.slice(0, 3));
+    if (container) {
+      factors.push(`container condition is ${containerConditionLabel(container)}`);
+      if (containerAccessOpen(container)) factors.push("container is open");
+      if (isContainerInTransit(container.id)) factors.push("container is in transit");
+    }
+    return [...new Set(factors)].filter(Boolean).slice(0, 6);
+  }
+
+  function activeContainmentRiskPrediction(risk, slime, container) {
+    if (!risk) {
+      const confidence = predictionConfidenceFromContext({
+        unknownFactors: ["active containment state"],
+        skillIds: ["observation", "ethology", "slimeHandling"]
+      });
+      return {
+        range: { low: "Stable", high: "Failing" },
+        confidence,
+        knownFactors: [],
+        unknownFactors: ["active containment state"],
+        concerns: []
+      };
+    }
+    if (risk.label === "Suppressed by synthesis tube") {
+      const confidence = predictionConfidenceFromContext({
+        knownFactors: ["synthesis tube suppression", "temporary universal containment"],
+        clearEvidence: 60,
+        skillIds: ["observation", "ethology", "slimeHandling"]
+      });
+      return {
+        range: { low: "Stable", high: "Stable" },
+        confidence: { ...confidence, label: "Strong" },
+        knownFactors: ["synthesis tube suppression", "temporary universal containment"],
+        unknownFactors: [],
+        concerns: []
+      };
+    }
+    const unknownFactors = activeContainmentRiskUnknownFactors(slime);
+    const knownFactors = activeContainmentRiskKnownFactors(risk, container);
+    const concerns = [];
+    if (["Strained", "Dangerous", "Failing"].includes(risk.label)) {
+      concerns.push(`current active risk assessment is ${risk.label.toLowerCase()}`);
+    }
+    const clearEvidence = Math.max(0, (knownFactors.length * 12) + (concerns.length * 8));
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors,
+      knownFactors,
+      concerns,
+      clearEvidence,
+      skillIds: ["observation", "ethology", "slimeHandling"]
+    });
+    return {
+      range: predictionRangeFromBand(activeContainmentRiskBands(), risk.label, confidence.label, { unknownLow: "Stable", unknownHigh: "Failing" }),
+      confidence,
+      knownFactors,
+      unknownFactors,
+      concerns
+    };
+  }
+
+  function activeContainmentRiskRangeTooltip(prediction, risk) {
+    const lines = [
+      `Active containment risk range: ${predictionRangeText(prediction?.range)}.`,
+      "This is an assessment of possible active containment trouble, not a guaranteed escape outcome."
+    ];
+    if (prediction?.knownFactors?.length) {
+      lines.push(`Known influences narrowing or shifting the range: ${prediction.knownFactors.join(" · ")}.`);
+    }
+    if (prediction?.concerns?.length) {
+      lines.push(`Concerns raising or widening the range: ${prediction.concerns.join(" · ")}.`);
+    }
+    if (prediction?.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${prediction.unknownFactors.join(", ")}.`);
+    }
+    if (Number.isFinite(risk?.potential) || Number.isFinite(risk?.pressure)) {
+      lines.push("Internal Potential and Pressure scores still drive incidents, but exact scores are not shown as precise predictions.");
+    }
+    return lines.join("\n");
+  }
+
+  function activeContainmentRiskPredictionEl(risk, slime, container) {
+    const prediction = activeContainmentRiskPrediction(risk, slime, container);
+    const details = document.createElement("div");
+    details.className = "container-risk-details";
+    details.dataset.activeRiskPrediction = slime?.id || container?.id || "unknown";
+
+    const rangeSpan = document.createElement("span");
+    rangeSpan.dataset.activeRiskRange = slime?.id || container?.id || "unknown";
+    rangeSpan.textContent = `Active containment risk: ${predictionRangeText(prediction.range)}`;
+    rangeSpan.title = activeContainmentRiskRangeTooltip(prediction, risk);
+
+    const confidenceSpan = document.createElement("span");
+    confidenceSpan.dataset.activeRiskConfidence = slime?.id || container?.id || "unknown";
+    confidenceSpan.textContent = `Confidence: ${prediction.confidence.label}`;
+    confidenceSpan.title = predictionConfidenceTooltip(prediction.confidence);
+
+    details.title = `${rangeSpan.title}\n${confidenceSpan.title}`;
+    details.append(rangeSpan, document.createTextNode(" | "), confidenceSpan);
+    return details;
+  }
+
   function activeContainmentRiskDetailsEl(risk) {
     const details = document.createElement("div");
     details.className = "container-risk-details";
@@ -6967,15 +7093,17 @@
         const risk = activeContainmentRisk(slime, container);
         const fitLabel = textEl("span", `${slime.mature ? slime.status : "immature"}; ${fit.label}`);
         fitLabel.className = fit.className;
-        const riskLabel = textEl("span", `active risk ${risk.label}`);
+        const riskPrediction = activeContainmentRiskPrediction(risk, slime, container);
+        const riskLabel = textEl("span", `active risk ${predictionRangeText(riskPrediction.range)}`);
         riskLabel.className = risk.className;
+        riskLabel.title = activeContainmentRiskRangeTooltip(riskPrediction, risk);
         row.append(slimeNameLink(slime), fitLabel, riskLabel);
         const warnings = document.createElement("div");
         warnings.className = "container-warning-list";
         for (const reason of fit.reasons) {
           warnings.append(chip(reason));
         }
-        warnings.append(activeContainmentRiskDetailsEl(risk));
+        warnings.append(activeContainmentRiskPredictionEl(risk, slime, container));
         occupantList.append(row, warnings);
       }
     }
