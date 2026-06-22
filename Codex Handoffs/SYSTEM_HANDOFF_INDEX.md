@@ -11,6 +11,7 @@ Use this index to find the current handoff document for each implemented or acti
 | UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 1 Fix 1 |
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
+| Contamination Cleanup Behavior | `HANDOFF_CONTAMINATION_CLEANUP_BEHAVIOR.md` | Implemented through Contamination Cleanup Behavior Pass 2 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
 | Prediction Cleanup | `HANDOFF_PREDICTION_CLEANUP.md` | Implemented through Prediction Cleanup Pass 4 |
 
@@ -37,6 +38,15 @@ Contamination Cleanup Use is complete and handed off:
 - `Use as Cleaner` does not mean the slime obeys an order
 - simple slimes still follow instincts
 - doors physically limit where free slimes can roam
+
+Contamination Cleanup Behavior is complete and handed off:
+- Pass 2: observable cleanup tags and learning
+- room cards can show `Biological cleanup active` when observable
+- creature cards show observed activity tags and cleanup effect estimates
+- ambiguous door behavior uses possible intent range + confidence
+- cleanup observation improves confidence over time
+- event logs do not spam routine cleanup ticks
+- cleanup completion event is awareness-gated
 
 Creature Release is complete and handed off:
 - Pass 1: release suitability warning
@@ -89,23 +99,28 @@ Bedroom + Doors currently does **not** include:
 - full escape systems
 - raids
 
-Contamination Cleanup Use currently does **not** include:
+Contamination Cleanup systems currently do **not** include:
 - cleanup room targets
 - assign cleanup target
 - order slime to clean
+- direct room assignment for slimes
+- obedience
 - manual scientist cleaning
 - janitor/staff cleaning
 - cleaning equipment
 - cleaning room upgrades
 - contained-container room cleaning
 - cleaner pens/zones
-- new cleanup movement logic
+- new slime behavior beyond feedback/learning for existing behavior
 - attacks/combat
 - injuries from free creatures
 - recapture
 - full escape systems
 - PPE
 - treatment/medicine systems
+- new skill systems
+- exact prediction percentages
+- prediction minigames
 
 Creature Release currently does **not** include:
 - release target rooms
@@ -158,12 +173,13 @@ Room Exposure currently does **not** include:
 ## Likely next design directions
 
 Potential next topics:
+- start a fresh chat and re-ground from this index
+- tune contamination cleanup behavior after playtesting
+- decide whether cleanup completion in unobserved rooms is noticed later when observed
 - review genome/synthesis predictions for false precision
-- return to contamination cleanup behavior now that prediction UI is cleaner
 - broader intended-use suitability for non-cleanup uses
 - better fit tuning for release warnings
 - Bedroom rest/recovery identity polish, if the Bedroom does not feel special enough in play
-- contamination cleanup follow-up systems, only if they do not duplicate Creature Release warnings
 - door UI compaction later if the number of rooms/connections grows
 - code cleanup for dead prediction/detail helper functions if they remain unused
 
@@ -175,6 +191,7 @@ Do not implement any next topic without a design discussion first.
 - Each Cline chat has no prior context; prompts must be self-contained.
 - Cline should be used for QC/testing/visual inspection/reporting, not coding, unless explicitly requested.
 - The assistant should generate implementation files/patch bundles directly when asked.
+- When replacement-file bundles are created, provide only the `.zip` link by default.
 - Use `git add .` for staging unless there is a specific reason not to.
 - Continue to keep implementation passes narrow.
 - Discuss design before coding.
