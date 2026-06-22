@@ -269,6 +269,14 @@ h2 {
   grid-column: span 3;
 }
 
+.inventory-panel {
+  grid-column: span 1;
+}
+
+.inventory-note {
+  margin: 0.25rem 0 0;
+}
+
 .cheat-panel {
   grid-column: span 3;
 }
@@ -508,6 +516,7 @@ h2 {
 .container-list,
 .room-list,
 .resource-list,
+.inventory-list,
 .vital-grid {
   display: grid;
   gap: 0.45rem;
@@ -519,6 +528,7 @@ h2 {
 
 .vital-row,
 .resource-row,
+.inventory-row,
 .slime-stat-row,
 .skill-row {
   padding: 0.5rem;
@@ -529,6 +539,7 @@ h2 {
 
 .vital-row,
 .resource-row,
+.inventory-row,
 .slime-stat-row {
   display: flex;
   justify-content: space-between;
@@ -538,6 +549,7 @@ h2 {
 
 .vital-row span,
 .resource-row span,
+.inventory-row span,
 .slime-stat-row span,
 .skill-meta {
   color: var(--muted);

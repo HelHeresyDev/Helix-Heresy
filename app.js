@@ -1097,6 +1097,54 @@
     carrion: "carrionFeedstock",
     contaminated: "contaminatedFeedstock"
   };
+  const INVENTORY_ITEM_DEFS = [
+    {
+      key: "biomass",
+      label: "Biomass",
+      initial: 0,
+      description: "Recovered organic mass stored for future specimen work. Inventory is lab-wide for now and assumed to be kept in the Storage Room."
+    },
+    {
+      key: "traceSlime",
+      label: "Trace slime",
+      initial: 0,
+      description: "Small smears, films, and residues left by slime activity. Useful later for observation, reagent work, or contamination studies."
+    },
+    {
+      key: "contaminatedResidue",
+      label: "Contaminated residue",
+      initial: 0,
+      description: "Tainted lab residue gathered for future experiments. Stored carefully; not a food or feedstock system yet."
+    },
+    {
+      key: "ruinedOrganicMatter",
+      label: "Ruined organic matter",
+      initial: 0,
+      description: "Unusable or spoiled biological matter retained because even failures can become material."
+    },
+    {
+      key: "preservedTissue",
+      label: "Preserved tissue",
+      initial: 0,
+      description: "Stabilized biological samples reserved for later research and processing systems."
+    }
+  ];
+  const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
+  const INVENTORY_ITEM_ALIASES = {
+    ...Object.fromEntries(INVENTORY_ITEM_DEFS.flatMap((item) => [
+      [normalizeCommandName(item.key), item.key],
+      [normalizeCommandName(item.label), item.key]
+    ])),
+    trace: "traceSlime",
+    slime: "traceSlime",
+    residue: "contaminatedResidue",
+    contaminated: "contaminatedResidue",
+    ruined: "ruinedOrganicMatter",
+    organic: "ruinedOrganicMatter",
+    tissue: "preservedTissue",
+    preserved: "preservedTissue"
+  };
+
   const SLIME_STAT_DEFS = [
     { key: "bodyIntegrity", label: "Body Integrity", initial: 100, max: 100 },
     { key: "nutrition", label: "Nutrition", initial: 50, max: 100 },
@@ -1223,6 +1271,7 @@
       doors: defaultDoors(),
       containers: defaultContainers(),
       resources: defaultResources(),
+      inventory: defaultInventory(),
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
@@ -1259,6 +1308,11 @@
       },
       skills: Object.fromEntries(SKILL_DEFS.map((skill) => [skill.id, { xp: 0 }]))
     };
+  }
+
+
+  function defaultInventory() {
+    return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item.initial]));
   }
 
   function defaultResources() {
@@ -1387,6 +1441,7 @@
 
   function init() {
     cacheDom();
+    ensureInventoryPanel();
     populateTimeSpeedSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
     bindEvents();
@@ -1476,6 +1531,11 @@
       "resourceCommandInput",
       "resourceCommandBtn",
       "resourceCommandStatus",
+      "inventorySummary",
+      "inventoryList",
+      "inventoryCommandInput",
+      "inventoryCommandBtn",
+      "inventoryCommandStatus",
       "journalModeReadout",
       "journalContent",
       "queueDrawer",
@@ -1499,6 +1559,53 @@
       "complexitySelect"
     ]) {
       dom[id] = document.getElementById(id);
+    }
+  }
+
+
+  function ensureInventoryPanel() {
+    if (!dom.inventorySummary || !dom.inventoryList) {
+      const panel = document.createElement("section");
+      panel.className = "panel inventory-panel";
+      panel.setAttribute("aria-labelledby", "inventoryTitle");
+      panel.innerHTML = `
+        <div class="panel-heading">
+          <div>
+            <h2 id="inventoryTitle">Inventory</h2>
+            <p id="inventorySummary">Storage Room ledger</p>
+          </div>
+        </div>
+        <div id="inventoryList" class="inventory-list"></div>
+      `;
+      const roomPanel = document.querySelector(".room-panel");
+      if (roomPanel?.parentElement) {
+        roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
+      } else {
+        dom.labRoot?.append(panel);
+      }
+      dom.inventorySummary = document.getElementById("inventorySummary");
+      dom.inventoryList = document.getElementById("inventoryList");
+    }
+
+    if (!dom.inventoryCommandInput || !dom.inventoryCommandBtn || !dom.inventoryCommandStatus) {
+      const cheatGrid = document.querySelector(".cheat-grid");
+      if (cheatGrid) {
+        const subpanel = document.createElement("div");
+        subpanel.className = "subpanel";
+        subpanel.dataset.inventoryCheatPanel = "true";
+        subpanel.innerHTML = `
+          <div class="subpanel-title">Inventory Cheat</div>
+          <div class="cheat-row">
+            <input id="inventoryCommandInput" type="text" spellcheck="false" placeholder="trace slime 5">
+            <button id="inventoryCommandBtn" type="button">Add Item</button>
+          </div>
+          <p id="inventoryCommandStatus" class="journal-meta">Use inventory item name plus amount.</p>
+        `;
+        cheatGrid.append(subpanel);
+        dom.inventoryCommandInput = document.getElementById("inventoryCommandInput");
+        dom.inventoryCommandBtn = document.getElementById("inventoryCommandBtn");
+        dom.inventoryCommandStatus = document.getElementById("inventoryCommandStatus");
+      }
     }
   }
 
@@ -1802,6 +1909,17 @@
       if (event.key === "Enter") {
         event.preventDefault();
         runResourceCommand();
+      }
+    });
+
+    dom.inventoryCommandBtn?.addEventListener("click", () => {
+      runInventoryCommand();
+    });
+
+    dom.inventoryCommandInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runInventoryCommand();
       }
     });
 
@@ -6152,6 +6270,7 @@
     renderBreeding();
     renderPolicies();
     renderRooms();
+    renderInventory();
     renderScientist();
     renderTasks();
     renderJournal();
@@ -11127,6 +11246,35 @@
     return panel;
   }
 
+
+  function renderInventory() {
+    state.inventory = normalizeInventory(state.inventory);
+    if (!dom.inventoryList) {
+      return;
+    }
+    const materials = INVENTORY_ITEM_DEFS;
+    const nonzeroCount = materials.filter((item) => inventoryAmount(item.key) > 0).length;
+    dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. No capacity, hauling, crafting, or recipes are implemented yet.";
+    dom.inventoryList.textContent = "";
+    for (const item of materials) {
+      const row = document.createElement("div");
+      row.className = "inventory-row";
+      row.dataset.inventoryItemKey = item.key;
+      row.title = `${item.description} Current amount: ${formatNumber(inventoryAmount(item.key))}.`;
+      row.append(textEl("span", item.label), textEl("strong", formatNumber(inventoryAmount(item.key))));
+      dom.inventoryList.append(row);
+    }
+    if (!materials.length) {
+      dom.inventoryList.append(emptyText("No inventory materials defined."));
+    } else if (!nonzeroCount) {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = "No stored materials yet. Cheats can add any defined inventory item for testing.";
+      dom.inventoryList.append(note);
+    }
+  }
+
   function renderScientist() {
     renderVitalReadouts();
     renderResources();
@@ -11386,6 +11534,28 @@
     dom.resourceCommandInput.value = "";
     dom.resourceCommandStatus.textContent = `Added ${formatNumber(amount)} ${resourceLabel(resourceKey)}.`;
     addEvent(`${resourceLabel(resourceKey)} increased by ${formatNumber(amount)} via cheat command.`);
+    persist();
+    render();
+  }
+
+
+  function runInventoryCommand() {
+    const command = dom.inventoryCommandInput?.value.trim() || "";
+    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
+    if (!match) {
+      dom.inventoryCommandStatus.textContent = "Use format: trace slime 5";
+      return;
+    }
+    const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(match[1])];
+    const amount = Math.floor(Number(match[2]));
+    if (!itemKey || !Number.isFinite(amount) || amount <= 0) {
+      dom.inventoryCommandStatus.textContent = "Unknown inventory item or invalid amount.";
+      return;
+    }
+    addInventoryItem(itemKey, amount);
+    dom.inventoryCommandInput.value = "";
+    dom.inventoryCommandStatus.textContent = `Added ${formatNumber(amount)} ${inventoryItemLabel(itemKey)}.`;
+    addEvent(`Stored material logged: ${inventoryItemLabel(itemKey)} +${formatNumber(amount)}.`);
     persist();
     render();
   }
@@ -13397,6 +13567,43 @@
     return "Unknown";
   }
 
+
+  function inventoryAmount(key) {
+    return ensureInventory()[key] || 0;
+  }
+
+  function addInventoryItem(key, amount) {
+    if (!INVENTORY_ITEM_BY_KEY[key]) {
+      return false;
+    }
+    const delta = Math.trunc(Number(amount) || 0);
+    if (!delta) {
+      return false;
+    }
+    const inventory = ensureInventory();
+    inventory[key] = Math.max(0, (inventory[key] || 0) + delta);
+    return true;
+  }
+
+  function inventoryItemLabel(key) {
+    return INVENTORY_ITEM_BY_KEY[key]?.label || key;
+  }
+
+  function ensureInventory() {
+    state.inventory = normalizeInventory(state.inventory);
+    return state.inventory;
+  }
+
+  function normalizeInventory(candidate) {
+    const fallback = defaultInventory();
+    const normalized = {};
+    for (const item of INVENTORY_ITEM_DEFS) {
+      const value = Number(candidate?.[item.key]);
+      normalized[item.key] = Math.max(0, Math.floor(Number.isFinite(value) ? value : fallback[item.key]));
+    }
+    return normalized;
+  }
+
   function resourceAmount(key) {
     return ensureResources()[key] || 0;
   }
@@ -14739,6 +14946,7 @@
       container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
     }
     next.resources = normalizeResources(next.resources);
+    next.inventory = normalizeInventory(next.inventory);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
