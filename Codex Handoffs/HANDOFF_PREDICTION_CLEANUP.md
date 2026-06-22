@@ -1,16 +1,17 @@
 # System Handoff — Prediction Cleanup
 
-Date: 2026-06-21
+Date: 2026-06-22
 
 ## Status
 
-Prediction Cleanup is implemented and accepted through Pass 3.
+Prediction Cleanup is implemented and accepted through Pass 4.
 
 Accepted work:
 - Pass 1: Compact Ranges and Confidence Tooltips for cleanup suitability and release suitability
 - Pass 1 Fix 1: Playwright selector/test-flow fix
 - Pass 2: Active Containment Risk Ranges
 - Pass 3: Direct Handling Risk Ranges
+- Pass 4: Container Physical Fit Ranges
 
 This handoff should be treated as the current source of truth for Prediction Cleanup.
 
@@ -19,16 +20,17 @@ This handoff should be treated as the current source of truth for Prediction Cle
 This system reduces false precision in prediction and suitability UI.
 
 Before this work:
-- Cleanup suitability, release suitability, active containment risk, and direct handling risk could appear too precise.
-- Some prediction UI showed single labels, exact-looking scores, or visible factor lists that felt more certain than the scientist’s knowledge and skill should support.
-- A player could reasonably interpret wording like a single `Good`/`Poor` result, exact `Potential`/`Pressure` scores, or `likely` phrasing as the game revealing a definite hidden answer.
-- Known/helpful factors, concerns, unknown factors, and protection details were often shown directly in the main UI.
+- Cleanup suitability, release suitability, active containment risk, direct handling risk, and container physical fit could appear too precise.
+- Some prediction UI showed single labels, exact-looking scores, broad harm phrases, or visible factor lists that felt more certain than the scientist’s knowledge and skill should support.
+- A player could reasonably interpret wording like a single `Good`/`Poor` result, exact `Potential`/`Pressure` scores, old container fit labels, or `likely` phrasing as the game revealing a definite hidden answer.
+- Known/helpful factors, concerns, unknown factors, and protection/details were often shown directly in the main UI.
 - The UI did not consistently separate quick prediction output from deeper reasoning.
 
 After this work:
 - Cleanup suitability and release suitability use compact range + confidence wording.
 - Active containment risk uses compact range + confidence wording instead of visible exact Potential/Pressure scores.
 - Direct handling risk uses compact handling-risk range, possible-harm range, confidence, and method.
+- Container physical fit uses compact physical-fit range + confidence.
 - Detailed reasoning moved into tooltip/title text.
 - Predictions can show a range of possible outcomes when confidence is not strong.
 - Confidence is influenced by known traits, unknown traits, and relevant skills.
@@ -69,6 +71,11 @@ Possible harm: No obvious harm–Lethal
 Confidence: Rough
 ```
 
+```txt
+Physical fit: Comfortable–Cramped
+Confidence: Rough
+```
+
 A single label should appear only when confidence is strong enough to justify collapsing the range.
 
 Accepted single-label direction:
@@ -83,6 +90,11 @@ Active containment risk: Watch
 Confidence: Strong
 ```
 
+```txt
+Physical fit: Strained
+Confidence: Strong
+```
+
 ### Avoid false-certainty wording
 
 Avoid uncertain prediction wording that players may interpret as definite.
@@ -94,6 +106,7 @@ Avoid:
 - exact percentages
 - hidden-answer hints
 - guaranteed injury/escape language
+- active-risk labels for physical fit
 
 Prefer:
 - `Possible fit after release`
@@ -101,9 +114,11 @@ Prefer:
 - `Active containment risk`
 - `Handling risk`
 - `Possible harm`
+- `Physical fit`
 - `Poor–Good`
 - `Stable–Strained`
 - `Low–Severe`
+- `Comfortable–Cramped`
 - `Confidence: Rough`
 - `Confidence: Fair`
 - `Confidence: Strong`
@@ -139,6 +154,11 @@ Confidence: Rough
 Method: Thick gloves
 ```
 
+```txt
+Physical fit: Comfortable–Cramped
+Confidence: Rough
+```
+
 Avoid in visible main UI:
 - `Known helpful factors: ...`
 - `Known factors: ...`
@@ -148,6 +168,7 @@ Avoid in visible main UI:
 - exact `Potential: 55`
 - exact `Pressure: 36`
 - exact injury damage predictions
+- old fit labels such as `Good Fit`, `Poor Fit`, `Questionable`, or `Unsuitable`
 - long factor lists
 - bulky prediction explanations
 
@@ -161,8 +182,10 @@ Tooltip/title can explain:
 - unknown factors widening the range
 - relevant skill levels
 - method/protection factors
+- physical fit factors
 - how skill and knowledge affect confidence
 - that exact internal scores/damage are not shown as precise predictions
+- that physical fit is not escape risk
 
 Accepted tooltip directions:
 
@@ -184,6 +207,13 @@ Possible harm range: No obvious harm–Lethal.
 Unknown factors widening the range: behavior, appendages.
 Relevant skills: Observation 1 · Slime Handling 0 · Physiology 1.
 Exact injury damage is not shown as a precise prediction.
+```
+
+```txt
+Physical fit range: Comfortable–Cramped.
+Physical fit estimates size, shape, space, opening, weight, and comfort. It is not escape risk.
+Unknown factors widening the range: adult size, body shape.
+Relevant skills: Observation 1 · Slime Handling 0 · Physiology 1 · Materials Analysis 0.
 ```
 
 ### Skills affect confidence, not omniscience
@@ -294,6 +324,53 @@ Important terminology:
 - Direct handling risk = risk to the scientist when physically opening/closing/transferring/handling a container or contents.
 - Pass 3 addressed direct handling risk, not active containment risk or physical container fit.
 
+### Pass 4 — Container physical fit ranges
+
+Container physical fit visible UI now shows:
+- `Physical fit: <range>`
+- `Confidence: <band>`
+
+Physical fit uses physical terminology, not active-risk terminology.
+
+Accepted physical fit bands:
+- Comfortable
+- Serviceable
+- Tight
+- Cramped
+- Strained
+- Overfilled
+
+Visible UI should not show old labels such as:
+- Good Fit
+- Poor Fit
+- Questionable
+- Unsuitable
+
+Visible UI should not use active-risk labels for physical fit:
+- Dangerous
+- Failing
+
+Tooltip/title text explains:
+- physical fit range
+- physical-fit meaning
+- known fit factors
+- fit concerns
+- unknown factors widening the range
+- relevant skill levels
+- that physical fit is not escape risk
+
+Relevant skills for this pass:
+- Observation
+- Slime Handling
+- Physiology
+- Materials Analysis
+
+Important terminology:
+- Physical fit = size, shape, space, opening, weight, and comfort.
+- Active containment risk = risk of active trouble from a contained creature.
+- Direct handling risk = risk to the scientist during physical handling.
+- Pass 4 addressed physical container fit, not escape risk.
+
 ### Prediction ranges
 
 Prediction ranges widen when confidence is lower.
@@ -337,6 +414,7 @@ It does not change:
 - observation/awareness behavior
 - containment incident mechanics
 - direct handling injury mechanics
+- physical fit mechanics
 
 ## Awareness and hidden-information rules
 
@@ -354,6 +432,7 @@ Rejected:
 - omniscient prediction text
 - predictions that imply the UI knows the true future outcome while the scientist does not
 - exact future injury/escape predictions
+- physical fit revealing unrevealed size/shape/consistency as definite facts
 
 ## Relationship to existing systems
 
@@ -399,6 +478,17 @@ Handling still works through existing systems:
 - run-ending death if health reaches 0
 
 This pass does not add new handling mechanics.
+
+### Container Geometry / Physical Fit
+
+Prediction Cleanup updates physical fit presentation.
+
+Physical fit remains separate from:
+- active containment risk
+- direct handling risk
+- escape risk
+
+Physical fit estimates size, shape, space, opening, weight, and comfort.
 
 ### UI Cleanup
 
@@ -543,15 +633,46 @@ Confirmed:
 Regression test count reported:
 - 44/44 tests passed across Pass 1, Pass 2, Pass 3, and Creature Release tests
 
+### Pass 4 QC
+
+Result:
+- syntax check passed
+- Prediction Cleanup Pass 4 smoke test passed
+- Prediction Cleanup Pass 3 regression test passed
+- Prediction Cleanup Pass 2 regression test passed
+- Prediction Cleanup Pass 1 regression test passed
+- Creature Release regression test passed
+- headed visual inspection passed
+- console warnings/errors: 0
+- page errors: 0
+
+Confirmed:
+- physical fit bands use physical terms: Comfortable, Serviceable, Tight, Cramped, Strained, Overfilled
+- physical fit visible UI shows compact range + confidence
+- single-label fit appears only with strong confidence
+- old fit labels are not visible
+- physical fit does not use Dangerous or Failing
+- tooltip explains that physical fit estimates size, shape, space, opening, weight, and comfort
+- tooltip says physical fit is not escape risk
+- tooltip explains known factors, concerns, unknown factors, confidence, and relevant skills
+- relevant skills are Observation, Slime Handling, Physiology, and Materials Analysis
+- hidden size, shape, and consistency values are not revealed unless revealed/known
+- no regressions in earlier Prediction Cleanup or Creature Release behavior
+- no forbidden scope creep detected
+
+Regression test count reported:
+- 10/10 tests passed across Pass 4, Pass 3, Pass 2, Pass 1, and Creature Release tests
+
 ## Known limitations / future work
 
 Potential future work:
-- extend compact range + confidence pattern to container physical fit predictions
 - review genome/synthesis predictions for false precision
 - review room exposure diagnostics/rest predictions for consistency if needed
 - tune confidence/range math after more playtesting
 - add richer skill-specific confidence tooltips if needed
 - remove dead prediction/detail helper code if it remains unused after multiple passes
+- broader intended-use suitability for non-cleanup uses
+- better fit tuning for release warnings
 
 Important future design direction:
 Prediction UI should distinguish facts from uncertain assessments. Physical facts can stay direct. Future outcomes, behavior predictions, safety predictions, and suitability predictions should use range + confidence unless the scientist has strong support for a single assessment.
@@ -574,3 +695,4 @@ Suggested commits for accepted work:
 - `Add compact prediction ranges`
 - `Add active containment risk ranges`
 - `Add direct handling risk ranges`
+- `Add container physical fit ranges`

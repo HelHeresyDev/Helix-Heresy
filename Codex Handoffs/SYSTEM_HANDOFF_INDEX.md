@@ -12,7 +12,7 @@ Use this index to find the current handoff document for each implemented or acti
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
-| Prediction Cleanup | `HANDOFF_PREDICTION_CLEANUP.md` | Implemented through Prediction Cleanup Pass 3 |
+| Prediction Cleanup | `HANDOFF_PREDICTION_CLEANUP.md` | Implemented through Prediction Cleanup Pass 4 |
 
 ## Current working state
 
@@ -50,6 +50,7 @@ Prediction Cleanup is complete and handed off:
 - Pass 1 Fix 1: test selector/test-flow fix
 - Pass 2: active containment risk ranges
 - Pass 3: direct handling risk ranges
+- Pass 4: container physical fit ranges
 - predictions show possibility ranges when uncertain
 - main UI shows range + confidence, plus method/possible harm where relevant
 - detailed factors live in tooltips/title text
@@ -157,8 +158,8 @@ Room Exposure currently does **not** include:
 ## Likely next design directions
 
 Potential next topics:
-- extend Prediction Cleanup to container physical fit predictions
 - review genome/synthesis predictions for false precision
+- return to contamination cleanup behavior now that prediction UI is cleaner
 - broader intended-use suitability for non-cleanup uses
 - better fit tuning for release warnings
 - Bedroom rest/recovery identity polish, if the Bedroom does not feel special enough in play
