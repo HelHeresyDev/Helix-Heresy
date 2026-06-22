@@ -10,6 +10,7 @@ Use this index to find the current handoff document for each implemented or acti
 | Room Exposure | `HANDOFF_ROOM_EXPOSURE.md` | Implemented through Room Exposure Pass 4 Fix 2 |
 | UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 1 Fix 1 |
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
+| Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 
 ## Current working state
 
@@ -22,12 +23,18 @@ Room Exposure is complete enough to pause or move on:
 UI Cleanup side track is complete:
 - UI Cleanup Pass 1 Fix 1: keyword tooltips and modified stamina cost breakdowns
 
-Bedroom + Doors is complete enough to hand off:
+Bedroom + Doors is complete and handed off:
 - Pass 1: Bedroom + door foundation
 - Pass 2: Door policy UI polish
 - Pass 2 Fix 1: Playwright visual-pause timeout fix
 - Visual Playwright config: headed visual QC opens on monitor 2 at the intended size
 - Pass 3: door state and door policy tooltips
+
+Contamination Cleanup Use is complete enough to hand off:
+- Pass 1: cleanup as an intended use with suitability readout
+- `Use as Cleaner` does not mean the slime obeys an order
+- simple slimes still follow instincts
+- doors physically limit where free slimes can roam
 
 Treat tooltip/cost work as **UI Cleanup**, not Room Exposure.
 
@@ -62,6 +69,24 @@ Bedroom + Doors currently does **not** include:
 - full escape systems
 - raids
 
+Contamination Cleanup Use currently does **not** include:
+- cleanup room targets
+- assign cleanup target
+- order slime to clean
+- manual scientist cleaning
+- janitor/staff cleaning
+- cleaning equipment
+- cleaning room upgrades
+- contained-container room cleaning
+- cleaner pens/zones
+- new cleanup movement logic
+- attacks/combat
+- injuries from free creatures
+- recapture
+- full escape systems
+- PPE
+- treatment/medicine systems
+
 Room Exposure currently does **not** include:
 - treatment systems
 - medicine
@@ -76,10 +101,19 @@ Room Exposure currently does **not** include:
 
 ## Likely next design directions
 
-Potential next topics:
-- Contamination cleanup / cleaner slime role
+Current likely next topic:
+- Creature Release Pass 1 — Release Suitability Warning
+
+Creature Release design direction:
+- release warnings should apply every time a slime is released, regardless of intended use
+- warnings should explain that released slimes follow instincts
+- warnings should evaluate how well the slime's likely free behavior fits its current intended use
+- warnings should remain knowledge-gated and avoid omniscient hidden-information leaks
+
+Other possible future topics:
+- broader intended-use suitability for non-cleanup uses
 - Bedroom rest/recovery identity polish, if the Bedroom does not feel special enough in play
-- Door UI compaction later if the number of rooms/connections grows
+- door UI compaction later if the number of rooms/connections grows
 
 Do not implement any next topic without a design discussion first.
 
