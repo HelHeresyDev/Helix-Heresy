@@ -3424,6 +3424,203 @@
     return lines.join("\n");
   }
 
+  const CLEANUP_EFFECT_BANDS = ["Trace", "Weak", "Modest", "Good", "Strong"];
+
+  function ensureCleanupObservation(slime) {
+    if (!slime) {
+      return { minutes: 0, feedingMinutes: 0, residueMinutes: 0, doorMinutes: 0, seekingMinutes: 0, clearEvents: 0 };
+    }
+    slime.cleanupObservation ||= {};
+    slime.cleanupObservation.minutes = Math.max(0, Number(slime.cleanupObservation.minutes) || 0);
+    slime.cleanupObservation.feedingMinutes = Math.max(0, Number(slime.cleanupObservation.feedingMinutes) || 0);
+    slime.cleanupObservation.residueMinutes = Math.max(0, Number(slime.cleanupObservation.residueMinutes) || 0);
+    slime.cleanupObservation.doorMinutes = Math.max(0, Number(slime.cleanupObservation.doorMinutes) || 0);
+    slime.cleanupObservation.seekingMinutes = Math.max(0, Number(slime.cleanupObservation.seekingMinutes) || 0);
+    slime.cleanupObservation.clearEvents = Math.max(0, Number(slime.cleanupObservation.clearEvents) || 0);
+    return slime.cleanupObservation;
+  }
+
+  function recordCleanupObservation(slime, activityType, minutes, roomId) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!slime || elapsed <= 0 || !scientistObservesRoom(roomId || slime.roomId || MAIN_ROOM_ID)) {
+      return;
+    }
+    const observation = ensureCleanupObservation(slime);
+    observation.minutes += elapsed;
+    if (activityType === "feedingOnContamination") {
+      observation.feedingMinutes += elapsed;
+    } else if (activityType === "leavingResidue") {
+      observation.residueMinutes += elapsed;
+    } else if (activityType === "pressingClosedDoor") {
+      observation.doorMinutes += elapsed;
+    } else if (activityType === "seekingContamination") {
+      observation.seekingMinutes += elapsed;
+    }
+  }
+
+  function cleanupActivityPerformance(slime) {
+    const observation = ensureCleanupObservation(slime);
+    const activityType = slime?.roomActivity?.type || "unknown";
+    const helpfulFactors = [];
+    const concerns = [];
+    const unknownFactors = [];
+    let band = "Trace";
+    let clearEvidence = Math.min(40, observation.minutes * 2);
+
+    if (activityType === "feedingOnContamination") {
+      band = "Good";
+      helpfulFactors.push("observed feeding on contamination");
+      clearEvidence += Math.min(40, observation.feedingMinutes * 3);
+    } else if (activityType === "seekingContamination") {
+      band = "Weak";
+      helpfulFactors.push("observed seeking contamination");
+      clearEvidence += Math.min(18, observation.seekingMinutes * 2);
+      unknownFactors.push("whether it will feed when it arrives");
+    } else if (activityType === "leavingResidue") {
+      band = "Weak";
+      concerns.push("observed leaving residue");
+      clearEvidence += Math.min(18, observation.residueMinutes * 2);
+      unknownFactors.push("net cleanup after residue");
+    } else if (activityType === "pressingClosedDoor") {
+      band = "Trace";
+      concerns.push("not currently reaching the target stimulus");
+      unknownFactors.push("intent beyond the closed door");
+    } else {
+      unknownFactors.push("current cleanup behavior");
+    }
+
+    if (observation.feedingMinutes >= 8) {
+      helpfulFactors.push("sustained observed feeding");
+    }
+    if (observation.residueMinutes >= 3) {
+      concerns.push("residue observed during cleanup");
+    }
+    if (observation.minutes <= 0) {
+      unknownFactors.push("direct observation time");
+    } else if (observation.minutes < 6) {
+      unknownFactors.push("short observation window");
+    }
+    if (!slime?.revealed?.sustenance) {
+      unknownFactors.push("sustenance");
+    }
+    if (!slime?.revealed?.behavior) {
+      unknownFactors.push("behavior");
+    }
+    if (!slime?.revealed?.byproduct) {
+      unknownFactors.push("byproduct");
+    }
+
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors,
+      knownFactors: helpfulFactors,
+      concerns,
+      clearEvidence,
+      skillIds: ["observation", "ethology", "slimeHandling"]
+    });
+    const range = predictionRangeFromBand(CLEANUP_EFFECT_BANDS, band, confidence.label, { unknownLow: "Trace", unknownHigh: "Strong" });
+    return { range, confidence, helpfulFactors, concerns, unknownFactors, observationMinutes: observation.minutes };
+  }
+
+  function cleanupActivityPerformanceTooltip(performance) {
+    const lines = [`Cleanup effect range: ${predictionRangeText(performance?.range)}.`];
+    if (performance?.helpfulFactors?.length) {
+      lines.push(`Observed factors raising the range: ${performance.helpfulFactors.join(" · ")}.`);
+    }
+    if (performance?.concerns?.length) {
+      lines.push(`Concerns lowering or widening the range: ${performance.concerns.join(" · ")}.`);
+    }
+    if (performance?.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${performance.unknownFactors.join(", ")}.`);
+    }
+    lines.push(`Observed cleanup time: ${formatDuration(Math.max(0, performance?.observationMinutes || 0))}.`);
+    lines.push(predictionConfidenceTooltip(performance?.confidence));
+    return lines.join("\n");
+  }
+
+  function slimeCleanupActivityPerformanceChips(slime) {
+    if (!slimeIsUncontained(slime)) {
+      return [];
+    }
+    const type = slime?.roomActivity?.type;
+    if (!["feedingOnContamination", "seekingContamination", "leavingResidue"].includes(type)) {
+      return [];
+    }
+    const performance = cleanupActivityPerformance(slime);
+    const rangeChip = chip(`Cleanup effect: ${predictionRangeText(performance.range)}`);
+    rangeChip.dataset.cleanupEffectRange = slime.id;
+    rangeChip.title = cleanupActivityPerformanceTooltip(performance);
+    const confidenceChip = chip(`Confidence: ${performance.confidence.label}`);
+    confidenceChip.dataset.cleanupEffectConfidence = slime.id;
+    confidenceChip.title = predictionConfidenceTooltip(performance.confidence);
+    return [rangeChip, confidenceChip];
+  }
+
+  function slimeDoorIntentAssessment(slime) {
+    const info = slimeContaminationTraitInfo(slime);
+    const observed = ensureCleanupObservation(slime);
+    const possible = [];
+    const knownFactors = [];
+    const concerns = [];
+    const unknownFactors = [];
+    let clearEvidence = Math.min(25, observed.doorMinutes * 2);
+
+    if (info.seeksContamination || slime?.roomActivity?.targetRoomId) {
+      possible.push("seeking contamination");
+      knownFactors.push("pressed against a closed route toward contamination");
+      clearEvidence += 16;
+    }
+    if (slimeHuntingInclination(slime)) {
+      possible.push("hunting");
+      concerns.push("predatory or hunting signs are possible");
+      clearEvidence += 8;
+    }
+    if (!possible.includes("roaming") && (!slime?.revealed?.behavior || possible.length < 2)) {
+      possible.push("roaming");
+      unknownFactors.push("exact intent at the door");
+    }
+    if (!slime?.revealed?.behavior) {
+      unknownFactors.push("behavior");
+    }
+    if (!slime?.revealed?.sustenance) {
+      unknownFactors.push("sustenance");
+    }
+
+    // Keep ambiguous door behavior as a range of possible intents rather than an omniscient motive.
+    const text = possible.includes("seeking contamination") && possible.includes("hunting")
+      ? "seeking contamination–hunting"
+      : possible.slice(0, 2).join("–") || "unknown";
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors,
+      knownFactors,
+      concerns,
+      clearEvidence,
+      skillIds: ["observation", "ethology", "slimeHandling"]
+    });
+    const tooltip = [
+      `Possible intent: ${text}.`,
+      "This is an interpretation of observed door behavior, not a command or hidden certainty."
+    ];
+    if (knownFactors.length) tooltip.push(`Observed factors: ${knownFactors.join(" · ")}.`);
+    if (concerns.length) tooltip.push(`Concerns: ${concerns.join(" · ")}.`);
+    if (unknownFactors.length) tooltip.push(`Unknown factors widening the interpretation: ${unknownFactors.join(", ")}.`);
+    tooltip.push(predictionConfidenceTooltip(confidence));
+    return { text, confidence, tooltip: tooltip.join("\n") };
+  }
+
+  function slimeDoorIntentChips(slime) {
+    if (!slimeIsUncontained(slime) || slime?.roomActivity?.type !== "pressingClosedDoor") {
+      return [];
+    }
+    const intent = slimeDoorIntentAssessment(slime);
+    const intentChip = chip(`Possible intent: ${intent.text}`);
+    intentChip.dataset.possibleIntent = slime.id;
+    intentChip.title = intent.tooltip;
+    const confidenceChip = chip(`Confidence: ${intent.confidence.label}`);
+    confidenceChip.dataset.possibleIntentConfidence = slime.id;
+    confidenceChip.title = predictionConfidenceTooltip(intent.confidence);
+    return [intentChip, confidenceChip];
+  }
+
   function fallbackReleaseFitForIdle(slime) {
     const unknownFactors = [];
     if (!slimeTraitKnown(slime, "behavior")) unknownFactors.push("behavior");
@@ -4310,6 +4507,9 @@
 
     if (slime.roomActivity?.label) {
       const contamination = slimeContaminationTraitInfo(slime);
+      if (slime.roomActivity.type === "pressingClosedDoor") {
+        return "Activity: pressing against closed door";
+      }
       if ((slime.roomActivity.type === "seekingContamination" || slime.roomActivity.type === "feedingOnContamination") && !contamination.seeksContamination && !contamination.eatsContamination && slimeHuntingInclination(slime)) {
         return "Activity: hunting sensed prey";
       }
@@ -6274,6 +6474,12 @@
         meta.append(chip(roomChip));
       }
       meta.append(chip(slimeActivityLabel(slime)));
+      for (const activityChip of slimeDoorIntentChips(slime)) {
+        meta.append(activityChip);
+      }
+      for (const activityChip of slimeCleanupActivityPerformanceChips(slime)) {
+        meta.append(activityChip);
+      }
       if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime)) {
         meta.append(chip(environmentalSustenanceStatus(slime) || environmentalSustenanceLabel(slime)));
       }
@@ -8619,12 +8825,13 @@
           const nextRoomId = nextConnectedRoomToward(fromRoomId, bestRoom.room.id, { requireReachable: true });
           if (!nextRoomId || !doorIsOpen(fromRoomId, nextRoomId)) {
             slime.roomActivity = {
-              type: "seekingContamination",
-              label: "blocked by closed door",
+              type: "pressingClosedDoor",
+              label: "pressing against closed door",
               roomId: slime.roomId,
               targetRoomId: bestRoom.room.id,
               updatedAt: state.clock
             };
+            recordCleanupObservation(slime, "pressingClosedDoor", elapsed, slime.roomId);
             continue;
           }
           slime.roomId = nextRoomId;
@@ -8635,10 +8842,7 @@
             targetRoomId: bestRoom.room.id,
             updatedAt: state.clock
           };
-          if ((state.clock - (slime.lastRoomMovementEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && (scientistObservesRoom(nextRoomId) || scientistObservesRoom(currentRoom?.id))) {
-            addEvent(`${slime.name} moved from ${fromRoom} to ${roomName(slime.roomId)}, following contamination through connected rooms.`);
-            slime.lastRoomMovementEventAt = state.clock;
-          }
+          recordCleanupObservation(slime, "seekingContamination", elapsed, slime.roomId);
           changes += 1;
         }
 
@@ -8659,10 +8863,16 @@
               roomId: slime.roomId,
               updatedAt: state.clock
             };
-            if ((state.clock - (slime.lastContaminationFeedingEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && scientistObservesRoom(room.id)) {
-              const band = roomAttributeBand("contamination", contamination.current);
-              addEvent(`${slime.name} fed on contamination in ${room.name}. Contamination dropped to ${band.label}.`);
-              slime.lastContaminationFeedingEventAt = state.clock;
+            recordCleanupObservation(slime, "feedingOnContamination", elapsed, room.id);
+            if (before > OUT_OF_CONTAINER_CONTAMINATION_FLOOR && contamination.current <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR && !room.biologicalCleanupClearedNotifiedAt) {
+              const observation = ensureCleanupObservation(slime);
+              observation.clearEvents += 1;
+              room.biologicalCleanupClearedNotifiedAt = state.clock;
+              if (scientistObservesRoom(room.id)) {
+                addEvent(`${room.name} visible contamination cleared by biological cleanup.`);
+              }
+            } else if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
+              room.biologicalCleanupClearedNotifiedAt = 0;
             }
             if (Math.abs(before - contamination.current) >= 0.01) {
               changes += 1;
@@ -8703,9 +8913,9 @@
             roomId: slime.roomId,
             updatedAt: state.clock
           };
-          if ((state.clock - (slime.lastResidueEventAt || -999999)) >= OUT_OF_CONTAINER_EVENT_INTERVAL && scientistObservesRoom(room.id)) {
-            addEvent(`${slime.name} left residue across ${room.name}.`);
-            slime.lastResidueEventAt = state.clock;
+          recordCleanupObservation(slime, "leavingResidue", elapsed, room.id);
+          if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
+            room.biologicalCleanupClearedNotifiedAt = 0;
           }
           if (Math.abs(before - contamination.current) >= 0.01) {
             changes += 1;
@@ -10846,6 +11056,9 @@
       if (room.id === PITS_ROOM_ID) {
         metaChips.push(chip("corpse work"));
       }
+      for (const cleanupTag of roomBiologicalCleanupTags(room)) {
+        metaChips.push(cleanupTag);
+      }
       metaChips.forEach((metaChip, index) => {
         if (index > 0) {
           meta.append(document.createTextNode(" · "));
@@ -10884,6 +11097,14 @@
             const row = document.createElement("div");
             row.className = "room-free-creature-row";
             row.append(slimeNameLink(slime), document.createTextNode(" — "), textEl("span", slimeActivityLabel(slime)));
+            const extraTags = [...slimeDoorIntentChips(slime), ...slimeCleanupActivityPerformanceChips(slime)];
+            if (extraTags.length) {
+              row.append(document.createTextNode(" — "));
+              extraTags.forEach((tag, index) => {
+                if (index > 0) row.append(document.createTextNode(" "));
+                row.append(tag);
+              });
+            }
             freeList.append(row);
           }
         } else {
@@ -10896,6 +11117,29 @@
   }
 
 
+
+  function biologicalCleanupActiveInRoom(roomId) {
+    if (!scientistObservesRoom(roomId)) {
+      return [];
+    }
+    return (state.slimes || []).filter((slime) => {
+      if (!slimeIsUncontained(slime) || slime.status === "dead" || slime.roomId !== roomId) {
+        return false;
+      }
+      return ["feedingOnContamination", "seekingContamination", "leavingResidue"].includes(slime.roomActivity?.type);
+    });
+  }
+
+  function roomBiologicalCleanupTags(room) {
+    const cleaners = biologicalCleanupActiveInRoom(room.id);
+    if (!cleaners.length) {
+      return [];
+    }
+    const tag = chip("Biological cleanup active");
+    tag.dataset.biologicalCleanupActive = room.id;
+    tag.title = "A free creature in this observed room is interacting with contamination. Ongoing cleanup is shown as room and creature activity, not repeated event log messages.";
+    return [tag];
+  }
 
   function roomOccupancySummary(roomId) {
     const containers = (state.containers || []).filter((container) => (container.roomId || MAIN_ROOM_ID) === roomId).length;
