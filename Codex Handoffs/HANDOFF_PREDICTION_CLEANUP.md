@@ -4,11 +4,13 @@ Date: 2026-06-21
 
 ## Status
 
-Prediction Cleanup is implemented and accepted through Pass 1 Fix 1.
+Prediction Cleanup is implemented and accepted through Pass 3.
 
 Accepted work:
-- Pass 1: Compact Ranges and Confidence Tooltips
+- Pass 1: Compact Ranges and Confidence Tooltips for cleanup suitability and release suitability
 - Pass 1 Fix 1: Playwright selector/test-flow fix
+- Pass 2: Active Containment Risk Ranges
+- Pass 3: Direct Handling Risk Ranges
 
 This handoff should be treated as the current source of truth for Prediction Cleanup.
 
@@ -17,13 +19,16 @@ This handoff should be treated as the current source of truth for Prediction Cle
 This system reduces false precision in prediction and suitability UI.
 
 Before this work:
-- Cleanup suitability and release suitability could show single labels and visible factor lists that felt too certain or too verbose.
-- A player could reasonably interpret a single `Good`/`Poor` result, or `likely` phrasing, as the game revealing a definite hidden answer.
-- Known/helpful factors, concerns, and unknown factors were often shown directly in the main UI.
+- Cleanup suitability, release suitability, active containment risk, and direct handling risk could appear too precise.
+- Some prediction UI showed single labels, exact-looking scores, or visible factor lists that felt more certain than the scientist’s knowledge and skill should support.
+- A player could reasonably interpret wording like a single `Good`/`Poor` result, exact `Potential`/`Pressure` scores, or `likely` phrasing as the game revealing a definite hidden answer.
+- Known/helpful factors, concerns, unknown factors, and protection details were often shown directly in the main UI.
 - The UI did not consistently separate quick prediction output from deeper reasoning.
 
 After this work:
 - Cleanup suitability and release suitability use compact range + confidence wording.
+- Active containment risk uses compact range + confidence wording instead of visible exact Potential/Pressure scores.
+- Direct handling risk uses compact handling-risk range, possible-harm range, confidence, and method.
 - Detailed reasoning moved into tooltip/title text.
 - Predictions can show a range of possible outcomes when confidence is not strong.
 - Confidence is influenced by known traits, unknown traits, and relevant skills.
@@ -53,12 +58,28 @@ Possible fit after release: Acceptable–Risky
 Confidence: Fair
 ```
 
+```txt
+Active containment risk: Stable–Strained
+Confidence: Rough
+```
+
+```txt
+Handling risk: Low–Severe
+Possible harm: No obvious harm–Lethal
+Confidence: Rough
+```
+
 A single label should appear only when confidence is strong enough to justify collapsing the range.
 
 Accepted single-label direction:
 
 ```txt
 Cleanup suitability: Good
+Confidence: Strong
+```
+
+```txt
+Active containment risk: Watch
 Confidence: Strong
 ```
 
@@ -72,11 +93,17 @@ Avoid:
 - `Expected fit after release`
 - exact percentages
 - hidden-answer hints
+- guaranteed injury/escape language
 
 Prefer:
 - `Possible fit after release`
 - `Cleanup suitability`
+- `Active containment risk`
+- `Handling risk`
+- `Possible harm`
 - `Poor–Good`
+- `Stable–Strained`
+- `Low–Severe`
 - `Confidence: Rough`
 - `Confidence: Fair`
 - `Confidence: Strong`
@@ -86,55 +113,82 @@ Prefer:
 Visible UI should show only:
 - range
 - confidence
+- method when relevant
 
-Details should be available through tooltip/title text.
+Direct handling also shows possible harm because harm and risk are meaningfully different.
 
-Accepted visible direction:
+Accepted visible directions:
 
 ```txt
 Cleanup suitability: Poor–Good | Confidence: Rough
 ```
-
-Accepted release warning direction:
 
 ```txt
 Possible fit after release: Poor–Good
 Confidence: Rough
 ```
 
+```txt
+Active containment risk: Stable–Strained | Confidence: Rough
+```
+
+```txt
+Handling risk: Low–Severe
+Possible harm: No obvious harm–Lethal
+Confidence: Rough
+Method: Thick gloves
+```
+
 Avoid in visible main UI:
 - `Known helpful factors: ...`
+- `Known factors: ...`
 - `Concerns: ...`
 - `Unknown factors: ...`
+- `Protection: ...`
+- exact `Potential: 55`
+- exact `Pressure: 36`
+- exact injury damage predictions
 - long factor lists
 - bulky prediction explanations
 
 ### Tooltips explain the reasoning
 
-The tooltip/title text should carry the details that used to clutter the main UI.
+The tooltip/title text carries the details that used to clutter the main UI.
 
 Tooltip/title can explain:
 - helpful known factors
 - known concerns
 - unknown factors widening the range
 - relevant skill levels
+- method/protection factors
 - how skill and knowledge affect confidence
+- that exact internal scores/damage are not shown as precise predictions
 
-Accepted tooltip direction:
+Accepted tooltip directions:
 
 ```txt
 Range factors: known contamination feeding raises the upper end. Unknown seeking behavior, residue risk, and contact hazards keep the lower end poor.
 Confidence factors: Slime Handling 1 and Observation 1 are too low to narrow this prediction much.
 ```
 
+```txt
+Active containment risk range: Stable–Strained.
+Unknown factors widening the range: behavior, stability.
+Relevant skills: Observation 1 · Ethology 0 · Slime Handling 1.
+Internal Potential and Pressure scores still drive incidents, but exact scores are not shown as precise predictions.
+```
+
+```txt
+Handling risk range: Low–Severe.
+Possible harm range: No obvious harm–Lethal.
+Unknown factors widening the range: behavior, appendages.
+Relevant skills: Observation 1 · Slime Handling 0 · Physiology 1.
+Exact injury damage is not shown as a precise prediction.
+```
+
 ### Skills affect confidence, not omniscience
 
 Relevant skills can improve confidence or narrow the displayed range.
-
-Relevant skills for the first pass:
-- Observation
-- Ethology
-- Slime Handling
 
 Skill effects must not reveal hidden traits as facts.
 
@@ -151,50 +205,119 @@ Rejected:
 
 ## Implemented behavior
 
-### Cleanup suitability compact display
+### Pass 1 — Cleanup and release suitability ranges
 
 Cleanup suitability visible UI now shows:
 - `Cleanup suitability: <range>`
 - `Confidence: <band>`
 
-Example:
-
-```txt
-Cleanup suitability: Poor–Good | Confidence: Rough
-```
-
-The visible cleanup panel no longer displays bulky helpful/concern/unknown factor lists.
-
-Details are moved into titles/tooltips.
-
-### Release suitability compact display
-
 Release warning visible UI now shows:
 - `Possible fit after release: <range>`
 - `Confidence: <band>`
 
-The confirmation dialog does not show bulky factor lists.
+The visible cleanup panel and release confirmation no longer display bulky helpful/concern/unknown factor lists.
+
+Details are moved into titles/tooltips.
 
 Release button title/tooltip includes the deeper reasoning.
+
+Relevant skills for this pass include:
+- Observation
+- Ethology
+- Slime Handling
+
+### Pass 1 Fix 1 — Test selector/test-flow fix
+
+The initial app implementation was accepted, but one test failed because it used the display name `RG-001` where the app used the internal slime id `slime-1` in data attributes.
+
+The fix:
+- updated prediction cleanup test selectors to use internal slime id `slime-1`
+- restructured test flow to inspect release title before release, then release slime before assigning cleanup use
+- did not modify `app.js`
+
+### Pass 2 — Active containment risk ranges
+
+Active containment risk visible UI now shows:
+- `Active containment risk: <range>`
+- `Confidence: <band>`
+
+Exact visible Potential and Pressure scores are hidden from the main UI.
+
+Internal Potential and Pressure still exist and still drive incidents.
+
+Tooltip/title text explains:
+- known influences
+- concerns
+- unknown factors widening the range
+- relevant skill levels
+- that internal Potential/Pressure scores still drive incidents but are not shown as exact predictions
+
+Relevant skills for this pass:
+- Observation
+- Ethology
+- Slime Handling
+
+Important terminology:
+- Physical fit is size/shape/geometry.
+- Active containment risk is risk of active trouble from a contained creature, driven by Potential and Pressure.
+- Pass 2 addressed active containment risk, not passive physical fit.
+
+### Pass 3 — Direct handling risk ranges
+
+Direct handling risk visible UI now shows:
+- `Handling risk: <range>`
+- `Possible harm: <range>`
+- `Confidence: <band>`
+- `Method: <handling method>`
+
+The main UI no longer shows long factor lists for:
+- known factors
+- unknown factors
+- protection/method details
+
+Tooltip/title text explains:
+- handling risk range
+- possible harm range
+- known influences
+- handling method/protection factors
+- unknown factors widening the range
+- relevant skill levels
+- that exact injury damage is not shown as a precise prediction
+
+Relevant skills for this pass:
+- Observation
+- Slime Handling
+- Physiology
+
+Important terminology:
+- Active containment risk = risk from a contained creature challenging containment.
+- Direct handling risk = risk to the scientist when physically opening/closing/transferring/handling a container or contents.
+- Pass 3 addressed direct handling risk, not active containment risk or physical container fit.
 
 ### Prediction ranges
 
 Prediction ranges widen when confidence is lower.
 
 Accepted direction:
-- Rough confidence may show a wider range.
-- Fair confidence may show a narrower range.
+- Unknown confidence may show the widest/full range.
+- Rough confidence may show a wide range.
+- Fair/Reasonable/Informed confidence may show narrower ranges.
 - Strong confidence may show a single band.
 
 The exact tuning can change later, but the design rule is that uncertainty should be represented as a range rather than false certainty.
 
 ### Confidence bands
 
-Implemented confidence direction:
+The core design uses qualitative confidence bands.
+
+Accepted confidence direction:
 - Unknown
 - Rough
-- Fair
+- Fair / Reasonable
+- Informed
 - Strong
+
+Exact label names may vary by sub-system if already implemented, but they should remain qualitative and not numeric percentages.
 
 Confidence is influenced by:
 - number/importance of unknown factors
@@ -202,22 +325,9 @@ Confidence is influenced by:
 - relevant skill levels
 - whether the system has enough knowledge to narrow the range
 
-### Tooltip/title details
+### Existing behavior retained
 
-Tooltip/title text now carries:
-- helpful factors
-- concerns
-- unknown factors
-- relevant skill summary
-- confidence influences
-
-Accepted examples:
-- `Unknown factors widening the range: behavior, byproduct`
-- `Relevant skills: Observation 1 · Ethology 0 · Slime Handling 1`
-
-### Existing cleanup/release behavior retained
-
-This pass changes prediction presentation only.
+Prediction Cleanup changes prediction presentation only.
 
 It does not change:
 - slime behavior
@@ -225,6 +335,8 @@ It does not change:
 - release behavior
 - door behavior
 - observation/awareness behavior
+- containment incident mechanics
+- direct handling injury mechanics
 
 ## Awareness and hidden-information rules
 
@@ -241,6 +353,7 @@ Rejected:
 - direct hidden genome/value leaks
 - omniscient prediction text
 - predictions that imply the UI knows the true future outcome while the scientist does not
+- exact future injury/escape predictions
 
 ## Relationship to existing systems
 
@@ -265,6 +378,28 @@ Creature release remains:
 - not a room-target assignment
 - not obedience
 
+### Active Containment Risk and Minor Incidents
+
+Prediction Cleanup updates active containment risk presentation.
+
+Internal Potential and Pressure still exist and still drive minor incidents.
+
+Exact Potential/Pressure scores are no longer shown as precise visible predictions in the main UI.
+
+### Player-Creature Interaction
+
+Prediction Cleanup updates direct handling risk presentation.
+
+Handling still works through existing systems:
+- open/close containers
+- handling methods
+- direct remains handling
+- living slime transfer
+- Scientist Health damage
+- run-ending death if health reaches 0
+
+This pass does not add new handling mechanics.
+
 ### UI Cleanup
 
 Prediction Cleanup follows the UI Cleanup philosophy:
@@ -280,7 +415,7 @@ This is not a new skill system.
 
 ## Explicitly not implemented
 
-This pass does not add:
+This feature does not add:
 - new slime behavior
 - new cleanup mechanics
 - release target rooms
@@ -292,11 +427,13 @@ This pass does not add:
 - janitor/staff cleaning
 - cleaning equipment
 - cleaner pens/zones
+- new containment incidents
+- full escape systems
+- recapture
 - attacks
 - combat
 - injuries from free creatures
-- recapture
-- full escape systems
+- new injury mechanics
 - slimes opening doors
 - slimes damaging doors
 - new door mechanics
@@ -356,15 +493,65 @@ Confirmed:
 - selector issue fixed
 - safe to commit
 
+### Pass 2 QC
+
+Result:
+- syntax check passed
+- Prediction Cleanup Pass 2 smoke test passed
+- Prediction Cleanup Pass 1 regression test passed
+- Creature Release regression test passed
+- headed visual inspection passed
+- console warnings/errors: 0
+- page errors: 0
+
+Confirmed:
+- active containment risk visible UI shows range + confidence
+- single-label risk appears only when range collapses
+- exact Potential and Pressure scores are not shown in visible UI
+- tooltips explain factors, unknowns, skills, and internal-score disclaimer
+- hidden traits are not revealed
+- no regressions in cleanup suitability or creature release
+- no forbidden scope creep detected
+
+Note:
+- `activeContainmentRiskDetailsEl()` remained as dead code but was not called by render flow
+- classified as future cleanup fodder, not a blocker
+
+### Pass 3 QC
+
+Result:
+- syntax check passed
+- Prediction Cleanup Pass 3 smoke test passed
+- Prediction Cleanup Pass 2 regression test passed
+- Prediction Cleanup Pass 1 regression test passed
+- Creature Release regression test passed
+- headed visual inspection passed
+- console warnings/errors: 0
+- page errors: 0
+
+Confirmed:
+- direct handling risk visible UI shows compact risk range, possible harm range, confidence, and method
+- visible UI no longer shows bulky known/unknown/protection factor lists
+- button titles/tooltips include full handling risk details
+- tooltips explain factors and skills without revealing hidden traits as facts
+- confidence is influenced by Observation, Slime Handling, and Physiology
+- ranges widen/narrow based on confidence
+- exact injury damage is not shown as a precise prediction
+- no regressions in earlier Prediction Cleanup or Creature Release behavior
+- no forbidden scope creep detected
+
+Regression test count reported:
+- 44/44 tests passed across Pass 1, Pass 2, Pass 3, and Creature Release tests
+
 ## Known limitations / future work
 
 Potential future work:
-- extend compact range + confidence pattern to container fit predictions
-- extend compact range + confidence pattern to active containment risk predictions where appropriate
+- extend compact range + confidence pattern to container physical fit predictions
 - review genome/synthesis predictions for false precision
-- review handling risk predictions for consistency
+- review room exposure diagnostics/rest predictions for consistency if needed
 - tune confidence/range math after more playtesting
 - add richer skill-specific confidence tooltips if needed
+- remove dead prediction/detail helper code if it remains unused after multiple passes
 
 Important future design direction:
 Prediction UI should distinguish facts from uncertain assessments. Physical facts can stay direct. Future outcomes, behavior predictions, safety predictions, and suitability predictions should use range + confidence unless the scientist has strong support for a single assessment.
@@ -383,5 +570,7 @@ Project workflow reminders:
 - Use `git add .` for staging unless there is a specific reason not to.
 - Do not create handoff docs until all passes for a feature are accepted.
 
-Suggested commit for accepted work:
+Suggested commits for accepted work:
 - `Add compact prediction ranges`
+- `Add active containment risk ranges`
+- `Add direct handling risk ranges`
