@@ -1667,6 +1667,11 @@
       render();
       return;
     }
+      if (slime.status !== "released" && !confirmReleaseSuitabilityIfNeeded(slime)) {
+        persist();
+        render();
+        return;
+      }
     if (!spendStamina(cost)) {
         addEvent(`Not enough stamina. ${cost} required.`);
         persist();
@@ -3323,6 +3328,125 @@
       lines.push(`Unknown factors: ${suitability.unknownFactors.join(", ")}.`);
     }
     return lines.join("\n");
+  }
+
+  function releaseInstinctControlNote() {
+    return "Released simple slimes follow instincts. Doors limit where they can roam.";
+  }
+
+  function observedReleaseUseFit(slime) {
+    if (!slime) {
+      return {
+        intendedUse: "Unknown",
+        band: "Unknown",
+        helpfulFactors: [],
+        concerns: ["no living slime selected"],
+        unknownFactors: []
+      };
+    }
+
+    normalizeSlimeJob(slime);
+    const intendedUse = creatureJobLabel(slime.job);
+    if (slime.job === "cleanup") {
+      const suitability = observedCleanupUseSuitability(slime);
+      return {
+        intendedUse,
+        band: suitability.known ? suitability.band : "Unknown",
+        helpfulFactors: suitability.helpfulFactors,
+        concerns: suitability.concerns,
+        unknownFactors: suitability.unknownFactors
+      };
+    }
+
+    if (slime.job === "corpse") {
+      const suitability = observedCorpseProcessingSuitability(slime);
+      const concerns = [
+        "free slimes still follow instincts",
+        "formal corpse processing depends on reachable remains and room conditions"
+      ];
+      return {
+        intendedUse,
+        band: suitability.known ? suitability.band : "Unknown",
+        helpfulFactors: suitability.reasons || [],
+        concerns,
+        unknownFactors: suitability.known ? [] : ["corpse processing fit"]
+      };
+    }
+
+    if (slime.job === "disposal") {
+      const suitability = observedWasteDisposalSuitability(slime);
+      const concerns = [
+        "free slimes still follow instincts",
+        "formal waste disposal depends on accessible waste and room conditions"
+      ];
+      return {
+        intendedUse,
+        band: suitability.known ? suitability.band : "Unknown",
+        helpfulFactors: suitability.reasons || [],
+        concerns,
+        unknownFactors: suitability.known ? [] : ["waste disposal fit"]
+      };
+    }
+
+    const unknownFactors = [];
+    if (!slimeTraitKnown(slime, "behavior")) {
+      unknownFactors.push("behavior");
+    }
+    if (!slimeTraitKnown(slime, "sustenance")) {
+      unknownFactors.push("sustenance");
+    }
+    if (!slimeTraitKnown(slime, "byproduct")) {
+      unknownFactors.push("byproduct");
+    }
+    if (!slimeTraitKnown(slime, "stability")) {
+      unknownFactors.push("stability");
+    }
+
+    return {
+      intendedUse,
+      band: "No active use",
+      helpfulFactors: [],
+      concerns: ["no active intended use is selected"],
+      unknownFactors
+    };
+  }
+
+  function releaseSuitabilityWarningText(slime) {
+    const fit = observedReleaseUseFit(slime);
+    const roomId = slimeEffectiveRoomId(slime) || slime?.roomId || MAIN_ROOM_ID;
+    const lines = [
+      "Release warning",
+      "",
+      `${slime?.name || "This slime"} will be released into ${roomName(roomId)}.`,
+      releaseInstinctControlNote(),
+      "",
+      `Intended use: ${fit.intendedUse}`,
+      `Expected fit after release: ${fit.band}`
+    ];
+
+    if (fit.helpfulFactors.length) {
+      lines.push(`Helpful factors: ${fit.helpfulFactors.join(" · ")}`);
+    }
+    if (fit.concerns.length) {
+      lines.push(`Concerns: ${fit.concerns.join(" · ")}`);
+    }
+    if (fit.unknownFactors.length) {
+      lines.push(`Unknown factors: ${fit.unknownFactors.join(", ")}`);
+    }
+
+    lines.push("", "Continue releasing this slime?");
+    return lines.join("\n");
+  }
+
+  function confirmReleaseSuitabilityIfNeeded(slime) {
+    if (!slime || slime.status === "released" || slime.status === "dead") {
+      return true;
+    }
+    const accepted = window.confirm(releaseSuitabilityWarningText(slime));
+    if (!accepted) {
+      addEvent(`${slime.name} release cancelled.`);
+    }
+    return accepted;
   }
 
   function roomAttributeBand(attributeKey, value) {
@@ -5638,6 +5762,9 @@
         ? "No open permanent container is available."
       : staminaBlockReason(cost);
     setActionButtonState(dom.releaseBtn, Boolean(reason), reason);
+    if (!reason && selected && selected.status !== "released") {
+      dom.releaseBtn.title = releaseSuitabilityWarningText(selected);
+    }
   }
 
   function refreshTestButtonStates() {
