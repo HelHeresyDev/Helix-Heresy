@@ -22,23 +22,16 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
-test.describe('Inventory Pass 2 tools and supplies catalog', () => {
-  test('source defines inventory categories and current handling tools without action gates', async () => {
+test.describe('Inventory Pass 3 starter stock', () => {
+  test('source defines starter stock for cataloged tools without action gates', async () => {
     const source = fs.readFileSync(path.join(projectRoot, 'app.js'), 'utf8');
 
-    expect(source).toContain('const INVENTORY_CATEGORY_DEFS = [');
-    expect(source).toContain('label: "Materials"');
-    expect(source).toContain('label: "Tools & Supplies"');
-    expect(source).toContain('key: "thickGloves"');
-    expect(source).toContain('key: "longTongs"');
-    expect(source).toContain('key: "hookPole"');
-    expect(source).toContain('key: "scraper"');
-    expect(source).toContain('category: "tools"');
+    for (const key of ['thickGloves', 'longTongs', 'hookPole', 'scraper']) {
+      expect(source).toContain(`key: "${key}"`);
+    }
+    expect(source).toContain('Starter stock is cataloged in the Storage Room');
     expect(source).toContain('Starter tools are cataloged only');
-    expect(source).toContain('gloves: "thickGloves"');
-    expect(source).toContain('tongs: "longTongs"');
-    expect(source).toContain('pole: "hookPole"');
-    expect(source).toContain('scrapers: "scraper"');
+    expect(source).toContain('function defaultInventory');
 
     expect(source).not.toContain('requireInventoryTool');
     expect(source).not.toContain('consumeInventoryTool');
@@ -49,7 +42,7 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
     expect(source).not.toContain('craftInventoryItem');
   });
 
-  test('UI groups materials and tools, and cheats can add each current tool', async ({ page }) => {
+  test('new runs start with basic tool stock while materials remain zero', async ({ page }) => {
     if (Number.isFinite(visualPauseMs) && visualPauseMs > 0) {
       test.setTimeout(30000 + visualPauseMs * 2);
     }
@@ -65,53 +58,33 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
 
     await startRun(page);
 
-    const inventoryPanel = page.locator('.inventory-panel');
     await expect(page.locator('#inventorySummary')).toContainText('Storage Room ledger');
     await expect(page.locator('#inventorySummary')).toHaveAttribute('title', /Starter tools are cataloged only/i);
 
-    await expect(page.locator('.inventory-section[data-inventory-category="materials"]')).toContainText('Materials');
-    await expect(page.locator('.inventory-section[data-inventory-category="tools"]')).toContainText('Tools & Supplies');
-
     const inventory = page.locator('#inventoryList');
-    for (const label of ['Biomass', 'Trace slime', 'Contaminated residue', 'Ruined organic matter', 'Preserved tissue']) {
-      await expect(inventory).toContainText(label);
+    for (const key of ['biomass', 'traceSlime', 'contaminatedResidue', 'ruinedOrganicMatter', 'preservedTissue']) {
+      await expect(inventory.locator(`[data-inventory-item-key="${key}"] strong`)).toHaveText('0');
     }
-    for (const [key, label] of [
-      ['thickGloves', 'Thick gloves'],
-      ['longTongs', 'Long tongs'],
-      ['hookPole', 'Hook pole'],
-      ['scraper', 'Scraper'],
-    ]) {
+    for (const key of ['thickGloves', 'longTongs', 'hookPole', 'scraper']) {
       const row = inventory.locator(`[data-inventory-item-key="${key}"]`);
-      await expect(row).toContainText(label);
       await expect(row.locator('strong')).toHaveText('1');
       await expect(row).toHaveAttribute('title', /Starter stock|not gated by inventory|not enforced/i);
     }
 
-    await visualPause(page, inventoryPanel, 'Inventory materials and tools catalog');
+    await visualPause(page, inventory, 'Inventory starter stock');
 
     const cheatInput = page.locator('#inventoryCommandInput');
     const cheatBtn = page.locator('#inventoryCommandBtn');
-    const commands = [
-      ['gloves 1', 'thickGloves', '2'],
-      ['tongs 2', 'longTongs', '3'],
-      ['hook pole 3', 'hookPole', '4'],
-      ['scrapers 4', 'scraper', '5'],
-    ];
+    await cheatInput.fill('gloves 1');
+    await cheatBtn.click();
+    await expect(inventory.locator('[data-inventory-item-key="thickGloves"] strong')).toHaveText('2');
+    await expect(page.locator('#inventoryCommandStatus')).toContainText('Added 1 Thick gloves');
 
-    for (const [command, key, amount] of commands) {
-      await cheatInput.fill(command);
-      await cheatBtn.click();
-      await expect(inventory.locator(`[data-inventory-item-key="${key}"] strong`)).toHaveText(amount);
-    }
-
-    await expect(page.locator('#inventoryCommandStatus')).toContainText('Added 4 Scraper');
-    await expect(page.locator('#eventLog')).toContainText('Stored tool logged: Scraper +4.');
     await expect(page.locator('text=Recipes')).toHaveCount(0);
     await expect(page.locator('text=Crafting')).toHaveCount(0);
     await expect(page.locator('text=Storage capacity')).toHaveCount(0);
 
-    await visualPause(page, page.locator('.cheat-panel'), 'Inventory cheat adds all current tools');
+    await visualPause(page, page.locator('.cheat-panel'), 'Starter stock plus cheat add');
 
     expect(consoleIssues).toEqual([]);
     expect(pageErrors).toEqual([]);

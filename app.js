@@ -1150,29 +1150,29 @@
       key: "thickGloves",
       label: "Thick gloves",
       category: "tools",
-      initial: 0,
-      description: "Reusable protective gloves implied by the Thick gloves handling method. Cataloged only; handling methods are not gated by inventory yet."
+      initial: 1,
+      description: "Reusable protective gloves implied by the Thick gloves handling method. Starter stock is cataloged in the Storage Room; handling methods are not gated by inventory yet."
     },
     {
       key: "longTongs",
       label: "Long tongs",
       category: "tools",
-      initial: 0,
-      description: "Long handling tongs implied by the Long tongs handling method. Cataloged only; handling methods are not gated by inventory yet."
+      initial: 1,
+      description: "Long handling tongs implied by the Long tongs handling method. Starter stock is cataloged in the Storage Room; handling methods are not gated by inventory yet."
     },
     {
       key: "hookPole",
       label: "Hook pole",
       category: "tools",
-      initial: 0,
-      description: "A reach tool for pit covers, grates, and awkward handling. Cataloged only; no tool requirement gates are enforced yet."
+      initial: 1,
+      description: "A reach tool for pit covers, grates, and awkward handling. Starter stock is cataloged in the Storage Room; no tool requirement gates are enforced yet."
     },
     {
       key: "scraper",
       label: "Scraper",
       category: "tools",
-      initial: 0,
-      description: "A scraping tool for stuck, spoiled, ruined, or residue-like remains. Cataloged only; remains actions are not gated by inventory yet."
+      initial: 1,
+      description: "A scraping tool for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; remains actions are not gated by inventory yet."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -11311,7 +11311,7 @@
     const items = INVENTORY_ITEM_DEFS;
     const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
     dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Tools and supplies are cataloged only; no capacity, hauling, crafting, recipes, or action requirements are implemented yet.";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Starter tools are cataloged only; no capacity, hauling, crafting, recipes, or action requirements are implemented yet.";
     dom.inventoryList.textContent = "";
     for (const category of INVENTORY_CATEGORY_DEFS) {
       const categoryItems = items.filter((item) => item.category === category.id);
