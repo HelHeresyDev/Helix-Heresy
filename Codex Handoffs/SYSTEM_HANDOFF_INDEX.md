@@ -12,6 +12,7 @@ Use this index to find the current handoff document for each implemented or acti
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
+| Prediction Cleanup | `HANDOFF_PREDICTION_CLEANUP.md` | Implemented through Prediction Cleanup Pass 1 Fix 1 |
 
 ## Current working state
 
@@ -41,8 +42,16 @@ Creature Release is complete and handed off:
 - Pass 1: release suitability warning
 - release warnings apply to contained slime release generally, regardless of intended use
 - warnings explain that released simple slimes follow instincts
-- warnings evaluate expected fit after release for the current intended use
+- warnings evaluate possible fit after release for the current intended use
 - cancelling release spends no stamina and keeps the slime contained
+
+Prediction Cleanup is complete and handed off:
+- Pass 1: compact ranges and confidence tooltips for cleanup suitability and release suitability
+- Pass 1 Fix 1: test selector/test-flow fix
+- predictions show possibility ranges when uncertain
+- main UI shows range + confidence
+- detailed factors live in tooltips/title text
+- skills can improve confidence/range without revealing hidden traits
 
 Treat tooltip/cost work as **UI Cleanup**, not Room Exposure.
 
@@ -116,6 +125,21 @@ Creature Release currently does **not** include:
 - PPE
 - treatment/medicine systems
 
+Prediction Cleanup currently does **not** include:
+- new slime behavior
+- new cleanup mechanics
+- release target rooms
+- cleanup target rooms
+- obedience/commands
+- attacks/combat
+- injuries from free creatures
+- recapture/full escape systems
+- new door mechanics
+- PPE/treatment/medicine systems
+- a new skill system
+- exact prediction percentages
+- prediction minigames
+
 Room Exposure currently does **not** include:
 - treatment systems
 - medicine
@@ -131,6 +155,9 @@ Room Exposure currently does **not** include:
 ## Likely next design directions
 
 Potential next topics:
+- extend Prediction Cleanup to container fit predictions
+- extend Prediction Cleanup to handling risk or active containment risk predictions
+- review genome/synthesis predictions for false precision
 - broader intended-use suitability for non-cleanup uses
 - better fit tuning for release warnings
 - Bedroom rest/recovery identity polish, if the Bedroom does not feel special enough in play
@@ -143,6 +170,8 @@ Do not implement any next topic without a design discussion first.
 
 - Use fresh prompts for new Cline/Codex chats.
 - Each Cline chat has no prior context; prompts must be self-contained.
+- Cline should be used for QC/testing/visual inspection/reporting, not coding, unless explicitly requested.
+- The assistant should generate implementation files/patch bundles directly when asked.
 - Use `git add .` for staging unless there is a specific reason not to.
 - Continue to keep implementation passes narrow.
 - Discuss design before coding.
