@@ -40,6 +40,7 @@
   const MENAGERIE_ROOM_ID = "menagerie";
   const PITS_ROOM_ID = "pits";
   const BEDROOM_ROOM_ID = "bedroom";
+  const STORAGE_ROOM_ID = "storageRoom";
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
   const DOOR_POLICY_DEFS = [
@@ -65,7 +66,7 @@
         floorAreaM2: 120,
         volumeM3: 360
       },
-      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID],
+      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID],
       attributes: {}
     },
     {
@@ -138,6 +139,31 @@
         moisture: { current: 45, baseline: 45 },
         contamination: { current: 2, baseline: 2, recoveryPerHour: 1.1 },
         electricalCharge: { current: 5, baseline: 5 }
+      }
+    },
+    {
+      id: STORAGE_ROOM_ID,
+      name: "Storage Room",
+      articleName: "the Storage Room",
+      role: "materialStorage",
+      roleLabel: "Materials storage",
+      description: "A controlled supply room for jars, trays, raw materials, and anything too useful to leave in the working lab.",
+      geometry: {
+        shape: "rectangular",
+        lengthM: 7,
+        widthM: 5,
+        heightM: 3,
+        floorAreaM2: 35,
+        volumeM3: 105
+      },
+      connections: [MAIN_ROOM_ID],
+      attributes: {
+        temperature: { current: 48, baseline: 48 },
+        light: { current: 28, baseline: 28 },
+        ambientMana: { current: 32, baseline: 32 },
+        moisture: { current: 42, baseline: 42 },
+        contamination: { current: 4, baseline: 4, recoveryPerHour: 0.9 },
+        electricalCharge: { current: 6, baseline: 6 }
       }
     }
   ];
@@ -2907,7 +2933,11 @@
 
   function defaultDoorState(roomAId, roomBId) {
     const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
-    return ids.has(BEDROOM_ROOM_ID) && ids.has(MAIN_ROOM_ID) ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
+    const isMainRoomDoor = ids.has(MAIN_ROOM_ID);
+    const startsClosed =
+      isMainRoomDoor &&
+      (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID));
+    return startsClosed ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
   }
 
   function doorForConnection(roomAId, roomBId) {
@@ -3024,7 +3054,7 @@
   }
 
   function roomSortRank(room) {
-    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID];
+    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID];
     const index = order.indexOf(room?.id);
     return index === -1 ? 100 + String(room?.name || "").localeCompare("zzzz") : index;
   }
