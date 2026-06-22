@@ -277,6 +277,15 @@ h2 {
   margin: 0.25rem 0 0;
 }
 
+.inventory-section {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.inventory-section-title {
+  margin: 0.15rem 0 0;
+}
+
 .cheat-panel {
   grid-column: span 3;
 }

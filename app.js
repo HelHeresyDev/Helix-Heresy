@@ -1097,36 +1097,82 @@
     carrion: "carrionFeedstock",
     contaminated: "contaminatedFeedstock"
   };
+  const INVENTORY_CATEGORY_DEFS = [
+    {
+      id: "materials",
+      label: "Materials",
+      description: "Stored biological and contaminant materials. Display-only for now except prototype cheats."
+    },
+    {
+      id: "tools",
+      label: "Tools & Supplies",
+      description: "Reusable lab tools and handling supplies already implied by current interaction methods. Listed only; action requirements are not enforced yet."
+    }
+  ];
+  const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
     {
       key: "biomass",
       label: "Biomass",
+      category: "materials",
       initial: 0,
       description: "Recovered organic mass stored for future specimen work. Inventory is lab-wide for now and assumed to be kept in the Storage Room."
     },
     {
       key: "traceSlime",
       label: "Trace slime",
+      category: "materials",
       initial: 0,
       description: "Small smears, films, and residues left by slime activity. Useful later for observation, reagent work, or contamination studies."
     },
     {
       key: "contaminatedResidue",
       label: "Contaminated residue",
+      category: "materials",
       initial: 0,
       description: "Tainted lab residue gathered for future experiments. Stored carefully; not a food or feedstock system yet."
     },
     {
       key: "ruinedOrganicMatter",
       label: "Ruined organic matter",
+      category: "materials",
       initial: 0,
       description: "Unusable or spoiled biological matter retained because even failures can become material."
     },
     {
       key: "preservedTissue",
       label: "Preserved tissue",
+      category: "materials",
       initial: 0,
       description: "Stabilized biological samples reserved for later research and processing systems."
+    },
+    {
+      key: "thickGloves",
+      label: "Thick gloves",
+      category: "tools",
+      initial: 0,
+      description: "Reusable protective gloves implied by the Thick gloves handling method. Cataloged only; handling methods are not gated by inventory yet."
+    },
+    {
+      key: "longTongs",
+      label: "Long tongs",
+      category: "tools",
+      initial: 0,
+      description: "Long handling tongs implied by the Long tongs handling method. Cataloged only; handling methods are not gated by inventory yet."
+    },
+    {
+      key: "hookPole",
+      label: "Hook pole",
+      category: "tools",
+      initial: 0,
+      description: "A reach tool for pit covers, grates, and awkward handling. Cataloged only; no tool requirement gates are enforced yet."
+    },
+    {
+      key: "scraper",
+      label: "Scraper",
+      category: "tools",
+      initial: 0,
+      description: "A scraping tool for stuck, spoiled, ruined, or residue-like remains. Cataloged only; remains actions are not gated by inventory yet."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -1142,7 +1188,17 @@
     ruined: "ruinedOrganicMatter",
     organic: "ruinedOrganicMatter",
     tissue: "preservedTissue",
-    preserved: "preservedTissue"
+    preserved: "preservedTissue",
+    glove: "thickGloves",
+    gloves: "thickGloves",
+    thick: "thickGloves",
+    tong: "longTongs",
+    tongs: "longTongs",
+    long: "longTongs",
+    hook: "hookPole",
+    pole: "hookPole",
+    scraper: "scraper",
+    scrapers: "scraper"
   };
 
   const SLIME_STAT_DEFS = [
@@ -11252,25 +11308,39 @@
     if (!dom.inventoryList) {
       return;
     }
-    const materials = INVENTORY_ITEM_DEFS;
-    const nonzeroCount = materials.filter((item) => inventoryAmount(item.key) > 0).length;
+    const items = INVENTORY_ITEM_DEFS;
+    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
     dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. No capacity, hauling, crafting, or recipes are implemented yet.";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Tools and supplies are cataloged only; no capacity, hauling, crafting, recipes, or action requirements are implemented yet.";
     dom.inventoryList.textContent = "";
-    for (const item of materials) {
-      const row = document.createElement("div");
-      row.className = "inventory-row";
-      row.dataset.inventoryItemKey = item.key;
-      row.title = `${item.description} Current amount: ${formatNumber(inventoryAmount(item.key))}.`;
-      row.append(textEl("span", item.label), textEl("strong", formatNumber(inventoryAmount(item.key))));
-      dom.inventoryList.append(row);
+    for (const category of INVENTORY_CATEGORY_DEFS) {
+      const categoryItems = items.filter((item) => item.category === category.id);
+      if (!categoryItems.length) continue;
+      const section = document.createElement("section");
+      section.className = "inventory-section";
+      section.dataset.inventoryCategory = category.id;
+      const heading = document.createElement("h3");
+      heading.className = "subpanel-title inventory-section-title";
+      heading.textContent = category.label;
+      heading.title = category.description;
+      section.append(heading);
+      for (const item of categoryItems) {
+        const row = document.createElement("div");
+        row.className = "inventory-row";
+        row.dataset.inventoryItemKey = item.key;
+        row.dataset.inventoryCategory = item.category;
+        row.title = `${item.description} Current amount: ${formatNumber(inventoryAmount(item.key))}.`;
+        row.append(textEl("span", item.label), textEl("strong", formatNumber(inventoryAmount(item.key))));
+        section.append(row);
+      }
+      dom.inventoryList.append(section);
     }
-    if (!materials.length) {
-      dom.inventoryList.append(emptyText("No inventory materials defined."));
+    if (!items.length) {
+      dom.inventoryList.append(emptyText("No inventory items defined."));
     } else if (!nonzeroCount) {
       const note = document.createElement("p");
       note.className = "journal-meta inventory-note";
-      note.textContent = "No stored materials yet. Cheats can add any defined inventory item for testing.";
+      note.textContent = "No stored materials or tools yet. Cheats can add any defined inventory item for testing.";
       dom.inventoryList.append(note);
     }
   }
@@ -11555,7 +11625,8 @@
     addInventoryItem(itemKey, amount);
     dom.inventoryCommandInput.value = "";
     dom.inventoryCommandStatus.textContent = `Added ${formatNumber(amount)} ${inventoryItemLabel(itemKey)}.`;
-    addEvent(`Stored material logged: ${inventoryItemLabel(itemKey)} +${formatNumber(amount)}.`);
+    const itemKind = INVENTORY_ITEM_BY_KEY[itemKey]?.category === "tools" ? "tool" : "material";
+    addEvent(`Stored ${itemKind} logged: ${inventoryItemLabel(itemKey)} +${formatNumber(amount)}.`);
     persist();
     render();
   }
