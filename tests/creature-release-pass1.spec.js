@@ -27,7 +27,9 @@ test.describe('Creature Release Pass 1 smoke test', () => {
     expect(source).toContain('Release warning');
     expect(source).toContain('Released simple slimes follow instincts. Doors limit where they can roam.');
     expect(source).toContain('Intended use:');
-    expect(source).toContain('Expected fit after release:');
+    expect(source).toContain('Possible fit after release:');
+    expect(source).toContain('Confidence:');
+    expect(source).toContain('function releaseSuitabilityTooltipText(');
     expect(source).toContain('Helpful factors:');
     expect(source).toContain('Concerns:');
     expect(source).toContain('Unknown factors:');
@@ -71,7 +73,8 @@ test.describe('Creature Release Pass 1 smoke test', () => {
     expect(title || '').toContain('Release warning');
     expect(title || '').toContain('Released simple slimes follow instincts');
     expect(title || '').toContain('Intended use: Idle');
-    expect(title || '').toContain('Expected fit after release:');
+    expect(title || '').toContain('Possible fit after release:');
+    expect(title || '').toContain('Confidence:');
 
     await visualPause(page, page.locator('#selectedSlimeSummary'), 'Selected slime before release warning');
 
@@ -80,7 +83,11 @@ test.describe('Creature Release Pass 1 smoke test', () => {
       expect(dialog.message()).toContain('Release warning');
       expect(dialog.message()).toContain('Released simple slimes follow instincts');
       expect(dialog.message()).toContain('Intended use: Idle');
-      expect(dialog.message()).toContain('Expected fit after release:');
+      expect(dialog.message()).toContain('Possible fit after release:');
+      expect(dialog.message()).toContain('Confidence:');
+      expect(dialog.message()).not.toContain('Helpful factors:');
+      expect(dialog.message()).not.toContain('Concerns:');
+      expect(dialog.message()).not.toContain('Unknown factors:');
       await dialog.dismiss();
     });
     await page.locator('#releaseBtn').click();

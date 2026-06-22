@@ -3304,41 +3304,154 @@
   }
 
   function cleanupUseControlNote() {
-    return "Simple slimes follow instincts. Use doors to limit where this creature can roam; it will seek contamination wherever it can reach.";
+    return "Simple slimes follow instincts. Use doors to limit where this creature can roam; suitable cleaners will seek contamination wherever they can reach.";
   }
 
-  function cleanupUseOptionTitle(slime) {
-    const suitability = observedCleanupUseSuitability(slime);
-    const lines = [
-      "Marks this slime as intended for contamination cleanup. This is not an order; simple slimes still follow instincts.",
-      cleanupUseControlNote()
-    ];
-    if (suitability.known) {
-      lines.push(`Cleanup suitability: ${suitability.band}.`);
-    } else {
-      lines.push("Cleanup suitability: Unknown.");
-    }
-    if (suitability.helpfulFactors.length) {
-      lines.push(`Known helpful factors: ${suitability.helpfulFactors.join(" · ")}.`);
-    }
-    if (suitability.concerns.length) {
-      lines.push(`Concerns: ${suitability.concerns.join(" · ")}.`);
-    }
-    if (suitability.unknownFactors.length) {
-      lines.push(`Unknown factors: ${suitability.unknownFactors.join(", ")}.`);
-    }
-    return lines.join("\n");
+  function predictionRangeText(range) {
+    const low = range?.low || range?.[0] || "Unknown";
+    const high = range?.high || range?.[1] || low;
+    return low === high ? low : `${low}–${high}`;
   }
 
   function releaseInstinctControlNote() {
     return "Released simple slimes follow instincts. Doors limit where they can roam.";
   }
 
+  function predictionSkillSummary(skillIds = []) {
+    const ids = skillIds.filter((skillId) => SKILL_BY_ID[skillId]);
+    if (!ids.length) {
+      return { best: 0, text: "no relevant skill data" };
+    }
+    const parts = ids.map((skillId) => `${SKILL_BY_ID[skillId].label} ${skillLevel(skillId)}`);
+    return { best: Math.max(...ids.map((skillId) => skillLevel(skillId))), text: parts.join(" · ") };
+  }
+
+  function predictionConfidenceFromContext({ unknownFactors = [], knownFactors = [], concerns = [], clearEvidence = 0, skillIds = [] } = {}) {
+    const skill = predictionSkillSummary(skillIds);
+    if (!knownFactors.length && !concerns.length && clearEvidence <= 0) {
+      return {
+        label: "Unknown",
+        factors: [
+          "not enough confirmed evidence to narrow the range",
+          unknownFactors.length ? `unknown factors: ${unknownFactors.join(", ")}` : "relevant factors are not confirmed",
+          `relevant skills: ${skill.text}`
+        ]
+      };
+    }
+    if (unknownFactors.length >= 3 || skill.best <= 1) {
+      return {
+        label: "Rough",
+        factors: [
+          unknownFactors.length ? `unknown factors widen the range: ${unknownFactors.join(", ")}` : "some important factors remain uncertain",
+          `relevant skills: ${skill.text}`
+        ]
+      };
+    }
+    if (unknownFactors.length >= 1 || skill.best <= 3) {
+      return {
+        label: "Fair",
+        factors: [
+          unknownFactors.length ? `remaining unknowns: ${unknownFactors.join(", ")}` : "most immediate signs are known",
+          `relevant skills: ${skill.text}`
+        ]
+      };
+    }
+    return {
+      label: "Strong",
+      factors: [
+        "major relevant factors are known or directly observed",
+        `relevant skills: ${skill.text}`
+      ]
+    };
+  }
+
+  function predictionRangeFromBand(bands, band, confidenceLabel, options = {}) {
+    const fallback = bands[0] || "Unknown";
+    const index = Math.max(0, bands.indexOf(band));
+    if (confidenceLabel === "Strong") {
+      return { low: band || fallback, high: band || fallback };
+    }
+    if (confidenceLabel === "Fair") {
+      return {
+        low: bands[Math.max(0, index - 1)] || fallback,
+        high: bands[Math.min(bands.length - 1, index + 1)] || band || fallback
+      };
+    }
+    if (confidenceLabel === "Rough") {
+      return {
+        low: bands[Math.max(0, index - 2)] || fallback,
+        high: bands[Math.min(bands.length - 1, index + 2)] || band || fallback
+      };
+    }
+    return {
+      low: options.unknownLow || bands[0] || "Unknown",
+      high: options.unknownHigh || bands[bands.length - 1] || "Unknown"
+    };
+  }
+
+  function cleanupUseRangeTooltip(suitability) {
+    const lines = [
+      `Cleanup suitability range: ${predictionRangeText(suitability.range)}.`
+    ];
+    if (suitability.helpfulFactors?.length) {
+      lines.push(`Helpful factors raising the range: ${suitability.helpfulFactors.join(" · ")}.`);
+    }
+    if (suitability.concerns?.length) {
+      lines.push(`Concerns lowering or widening the range: ${suitability.concerns.join(" · ")}.`);
+    }
+    if (suitability.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${suitability.unknownFactors.join(", ")}.`);
+    }
+    lines.push(cleanupUseControlNote());
+    return lines.join("\n");
+  }
+
+  function predictionConfidenceTooltip(confidence) {
+    const factors = confidence?.factors || [];
+    return [`${confidence?.label || "Unknown"} confidence.`, ...factors].join("\n");
+  }
+
+  function cleanupUseOptionTitle(slime) {
+    const suitability = observedCleanupUseSuitability(slime);
+    const lines = [
+      "Marks this slime as intended for contamination cleanup. This is not an order; simple slimes still follow instincts.",
+      cleanupUseControlNote(),
+      `Cleanup suitability range: ${predictionRangeText(suitability.range)}.`,
+      `Confidence: ${suitability.confidence.label}.`
+    ];
+    lines.push(cleanupUseRangeTooltip(suitability));
+    lines.push(predictionConfidenceTooltip(suitability.confidence));
+    return lines.join("\n");
+  }
+
+  function fallbackReleaseFitForIdle(slime) {
+    const unknownFactors = [];
+    if (!slimeTraitKnown(slime, "behavior")) unknownFactors.push("behavior");
+    if (!slimeTraitKnown(slime, "sustenance")) unknownFactors.push("sustenance");
+    if (!slimeTraitKnown(slime, "byproduct")) unknownFactors.push("byproduct");
+    if (!slimeTraitKnown(slime, "stability")) unknownFactors.push("stability");
+    const concerns = ["no active intended use is selected"];
+    const confidence = predictionConfidenceFromContext({ unknownFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
+    const range = predictionRangeFromBand(["Poor", "Acceptable", "Good", "Excellent"], "Acceptable", confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" });
+    return {
+      intendedUse: creatureJobLabel(slime?.job || "idle"),
+      band: "Acceptable",
+      range,
+      confidence,
+      helpfulFactors: [],
+      concerns,
+      unknownFactors
+    };
+  }
+
   function observedReleaseUseFit(slime) {
     if (!slime) {
+      const confidence = predictionConfidenceFromContext({ concerns: ["no living slime selected"], skillIds: ["observation", "ethology", "slimeHandling"] });
       return {
         intendedUse: "Unknown",
         band: "Unknown",
+        range: { low: "Poor", high: "Unknown" },
+        confidence,
         helpfulFactors: [],
         concerns: ["no living slime selected"],
         unknownFactors: []
@@ -3351,7 +3464,9 @@
       const suitability = observedCleanupUseSuitability(slime);
       return {
         intendedUse,
-        band: suitability.known ? suitability.band : "Unknown",
+        band: suitability.band,
+        range: suitability.range,
+        confidence: suitability.confidence,
         helpfulFactors: suitability.helpfulFactors,
         concerns: suitability.concerns,
         unknownFactors: suitability.unknownFactors
@@ -3364,12 +3479,18 @@
         "free slimes still follow instincts",
         "formal corpse processing depends on reachable remains and room conditions"
       ];
+      const helpfulFactors = suitability.reasons || [];
+      const unknownFactors = suitability.known ? [] : ["corpse processing fit"];
+      const band = suitability.known ? suitability.band : "Acceptable";
+      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
       return {
         intendedUse,
-        band: suitability.known ? suitability.band : "Unknown",
-        helpfulFactors: suitability.reasons || [],
+        band,
+        range: predictionRangeFromBand(["Poor", "Acceptable", "Good", "Excellent"], band, confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" }),
+        confidence,
+        helpfulFactors,
         concerns,
-        unknownFactors: suitability.known ? [] : ["corpse processing fit"]
+        unknownFactors
       };
     }
 
@@ -3379,36 +3500,46 @@
         "free slimes still follow instincts",
         "formal waste disposal depends on accessible waste and room conditions"
       ];
+      const helpfulFactors = suitability.reasons || [];
+      const unknownFactors = suitability.known ? [] : ["waste disposal fit"];
+      const band = suitability.known ? suitability.band : "Acceptable";
+      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
       return {
         intendedUse,
-        band: suitability.known ? suitability.band : "Unknown",
-        helpfulFactors: suitability.reasons || [],
+        band,
+        range: predictionRangeFromBand(["Poor", "Acceptable", "Good", "Excellent"], band, confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" }),
+        confidence,
+        helpfulFactors,
         concerns,
-        unknownFactors: suitability.known ? [] : ["waste disposal fit"]
+        unknownFactors
       };
     }
 
-    const unknownFactors = [];
-    if (!slimeTraitKnown(slime, "behavior")) {
-      unknownFactors.push("behavior");
-    }
-    if (!slimeTraitKnown(slime, "sustenance")) {
-      unknownFactors.push("sustenance");
-    }
-    if (!slimeTraitKnown(slime, "byproduct")) {
-      unknownFactors.push("byproduct");
-    }
-    if (!slimeTraitKnown(slime, "stability")) {
-      unknownFactors.push("stability");
-    }
+    return fallbackReleaseFitForIdle(slime);
+  }
 
-    return {
-      intendedUse,
-      band: "No active use",
-      helpfulFactors: [],
-      concerns: ["no active intended use is selected"],
-      unknownFactors
-    };
+  function releaseSuitabilityTooltipText(slime) {
+    const fit = observedReleaseUseFit(slime);
+    const roomId = slimeEffectiveRoomId(slime) || slime?.roomId || MAIN_ROOM_ID;
+    const lines = [
+      "Release warning",
+      `${slime?.name || "This slime"} will be released into ${roomName(roomId)}.`,
+      releaseInstinctControlNote(),
+      `Intended use: ${fit.intendedUse}`,
+      `Possible fit after release: ${predictionRangeText(fit.range)}`,
+      `Confidence: ${fit.confidence.label}`
+    ];
+    if (fit.helpfulFactors.length) {
+      lines.push(`Helpful factors: ${fit.helpfulFactors.join(" · ")}`);
+    }
+    if (fit.concerns.length) {
+      lines.push(`Concerns: ${fit.concerns.join(" · ")}`);
+    }
+    if (fit.unknownFactors.length) {
+      lines.push(`Unknown factors: ${fit.unknownFactors.join(", ")}`);
+    }
+    lines.push(predictionConfidenceTooltip(fit.confidence));
+    return lines.join("\n");
   }
 
   function releaseSuitabilityWarningText(slime) {
@@ -3421,20 +3552,11 @@
       releaseInstinctControlNote(),
       "",
       `Intended use: ${fit.intendedUse}`,
-      `Expected fit after release: ${fit.band}`
+      `Possible fit after release: ${predictionRangeText(fit.range)}`,
+      `Confidence: ${fit.confidence.label}`,
+      "",
+      "Continue releasing this slime?"
     ];
-
-    if (fit.helpfulFactors.length) {
-      lines.push(`Helpful factors: ${fit.helpfulFactors.join(" · ")}`);
-    }
-    if (fit.concerns.length) {
-      lines.push(`Concerns: ${fit.concerns.join(" · ")}`);
-    }
-    if (fit.unknownFactors.length) {
-      lines.push(`Unknown factors: ${fit.unknownFactors.join(", ")}`);
-    }
-
-    lines.push("", "Continue releasing this slime?");
     return lines.join("\n");
   }
 
@@ -5763,7 +5885,7 @@
       : staminaBlockReason(cost);
     setActionButtonState(dom.releaseBtn, Boolean(reason), reason);
     if (!reason && selected && selected.status !== "released") {
-      dom.releaseBtn.title = releaseSuitabilityWarningText(selected);
+      dom.releaseBtn.title = releaseSuitabilityTooltipText(selected);
     }
   }
 
@@ -7051,7 +7173,8 @@
         }
       } else if (slime.job === "cleanup") {
         const suitability = observedCleanupUseSuitability(slime);
-        meta.append(chip(suitability.known ? `cleanup ${suitability.band.toLowerCase()}` : "cleanup suitability unknown"));
+        meta.append(chip(`cleanup ${predictionRangeText(suitability.range).toLowerCase()}`));
+        meta.append(chip(`${suitability.confidence.label.toLowerCase()} confidence`));
         meta.append(chip(slimeIsUncontained(slime) ? "following instincts" : "must be released to roam"));
       } else {
         const pitsReason = slimeJobSpecificBlockReason(slime, "corpse");
@@ -9155,21 +9278,47 @@
     return "Poor";
   }
 
+  function cleanupUsePredictionBands() {
+    return ["Poor", "Risky", "Good", "Excellent"];
+  }
+
+  function buildCleanupUseSuitabilityResult({ known, score = 0, band = "Unknown", helpfulFactors = [], concerns = [], unknownFactors = [], clearEvidence = 0, severeConcern = false }) {
+    const confidence = predictionConfidenceFromContext({
+      unknownFactors,
+      knownFactors: helpfulFactors,
+      concerns,
+      clearEvidence,
+      skillIds: ["observation", "ethology", "slimeHandling"]
+    });
+    let range;
+    if (!known || band === "Unknown") {
+      range = predictionRangeFromBand(cleanupUsePredictionBands(), "Risky", "Unknown", { unknownLow: "Poor", unknownHigh: "Excellent" });
+    } else {
+      range = predictionRangeFromBand(cleanupUsePredictionBands(), band, confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" });
+      if (severeConcern && range.high === "Excellent") {
+        range.high = "Good";
+      }
+    }
+    return { known, score, band, range, confidence, helpfulFactors, concerns, unknownFactors };
+  }
+
   function observedCleanupUseSuitability(slime) {
     const learned = ensureJobKnowledge(slime, "cleanup");
     if (learned.band) {
-      return {
+      return buildCleanupUseSuitabilityResult({
         known: true,
-        score: 0,
         band: learned.band,
         helpfulFactors: learned.reason ? [learned.reason] : [],
-        concerns: [],
-        unknownFactors: []
-      };
+        clearEvidence: learned.reason ? 40 : 10
+      });
     }
 
     if (!slime) {
-      return { known: false, score: 0, band: "Unknown", helpfulFactors: [], concerns: [], unknownFactors: [] };
+      return buildCleanupUseSuitabilityResult({
+        known: false,
+        band: "Unknown",
+        concerns: ["no living slime selected"]
+      });
     }
 
     const evaluated = evaluateGenome(slime.genome);
@@ -9275,17 +9424,26 @@
     score = clamp(Math.round(score), 0, 100);
     const known = clearEvidence > 0 || concerns.length > 0 || helpfulFactors.length >= 2;
     if (!known) {
-      return { known: false, score: 0, band: "Unknown", helpfulFactors, concerns, unknownFactors };
+      return buildCleanupUseSuitabilityResult({
+        known: false,
+        score: 0,
+        band: "Unknown",
+        helpfulFactors,
+        concerns,
+        unknownFactors
+      });
     }
 
-    return {
+    return buildCleanupUseSuitabilityResult({
       known: true,
       score,
       band: cleanupUseSuitabilityBand(score, severeConcern),
       helpfulFactors,
       concerns,
-      unknownFactors
-    };
+      unknownFactors,
+      clearEvidence,
+      severeConcern
+    });
   }
 
   function cleanupUseSuitabilityPanel(slime) {
@@ -9294,19 +9452,18 @@
     panel.className = "job-note";
     panel.dataset.cleanupUseSuitability = slime.id;
     panel.title = cleanupUseOptionTitle(slime);
-    const lines = [];
-    lines.push(`Cleanup suitability: ${suitability.known ? suitability.band : "Unknown"}`);
-    if (suitability.helpfulFactors.length) {
-      lines.push(`Known helpful factors: ${suitability.helpfulFactors.join(" · ")}`);
-    }
-    if (suitability.concerns.length) {
-      lines.push(`Concerns: ${suitability.concerns.join(" · ")}`);
-    }
-    if (suitability.unknownFactors.length) {
-      lines.push(`Unknown factors: ${suitability.unknownFactors.join(", ")}`);
-    }
-    lines.push(`Control note: ${cleanupUseControlNote()}`);
-    panel.textContent = lines.join(" | ");
+
+    const rangeSpan = document.createElement("span");
+    rangeSpan.dataset.cleanupSuitabilityRange = slime.id;
+    rangeSpan.textContent = `Cleanup suitability: ${predictionRangeText(suitability.range)}`;
+    rangeSpan.title = cleanupUseRangeTooltip(suitability);
+
+    const confidenceSpan = document.createElement("span");
+    confidenceSpan.dataset.cleanupSuitabilityConfidence = slime.id;
+    confidenceSpan.textContent = `Confidence: ${suitability.confidence.label}`;
+    confidenceSpan.title = predictionConfidenceTooltip(suitability.confidence);
+
+    panel.append(rangeSpan, document.createTextNode(" | "), confidenceSpan);
     return panel;
   }
 
