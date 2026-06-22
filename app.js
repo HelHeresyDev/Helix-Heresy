@@ -1033,7 +1033,8 @@
   const CREATURE_JOBS = [
     { id: "idle", label: "Idle" },
     { id: "corpse", label: "Corpse Processing" },
-    { id: "disposal", label: "Waste Disposal" }
+    { id: "disposal", label: "Waste Disposal" },
+    { id: "cleanup", label: "Use as Cleaner" }
   ];
   const CORPSE_STATE_POLICY_DEFS = [
     { key: "fresh", label: "Fresh", defaultTarget: false },
@@ -3297,6 +3298,33 @@
     return "";
   }
 
+  function cleanupUseControlNote() {
+    return "Simple slimes follow instincts. Use doors to limit where this creature can roam; it will seek contamination wherever it can reach.";
+  }
+
+  function cleanupUseOptionTitle(slime) {
+    const suitability = observedCleanupUseSuitability(slime);
+    const lines = [
+      "Marks this slime as intended for contamination cleanup. This is not an order; simple slimes still follow instincts.",
+      cleanupUseControlNote()
+    ];
+    if (suitability.known) {
+      lines.push(`Cleanup suitability: ${suitability.band}.`);
+    } else {
+      lines.push("Cleanup suitability: Unknown.");
+    }
+    if (suitability.helpfulFactors.length) {
+      lines.push(`Known helpful factors: ${suitability.helpfulFactors.join(" · ")}.`);
+    }
+    if (suitability.concerns.length) {
+      lines.push(`Concerns: ${suitability.concerns.join(" · ")}.`);
+    }
+    if (suitability.unknownFactors.length) {
+      lines.push(`Unknown factors: ${suitability.unknownFactors.join(", ")}.`);
+    }
+    return lines.join("\n");
+  }
+
   function roomAttributeBand(attributeKey, value) {
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
     if (!def) {
@@ -3806,6 +3834,9 @@
     }
     if (!slimeIsUncontained(slime)) {
       if (slime.job && slime.job !== "idle") {
+        if (slime.job === "cleanup") {
+          return "Activity: contained; intended cleanup use";
+        }
         return `Activity: ${creatureJobLabel(slime.job)}`;
       }
       const container = containerById(slime.containerId);
@@ -6891,11 +6922,19 @@
           remainingChip.dataset.jobRemaining = slime.id;
           meta.append(remainingChip);
         }
+      } else if (slime.job === "cleanup") {
+        const suitability = observedCleanupUseSuitability(slime);
+        meta.append(chip(suitability.known ? `cleanup ${suitability.band.toLowerCase()}` : "cleanup suitability unknown"));
+        meta.append(chip(slimeIsUncontained(slime) ? "following instincts" : "must be released to roam"));
       } else {
         const pitsReason = slimeJobSpecificBlockReason(slime, "corpse");
         meta.append(chip(isInSynthesisTube(slime) ? "in synthesis tube" : slimeJobRoomBlockReason(slime) ? "not ready" : pitsReason ? "move to Pits for jobs" : canWorkJob(slime) ? "available" : "not ready"));
       }
       details.append(header, meta);
+
+      if (slime.job === "cleanup") {
+        details.append(cleanupUseSuitabilityPanel(slime));
+      }
 
       if (shouldShowJobProgress(slime)) {
         const bar = document.createElement("div");
@@ -6920,7 +6959,7 @@
         option.textContent = job.label;
         const optionReason = slimeJobSpecificBlockReason(slime, job.id);
         option.disabled = Boolean(optionReason);
-        option.title = optionReason;
+        option.title = optionReason || (job.id === "cleanup" ? cleanupUseOptionTitle(slime) : "");
         select.append(option);
       }
       select.value = slime.job;
@@ -7039,6 +7078,9 @@
       addEvent(resourceAmount("waste") > 0
         ? `${slime.name} assigned to waste disposal.`
         : `${slime.name} assigned to waste disposal; no Waste is waiting.`);
+    } else if (nextJob === "cleanup") {
+      ensureJobKnowledge(slime, "cleanup");
+      addEvent(`${slime.name} marked for cleanup use. It will still follow instincts; use doors to limit roaming.`);
     } else {
       addEvent(`${slime.name} set to idle.`);
     }
@@ -8968,6 +9010,177 @@
       return Math.round(4320 - (score - 25) * 115.2);
     }
     return Math.round(10080 - score * 230.4);
+  }
+
+  function cleanupUseSuitabilityBand(score, hasSevereConcern = false) {
+    if (hasSevereConcern && score >= 40) {
+      return "Risky";
+    }
+    if (score >= 80) {
+      return "Excellent";
+    }
+    if (score >= 55) {
+      return "Good";
+    }
+    if (score >= 30) {
+      return "Risky";
+    }
+    return "Poor";
+  }
+
+  function observedCleanupUseSuitability(slime) {
+    const learned = ensureJobKnowledge(slime, "cleanup");
+    if (learned.band) {
+      return {
+        known: true,
+        score: 0,
+        band: learned.band,
+        helpfulFactors: learned.reason ? [learned.reason] : [],
+        concerns: [],
+        unknownFactors: []
+      };
+    }
+
+    if (!slime) {
+      return { known: false, score: 0, band: "Unknown", helpfulFactors: [], concerns: [], unknownFactors: [] };
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const traits = evaluated.traits;
+    const revealed = slime.revealed || {};
+    const helpfulFactors = [];
+    const concerns = [];
+    const unknownFactors = [];
+    let score = 0;
+    let clearEvidence = 0;
+    let severeConcern = false;
+
+    if (revealed.sustenance) {
+      const tags = new Set(traits.sustenance?.meta?.tags || []);
+      const profile = environmentalSustenanceProfile(slime);
+      if (tags.has("contaminated") || tags.has("waste") || tags.has("hazardous") || tags.has("fume") || profile?.attributeKey === "contamination") {
+        score += 38;
+        clearEvidence += 38;
+        helpfulFactors.push("feeds on contamination");
+      } else {
+        score -= 16;
+        concerns.push("contamination feeding not confirmed");
+      }
+    } else {
+      unknownFactors.push("sustenance");
+    }
+
+    if (revealed.behavior) {
+      const behavior = baseOutcomeLabel(traits.behavior);
+      const behaviorText = String(behavior || "").toLowerCase();
+      if (behaviorText === "cleaning" || /clean|scavenge|forage/.test(behaviorText)) {
+        score += 30;
+        clearEvidence += 30;
+        helpfulFactors.push("seeks contamination");
+      } else if (/pred|hunt|ambush|prey|vibration/.test(behaviorText)) {
+        score -= 45;
+        severeConcern = true;
+        concerns.push("predatory behavior");
+      } else if (/territorial|aggressive|swarming/.test(behaviorText)) {
+        score -= 22;
+        severeConcern = true;
+        concerns.push(`${behaviorText} behavior`);
+      } else if (/docile|calm|placid/.test(behaviorText)) {
+        score += 16;
+        helpfulFactors.push("calm behavior");
+      }
+    } else {
+      unknownFactors.push("behavior");
+    }
+
+    const visibleResidueText = [];
+    if (revealed.byproduct) {
+      visibleResidueText.push(baseOutcomeLabel(traits.byproduct));
+    } else {
+      unknownFactors.push("byproduct");
+    }
+    if (revealed.consistency) {
+      visibleResidueText.push(baseOutcomeLabel(traits.consistency));
+    } else {
+      unknownFactors.push("body consistency");
+    }
+    if (revealed.stability) {
+      visibleResidueText.push(baseOutcomeLabel(traits.stability));
+      const stabilityRisk = Number(traits.stability?.meta?.risk) || 5;
+      if (stabilityRisk <= 3) {
+        score += 14;
+        helpfulFactors.push("stable body profile");
+      } else if (stabilityRisk >= 7) {
+        score -= 24;
+        severeConcern = true;
+        concerns.push("unstable body profile");
+      }
+    } else {
+      unknownFactors.push("stability");
+    }
+
+    const residueText = visibleResidueText.join(" ").toLowerCase();
+    if (/slime|mucus|tar|foam|ooze|acid|fume|poison|waste|residue|volatile|unstable/.test(residueText)) {
+      score -= 32;
+      severeConcern = true;
+      concerns.push("may leave residue");
+    } else if (revealed.byproduct && revealed.consistency && revealed.stability) {
+      score += 12;
+      helpfulFactors.push("no known residue risk");
+    }
+
+    const stress = slimeStat(slime, "stress").current;
+    if (stress <= 20) {
+      score += 10;
+      helpfulFactors.push("calm condition");
+    } else if (stress >= 70) {
+      score -= 20;
+      severeConcern = true;
+      concerns.push("high Stress");
+    }
+
+    const bodyIntegrity = slimeStat(slime, "bodyIntegrity").current;
+    if (bodyIntegrity <= 35) {
+      score -= 12;
+      concerns.push("poor Body Integrity");
+    }
+
+    score = clamp(Math.round(score), 0, 100);
+    const known = clearEvidence > 0 || concerns.length > 0 || helpfulFactors.length >= 2;
+    if (!known) {
+      return { known: false, score: 0, band: "Unknown", helpfulFactors, concerns, unknownFactors };
+    }
+
+    return {
+      known: true,
+      score,
+      band: cleanupUseSuitabilityBand(score, severeConcern),
+      helpfulFactors,
+      concerns,
+      unknownFactors
+    };
+  }
+
+  function cleanupUseSuitabilityPanel(slime) {
+    const suitability = observedCleanupUseSuitability(slime);
+    const panel = document.createElement("div");
+    panel.className = "job-note";
+    panel.dataset.cleanupUseSuitability = slime.id;
+    panel.title = cleanupUseOptionTitle(slime);
+    const lines = [];
+    lines.push(`Cleanup suitability: ${suitability.known ? suitability.band : "Unknown"}`);
+    if (suitability.helpfulFactors.length) {
+      lines.push(`Known helpful factors: ${suitability.helpfulFactors.join(" · ")}`);
+    }
+    if (suitability.concerns.length) {
+      lines.push(`Concerns: ${suitability.concerns.join(" · ")}`);
+    }
+    if (suitability.unknownFactors.length) {
+      lines.push(`Unknown factors: ${suitability.unknownFactors.join(", ")}`);
+    }
+    lines.push(`Control note: ${cleanupUseControlNote()}`);
+    panel.textContent = lines.join(" | ");
+    return panel;
   }
 
   function observedCorpseProcessingSuitability(slime) {

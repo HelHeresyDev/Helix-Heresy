@@ -1461,6 +1461,13 @@ h2 {
   gap: 0.35rem;
 }
 
+.job-note {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .job-progress {
   height: 0.45rem;
   margin-top: 0.45rem;
