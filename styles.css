@@ -1461,13 +1461,6 @@ h2 {
   gap: 0.35rem;
 }
 
-.job-note {
-  margin-top: 0.35rem;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
 .job-progress {
   height: 0.45rem;
   margin-top: 0.45rem;
@@ -1679,4 +1672,46 @@ h2 {
   .event-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* UI Cleanup Pass 2 — policy panel layout fixes */
+.corpse-policy-controls,
+.policy-target-list,
+.policy-target-title {
+  grid-column: 1 / -1;
+}
+
+.corpse-policy-controls {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  align-items: stretch;
+}
+
+.policy-select-field select,
+.corpse-policy-controls select,
+#doorPolicyList select {
+  width: 100%;
+  min-width: 10rem;
+}
+
+.policy-target-title {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.policy-target-list {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.policy-option {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.policy-option span,
+.policy-field span {
+  min-width: 0;
 }

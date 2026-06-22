@@ -10850,8 +10850,16 @@
     state.policies = normalizePolicies(state.policies);
     dom.corpsePolicyList.textContent = "";
     dom.doorPolicyList.textContent = "";
+
+    const corpseControls = document.createElement("div");
+    corpseControls.className = "policy-control-list corpse-policy-controls";
+    corpseControls.dataset.corpsePolicyControls = "true";
+    const corpseTargets = document.createElement("div");
+    corpseTargets.className = "policy-target-list";
+    corpseTargets.dataset.corpsePolicyTargets = "true";
+
     const methodLabel = document.createElement("label");
-    methodLabel.className = "policy-option";
+    methodLabel.className = "policy-field policy-select-field";
     methodLabel.append(textEl("span", "Handling method"));
     const methodSelect = document.createElement("select");
     methodSelect.dataset.handlingMethodSelect = "true";
@@ -10865,7 +10873,7 @@
     methodSelect.title = currentHandlingMethod().description;
     methodSelect.addEventListener("change", () => setHandlingMethod(methodSelect.value));
     methodLabel.append(methodSelect);
-    dom.corpsePolicyList.append(methodLabel);
+    corpseControls.append(methodLabel);
 
     const doorPolicyLabel = document.createElement("label");
     doorPolicyLabel.className = "policy-option";
@@ -10913,10 +10921,9 @@
       render();
     });
     autoMoveLabel.append(autoMoveInput, textEl("span", "Auto-move local corpses"));
-    dom.corpsePolicyList.append(autoMoveLabel);
 
     const destinationLabel = document.createElement("label");
-    destinationLabel.className = "policy-option";
+    destinationLabel.className = "policy-field policy-select-field";
     destinationLabel.append(textEl("span", "Corpse destination"));
     const destinationSelect = document.createElement("select");
     destinationSelect.dataset.corpseDestinationSelect = "true";
@@ -10936,7 +10943,15 @@
       render();
     });
     destinationLabel.append(destinationSelect);
-    dom.corpsePolicyList.append(destinationLabel);
+    corpseControls.append(destinationLabel);
+    corpseControls.append(autoMoveLabel);
+
+    dom.corpsePolicyList.append(corpseControls);
+
+    const targetTitle = document.createElement("div");
+    targetTitle.className = "policy-target-title";
+    targetTitle.textContent = "Targets";
+    dom.corpsePolicyList.append(targetTitle);
 
     for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
       const label = document.createElement("label");
@@ -10952,8 +10967,9 @@
         render();
       });
       label.append(input, textEl("span", stateDef.label));
-      dom.corpsePolicyList.append(label);
+      corpseTargets.append(label);
     }
+    dom.corpsePolicyList.append(corpseTargets);
     renderFeedingPolicies();
   }
 
