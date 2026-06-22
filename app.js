@@ -8292,8 +8292,8 @@
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
-    observeScientistRoom();
-    addEvent(`Scientist arrived in ${target.name}.`);
+    addEvent(`Arrived in ${target.name}.`);
+    observeScientistRoom({ discoverChanges: true });
     return true;
   }
 
@@ -8421,10 +8421,25 @@
     return [...new Set(factors)].slice(0, 4);
   }
 
+  function roomObservationCreatureIds(roomId, filterFn = null) {
+    return freeCreaturesInRoom(roomId)
+      .filter((slime) => !filterFn || filterFn(slime))
+      .map((slime) => slime.id)
+      .filter(Boolean);
+  }
+
   function makeRoomObservation(room) {
     const exposureScore = roomExposureScore(room);
     const exposureBand = roomExposureBand(exposureScore);
     const factors = currentRoomExposureFactors(room);
+    const contaminationValue = roomContaminationValue(room.id);
+    const freeCreatureIds = roomObservationCreatureIds(room.id);
+    const cleanupActorIds = roomObservationCreatureIds(room.id, (slime) =>
+      ["feedingOnContamination", "seekingContamination", "leavingResidue"].includes(slime.roomActivity?.type)
+    );
+    const residueActorIds = roomObservationCreatureIds(room.id, (slime) =>
+      slime.roomActivity?.type === "leavingResidue"
+    );
     return {
       observedAt: state.clock,
       exposureScore: Math.round(exposureScore),
@@ -8432,18 +8447,126 @@
       effect: exposureBand.effect,
       knownFactors: factors.knownFactors,
       unknownFactors: factors.unknownFactors,
-      contaminationBand: roomAttributeBand("contamination", roomContaminationValue(room.id)).label,
+      contaminationValue: Math.round(contaminationValue * 10) / 10,
+      contaminationBand: roomAttributeBand("contamination", contaminationValue).label,
       crowdingLabel: roomCrowdingLabel(room.id),
-      freeCreatureCount: freeCreaturesInRoom(room.id).length
+      freeCreatureCount: freeCreatureIds.length,
+      freeCreatureIds,
+      cleanupActorIds,
+      residueActorIds
     };
   }
 
-  function observeScientistRoom() {
+  function idList(value) {
+    return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+  }
+
+  function idListsDiffer(a, b) {
+    const left = [...new Set(idList(a))].sort();
+    const right = [...new Set(idList(b))].sort();
+    return left.length !== right.length || left.some((id, index) => id !== right[index]);
+  }
+
+  function namesForSlimeIds(ids) {
+    return idList(ids)
+      .map((id) => findSlime(id)?.name || "")
+      .filter(Boolean);
+  }
+
+  function formatNameList(names) {
+    const clean = [...new Set((names || []).map(String).filter(Boolean))];
+    if (clean.length <= 1) {
+      return clean[0] || "";
+    }
+    if (clean.length === 2) {
+      return `${clean[0]} and ${clean[1]}`;
+    }
+    return `${clean.slice(0, -1).join(", ")}, and ${clean[clean.length - 1]}`;
+  }
+
+  function roomChangeSentence(parts) {
+    const clean = (parts || []).filter(Boolean);
+    if (!clean.length) {
+      return "";
+    }
+    if (clean.length === 1) {
+      return clean[0];
+    }
+    if (clean.length === 2) {
+      return `${clean[0]}, but ${clean[1]}`;
+    }
+    return `${clean.slice(0, -1).join(", ")}, and ${clean[clean.length - 1]}`;
+  }
+
+  function roomChangeDiscoveryMessage(room, previousObservation, currentObservation) {
+    const previous = normalizeRoomObservation(previousObservation);
+    const current = normalizeRoomObservation(currentObservation);
+    if (!room || !previous || !current || current.observedAt <= previous.observedAt) {
+      return "";
+    }
+
+    const changes = [];
+    const previousContamination = Number(previous.contaminationValue);
+    const currentContamination = Number(current.contaminationValue);
+    if (Number.isFinite(previousContamination) && Number.isFinite(currentContamination)) {
+      const delta = currentContamination - previousContamination;
+      if (delta <= -2) {
+        changes.push("the contamination is lower");
+      } else if (delta >= 2) {
+        changes.push("the contamination is higher");
+      }
+    }
+
+    if (idListsDiffer(previous.residueActorIds, current.residueActorIds) && current.residueActorIds.length) {
+      changes.push("there is more trace slime");
+    }
+
+    if (idListsDiffer(previous.freeCreatureIds, current.freeCreatureIds)) {
+      changes.push("free creature presence changed");
+    }
+
+    if (!changes.length) {
+      return "";
+    }
+
+    const details = [];
+    const cleanupNames = namesForSlimeIds(current.cleanupActorIds);
+    const residueNames = namesForSlimeIds(current.residueActorIds);
+    const freeNames = namesForSlimeIds(current.freeCreatureIds);
+    const contaminationLower = changes.includes("the contamination is lower");
+    const traceHigher = changes.includes("there is more trace slime");
+
+    if (contaminationLower && cleanupNames.length) {
+      const names = formatNameList(cleanupNames.slice(0, 3));
+      details.push(`${names} ${cleanupNames.length === 1 ? "is" : "are"} present; biological cleanup is a plausible cause.`);
+    } else if (contaminationLower && freeNames.length) {
+      const names = formatNameList(freeNames.slice(0, 3));
+      details.push(`${names} ${freeNames.length === 1 ? "is" : "are"} present; involvement uncertain.`);
+    } else if (contaminationLower) {
+      details.push("Cause uncertain.");
+    }
+
+    if (traceHigher && residueNames.length) {
+      const names = formatNameList(residueNames.slice(0, 3));
+      details.push(`${names} may be leaving residue.`);
+    }
+
+    return [`This room changed: ${roomChangeSentence(changes)}.`, ...details].join(" ");
+  }
+
+  function observeScientistRoom(options = {}) {
     const room = roomById(scientistRoomId());
     if (!room) {
       return null;
     }
+    const previous = normalizeRoomObservation(room.observation || state.roomObservations?.[room.id]);
     const observation = normalizeRoomObservation(makeRoomObservation(room));
+    if (options.discoverChanges) {
+      const message = roomChangeDiscoveryMessage(room, previous, observation);
+      if (message && state.events.at(-1)?.message !== message) {
+        addEvent(message);
+      }
+    }
     room.observation = observation;
     state.roomObservations ||= {};
     state.roomObservations[room.id] = observation;
@@ -13516,6 +13639,12 @@
     const effect = String(candidate.effect || roomExposureBand(exposureScore).effect);
     const knownFactors = Array.isArray(candidate.knownFactors) ? candidate.knownFactors.map(String).filter(Boolean).slice(0, 6) : [];
     const unknownFactors = Array.isArray(candidate.unknownFactors) ? candidate.unknownFactors.map(String).filter(Boolean).slice(0, 6) : [];
+    const freeCreatureIds = idList(candidate.freeCreatureIds);
+    const cleanupActorIds = idList(candidate.cleanupActorIds);
+    const residueActorIds = idList(candidate.residueActorIds);
+    const contaminationValue = Number.isFinite(Number(candidate.contaminationValue))
+      ? Math.round(Number(candidate.contaminationValue) * 10) / 10
+      : null;
     return {
       observedAt,
       exposureScore,
@@ -13523,9 +13652,13 @@
       effect,
       knownFactors,
       unknownFactors,
+      contaminationValue,
       contaminationBand: String(candidate.contaminationBand || "Unknown"),
       crowdingLabel: String(candidate.crowdingLabel || "Unknown"),
-      freeCreatureCount: Math.max(0, Math.floor(Number(candidate.freeCreatureCount) || 0))
+      freeCreatureCount: Math.max(0, Math.floor(Number(candidate.freeCreatureCount) || freeCreatureIds.length || 0)),
+      freeCreatureIds,
+      cleanupActorIds,
+      residueActorIds
     };
   }
 
