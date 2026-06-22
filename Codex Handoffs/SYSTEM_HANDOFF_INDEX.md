@@ -8,8 +8,9 @@ Use this index to find the current handoff document for each implemented or acti
 |---|---|---|
 | Physical Rooms | `HANDOFF_PHYSICAL_ROOMS.md` | Implemented through Physical Rooms Pass 3 |
 | Room Exposure | `HANDOFF_ROOM_EXPOSURE.md` | Implemented through Room Exposure Pass 4 Fix 2 |
-| UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 1 Fix 1 |
+| UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 2 Fix 1 |
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
+| Storage Room | `HANDOFF_STORAGE_ROOM.md` | Implemented through Storage Room Pass 1 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Contamination Cleanup Behavior | `HANDOFF_CONTAMINATION_CLEANUP_BEHAVIOR.md` | Implemented through Contamination Cleanup Behavior Pass 2 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
@@ -23,8 +24,9 @@ Room Exposure is complete enough to pause or move on:
 - Pass 3: Rest quality + unsafe rest confirmation
 - Pass 4: Toxic/Failing action gates
 
-UI Cleanup side track is complete:
+UI Cleanup side track:
 - UI Cleanup Pass 1 Fix 1: keyword tooltips and modified stamina cost breakdowns
+- UI Cleanup Pass 2 Fix 1: policy panel layout fix for corpse-processing controls
 
 Bedroom + Doors is complete and handed off:
 - Pass 1: Bedroom + door foundation
@@ -32,6 +34,13 @@ Bedroom + Doors is complete and handed off:
 - Pass 2 Fix 1: Playwright visual-pause timeout fix
 - Visual Playwright config: headed visual QC opens on monitor 2 at the intended size
 - Pass 3: door state and door policy tooltips
+
+Storage Room is complete and handed off:
+- Pass 1: room foundation
+- Storage Room connects only to Main Lab
+- Storage Room door defaults closed
+- Storage Room allows containers
+- no inventory/material ledger added yet
 
 Contamination Cleanup Use is complete and handed off:
 - Pass 1: cleanup as an intended use with suitability readout
@@ -98,6 +107,23 @@ Bedroom + Doors currently does **not** include:
 - recapture
 - full escape systems
 - raids
+
+Storage Room currently does **not** include:
+- inventory ledger
+- material ledger
+- crafting
+- vendors/shops
+- buying/selling
+- item rarity
+- equipment
+- storage capacity
+- room-local material piles
+- hauling inventory between rooms
+- item decay
+- container repair
+- recipes
+- research costs
+- auto-loot
 
 Contamination Cleanup systems currently do **not** include:
 - cleanup room targets
@@ -173,15 +199,16 @@ Room Exposure currently does **not** include:
 ## Likely next design directions
 
 Potential next topics:
-- start a fresh chat and re-ground from this index
-- tune contamination cleanup behavior after playtesting
-- decide whether cleanup completion in unobserved rooms is noticed later when observed
+- Inventory Pass 1 — Storage Room Ledger Foundation
+- add an Inventory / Storage Ledger panel
+- treat inventory as lab-wide for now, fictionally stored in the Storage Room
+- avoid room-local hauling, storage capacity, crafting, vendors, recipes, and equipment in first inventory pass
+- decide whether Inventory Pass 1 should only display starter zero values or hook one existing action into material gains
 - review genome/synthesis predictions for false precision
+- tune contamination cleanup behavior after playtesting
 - broader intended-use suitability for non-cleanup uses
 - better fit tuning for release warnings
-- Bedroom rest/recovery identity polish, if the Bedroom does not feel special enough in play
 - door UI compaction later if the number of rooms/connections grows
-- code cleanup for dead prediction/detail helper functions if they remain unused
 
 Do not implement any next topic without a design discussion first.
 
