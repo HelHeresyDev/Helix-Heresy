@@ -18,7 +18,7 @@ async function visualPause(page, locator, label) {
   await page.waitForTimeout(visualPauseMs);
 }
 
-test.describe('Bedroom + Doors Pass 2 smoke test', () => {
+test.describe('Bedroom + Doors Pass 3 smoke test', () => {
   test('source includes bedroom, door policy, and door-gated free creature routing', async () => {
     const source = fs.readFileSync(path.join(projectRoot, 'app.js'), 'utf8');
 
@@ -30,6 +30,8 @@ test.describe('Bedroom + Doors Pass 2 smoke test', () => {
     expect(source).toContain('function defaultDoors()');
     expect(source).toContain('function normalizeDoors(');
     expect(source).toContain('function doorIsOpen(');
+    expect(source).toContain('function doorStateTooltipText(');
+    expect(source).toContain('Doors currently affect movement only');
     expect(source).toContain('doorPolicyList');
     expect(source).toContain('function bestReachableContaminationTargetRoom(');
     expect(source).toContain('blocked by closed door');
@@ -37,8 +39,8 @@ test.describe('Bedroom + Doors Pass 2 smoke test', () => {
     expect(source).toContain('doorTransit: doorTransitPlan(haulRoute)');
   });
 
-  test('UI shows Bedroom, door states, policy, and scientist auto door behavior', async ({ page }) => {
-    if (visualPauseMs > 0) {
+  test('UI shows Bedroom, door states, policy, tooltips, and scientist auto door behavior', async ({ page }) => {
+    if (Number.isFinite(visualPauseMs) && visualPauseMs > 0) {
       test.setTimeout(30000 + visualPauseMs * 6);
     }
 
@@ -66,11 +68,21 @@ test.describe('Bedroom + Doors Pass 2 smoke test', () => {
     await expect(page.locator('[data-room-door-controls="mainLab"]')).toContainText('Pits door: Open');
     await expect(page.locator('[data-room-door-controls="bedroom"]')).toContainText('Main Lab door: Closed');
 
+    const bedroomDoorState = page.locator('[data-room-door-controls="mainLab"] [data-door-state-label="bedroom::mainLab"]');
+    await expect(bedroomDoorState).toHaveAttribute('title', /Closed door: free creature movement is blocked/);
+    await expect(bedroomDoorState).toHaveAttribute('title', /Scientist movement and container hauling can still pass through automatically/);
+    await expect(bedroomDoorState).toHaveAttribute('title', /do not seal air, contamination, sound, or exposure/);
+
+    const menagerieDoorState = page.locator('[data-room-door-controls="mainLab"] [data-door-state-label="mainLab::menagerie"]');
+    await expect(menagerieDoorState).toHaveAttribute('title', /Open door: free creatures, scientist movement, and container hauling can pass through/);
+    await expect(menagerieDoorState).toHaveAttribute('title', /Doors currently affect movement only/);
+
     const doorPolicy = page.locator('[data-door-policy-select="true"]');
     await expect(doorPolicy).toHaveValue('leaveAsSet');
     await expect(page.locator('#policySummary')).toContainText('Door behavior: leave as set');
     await expect(page.locator('#corpsePolicyList')).not.toContainText('Door behavior');
     await expect(page.locator('#doorPolicyList')).toContainText('Door behavior');
+    await expect(page.locator('#doorPolicyList .policy-option')).toHaveAttribute('title', /automatically uses a door/);
     await expect(page.locator('#policyTitle')).toBeVisible();
 
     await visualPause(page, page.locator('#policyTitle'), 'Policies panel with separate Doors section');
@@ -89,6 +101,7 @@ test.describe('Bedroom + Doors Pass 2 smoke test', () => {
     const bedroomDoorToggle = page.locator('[data-room-door-controls="bedroom"] [data-door-toggle="bedroom::mainLab"]');
     await bedroomDoorToggle.click();
     await expect(page.locator('[data-room-door-controls="bedroom"]')).toContainText('Main Lab door: Open');
+    await expect(page.locator('[data-room-door-controls="bedroom"] [data-door-state-label="bedroom::mainLab"]')).toHaveAttribute('title', /Open door: free creatures/);
     await bedroomDoorToggle.click();
     await expect(page.locator('[data-room-door-controls="bedroom"]')).toContainText('Main Lab door: Closed');
 

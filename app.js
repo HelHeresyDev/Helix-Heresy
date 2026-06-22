@@ -2922,6 +2922,20 @@
     return doorIsOpen(roomAId, roomBId) ? "open" : "closed";
   }
 
+  function doorStateTooltipText(roomAId, roomBId) {
+    const connectionLabel = `${roomName(roomAId)} ↔ ${roomName(roomBId)}`;
+    if (doorIsOpen(roomAId, roomBId)) {
+      return `Open door: free creatures, scientist movement, and container hauling can pass through ${connectionLabel}. Free creatures may move through open doors if their behavior leads them that way. Doors currently affect movement only; they do not seal air, contamination, sound, or exposure.`;
+    }
+    return `Closed door: free creature movement is blocked through ${connectionLabel}. Scientist movement and container hauling can still pass through automatically, then follow the Door behavior policy. Doors currently affect movement only; they do not seal air, contamination, sound, or exposure.`;
+  }
+
+  function doorControlsTooltipText(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    const entries = (room?.connections || []).map((connectedId) => doorStateTooltipText(room.id, connectedId));
+    return entries.length ? entries.join("\n") : "No doors connect to this room.";
+  }
+
   function doorPolicy() {
     state.policies = normalizePolicies(state.policies);
     return state.policies.doors;
@@ -3193,6 +3207,7 @@
     const doors = document.createElement("div");
     doors.className = "room-door-summary";
     doors.textContent = roomDoorSummaryLabel(room);
+    doors.title = doorControlsTooltipText(room);
     panel.append(doors);
     panel.title = `Floor area and volume are tracked internally for physical simulation. Shape and crowding are player-facing estimates.`;
     return panel;
@@ -3219,11 +3234,18 @@
       const row = document.createElement("div");
       row.className = "room-door-row";
       row.dataset.doorConnection = doorKey(room.id, connectedId);
-      row.append(textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`));
+      const stateText = textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`);
+      stateText.classList.add("keyword-tooltip");
+      stateText.dataset.doorStateLabel = doorKey(room.id, connectedId);
+      stateText.title = doorStateTooltipText(room.id, connectedId);
+      row.append(stateText);
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.doorToggle = doorKey(room.id, connectedId);
       button.textContent = stateLabel === "open" ? "Close door" : "Open door";
+      button.title = stateLabel === "open"
+        ? `Close the ${roomName(room.id)} ↔ ${roomName(connectedId)} door. Closed doors block free creature movement.`
+        : `Open the ${roomName(room.id)} ↔ ${roomName(connectedId)} door. Open doors allow free creature movement if behavior leads creatures through.`;
       button.addEventListener("click", () => {
         setDoorState(room.id, connectedId, stateLabel === "open" ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
         persist();
@@ -9593,6 +9615,7 @@
 
     const doorPolicyLabel = document.createElement("label");
     doorPolicyLabel.className = "policy-option";
+    doorPolicyLabel.title = "Controls what happens after scientist movement or container hauling automatically uses a door.";
     doorPolicyLabel.append(textEl("span", "Door behavior"));
     const doorPolicySelect = document.createElement("select");
     doorPolicySelect.dataset.doorPolicySelect = "true";
