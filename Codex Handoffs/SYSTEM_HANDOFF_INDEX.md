@@ -12,6 +12,7 @@ Use this index to find the current handoff document for each implemented or acti
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Storage Room | `HANDOFF_STORAGE_ROOM.md` | Implemented through Storage Room Pass 1 |
 | Inventory | `HANDOFF_INVENTORY.md` | Implemented through Inventory Pass 8 |
+| Byproduct Coherence | `HANDOFF_BYPRODUCT_COHERENCE.md` | Implemented through Byproduct Coherence Pass 3 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Contamination Cleanup Behavior | `HANDOFF_CONTAMINATION_CLEANUP_BEHAVIOR.md` | Implemented through Contamination Cleanup Behavior Pass 2 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
@@ -61,6 +62,18 @@ Inventory is complete and handed off through Pass 8:
 - corpse processing recovers simple inventory materials
 - no crafting, recipes, durability, storage capacity, room-local piles, or vendors are implemented
 
+Byproduct Coherence is complete and handed off through Pass 3:
+- Pass 1: element-compatible byproduct pools
+- Pass 1 Fix 1: browser-context test fix
+- Pass 2: physiology/consistency-compatible natural byproducts
+- Pass 2 Fix 1: regression test signature update
+- Pass 3: output intensity bands and rolled expression
+- Pass 3 test fixes: regression tests updated for multi-line byproduct titles
+- natural byproducts are genetic internally but constrained by element and physiology
+- jobs/intended uses do not affect natural byproducts
+- exact scalar/modifier/genetic mapping are not shown to the player
+- byproduct harvesting, inventory output, feeding residue, current-output simulation, and harvestable materials are not implemented
+
 Contamination Cleanup Use is complete and handed off:
 - Pass 1: cleanup as an intended use with suitability readout
 - `Use as Cleaner` does not mean the slime obeys an order
@@ -99,6 +112,27 @@ Treat tooltip/cost work as UI Cleanup, not Room Exposure.
 Treat visual Playwright monitor placement as QC/tooling, not gameplay.
 
 ## Current accepted design boundaries
+
+Byproduct Coherence currently does not include:
+- byproduct harvesting
+- inventory outputs from byproducts
+- current-output simulation
+- feeding-residue system
+- harvestable-material system
+- acid damage systems
+- gas/air spread
+- tool corrosion
+- hybrid element systems
+- job-based byproduct changes
+- intended-use byproduct changes
+- new slime behavior
+- new room mechanics
+- crafting
+- recipes
+- storage capacity
+- exact output numbers in the UI
+- genetic explanation in the UI
+- visible roll-quality ratings
 
 Inventory currently does not include:
 - crafting
@@ -164,15 +198,15 @@ Room Exposure currently does not include:
 ## Likely next design directions
 
 Potential next topics:
-- pause inventory and return to gameplay systems
-- Inventory Pass 9 could add one carefully designed source for Trace slime / Contaminated residue / Preserved tissue
-- decide whether fresh corpse processing should eventually recover Preserved tissue instead of only Biomass
-- add inventory source/discovery messages only if they do not spam the event log
-- tune contamination cleanup behavior after playtesting
-- review genome/synthesis predictions for false precision
-- broader intended-use suitability for non-cleanup uses
-- better fit tuning for release warnings
-- door UI compaction later if the number of rooms/connections grows
+- pause byproduct work and return to gameplay systems
+- Byproduct Coherence Pass 4 could add observation-based output quality estimates while still hiding exact roll values
+- add a separate feeding-residue system
+- add a separate harvestable-material system
+- add byproduct collection/harvesting only after design discussion
+- add inventory outputs from byproducts only after design discussion
+- tune output band ranges and food modifiers after playtesting
+- add specific physiology overrides for more elements beyond acid/water if needed
+- improve byproduct tooltip language if it becomes unclear
 
 Do not implement any next topic without a design discussion first.
 
