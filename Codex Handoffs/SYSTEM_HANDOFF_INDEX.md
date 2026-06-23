@@ -11,6 +11,7 @@ Use this index to find the current handoff document for each implemented or acti
 | UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 2 Fix 1 |
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Storage Room | `HANDOFF_STORAGE_ROOM.md` | Implemented through Storage Room Pass 1 |
+| Inventory | `HANDOFF_INVENTORY.md` | Implemented through Inventory Pass 6 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Contamination Cleanup Behavior | `HANDOFF_CONTAMINATION_CLEANUP_BEHAVIOR.md` | Implemented through Contamination Cleanup Behavior Pass 2 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
@@ -40,7 +41,20 @@ Storage Room is complete and handed off:
 - Storage Room connects only to Main Lab
 - Storage Room door defaults closed
 - Storage Room allows containers
-- no inventory/material ledger added yet
+
+Inventory is complete and handed off through Pass 6:
+- Pass 1: Storage Room ledger foundation
+- Pass 1 Fix 1: inventory cheat button and Enter key fix
+- Pass 2: Materials + Tools & Supplies catalog
+- Pass 2 Fix 1: strict-mode selector fix
+- Pass 3: starter stock
+- Pass 4: inventory-aware handling UI, no gates
+- Pass 5: tool requirement preview warnings, no gates
+- Pass 6: tool requirement gates
+- inventory is lab-wide for now and fictionally stored in Storage Room
+- tools are reusable and not consumed
+- missing required tools disable relevant handling action buttons
+- no crafting, recipes, durability, storage capacity, room-local piles, or vendors are implemented
 
 Contamination Cleanup Use is complete and handed off:
 - Pass 1: cleanup as an intended use with suitability readout
@@ -109,13 +123,6 @@ Bedroom + Doors currently does **not** include:
 - raids
 
 Storage Room currently does **not** include:
-- inventory ledger
-- material ledger
-- crafting
-- vendors/shops
-- buying/selling
-- item rarity
-- equipment
 - storage capacity
 - room-local material piles
 - hauling inventory between rooms
@@ -124,6 +131,30 @@ Storage Room currently does **not** include:
 - recipes
 - research costs
 - auto-loot
+
+Inventory currently does **not** include:
+- crafting
+- recipes
+- vendors/shops
+- buying/selling
+- item rarity
+- equipment slots
+- tool durability
+- tool contamination
+- tool consumption
+- storage capacity
+- room-local material piles
+- hauling inventory between rooms
+- item decay
+- container repair
+- research costs
+- auto-loot
+- gameplay material sources
+- corpse processing outputs
+- cleanup outputs
+- new slime behavior
+- new door mechanics
+- new injury mechanics
 
 Contamination Cleanup systems currently do **not** include:
 - cleanup room targets
@@ -199,13 +230,11 @@ Room Exposure currently does **not** include:
 ## Likely next design directions
 
 Potential next topics:
-- Inventory Pass 1 — Storage Room Ledger Foundation
-- add an Inventory / Storage Ledger panel
-- treat inventory as lab-wide for now, fictionally stored in the Storage Room
-- avoid room-local hauling, storage capacity, crafting, vendors, recipes, and equipment in first inventory pass
-- decide whether Inventory Pass 1 should only display starter zero values or hook one existing action into material gains
-- review genome/synthesis predictions for false precision
+- Inventory Pass 7 — one narrow gameplay source for inventory materials, probably corpse/remains processing output
+- decide whether corpse processing should produce Biomass, Ruined organic matter, Preserved tissue, or another material
+- add inventory source/discovery messages
 - tune contamination cleanup behavior after playtesting
+- review genome/synthesis predictions for false precision
 - broader intended-use suitability for non-cleanup uses
 - better fit tuning for release warnings
 - door UI compaction later if the number of rooms/connections grows
@@ -219,6 +248,7 @@ Do not implement any next topic without a design discussion first.
 - Cline should be used for QC/testing/visual inspection/reporting, not coding, unless explicitly requested.
 - The assistant should generate implementation files/patch bundles directly when asked.
 - When replacement-file bundles are created, provide only the `.zip` link by default.
+- Do not add manifest files to normal zips unless explicitly needed.
 - Use `git add .` for staging unless there is a specific reason not to.
 - Continue to keep implementation passes narrow.
 - Discuss design before coding.
