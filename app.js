@@ -41,6 +41,7 @@
   const PITS_ROOM_ID = "pits";
   const BEDROOM_ROOM_ID = "bedroom";
   const STORAGE_ROOM_ID = "storageRoom";
+  const COLLECTION_BAY_ROOM_ID = "collectionBay";
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
   const DOOR_POLICY_DEFS = [
@@ -66,7 +67,7 @@
         floorAreaM2: 120,
         volumeM3: 360
       },
-      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID],
+      connections: [MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID, COLLECTION_BAY_ROOM_ID],
       attributes: {}
     },
     {
@@ -164,6 +165,31 @@
         moisture: { current: 42, baseline: 42 },
         contamination: { current: 4, baseline: 4, recoveryPerHour: 0.9 },
         electricalCharge: { current: 6, baseline: 6 }
+      }
+    },
+    {
+      id: COLLECTION_BAY_ROOM_ID,
+      name: "Collection Bay",
+      articleName: "the Collection Bay",
+      role: "byproductCollection",
+      roleLabel: "Byproduct collection",
+      description: "Sealed troughs, drain channels, condensers, and stained collection plates for gathering natural slime byproducts without cutting into the specimen.",
+      geometry: {
+        shape: "sealed bay",
+        lengthM: 9,
+        widthM: 6,
+        heightM: 3,
+        floorAreaM2: 54,
+        volumeM3: 162
+      },
+      connections: [MAIN_ROOM_ID],
+      attributes: {
+        temperature: { current: 46, baseline: 46 },
+        light: { current: 16, baseline: 16 },
+        ambientMana: { current: 44, baseline: 44 },
+        moisture: { current: 62, baseline: 62 },
+        contamination: { current: 12, baseline: 12, recoveryPerHour: 0.55 },
+        electricalCharge: { current: 9, baseline: 9 }
       }
     }
   ];
@@ -3223,7 +3249,7 @@
     const isMainRoomDoor = ids.has(MAIN_ROOM_ID);
     const startsClosed =
       isMainRoomDoor &&
-      (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID));
+      (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID) || ids.has(COLLECTION_BAY_ROOM_ID));
     return startsClosed ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
   }
 
@@ -3341,7 +3367,7 @@
   }
 
   function roomSortRank(room) {
-    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID];
+    const order = [MAIN_ROOM_ID, MENAGERIE_ROOM_ID, PITS_ROOM_ID, BEDROOM_ROOM_ID, STORAGE_ROOM_ID, COLLECTION_BAY_ROOM_ID];
     const index = order.indexOf(room?.id);
     return index === -1 ? 100 + String(room?.name || "").localeCompare("zzzz") : index;
   }
