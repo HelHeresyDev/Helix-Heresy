@@ -9742,6 +9742,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return mutateGenome(slime.genome, rng, mutationCount + (offset % 2 === 0 && rng() < 0.2 ? 1 : 0));
   }
 
+  function corpseProcessingInventoryRecovery(corpse) {
+    const freshness = corpseFreshness(corpse);
+    if (freshness === "ruined") {
+      return { key: "ruinedOrganicMatter", amount: 1, source: "corpse processing" };
+    }
+    return { key: "biomass", amount: 1, source: "corpse processing" };
+  }
+
+  function addCorpseProcessingInventoryRecovery(corpse) {
+    const recovery = corpseProcessingInventoryRecovery(corpse);
+    return addInventoryItem(recovery.key, recovery.amount, recovery.source);
+  }
+
   function updateCorpseProcessingJobs(elapsed) {
     let changes = 0;
     const workers = state.slimes.filter((slime) => {
@@ -9790,13 +9803,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         applyCorpseProcessingNutrition(slime, effects, slime.jobProgress, duration, duration);
         remaining -= needed;
         const nutritionGained = slime.jobNutritionGained || 0;
+        addCorpseProcessingInventoryRecovery(target);
         removeCorpseRecord(target.id);
         reserved.delete(target.id);
         addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN });
         addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE);
         addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target));
         applyCorpseProcessingEffects(slime, target, suitability, effects);
-        addEvent(`${slime.name} processed ${target.name} remains, recovering ${CORPSE_PROCESSING_BIOMASS_GAIN} Biomass, ${CARRION_FEEDSTOCK_PER_CORPSE} Carrion Feedstock, and producing ${CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste} Waste${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
+        addEvent(`${slime.name} processed ${target.name} remains${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
         slime.jobProgress = 0;
         slime.jobTargetCorpseId = null;
         slime.jobNutritionGained = 0;
