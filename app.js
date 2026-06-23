@@ -960,6 +960,44 @@
     ether: ["mana dew", "ether mist", "glow mucus", "sterile solvent"]
   };
   const BYPRODUCT_DEFAULT_POOL = BYPRODUCT_POOLS_BY_ELEMENT.none;
+  const BYPRODUCT_CONSISTENCY_PROFILES = {
+    watery: "fluid",
+    "runny gel": "fluid",
+    syrupy: "coating",
+    "loose jelly": "fluid",
+    "soft gelatin": "coating",
+    mucous: "coating",
+    foamy: "airy",
+    "elastic gel": "coating",
+    rubbery: "dense",
+    "tar-like": "coating",
+    waxen: "coating",
+    "fibrous gel": "dense",
+    "grainy slurry": "dense",
+    "crystalline gel": "dense",
+    "brittle jelly": "dense",
+    "clay-like": "dense"
+  };
+  const BYPRODUCT_PHYSIOLOGY_SLOT_ORDERS = {
+    fluid: [0, 1, 2, 3],
+    coating: [1, 0, 2, 3],
+    dense: [2, 1, 0, 3],
+    airy: [3, 0, 1, 2]
+  };
+  const BYPRODUCT_PHYSIOLOGY_POOL_OVERRIDES = {
+    acid: {
+      fluid: ["acid droplets", "corrosive slime", "dissolved sludge", "sterile solvent"],
+      coating: ["corrosive slime", "acid droplets", "dissolved sludge", "sterile solvent"],
+      dense: ["dissolved sludge", "corrosive slime", "acid droplets", "sterile solvent"],
+      airy: ["sterile solvent", "acid droplets", "corrosive slime", "dissolved sludge"]
+    },
+    water: {
+      fluid: ["clean water", "cooling brine", "watery residue", "slick gel"],
+      coating: ["slick gel", "watery residue", "cooling brine", "clean water"],
+      dense: ["watery residue", "cooling brine", "slick gel", "clean water"],
+      airy: ["clean water", "watery residue", "slick gel", "cooling brine"]
+    }
+  };
   const ENVIRONMENTAL_SUSTENANCE_DEFS = [
     {
       id: "heat",
@@ -6121,16 +6159,37 @@
     return BYPRODUCT_POOLS_BY_ELEMENT[element] || BYPRODUCT_DEFAULT_POOL;
   }
 
-  function resolveByproductOutcome(elementOutcome, byproductOutcome, code) {
+  function byproductPhysiologyProfile(consistencyOutcome) {
+    const consistency = baseOutcomeLabel(consistencyOutcome);
+    return BYPRODUCT_CONSISTENCY_PROFILES[consistency] || "fluid";
+  }
+
+  function reorderByproductPoolForPhysiology(pool, profile) {
+    const order = BYPRODUCT_PHYSIOLOGY_SLOT_ORDERS[profile] || BYPRODUCT_PHYSIOLOGY_SLOT_ORDERS.fluid;
+    return order.map((index) => pool[((index % pool.length) + pool.length) % pool.length]);
+  }
+
+  function byproductPoolForElementAndPhysiology(elementOutcome, consistencyOutcome) {
+    const element = baseOutcomeLabel(elementOutcome) || "none";
+    const profile = byproductPhysiologyProfile(consistencyOutcome);
+    const override = BYPRODUCT_PHYSIOLOGY_POOL_OVERRIDES[element]?.[profile];
+    if (override?.length) {
+      return override;
+    }
+    return reorderByproductPoolForPhysiology(byproductPoolForElement(elementOutcome), profile);
+  }
+
+  function resolveByproductOutcome(elementOutcome, byproductOutcome, code, consistencyOutcome = null) {
     const slot = Number(byproductOutcome?.meta?.index ?? byproductAlleleSlot(code)) || 0;
-    const pool = byproductPoolForElement(elementOutcome);
+    const pool = byproductPoolForElementAndPhysiology(elementOutcome, consistencyOutcome);
     const label = pool[((slot % pool.length) + pool.length) % pool.length];
     return {
       label,
       meta: {
         index: slot,
         pairCode: String(byproductOutcome?.meta?.pairCode || code || "AA").toUpperCase(),
-        compatibleElement: baseOutcomeLabel(elementOutcome) || "none"
+        compatibleElement: baseOutcomeLabel(elementOutcome) || "none",
+        physiologyProfile: byproductPhysiologyProfile(consistencyOutcome)
       }
     };
   }
@@ -6435,7 +6494,7 @@
       };
     }
 
-    traits.byproduct = resolveByproductOutcome(traits.element, traits.byproduct, getRegionCode(genome, "byproduct"));
+    traits.byproduct = resolveByproductOutcome(traits.element, traits.byproduct, getRegionCode(genome, "byproduct"), traits.consistency);
 
     for (const interaction of geneMap.interactions) {
       const targetCode = getRegionCode(genome, interaction.target);

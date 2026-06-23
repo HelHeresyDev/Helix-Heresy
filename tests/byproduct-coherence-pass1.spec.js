@@ -100,7 +100,7 @@ test.describe('Byproduct Coherence Pass 1', () => {
     expect(source).toContain('function byproductAlleleSlot');
     expect(source).toContain('function resolveByproductOutcome');
     expect(source).toContain('if (region.key === "byproduct")');
-    expect(source).toContain('traits.byproduct = resolveByproductOutcome(traits.element, traits.byproduct, getRegionCode(genome, "byproduct"))');
+    expect(source).toContain('traits.byproduct = resolveByproductOutcome(traits.element, traits.byproduct, getRegionCode(genome, "byproduct"), traits.consistency)');
 
     expect(source).toContain('acid: ["acid droplets", "corrosive slime", "dissolved sludge", "sterile solvent"]');
     expect(source).toContain('water: ["clean water", "cooling brine", "watery residue", "slick gel"]');
@@ -130,10 +130,10 @@ test.describe('Byproduct Coherence Pass 1', () => {
     expect(acid, `Expected one generated specimen to reveal Element: acid. Found: ${JSON.stringify(summaries.map((s) => s.element))}`).toBeTruthy();
     expect(water, `Expected one generated specimen to reveal Element: water. Found: ${JSON.stringify(summaries.map((s) => s.element))}`).toBeTruthy();
 
-    expect(acid.byproduct).toMatch(/Byproduct: acid droplets/i);
+    expect(acid.byproduct).toMatch(/Byproduct: (acid droplets|corrosive slime|dissolved sludge|sterile solvent)/i);
     expect(acid.byproduct).not.toMatch(/fertile silt|metallic flakes|glow mucus|clean water|numbing paste|coagulating wax/i);
-    expect(water.byproduct).toMatch(/Byproduct: clean water/i);
-    expect(water.byproduct).not.toMatch(/acid droplets|corrosive slime|dissolved sludge/i);
+    expect(water.byproduct).toMatch(/Byproduct: (clean water|cooling brine|watery residue|slick gel)/i);
+    expect(water.byproduct).not.toMatch(/acid droplets|corrosive slime|dissolved sludge|sterile solvent/i);
 
     await visualPause(page, page.locator('[data-slime-card]').first(), 'Element-compatible byproduct scan');
 
@@ -141,9 +141,9 @@ test.describe('Byproduct Coherence Pass 1', () => {
     const acidAlleles = await slimeIdentitySummaries(page);
     const byproductByCode = Object.fromEntries(acidAlleles.map((summary) => [summary.id.split('-').at(-1), summary.byproduct]));
 
-    expect(byproductByCode.AA).toMatch(/Byproduct: acid droplets/i);
+    expect(byproductByCode.AA).toMatch(/Byproduct: (acid droplets|corrosive slime|dissolved sludge|sterile solvent)/i);
     expect(byproductByCode.AT).toBe(byproductByCode.AA);
-    expect(byproductByCode.CG).toMatch(/Byproduct: dissolved sludge/i);
+    expect(byproductByCode.CG).toMatch(/Byproduct: (acid droplets|corrosive slime|dissolved sludge|sterile solvent)/i);
     expect(byproductByCode.GC).toBe(byproductByCode.CG);
 
     await expect(page.locator('body')).not.toContainText('Byproduct gene');
