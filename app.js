@@ -1503,6 +1503,7 @@
 
   function init() {
     cacheDom();
+    ensureRightSidebar();
     ensureInventoryPanel();
     populateTimeSpeedSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
@@ -1625,6 +1626,34 @@
   }
 
 
+  function ensureRightSidebar() {
+    const root = dom.labRoot || document.getElementById("labRoot");
+    const journalPanel = document.querySelector(".journal-panel");
+    if (!root || !journalPanel) {
+      return null;
+    }
+
+    let sidebar = root.querySelector(".right-sidebar");
+    if (!sidebar) {
+      sidebar = document.createElement("aside");
+      sidebar.className = "right-sidebar";
+      sidebar.setAttribute("aria-label", "Journal and storage panels");
+      root.insertBefore(sidebar, journalPanel);
+    }
+
+    if (journalPanel.parentElement !== sidebar) {
+      sidebar.append(journalPanel);
+    }
+
+    const inventoryPanel = root.querySelector(".inventory-panel");
+    if (inventoryPanel && inventoryPanel.parentElement !== sidebar) {
+      sidebar.append(inventoryPanel);
+    }
+
+    return sidebar;
+  }
+
+
   function ensureInventoryPanel() {
     if (!dom.inventorySummary || !dom.inventoryList) {
       const panel = document.createElement("section");
@@ -1639,11 +1668,16 @@
         </div>
         <div id="inventoryList" class="inventory-list"></div>
       `;
-      const roomPanel = document.querySelector(".room-panel");
-      if (roomPanel?.parentElement) {
-        roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
+      const sidebar = ensureRightSidebar();
+      if (sidebar) {
+        sidebar.append(panel);
       } else {
-        dom.labRoot?.append(panel);
+        const roomPanel = document.querySelector(".room-panel");
+        if (roomPanel?.parentElement) {
+          roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
+        } else {
+          dom.labRoot?.append(panel);
+        }
       }
       dom.inventorySummary = document.getElementById("inventorySummary");
       dom.inventoryList = document.getElementById("inventoryList");
