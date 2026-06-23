@@ -8,10 +8,10 @@ Use this index to find the current handoff document for each implemented or acti
 |---|---|---|
 | Physical Rooms | `HANDOFF_PHYSICAL_ROOMS.md` | Implemented through Physical Rooms Pass 3 |
 | Room Exposure | `HANDOFF_ROOM_EXPOSURE.md` | Implemented through Room Exposure Pass 4 Fix 2 |
-| UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 2 Fix 1 |
+| UI Cleanup | `HANDOFF_UI_CLEANUP.md` | Implemented through UI Cleanup Pass 3 |
 | Bedroom + Doors | `HANDOFF_BEDROOM_AND_DOORS.md` | Implemented through Bedroom + Doors Pass 3 |
 | Storage Room | `HANDOFF_STORAGE_ROOM.md` | Implemented through Storage Room Pass 1 |
-| Inventory | `HANDOFF_INVENTORY.md` | Implemented through Inventory Pass 6 |
+| Inventory | `HANDOFF_INVENTORY.md` | Implemented through Inventory Pass 8 |
 | Contamination Cleanup Use | `HANDOFF_CONTAMINATION_CLEANUP_USE.md` | Implemented through Contamination Cleanup Pass 1 |
 | Contamination Cleanup Behavior | `HANDOFF_CONTAMINATION_CLEANUP_BEHAVIOR.md` | Implemented through Contamination Cleanup Behavior Pass 2 |
 | Creature Release | `HANDOFF_CREATURE_RELEASE.md` | Implemented through Creature Release Pass 1 |
@@ -28,6 +28,7 @@ Room Exposure is complete enough to pause or move on:
 UI Cleanup side track:
 - UI Cleanup Pass 1 Fix 1: keyword tooltips and modified stamina cost breakdowns
 - UI Cleanup Pass 2 Fix 1: policy panel layout fix for corpse-processing controls
+- UI Cleanup Pass 3: right sidebar vertical alignment
 
 Bedroom + Doors is complete and handed off:
 - Pass 1: Bedroom + door foundation
@@ -42,7 +43,7 @@ Storage Room is complete and handed off:
 - Storage Room door defaults closed
 - Storage Room allows containers
 
-Inventory is complete and handed off through Pass 6:
+Inventory is complete and handed off through Pass 8:
 - Pass 1: Storage Room ledger foundation
 - Pass 1 Fix 1: inventory cheat button and Enter key fix
 - Pass 2: Materials + Tools & Supplies catalog
@@ -51,9 +52,13 @@ Inventory is complete and handed off through Pass 6:
 - Pass 4: inventory-aware handling UI, no gates
 - Pass 5: tool requirement preview warnings, no gates
 - Pass 6: tool requirement gates
+- Pass 7: inventory change history tooltips
+- Pass 8: corpse processing material recovery
 - inventory is lab-wide for now and fictionally stored in Storage Room
 - tools are reusable and not consumed
 - missing required tools disable relevant handling action buttons
+- routine inventory accounting belongs in item tooltip history, not event logs
+- corpse processing recovers simple inventory materials
 - no crafting, recipes, durability, storage capacity, room-local piles, or vendors are implemented
 
 Contamination Cleanup Use is complete and handed off:
@@ -89,50 +94,13 @@ Prediction Cleanup is complete and handed off:
 - detailed factors live in tooltips/title text
 - skills can improve confidence/range without revealing hidden traits
 
-Treat tooltip/cost work as **UI Cleanup**, not Room Exposure.
+Treat tooltip/cost work as UI Cleanup, not Room Exposure.
 
-Treat visual Playwright monitor placement as **QC/tooling**, not gameplay.
+Treat visual Playwright monitor placement as QC/tooling, not gameplay.
 
 ## Current accepted design boundaries
 
-Bedroom + Doors currently does **not** include:
-- locks
-- keys
-- security levels
-- door HP
-- door durability
-- barricades
-- door damage
-- slimes damaging doors
-- slimes opening doors
-- slimes squeezing under doors
-- sound/smell propagation
-- environmental sealing
-- sensors
-- line of sight
-- room permissions
-- room construction
-- room editing
-- furniture/equipment placement
-- detailed pathfinding grids
-- attacks
-- combat
-- injuries from free creatures
-- recapture
-- full escape systems
-- raids
-
-Storage Room currently does **not** include:
-- storage capacity
-- room-local material piles
-- hauling inventory between rooms
-- item decay
-- container repair
-- recipes
-- research costs
-- auto-loot
-
-Inventory currently does **not** include:
+Inventory currently does not include:
 - crafting
 - recipes
 - vendors/shops
@@ -149,90 +117,57 @@ Inventory currently does **not** include:
 - container repair
 - research costs
 - auto-loot
-- gameplay material sources
-- corpse processing outputs
-- cleanup outputs
+- cleanup output material sources
+- trace slime gameplay sources
+- contaminated residue gameplay sources
+- preserved tissue gameplay sources
+- new corpse states
+- new corpse processing actions
 - new slime behavior
 - new door mechanics
 - new injury mechanics
 
-Contamination Cleanup systems currently do **not** include:
-- cleanup room targets
-- assign cleanup target
-- order slime to clean
-- direct room assignment for slimes
-- obedience
-- manual scientist cleaning
-- janitor/staff cleaning
-- cleaning equipment
-- cleaning room upgrades
-- contained-container room cleaning
-- cleaner pens/zones
-- new slime behavior beyond feedback/learning for existing behavior
-- attacks/combat
-- injuries from free creatures
-- recapture
-- full escape systems
-- PPE
-- treatment/medicine systems
-- new skill systems
-- exact prediction percentages
-- prediction minigames
+Storage Room currently does not include:
+- storage capacity
+- room-local material piles
+- hauling inventory between rooms
+- item decay
+- container repair
+- recipes
+- research costs
+- auto-loot
 
-Creature Release currently does **not** include:
-- release target rooms
-- cleanup target rooms
-- direct room assignment for released slimes
-- obedience
-- commands
-- order slime to clean behavior
-- manual scientist cleaning
-- janitor/staff cleaning
-- cleaning equipment
-- cleaner pens/zones
-- attacks/combat
-- injuries from free creatures
-- recapture
-- full escape systems
-- slimes opening doors
-- slimes damaging doors
-- new door mechanics
-- PPE
-- treatment/medicine systems
+Bedroom + Doors currently does not include:
+- locks, keys, security levels, door HP, door durability, barricades, door damage
+- slimes damaging/opening/squeezing under doors
+- sound/smell propagation, environmental sealing, sensors, line of sight
+- room permissions, construction, editing, furniture/equipment placement
+- detailed pathfinding grids, attacks, combat, recapture, full escape systems, raids
 
-Prediction Cleanup currently does **not** include:
-- new slime behavior
-- new cleanup mechanics
-- release target rooms
-- cleanup target rooms
-- obedience/commands
-- attacks/combat
-- injuries from free creatures
-- recapture/full escape systems
-- new door mechanics
-- PPE/treatment/medicine systems
-- a new skill system
-- exact prediction percentages
-- prediction minigames
+Contamination Cleanup systems currently do not include:
+- cleanup room targets, direct room assignment, obedience, manual scientist cleaning
+- janitor/staff cleaning, cleaning equipment/upgrades, cleaner pens/zones
+- new slime behavior beyond feedback/learning, attacks/combat, injuries, recapture, PPE/treatment
 
-Room Exposure currently does **not** include:
-- treatment systems
-- medicine
-- PPE
-- disease tracks
-- radiation tracks
-- magic/mana exposure tracks
-- creature attacks
-- combat
-- recapture
-- full escape systems
+Creature Release currently does not include:
+- release target rooms, cleanup target rooms, obedience/commands, recapture/full escape systems
+- slimes opening/damaging doors, PPE/treatment/medicine systems
+
+Prediction Cleanup currently does not include:
+- new slime behavior, new cleanup mechanics, release target rooms, obedience/commands
+- combat/injuries/recapture, new door mechanics, PPE/treatment, a new skill system, exact prediction percentages
+
+Room Exposure currently does not include:
+- treatment systems, medicine, PPE, disease/radiation/magic exposure tracks
+- creature attacks, combat, recapture, full escape systems
 
 ## Likely next design directions
 
 Potential next topics:
-- Inventory Pass 7 — one narrow gameplay source for inventory materials, probably corpse/remains processing output
-- decide whether corpse processing should produce Biomass, Ruined organic matter, Preserved tissue, or another material
-- add inventory source/discovery messages
+- pause inventory and return to gameplay systems
+- Inventory Pass 9 could add one carefully designed source for Trace slime / Contaminated residue / Preserved tissue
+- decide whether fresh corpse processing should eventually recover Preserved tissue instead of only Biomass
+- add inventory source/discovery messages only if they do not spam the event log
 - tune contamination cleanup behavior after playtesting
 - review genome/synthesis predictions for false precision
 - broader intended-use suitability for non-cleanup uses

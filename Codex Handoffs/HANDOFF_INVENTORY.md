@@ -1,10 +1,10 @@
 # System Handoff — Inventory
 
-Date: 2026-06-22
+Date: 2026-06-23
 
 ## Status
 
-Inventory is implemented and accepted through Pass 6.
+Inventory is implemented and accepted through Pass 8.
 
 Accepted work:
 - Inventory Pass 1: Storage Room Ledger Foundation
@@ -15,18 +15,21 @@ Accepted work:
 - Inventory Pass 4: Inventory-Aware Handling UI, No Gates
 - Inventory Pass 5: Tool Requirement Preview Warnings
 - Inventory Pass 6: Tool Requirement Gates
+- Inventory Pass 7: Inventory Change History Tooltips
+- Inventory Pass 8: Corpse Processing Material Recovery
 
 This handoff should be treated as the current source of truth for the Inventory system.
 
 ## Purpose
 
-This system adds a Storage Room-grounded inventory/material ledger to the lab.
+Inventory adds a Storage Room-grounded material/tool ledger to the lab.
 
 Before this work:
 - Storage Room existed as a real room, but no inventory/material ledger existed.
 - Existing systems implied lab materials and tools such as biomass, trace slime, gloves, tongs, hook pole, and scraper.
 - Handling methods existed, but they did not connect to any inventory/tool catalog.
-- There was a risk of inventory feeling like a floating RPG backpack rather than a lab storage system.
+- Material/resource changes risked becoming event-log spam.
+- Corpse processing did not recover inventory materials into the Storage Room ledger.
 
 After this work:
 - Inventory exists as a lab-wide Storage Room ledger.
@@ -35,81 +38,49 @@ After this work:
 - Starter materials begin at 0.
 - Starter tools begin at 1 each.
 - Cheats can add every defined inventory item.
-- Handling methods are inventory-aware.
-- Handling methods now require matching tools, except bare hands.
+- Handling methods are inventory-aware and require matching tools, except bare hands.
 - Missing required tools disable relevant handling action buttons.
 - Tools are reusable and are not consumed.
+- Inventory changes are tracked in item tooltip history rather than event-log accounting spam.
+- Corpse processing recovers simple inventory materials.
 - No crafting, recipes, durability, vendors, storage capacity, room-local hauling, or equipment slots have been added.
 
 ## Core design decisions
 
 ### Inventory is a Storage Room ledger, not a backpack
 
-Inventory is grounded in the Storage Room.
-
 Accepted visible identity:
+
 ```txt
 Storage Room ledger · Lab-wide prototype
 ```
 
-Accepted meaning:
-- Inventory is tracked lab-wide for now.
-- The fiction is that materials/tools are stored in the Storage Room.
-- This is not a personal backpack.
-- This is not yet room-local item storage.
-
-### Lab-wide for now
-
-Inventory is mechanically lab-wide in the current implementation.
-
-Accepted:
-- all stored inventory amounts are globally accessible
-- no room-local piles
-- no hauling inventory between rooms
-- no storage logistics
-- no storage capacity
-
-Future room-local storage or hauling should require separate design discussion.
+Inventory is lab-wide for now and fictionally stored in the Storage Room. It is not a personal backpack and not yet room-local item storage.
 
 ### Materials and tools are distinct
 
-Inventory contains two accepted categories:
+Inventory contains:
+- Materials
+- Tools & Supplies
 
-```txt
-Materials
-Tools & Supplies
-```
+Materials are stored biological/contaminant resources. Tools & Supplies are reusable lab tools and handling supplies.
 
-Materials are stored biological/contaminant resources.
+### Starter stock
 
-Tools & Supplies are reusable lab tools and handling supplies.
-
-### Starter materials begin at zero
-
-Materials currently start at 0.
-
-Accepted materials:
+Materials start at 0:
 - Biomass
 - Trace slime
 - Contaminated residue
 - Ruined organic matter
 - Preserved tissue
 
-These are display/storage ledger entries only until future gameplay sources are explicitly designed.
-
-### Starter tools begin at one
-
-Tools & Supplies currently start at 1 each.
-
-Accepted tools/supplies:
+Tools start at 1:
 - Thick gloves
 - Long tongs
 - Hook pole
 - Scraper
 
-These are the basic lab tools already implied by current handling methods.
-
-### Cheats can add every inventory item
+### Cheats
 
 Inventory cheats exist for prototype testing.
 
@@ -119,17 +90,36 @@ Accepted:
 - cheat button works
 - Enter key in the cheat input works
 - aliases support common tool/item names
+- positive and negative cheat adjustments are supported for testing
+- inventory clamps at 0
+- history records the actual clamped delta
 
-Cheat output uses detached storage-log wording such as:
+### Inventory accounting belongs in tooltips, not the event log
+
+Routine material/resource accounting should not spam the event log.
+
+Accepted:
+- inventory rows show recent changes in tooltip/title text
+- each item history stores up to the last 10 changes
+- compact history lines do not use timestamps for now
+
+Examples:
 ```txt
-Stored tool logged: Thick gloves +1.
++5 cheat adjustment
+-2 cheat adjustment
++1 corpse processing
 ```
+
+Rejected:
+- repeated event log entries such as `Stored material logged: Biomass +1.`
+- repeated event log entries such as `Recovered material: Biomass +1.`
+
+The event log should remain reserved for meaningful observations, incidents, and discoveries.
 
 ### Handling methods are inventory-aware
 
-Handling methods now show their inventory relationship.
-
 Accepted examples:
+
 ```txt
 Tool preview: no tool expected
 Inventory: no cataloged tool
@@ -152,8 +142,6 @@ Requirement: blocked until stocked
 ```
 
 ### Tool gates are enforced, but tools are reusable
-
-Pass 6 makes tools mechanically required for matching handling methods.
 
 Accepted gate behavior:
 - Bare hands requires no tool.
@@ -184,11 +172,33 @@ Rejected:
 - equipment slots
 - quality tiers
 
-## Implemented behavior
+### Corpse processing is the first real inventory material source
+
+Accepted:
+- completed corpse processing recovers inventory materials
+- inventory gains go to the Storage Room ledger
+- inventory gains record item history
+- inventory gains do not create event-log accounting spam
+
+Accepted first-pass output table:
+- Fresh corpse processed: Biomass +1
+- Decaying corpse processed: Biomass +1
+- Spoiled corpse processed: Biomass +1
+- Ruined corpse processed: Ruined organic matter +1
+
+Rejected in Pass 8:
+- dumping/disposal material gains
+- scraping/dumping into pits material gains
+- cleanup output material gains
+- necropsy/genetic material changes
+- new corpse states
+- new corpse processing actions
+
+## Implemented behavior by pass
 
 ### Pass 1 — Storage Room Ledger Foundation
 
-Inventory foundation added:
+Added:
 - Inventory panel
 - inventory state object
 - inventory item definitions
@@ -207,61 +217,31 @@ Initial material set:
 
 Pass 1 was display-only except for prototype cheats.
 
-No gameplay source produced inventory materials in Pass 1.
-
 ### Pass 1 Fix 1 — Cheat event wiring
 
-Initial Pass 1 QC found:
-- Inventory cheat button existed but did not run the command.
-
-Fix:
-- wired the Inventory Cheat button to `runInventoryCommand()`
-- wired Enter key in the Inventory Cheat input to `runInventoryCommand()`
-
-Accepted behavior:
-- button adds inventory item
-- Enter key adds inventory item
-- status message updates
-- inventory row updates
+Fixed:
+- Inventory Cheat button runs `runInventoryCommand()`
+- Enter key in the Inventory Cheat input runs `runInventoryCommand()`
 
 ### Pass 2 — Tools and Supplies Catalog
 
-Inventory categories added:
+Added categories:
 - Materials
 - Tools & Supplies
 
-Tools/supplies added:
+Added tools/supplies:
 - Thick gloves
 - Long tongs
 - Hook pole
 - Scraper
 
-Pass 2 was catalog-only:
-- tools were listed in inventory
-- tools could be added through cheats
-- existing handling methods were not gated by inventory yet
-
-Accepted tool aliases included examples such as:
-- gloves
-- tongs
-- hook pole
-- scrapers
+Pass 2 was catalog-only and did not gate actions.
 
 ### Pass 2 Fix 1 — Test selector fix
 
-Initial Pass 2 QC found a Playwright strict-mode test selector bug.
-
-Fix:
-- category-heading checks now target `.inventory-section[data-inventory-category="materials"]`
-- category-heading checks now target `.inventory-section[data-inventory-category="tools"]`
-
-No app behavior changed.
+Fixed Playwright strict-mode selector issue by scoping category checks to inventory sections.
 
 ### Pass 3 — Starter Stock
-
-Starter stock added:
-- materials start at 0
-- tools start at 1 each
 
 Accepted starter values:
 - Biomass: 0
@@ -274,120 +254,84 @@ Accepted starter values:
 - Hook pole: 1
 - Scraper: 1
 
-Cheats add on top of starter stock.
-
-Tools remained catalog-only in Pass 3.
-
 ### Pass 4 — Inventory-Aware Handling UI, No Gates
 
-Handling UI became inventory-aware.
+Handling UI became inventory-aware but did not block actions yet.
 
-Accepted behavior:
-- Handling policy UI shows inventory note for the selected method.
+Accepted:
+- Handling policy UI shows inventory note for selected method.
 - Container handling summaries include method inventory amount and requirement status.
 - Open/Close Container button titles include method inventory amount and requirement status.
-- Remains/handling/transfer action titles include method inventory details when applicable.
+- Remains/handling/transfer action titles include method inventory details where applicable.
 - Inventory cheat updates propagate to handling UI.
-
-Pass 4 did not gate actions.
-
-Accepted examples:
-```txt
-Inventory: no cataloged tool
-Requirement: none
-```
-
-```txt
-Inventory: 1 Thick gloves cataloged in Storage Room
-Requirement: not enforced yet
-```
 
 ### Pass 5 — Tool Requirement Preview Warnings
 
-Handling UI gained clearer preview wording.
+Handling UI gained clearer preview wording:
+- no tool expected
+- available
+- not stocked
+- protocol
+- requirement status
 
-Accepted behavior:
-- tool preview shows no tool expected / available / not stocked
-- protocol line shows whether requirement is enforced
-- requirement line remains visible
-- actions still allowed even when not stocked
-
-Accepted examples:
-```txt
-Tool preview: no tool expected
-Inventory: no cataloged tool
-Protocol: no tool requirement
-Requirement: none
-```
-
-```txt
-Tool preview: Thick gloves available
-Inventory: 1 Thick gloves cataloged in Storage Room
-Protocol: tool requirement not enforced
-Requirement: not enforced yet
-```
-
-```txt
-Tool preview: Thick gloves not stocked
-Inventory: 0 Thick gloves cataloged in Storage Room
-Protocol: tool requirement not enforced; procedure still permitted
-Requirement: not enforced yet
-```
-
-Pass 5 still did not enforce tool gates.
+Still no gates in Pass 5.
 
 ### Pass 6 — Tool Requirement Gates
 
 Tool gates implemented.
 
-Accepted behavior:
-- matching handling actions require matching tools
-- bare hands requires no tool
-- missing tool disables relevant direct-handling buttons
-- disabled buttons explain why
-- handling method dropdown remains selectable
-- tools are not consumed
-- restocking tools re-enables actions
-
-Accepted gate mappings:
+Accepted mappings:
 - bareHands → no tool
 - thickGloves → Thick gloves
 - longTongs → Long tongs
 - hookPole → Hook pole
 - scraper → Scraper
 
-Accepted blocked wording:
-```txt
-Procedure blocked: Thick gloves not stocked in Storage Room.
-```
+Accepted:
+- missing tool disables relevant direct-handling buttons
+- disabled buttons explain why
+- handling method dropdown remains selectable
+- tools are not consumed
+- restocking tools re-enables actions
 
-Accepted stocked wording:
-```txt
-Tool preview: Thick gloves available
-Inventory: 1 Thick gloves cataloged in Storage Room
-Protocol: required tool stocked
-Requirement: stocked
-```
+### Pass 7 — Inventory Change History Tooltips
 
-Accepted missing-tool wording:
-```txt
-Tool preview: Thick gloves not stocked
-Inventory: 0 Thick gloves cataloged in Storage Room
-Protocol: procedure blocked until tool is stocked
-Requirement: blocked until stocked
-```
+Per-item inventory history added.
+
+Accepted:
+- each item has change history
+- item row tooltip shows item label, description, current amount, and recent changes
+- no timestamp in history lines for now
+- last 10 changes are shown
+- no history shows `No recorded changes.`
+- positive and negative cheat changes are recorded
+- negative changes clamp at 0
+- history records the actual clamped delta
+- inventory changes do not generate event-log accounting spam
+
+### Pass 8 — Corpse Processing Material Recovery
+
+Corpse processing now recovers inventory materials.
+
+Accepted:
+- Fresh/Decaying/Spoiled processed corpses add Biomass +1
+- Ruined processed corpses add Ruined organic matter +1
+- inventory history records `+1 corpse processing`
+- inventory gains do not create event-log accounting spam
+- dumping/disposal does not produce inventory materials
+- tool gates and inventory history regressions still pass
 
 ## Current item catalog
 
 ### Materials
 
-| Key | Label | Category | Starter amount |
-|---|---|---:|---:|
-| biomass | Biomass | Materials | 0 |
-| traceSlime | Trace slime | Materials | 0 |
-| contaminatedResidue | Contaminated residue | Materials | 0 |
-| ruinedOrganicMatter | Ruined organic matter | Materials | 0 |
-| preservedTissue | Preserved tissue | Materials | 0 |
+| Key | Label | Category | Starter amount | Current gameplay source |
+|---|---|---:|---:|---|
+| biomass | Biomass | Materials | 0 | Corpse processing: Fresh/Decaying/Spoiled +1 |
+| traceSlime | Trace slime | Materials | 0 | None yet |
+| contaminatedResidue | Contaminated residue | Materials | 0 | None yet |
+| ruinedOrganicMatter | Ruined organic matter | Materials | 0 | Corpse processing: Ruined +1 |
+| preservedTissue | Preserved tissue | Materials | 0 | None yet |
 
 ### Tools & Supplies
 
@@ -397,43 +341,6 @@ Requirement: blocked until stocked
 | longTongs | Long tongs | Tools & Supplies | 1 | Required for Long tongs handling method |
 | hookPole | Hook pole | Tools & Supplies | 1 | Required for Hook pole handling method |
 | scraper | Scraper | Tools & Supplies | 1 | Required for Scraper handling method |
-
-## Current handling-method inventory behavior
-
-### Bare hands
-
-Accepted:
-```txt
-Tool preview: no tool expected
-Inventory: no cataloged tool
-Protocol: no tool requirement
-Requirement: none
-```
-
-Bare hands remains always available if no other non-inventory blocker applies.
-
-### Tool methods
-
-If stocked:
-```txt
-Tool preview: <Tool> available
-Inventory: <amount> <Tool> cataloged in Storage Room
-Protocol: required tool stocked
-Requirement: stocked
-```
-
-If missing:
-```txt
-Tool preview: <Tool> not stocked
-Inventory: 0 <Tool> cataloged in Storage Room
-Protocol: procedure blocked until tool is stocked
-Requirement: blocked until stocked
-```
-
-Disabled action title:
-```txt
-Procedure blocked: <Tool> not stocked in Storage Room.
-```
 
 ## Relationship to existing systems
 
@@ -452,11 +359,13 @@ Inventory is lab-wide for now but fictionally stored in the Storage Room.
 
 ### Handling methods
 
-Inventory now affects handling methods.
+Inventory affects handling methods.
 
 Handling methods remain selectable even when their tool is missing.
 
 Action buttons that use a missing required tool are blocked.
+
+Tools are not consumed.
 
 ### Direct handling risk
 
@@ -468,15 +377,20 @@ Direct handling risk still exists and should not be removed.
 
 ### Corpse/remains handling
 
+Completed corpse processing can recover inventory materials.
+
 Where existing remains/corpse handling uses the current handling method, tool requirements should apply.
 
-No new corpse output/material generation was added.
+Dumping/disposal does not recover inventory materials.
 
 ### Resources/feedstocks
 
 Inventory is separate from existing resources and feedstocks.
 
-Do not merge inventory items with existing feedstocks unless a future design explicitly starts that work.
+Important known distinction:
+- Existing abstract resource biomass may still be updated by older corpse-processing systems.
+- Inventory Biomass is a separate Storage Room ledger item.
+- Do not merge inventory items with existing feedstocks unless a future design explicitly starts that work.
 
 ## Detached message/tone rules
 
@@ -484,11 +398,11 @@ Inventory and handling messages should use detached lab-observation/protocol wor
 
 Accepted:
 ```txt
-Stored material logged: Biomass +1.
+Procedure blocked: Thick gloves not stocked in Storage Room.
 ```
 
 ```txt
-Procedure blocked: Thick gloves not stocked in Storage Room.
++1 corpse processing
 ```
 
 Avoid:
@@ -522,9 +436,12 @@ Inventory currently does not add:
 - container repair
 - research costs
 - auto-loot
-- gameplay material sources
-- corpse processing outputs
-- cleanup outputs
+- cleanup output material sources
+- trace slime gameplay sources
+- contaminated residue gameplay sources
+- preserved tissue gameplay sources
+- new corpse states
+- new corpse processing actions
 - new slime behavior
 - new door mechanics
 - new injury mechanics
@@ -574,29 +491,11 @@ Confirmed:
 Verdict:
 - ACCEPT
 
-### Pass 2 QC
+### Pass 2 QC / Fix 1
 
-Initial result:
-- app implementation correct
-- Pass 1 regression passed
-- strict-mode failure in Pass 2 test
+Initial app was correct, but Pass 2 had a Playwright strict-mode selector bug. Fix 1 corrected the selector.
 
-Issue:
-- broad `[data-inventory-category="materials"]` selector matched both category section and child rows
-
-Verdict:
-- test fix required
-
-### Pass 2 Fix 1 QC
-
-Result:
-- syntax check passed
-- smoke tests passed
-- headed visual inspection passed
-- console warnings/errors: 0
-- page errors: 0
-
-Confirmed:
+Final confirmed:
 - Materials section exists
 - Tools & Supplies section exists
 - tool catalog present
@@ -608,13 +507,6 @@ Verdict:
 - ACCEPT
 
 ### Pass 3 QC
-
-Result:
-- syntax check passed
-- smoke tests passed
-- headed visual inspection passed
-- console warnings/errors: 0
-- page errors: 0
 
 Confirmed:
 - materials start at 0
@@ -629,17 +521,6 @@ Verdict:
 
 ### Pass 4 QC
 
-Initial issue:
-- user initially received/witnessed wrong zip contents from an earlier bundle confusion
-- corrected bundle was generated and tested
-
-Final result:
-- syntax check passed
-- smoke tests passed
-- headed visual inspection passed
-- console warnings/errors: 0
-- page errors: 0
-
 Confirmed:
 - handling policy inventory note works
 - container handling summaries include inventory/requirement info
@@ -652,13 +533,6 @@ Verdict:
 - ACCEPT
 
 ### Pass 5 QC
-
-Result:
-- syntax check passed
-- targeted smoke tests passed
-- headed visual inspection passed
-- console warnings/errors: 0
-- page errors: 0
 
 Confirmed:
 - tool preview shows no tool expected / available / not stocked
@@ -673,19 +547,11 @@ Verdict:
 
 ### Pass 6 QC
 
-Result:
-- syntax check passed
-- targeted smoke tests passed
-- headed visual inspection passed
-- console warnings/errors: 0
-- page errors: 0
-
 Confirmed:
 - tool gates work
 - stocked tools allow actions
 - missing tools disable relevant action buttons
-- disabled tooltip/title uses:
-  - `Procedure blocked: Thick gloves not stocked in Storage Room.`
+- disabled tooltip/title uses `Procedure blocked: Thick gloves not stocked in Storage Room.`
 - restocking re-enables actions
 - handling method dropdown remains selectable
 - tools are not consumed
@@ -695,26 +561,61 @@ Confirmed:
 Verdict:
 - ACCEPT
 
+### Pass 7 QC
+
+Confirmed:
+- inventory tooltip history works
+- positive/negative cheat history works
+- no event-log accounting spam
+- last-10 history cap works
+- tool gate regression passes
+- save/load normalization works
+- no scope creep
+
+Verdict:
+- ACCEPT
+
+### Pass 8 QC
+
+Confirmed:
+- corpse-processing inventory recovery works
+- Fresh/Decaying/Spoiled processed corpses add Biomass +1
+- Ruined processed corpses add Ruined organic matter +1
+- inventory tooltip/history records `+1 corpse processing`
+- no event-log accounting spam
+- non-processing disposal does not add inventory
+- tool gate regression passes
+- inventory history regression passes
+- no scope creep
+
+Known test issue:
+- headed test timed out waiting for `#skipAmountInput`
+- classified as test-script timing fragility, not app bug
+
+Verdict:
+- ACCEPT
+
 ## Known limitations / future work
 
 Potential future work:
-- add gameplay material sources, such as corpse processing producing biomass or ruined organic matter
-- add contamination cleanup outputs to inventory only after design discussion
-- add inventory source/discovery messages
+- harden the Pass 8 headed visual test if needed
+- add material sources for Trace slime
+- add material sources for Contaminated residue
+- add material sources for Preserved tissue
+- decide if fresh corpse processing should eventually recover Preserved tissue instead of only Biomass
+- add inventory source/discovery messages only if they do not spam the event log
 - add material spending for research or synthesis only after design discussion
 - add storage capacity only after design discussion
 - add room-local storage/hauling only after design discussion
 - add tool durability/contamination only after design discussion
-- refine cheat aliases if needed
 - audit all direct-handling actions to ensure missing-tool gates apply wherever intended
+- review interaction between legacy resource biomass and inventory Biomass if confusion appears
 
 Likely next inventory direction:
-- Inventory Pass 7 — one narrow gameplay source for materials, probably corpse/remains processing output
-- or pause inventory and return to gameplay systems
+- inventory is complete enough to pause
+- or Inventory Pass 9 could add one carefully designed source for Trace slime / Contaminated residue / Preserved tissue
 
 ## Repository / workflow notes
-
-This system is expected to be incorporated into the current tracked source files.
 
 Project workflow reminders:
 - Use fresh prompts for new Cline/Codex chats.
@@ -727,11 +628,3 @@ Project workflow reminders:
 - Run syntax checks and smoke/QC tests before committing.
 - Use `git add .` for staging unless there is a specific reason not to.
 - Do not create handoff docs until all passes for a feature are accepted.
-
-Suggested commits for accepted work:
-- `Add storage inventory ledger`
-- `Add inventory tools catalog`
-- `Add inventory starter stock`
-- `Add inventory-aware handling UI`
-- `Add tool requirement previews`
-- `Add tool requirement gates`
