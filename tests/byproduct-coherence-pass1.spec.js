@@ -33,6 +33,10 @@ function replaceRegion(genome, start, code) {
   return `${genome.slice(0, start)}${code}${genome.slice(start + 2)}`;
 }
 
+function byproductTitleName(title) {
+  return String(title || '').replace(/^Byproduct:\s*/i, '').split('\n')[0].trim().toLowerCase();
+}
+
 async function installElementScan(page, { elementCode = null, byproductCodes = ['AA'] } = {}) {
   await page.evaluate(({ key, codes, elementCode, byproductCodes }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -142,9 +146,9 @@ test.describe('Byproduct Coherence Pass 1', () => {
     const byproductByCode = Object.fromEntries(acidAlleles.map((summary) => [summary.id.split('-').at(-1), summary.byproduct]));
 
     expect(byproductByCode.AA).toMatch(/Byproduct: (acid droplets|corrosive slime|dissolved sludge|sterile solvent)/i);
-    expect(byproductByCode.AT).toBe(byproductByCode.AA);
+    expect(byproductTitleName(byproductByCode.AT)).toBe(byproductTitleName(byproductByCode.AA));
     expect(byproductByCode.CG).toMatch(/Byproduct: (acid droplets|corrosive slime|dissolved sludge|sterile solvent)/i);
-    expect(byproductByCode.GC).toBe(byproductByCode.CG);
+    expect(byproductTitleName(byproductByCode.GC)).toBe(byproductTitleName(byproductByCode.CG));
 
     await expect(page.locator('body')).not.toContainText('Byproduct gene');
     await expect(page.locator('body')).not.toContainText('AT selects');

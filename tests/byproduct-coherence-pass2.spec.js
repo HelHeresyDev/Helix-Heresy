@@ -95,7 +95,7 @@ async function slimeIdentitySummaries(page) {
 }
 
 function byproductLabel(summary) {
-  return String(summary.byproduct || '').replace(/^Byproduct:\s*/i, '').trim().toLowerCase();
+  return String(summary.byproduct || '').replace(/^Byproduct:\s*/i, '').split('\n')[0].trim().toLowerCase();
 }
 
 function expectAllByproductsInPool(summaries, pool) {
@@ -161,8 +161,8 @@ test.describe('Byproduct Coherence Pass 2', () => {
     await installSlimeScan(page, { elementCodes: [acidElementCode], byproductCodes: ['AA', 'AT', 'CG', 'GC'], consistencyCodes: ['AA'] });
     const acidAlleles = await slimeIdentitySummaries(page);
     const byproductByCode = Object.fromEntries(acidAlleles.map((summary) => [summary.id.split('-')[2], summary.byproduct]));
-    expect(byproductByCode.AT).toBe(byproductByCode.AA);
-    expect(byproductByCode.GC).toBe(byproductByCode.CG);
+    expect(byproductLabel({ byproduct: byproductByCode.AT })).toBe(byproductLabel({ byproduct: byproductByCode.AA }));
+    expect(byproductLabel({ byproduct: byproductByCode.GC })).toBe(byproductLabel({ byproduct: byproductByCode.CG }));
     expectAllByproductsInPool(acidAlleles, acidByproducts);
 
     await expect(page.locator('body')).not.toContainText('Byproduct gene');

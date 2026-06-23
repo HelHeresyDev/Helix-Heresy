@@ -941,6 +941,40 @@
   const BYPRODUCT_ALLELE_SLOTS = Object.fromEntries(
     BYPRODUCT_ALLELE_SLOT_GROUPS.flatMap((codes, slot) => codes.map((code) => [code, slot]))
   );
+  const BYPRODUCT_OUTPUT_BANDS = [
+    {
+      id: "trace",
+      label: "Trace",
+      metabolicDemand: "Slightly reduced",
+      scalarRange: [0.25, 0.5],
+      foodModifierRange: [0.96, 0.98]
+    },
+    {
+      id: "low",
+      label: "Low",
+      metabolicDemand: "Mild",
+      scalarRange: [0.55, 0.85],
+      foodModifierRange: [0.98, 1]
+    },
+    {
+      id: "moderate",
+      label: "Moderate",
+      metabolicDemand: "Baseline",
+      scalarRange: [0.9, 1.1],
+      foodModifierRange: [1, 1]
+    },
+    {
+      id: "high",
+      label: "High",
+      metabolicDemand: "Elevated",
+      scalarRange: [1.15, 1.45],
+      foodModifierRange: [1.02, 1.05]
+    }
+  ];
+  const BYPRODUCT_OUTPUT_BAND_BY_ID = Object.fromEntries(BYPRODUCT_OUTPUT_BANDS.map((band) => [band.id, band]));
+  const BYPRODUCT_ALLELE_OUTPUT_INDEXES = Object.fromEntries(
+    BYPRODUCT_ALLELE_SLOT_GROUPS.flatMap((codes) => codes.map((code, index) => [code, index]))
+  );
   const BYPRODUCT_POOLS_BY_ELEMENT = {
     none: ["trace slime", "inert gel", "watery residue", "clear mucus"],
     flame: ["ash film", "smoke vapor", "charred residue", "warm tar"],
@@ -2555,11 +2589,13 @@
       jobTargetCorpseId: null,
       jobNutritionGained: 0,
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
+      byproductExpression: null,
       revealed: {},
       measured: {},
       traitObservations: {},
       testsRun: []
     };
+    normalizeByproductExpression(slime);
     if (slime.status !== "released" && slime.status !== "dead") {
       const container = containerById(slime.containerId);
       if (container) {
@@ -6146,12 +6182,101 @@
     return BYPRODUCT_ALLELE_SLOTS[String(code || "").toUpperCase()] ?? 0;
   }
 
+  function byproductOutputIndex(code) {
+    return BYPRODUCT_ALLELE_OUTPUT_INDEXES[String(code || "").toUpperCase()] ?? 2;
+  }
+
+  function byproductOutputBandForCode(code) {
+    return BYPRODUCT_OUTPUT_BANDS[byproductOutputIndex(code)] || BYPRODUCT_OUTPUT_BAND_BY_ID.moderate;
+  }
+
   function byproductAlleleOutcome(code) {
     const pairCode = String(code || "AA").toUpperCase();
+    const band = byproductOutputBandForCode(pairCode);
     return {
       label: `byproduct allele ${byproductAlleleSlot(pairCode) + 1}`,
-      meta: { index: byproductAlleleSlot(pairCode), pairCode }
+      meta: { index: byproductAlleleSlot(pairCode), pairCode, outputBand: band.id }
     };
+  }
+
+  function roundOutputValue(value) {
+    return Math.round((Number(value) || 0) * 1000) / 1000;
+  }
+
+  function rollByproductExpression(slime) {
+    const pairCode = getRegionCode(slime?.genome || "", "byproduct") || "AA";
+    const band = byproductOutputBandForCode(pairCode);
+    const rng = seedRng(`${state?.seed || "seed"}:byproduct-expression:${slime?.id || "unknown"}:${slime?.createdAt || 0}:${slime?.genome || ""}`);
+    const roll = clamp(rng(), 0, 1);
+    const scalar = band.scalarRange[0] + (band.scalarRange[1] - band.scalarRange[0]) * roll;
+    const foodModifier = band.foodModifierRange[0] + (band.foodModifierRange[1] - band.foodModifierRange[0]) * roll;
+    return {
+      pairCode: String(pairCode).toUpperCase(),
+      band: band.id,
+      scalar: roundOutputValue(scalar),
+      foodModifier: roundOutputValue(foodModifier),
+      rolledAt: Number(slime?.createdAt) || 0
+    };
+  }
+
+  function normalizeByproductExpression(slime) {
+    if (!slime) {
+      return null;
+    }
+    const pairCode = getRegionCode(slime.genome || "", "byproduct") || "AA";
+    const band = byproductOutputBandForCode(pairCode);
+    const existing = slime.byproductExpression;
+    const scalarRange = band.scalarRange;
+    const modifierRange = band.foodModifierRange;
+    const valid = existing && typeof existing === "object"
+      && String(existing.pairCode || "").toUpperCase() === String(pairCode).toUpperCase()
+      && existing.band === band.id
+      && Number(existing.scalar) >= scalarRange[0]
+      && Number(existing.scalar) <= scalarRange[1]
+      && Number(existing.foodModifier) >= modifierRange[0]
+      && Number(existing.foodModifier) <= modifierRange[1];
+    if (!valid) {
+      slime.byproductExpression = rollByproductExpression(slime);
+    } else {
+      slime.byproductExpression = {
+        pairCode: String(existing.pairCode || pairCode).toUpperCase(),
+        band: band.id,
+        scalar: roundOutputValue(existing.scalar),
+        foodModifier: roundOutputValue(existing.foodModifier),
+        rolledAt: Number(existing.rolledAt) || Number(slime.createdAt) || 0
+      };
+    }
+    return slime.byproductExpression;
+  }
+
+  function byproductExpressionInfo(slime) {
+    const expression = normalizeByproductExpression(slime);
+    const band = BYPRODUCT_OUTPUT_BAND_BY_ID[expression?.band] || BYPRODUCT_OUTPUT_BAND_BY_ID.moderate;
+    return { expression, band };
+  }
+
+  function byproductExpressionTitleLines(slime) {
+    const { band } = byproductExpressionInfo(slime);
+    return [
+      `Natural output: ${band.label}`,
+      `Metabolic demand: ${band.metabolicDemand}`
+    ];
+  }
+
+  function slimeFoodDemandModifier(slime) {
+    return Math.max(0.1, Number(byproductExpressionInfo(slime).expression?.foodModifier) || 1);
+  }
+
+  function adjustedSlimeNutritionGain(slime, amount) {
+    const gain = Math.max(0, Number(amount) || 0);
+    if (!gain) {
+      return 0;
+    }
+    return gain / slimeFoodDemandModifier(slime);
+  }
+
+  function adjustedMassRegrowthNutritionCost(slime) {
+    return MASS_REGROWTH_NUTRITION_COST * slimeFoodDemandModifier(slime);
   }
 
   function byproductPoolForElement(elementOutcome) {
@@ -6188,6 +6313,7 @@
       meta: {
         index: slot,
         pairCode: String(byproductOutcome?.meta?.pairCode || code || "AA").toUpperCase(),
+        outputBand: byproductOutputBandForCode(byproductOutcome?.meta?.pairCode || code || "AA").id,
         compatibleElement: baseOutcomeLabel(elementOutcome) || "none",
         physiologyProfile: byproductPhysiologyProfile(consistencyOutcome)
       }
@@ -8595,7 +8721,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const match = feedstockMatch(slime, feedstock.key);
     const effects = FEED_MATCH_EFFECTS[match.quality] || FEED_MATCH_EFFECTS.bad;
     addResource(feedstock.key, -1);
-    adjustSlimeStat(slime, "nutrition", effects.nutrition);
+    const nutritionGain = adjustedSlimeNutritionGain(slime, effects.nutrition);
+    adjustSlimeStat(slime, "nutrition", nutritionGain);
     const mass = slimeStat(slime, "currentMass");
     const massGain = Math.max(0, Math.min(effects.mass, mass.max - mass.current));
     if (massGain > 0) {
@@ -8613,7 +8740,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (effects.waste) {
       addWaste(effects.waste, ["feeding", ...feedstock.tags]);
     }
-    addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${effects.nutrition} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}.`);
+    addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${formatNumber(nutritionGain)} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}.`);
     expireSlimes();
     return true;
   }
@@ -9581,7 +9708,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const beforeBand = roomAttributeBand(profile.attributeKey, attribute.current);
-    const possibleGain = Math.min(nutrition.max - nutrition.current, minutes * rate);
+    const possibleGain = Math.min(nutrition.max - nutrition.current, minutes * (rate / slimeFoodDemandModifier(slime)));
     const maxDrain = Math.max(0, attribute.current - profile.floor);
     const drainPerNutrition = Math.max(0.1, profile.drainPerNutrition);
     const roomLimitedGain = Math.min(possibleGain, maxDrain / drainPerNutrition);
@@ -9616,7 +9743,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const source = environmentalSustenanceSource(slime);
     if (!source) return 0;
     /* Pass a room-like object with the correct environment (container interior or room) */
-    return environmentalSustenanceSupply({ attributes: source.attributes }, profile).rate;
+    return environmentalSustenanceSupply({ attributes: source.attributes }, profile).rate / slimeFoodDemandModifier(slime);
   }
 
   function environmentalSustenanceProfile(slime) {
@@ -9727,16 +9854,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
     const growthRate = mass.max / (growthMinutes * 12);
     const availableNutrition = Math.max(0, nutrition.current - MASS_REGROWTH_NUTRITION_FLOOR);
+    const nutritionCost = adjustedMassRegrowthNutritionCost(slime);
     const gain = Math.min(
       mass.max - mass.current,
       minutes * growthRate,
-      availableNutrition / MASS_REGROWTH_NUTRITION_COST
+      availableNutrition / nutritionCost
     );
     if (gain <= 0) {
       return false;
     }
     adjustSlimeStat(slime, "currentMass", gain);
-    adjustSlimeStat(slime, "nutrition", -gain * MASS_REGROWTH_NUTRITION_COST);
+    adjustSlimeStat(slime, "nutrition", -gain * nutritionCost);
     return true;
   }
 
@@ -10052,11 +10180,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
     const growthRate = mass.max / (growthMinutes * 12);
     const availableNutrition = Math.max(0, nutrition.current - MASS_REGROWTH_NUTRITION_FLOOR);
-    const possibleGain = availableNutrition / MASS_REGROWTH_NUTRITION_COST;
+    const nutritionCost = adjustedMassRegrowthNutritionCost(slime);
+    const possibleGain = availableNutrition / nutritionCost;
     const needed = mass.max - mass.current;
     if (possibleGain < needed) {
       const envRate = environmentalSustenanceRate(slime);
-      const sustainedMassRate = envRate / MASS_REGROWTH_NUTRITION_COST;
+      const sustainedMassRate = envRate / nutritionCost;
       if (envRate <= 0 || sustainedMassRate <= 0) {
         return null;
       }
@@ -10841,10 +10970,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const alreadyGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
     const expectedGained = totalNutrition * (end / safeDuration);
-    const gained = Math.max(0, Math.min(totalNutrition - alreadyGained, expectedGained - alreadyGained));
+    const rawGained = Math.max(0, Math.min(totalNutrition - alreadyGained, expectedGained - alreadyGained));
+    const gained = adjustedSlimeNutritionGain(slime, rawGained);
     if (gained > 0) {
       adjustSlimeStat(slime, "nutrition", gained);
-      slime.jobNutritionGained = alreadyGained + gained;
+      slime.jobNutritionGained = alreadyGained + rawGained;
     }
     return gained;
   }
@@ -10949,10 +11079,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
     knowledge.residueProgress = Math.max(0, Number(knowledge.residueProgress) || 0) + (suitability.score >= 75 ? 2 : 1);
     const nutrition = wasteDisposalNutritionGain(slime, suitability);
-    if (nutrition) {
-      adjustSlimeStat(slime, "nutrition", nutrition);
+    const adjustedNutrition = adjustedSlimeNutritionGain(slime, nutrition);
+    if (adjustedNutrition) {
+      adjustSlimeStat(slime, "nutrition", adjustedNutrition);
     }
-    if (suitability.score >= 60 && nutrition) {
+    if (suitability.score >= 60 && adjustedNutrition) {
       adjustSlimeStat(slime, "stress", -1);
     } else if (suitability.score < 25) {
       adjustSlimeStat(slime, "stress", 2);
@@ -10977,7 +11108,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       learnWasteDisposalFit(slime, "Hazardous", "contamination during disposal");
       addEvent(`${slime.name} leaked contamination during waste disposal.`);
     }
-    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${nutrition ? `, gaining ${nutrition} Nutrition` : ""}.`);
+    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${adjustedNutrition ? `, gaining ${formatNumber(adjustedNutrition)} Nutrition` : ""}.`);
   }
 
   function wasteDisposalNutritionGain(slime, suitability) {
@@ -11111,7 +11242,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else {
       slot.textContent = "none";
     }
-    slot.title = `${getRegionLabel(traitKey)}: ${markerOutcome.label}`;
+    if (traitKey === "byproduct") {
+      slot.title = [`${getRegionLabel(traitKey)}: ${markerOutcome.label}`, ...byproductExpressionTitleLines(slime)].join("\n");
+    } else {
+      slot.title = `${getRegionLabel(traitKey)}: ${markerOutcome.label}`;
+    }
     return slot;
   }
 
@@ -13512,7 +13647,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (feeding.rate <= 0) {
         continue;
       }
-      const nutritionGain = feeding.rate * (elapsed / 1440);
+      const rawNutritionGain = feeding.rate * (elapsed / 1440);
+      const nutritionGain = adjustedSlimeNutritionGain(slime, rawNutritionGain);
       if (nutritionGain <= 0) {
         continue;
       }
@@ -15418,6 +15554,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       slime.automationExcluded = Boolean(slime.automationExcluded);
       slime.stats = normalizeSlimeStats(slime.stats);
+      normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);
     }
