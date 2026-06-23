@@ -932,6 +932,34 @@
     "electrical absorber": ["environmental", "electricity"],
     "fume absorber": ["environmental", "chemical", "fume", "contaminated"]
   };
+  const BYPRODUCT_ALLELE_SLOT_GROUPS = [
+    ["AA", "AT", "TA", "TT"],
+    ["AC", "AG", "CA", "GA"],
+    ["CC", "CG", "GC", "GG"],
+    ["CT", "TC", "GT", "TG"]
+  ];
+  const BYPRODUCT_ALLELE_SLOTS = Object.fromEntries(
+    BYPRODUCT_ALLELE_SLOT_GROUPS.flatMap((codes, slot) => codes.map((code) => [code, slot]))
+  );
+  const BYPRODUCT_POOLS_BY_ELEMENT = {
+    none: ["trace slime", "inert gel", "watery residue", "clear mucus"],
+    flame: ["ash film", "smoke vapor", "charred residue", "warm tar"],
+    frost: ["cooling brine", "frost film", "chilled gel", "salt crystals"],
+    storm: ["ozone slime", "charged droplets", "metallic flakes", "static foam"],
+    stone: ["fertile silt", "mineral grit", "salt crystals", "clay residue"],
+    shadow: ["black resin", "dark mucus", "smoke vapor", "inky gel"],
+    light: ["glow mucus", "clean water", "mana dew", "pale gel"],
+    water: ["clean water", "cooling brine", "watery residue", "slick gel"],
+    wind: ["faint vapor", "aerated foam", "dry residue", "drifting mucus"],
+    wood: ["fertile silt", "fibrous pulp", "plant mucus", "coagulating wax"],
+    metal: ["metallic flakes", "grease pearls", "sterile solvent", "oxide dust"],
+    poison: ["numbing paste", "contaminated residue", "irritant film", "bitter sludge"],
+    acid: ["acid droplets", "corrosive slime", "dissolved sludge", "sterile solvent"],
+    dream: ["mana dew", "glow mucus", "opalescent film", "numbing paste"],
+    gravity: ["dense gel", "metallic flakes", "settled silt", "coagulating wax"],
+    ether: ["mana dew", "ether mist", "glow mucus", "sterile solvent"]
+  };
+  const BYPRODUCT_DEFAULT_POOL = BYPRODUCT_POOLS_BY_ELEMENT.none;
   const ENVIRONMENTAL_SUSTENANCE_DEFS = [
     {
       id: "heat",
@@ -4251,19 +4279,19 @@
 
     if (revealed.byproduct) {
       const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
-      if (["acid droplets", "sterile solvent", "alkaline foam"].includes(byproduct)) {
+      if (["acid droplets", "sterile solvent", "corrosive slime", "dissolved sludge"].includes(byproduct)) {
         addThreat("corrosive byproduct", ["acid"], "acid");
       }
-      if (["smoke vapor", "numbing paste"].includes(byproduct)) {
+      if (["smoke vapor", "numbing paste", "contaminated residue", "irritant film", "bitter sludge", "ether mist"].includes(byproduct)) {
         addThreat("toxic byproduct", ["poison", "fume"], "poison");
       }
-      if (["mana dew"].includes(byproduct)) {
+      if (["mana dew", "ether mist", "opalescent film"].includes(byproduct)) {
         addThreat("arcane byproduct", ["mana", "arcane"], "mana");
       }
-      if (["cooling brine"].includes(byproduct)) {
+      if (["cooling brine", "frost film", "chilled gel"].includes(byproduct)) {
         addThreat("cold brine", ["frost", "cold"], "frost");
       }
-      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax"].includes(byproduct) && !type.drainage) {
+      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax", "warm tar", "dark mucus", "inky gel", "dissolved sludge", "plant mucus"].includes(byproduct) && !type.drainage) {
         addConcern("minor", `${byproduct} may foul containers without drainage.`);
       }
     }
@@ -6055,9 +6083,15 @@
     const codes = pairCodes();
     const traitMaps = {};
     for (const region of REGION_DEFS) {
+      traitMaps[region.key] = {};
+      if (region.key === "byproduct") {
+        for (const code of codes) {
+          traitMaps[region.key][code] = byproductAlleleOutcome(code);
+        }
+        continue;
+      }
       const shuffledCodes = shuffle([...codes], rng);
       const outcomes = shuffle(makeOutcomes(region.key, rng), rng);
-      traitMaps[region.key] = {};
       for (let i = 0; i < shuffledCodes.length; i += 1) {
         traitMaps[region.key][shuffledCodes[i]] = outcomes[i];
       }
@@ -6070,7 +6104,41 @@
     };
   }
 
+  function byproductAlleleSlot(code) {
+    return BYPRODUCT_ALLELE_SLOTS[String(code || "").toUpperCase()] ?? 0;
+  }
+
+  function byproductAlleleOutcome(code) {
+    const pairCode = String(code || "AA").toUpperCase();
+    return {
+      label: `byproduct allele ${byproductAlleleSlot(pairCode) + 1}`,
+      meta: { index: byproductAlleleSlot(pairCode), pairCode }
+    };
+  }
+
+  function byproductPoolForElement(elementOutcome) {
+    const element = baseOutcomeLabel(elementOutcome) || "none";
+    return BYPRODUCT_POOLS_BY_ELEMENT[element] || BYPRODUCT_DEFAULT_POOL;
+  }
+
+  function resolveByproductOutcome(elementOutcome, byproductOutcome, code) {
+    const slot = Number(byproductOutcome?.meta?.index ?? byproductAlleleSlot(code)) || 0;
+    const pool = byproductPoolForElement(elementOutcome);
+    const label = pool[((slot % pool.length) + pool.length) % pool.length];
+    return {
+      label,
+      meta: {
+        index: slot,
+        pairCode: String(byproductOutcome?.meta?.pairCode || code || "AA").toUpperCase(),
+        compatibleElement: baseOutcomeLabel(elementOutcome) || "none"
+      }
+    };
+  }
+
   function makeOutcomes(key, rng) {
+    if (key === "byproduct") {
+      return pairCodes().map((code) => byproductAlleleOutcome(code));
+    }
     const pools = {
       size: [
         ["seedling", 0.2],
@@ -6179,24 +6247,6 @@
         "moisture absorber",
         "electrical absorber",
         "fume absorber"
-      ],
-      byproduct: [
-        "adhesive gel",
-        "cooling brine",
-        "glow mucus",
-        "clean water",
-        "black resin",
-        "alkaline foam",
-        "acid droplets",
-        "fertile silt",
-        "mana dew",
-        "grease pearls",
-        "salt crystals",
-        "numbing paste",
-        "smoke vapor",
-        "coagulating wax",
-        "metallic flakes",
-        "sterile solvent"
       ],
       element: [
         "none",
@@ -6384,6 +6434,8 @@
         codes: [{ region: region.key, code }]
       };
     }
+
+    traits.byproduct = resolveByproductOutcome(traits.element, traits.byproduct, getRegionCode(genome, "byproduct"));
 
     for (const interaction of geneMap.interactions) {
       const targetCode = getRegionCode(genome, interaction.target);
@@ -7297,7 +7349,7 @@
     const type = containerTypeDef(container.typeId);
     const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
     const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(profile?.consistency);
-    const foulingByproduct = ["adhesive gel", "black resin", "grease pearls", "coagulating wax", "acid droplets", "alkaline foam", "smoke vapor", "numbing paste"].includes(byproduct);
+    const foulingByproduct = ["adhesive gel", "black resin", "grease pearls", "coagulating wax", "acid droplets", "corrosive slime", "dissolved sludge", "smoke vapor", "numbing paste", "contaminated residue", "irritant film", "bitter sludge", "warm tar", "dark mucus", "inky gel", "plant mucus"].includes(byproduct);
 
     if ((runny && (seal < 55 || type.gap >= 60)) || risk.potentialReasons.some((reason) => /gap|seal|seep/i.test(reason))) {
       return "leak";
@@ -7523,10 +7575,10 @@
 
     if (revealed.byproduct) {
       const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
-      if (["acid droplets", "sterile solvent", "alkaline foam", "smoke vapor", "numbing paste"].includes(byproduct)) {
+      if (["acid droplets", "sterile solvent", "corrosive slime", "dissolved sludge", "smoke vapor", "numbing paste", "contaminated residue", "irritant film", "bitter sludge", "ether mist"].includes(byproduct)) {
         addPotential(14, `${byproduct} can turn disturbances into messes or exposure risks.`);
       }
-      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax"].includes(byproduct) && !type.drainage) {
+      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax", "warm tar", "dark mucus", "inky gel", "dissolved sludge", "plant mucus"].includes(byproduct) && !type.drainage) {
         addPotential(8, `${byproduct} can foul containers without drainage.`);
       }
     }
@@ -12243,19 +12295,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (label.includes("droplet") || label.includes("dew")) {
       return "droplet";
     }
-    if (label.includes("brine") || label.includes("water") || label.includes("solvent")) {
+    if (label.includes("brine") || label.includes("water") || label.includes("solvent") || label.includes("condensation")) {
       return "liquid";
     }
-    if (label.includes("mucus") || label.includes("gel") || label.includes("paste")) {
+    if (label.includes("mucus") || label.includes("gel") || label.includes("paste") || label.includes("slime")) {
       return "gel";
     }
-    if (label.includes("foam") || label.includes("vapor")) {
+    if (label.includes("foam") || label.includes("vapor") || label.includes("mist") || label.includes("haze")) {
       return "vapor";
     }
-    if (label.includes("resin") || label.includes("wax")) {
+    if (label.includes("resin") || label.includes("wax") || label.includes("tar")) {
       return "resin";
     }
-    if (label.includes("crystal") || label.includes("flakes") || label.includes("silt")) {
+    if (label.includes("crystal") || label.includes("flakes") || label.includes("silt") || label.includes("grit") || label.includes("dust") || label.includes("clay")) {
       return "mineral";
     }
     if (label.includes("pearl")) {
