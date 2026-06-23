@@ -4771,6 +4771,16 @@
     };
   }
 
+  function handlingMethodToolPreviewSummary(methodId = currentHandlingMethodId()) {
+    const info = handlingMethodInventoryInfo(methodId);
+    if (!info) {
+      return "Tool preview: no tool expected";
+    }
+    return info.amount > 0
+      ? `Tool preview: ${info.item.label} available`
+      : `Tool preview: ${info.item.label} not stocked`;
+  }
+
   function handlingMethodInventorySummary(methodId = currentHandlingMethodId()) {
     const info = handlingMethodInventoryInfo(methodId);
     if (!info) {
@@ -4785,14 +4795,31 @@
       : "Requirement: none";
   }
 
+  function handlingMethodProtocolSummary(methodId = currentHandlingMethodId()) {
+    const info = handlingMethodInventoryInfo(methodId);
+    if (!info) {
+      return "Protocol: no tool requirement";
+    }
+    return info.amount > 0
+      ? "Protocol: tool requirement not enforced"
+      : "Protocol: tool requirement not enforced; procedure still permitted";
+  }
+
   function handlingMethodInventoryTitle(methodId = currentHandlingMethodId()) {
     const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
     const info = handlingMethodInventoryInfo(method.id);
     if (!info) {
-      return `${method.label} has no Storage Room tool entry. Inventory does not gate handling methods yet.`;
+      return [
+        "Tool preview: no tool expected.",
+        `${method.label} has no Storage Room tool entry.`,
+        "Protocol: no tool requirement.",
+        "Inventory does not gate handling methods yet."
+      ].join("\n");
     }
     return [
+      `${handlingMethodToolPreviewSummary(method.id)}.`,
       `${info.item.label}: ${formatNumber(info.amount)} cataloged in the Storage Room.`,
+      `${handlingMethodProtocolSummary(method.id)}.`,
       "Catalog only: this handling method is not gated by inventory yet.",
       "Future tool requirements should be designed in a separate pass."
     ].join("\n");
@@ -4800,7 +4827,7 @@
 
   function handlingMethodActionTitle(methodId = currentHandlingMethodId()) {
     const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
-    return `${method.label}: ${method.description}\n${handlingMethodInventorySummary(method.id)}. ${handlingMethodRequirementSummary(method.id)}.\n${handlingMethodInventoryTitle(method.id)}`;
+    return `${method.label}: ${method.description}\n${handlingMethodToolPreviewSummary(method.id)}. ${handlingMethodInventorySummary(method.id)}. ${handlingMethodProtocolSummary(method.id)}. ${handlingMethodRequirementSummary(method.id)}.\n${handlingMethodInventoryTitle(method.id)}`;
   }
 
   function setHandlingMethod(methodId) {
@@ -5268,7 +5295,9 @@
       `Possible harm: ${predictionRangeText(prediction.harmRange)}`,
       `Confidence: ${prediction.confidence.label}`,
       `Method: ${risk.method.label}`,
+      handlingMethodToolPreviewSummary(risk.method.id),
       handlingMethodInventorySummary(risk.method.id),
+      handlingMethodProtocolSummary(risk.method.id),
       handlingMethodRequirementSummary(risk.method.id)
     ].join(" | ");
   }
@@ -7832,7 +7861,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handling.dataset.handlingRisk = predictionRangeText(handlingPrediction.riskRange);
       handling.dataset.handlingHarm = predictionRangeText(handlingPrediction.harmRange);
       handling.dataset.handlingConfidence = handlingPrediction.confidence.label;
+      handling.dataset.handlingToolPreview = handlingMethodToolPreviewSummary(handlingRisk.method.id);
       handling.dataset.handlingInventory = handlingMethodInventorySummary(handlingRisk.method.id);
+      handling.dataset.handlingProtocol = handlingMethodProtocolSummary(handlingRisk.method.id);
       handling.dataset.handlingRequirement = handlingMethodRequirementSummary(handlingRisk.method.id);
       card.append(handling);
     }
@@ -11142,7 +11173,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const methodInventoryNote = document.createElement("div");
     methodInventoryNote.className = "policy-inventory-note";
     methodInventoryNote.dataset.handlingInventoryNote = "true";
-    methodInventoryNote.textContent = `${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
+    methodInventoryNote.textContent = `${handlingMethodToolPreviewSummary(currentHandlingMethodId())}. ${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodProtocolSummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
     methodInventoryNote.title = handlingMethodInventoryTitle(currentHandlingMethodId());
     corpseControls.append(methodInventoryNote);
 
