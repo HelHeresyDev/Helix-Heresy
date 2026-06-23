@@ -23,7 +23,7 @@ async function startRun(page) {
 }
 
 test.describe('Inventory Pass 2 tools and supplies catalog', () => {
-  test('source defines inventory categories and current handling tools without action gates', async () => {
+  test('source defines inventory categories and current handling tools', async () => {
     const source = fs.readFileSync(path.join(projectRoot, 'app.js'), 'utf8');
 
     expect(source).toContain('const INVENTORY_CATEGORY_DEFS = [');
@@ -34,7 +34,7 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
     expect(source).toContain('key: "hookPole"');
     expect(source).toContain('key: "scraper"');
     expect(source).toContain('category: "tools"');
-    expect(source).toContain('Starter tools are cataloged only');
+    expect(source).toContain('Matching handling procedures require the cataloged tool to be stocked');
     expect(source).toContain('gloves: "thickGloves"');
     expect(source).toContain('tongs: "longTongs"');
     expect(source).toContain('pole: "hookPole"');
@@ -67,7 +67,7 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
 
     const inventoryPanel = page.locator('.inventory-panel');
     await expect(page.locator('#inventorySummary')).toContainText('Storage Room ledger');
-    await expect(page.locator('#inventorySummary')).toHaveAttribute('title', /Starter tools are cataloged only/i);
+    await expect(page.locator('#inventorySummary')).toHaveAttribute('title', /required by matching handling methods/i);
 
     await expect(page.locator('.inventory-section[data-inventory-category="materials"]')).toContainText('Materials');
     await expect(page.locator('.inventory-section[data-inventory-category="tools"]')).toContainText('Tools & Supplies');
@@ -85,7 +85,7 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
       const row = inventory.locator(`[data-inventory-item-key="${key}"]`);
       await expect(row).toContainText(label);
       await expect(row.locator('strong')).toHaveText('1');
-      await expect(row).toHaveAttribute('title', /Starter stock|not gated by inventory|not enforced/i);
+      await expect(row).toHaveAttribute('title', /Starter stock|required by|reusable/i);
     }
 
     await visualPause(page, inventoryPanel, 'Inventory materials and tools catalog');

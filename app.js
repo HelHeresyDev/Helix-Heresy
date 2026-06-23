@@ -1106,7 +1106,7 @@
     {
       id: "tools",
       label: "Tools & Supplies",
-      description: "Reusable lab tools and handling supplies already implied by current interaction methods. Listed only; action requirements are not enforced yet."
+      description: "Reusable lab tools and handling supplies already implied by current interaction methods. Matching handling procedures require the cataloged tool to be stocked; tools are reusable and not consumed."
     }
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
@@ -1151,28 +1151,28 @@
       label: "Thick gloves",
       category: "tools",
       initial: 1,
-      description: "Reusable protective gloves implied by the Thick gloves handling method. Starter stock is cataloged in the Storage Room; handling methods are not gated by inventory yet."
+      description: "Reusable protective gloves required by the Thick gloves handling method. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
     },
     {
       key: "longTongs",
       label: "Long tongs",
       category: "tools",
       initial: 1,
-      description: "Long handling tongs implied by the Long tongs handling method. Starter stock is cataloged in the Storage Room; handling methods are not gated by inventory yet."
+      description: "Long handling tongs required by the Long tongs handling method. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
     },
     {
       key: "hookPole",
       label: "Hook pole",
       category: "tools",
       initial: 1,
-      description: "A reach tool for pit covers, grates, and awkward handling. Starter stock is cataloged in the Storage Room; no tool requirement gates are enforced yet."
+      description: "A reach tool required by the Hook pole handling method for pit covers, grates, and awkward handling. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
     },
     {
       key: "scraper",
       label: "Scraper",
       category: "tools",
       initial: 1,
-      description: "A scraping tool for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; remains actions are not gated by inventory yet."
+      description: "A scraping tool required by the Scraper handling method for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -4790,9 +4790,13 @@
   }
 
   function handlingMethodRequirementSummary(methodId = currentHandlingMethodId()) {
-    return handlingMethodInventoryInfo(methodId)
-      ? "Requirement: not enforced yet"
-      : "Requirement: none";
+    const info = handlingMethodInventoryInfo(methodId);
+    if (!info) {
+      return "Requirement: none";
+    }
+    return info.amount > 0
+      ? "Requirement: stocked"
+      : "Requirement: blocked until stocked";
   }
 
   function handlingMethodProtocolSummary(methodId = currentHandlingMethodId()) {
@@ -4801,8 +4805,16 @@
       return "Protocol: no tool requirement";
     }
     return info.amount > 0
-      ? "Protocol: tool requirement not enforced"
-      : "Protocol: tool requirement not enforced; procedure still permitted";
+      ? "Protocol: required tool stocked"
+      : "Protocol: procedure blocked until tool is stocked";
+  }
+
+  function handlingMethodMissingToolReason(methodId = currentHandlingMethodId()) {
+    const info = handlingMethodInventoryInfo(methodId);
+    if (!info || info.amount > 0) {
+      return "";
+    }
+    return `Procedure blocked: ${info.item.label} not stocked in Storage Room.`;
   }
 
   function handlingMethodInventoryTitle(methodId = currentHandlingMethodId()) {
@@ -4813,16 +4825,22 @@
         "Tool preview: no tool expected.",
         `${method.label} has no Storage Room tool entry.`,
         "Protocol: no tool requirement.",
-        "Inventory does not gate handling methods yet."
+        "No inventory gate applies to this handling method."
       ].join("\n");
     }
-    return [
+    const lines = [
       `${handlingMethodToolPreviewSummary(method.id)}.`,
       `${info.item.label}: ${formatNumber(info.amount)} cataloged in the Storage Room.`,
       `${handlingMethodProtocolSummary(method.id)}.`,
-      "Catalog only: this handling method is not gated by inventory yet.",
-      "Future tool requirements should be designed in a separate pass."
-    ].join("\n");
+      `${handlingMethodRequirementSummary(method.id)}.`,
+      "Tool requirements are enforced for this handling method.",
+      "Tools are reusable and are not consumed."
+    ];
+    const missing = handlingMethodMissingToolReason(method.id);
+    if (missing) {
+      lines.push(missing);
+    }
+    return lines.join("\n");
   }
 
   function handlingMethodActionTitle(methodId = currentHandlingMethodId()) {
@@ -5367,7 +5385,8 @@
 
   function startContainerInteraction(containerId, action) {
     const container = containerById(containerId);
-    const reason = containerInteractionBlockReason(container, action);
+    const reason = containerInteractionBlockReason(container, action)
+      || handlingMethodMissingToolReason(currentHandlingMethodId());
     if (reason) {
       addEvent(reason);
       persist();
@@ -5557,7 +5576,8 @@
 
   function startLiveSlimeTransfer(sourceContainerId, destinationContainerId) {
     const sourceContainer = containerById(sourceContainerId);
-    const reason = liveTransferBlockReason(sourceContainer, destinationContainerId);
+    const reason = liveTransferBlockReason(sourceContainer, destinationContainerId)
+      || handlingMethodMissingToolReason(currentHandlingMethodId());
     if (reason) {
       addEvent(reason);
       persist();
@@ -5711,7 +5731,8 @@
 
   function startRemainsHandling(containerId, action) {
     const container = containerById(containerId);
-    const reason = remainsHandlingBlockReason(container, action);
+    const reason = remainsHandlingBlockReason(container, action)
+      || handlingMethodMissingToolReason(currentHandlingMethodId());
     if (reason) {
       addEvent(reason);
       persist();
@@ -7920,6 +7941,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const physicalRiskLabel = `${action === "close" ? "closing" : "opening"} ${container.name}`;
       const reason = containerInteractionBlockReason(container, action)
         || physicalStateRiskBlockReason(physicalRiskLabel)
+        || handlingMethodMissingToolReason(currentHandlingMethodId())
         || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["slimeHandling"]));
       setActionButtonState(button, Boolean(reason), reason);
       const physicalRiskTitle = physicalStateRiskTitle(physicalRiskLabel);
@@ -7939,6 +7961,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const remainsRiskLabel = `${remainsHandlingActionLabel(remainsAction).toLowerCase()} from ${container.name}`;
           const remainsReason = remainsHandlingBlockReason(container, remainsAction)
             || physicalStateRiskBlockReason(remainsRiskLabel)
+            || handlingMethodMissingToolReason(currentHandlingMethodId())
             || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
           const remainsRiskTitle = physicalStateRiskTitle(remainsRiskLabel);
@@ -7977,6 +8000,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const transferRiskLabel = "transferring a living slime";
         const transferReason = liveTransferBlockReason(container, selectedDestinationId)
           || physicalStateRiskBlockReason(transferRiskLabel)
+          || handlingMethodMissingToolReason(currentHandlingMethodId())
           || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
         const transferRiskTitle = physicalStateRiskTitle(transferRiskLabel);
@@ -8001,6 +8025,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const reason = !firstOpenPermanentContainer()
         ? "No open permanent container is available."
         : physicalStateRiskBlockReason(tubeMoveRiskLabel)
+          || handlingMethodMissingToolReason(currentHandlingMethodId())
           || staminaBlockReason(cost);
       setActionButtonState(moveBtn, Boolean(reason), reason);
       const tubeMoveRiskTitle = physicalStateRiskTitle(tubeMoveRiskLabel);
@@ -8020,6 +8045,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       persist();
       render();
       return;
+    }
+    const toolReason = handlingMethodMissingToolReason(currentHandlingMethodId());
+    if (toolReason) {
+      addEvent(toolReason);
+      persist();
+      render();
+      return false;
     }
     if (!confirmPhysicalStateRiskIfNeeded(`moving ${slime.name} from the synthesis tube`)) {
       return false;
@@ -11408,7 +11440,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const items = INVENTORY_ITEM_DEFS;
     const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
     dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Starter tools are cataloged only; no capacity, hauling, crafting, recipes, or action requirements are implemented yet.";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
     dom.inventoryList.textContent = "";
     for (const category of INVENTORY_CATEGORY_DEFS) {
       const categoryItems = items.filter((item) => item.category === category.id);

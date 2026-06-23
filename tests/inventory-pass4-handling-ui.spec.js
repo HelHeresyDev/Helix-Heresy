@@ -23,7 +23,7 @@ async function startRun(page) {
 }
 
 test.describe('Inventory Pass 4 inventory-aware handling UI', () => {
-  test('source links handling methods to cataloged inventory without gates', async () => {
+  test('source links handling methods to stocked inventory requirements', async () => {
     const source = fs.readFileSync(path.join(projectRoot, 'app.js'), 'utf8');
 
     expect(source).toContain('const HANDLING_METHOD_INVENTORY_ITEM_KEYS = {');
@@ -36,17 +36,15 @@ test.describe('Inventory Pass 4 inventory-aware handling UI', () => {
     expect(source).toContain('function handlingMethodRequirementSummary');
     expect(source).toContain('function handlingMethodActionTitle');
     expect(source).toContain('Inventory: no cataloged tool');
-    expect(source).toContain('Requirement: not enforced yet');
-    expect(source).toContain('Future tool requirements should be designed in a separate pass.');
+    expect(source).toContain('Requirement: stocked');
+    expect(source).toContain('Tool requirements are enforced for this handling method.');
     expect(source).toContain('dataset.handlingInventoryNote');
     expect(source).toContain('dataset.handlingInventory');
     expect(source).toContain('dataset.handlingRequirement');
 
-    expect(source).not.toContain('requireInventoryTool');
     expect(source).not.toContain('consumeInventoryTool');
     expect(source).not.toContain('toolDurability');
-    expect(source).not.toContain('disableHandlingMethodForInventory');
-    expect(source).not.toContain('toolRequirementGate');
+    expect(source).not.toContain('toolContamination');
   });
 
   test('handling method UI shows cataloged tool stock without disabling methods', async ({ page }) => {
@@ -72,25 +70,25 @@ test.describe('Inventory Pass 4 inventory-aware handling UI', () => {
     const note = page.locator('[data-handling-inventory-note]');
     await expect(note).toContainText('Inventory: no cataloged tool');
     await expect(note).toContainText('Requirement: none');
-    await expect(note).toHaveAttribute('title', /Inventory does not gate handling methods yet/i);
+    await expect(note).toHaveAttribute('title', /No inventory gate applies to this handling method/i);
 
     await handlingSelect.selectOption('thickGloves');
     await expect(page.locator('[data-handling-inventory-note]')).toContainText('Inventory: 1 Thick gloves cataloged in Storage Room');
-    await expect(page.locator('[data-handling-inventory-note]')).toContainText('Requirement: not enforced yet');
-    await expect(page.locator('[data-handling-inventory-note]')).toHaveAttribute('title', /Catalog only: this handling method is not gated by inventory yet/i);
+    await expect(page.locator('[data-handling-inventory-note]')).toContainText('Requirement: stocked');
+    await expect(page.locator('[data-handling-inventory-note]')).toHaveAttribute('title', /Tool requirements are enforced for this handling method/i);
 
     const handlingRisk = page.locator('.container-handling-risk').first();
     await expect(handlingRisk).toContainText('Method: Thick gloves');
     await expect(handlingRisk).toContainText('Inventory: 1 Thick gloves cataloged in Storage Room');
-    await expect(handlingRisk).toContainText('Requirement: not enforced yet');
+    await expect(handlingRisk).toContainText('Requirement: stocked');
     await expect(handlingRisk).toHaveAttribute('data-handling-inventory', /1 Thick gloves/);
-    await expect(handlingRisk).toHaveAttribute('data-handling-requirement', 'Requirement: not enforced yet');
-    await expect(handlingRisk).toHaveAttribute('title', /Future tool requirements should be designed in a separate pass/i);
+    await expect(handlingRisk).toHaveAttribute('data-handling-requirement', 'Requirement: stocked');
+    await expect(handlingRisk).toHaveAttribute('title', /Tool requirements are enforced for this handling method/i);
 
     const openButton = page.locator('[data-open-container-id]').first();
     await expect(openButton).toBeEnabled();
     await expect(openButton).toHaveAttribute('title', /Inventory: 1 Thick gloves cataloged in Storage Room/);
-    await expect(openButton).toHaveAttribute('title', /Requirement: not enforced yet/);
+    await expect(openButton).toHaveAttribute('title', /Requirement: stocked/);
 
     await visualPause(page, page.locator('.container-panel'), 'Inventory-aware handling method UI');
 
@@ -104,7 +102,7 @@ test.describe('Inventory Pass 4 inventory-aware handling UI', () => {
 
     await handlingSelect.selectOption('longTongs');
     await expect(page.locator('[data-handling-inventory-note]')).toContainText('Inventory: 1 Long tongs cataloged in Storage Room');
-    await expect(page.locator('[data-handling-inventory-note]')).toContainText('Requirement: not enforced yet');
+    await expect(page.locator('[data-handling-inventory-note]')).toContainText('Requirement: stocked');
 
     await expect(page.locator('text=Recipes')).toHaveCount(0);
     await expect(page.locator('text=Crafting')).toHaveCount(0);

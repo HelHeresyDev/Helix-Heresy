@@ -23,14 +23,14 @@ async function startRun(page) {
 }
 
 test.describe('Inventory Pass 3 starter stock', () => {
-  test('source defines starter stock for cataloged tools without action gates', async () => {
+  test('source defines starter stock for cataloged tools', async () => {
     const source = fs.readFileSync(path.join(projectRoot, 'app.js'), 'utf8');
 
     for (const key of ['thickGloves', 'longTongs', 'hookPole', 'scraper']) {
       expect(source).toContain(`key: "${key}"`);
     }
     expect(source).toContain('Starter stock is cataloged in the Storage Room');
-    expect(source).toContain('Starter tools are cataloged only');
+    expect(source).toContain('Starter tools are required by matching handling methods');
     expect(source).toContain('function defaultInventory');
 
     expect(source).not.toContain('requireInventoryTool');
@@ -59,7 +59,7 @@ test.describe('Inventory Pass 3 starter stock', () => {
     await startRun(page);
 
     await expect(page.locator('#inventorySummary')).toContainText('Storage Room ledger');
-    await expect(page.locator('#inventorySummary')).toHaveAttribute('title', /Starter tools are cataloged only/i);
+    await expect(page.locator('#inventorySummary')).toHaveAttribute('title', /required by matching handling methods/i);
 
     const inventory = page.locator('#inventoryList');
     for (const key of ['biomass', 'traceSlime', 'contaminatedResidue', 'ruinedOrganicMatter', 'preservedTissue']) {
@@ -68,7 +68,7 @@ test.describe('Inventory Pass 3 starter stock', () => {
     for (const key of ['thickGloves', 'longTongs', 'hookPole', 'scraper']) {
       const row = inventory.locator(`[data-inventory-item-key="${key}"]`);
       await expect(row.locator('strong')).toHaveText('1');
-      await expect(row).toHaveAttribute('title', /Starter stock|not gated by inventory|not enforced/i);
+      await expect(row).toHaveAttribute('title', /Starter stock|required by|reusable/i);
     }
 
     await visualPause(page, inventory, 'Inventory starter stock');
