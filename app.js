@@ -1334,6 +1334,7 @@
       containers: defaultContainers(),
       resources: defaultResources(),
       inventory: defaultInventory(),
+      inventoryHistory: defaultInventoryHistory(),
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
@@ -1375,6 +1376,10 @@
 
   function defaultInventory() {
     return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item.initial]));
+  }
+
+  function defaultInventoryHistory() {
+    return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, []]));
   }
 
   function defaultResources() {
@@ -1503,7 +1508,6 @@
 
   function init() {
     cacheDom();
-    ensureRightSidebar();
     ensureInventoryPanel();
     populateTimeSpeedSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
@@ -1626,34 +1630,6 @@
   }
 
 
-  function ensureRightSidebar() {
-    const root = dom.labRoot || document.getElementById("labRoot");
-    const journalPanel = document.querySelector(".journal-panel");
-    if (!root || !journalPanel) {
-      return null;
-    }
-
-    let sidebar = root.querySelector(".right-sidebar");
-    if (!sidebar) {
-      sidebar = document.createElement("aside");
-      sidebar.className = "right-sidebar";
-      sidebar.setAttribute("aria-label", "Journal and storage panels");
-      root.insertBefore(sidebar, journalPanel);
-    }
-
-    if (journalPanel.parentElement !== sidebar) {
-      sidebar.append(journalPanel);
-    }
-
-    const inventoryPanel = root.querySelector(".inventory-panel");
-    if (inventoryPanel && inventoryPanel.parentElement !== sidebar) {
-      sidebar.append(inventoryPanel);
-    }
-
-    return sidebar;
-  }
-
-
   function ensureInventoryPanel() {
     if (!dom.inventorySummary || !dom.inventoryList) {
       const panel = document.createElement("section");
@@ -1668,16 +1644,11 @@
         </div>
         <div id="inventoryList" class="inventory-list"></div>
       `;
-      const sidebar = ensureRightSidebar();
-      if (sidebar) {
-        sidebar.append(panel);
+      const roomPanel = document.querySelector(".room-panel");
+      if (roomPanel?.parentElement) {
+        roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
       } else {
-        const roomPanel = document.querySelector(".room-panel");
-        if (roomPanel?.parentElement) {
-          roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
-        } else {
-          dom.labRoot?.append(panel);
-        }
+        dom.labRoot?.append(panel);
       }
       dom.inventorySummary = document.getElementById("inventorySummary");
       dom.inventoryList = document.getElementById("inventoryList");
@@ -11492,7 +11463,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.className = "inventory-row";
         row.dataset.inventoryItemKey = item.key;
         row.dataset.inventoryCategory = item.category;
-        row.title = `${item.description} Current amount: ${formatNumber(inventoryAmount(item.key))}.`;
+        row.title = inventoryItemTooltip(item);
         row.append(textEl("span", item.label), textEl("strong", formatNumber(inventoryAmount(item.key))));
         section.append(row);
       }
@@ -11781,15 +11752,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(match[1])];
     const amount = Math.floor(Number(match[2]));
-    if (!itemKey || !Number.isFinite(amount) || amount <= 0) {
+    if (!itemKey || !Number.isFinite(amount) || amount === 0) {
       dom.inventoryCommandStatus.textContent = "Unknown inventory item or invalid amount.";
       return;
     }
-    addInventoryItem(itemKey, amount);
+    const actualDelta = addInventoryItem(itemKey, amount, "cheat adjustment");
+    if (!actualDelta) {
+      dom.inventoryCommandStatus.textContent = `${inventoryItemLabel(itemKey)} unchanged.`;
+      return;
+    }
     dom.inventoryCommandInput.value = "";
-    dom.inventoryCommandStatus.textContent = `Added ${formatNumber(amount)} ${inventoryItemLabel(itemKey)}.`;
-    const itemKind = INVENTORY_ITEM_BY_KEY[itemKey]?.category === "tools" ? "tool" : "material";
-    addEvent(`Stored ${itemKind} logged: ${inventoryItemLabel(itemKey)} +${formatNumber(amount)}.`);
+    dom.inventoryCommandStatus.textContent = `${actualDelta > 0 ? "Added" : "Removed"} ${formatNumber(Math.abs(actualDelta))} ${inventoryItemLabel(itemKey)}.`;
     persist();
     render();
   }
@@ -13806,7 +13779,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ensureInventory()[key] || 0;
   }
 
-  function addInventoryItem(key, amount) {
+  function addInventoryItem(key, amount, source = "manual adjustment") {
+    if (!INVENTORY_ITEM_BY_KEY[key]) {
+      return 0;
+    }
+    const requestedDelta = Math.trunc(Number(amount) || 0);
+    if (!requestedDelta) {
+      return 0;
+    }
+    const inventory = ensureInventory();
+    const before = inventory[key] || 0;
+    const after = Math.max(0, before + requestedDelta);
+    const actualDelta = after - before;
+    inventory[key] = after;
+    if (actualDelta) {
+      recordInventoryChange(key, actualDelta, source);
+    }
+    return actualDelta;
+  }
+
+  function recordInventoryChange(key, amount, source = "adjustment") {
     if (!INVENTORY_ITEM_BY_KEY[key]) {
       return false;
     }
@@ -13814,9 +13806,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!delta) {
       return false;
     }
-    const inventory = ensureInventory();
-    inventory[key] = Math.max(0, (inventory[key] || 0) + delta);
+    const history = ensureInventoryHistory();
+    const entries = history[key] ||= [];
+    entries.unshift({ amount: delta, source: String(source || "adjustment") });
+    history[key] = entries.slice(0, 10);
     return true;
+  }
+
+  function inventoryItemTooltip(item) {
+    const lines = [
+      item.label,
+      item.description,
+      `Current amount: ${formatNumber(inventoryAmount(item.key))}.`,
+      "",
+      "Recent changes:"
+    ];
+    const history = inventoryChangeHistory(item.key);
+    if (!history.length) {
+      lines.push("No recorded changes.");
+    } else {
+      for (const entry of history.slice(0, 10)) {
+        const amount = Number(entry.amount) || 0;
+        const prefix = amount > 0 ? "+" : "-";
+        lines.push(`${prefix}${formatNumber(Math.abs(amount))} ${entry.source || "adjustment"}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  function inventoryChangeHistory(key) {
+    return ensureInventoryHistory()[key] || [];
   }
 
   function inventoryItemLabel(key) {
@@ -13828,12 +13847,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.inventory;
   }
 
+  function ensureInventoryHistory() {
+    state.inventoryHistory = normalizeInventoryHistory(state.inventoryHistory);
+    return state.inventoryHistory;
+  }
+
   function normalizeInventory(candidate) {
     const fallback = defaultInventory();
     const normalized = {};
     for (const item of INVENTORY_ITEM_DEFS) {
       const value = Number(candidate?.[item.key]);
       normalized[item.key] = Math.max(0, Math.floor(Number.isFinite(value) ? value : fallback[item.key]));
+    }
+    return normalized;
+  }
+
+  function normalizeInventoryHistory(candidate) {
+    const normalized = defaultInventoryHistory();
+    for (const item of INVENTORY_ITEM_DEFS) {
+      const entries = Array.isArray(candidate?.[item.key]) ? candidate[item.key] : [];
+      normalized[item.key] = entries
+        .map((entry) => ({
+          amount: Math.trunc(Number(entry?.amount) || 0),
+          source: String(entry?.source || "adjustment")
+        }))
+        .filter((entry) => entry.amount)
+        .slice(0, 10);
     }
     return normalized;
   }
@@ -15181,6 +15220,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
+    next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);

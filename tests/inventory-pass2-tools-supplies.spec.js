@@ -106,7 +106,7 @@ test.describe('Inventory Pass 2 tools and supplies catalog', () => {
     }
 
     await expect(page.locator('#inventoryCommandStatus')).toContainText('Added 4 Scraper');
-    await expect(page.locator('#eventLog')).toContainText('Stored tool logged: Scraper +4.');
+    await expect(page.locator('#eventLog')).not.toContainText('Stored tool logged');
     await expect(page.locator('text=Recipes')).toHaveCount(0);
     await expect(page.locator('text=Crafting')).toHaveCount(0);
     await expect(page.locator('text=Storage capacity')).toHaveCount(0);

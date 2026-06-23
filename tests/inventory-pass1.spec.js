@@ -97,7 +97,7 @@ test.describe('Inventory Pass 1 storage ledger foundation', () => {
     }
 
     await expect(page.locator('#inventoryCommandStatus')).toContainText('Added 5 Preserved tissue');
-    await expect(page.locator('#eventLog')).toContainText('Stored material logged: Preserved tissue +5.');
+    await expect(page.locator('#eventLog')).not.toContainText('Stored material logged');
     await expect(page.locator('text=Recipes')).toHaveCount(0);
     await expect(page.locator('text=Crafting')).toHaveCount(0);
     await expect(page.locator('text=Storage capacity')).toHaveCount(0);
