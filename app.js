@@ -1058,6 +1058,94 @@
       airy: ["clean water", "watery residue", "slick gel", "cooling brine"]
     }
   };
+  const COLLECTION_BAY_APPARATUS = [
+    "drain channels",
+    "sealed troughs",
+    "fume hoods",
+    "condensers",
+    "collection plates",
+    "filters",
+    "catch basins"
+  ];
+  const COLLECTION_BAY_METHOD_DEFS = {
+    drip: {
+      label: "drip-channel capture",
+      apparatus: "drain channels and sealed troughs",
+      containerNeed: "dedicated drainage vessel",
+      note: "Seeping or dripping byproducts should be staged in a vessel built around channels, troughs, and catch basins."
+    },
+    sludge: {
+      label: "trough and scraper capture",
+      apparatus: "sealed troughs and collection plates",
+      containerNeed: "lined trough vessel",
+      note: "Gel, paste, sludge, or sticky residues need lined surfaces and plates that can be scraped without housing the specimen in porous containment."
+    },
+    vapor: {
+      label: "hood venting",
+      apparatus: "fume hood and condenser",
+      containerNeed: "existing sealed container can be vented under hood",
+      note: "Vapor or haze outputs can be gathered by bringing the existing container into the bay and venting it under hood control."
+    },
+    dry: {
+      label: "plate/filter capture",
+      apparatus: "collection plates and filters",
+      containerNeed: "lined plate or filter tray",
+      note: "Dry particulates, crystals, flakes, and gritty residues collect best on plates or filters."
+    },
+    unclear: {
+      label: "observation needed",
+      apparatus: "general apparatus",
+      containerNeed: "method unresolved",
+      note: "The specimen needs further byproduct observation before a collection method can be assigned."
+    }
+  };
+  const BYPRODUCT_COLLECTION_TYPES = {
+    "acid droplets": "drip",
+    "clean water": "drip",
+    "cooling brine": "drip",
+    "watery residue": "drip",
+    "sterile solvent": "drip",
+    "charged droplets": "drip",
+    "mana dew": "drip",
+    "trace slime": "sludge",
+    "inert gel": "sludge",
+    "clear mucus": "sludge",
+    "corrosive slime": "sludge",
+    "dissolved sludge": "sludge",
+    "slick gel": "sludge",
+    "chilled gel": "sludge",
+    "ozone slime": "sludge",
+    "dark mucus": "sludge",
+    "glow mucus": "sludge",
+    "plant mucus": "sludge",
+    "dense gel": "sludge",
+    "numbing paste": "sludge",
+    "bitter sludge": "sludge",
+    "black resin": "sludge",
+    "inky gel": "sludge",
+    "fibrous pulp": "sludge",
+    "coagulating wax": "sludge",
+    "grease pearls": "sludge",
+    "aerated foam": "sludge",
+    "contaminated residue": "sludge",
+    "irritant film": "sludge",
+    "opalescent film": "sludge",
+    "frost film": "dry",
+    "ash film": "dry",
+    "charred residue": "dry",
+    "metallic flakes": "dry",
+    "mineral grit": "dry",
+    "salt crystals": "dry",
+    "oxide dust": "dry",
+    "dry residue": "dry",
+    "fertile silt": "dry",
+    "clay residue": "dry",
+    "settled silt": "dry",
+    "smoke vapor": "vapor",
+    "faint vapor": "vapor",
+    "ether mist": "vapor",
+    "warm tar": "sludge"
+  };
   const ENVIRONMENTAL_SUSTENANCE_DEFS = [
     {
       id: "heat",
@@ -6344,6 +6432,85 @@
         physiologyProfile: byproductPhysiologyProfile(consistencyOutcome)
       }
     };
+  }
+
+  function byproductCollectionType(byproductLabel) {
+    return BYPRODUCT_COLLECTION_TYPES[String(byproductLabel || "").toLowerCase()] || "unclear";
+  }
+
+  function collectionBayMethodForByproduct(byproductLabel) {
+    return COLLECTION_BAY_METHOD_DEFS[byproductCollectionType(byproductLabel)] || COLLECTION_BAY_METHOD_DEFS.unclear;
+  }
+
+  function collectionBaySpecimens() {
+    return (state.slimes || [])
+      .filter((slime) => slime.status !== "dead" && slime.roomId === COLLECTION_BAY_ROOM_ID)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function collectionBaySpecimenReadout(slime) {
+    const row = document.createElement("div");
+    row.className = "collection-bay-specimen";
+    row.dataset.collectionBaySpecimen = slime.id;
+    row.append(slimeNameLink(slime));
+
+    const known = slimeTraitKnown(slime, "byproduct");
+    if (!known) {
+      const method = COLLECTION_BAY_METHOD_DEFS.unclear;
+      row.append(document.createTextNode(` — Method: ${method.label} · Container need: ${method.containerNeed}`));
+      row.title = method.note;
+      return row;
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const byproduct = baseOutcomeLabel(evaluated.traits.byproduct) || "unknown byproduct";
+    const method = collectionBayMethodForByproduct(byproduct);
+    const { band } = byproductExpressionInfo(slime);
+    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed}`));
+    row.title = `${method.note} This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
+    return row;
+  }
+
+  function collectionBayReadoutEl(room) {
+    if (room?.id !== COLLECTION_BAY_ROOM_ID) {
+      return null;
+    }
+    const panel = document.createElement("div");
+    panel.className = "collection-bay-readout subpanel";
+    panel.dataset.collectionBayReadout = "true";
+
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Collection apparatus";
+    panel.append(title);
+
+    const apparatus = document.createElement("p");
+    apparatus.className = "journal-meta";
+    apparatus.textContent = `Apparatus: ${COLLECTION_BAY_APPARATUS.join(" · ")}.`;
+    apparatus.title = "Collection apparatus works with staged containers. Drip and sludge outputs need dedicated drainage or trough vessels; vapor outputs can use existing sealed containers vented under fume hood control.";
+    panel.append(apparatus);
+
+    const staged = collectionBaySpecimens();
+    const status = document.createElement("p");
+    status.className = "journal-meta";
+    status.textContent = staged.length ? `Collection status: ${staged.length} specimen${staged.length === 1 ? "" : "s"} staged for apparatus readout` : "Collection status: No specimen staged";
+    panel.append(status);
+
+    if (staged.length) {
+      const list = document.createElement("div");
+      list.className = "collection-bay-specimen-list";
+      for (const slime of staged) {
+        list.append(collectionBaySpecimenReadout(slime));
+      }
+      panel.append(list);
+    }
+
+    const note = document.createElement("p");
+    note.className = "journal-meta";
+    note.textContent = "Readout only: no byproduct stock is produced here yet.";
+    note.title = "This pass classifies collection method and container needs only. Natural byproduct collection, feeding residue, and harvested tissue remain separate future systems.";
+    panel.append(note);
+    return panel;
   }
 
   function makeOutcomes(key, rng) {
@@ -11891,6 +12058,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       card.append(title, meta, roomGeometrySummaryEl(room), roomDoorControlsEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
       if (description.textContent) {
         card.append(description);
+      }
+      const collectionReadout = collectionBayReadoutEl(room);
+      if (collectionReadout) {
+        card.append(collectionReadout);
       }
       card.append(attributes);
       card.append(freeCreaturePressureEl(room));
