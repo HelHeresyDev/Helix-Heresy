@@ -1736,3 +1736,13 @@ h2 {
 .policy-field span {
   min-width: 0;
 }
+
+.policy-inventory-note {
+  padding: 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}

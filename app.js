@@ -1176,6 +1176,12 @@
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
+  const HANDLING_METHOD_INVENTORY_ITEM_KEYS = {
+    thickGloves: "thickGloves",
+    longTongs: "longTongs",
+    hookPole: "hookPole",
+    scraper: "scraper"
+  };
   const INVENTORY_ITEM_ALIASES = {
     ...Object.fromEntries(INVENTORY_ITEM_DEFS.flatMap((item) => [
       [normalizeCommandName(item.key), item.key],
@@ -4749,6 +4755,54 @@
     return HANDLING_METHOD_BY_ID[currentHandlingMethodId()] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
   }
 
+  function handlingMethodInventoryInfo(methodId = currentHandlingMethodId()) {
+    const itemKey = HANDLING_METHOD_INVENTORY_ITEM_KEYS[methodId];
+    if (!itemKey) {
+      return null;
+    }
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    if (!item) {
+      return null;
+    }
+    return {
+      itemKey,
+      item,
+      amount: inventoryAmount(itemKey)
+    };
+  }
+
+  function handlingMethodInventorySummary(methodId = currentHandlingMethodId()) {
+    const info = handlingMethodInventoryInfo(methodId);
+    if (!info) {
+      return "Inventory: no cataloged tool";
+    }
+    return `Inventory: ${formatNumber(info.amount)} ${info.item.label} cataloged in Storage Room`;
+  }
+
+  function handlingMethodRequirementSummary(methodId = currentHandlingMethodId()) {
+    return handlingMethodInventoryInfo(methodId)
+      ? "Requirement: not enforced yet"
+      : "Requirement: none";
+  }
+
+  function handlingMethodInventoryTitle(methodId = currentHandlingMethodId()) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    const info = handlingMethodInventoryInfo(method.id);
+    if (!info) {
+      return `${method.label} has no Storage Room tool entry. Inventory does not gate handling methods yet.`;
+    }
+    return [
+      `${info.item.label}: ${formatNumber(info.amount)} cataloged in the Storage Room.`,
+      "Catalog only: this handling method is not gated by inventory yet.",
+      "Future tool requirements should be designed in a separate pass."
+    ].join("\n");
+  }
+
+  function handlingMethodActionTitle(methodId = currentHandlingMethodId()) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    return `${method.label}: ${method.description}\n${handlingMethodInventorySummary(method.id)}. ${handlingMethodRequirementSummary(method.id)}.\n${handlingMethodInventoryTitle(method.id)}`;
+  }
+
   function setHandlingMethod(methodId) {
     state.policies = normalizePolicies(state.policies);
     state.policies.handling.method = HANDLING_METHOD_BY_ID[methodId] ? methodId : DEFAULT_HANDLING_METHOD;
@@ -5213,7 +5267,9 @@
       `Handling risk: ${predictionRangeText(prediction.riskRange)}`,
       `Possible harm: ${predictionRangeText(prediction.harmRange)}`,
       `Confidence: ${prediction.confidence.label}`,
-      `Method: ${risk.method.label}`
+      `Method: ${risk.method.label}`,
+      handlingMethodInventorySummary(risk.method.id),
+      handlingMethodRequirementSummary(risk.method.id)
     ].join(" | ");
   }
 
@@ -7771,10 +7827,13 @@
       const handlingRisk = containerHandlingRisk(container, handlingAction, currentHandlingMethodId());
       const handlingPrediction = directHandlingRiskPrediction(handlingRisk);
       handling.textContent = handlingRiskSummary(container);
-      handling.title = directHandlingRiskTooltip(handlingPrediction, handlingRisk);
+      handling.title = `${directHandlingRiskTooltip(handlingPrediction, handlingRisk)}
+${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handling.dataset.handlingRisk = predictionRangeText(handlingPrediction.riskRange);
       handling.dataset.handlingHarm = predictionRangeText(handlingPrediction.harmRange);
       handling.dataset.handlingConfidence = handlingPrediction.confidence.label;
+      handling.dataset.handlingInventory = handlingMethodInventorySummary(handlingRisk.method.id);
+      handling.dataset.handlingRequirement = handlingMethodRequirementSummary(handlingRisk.method.id);
       card.append(handling);
     }
 
@@ -7834,7 +7893,7 @@
       setActionButtonState(button, Boolean(reason), reason);
       const physicalRiskTitle = physicalStateRiskTitle(physicalRiskLabel);
       const directHandlingTitle = handlingRiskTitle(container, action, currentHandlingMethodId());
-      button.title = reason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${directHandlingTitle}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
+      button.title = reason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${directHandlingTitle}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
       button.addEventListener("click", () => startContainerInteraction(container.id, action));
       actions.append(button);
 
@@ -7853,7 +7912,7 @@
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
           const remainsRiskTitle = physicalStateRiskTitle(remainsRiskLabel);
           const directRemainsHandlingTitle = handlingRiskTitle(container, remainsAction, currentHandlingMethodId());
-          remainsBtn.title = remainsReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${directRemainsHandlingTitle}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
+          remainsBtn.title = remainsReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${directRemainsHandlingTitle}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
           remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
           actions.append(remainsBtn);
         }
@@ -7891,7 +7950,7 @@
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
         const transferRiskTitle = physicalStateRiskTitle(transferRiskLabel);
         const directTransferHandlingTitle = handlingRiskTitle(container, "transferLivingSlime", currentHandlingMethodId());
-        transferBtn.title = transferReason || `${currentHandlingMethod().label}: ${currentHandlingMethod().description}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${directTransferHandlingTitle}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
+        transferBtn.title = transferReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${directTransferHandlingTitle}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
         transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
         transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
         actions.append(transferWrap);
@@ -11075,10 +11134,17 @@
       methodSelect.append(option);
     }
     methodSelect.value = currentHandlingMethodId();
-    methodSelect.title = currentHandlingMethod().description;
+    methodSelect.title = handlingMethodActionTitle(currentHandlingMethodId());
     methodSelect.addEventListener("change", () => setHandlingMethod(methodSelect.value));
     methodLabel.append(methodSelect);
     corpseControls.append(methodLabel);
+
+    const methodInventoryNote = document.createElement("div");
+    methodInventoryNote.className = "policy-inventory-note";
+    methodInventoryNote.dataset.handlingInventoryNote = "true";
+    methodInventoryNote.textContent = `${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
+    methodInventoryNote.title = handlingMethodInventoryTitle(currentHandlingMethodId());
+    corpseControls.append(methodInventoryNote);
 
     const doorPolicyLabel = document.createElement("label");
     doorPolicyLabel.className = "policy-option";
