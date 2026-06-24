@@ -6477,6 +6477,14 @@
     return Boolean(container && containerTypeDef(container.typeId)?.collectionVessel);
   }
 
+  function isHoodVentableContainer(container) {
+    const type = containerTypeDef(container?.typeId);
+    if (!type || isCollectionVessel(container)) {
+      return false;
+    }
+    return !type.geometry?.openTop && Number(type.seal || 0) >= 65;
+  }
+
   function collectionBayContainerSupport(slime, methodType) {
     const container = containerById(slime?.containerId);
     if (!container) {
@@ -6495,6 +6503,23 @@
       return "Container support: plate/filter staging recommended";
     }
     return "Container support: observation needed";
+  }
+
+  function collectionBayHoodSupport(slime, methodType) {
+    if (methodType !== "vapor") {
+      return "";
+    }
+    const container = containerById(slime?.containerId);
+    if (!container) {
+      return "Hood support: sealed ventable container required";
+    }
+    if (isCollectionVessel(container)) {
+      return "Hood support: hood venting still required";
+    }
+    if (isHoodVentableContainer(container)) {
+      return "Hood support: compatible sealed container";
+    }
+    return "Hood support: sealed ventable container recommended";
   }
 
   function collectionBaySpecimens() {
@@ -6522,9 +6547,11 @@
     const methodType = byproductCollectionType(byproduct);
     const method = collectionBayMethodForByproduct(byproduct);
     const support = collectionBayContainerSupport(slime, methodType);
+    const hoodSupport = collectionBayHoodSupport(slime, methodType);
+    const hoodText = hoodSupport ? ` · ${hoodSupport}` : "";
     const { band } = byproductExpressionInfo(slime);
-    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed} · ${support}`));
-    row.title = `${method.note} ${support}. This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
+    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed} · ${support}${hoodText}`));
+    row.title = `${method.note} ${support}. ${hoodSupport ? `${hoodSupport}. ` : ""}Hood venting applies only to vapor, haze, fume, and mist byproducts and uses Collection Bay fume hoods and condensers with a sealed ventable container. This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
     return row;
   }
 
@@ -6544,7 +6571,7 @@
     const apparatus = document.createElement("p");
     apparatus.className = "journal-meta";
     apparatus.textContent = `Apparatus: ${COLLECTION_BAY_APPARATUS.join(" · ")}.`;
-    apparatus.title = "Collection apparatus works with staged containers. Drip and sludge outputs need dedicated drainage or trough vessels; vapor outputs can use existing sealed containers vented under fume hood control.";
+    apparatus.title = "Collection apparatus works with staged containers. Drip and sludge outputs need dedicated drainage or trough vessels; vapor, haze, fume, and mist outputs use existing sealed containers vented under fume hood and condenser control.";
     panel.append(apparatus);
 
     const staged = collectionBaySpecimens();
