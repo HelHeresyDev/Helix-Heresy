@@ -546,6 +546,44 @@ h2 {
   border-radius: 6px;
 }
 
+.collection-bay-specimen-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.collection-bay-specimen {
+  padding: 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.collection-bay-specimen-header,
+.collection-bay-specimen-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  align-items: baseline;
+}
+
+.collection-bay-container-name,
+.collection-bay-fact,
+.collection-bay-specimen-support {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.collection-bay-fact strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.collection-bay-specimen-facts,
+.collection-bay-specimen-support {
+  margin-top: 0.35rem;
+}
+
 .vital-row,
 .resource-row,
 .inventory-row,

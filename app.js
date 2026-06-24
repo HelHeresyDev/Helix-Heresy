@@ -6340,41 +6340,54 @@
     return !type.geometry?.openTop && Number(type.seal || 0) >= 65;
   }
 
-  function collectionBayContainerSupport(slime, methodType) {
+  function collectionBaySupport(slime, methodType) {
     const container = containerById(slime?.containerId);
     if (!container) {
-      return "Container support: no staged container";
+      return {
+        label: "no staged container",
+        detail: "No container is staged with this specimen in the Collection Bay.",
+      };
     }
     if (methodType === "drip" || methodType === "sludge") {
       if (isCollectionVessel(container)) {
-        return "Container support: Collection Vessel fitted";
+        return {
+          label: "Collection Vessel fitted",
+          detail: "Drip, gel, and sludge outputs are supported by a dedicated Collection Vessel.",
+        };
       }
-      return "Container support: dedicated Collection Vessel recommended";
+      return {
+        label: "Collection Vessel recommended",
+        detail: "Drip, gel, and sludge outputs are easier to capture in a dedicated Collection Vessel.",
+      };
     }
     if (methodType === "vapor") {
-      return "Container support: hood venting still required";
+      if (isCollectionVessel(container)) {
+        return {
+          label: "hood venting required; Collection Vessel does not solve vapor",
+          detail: "Vapor, haze, fume, and mist outputs need hood venting. A Collection Vessel helps with liquid output, not airborne output.",
+        };
+      }
+      if (isHoodVentableContainer(container)) {
+        return {
+          label: "hood-compatible sealed container",
+          detail: "This sealed container can be staged under Collection Bay hood and condenser control.",
+        };
+      }
+      return {
+        label: "sealed ventable container recommended",
+        detail: "Vapor, haze, fume, and mist outputs should be staged in a sealed ventable container under hood control.",
+      };
     }
     if (methodType === "dry") {
-      return "Container support: plate/filter staging recommended";
+      return {
+        label: "plate/filter staging recommended",
+        detail: "Dry, crystalline, dusty, and filament outputs are better handled with plate, tray, or filter staging.",
+      };
     }
-    return "Container support: observation needed";
-  }
-
-  function collectionBayHoodSupport(slime, methodType) {
-    if (methodType !== "vapor") {
-      return "";
-    }
-    const container = containerById(slime?.containerId);
-    if (!container) {
-      return "Hood support: sealed ventable container required";
-    }
-    if (isCollectionVessel(container)) {
-      return "Hood support: hood venting still required";
-    }
-    if (isHoodVentableContainer(container)) {
-      return "Hood support: compatible sealed container";
-    }
-    return "Hood support: sealed ventable container recommended";
+    return {
+      label: "byproduct unknown",
+      detail: "The byproduct must be identified before the Collection Bay can recommend support apparatus.",
+    };
   }
 
   function collectionBaySpecimens() {
@@ -6387,19 +6400,45 @@
     return new Set(specimens.map((slime) => slime.containerId).filter(Boolean)).size;
   }
 
+  function collectionBayFactEl(label, value) {
+    const item = document.createElement("span");
+    item.className = "collection-bay-fact";
+    const strong = document.createElement("strong");
+    strong.textContent = `${label}: `;
+    item.append(strong, document.createTextNode(value));
+    return item;
+  }
+
   function collectionBaySpecimenReadout(slime) {
     const row = document.createElement("div");
     row.className = "collection-bay-specimen";
     row.dataset.collectionBaySpecimen = slime.id;
-    row.append(slimeNameLink(slime));
     const container = containerById(slime.containerId);
-    row.append(document.createTextNode(` in ${container?.name || "unknown container"}`));
+    const header = document.createElement("div");
+    header.className = "collection-bay-specimen-header";
+    header.append(slimeNameLink(slime));
+    const location = document.createElement("span");
+    location.className = "collection-bay-container-name";
+    location.textContent = ` in ${container?.name || "unknown container"}`;
+    header.append(location);
+    row.append(header);
 
     const known = slimeTraitKnown(slime, "byproduct");
     if (!known) {
       const method = COLLECTION_BAY_METHOD_DEFS.unclear;
-      row.append(document.createTextNode(` — Method: ${method.label} · Container need: ${method.containerNeed}`));
-      row.title = method.note;
+      const facts = document.createElement("div");
+      facts.className = "collection-bay-specimen-facts";
+      facts.append(
+        collectionBayFactEl("Method", method.label),
+        collectionBayFactEl("Need", method.containerNeed),
+      );
+      const support = collectionBaySupport(slime, "unclear");
+      const supportLine = document.createElement("div");
+      supportLine.className = "collection-bay-specimen-support";
+      supportLine.textContent = `Support: ${support.label}`;
+      supportLine.title = support.detail;
+      row.replaceChildren(header, facts, supportLine);
+      row.title = `${method.note} ${support.detail}`;
       return row;
     }
 
@@ -6407,12 +6446,22 @@
     const byproduct = baseOutcomeLabel(evaluated.traits.byproduct) || "unknown byproduct";
     const methodType = byproductCollectionType(byproduct);
     const method = collectionBayMethodForByproduct(byproduct);
-    const support = collectionBayContainerSupport(slime, methodType);
-    const hoodSupport = collectionBayHoodSupport(slime, methodType);
-    const hoodText = hoodSupport ? ` · ${hoodSupport}` : "";
+    const support = collectionBaySupport(slime, methodType);
     const { band } = byproductExpressionInfo(slime);
-    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed} · ${support}${hoodText}`));
-    row.title = `${method.note} ${support}. ${hoodSupport ? `${hoodSupport}. ` : ""}Hood venting applies only to vapor, haze, fume, and mist byproducts and uses Collection Bay fume hoods and condensers with a sealed ventable container. This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
+    const facts = document.createElement("div");
+    facts.className = "collection-bay-specimen-facts";
+    facts.append(
+      collectionBayFactEl("Byproduct", byproduct),
+      collectionBayFactEl("Output", band.label),
+      collectionBayFactEl("Method", method.label),
+      collectionBayFactEl("Need", method.containerNeed),
+    );
+    const supportLine = document.createElement("div");
+    supportLine.className = "collection-bay-specimen-support";
+    supportLine.textContent = `Support: ${support.label}`;
+    supportLine.title = support.detail;
+    row.replaceChildren(header, facts, supportLine);
+    row.title = `${method.note} ${support.detail} This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
     return row;
   }
 
@@ -6440,8 +6489,8 @@
     const status = document.createElement("p");
     status.className = "journal-meta";
     status.textContent = staged.length
-      ? `Collection status: ${stagedContainers} staged container${stagedContainers === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for apparatus readout`
-      : "Collection status: No specimen staged";
+      ? `Collection status: ${stagedContainers} staged container${stagedContainers === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for readout`
+      : "Collection status: No staged containers";
     panel.append(status);
 
     if (staged.length) {

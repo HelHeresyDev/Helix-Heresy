@@ -83,7 +83,7 @@ test('queued container hauling stages contained specimens by container location'
   await expect(page.locator('#selectedSlimeSummary')).toContainText('LOG-001');
   await expect(page.locator('#selectedSlimeSummary')).toContainText('Contained in Logistics Jar');
   await expect(page.locator('#selectedSlimeSummary')).toContainText('Room: Main Lab');
-  await expect(page.locator('#roomList')).toContainText('Collection status: No specimen staged');
+  await expect(page.locator('#roomList')).toContainText('Collection status: No staged containers');
 
   await page.locator('[data-container-room-select="basic-1"]').selectOption('collectionBay');
 
@@ -94,7 +94,7 @@ test('queued container hauling stages contained specimens by container location'
   await taskRow.getByRole('button', { name: 'Finish' }).click();
 
   await expect(page.locator('#selectedSlimeSummary')).toContainText('Room: Collection Bay');
-  await expect(page.locator('#roomList')).toContainText('Collection status: 1 staged container; 1 specimen ready for apparatus readout');
+  await expect(page.locator('#roomList')).toContainText('Collection status: 1 staged container; 1 specimen ready for readout');
   await expect(page.locator('#roomList')).toContainText('LOG-001 in Logistics Jar');
 
   expect(consoleIssues).toEqual([]);
