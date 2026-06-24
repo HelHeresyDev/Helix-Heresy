@@ -12,19 +12,52 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Collected Byproduct Inventory Transfer System
-2. Feeding Residue System
-3. Harvestable Specimen Material System
-4. Container Compatibility & Material Resistance System
-5. Room-Local Storage and Hauling System
-6. Lab Construction & Room Expansion System
-7. Black Market Byproduct Economy System
-8. Elemental Damage Type System
-9. Tool Durability and Damage Resistance System
+1. Natural Byproduct Production Condition System
+2. Collected Byproduct Inventory Transfer System
+3. Feeding Residue System
+4. Harvestable Specimen Material System
+5. Container Compatibility & Material Resistance System
+6. Room-Local Storage and Hauling System
+7. Lab Construction & Room Expansion System
+8. Black Market Byproduct Economy System
+9. Elemental Damage Type System
+10. Tool Durability and Damage Resistance System
 
 ---
 
-## 1. Collected Byproduct Inventory Transfer System
+## 1. Natural Byproduct Production Condition System
+
+Create a system where a slime’s natural byproduct production is shaped by its current biological condition, not only by its production gene.
+
+The production gene should define the slime’s baseline production potential. It should describe what the slime is naturally capable of producing under good conditions, but the actual amount produced at any moment should depend on the living specimen’s current state.
+
+A healthy, well-fed, low-stress slime that is near its mature peak mass should produce closer to its natural potential. A starving, stressed, injured, under-mass, immature, unstable, or poorly housed slime should produce less, produce irregularly, or fail to sustain normal output.
+
+This system should answer questions like:
+- What does the production gene define as baseline potential?
+- Which current condition stats affect actual production?
+- How should nutrition affect output?
+- How should current mass versus peak or mature mass affect output?
+- How should stress suppress or destabilize output?
+- How should body integrity affect output?
+- Should maturity, lifespan stage, exposure, contamination, sickness, or room conditions matter?
+- Can excellent care temporarily improve production, or does it only help the slime reach its genetic baseline?
+- How should output penalties be communicated without showing exact hidden math?
+- How should condition-based production connect to Collection Bay accumulation and later inventory transfer?
+
+This system should make creature care matter. Production should not be a static number printed by genetics. Genes define potential, but the organism’s condition determines how much of that potential is actually expressed.
+
+This should also create meaningful gameplay tradeoffs. A high-output specimen may be valuable, but if it is stressed, underfed, injured, or housed poorly, it should not perform at its best. Better feeding, safer containment, lower stress, and healthier mass should matter because they help the specimen sustain production.
+
+The UI should communicate this in broad biological terms rather than exact formulas. The player might see that production is suppressed by poor nutrition, reduced mass, stress, or injury, but not the exact multiplier. Tooltips can carry more detail and confidence than the main UI.
+
+The desired result is a natural byproduct production model where genes set baseline capability and current specimen condition determines real output. This model should become the basis for Collection Bay passive accumulation and later byproduct economy systems.
+
+Before coding, discuss the condition factors, production model, UI wording, and how this should connect to natural output bands and Collection Bay accumulation.
+
+---
+
+## 2. Collected Byproduct Inventory Transfer System
 
 Create a system for transferring accumulated Collection Bay byproducts into the Storage Room inventory ledger.
 
@@ -53,7 +86,7 @@ Before coding, discuss how collected byproduct should map into inventory items a
 
 ---
 
-## 2. Feeding Residue System
+## 3. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
@@ -78,7 +111,7 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 3. Harvestable Specimen Material System
+## 4. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slime’s body.
 
@@ -104,7 +137,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 4. Container Compatibility & Material Resistance System
+## 5. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -127,7 +160,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 5. Room-Local Storage and Hauling System
+## 6. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -150,7 +183,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 6. Lab Construction & Room Expansion System
+## 7. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -174,7 +207,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -200,7 +233,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 8. Elemental Damage Type System
+## 9. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -225,7 +258,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 9. Tool Durability and Damage Resistance System
+## 10. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
