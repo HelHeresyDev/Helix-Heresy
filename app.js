@@ -4365,180 +4365,6 @@
     return wardId ? containerWardDef(wardId)?.label || "" : "";
   }
 
-  function passiveContainerSuitability(slime, container) {
-    if (!slime || !container) {
-      return { label: "Unknown", className: "container-band-unknown", reasons: ["No specimen assigned."] };
-    }
-    if (container.type === "synthesis") {
-      return {
-        label: "Perfect Temporary Fit",
-        className: "container-band-good",
-        reasons: ["The synthesis tube is built for temporary universal containment."]
-      };
-    }
-
-    const evaluated = evaluateGenome(slime.genome);
-    const profile = physicalProfile(slime.genome, evaluated);
-    const type = containerTypeDef(container.typeId);
-    const condition = containerCondition(container);
-    const revealed = slime.revealed || {};
-    const knownTraits = ["size", "shape", "consistency", "appendages", "element", "byproduct", "stability"]
-      .filter((traitKey) => revealed[traitKey]);
-    if (!profile || !knownTraits.length) {
-      return {
-        label: "Unknown",
-        className: "container-band-unknown",
-        reasons: ["No relevant containment traits discovered yet."]
-      };
-    }
-
-    let score = 100;
-    const reasons = [];
-    const addConcern = (severity, text) => {
-      const weights = { minor: 8, moderate: 18, major: 34, severe: 50 };
-      score -= weights[severity] || 0;
-      reasons.push(text);
-    };
-    const addNote = (text) => {
-      reasons.push(text);
-    };
-    const addThreat = (label, tags, resistanceKey) => {
-      const wardLabel = containerProtectionLabel(container, tags);
-      if (wardLabel) {
-        addNote(`${wardLabel} covers ${label}.`);
-        return;
-      }
-      const resistance = Number(type.resistances?.[resistanceKey]) || 0;
-      if (resistance < 25) {
-        addConcern("severe", `${type.label} has very poor ${label} resistance.`);
-      } else if (resistance < 50) {
-        addConcern("major", `${type.label} has weak ${label} resistance.`);
-      } else if (resistance < 70) {
-        addConcern("minor", `${type.label} only partly resists ${label}.`);
-      }
-    };
-
-    if (revealed.size) {
-      const massFraction = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
-      const currentVolume = profile.volumeCm3 * massFraction;
-      const currentWeight = profile.weightKg * massFraction;
-      const weightLimit = containerEffectiveWeightLimit(container);
-      if (currentVolume > type.capacityCm3) {
-        addConcern("severe", `Current body volume exceeds ${type.label} capacity.`);
-      } else if (currentVolume > type.capacityCm3 * 0.85) {
-        addConcern("moderate", `Current body nearly fills ${type.label}.`);
-      } else if (profile.volumeCm3 > type.capacityCm3) {
-        addConcern("major", `Full mass would outgrow ${type.label}.`);
-      }
-      if (revealed.shape && currentWeight > weightLimit) {
-        addConcern("severe", `Current weight exceeds the container load limit.`);
-      } else if (revealed.shape && profile.weightKg > weightLimit) {
-        addConcern("major", `Full mass may exceed the container load limit.`);
-      }
-      if (revealed.shape) {
-        for (const concern of containerDimensionalSuitabilityConcerns(slime, container, profile, { consistencyKnown: Boolean(revealed.consistency) })) {
-          addConcern(concern.severity, concern.text);
-        }
-      }
-    }
-
-    if (revealed.consistency) {
-      const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"];
-      const brittle = ["crystalline gel", "brittle jelly", "clay-like"];
-      if (runny.includes(profile.consistency)) {
-        if (type.gap >= 60) {
-          addConcern("severe", `Runny body can escape through the container gaps.`);
-        } else if (containerEffectiveSeal(container) < 50) {
-          addConcern("major", `Runny body strains the weak seal.`);
-        } else if (containerEffectiveSeal(container) < 75) {
-          addConcern("minor", `Runny body may seep if stressed.`);
-        }
-      }
-      if (brittle.includes(profile.consistency) && type.comfort < 55) {
-        addConcern("moderate", `Brittle body may chip against the hard interior.`);
-      }
-    }
-
-    if (revealed.shape && ["puddle", "flat sheet"].includes(profile.shape)) {
-      if (type.gap >= 50) {
-        addConcern("major", `${profile.shape} form needs a tighter enclosure.`);
-      } else if (containerEffectiveSeal(container) < 55) {
-        addConcern("minor", `${profile.shape} form benefits from a better seal.`);
-      }
-    }
-
-    if (revealed.appendages && profile.appendages !== "none") {
-      if (type.gap >= 60) {
-        addConcern("moderate", `Appendages may reach or snag through large gaps.`);
-      }
-      if (["spines", "hook claws"].includes(profile.appendages) && type.durability < 55) {
-        addConcern("moderate", `${profile.appendages} can score fragile interiors.`);
-      }
-    }
-
-    if (revealed.element) {
-      const element = profile.element;
-      const elementalThreats = {
-        acid: ["acid exposure", ["acid"], "acid"],
-        flame: ["flame exposure", ["flame", "heat"], "flame"],
-        frost: ["frost exposure", ["frost", "cold"], "frost"],
-        storm: ["storm charge", ["storm", "electric"], "storm"],
-        poison: ["poison seepage", ["poison", "toxic", "fume"], "poison"],
-        dream: ["arcane seepage", ["mana", "arcane", "dream"], "mana"],
-        ether: ["ether seepage", ["mana", "arcane", "ether"], "mana"],
-        gravity: ["gravity strain", ["weight", "gravity"], "mana"]
-      };
-      if (elementalThreats[element]) {
-        addThreat(...elementalThreats[element]);
-      }
-      if (["metal", "stone"].includes(element) && profile.weightKg > type.maxWeightKg * 0.8 && !containerProtectsAny(container, ["weight"])) {
-        addConcern("minor", `${element} affinity may become a load problem at full mass.`);
-      }
-    }
-
-    if (revealed.byproduct) {
-      const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
-      if (["acid droplets", "sterile solvent", "corrosive slime", "dissolved sludge"].includes(byproduct)) {
-        addThreat("corrosive byproduct", ["acid"], "acid");
-      }
-      if (["smoke vapor", "numbing paste", "contaminated residue", "irritant film", "bitter sludge", "ether mist"].includes(byproduct)) {
-        addThreat("toxic byproduct", ["poison", "fume"], "poison");
-      }
-      if (["mana dew", "ether mist", "opalescent film"].includes(byproduct)) {
-        addThreat("arcane byproduct", ["mana", "arcane"], "mana");
-      }
-      if (["cooling brine", "frost film", "chilled gel"].includes(byproduct)) {
-        addThreat("cold brine", ["frost", "cold"], "frost");
-      }
-      if (["adhesive gel", "black resin", "grease pearls", "coagulating wax", "warm tar", "dark mucus", "inky gel", "dissolved sludge", "plant mucus"].includes(byproduct) && !type.drainage) {
-        addConcern("minor", `${byproduct} may foul containers without drainage.`);
-      }
-    }
-
-    if (revealed.stability) {
-      const risk = Number(evaluated.traits.stability.meta?.risk) || 5;
-      if (risk >= 7 && type.durability < 50) {
-        addConcern("moderate", `High containment risk and fragile material are a poor mix.`);
-      } else if (risk >= 7) {
-        addConcern("minor", `High containment risk warrants monitoring.`);
-      }
-    }
-
-    const label = score >= 80 ? "Good Fit"
-      : score >= 60 ? "Questionable"
-        : score >= 35 ? "Poor Fit"
-          : "Unsuitable";
-    const className = score >= 80 ? "container-band-good"
-      : score >= 60 ? "container-band-questionable"
-        : score >= 35 ? "container-band-poor"
-          : "container-band-unsuitable";
-    return {
-      label,
-      className,
-      reasons: reasons.length ? reasons.slice(0, 4) : ["No obvious conflicts among discovered traits."]
-    };
-  }
-
   function physicalContainerFitBands() {
     return ["Comfortable", "Serviceable", "Tight", "Cramped", "Strained", "Overfilled"];
   }
@@ -4574,6 +4400,30 @@
     if (highIndex >= physicalContainerFitBandIndex("Strained")) return "container-band-poor";
     if (highIndex >= physicalContainerFitBandIndex("Cramped")) return "container-band-questionable";
     return "container-band-good";
+  }
+
+  function activeContainmentPotentialFromPhysicalFit(prediction) {
+    if (!prediction || prediction.confidence?.label === "Unknown") {
+      return {
+        points: 8,
+        text: "physical fit is still unresolved."
+      };
+    }
+    const highBand = prediction.range?.high || "Serviceable";
+    const pointsByBand = {
+      Overfilled: 30,
+      Strained: 18,
+      Cramped: 10,
+      Tight: 4
+    };
+    const points = pointsByBand[highBand] || 0;
+    if (!points) {
+      return { points: 0, text: "" };
+    }
+    return {
+      points,
+      text: `physical fit range reaches ${highBand.toLowerCase()} (${predictionRangeText(prediction.range)}).`
+    };
   }
 
   function physicalContainerFitPrediction(slime, container) {
@@ -5593,7 +5443,8 @@
     const health = scientistVital("health");
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
-    addEvent(`Scientist hurt during handling: ${reason}.`);    if (health.current <= 0 && before > 0) {
+    addEvent(`Scientist hurt during handling: ${reason}.`);
+    if (health.current <= 0 && before > 0) {
       state.runEnded = true;
       state.paused = true;
       addEvent("The scientist died. Run ended.");
@@ -7923,7 +7774,7 @@
     const condition = containerCondition(container);
     const revealed = slime.revealed || {};
     const stats = slime.stats || {};
-    const fit = passiveContainerSuitability(slime, container);
+    const physicalFit = physicalContainerFitPrediction(slime, container);
     let potential = 0;
     let pressure = 0;
     const potentialReasons = [];
@@ -7945,14 +7796,9 @@
       reasons.push(text);
     };
 
-    if (fit.label === "Unsuitable") {
-      addPotential(55, "passive fit is unsuitable.");
-    } else if (fit.label === "Poor Fit") {
-      addPotential(35, "passive fit is poor.");
-    } else if (fit.label === "Questionable") {
-      addPotential(18, "passive fit is questionable.");
-    } else if (fit.label === "Unknown") {
-      addPotential(8, "containment fit is still partly unknown.");
+    const physicalFitPotential = activeContainmentPotentialFromPhysicalFit(physicalFit);
+    if (physicalFitPotential.points) {
+      addPotential(physicalFitPotential.points, physicalFitPotential.text);
     }
 
     if (condition < 25) {
