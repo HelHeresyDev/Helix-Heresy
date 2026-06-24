@@ -4705,6 +4705,10 @@
       return `Location: ${roomName(slime.roomId || MAIN_ROOM_ID)}`;
     }
     const container = containerById(slime.containerId);
+    const haulDestination = container ? containerHaulDestinationLabel(container.id) : "";
+    if (haulDestination) {
+      return `Contained in ${container?.name || "unknown container"} (hauling to ${haulDestination})`;
+    }
     return `Contained in ${container?.name || "unknown container"}`;
   }
 
@@ -6375,8 +6379,12 @@
 
   function collectionBaySpecimens() {
     return (state.slimes || [])
-      .filter((slime) => slime.status !== "dead" && slime.roomId === COLLECTION_BAY_ROOM_ID)
+      .filter((slime) => slime.status !== "dead" && slime.status !== "released" && slime.containerId && slimeEffectiveRoomId(slime) === COLLECTION_BAY_ROOM_ID)
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function collectionBayStagedContainerCount(specimens = collectionBaySpecimens()) {
+    return new Set(specimens.map((slime) => slime.containerId).filter(Boolean)).size;
   }
 
   function collectionBaySpecimenReadout(slime) {
@@ -6384,6 +6392,8 @@
     row.className = "collection-bay-specimen";
     row.dataset.collectionBaySpecimen = slime.id;
     row.append(slimeNameLink(slime));
+    const container = containerById(slime.containerId);
+    row.append(document.createTextNode(` in ${container?.name || "unknown container"}`));
 
     const known = slimeTraitKnown(slime, "byproduct");
     if (!known) {
@@ -6426,9 +6436,12 @@
     panel.append(apparatus);
 
     const staged = collectionBaySpecimens();
+    const stagedContainers = collectionBayStagedContainerCount(staged);
     const status = document.createElement("p");
     status.className = "journal-meta";
-    status.textContent = staged.length ? `Collection status: ${staged.length} specimen${staged.length === 1 ? "" : "s"} staged for apparatus readout` : "Collection status: No specimen staged";
+    status.textContent = staged.length
+      ? `Collection status: ${stagedContainers} staged container${stagedContainers === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for apparatus readout`
+      : "Collection status: No specimen staged";
     panel.append(status);
 
     if (staged.length) {
@@ -7108,9 +7121,10 @@
     const selected = getSelectedSlime();
     dom.selectedSlimeSummary.textContent = "";
     if (selected) {
+      const selectedRoomLabel = slimeRoomLabel(selected);
       dom.selectedSlimeSummary.append(
         slimeNameLink(selected),
-        document.createTextNode(` - ${slimeLocationLabel(selected)} - ${slimeActivityLabel(selected)}`)
+        document.createTextNode(` - ${slimeLocationLabel(selected)}${selectedRoomLabel ? ` - ${selectedRoomLabel}` : ""} - ${slimeActivityLabel(selected)}`)
       );
       const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
       if (selectedContainer && selected.status !== "dead") {
@@ -8147,7 +8161,7 @@
     const typeLabel = container.type === "synthesis" ? "Synthesis Tube" : containerTypeLabel(container.typeId);
     title.append(
       textEl("strong", container.name),
-      textEl("span", container.type === "synthesis" ? "temporary perfect containment" : `${typeLabel}; ${roomName(container.roomId)}`)
+      textEl("span", container.type === "synthesis" ? "temporary perfect containment" : `${typeLabel}; Location: ${roomName(container.roomId)}`)
     );
 
     const meta = document.createElement("div");
@@ -8177,10 +8191,11 @@
       }
       const roomControl = document.createElement("div");
       roomControl.className = "container-room-control";
-      roomControl.append(textEl("span", "Room: "));
+      roomControl.append(textEl("span", "Queue move/stage to: "));
       const select = document.createElement("select");
       select.className = "container-room-select";
       select.dataset.containerRoomSelect = container.id;
+      select.title = "Changing this queues a container haul task. The contained specimen and any contained remains move with the container when hauling completes.";
       for (const room of state.rooms) {
         const option = document.createElement("option");
         option.value = room.id;
@@ -8194,7 +8209,7 @@
           ? "Pit holes are built into the Pits and cannot be hauled."
           : physicalStateRiskBlockReason(`hauling ${container.name}`);
       select.disabled = Boolean(selectorBlockedReason);
-      select.title = selectorBlockedReason;
+      select.title = selectorBlockedReason || "Changing this queues a container haul task. The contained specimen and any contained remains move with the container when hauling completes.";
       select.addEventListener("change", () => {
         const destination = select.value;
         select.value = roomById(container.roomId)?.id || MAIN_ROOM_ID;

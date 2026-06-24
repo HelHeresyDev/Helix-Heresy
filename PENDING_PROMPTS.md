@@ -12,47 +12,21 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Container Logistics & Specimen Staging System
-2. Collection Bay UI Polish & Test Hardening
-3. Collection Bay Passive Byproduct Accumulation System
-4. Collected Byproduct Inventory Transfer System
-5. Feeding Residue System
-6. Harvestable Specimen Material System
-7. Container Compatibility & Material Resistance System
-8. Room-Local Storage and Hauling System
-9. Lab Construction & Room Expansion System
-10. Black Market Byproduct Economy System
-11. Elemental Damage Type System
-12. Tool Durability and Damage Resistance System
+1. Collection Bay UI Polish & Test Hardening
+2. Collection Bay Passive Byproduct Accumulation System
+3. Collected Byproduct Inventory Transfer System
+4. Feeding Residue System
+5. Harvestable Specimen Material System
+6. Container Compatibility & Material Resistance System
+7. Room-Local Storage and Hauling System
+8. Lab Construction & Room Expansion System
+9. Black Market Byproduct Economy System
+10. Elemental Damage Type System
+11. Tool Durability and Damage Resistance System
 
 ---
 
-## 1. Container Logistics & Specimen Staging System
-
-Create a system for physically moving containers and contained specimens through the laboratory.
-
-The player should be able to treat containers as real lab objects that exist in rooms, can be moved between rooms, and carry their contents with them. A slime inside a container should go wherever the container goes. Staging a specimen in a room should therefore mean placing its container there, not abstractly assigning the specimen to that room.
-
-This system should make room-specific work feel grounded. If a specimen needs Collection Bay apparatus, its container should be brought to Collection Bay. If a specimen is being housed, observed, processed, or prepared for a future procedure, its physical container location should matter.
-
-The system should answer questions like:
-- Where is this container right now?
-- What specimen is inside it?
-- What room can it be moved to?
-- What does it take for the scientist to move it?
-- How does moving the container interact with doors, handling methods, and room conditions?
-- What happens to the contained specimen during the move?
-- How does the UI make staging clear without turning the game into a warehouse simulator?
-
-Collection Bay should be the clearest early use case. Dripping, sludge, or gel-producing specimens may need to be staged in Collection Vessels. Vapor, haze, fume, or mist-producing specimens may need their sealed or ventable containers brought under hood support. The player should be able to create those staging situations through normal play rather than relying on test setup.
-
-The desired result is a practical laboratory logistics foundation: containers are movable, contained creatures move with them, room-specific staging becomes meaningful, and future systems can build on the fact that specimens physically occupy the rooms where work is done.
-
-Before coding, discuss the design of the movement/staging workflow and how it should fit into the current container, room, door, handling, and task systems.
-
----
-
-## 2. Collection Bay UI Polish & Test Hardening
+## 1. Collection Bay UI Polish & Test Hardening
 
 Polish the Collection Bay readouts and harden the Collection Bay tests so the room is easier to read and easier to maintain.
 
@@ -83,7 +57,7 @@ Before coding, discuss the UI polish plan and the test-hardening approach.
 
 ---
 
-## 3. Collection Bay Passive Byproduct Accumulation System
+## 2. Collection Bay Passive Byproduct Accumulation System
 
 Create a system for passive accumulation of natural byproducts inside the Collection Bay.
 
@@ -111,7 +85,7 @@ Before coding, discuss the accumulation model, UI representation, and how the sy
 
 ---
 
-## 4. Collected Byproduct Inventory Transfer System
+## 3. Collected Byproduct Inventory Transfer System
 
 Create a system for transferring accumulated Collection Bay byproducts into the Storage Room inventory ledger.
 
@@ -140,7 +114,7 @@ Before coding, discuss how collected byproduct should map into inventory items a
 
 ---
 
-## 5. Feeding Residue System
+## 4. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
@@ -165,7 +139,7 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 6. Harvestable Specimen Material System
+## 5. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slime’s body.
 
@@ -191,7 +165,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 7. Container Compatibility & Material Resistance System
+## 6. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -214,7 +188,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 8. Room-Local Storage and Hauling System
+## 7. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -237,7 +211,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 9. Lab Construction & Room Expansion System
+## 8. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -261,7 +235,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 10. Black Market Byproduct Economy System
+## 9. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -287,7 +261,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 11. Elemental Damage Type System
+## 10. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -312,7 +286,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 12. Tool Durability and Damage Resistance System
+## 11. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -338,4 +312,3 @@ The UI should communicate condition clearly without becoming spreadsheet-heavy. 
 The desired result is a foundation where tools are reusable but not indestructible. Handling choices should start to matter materially, and future systems like container movement, slime handling, Collection Bay work, cleanup, harvesting, and accidents can wear down equipment in consistent ways.
 
 Before coding, discuss the durability model, resistance categories, starting durability values, how tool wear should be triggered, and how much repair/replacement gameplay belongs in the first implementation.
-
