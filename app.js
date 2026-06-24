@@ -697,6 +697,36 @@
       notes: ["Drainage ports", "Excellent seal", "Low visibility"]
     },
     {
+      id: "collectionVessel",
+      label: "Collection Vessel",
+      geometry: {
+        shape: "sluice vessel",
+        internalCm: { length: 90, width: 55, height: 48 },
+        openingCm: { width: 70, height: 35 },
+        openTop: false
+      },
+      capacityCm3: 220000,
+      maxWeightKg: 360,
+      visibility: "medium",
+      seal: 80,
+      gap: 0,
+      durability: 70,
+      comfort: 48,
+      drainage: true,
+      collectionVessel: true,
+      collectionMethods: ["drip", "sludge"],
+      resistances: { acid: 75, flame: 45, frost: 45, storm: 35, poison: 75, mana: 35 },
+      environmentExchange: {
+        temperature: 0.25,
+        light: 0.25,
+        ambientMana: 0.3,
+        moisture: 0.15,
+        contamination: 0.15,
+        electricalCharge: 0.2
+      },
+      notes: ["Collection Bay vessel", "Sloped plates", "Drain grooves", "Catch basins"]
+    },
+    {
       id: "openDirtPit",
       label: "Open Dirt Pit",
       geometry: {
@@ -848,6 +878,7 @@
     { typeId: "openTray" },
     { typeId: "softLinedBox" },
     { typeId: "sealedDrainageTank" },
+    { typeId: "collectionVessel", name: "Collection Vessel 1", roomId: COLLECTION_BAY_ROOM_ID },
     { typeId: "openDirtPit", name: "Open Dirt Pit 1", roomId: PITS_ROOM_ID },
     { typeId: "gratedDirtPit", name: "Grated Dirt Pit 1", roomId: PITS_ROOM_ID },
     { typeId: "cappedDirtPit", name: "Capped Dirt Pit 1", roomId: PITS_ROOM_ID },
@@ -6442,6 +6473,30 @@
     return COLLECTION_BAY_METHOD_DEFS[byproductCollectionType(byproductLabel)] || COLLECTION_BAY_METHOD_DEFS.unclear;
   }
 
+  function isCollectionVessel(container) {
+    return Boolean(container && containerTypeDef(container.typeId)?.collectionVessel);
+  }
+
+  function collectionBayContainerSupport(slime, methodType) {
+    const container = containerById(slime?.containerId);
+    if (!container) {
+      return "Container support: no staged container";
+    }
+    if (methodType === "drip" || methodType === "sludge") {
+      if (isCollectionVessel(container)) {
+        return "Container support: Collection Vessel fitted";
+      }
+      return "Container support: dedicated Collection Vessel recommended";
+    }
+    if (methodType === "vapor") {
+      return "Container support: hood venting still required";
+    }
+    if (methodType === "dry") {
+      return "Container support: plate/filter staging recommended";
+    }
+    return "Container support: observation needed";
+  }
+
   function collectionBaySpecimens() {
     return (state.slimes || [])
       .filter((slime) => slime.status !== "dead" && slime.roomId === COLLECTION_BAY_ROOM_ID)
@@ -6464,10 +6519,12 @@
 
     const evaluated = evaluateGenome(slime.genome);
     const byproduct = baseOutcomeLabel(evaluated.traits.byproduct) || "unknown byproduct";
+    const methodType = byproductCollectionType(byproduct);
     const method = collectionBayMethodForByproduct(byproduct);
+    const support = collectionBayContainerSupport(slime, methodType);
     const { band } = byproductExpressionInfo(slime);
-    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed}`));
-    row.title = `${method.note} This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
+    row.append(document.createTextNode(` — Byproduct: ${byproduct} · Natural output: ${band.label} · Method: ${method.label} · Container need: ${method.containerNeed} · ${support}`));
+    row.title = `${method.note} ${support}. This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
     return row;
   }
 
