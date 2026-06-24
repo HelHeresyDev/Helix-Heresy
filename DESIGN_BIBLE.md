@@ -58,6 +58,29 @@ Mutation should not be pure chaos in every situation. Natural splitting after su
 
 The practical rule for slimes is that they are generalist scavengers by default and specialists by design. Any slime can attempt crude jobs like corpse consumption, waste disposal, hazardous cleanup, or basic production, but traits should determine whether the job is safe, fast, efficient, or useful. Feeding slimes is therefore not just maintenance; it can also create reproductive pressure, storage problems, mutation opportunities, and new resource-management decisions. Sustenance describes the primary pathway a slime uses to turn matter, waste, decay, or environmental resources into Nutrition and Current Mass; environmental sustenance is deliberately slow until room and container resources exist. Slime biology should support the larger game loop: create strange organisms, study their traits, feed and use them, manage the consequences of their reproduction and waste, and breed or engineer better versions.
 
+## Natural Byproducts and Collection
+
+A slime’s natural byproduct is part of its biology. It is separate from feeding residue and separate from material harvested from the slime’s body.
+
+Natural byproduct describes what a living specimen naturally leaves behind or emits as part of its ordinary metabolism. Feeding residue describes the mess left because of what the slime ate, such as loose biomatter after corpse consumption. Harvestable material describes what can be extracted from the slime itself, such as tissue, glands, membranes, cores, or other specimen parts. These systems can interact later, but they should not be collapsed into one trait.
+
+Natural byproducts should be biologically coherent. A slime’s element, affinity, body consistency, and physiology constrain what byproducts make sense. Acid slimes should express acid-appropriate outputs, water slimes should express water-appropriate outputs, mineral or earthen slimes should express mineral-appropriate outputs, and so on. Byproducts should not be selected from an unrestricted global list unless a future mutation, hybridization, or unstable-experiment system explicitly justifies the mismatch.
+
+Byproduct genes still matter internally, but player-facing UI should not explain gene-slot mapping. The scientist observes byproduct results, output intensity, and collection fit, not the underlying allele table. The same gene pair should have stable internal meaning, and multiple gene pairs can produce the same apparent byproduct while differing in output intensity.
+
+Natural byproduct output has broad bands: Trace, Low, Moderate, and High. Moderate output is the baseline metabolic demand. Lower output reduces food demand slightly, while higher output increases food demand slightly. Exact scalar values, exact food modifiers, and hidden individual expression rolls should remain hidden during normal play.
+
+The genome defines the possible byproduct and output band, but an individual specimen can still roll a hidden expression value inside that band when created. This supports a creature-hunting loop where a specimen can have good genes and still be more or less exceptional as an individual.
+
+Jobs and intended uses do not determine natural byproducts. Using a slime as a cleaner, corpse processor, waste disposer, or production creature should not rewrite what it naturally leaves behind. A slime’s job may create feeding residue, contamination, waste, or job outputs later, but that is not the same as its natural byproduct.
+
+Collection Bay is the lab space for gathering natural byproducts without dissecting the specimen. It contains grim industrial apparatus such as drain channels, sealed troughs, fume hoods, condensers, collection plates, filters, and catch basins. The room’s apparatus works with containers rather than magically collecting everything.
+
+Collection method should follow byproduct behavior. Dripping or liquid byproducts use drainage channels and dedicated Collection Vessels. Sludge, gel, or sticky byproducts use troughs, catch basins, scraper plates, and Collection Vessels. Vapor, haze, fume, or mist byproducts use fume hoods and condensers with existing sealed or ventable containers. Dry or particulate byproducts use plates, filters, and scraper trays. Unknown or poorly understood byproducts require observation before the scientist can make reliable collection assumptions.
+
+A Collection Vessel supports drip, sludge, gel, and similar surface or runoff outputs. It does not solve vapor collection. Vapor-producing specimens should instead be staged in sealed or ventable containers under hood and condenser apparatus.
+
+Collection Bay does not automatically imply inventory gain. Future collection should use the inventory history/tooltips model rather than event-log accounting spam. Routine material accounting belongs in inventory item history, while the event log should remain for meaningful observations, incidents, and discoveries.
 
 ## Design Vision
 
@@ -110,6 +133,8 @@ Current direction:
 - Weight is derived, not genetic.
 - Density is derived primarily from elemental affinity and affinity strength.
 - Movement is derived from shape, appendages, size, weight, and element instead of being directly genetic.
+- Natural byproduct is a genetic/biological output constrained by element and physiology, not by job assignment.
+- Natural output intensity affects metabolism through broad hidden bands rather than exact player-facing numbers.
 
 Examples of the intended style:
 
@@ -119,6 +144,9 @@ Examples of the intended style:
 - `Size: 1.8 m long, 12 cm thick`
 - `Weight: 34 kg`
 - `Movement: pulls itself forward`
+- `Byproduct: corrosive slime`
+- `Natural output: Moderate`
+- `Metabolic demand: Baseline`
 
 Odd combinations are acceptable. A puddle with stub legs or a metal slime with wing-like membranes may become physically awkward, but that awkwardness can later feed into creature stats, mobility, stability, containment difficulty, or combat/work usefulness.
 
@@ -141,6 +169,9 @@ Likely future systems:
 - Intelligent created species that can act as assistants or agents while carrying betrayal and autonomy risks.
 - Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
 - Corpse disposal and processing chains using equipment, facilities, or living creatures such as acid slimes.
+- Separate feeding-residue and harvestable-material systems that do not overwrite natural byproduct identity.
+- Natural byproduct collection through Collection Bay apparatus, including Collection Vessels for drip/sludge/gel outputs and hood/condenser workflows for vapor/haze/fume/mist outputs.
+- Inventory outputs from collected byproducts, recorded through inventory history/tooltips instead of event-log accounting spam.
 - Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
 - Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
 - A clearer distinction between casual observation, lab testing, and precise instrument readings.
@@ -156,6 +187,8 @@ Open design questions:
 - How should weak or biologically clashing creatures be communicated to the player?
 - What jobs or pressures will make creature stats matter?
 - How much should the lab economy rely on byproducts, contracts, hazards, or research milestones?
+- How should natural byproduct collection become economically useful without turning every specimen into a passive money printer?
+- When should observation/testing reveal output quality hints while still hiding exact rolls and gene mappings?
 
 ## Current Prototype
 
@@ -172,11 +205,17 @@ Open design questions:
 - Derived weight and derived movement.
 - Discovered-trait identity strip with color, element, shape, and byproduct slots.
 - Broad category icons for discovered shape and byproduct outcomes.
+- Element-compatible and physiology-compatible natural byproducts.
+- Natural output intensity bands with hidden rolled expression values and broad metabolic demand labels.
 - Observable traits with scientist estimate ranges.
 - Sustenance outcomes have hidden categories that can support job suitability, future feedstocks, environmental feeding, and room/container systems.
 - Manual feeding can restore Nutrition and Current Mass, while bad matches can create Stress, Waste, or Body Integrity damage.
 - Best-match feeding is available once a slime's Sustenance is discovered.
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
+- Additional room foundations including Menagerie, Pit, Bedroom, Storage Room, and Collection Bay.
+- Collection Bay apparatus readout for natural byproduct collection methods.
+- Collection Vessel foundation for drip/sludge/gel collection support.
+- Hood venting readout for vapor/haze/fume/mist byproduct support.
 - Room attributes have current values, baselines, passive recovery, and descriptive player-facing bands.
 - Timed tests that can reveal more precise trait information.
 - Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.
@@ -197,7 +236,10 @@ Open design questions:
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and individual skills.
 - Stamina costs, passive regeneration, and queued rest actions.
-- XP, resource, and room cheat commands for testing skill progression, resource-gated systems, and room conditions.
+- XP, resource, room, and inventory cheat commands for testing skill progression, resource-gated systems, room conditions, and inventory state.
+- Storage Room ledger with Materials and Tools & Supplies categories.
+- Inventory item history tooltips for routine accounting changes instead of event-log spam.
+- Reusable tool gates for handling methods, including Thick gloves, Long tongs, Hook pole, and Scraper.
 - Paused start with selectable time speeds from real-time through accelerated waits.
 - Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
 - Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.
