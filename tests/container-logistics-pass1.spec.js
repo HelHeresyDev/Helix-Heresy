@@ -94,7 +94,7 @@ test('queued container hauling stages contained specimens by container location'
   await taskRow.getByRole('button', { name: 'Finish' }).click();
 
   await expect(page.locator('#selectedSlimeSummary')).toContainText('Room: Collection Bay');
-  await expect(page.locator('#roomList')).toContainText('Collection status: 1 staged container; 1 specimen ready for readout');
+  await expect(page.locator('#roomList')).toContainText('Collection status: 1 collection station; 1 specimen ready for readout');
   await expect(page.locator('#roomList')).toContainText('LOG-001 in Logistics Jar');
 
   expect(consoleIssues).toEqual([]);

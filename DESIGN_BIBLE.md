@@ -76,11 +76,11 @@ Jobs and intended uses do not determine natural byproducts. Using a slime as a c
 
 Collection Bay is the lab space for gathering natural byproducts without dissecting the specimen. It contains grim industrial apparatus such as drain channels, sealed troughs, fume hoods, condensers, collection plates, filters, and catch basins. The room’s apparatus works with containers rather than magically collecting everything.
 
-Collection method should follow byproduct behavior. Dripping or liquid byproducts use drainage channels and dedicated Collection Vessels. Sludge, gel, or sticky byproducts use troughs, catch basins, scraper plates, and Collection Vessels. Vapor, haze, fume, or mist byproducts use fume hoods and condensers with existing sealed or ventable containers. Dry or particulate byproducts use plates, filters, and scraper trays. Unknown or poorly understood byproducts require observation before the scientist can make reliable collection assumptions.
+Collection method should follow byproduct behavior. Dripping or liquid byproducts use drainage channels and specimen containers that can route output into collection receptacles. Sludge, gel, or sticky byproducts use troughs, catch basins, scraper plates, and lined receptacles. Vapor, haze, fume, or mist byproducts use fume hoods and condensers with existing sealed or ventable containers. Dry or particulate byproducts use plates, filters, bags, and scraper trays. Unknown or poorly understood byproducts require observation before the scientist can make reliable collection assumptions.
 
-A Collection Vessel supports drip, sludge, gel, and similar surface or runoff outputs. It does not solve vapor collection. Vapor-producing specimens should instead be staged in sealed or ventable containers under hood and condenser apparatus.
+Specimen Drainage Tanks support drip, sludge, gel, and similar surface or runoff outputs by housing the slime in a container built around channels and catch basins. They do not solve vapor collection. Vapor-producing specimens should instead be staged in sealed or ventable containers under hood and condenser apparatus.
 
-Collection Bay does not automatically imply inventory gain. Future collection should use the inventory history/tooltips model rather than event-log accounting spam. Routine material accounting belongs in inventory item history, while the event log should remain for meaningful observations, incidents, and discoveries.
+Collection Bay accumulation is station-based. Each staged specimen container acts as a collection station with its own active receptacle, such as a jar, flask, bag, tray, filter, or condenser bottle. Multiple slimes in the same specimen container add their natural output rate together into that station. If the active receptacle fills, output can spill into that station's apparatus overflow buffer. Collection Bay accumulation does not automatically imply inventory gain; filled receptacles still need a future transfer/replacement workflow. Future collection should use the inventory history/tooltips model rather than event-log accounting spam. Routine material accounting belongs in inventory item history, while the event log should remain for meaningful observations, incidents, and discoveries.
 
 ## Design Vision
 
@@ -170,7 +170,7 @@ Likely future systems:
 - Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
 - Corpse disposal and processing chains using equipment, facilities, or living creatures such as acid slimes.
 - Separate feeding-residue and harvestable-material systems that do not overwrite natural byproduct identity.
-- Natural byproduct collection through Collection Bay apparatus, including Collection Vessels for drip/sludge/gel outputs and hood/condenser workflows for vapor/haze/fume/mist outputs.
+- Natural byproduct collection through Collection Bay stations, including Specimen Drainage Tanks for drip/sludge/gel routing, station receptacles for accumulated material, per-station overflow buffers, and hood/condenser workflows for vapor/haze/fume/mist outputs.
 - Inventory outputs from collected byproducts, recorded through inventory history/tooltips instead of event-log accounting spam.
 - Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
 - Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
@@ -213,9 +213,9 @@ Open design questions:
 - Best-match feeding is available once a slime's Sustenance is discovered.
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
 - Additional room foundations including Menagerie, Pit, Bedroom, Storage Room, and Collection Bay.
-- Collection Bay apparatus readout for natural byproduct collection methods.
-- Collection Vessel foundation for drip/sludge/gel collection support.
-- Hood venting readout for vapor/haze/fume/mist byproduct support.
+- Collection Bay station readout for natural byproduct collection methods, receptacle fill levels, and per-station overflow.
+- Specimen Drainage Tank foundation for drip/sludge/gel specimen housing and output routing.
+- Hood venting readout and condenser-flask receptacles for vapor/haze/fume/mist byproduct support.
 - Room attributes have current values, baselines, passive recovery, and descriptive player-facing bands.
 - Timed tests that can reveal more precise trait information.
 - Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.

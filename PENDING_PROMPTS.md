@@ -12,48 +12,19 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Collection Bay Passive Byproduct Accumulation System
-2. Collected Byproduct Inventory Transfer System
-3. Feeding Residue System
-4. Harvestable Specimen Material System
-5. Container Compatibility & Material Resistance System
-6. Room-Local Storage and Hauling System
-7. Lab Construction & Room Expansion System
-8. Black Market Byproduct Economy System
-9. Elemental Damage Type System
-10. Tool Durability and Damage Resistance System
+1. Collected Byproduct Inventory Transfer System
+2. Feeding Residue System
+3. Harvestable Specimen Material System
+4. Container Compatibility & Material Resistance System
+5. Room-Local Storage and Hauling System
+6. Lab Construction & Room Expansion System
+7. Black Market Byproduct Economy System
+8. Elemental Damage Type System
+9. Tool Durability and Damage Resistance System
 
 ---
 
-## 1. Collection Bay Passive Byproduct Accumulation System
-
-Create a system for passive accumulation of natural byproducts inside the Collection Bay.
-
-The Collection Bay should eventually do more than describe how a specimen could be collected. If a specimen is staged with the right apparatus and container support, the room should begin accumulating its natural byproduct over time. This should feel like laboratory apparatus slowly gathering drips, sludge, gel, fumes, condensate, dust, or other output.
-
-This system is about accumulation inside the Collection Bay, not immediate inventory gain. The Collection Bay can have collected material waiting in its apparatus before the scientist transfers it to Storage Room inventory.
-
-The system should answer questions like:
-- When is a staged specimen considered actively collectable?
-- How does natural output intensity affect accumulation?
-- How does the hidden individual expression roll matter without showing exact numbers?
-- How does method fit affect accumulation?
-- How do Collection Vessels affect drip/sludge/gel accumulation?
-- How does hood support affect vapor/haze/fume/mist accumulation?
-- How should accumulated material be represented before it becomes inventory?
-- How does the UI describe accumulation without exposing exact production math?
-
-The system should preserve the difference between natural byproduct, feeding residue, and harvestable material. A slime should not accumulate byproduct because of its assigned job; it should accumulate because its biology produces something and the lab apparatus is staged to catch it.
-
-The player-facing language should feel observational and approximate. The scientist might see that collection is idle, poorly supported, slowly accumulating, or gathering a meaningful amount, but exact hidden output values should remain part of the underlying simulation rather than the UI.
-
-The desired result is a Collection Bay that can hold pending collected natural byproduct internally, creating the foundation for later transfer into inventory and future byproduct economy systems.
-
-Before coding, discuss the accumulation model, UI representation, and how the system should handle different byproduct collection categories.
-
----
-
-## 2. Collected Byproduct Inventory Transfer System
+## 1. Collected Byproduct Inventory Transfer System
 
 Create a system for transferring accumulated Collection Bay byproducts into the Storage Room inventory ledger.
 
@@ -82,7 +53,7 @@ Before coding, discuss how collected byproduct should map into inventory items a
 
 ---
 
-## 3. Feeding Residue System
+## 2. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
@@ -107,7 +78,7 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 4. Harvestable Specimen Material System
+## 3. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slime’s body.
 
@@ -133,7 +104,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 5. Container Compatibility & Material Resistance System
+## 4. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -148,7 +119,7 @@ The system should answer questions like:
 - How does the player see compatibility without receiving exact hidden formulas?
 - What happens when a container is a poor fit?
 
-This system should connect to existing ideas like physical fit, handling risk, Collection Vessels, hood venting, and room-specific staging. A container that is safe for a dry, docile specimen may be a terrible choice for an acid-dripping or vapor-producing one.
+This system should connect to existing ideas like physical fit, handling risk, Specimen Drainage Tanks, receptacles, hood venting, and room-specific staging. A container that is safe for a dry, docile specimen may be a terrible choice for an acid-dripping or vapor-producing one.
 
 The desired result is a container system where choosing the right vessel is part of the biology puzzle and future lab safety loop.
 
@@ -156,7 +127,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 6. Room-Local Storage and Hauling System
+## 5. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -179,7 +150,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 7. Lab Construction & Room Expansion System
+## 6. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -203,7 +174,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 8. Black Market Byproduct Economy System
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -229,7 +200,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 9. Elemental Damage Type System
+## 8. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -254,7 +225,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 10. Tool Durability and Damage Resistance System
+## 9. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 

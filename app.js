@@ -697,8 +697,8 @@
       notes: ["Drainage ports", "Excellent seal", "Low visibility"]
     },
     {
-      id: "collectionVessel",
-      label: "Collection Vessel",
+      id: "specimenDrainageTank",
+      label: "Specimen Drainage Tank",
       geometry: {
         shape: "sluice vessel",
         internalCm: { length: 90, width: 55, height: 48 },
@@ -713,7 +713,7 @@
       durability: 70,
       comfort: 48,
       drainage: true,
-      collectionVessel: true,
+      specimenDrainageTank: true,
       collectionMethods: ["drip", "sludge"],
       resistances: { acid: 75, flame: 45, frost: 45, storm: 35, poison: 75, mana: 35 },
       environmentExchange: {
@@ -724,7 +724,7 @@
         contamination: 0.15,
         electricalCharge: 0.2
       },
-      notes: ["Collection Bay vessel", "Sloped plates", "Drain grooves", "Catch basins"]
+      notes: ["Collection Bay housing", "Sloped plates", "Drain grooves", "Catch basins"]
     },
     {
       id: "openDirtPit",
@@ -878,7 +878,7 @@
     { typeId: "openTray" },
     { typeId: "softLinedBox" },
     { typeId: "sealedDrainageTank" },
-    { typeId: "collectionVessel", name: "Collection Vessel 1", roomId: COLLECTION_BAY_ROOM_ID },
+    { typeId: "specimenDrainageTank", name: "Specimen Drainage Tank 1", roomId: COLLECTION_BAY_ROOM_ID },
     { typeId: "openDirtPit", name: "Open Dirt Pit 1", roomId: PITS_ROOM_ID },
     { typeId: "gratedDirtPit", name: "Grated Dirt Pit 1", roomId: PITS_ROOM_ID },
     { typeId: "cappedDirtPit", name: "Capped Dirt Pit 1", roomId: PITS_ROOM_ID },
@@ -1130,6 +1130,14 @@
       note: "The specimen needs further byproduct observation before a collection method can be assigned."
     }
   };
+  const COLLECTION_BAY_RECEPTACLE_DEFS = {
+    drip: { label: "sealed collection jar", capacity: 10, overflowCapacity: 3 },
+    sludge: { label: "lined scrape jar", capacity: 12, overflowCapacity: 4 },
+    vapor: { label: "condenser flask", capacity: 8, overflowCapacity: 2 },
+    dry: { label: "filter bag", capacity: 10, overflowCapacity: 3 },
+    unclear: { label: "unassigned receptacle", capacity: 0, overflowCapacity: 0 }
+  };
+  const COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE = 0.05;
   const BYPRODUCT_COLLECTION_TYPES = {
     "acid droplets": "drip",
     "clean water": "drip",
@@ -1580,6 +1588,7 @@
       resources: defaultResources(),
       inventory: defaultInventory(),
       inventoryHistory: defaultInventoryHistory(),
+      collectionBay: defaultCollectionBayState(),
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
@@ -1621,6 +1630,10 @@
 
   function defaultInventory() {
     return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item.initial]));
+  }
+
+  function defaultCollectionBayState() {
+    return { stations: {} };
   }
 
   function defaultInventoryHistory() {
@@ -2524,6 +2537,7 @@
     const feedingChanged = updateAutoFeeding();
     const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(minutes);
     const metabolismChanged = updateSlimeMetabolism(minutes);
+    const collectionChanged = updateCollectionBayAccumulation(minutes);
     const containmentIncidentChanges = updateContainmentIncidents(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
@@ -2532,10 +2546,10 @@
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -6328,13 +6342,13 @@
     return COLLECTION_BAY_METHOD_DEFS[byproductCollectionType(byproductLabel)] || COLLECTION_BAY_METHOD_DEFS.unclear;
   }
 
-  function isCollectionVessel(container) {
-    return Boolean(container && containerTypeDef(container.typeId)?.collectionVessel);
+  function isSpecimenDrainageTank(container) {
+    return Boolean(container && containerTypeDef(container.typeId)?.specimenDrainageTank);
   }
 
   function isHoodVentableContainer(container) {
     const type = containerTypeDef(container?.typeId);
-    if (!type || isCollectionVessel(container)) {
+    if (!type || isSpecimenDrainageTank(container)) {
       return false;
     }
     return !type.geometry?.openTop && Number(type.seal || 0) >= 65;
@@ -6349,22 +6363,22 @@
       };
     }
     if (methodType === "drip" || methodType === "sludge") {
-      if (isCollectionVessel(container)) {
+      if (isSpecimenDrainageTank(container)) {
         return {
-          label: "Collection Vessel fitted",
-          detail: "Drip, gel, and sludge outputs are supported by a dedicated Collection Vessel.",
+          label: "Specimen Drainage Tank fitted",
+          detail: "Drip, gel, and sludge outputs are supported by a specimen container built around drainage channels and catch basins.",
         };
       }
       return {
-        label: "Collection Vessel recommended",
-        detail: "Drip, gel, and sludge outputs are easier to capture in a dedicated Collection Vessel.",
+        label: "Specimen Drainage Tank recommended",
+        detail: "Drip, gel, and sludge outputs are easier to route when the specimen is housed in a dedicated drainage tank.",
       };
     }
     if (methodType === "vapor") {
-      if (isCollectionVessel(container)) {
+      if (isSpecimenDrainageTank(container)) {
         return {
-          label: "hood venting required; Collection Vessel does not solve vapor",
-          detail: "Vapor, haze, fume, and mist outputs need hood venting. A Collection Vessel helps with liquid output, not airborne output.",
+          label: "hood venting required; drainage tank does not solve vapor",
+          detail: "Vapor, haze, fume, and mist outputs need hood venting. A drainage tank helps with liquid output, not airborne output.",
         };
       }
       if (isHoodVentableContainer(container)) {
@@ -6390,14 +6404,226 @@
     };
   }
 
+  function collectionBayReceptacleDef(methodType) {
+    return COLLECTION_BAY_RECEPTACLE_DEFS[methodType] || COLLECTION_BAY_RECEPTACLE_DEFS.unclear;
+  }
+
+  function collectionBayContainerSupportFactor(container, methodType) {
+    if (!container || methodType === "unclear") {
+      return { factor: 0, label: "unsupported", reason: "Collection method unresolved." };
+    }
+    if (methodType === "drip" || methodType === "sludge") {
+      if (isSpecimenDrainageTank(container)) {
+        return { factor: 1, label: "well supported", reason: "Specimen Drainage Tank routes output into the station receptacle." };
+      }
+      return { factor: 0.35, label: "poor support", reason: "A Specimen Drainage Tank would route liquid or gel output more cleanly." };
+    }
+    if (methodType === "vapor") {
+      if (isHoodVentableContainer(container)) {
+        return { factor: 1, label: "well supported", reason: "Sealed ventable container can feed the hood and condenser." };
+      }
+      return { factor: 0, label: "unsupported", reason: "Vapor output needs a sealed ventable container under hood control." };
+    }
+    if (methodType === "dry") {
+      return { factor: 0.75, label: "partial support", reason: "Collection Bay plates and filters can catch some dry output." };
+    }
+    return { factor: 0, label: "unsupported", reason: "Collection method unresolved." };
+  }
+
+  function ensureCollectionBayState() {
+    state.collectionBay = normalizeCollectionBayState(state.collectionBay);
+    return state.collectionBay;
+  }
+
+  function collectionBayStationForContainer(containerId) {
+    const bay = ensureCollectionBayState();
+    const cleanId = String(containerId || "");
+    if (!cleanId) {
+      return null;
+    }
+    bay.stations[cleanId] = normalizeCollectionBayStation(bay.stations[cleanId], cleanId);
+    return bay.stations[cleanId];
+  }
+
+  function collectionBayConfigureStation(station, material, methodType) {
+    if (!station || !material) {
+      return false;
+    }
+    const def = collectionBayReceptacleDef(methodType);
+    const currentFill = collectionBayStationFill(station);
+    if (station.material && station.material !== material && currentFill > 0) {
+      return false;
+    }
+    if (station.material !== material || station.methodType !== methodType) {
+      station.material = material;
+      station.methodType = methodType;
+      station.receptacle = { label: def.label, amount: 0, capacity: def.capacity };
+      station.overflow = { amount: 0, capacity: def.overflowCapacity };
+      return true;
+    }
+    station.receptacle.label = def.label;
+    station.receptacle.capacity = def.capacity;
+    station.overflow.capacity = def.overflowCapacity;
+    station.receptacle.amount = roundOutputValue(clamp(station.receptacle.amount, 0, station.receptacle.capacity));
+    station.overflow.amount = roundOutputValue(clamp(station.overflow.amount, 0, station.overflow.capacity));
+    return true;
+  }
+
+  function collectionBayStationFill(station) {
+    return roundOutputValue((Number(station?.receptacle?.amount) || 0) + (Number(station?.overflow?.amount) || 0));
+  }
+
+  function collectionBayStationCapacity(station) {
+    return roundOutputValue((Number(station?.receptacle?.capacity) || 0) + (Number(station?.overflow?.capacity) || 0));
+  }
+
+  function collectionBayActiveContainers() {
+    return (state.containers || [])
+      .filter((container) => container.roomId === COLLECTION_BAY_ROOM_ID && containerOccupants(container.id).length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function collectionBayStationInfo(container) {
+    const occupants = containerOccupants(container?.id)
+      .filter((slime) => slime.status !== "dead" && slime.status !== "released")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const station = collectionBayStationForContainer(container?.id);
+    const info = {
+      container,
+      station,
+      occupants,
+      material: "",
+      methodType: "unclear",
+      method: COLLECTION_BAY_METHOD_DEFS.unclear,
+      support: collectionBayContainerSupportFactor(container, "unclear"),
+      rate: 0,
+      outputLabel: "Idle",
+      status: "No specimen staged",
+      canAccumulate: false,
+      blockers: [],
+    };
+    if (!container || !occupants.length) {
+      return info;
+    }
+
+    const byproductGroups = new Map();
+    for (const slime of occupants) {
+      if (!slimeTraitKnown(slime, "byproduct")) {
+        info.blockers.push(`${slime.name} byproduct unknown`);
+        continue;
+      }
+      const evaluated = evaluateGenome(slime.genome);
+      const byproduct = baseOutcomeLabel(evaluated.traits.byproduct) || "unknown byproduct";
+      const methodType = byproductCollectionType(byproduct);
+      const { expression, band } = byproductExpressionInfo(slime);
+      const entry = byproductGroups.get(byproduct) || {
+        material: byproduct,
+        methodType,
+        method: collectionBayMethodForByproduct(byproduct),
+        slimes: [],
+        scalarTotal: 0,
+        bands: new Set(),
+      };
+      entry.slimes.push(slime);
+      entry.scalarTotal += Math.max(0, Number(expression?.scalar) || 0);
+      entry.bands.add(band.label);
+      byproductGroups.set(byproduct, entry);
+    }
+
+    if (info.blockers.length) {
+      info.status = "Paused: byproduct unknown";
+      return info;
+    }
+    if (byproductGroups.size > 1) {
+      info.status = "Paused: mixed output";
+      info.blockers.push("Separate specimens before collecting mixed natural byproducts.");
+      return info;
+    }
+
+    const group = [...byproductGroups.values()][0];
+    if (!group) {
+      return info;
+    }
+    info.material = group.material;
+    info.methodType = group.methodType;
+    info.method = group.method;
+    info.support = collectionBayContainerSupportFactor(container, group.methodType);
+    if (!collectionBayConfigureStation(station, group.material, group.methodType)) {
+      info.status = `Paused: receptacle contains ${station.material}`;
+      info.blockers.push("Collect or replace the current receptacle before changing station output.");
+      return info;
+    }
+    info.rate = roundOutputValue(group.scalarTotal * COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE * info.support.factor);
+    info.outputLabel = collectionBayRateLabel(info.rate);
+    if (info.support.factor <= 0) {
+      info.status = `Paused: ${info.support.label}`;
+      info.blockers.push(info.support.reason);
+      return info;
+    }
+    if (collectionBayStationFill(station) >= collectionBayStationCapacity(station) && collectionBayStationCapacity(station) > 0) {
+      info.status = "Backed up: receptacle and overflow full";
+      return info;
+    }
+    if (Number(station.receptacle.amount) >= Number(station.receptacle.capacity) && Number(station.overflow.amount) > 0) {
+      info.status = "Overflowing into apparatus buffer";
+    } else if (info.support.factor < 1) {
+      info.status = "Collecting with poor support";
+    } else {
+      info.status = "Collecting";
+    }
+    info.canAccumulate = info.rate > 0;
+    return info;
+  }
+
+  function collectionBayRateLabel(rate) {
+    const value = Number(rate) || 0;
+    if (value <= 0) return "Idle";
+    if (value < 0.025) return "Trace collecting";
+    if (value < 0.06) return "Collecting slowly";
+    if (value < 0.12) return "Collecting steadily";
+    return "Gathering heavy output";
+  }
+
+  function applyCollectionBayAccumulation(station, amount) {
+    let remaining = Math.max(0, Number(amount) || 0);
+    if (!station || !remaining) {
+      return 0;
+    }
+    const before = collectionBayStationFill(station);
+    const receptacleSpace = Math.max(0, Number(station.receptacle.capacity) - Number(station.receptacle.amount));
+    const toReceptacle = Math.min(receptacleSpace, remaining);
+    station.receptacle.amount = roundOutputValue(Number(station.receptacle.amount) + toReceptacle);
+    remaining -= toReceptacle;
+    const overflowSpace = Math.max(0, Number(station.overflow.capacity) - Number(station.overflow.amount));
+    const toOverflow = Math.min(overflowSpace, remaining);
+    station.overflow.amount = roundOutputValue(Number(station.overflow.amount) + toOverflow);
+    const after = collectionBayStationFill(station);
+    return roundOutputValue(after - before);
+  }
+
+  function updateCollectionBayAccumulation(minutes = 0) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed || !state?.started) {
+      return 0;
+    }
+    let changes = 0;
+    for (const container of collectionBayActiveContainers()) {
+      const info = collectionBayStationInfo(container);
+      if (!info.canAccumulate) {
+        continue;
+      }
+      const added = applyCollectionBayAccumulation(info.station, info.rate * elapsed);
+      if (added > 0) {
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
   function collectionBaySpecimens() {
     return (state.slimes || [])
       .filter((slime) => slime.status !== "dead" && slime.status !== "released" && slime.containerId && slimeEffectiveRoomId(slime) === COLLECTION_BAY_ROOM_ID)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  function collectionBayStagedContainerCount(specimens = collectionBaySpecimens()) {
-    return new Set(specimens.map((slime) => slime.containerId).filter(Boolean)).size;
   }
 
   function collectionBayFactEl(label, value) {
@@ -6465,6 +6691,64 @@
     return row;
   }
 
+  function formatCollectionAmount(value) {
+    const rounded = roundOutputValue(value);
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  function collectionBayStationEl(info) {
+    const station = document.createElement("div");
+    station.className = "collection-bay-station";
+    station.dataset.collectionBayStation = info.container?.id || "";
+
+    const header = document.createElement("div");
+    header.className = "collection-bay-station-header";
+    const name = document.createElement("strong");
+    name.textContent = `${info.container?.name || "Unknown container"} station`;
+    const status = document.createElement("span");
+    status.className = "collection-bay-station-status";
+    status.textContent = info.status;
+    header.append(name, status);
+    station.append(header);
+
+    const facts = document.createElement("div");
+    facts.className = "collection-bay-specimen-facts";
+    facts.append(
+      collectionBayFactEl("Output", info.material || "unresolved"),
+      collectionBayFactEl("Rate", info.outputLabel),
+      collectionBayFactEl("Method", info.method.label),
+      collectionBayFactEl("Support", info.support.label),
+    );
+    station.append(facts);
+
+    if (info.station) {
+      const receptacle = document.createElement("div");
+      receptacle.className = "collection-bay-station-storage";
+      receptacle.textContent = `Receptacle: ${info.station.receptacle.label} ${formatCollectionAmount(info.station.receptacle.amount)} / ${formatCollectionAmount(info.station.receptacle.capacity)}`;
+      station.append(receptacle);
+
+      const overflow = document.createElement("div");
+      overflow.className = "collection-bay-station-storage";
+      overflow.textContent = `Overflow: apparatus buffer ${formatCollectionAmount(info.station.overflow.amount)} / ${formatCollectionAmount(info.station.overflow.capacity)}`;
+      station.append(overflow);
+    }
+
+    if (info.blockers.length) {
+      const blockers = document.createElement("div");
+      blockers.className = "collection-bay-specimen-support";
+      blockers.textContent = `Blocked: ${info.blockers.join("; ")}`;
+      station.append(blockers);
+    }
+
+    const specimens = document.createElement("div");
+    specimens.className = "collection-bay-specimen-list";
+    for (const slime of info.occupants) {
+      specimens.append(collectionBaySpecimenReadout(slime));
+    }
+    station.append(specimens);
+    return station;
+  }
+
   function collectionBayReadoutEl(room) {
     if (room?.id !== COLLECTION_BAY_ROOM_ID) {
       return null;
@@ -6485,27 +6769,27 @@
     panel.append(apparatus);
 
     const staged = collectionBaySpecimens();
-    const stagedContainers = collectionBayStagedContainerCount(staged);
+    const stationInfos = collectionBayActiveContainers().map((container) => collectionBayStationInfo(container));
     const status = document.createElement("p");
     status.className = "journal-meta";
     status.textContent = staged.length
-      ? `Collection status: ${stagedContainers} staged container${stagedContainers === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for readout`
+      ? `Collection status: ${stationInfos.length} collection station${stationInfos.length === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for readout`
       : "Collection status: No staged containers";
     panel.append(status);
 
-    if (staged.length) {
+    if (stationInfos.length) {
       const list = document.createElement("div");
-      list.className = "collection-bay-specimen-list";
-      for (const slime of staged) {
-        list.append(collectionBaySpecimenReadout(slime));
+      list.className = "collection-bay-station-list";
+      for (const info of stationInfos) {
+        list.append(collectionBayStationEl(info));
       }
       panel.append(list);
     }
 
     const note = document.createElement("p");
     note.className = "journal-meta";
-    note.textContent = "Readout only: no byproduct stock is produced here yet.";
-    note.title = "This pass classifies collection method and container needs only. Natural byproduct collection, feeding residue, and harvested tissue remain separate future systems.";
+    note.textContent = "Collected material remains in station receptacles; inventory transfer and receptacle replacement are not built yet.";
+    note.title = "Natural byproduct accumulation is separate from feeding residue and harvested tissue. The next pass will move filled receptacles into inventory.";
     panel.append(note);
     return panel;
   }
@@ -14329,6 +14613,43 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return normalized;
   }
 
+  function normalizeCollectionBayState(candidate) {
+    const normalized = defaultCollectionBayState();
+    const stations = candidate && typeof candidate === "object" ? candidate.stations : null;
+    if (!stations || typeof stations !== "object") {
+      return normalized;
+    }
+    for (const [containerId, station] of Object.entries(stations)) {
+      const cleanId = String(station?.containerId || containerId || "");
+      if (!cleanId) {
+        continue;
+      }
+      normalized.stations[cleanId] = normalizeCollectionBayStation(station, cleanId);
+    }
+    return normalized;
+  }
+
+  function normalizeCollectionBayStation(candidate, containerId) {
+    const methodType = COLLECTION_BAY_RECEPTACLE_DEFS[candidate?.methodType] ? candidate.methodType : "unclear";
+    const def = COLLECTION_BAY_RECEPTACLE_DEFS[methodType] || COLLECTION_BAY_RECEPTACLE_DEFS.unclear;
+    const receptacleCapacity = Math.max(0, Number(candidate?.receptacle?.capacity ?? def.capacity) || 0);
+    const overflowCapacity = Math.max(0, Number(candidate?.overflow?.capacity ?? def.overflowCapacity) || 0);
+    return {
+      containerId,
+      material: String(candidate?.material || ""),
+      methodType,
+      receptacle: {
+        label: String(candidate?.receptacle?.label || def.label),
+        amount: roundOutputValue(clamp(Number(candidate?.receptacle?.amount) || 0, 0, receptacleCapacity)),
+        capacity: receptacleCapacity,
+      },
+      overflow: {
+        amount: roundOutputValue(clamp(Number(candidate?.overflow?.amount) || 0, 0, overflowCapacity)),
+        capacity: overflowCapacity,
+      },
+    };
+  }
+
   function resourceAmount(key) {
     return ensureResources()[key] || 0;
   }
@@ -15673,6 +15994,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
     next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
+    next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
