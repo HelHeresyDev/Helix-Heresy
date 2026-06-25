@@ -13,15 +13,14 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Adaptive Skill System Rework
-2. Collected Byproduct Inventory Transfer System
-3. Feeding Residue System
-4. Harvestable Specimen Material System
-5. Container Compatibility & Material Resistance System
-6. Room-Local Storage and Hauling System
-7. Lab Construction & Room Expansion System
-8. Black Market Byproduct Economy System
-9. Elemental Damage Type System
-10. Tool Durability and Damage Resistance System
+2. Feeding Residue System
+3. Harvestable Specimen Material System
+4. Container Compatibility & Material Resistance System
+5. Room-Local Storage and Hauling System
+6. Lab Construction & Room Expansion System
+7. Black Market Byproduct Economy System
+8. Elemental Damage Type System
+9. Tool Durability and Damage Resistance System
 
 ---
 
@@ -116,36 +115,7 @@ Before coding, discuss the proposed skill model, current skill-system problems, 
 
 ---
 
-## 2. Collected Byproduct Inventory Transfer System
-
-Create a system for transferring accumulated Collection Bay byproducts into the Storage Room inventory ledger.
-
-Once Collection Bay apparatus has accumulated material, the player should be able to collect or transfer that material into inventory. This should feel like emptying catch basins, scraping collection plates, draining a vessel, changing a filter, or decanting condensate into storage.
-
-This system is the bridge between Collection Bay accumulation and the inventory economy. It should make collected natural byproducts usable without turning routine accounting into event-log spam.
-
-The system should answer questions like:
-- What counts as transferable collected byproduct?
-- Does transfer require scientist time, stamina, tools, or handling method?
-- Does transfer happen from the room, from a vessel, from a hood/condenser, or from a staged specimen row?
-- How are collected byproducts named in inventory?
-- Should inventory use specific byproduct names, broader material categories, or both?
-- How does inventory history record the source of collected material?
-- What should the player see when there is nothing ready to transfer?
-- How should partial or trace amounts be represented?
-
-The transfer should preserve the gameâ€™s separation of concepts:
-- natural byproduct collection comes from living output caught by apparatus
-- feeding residue comes from meals and jobs
-- harvestable material comes from cutting into or breaking down the specimen
-
-The desired result is a clear workflow where Collection Bay output becomes inventory through deliberate transfer, with item history showing where the material came from and the event log reserved for meaningful observations rather than routine accounting.
-
-Before coding, discuss how collected byproduct should map into inventory items and how transfer should feel in the UI.
-
----
-
-## 3. Feeding Residue System
+## 2. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
@@ -170,7 +140,7 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 4. Harvestable Specimen Material System
+## 3. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slimeâ€™s body.
 
@@ -196,7 +166,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 5. Container Compatibility & Material Resistance System
+## 4. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -219,7 +189,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 6. Room-Local Storage and Hauling System
+## 5. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -242,7 +212,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 7. Lab Construction & Room Expansion System
+## 6. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -266,7 +236,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 8. Black Market Byproduct Economy System
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -292,7 +262,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 9. Elemental Damage Type System
+## 8. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slimeâ€™s element or biological output.
 
@@ -317,7 +287,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 10. Tool Durability and Damage Resistance System
+## 9. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 

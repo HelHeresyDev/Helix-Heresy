@@ -168,6 +168,43 @@ async function stageCollectionBayAccumulationSave(page) {
   await loadSavedRun(page);
 }
 
+async function stageCollectionBayTransferSave(page) {
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const transferTank = (state.containers || []).find((item) => item.id === 'basic-10');
+    if (!transferTank) {
+      throw new Error('Expected starter container was not found');
+    }
+    transferTank.name = 'Transfer Drainage Tank';
+    transferTank.typeId = 'specimenDrainageTank';
+    transferTank.roomId = 'collectionBay';
+    state.started = true;
+    state.paused = true;
+    state.scientist ||= {};
+    state.scientist.roomId = 'collectionBay';
+    state.tasks = [];
+    state.slimes = [];
+    state.collectionBay = {
+      stations: {
+        'basic-10': {
+          containerId: 'basic-10',
+          material: 'acid droplets',
+          methodType: 'drip',
+          receptacle: { label: 'sealed collection jar', amount: 4, capacity: 10 },
+          overflow: { amount: 3, capacity: 3 },
+          sourceMaterials: ['acid droplets'],
+          sourceSlimes: ['TRANSFER-ACID'],
+        },
+      },
+    };
+    state.collectedByproducts = {};
+    state.collectedByproductHistory = {};
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+}
+
 test('Collection Bay specimen readout uses compact facts and one support line', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -201,11 +238,16 @@ test('Collection Bay specimen readout uses compact facts and one support line', 
   await expect(roomList).toContainText('Support: Specimen Drainage Tank recommended');
   await expect(roomList).toContainText('Support: hood-compatible sealed container');
   await expect(roomList).toContainText('Support: hood venting required; drainage tank does not solve vapor');
+  await expect(roomList).toContainText('Output: mixed collection residue');
+  await expect(roomList).toContainText('Support: improvised mixed collection');
+  await expect(roomList).toContainText('Collecting mixed output');
 
   await expect(roomList).not.toContainText('Container support:');
   await expect(roomList).not.toContainText('Hood support:');
   await expect(roomList).not.toContainText('Collect byproduct');
   await expect(roomList).not.toContainText('Byproduct inventory');
+  await expect(roomList).not.toContainText('Paused: mixed output');
+  await expect(roomList).not.toContainText('Separate specimens');
   await expect(roomList).not.toContainText('output scalar');
   await expect(roomList).not.toContainText('food modifier');
 
@@ -241,7 +283,7 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   await page.locator('#skipTimeBtn').click();
 
   await expect(roomList).toContainText('Receptacle: sealed collection jar');
-  await expect(roomList).toContainText('Collected material remains in station receptacles');
+  await expect(roomList).toContainText('Transfer swaps only the active receptacle into Collected Byproducts');
 
   const stationAmounts = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -264,6 +306,54 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   expect(stationAmounts.immature).toBeGreaterThan(0);
   expect(stationAmounts.immature).toBeLessThan(stationAmounts.single);
 
+  expect(consoleIssues).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('Collection Bay transfer moves active receptacle contents into Collected Byproducts only', async ({ page }) => {
+  const consoleIssues = [];
+  const pageErrors = [];
+  page.on('console', (message) => {
+    if (['warning', 'error'].includes(message.type())) {
+      consoleIssues.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await startRun(page);
+  await stageCollectionBayTransferSave(page);
+
+  const station = page.locator('[data-collection-bay-station="basic-10"]');
+  await expect(station).toContainText('Transfer Drainage Tank station');
+  await expect(station).toContainText('Awaiting transfer');
+  await expect(station).toContainText('Receptacle: sealed collection jar 4 / 10');
+  await expect(station).toContainText('Overflow: apparatus buffer 3 / 3');
+
+  await station.getByRole('button', { name: 'Transfer Receptacle' }).click();
+
+  const inventory = page.locator('#inventoryList');
+  await expect(inventory).toContainText('Collected Byproducts');
+  await expect(inventory).toContainText('acid droplets');
+  await expect(station).toContainText('Receptacle: sealed collection jar 3 / 10');
+  await expect(station).toContainText('Overflow: apparatus buffer 0 / 3');
+
+  const transferState = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const stationState = state.collectionBay?.stations?.['basic-10'];
+    return {
+      collected: Number(state.collectedByproducts?.['acid droplets']) || 0,
+      historySource: state.collectedByproductHistory?.['acid droplets']?.[0]?.source || '',
+      receptacle: Number(stationState?.receptacle?.amount) || 0,
+      overflow: Number(stationState?.overflow?.amount) || 0,
+    };
+  }, { key: storageKey });
+
+  expect(transferState.collected).toBe(4);
+  expect(transferState.historySource).toContain('Transfer Drainage Tank station');
+  expect(transferState.historySource).toContain('TRANSFER-ACID');
+  expect(transferState.receptacle).toBe(3);
+  expect(transferState.overflow).toBe(0);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

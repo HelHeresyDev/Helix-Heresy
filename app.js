@@ -1128,6 +1128,12 @@
       apparatus: "general apparatus",
       containerNeed: "method unresolved",
       note: "The specimen needs further byproduct observation before a collection method can be assigned."
+    },
+    mixed: {
+      label: "mixed apparatus collection",
+      apparatus: "improvised shared apparatus",
+      containerNeed: "mixed-output receptacle",
+      note: "Multiple natural byproducts are entering the same station. The result is collected as mixed collection residue."
     }
   };
   const COLLECTION_BAY_RECEPTACLE_DEFS = {
@@ -1135,6 +1141,7 @@
     sludge: { label: "lined scrape jar", capacity: 12, overflowCapacity: 4 },
     vapor: { label: "condenser flask", capacity: 8, overflowCapacity: 2 },
     dry: { label: "filter bag", capacity: 10, overflowCapacity: 3 },
+    mixed: { label: "mixed-output jar", capacity: 8, overflowCapacity: 3 },
     unclear: { label: "unassigned receptacle", capacity: 0, overflowCapacity: 0 }
   };
   const COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE = 0.05;
@@ -1588,6 +1595,8 @@
       resources: defaultResources(),
       inventory: defaultInventory(),
       inventoryHistory: defaultInventoryHistory(),
+      collectedByproducts: defaultCollectedByproducts(),
+      collectedByproductHistory: defaultCollectedByproductHistory(),
       collectionBay: defaultCollectionBayState(),
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -1638,6 +1647,14 @@
 
   function defaultInventoryHistory() {
     return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, []]));
+  }
+
+  function defaultCollectedByproducts() {
+    return {};
+  }
+
+  function defaultCollectedByproductHistory() {
+    return {};
   }
 
   function defaultResources() {
@@ -6508,6 +6525,9 @@
     if (methodType === "dry") {
       return { factor: 0.75, label: "partial support", reason: "Collection Bay plates and filters can catch some dry output." };
     }
+    if (methodType === "mixed") {
+      return { factor: 0.55, label: "improvised mixed collection", reason: "Multiple byproducts are entering one station, so the collection is usable but messy." };
+    }
     return { factor: 0, label: "unsupported", reason: "Collection method unresolved." };
   }
 
@@ -6526,27 +6546,54 @@
     return bay.stations[cleanId];
   }
 
-  function collectionBayConfigureStation(station, material, methodType) {
+  function cleanCollectionBaySourceList(items) {
+    return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))];
+  }
+
+  function collectionBayConfigureStation(station, material, methodType, sourceMaterials = [], sourceSlimes = []) {
     if (!station || !material) {
       return false;
     }
-    const def = collectionBayReceptacleDef(methodType);
     const currentFill = collectionBayStationFill(station);
-    if (station.material && station.material !== material && currentFill > 0) {
-      return false;
+    let targetMaterial = String(material || "").trim();
+    let targetMethodType = COLLECTION_BAY_RECEPTACLE_DEFS[methodType] ? methodType : "unclear";
+    let targetSources = cleanCollectionBaySourceList(sourceMaterials.length ? sourceMaterials : [targetMaterial]);
+    const targetSlimes = cleanCollectionBaySourceList(sourceSlimes);
+    if (station.material && station.material !== targetMaterial && currentFill > 0) {
+      targetMaterial = "mixed collection residue";
+      targetMethodType = "mixed";
+      targetSources = cleanCollectionBaySourceList([
+        ...(station.sourceMaterials || []),
+        station.material,
+        ...targetSources,
+      ]);
     }
-    if (station.material !== material || station.methodType !== methodType) {
-      station.material = material;
-      station.methodType = methodType;
-      station.receptacle = { label: def.label, amount: 0, capacity: def.capacity };
-      station.overflow = { amount: 0, capacity: def.overflowCapacity };
-      return true;
+    const def = collectionBayReceptacleDef(targetMethodType);
+    const preserveFill = currentFill > 0 && (station.material !== targetMaterial || station.methodType !== targetMethodType);
+    const preservedReceptacle = preserveFill ? Number(station.receptacle.amount) || 0 : 0;
+    const preservedOverflow = preserveFill ? Number(station.overflow.amount) || 0 : 0;
+    if (station.material !== targetMaterial || station.methodType !== targetMethodType) {
+      const receptacleAmount = roundOutputValue(clamp(preservedReceptacle, 0, def.capacity));
+      const displaced = Math.max(0, preservedReceptacle - receptacleAmount);
+      station.material = targetMaterial;
+      station.methodType = targetMethodType;
+      station.receptacle = { label: def.label, amount: receptacleAmount, capacity: def.capacity };
+      station.overflow = {
+        amount: roundOutputValue(clamp(preservedOverflow + displaced, 0, def.overflowCapacity)),
+        capacity: def.overflowCapacity
+      };
+    } else {
+      station.receptacle.label = def.label;
+      station.receptacle.capacity = def.capacity;
+      station.overflow.capacity = def.overflowCapacity;
+      station.receptacle.amount = roundOutputValue(clamp(station.receptacle.amount, 0, station.receptacle.capacity));
+      station.overflow.amount = roundOutputValue(clamp(station.overflow.amount, 0, station.overflow.capacity));
     }
-    station.receptacle.label = def.label;
-    station.receptacle.capacity = def.capacity;
-    station.overflow.capacity = def.overflowCapacity;
-    station.receptacle.amount = roundOutputValue(clamp(station.receptacle.amount, 0, station.receptacle.capacity));
-    station.overflow.amount = roundOutputValue(clamp(station.overflow.amount, 0, station.overflow.capacity));
+    const keepExistingSources = currentFill > 0;
+    station.sourceMaterials = targetMaterial === "mixed collection residue"
+      ? cleanCollectionBaySourceList(keepExistingSources ? [...(station.sourceMaterials || []), ...targetSources] : targetSources)
+      : cleanCollectionBaySourceList(targetSources.length ? targetSources : [targetMaterial]);
+    station.sourceSlimes = cleanCollectionBaySourceList(keepExistingSources ? [...(station.sourceSlimes || []), ...targetSlimes] : targetSlimes);
     return true;
   }
 
@@ -6559,15 +6606,33 @@
   }
 
   function collectionBayActiveContainers() {
-    return (state.containers || [])
-      .filter((container) => container.roomId === COLLECTION_BAY_ROOM_ID && containerOccupants(container.id).length > 0)
+    const containers = new Map();
+    for (const container of state.containers || []) {
+      if (container.roomId === COLLECTION_BAY_ROOM_ID && containerOccupants(container.id).length > 0) {
+        containers.set(container.id, container);
+      }
+    }
+    const stations = ensureCollectionBayState().stations || {};
+    for (const [containerId, station] of Object.entries(stations)) {
+      if (collectionBayStationFill(station) <= 0) {
+        continue;
+      }
+      const container = containerById(containerId);
+      if (container) {
+        containers.set(container.id, container);
+      }
+    }
+    return [...containers.values()]
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   function collectionBayStationInfo(container) {
-    const occupants = containerOccupants(container?.id)
-      .filter((slime) => slime.status !== "dead" && slime.status !== "released")
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const containerInBay = container?.roomId === COLLECTION_BAY_ROOM_ID;
+    const occupants = containerInBay
+      ? containerOccupants(container?.id)
+          .filter((slime) => slime.status !== "dead" && slime.status !== "released")
+          .sort((a, b) => a.name.localeCompare(b.name))
+      : [];
     const station = collectionBayStationForContainer(container?.id);
     const info = {
       container,
@@ -6584,8 +6649,24 @@
       status: "No specimen staged",
       canAccumulate: false,
       blockers: [],
+      sourceMaterials: [],
+      sourceSlimes: [],
     };
     if (!container || !occupants.length) {
+      if (station && station.material) {
+        info.material = station.material;
+        info.methodType = station.methodType;
+        info.method = COLLECTION_BAY_METHOD_DEFS[station.methodType] || COLLECTION_BAY_METHOD_DEFS.unclear;
+        info.support = collectionBayContainerSupportFactor(container, station.methodType);
+        info.conditionLabel = "No active specimen";
+        info.sourceMaterials = cleanCollectionBaySourceList(station.sourceMaterials?.length ? station.sourceMaterials : [station.material]);
+        info.sourceSlimes = cleanCollectionBaySourceList(station.sourceSlimes);
+        info.status = Number(station.receptacle.amount) > 0
+          ? "Awaiting transfer"
+          : Number(station.overflow.amount) > 0
+            ? "Overflow waiting for receptacle"
+            : "Idle";
+      }
       return info;
     }
 
@@ -6609,6 +6690,7 @@
         bands: new Set(),
         conditions: new Set(),
         reasons: new Set(),
+        sourceMaterials: [byproduct],
       };
       entry.slimes.push(slime);
       entry.scalarTotal += Math.max(0, Number(expression?.scalar) || 0) * condition.factor;
@@ -6624,13 +6706,20 @@
       info.status = "Paused: byproduct unknown";
       return info;
     }
-    if (byproductGroups.size > 1) {
-      info.status = "Paused: mixed output";
-      info.blockers.push("Separate specimens before collecting mixed natural byproducts.");
-      return info;
-    }
-
-    const group = [...byproductGroups.values()][0];
+    const groups = [...byproductGroups.values()];
+    const group = groups.length > 1
+      ? {
+          material: "mixed collection residue",
+          methodType: "mixed",
+          method: COLLECTION_BAY_METHOD_DEFS.mixed,
+          slimes: groups.flatMap((item) => item.slimes),
+          scalarTotal: groups.reduce((sum, item) => sum + item.scalarTotal, 0),
+          bands: new Set(groups.flatMap((item) => [...item.bands])),
+          conditions: new Set(groups.flatMap((item) => [...item.conditions])),
+          reasons: new Set(groups.flatMap((item) => [...item.reasons])),
+          sourceMaterials: groups.map((item) => item.material),
+        }
+      : groups[0];
     if (!group) {
       return info;
     }
@@ -6639,10 +6728,12 @@
     info.method = group.method;
     info.conditionLabel = collectionBayConditionSummary(group.conditions);
     info.conditionReasons = [...group.reasons];
+    info.sourceMaterials = cleanCollectionBaySourceList(group.sourceMaterials?.length ? group.sourceMaterials : [group.material]);
+    info.sourceSlimes = cleanCollectionBaySourceList(group.slimes.map((slime) => slime.name));
     info.support = collectionBayContainerSupportFactor(container, group.methodType);
-    if (!collectionBayConfigureStation(station, group.material, group.methodType)) {
-      info.status = `Paused: receptacle contains ${station.material}`;
-      info.blockers.push("Collect or replace the current receptacle before changing station output.");
+    if (!collectionBayConfigureStation(station, group.material, group.methodType, info.sourceMaterials, info.sourceSlimes)) {
+      info.status = "Paused: station unresolved";
+      info.blockers.push("Collection station could not be configured.");
       return info;
     }
     info.rate = roundOutputValue(group.scalarTotal * COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE * info.support.factor);
@@ -6658,6 +6749,8 @@
     }
     if (Number(station.receptacle.amount) >= Number(station.receptacle.capacity) && Number(station.overflow.amount) > 0) {
       info.status = "Overflowing into apparatus buffer";
+    } else if (info.methodType === "mixed") {
+      info.status = "Collecting mixed output";
     } else if (info.support.factor < 1) {
       info.status = "Collecting with poor support";
     } else {
@@ -6693,6 +6786,7 @@
     if (!station || !remaining) {
       return 0;
     }
+    collectionBayDrainOverflowIntoReceptacle(station);
     const before = collectionBayStationFill(station);
     const receptacleSpace = Math.max(0, Number(station.receptacle.capacity) - Number(station.receptacle.amount));
     const toReceptacle = Math.min(receptacleSpace, remaining);
@@ -6703,6 +6797,70 @@
     station.overflow.amount = roundOutputValue(Number(station.overflow.amount) + toOverflow);
     const after = collectionBayStationFill(station);
     return roundOutputValue(after - before);
+  }
+
+  function collectionBayDrainOverflowIntoReceptacle(station) {
+    if (!station) {
+      return 0;
+    }
+    const overflowAmount = Number(station.overflow?.amount) || 0;
+    const receptacleSpace = Math.max(0, Number(station.receptacle?.capacity) - Number(station.receptacle?.amount));
+    const moved = Math.min(overflowAmount, receptacleSpace);
+    if (moved <= 0) {
+      return 0;
+    }
+    station.receptacle.amount = roundOutputValue(Number(station.receptacle.amount) + moved);
+    station.overflow.amount = roundOutputValue(overflowAmount - moved);
+    return roundOutputValue(moved);
+  }
+
+  function collectionBayTransferDisabledReason(info) {
+    if (scientistRoomId() !== COLLECTION_BAY_ROOM_ID) {
+      return "Scientist must be in the Collection Bay.";
+    }
+    if (!info?.station || !info.station.material) {
+      return "No collection receptacle is assigned.";
+    }
+    if ((Number(info.station.receptacle?.amount) || 0) <= 0) {
+      return "Receptacle is empty.";
+    }
+    return "";
+  }
+
+  function collectionBayTransferSource(info) {
+    const stationName = `${info?.container?.name || "Collection Bay"} station`;
+    const method = info?.method?.label || COLLECTION_BAY_METHOD_DEFS[info?.station?.methodType]?.label || "collection apparatus";
+    const materials = cleanCollectionBaySourceList(info?.station?.sourceMaterials?.length ? info.station.sourceMaterials : info?.sourceMaterials);
+    const slimes = cleanCollectionBaySourceList(info?.station?.sourceSlimes?.length ? info.station.sourceSlimes : info?.sourceSlimes);
+    const parts = [`${stationName}`, method];
+    if (materials.length && (info?.station?.material === "mixed collection residue" || materials[0] !== info?.station?.material)) {
+      parts.push(`sources: ${materials.join(", ")}`);
+    }
+    if (slimes.length) {
+      parts.push(`specimens: ${slimes.join(", ")}`);
+    }
+    return parts.join("; ");
+  }
+
+  function transferCollectionBayReceptacle(containerId) {
+    const container = containerById(containerId);
+    const info = collectionBayStationInfo(container);
+    const reason = collectionBayTransferDisabledReason(info);
+    if (reason) {
+      return false;
+    }
+    const amount = roundOutputValue(Number(info.station.receptacle.amount) || 0);
+    const material = info.station.material || info.material;
+    const transferred = addCollectedByproduct(material, amount, collectionBayTransferSource(info));
+    if (transferred <= 0) {
+      return false;
+    }
+    info.station.receptacle.amount = 0;
+    const drained = collectionBayDrainOverflowIntoReceptacle(info.station);
+    addEvent(`Transferred ${formatCollectionAmount(transferred)} ${material} from ${info.container?.name || "Collection Bay"} receptacle to Storage Room${drained > 0 ? `; ${formatCollectionAmount(drained)} remains in the replacement receptacle` : ""}.`);
+    persist();
+    render();
+    return true;
   }
 
   function updateCollectionBayAccumulation(minutes = 0) {
@@ -6841,6 +6999,19 @@
       overflow.className = "collection-bay-station-storage";
       overflow.textContent = `Overflow: apparatus buffer ${formatCollectionAmount(info.station.overflow.amount)} / ${formatCollectionAmount(info.station.overflow.capacity)}`;
       station.append(overflow);
+
+      const actions = document.createElement("div");
+      actions.className = "physical-state-actions collection-bay-station-actions";
+      const transferButton = document.createElement("button");
+      transferButton.type = "button";
+      transferButton.textContent = "Transfer Receptacle";
+      transferButton.dataset.collectionBayTransfer = info.container?.id || "";
+      const transferReason = collectionBayTransferDisabledReason(info);
+      setActionButtonState(transferButton, Boolean(transferReason), transferReason);
+      transferButton.title = transferReason || "Move only the active receptacle contents into Collected Byproducts. Overflow remains in the apparatus and can refill the replacement receptacle.";
+      transferButton.addEventListener("click", () => transferCollectionBayReceptacle(info.container?.id));
+      actions.append(transferButton);
+      station.append(actions);
     }
 
     if (info.blockers.length) {
@@ -6884,6 +7055,8 @@
     status.className = "journal-meta";
     status.textContent = staged.length
       ? `Collection status: ${stationInfos.length} collection station${stationInfos.length === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for readout`
+      : stationInfos.length
+        ? `Collection status: ${stationInfos.length} collection station${stationInfos.length === 1 ? "" : "s"} awaiting transfer; no staged specimens`
       : "Collection status: No staged containers";
     panel.append(status);
 
@@ -6898,8 +7071,8 @@
 
     const note = document.createElement("p");
     note.className = "journal-meta";
-    note.textContent = "Collected material remains in station receptacles; inventory transfer and receptacle replacement are not built yet.";
-    note.title = "Natural byproduct accumulation is separate from feeding residue and harvested tissue. The next pass will move filled receptacles into inventory.";
+    note.textContent = "Transfer swaps only the active receptacle into Collected Byproducts; overflow remains in the station apparatus for later collection.";
+    note.title = "Natural byproduct accumulation is separate from feeding residue and harvested tissue. Routine transfer history is tracked on inventory tooltips instead of event-log accounting spam.";
     panel.append(note);
     return panel;
   }
@@ -12284,9 +12457,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     const items = INVENTORY_ITEM_DEFS;
-    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
+    const byproductEntries = collectedByproductEntries();
+    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length + byproductEntries.length;
     dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Collected Byproducts are raw natural outputs transferred from Collection Bay receptacles. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
     dom.inventoryList.textContent = "";
     for (const category of INVENTORY_CATEGORY_DEFS) {
       const categoryItems = items.filter((item) => item.category === category.id);
@@ -12310,12 +12484,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       dom.inventoryList.append(section);
     }
+    const byproductSection = document.createElement("section");
+    byproductSection.className = "inventory-section";
+    byproductSection.dataset.inventoryCategory = "collectedByproducts";
+    const byproductHeading = document.createElement("h3");
+    byproductHeading.className = "subpanel-title inventory-section-title";
+    byproductHeading.textContent = "Collected Byproducts";
+    byproductHeading.title = "Raw natural byproducts transferred from Collection Bay station receptacles. Names stay as observed until a later processing system changes them.";
+    byproductSection.append(byproductHeading);
+    if (byproductEntries.length) {
+      for (const entry of byproductEntries) {
+        const row = document.createElement("div");
+        row.className = "inventory-row";
+        row.dataset.inventoryCategory = "collectedByproducts";
+        row.dataset.collectedByproduct = entry.label;
+        row.title = collectedByproductTooltip(entry);
+        row.append(textEl("span", entry.label), textEl("strong", formatCollectionAmount(entry.amount)));
+        byproductSection.append(row);
+      }
+    } else {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = "No collected byproducts yet.";
+      byproductSection.append(note);
+    }
+    dom.inventoryList.append(byproductSection);
     if (!items.length) {
       dom.inventoryList.append(emptyText("No inventory items defined."));
     } else if (!nonzeroCount) {
       const note = document.createElement("p");
       note.className = "journal-meta inventory-note";
-      note.textContent = "No stored materials or tools yet. Cheats can add any defined inventory item for testing.";
+      note.textContent = "No stored materials, tools, or collected byproducts yet. Cheats can add any defined inventory item for testing.";
       dom.inventoryList.append(note);
     }
   }
@@ -14688,6 +14887,67 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return INVENTORY_ITEM_BY_KEY[key]?.label || key;
   }
 
+  function collectedByproductAmount(label) {
+    const key = byproductInventoryKey(label);
+    return ensureCollectedByproducts()[key] || 0;
+  }
+
+  function addCollectedByproduct(label, amount, source = "Collection Bay transfer") {
+    const key = byproductInventoryKey(label);
+    const delta = roundOutputValue(Number(amount) || 0);
+    if (!key || delta <= 0) {
+      return 0;
+    }
+    const inventory = ensureCollectedByproducts();
+    inventory[key] = roundOutputValue((Number(inventory[key]) || 0) + delta);
+    recordCollectedByproductChange(key, delta, source);
+    return delta;
+  }
+
+  function recordCollectedByproductChange(label, amount, source = "Collection Bay transfer") {
+    const key = byproductInventoryKey(label);
+    const delta = roundOutputValue(Number(amount) || 0);
+    if (!key || !delta) {
+      return false;
+    }
+    const history = ensureCollectedByproductHistory();
+    const entries = history[key] ||= [];
+    entries.unshift({ amount: delta, source: String(source || "Collection Bay transfer") });
+    history[key] = entries.slice(0, 10);
+    return true;
+  }
+
+  function collectedByproductEntries() {
+    const inventory = ensureCollectedByproducts();
+    return Object.entries(inventory)
+      .map(([label, amount]) => ({ label, amount: roundOutputValue(amount) }))
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  function collectedByproductHistory(label) {
+    return ensureCollectedByproductHistory()[byproductInventoryKey(label)] || [];
+  }
+
+  function collectedByproductTooltip(entry) {
+    const lines = [
+      entry.label,
+      "Raw natural byproduct collected from Collection Bay station receptacles.",
+      `Current amount: ${formatCollectionAmount(entry.amount)}.`,
+      "",
+      "Recent transfers:"
+    ];
+    const history = collectedByproductHistory(entry.label);
+    if (!history.length) {
+      lines.push("No recorded transfers.");
+    } else {
+      for (const item of history.slice(0, 10)) {
+        lines.push(`+${formatCollectionAmount(item.amount)} ${item.source || "Collection Bay transfer"}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
   function ensureInventory() {
     state.inventory = normalizeInventory(state.inventory);
     return state.inventory;
@@ -14696,6 +14956,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function ensureInventoryHistory() {
     state.inventoryHistory = normalizeInventoryHistory(state.inventoryHistory);
     return state.inventoryHistory;
+  }
+
+  function ensureCollectedByproducts() {
+    state.collectedByproducts = normalizeCollectedByproducts(state.collectedByproducts);
+    return state.collectedByproducts;
+  }
+
+  function ensureCollectedByproductHistory() {
+    state.collectedByproductHistory = normalizeCollectedByproductHistory(state.collectedByproductHistory);
+    return state.collectedByproductHistory;
   }
 
   function normalizeInventory(candidate) {
@@ -14716,6 +14986,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         .map((entry) => ({
           amount: Math.trunc(Number(entry?.amount) || 0),
           source: String(entry?.source || "adjustment")
+        }))
+        .filter((entry) => entry.amount)
+        .slice(0, 10);
+    }
+    return normalized;
+  }
+
+  function byproductInventoryKey(label) {
+    return String(label || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function normalizeCollectedByproducts(candidate) {
+    const normalized = defaultCollectedByproducts();
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const [label, amount] of Object.entries(candidate)) {
+      const key = byproductInventoryKey(label);
+      const value = roundOutputValue(Math.max(0, Number(amount) || 0));
+      if (key && value > 0) {
+        normalized[key] = roundOutputValue((normalized[key] || 0) + value);
+      }
+    }
+    return normalized;
+  }
+
+  function normalizeCollectedByproductHistory(candidate) {
+    const normalized = defaultCollectedByproductHistory();
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const [label, entries] of Object.entries(candidate)) {
+      const key = byproductInventoryKey(label);
+      if (!key || !Array.isArray(entries)) {
+        continue;
+      }
+      normalized[key] = entries
+        .map((entry) => ({
+          amount: roundOutputValue(Number(entry?.amount) || 0),
+          source: String(entry?.source || "Collection Bay transfer")
         }))
         .filter((entry) => entry.amount)
         .slice(0, 10);
@@ -14757,6 +15067,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         amount: roundOutputValue(clamp(Number(candidate?.overflow?.amount) || 0, 0, overflowCapacity)),
         capacity: overflowCapacity,
       },
+      sourceMaterials: Array.isArray(candidate?.sourceMaterials)
+        ? [...new Set(candidate.sourceMaterials.map((item) => String(item || "").trim()).filter(Boolean))]
+        : [],
+      sourceSlimes: Array.isArray(candidate?.sourceSlimes)
+        ? [...new Set(candidate.sourceSlimes.map((item) => String(item || "").trim()).filter(Boolean))]
+        : [],
     };
   }
 
@@ -16104,6 +16420,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
     next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
+    next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
+    next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
