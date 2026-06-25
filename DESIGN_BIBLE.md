@@ -150,6 +150,90 @@ Examples of the intended style:
 
 Odd combinations are acceptable. A puddle with stub legs or a metal slime with wing-like membranes may become physically awkward, but that awkwardness can later feed into creature stats, mobility, stability, containment difficulty, or combat/work usefulness.
 
+## Adaptive Skills and Abilities
+
+Skills are practiced domains. They represent something a creature, scientist, or other actor can actively practice, apply, refine, or perform. They are not passive biology and they are not every derived gameplay result.
+
+Stats describe hidden biological capacity. Traits describe biological identity. Skills describe practiced capability. Abilities describe specific actions, techniques, procedures, or maneuvers made possible by skills. Outcomes describe what happens when traits, hidden stats, skills, current condition, equipment, and environment interact.
+
+A skill should be something the actor can practice. An ability should be something the actor can do. An outcome should be something the game calculates.
+
+Examples of skills:
+- Analysis
+- Physicality
+- Toughness
+- Grappling
+- Climbing
+- Swimming
+- Burrowing
+- Squeezing
+- Stealth
+- Flame
+- Electricity
+- Acid
+- Basic Lab Tools
+- Specimen Handling
+- Blades
+- Axes
+- Firearms
+- Surgery
+- Biology
+- Animancy
+
+Examples of abilities:
+- Flame Jet
+- Shock Arc
+- Acid Spit
+- Locking Grapple
+- Crushing Grip
+- Wall Cling
+- Emergency Clamp
+- Sterile Incision
+- Suppressive Fire
+- Axe Hook
+
+Examples of outcomes:
+- containment pressure
+- job suitability
+- collection rate
+- combat damage
+- escape risk
+- tool wear
+- room contamination
+- market value
+
+Byproduct production is not a skill. A slime does not train “byproduct control” simply by existing and producing its natural output. Natural byproduct production is biology and condition-driven output. Skills may influence related procedures or active abilities, but the routine production itself is not a skill.
+
+Movement is not a skill as a broad category. Specific practiced forms such as climbing, swimming, burrowing, squeezing, dodging, or pouncing can be skills if they matter mechanically and can improve through use.
+
+Basic tools such as gloves, tongs, hook poles, scrapers, trays, clamps, and simple restraints can belong under broad laboratory skills such as Basic Lab Tools or Specimen Handling. More complex, dangerous, or specialized tools and weapons can have their own skill families, such as Blades, Axes, Firearms, Surgery, Animancy, or specialized machinery.
+
+Elemental skill names should remain flexible. The tier should be metadata, not forced grammar. Skills should be displayed as a skill name with a tier tag, such as `Flame [Initiate]`, `Smoldering Flame [Novice]`, `Electricity [Initiate]`, `Arcing Current [Adept]`, `Acid [Initiate]`, or `Corrosive Acid [Novice]`. This avoids trapping all skills into a rigid “Initiate of X” naming pattern.
+
+Specific elemental techniques such as Flame Jet, Shock Arc, Acid Spit, or Heat Pulse are abilities derived from elemental skills, not the skills themselves. A creature might have `Flame [Initiate]` and later evolve it into `Smoldering Flame [Novice]`, gaining or improving abilities such as Smoke Vent, Ember Cloud, or Choking Heat. Another creature might evolve the same initial skill into a different Novice form and fight very differently.
+
+Skills should evolve based on use, pressure, and lived experience. Two creatures with similar species, genes, or starting skills can become different because they practiced different things, survived different situations, or were shaped by different environments. The goal is that the same monster type should not always imply the same fight.
+
+Skill tiers can use broad thresholds such as Initiate, Novice, Adept, Master, Heroic, Legendary, and Divine. Each tier represents both advancement and increasing specialization. Higher-tier skill names should reflect the path that shaped them, not only numerical improvement.
+
+Analysis is a skill-reading ability and can be useful in both combat and research. In combat, it helps identify what an opponent can do and how practiced it is. In research, it helps track what a specimen has learned or developed through use. Analysis can reveal skill names, tiers, and levels. It does not reveal stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
+
+The player may eventually see information like:
+- `Grappling [Adept], level 118`
+- `Pouncing [Novice], level 73`
+- `Acid [Initiate], level 29`
+- `Combat Analysis [Novice], level 61`
+
+The player should not see information like:
+- `Strength: 18`
+- `acid potency: 1.34`
+- `hidden stress value`
+- `genetic byproduct slot`
+- `weak to mineral solvents`
+- `container compatibility multiplier`
+
+Genes and traits define biological possibility. Hidden stats define capacity. Skills define practiced capability. Abilities define specific actions. Outcomes are produced when all of those things interact with the world.
+
 ## Future Systems
 
 Likely future systems:
@@ -161,6 +245,9 @@ Likely future systems:
 - Black market reputation, freeform sales, byproduct markets, and commissioned creature requests.
 - Equipment and resource-gated testing.
 - Test failure or inconclusive results based on skill, equipment, and sample difficulty.
+- Adaptive skill evolution where practiced skills evolve into specialized forms based on use, pressure, biology, environment, and lived experience.
+- Abilities derived from skills, such as Flame Jet from a fire-related skill or Locking Grapple from a grappling-related skill.
+- Analysis as a skill-reading tool for combat appraisal and laboratory tracking, revealing skill names, tiers, and levels but not stats, genes, biological traits, weaknesses, or hidden formulas.
 - Mutation as a risk layered on top of deterministic genetics.
 - Creature stats derived from physical compatibility, affinity, stability, and biology.
 - More meaningful containment, risk, escape, and lab safety systems.
@@ -189,6 +276,8 @@ Open design questions:
 - How much should the lab economy rely on byproducts, contracts, hazards, or research milestones?
 - How should natural byproduct collection become economically useful without turning every specimen into a passive money printer?
 - When should observation/testing reveal output quality hints while still hiding exact rolls and gene mappings?
+- How should adaptive skill evolution avoid creating fake skills for passive biology or derived outcomes?
+- How visible should skill levels be before the player has enough Analysis or observation to read them confidently?
 
 ## Current Prototype
 
