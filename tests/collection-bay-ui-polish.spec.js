@@ -20,7 +20,7 @@ async function loadSavedRun(page) {
   await page.locator('#loadLastSaveBtn').click();
 }
 
-function stagedSlime({ id, name, genome, containerId }) {
+function stagedSlime({ id, name, genome, containerId, mature = true, matureAt = 0, stats = {} }) {
   return {
     id,
     name,
@@ -29,8 +29,8 @@ function stagedSlime({ id, name, genome, containerId }) {
     createdAt: 0,
     deathAt: 10000,
     lifecycleVersion: 1,
-    matureAt: 0,
-    mature: true,
+    matureAt,
+    mature,
     status: 'contained',
     containerId,
     roomId: 'mainLab',
@@ -38,7 +38,7 @@ function stagedSlime({ id, name, genome, containerId }) {
     jobProgress: 0,
     jobTargetCorpseId: null,
     jobNutritionGained: 0,
-    stats: {},
+    stats,
     revealed: { byproduct: true, element: true, consistency: true },
     measured: {},
     traitObservations: {},
@@ -133,7 +133,8 @@ async function stageCollectionBayAccumulationSave(page) {
     const state = payload.state || payload;
     const singleTank = (state.containers || []).find((item) => item.id === 'basic-10');
     const doubleTank = (state.containers || []).find((item) => item.id === 'basic-9');
-    if (!singleTank || !doubleTank) {
+    const immatureTank = (state.containers || []).find((item) => item.id === 'basic-8');
+    if (!singleTank || !doubleTank || !immatureTank) {
       throw new Error('Expected starter containers were not found');
     }
     singleTank.name = 'Single Drainage Tank';
@@ -142,6 +143,9 @@ async function stageCollectionBayAccumulationSave(page) {
     doubleTank.name = 'Double Drainage Tank';
     doubleTank.typeId = 'specimenDrainageTank';
     doubleTank.roomId = 'collectionBay';
+    immatureTank.name = 'Immature Drainage Tank';
+    immatureTank.typeId = 'specimenDrainageTank';
+    immatureTank.roomId = 'collectionBay';
     state.started = true;
     state.paused = true;
     state.complexity = state.complexity || 'clean';
@@ -158,6 +162,7 @@ async function stageCollectionBayAccumulationSave(page) {
       stagedSlime({ id: 'single-acid', name: 'SINGLE-ACID', genome: acidDropletGenome, containerId: 'basic-10' }),
       stagedSlime({ id: 'double-acid-a', name: 'DOUBLE-ACID-A', genome: acidDropletGenome, containerId: 'basic-9' }),
       stagedSlime({ id: 'double-acid-b', name: 'DOUBLE-ACID-B', genome: acidDropletGenome, containerId: 'basic-9' }),
+      stagedSlime({ id: 'immature-acid', name: 'IMMATURE-ACID', genome: acidDropletGenome, containerId: 'basic-8', mature: false, matureAt: 240 }),
     ],
   });
   await loadSavedRun(page);
@@ -222,9 +227,12 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   await stageCollectionBayAccumulationSave(page);
 
   const roomList = page.locator('#roomList');
-  await expect(roomList).toContainText('Collection status: 2 collection stations; 3 specimens ready for readout');
+  await expect(roomList).toContainText('Collection status: 3 collection stations; 4 specimens ready for readout');
   await expect(roomList).toContainText('Single Drainage Tank station');
   await expect(roomList).toContainText('Double Drainage Tank station');
+  await expect(roomList).toContainText('Immature Drainage Tank station');
+  await expect(roomList).toContainText('Expression: Steady');
+  await expect(roomList).toContainText('Expression: Trace');
   await expect(roomList).toContainText('Receptacle: sealed collection jar 0 / 10');
   await expect(roomList).toContainText('Overflow: apparatus buffer 0 / 3');
 
@@ -241,15 +249,20 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
     return {
       single: Number(state.collectionBay?.stations?.['basic-10']?.receptacle?.amount) || 0,
       double: Number(state.collectionBay?.stations?.['basic-9']?.receptacle?.amount) || 0,
+      immature: Number(state.collectionBay?.stations?.['basic-8']?.receptacle?.amount) || 0,
       singleMaterial: state.collectionBay?.stations?.['basic-10']?.material,
       doubleMaterial: state.collectionBay?.stations?.['basic-9']?.material,
+      immatureMaterial: state.collectionBay?.stations?.['basic-8']?.material,
     };
   }, { key: storageKey });
 
   expect(stationAmounts.singleMaterial).toBe('acid droplets');
   expect(stationAmounts.doubleMaterial).toBe('acid droplets');
+  expect(stationAmounts.immatureMaterial).toBe('acid droplets');
   expect(stationAmounts.single).toBeGreaterThan(0);
   expect(stationAmounts.double).toBeGreaterThan(stationAmounts.single);
+  expect(stationAmounts.immature).toBeGreaterThan(0);
+  expect(stationAmounts.immature).toBeLessThan(stationAmounts.single);
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);

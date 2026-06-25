@@ -13,16 +13,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Adaptive Skill System Rework
-2. Natural Byproduct Production Condition System
-3. Collected Byproduct Inventory Transfer System
-4. Feeding Residue System
-5. Harvestable Specimen Material System
-6. Container Compatibility & Material Resistance System
-7. Room-Local Storage and Hauling System
-8. Lab Construction & Room Expansion System
-9. Black Market Byproduct Economy System
-10. Elemental Damage Type System
-11. Tool Durability and Damage Resistance System
+2. Collected Byproduct Inventory Transfer System
+3. Feeding Residue System
+4. Harvestable Specimen Material System
+5. Container Compatibility & Material Resistance System
+6. Room-Local Storage and Hauling System
+7. Lab Construction & Room Expansion System
+8. Black Market Byproduct Economy System
+9. Elemental Damage Type System
+10. Tool Durability and Damage Resistance System
 
 ---
 
@@ -30,7 +29,7 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 Rework the skill system around practiced capabilities, evolving skill names, tiered progression, and skill-reading through Analyze.
 
-The goal is to make skills feel like things a creature, scientist, or other actor actually practices and develops through use. Skills should not be passive biology, hidden stats, or derived outcomes. A slime does not train byproduct production. A container does not create a “containment pressure skill.” Movement as a broad abstraction is not a skill. Skills should represent domains of action that can improve through practice and evolve into more specialized forms.
+The goal is to make skills feel like things a creature, scientist, or other actor actually practices and develops through use. Skills should not be passive biology, hidden stats, or derived outcomes. A slime does not train byproduct production. A container does not create a â€œcontainment pressure skill.â€ Movement as a broad abstraction is not a skill. Skills should represent domains of action that can improve through practice and evolve into more specialized forms.
 
 The core model should distinguish:
 
@@ -44,15 +43,15 @@ A skill should be something the actor can practice. An ability should be somethi
 
 Skill tiers should use level ranges:
 
-- Initiate: levels 1–50
-- Novice: levels 51–100
-- Adept: levels 101–150
-- Master: levels 151–200
-- Heroic: levels 201–250
-- Legendary: levels 251–300
+- Initiate: levels 1â€“50
+- Novice: levels 51â€“100
+- Adept: levels 101â€“150
+- Master: levels 151â€“200
+- Heroic: levels 201â€“250
+- Legendary: levels 251â€“300
 - Divine: levels 301+
 
-Do not force skill names into a rigid “Initiate of X” format. Display skills as a skill name with a tier tag, such as:
+Do not force skill names into a rigid â€œInitiate of Xâ€ format. Display skills as a skill name with a tier tag, such as:
 - `Flame [Initiate], level 12`
 - `Smoldering Flame [Novice], level 67`
 - `Electricity [Initiate], level 38`
@@ -60,7 +59,7 @@ Do not force skill names into a rigid “Initiate of X” format. Display skills
 - `Acid [Initiate], level 44`
 - `Corrosive Acid [Novice], level 86`
 - `Physicality [Initiate], level 29`
-- `Wrestler’s Physicality [Novice], level 74`
+- `Wrestlerâ€™s Physicality [Novice], level 74`
 
 Examples:
 - `Flame [Initiate]` is a skill.
@@ -84,7 +83,7 @@ Analyze may reveal:
 - skill names
 - skill tiers
 - skill levels
-- possibly confidence or partial recognition if the observer’s Analyze is weak
+- possibly confidence or partial recognition if the observerâ€™s Analyze is weak
 
 Analyze must not reveal:
 - hidden stats
@@ -101,7 +100,7 @@ In combat, Analyze helps the player understand what an opponent can do and how p
 The system should answer questions like:
 - What skills currently exist for the scientist?
 - Which existing stats or actions should become skills?
-- Which current “skills” are actually outcomes, traits, or abilities and should be renamed or removed?
+- Which current â€œskillsâ€ are actually outcomes, traits, or abilities and should be renamed or removed?
 - How should skills gain experience?
 - How should skill tiers work?
 - When does a skill evolve into a specialized version?
@@ -117,39 +116,7 @@ Before coding, discuss the proposed skill model, current skill-system problems, 
 
 ---
 
-## 2. Natural Byproduct Production Condition System
-
-Create a system where a slime’s natural byproduct production is shaped by its current biological condition, not only by its production gene.
-
-The production gene should define the slime’s baseline production potential. It should describe what the slime is naturally capable of producing under good conditions, but the actual amount produced at any moment should depend on the living specimen’s current state.
-
-A healthy, well-fed, low-stress slime that is near its mature peak mass should produce closer to its natural potential. A starving, stressed, injured, under-mass, immature, unstable, or poorly housed slime should produce less, produce irregularly, or fail to sustain normal output.
-
-This system should answer questions like:
-- What does the production gene define as baseline potential?
-- Which current condition stats affect actual production?
-- How should nutrition affect output?
-- How should current mass versus peak or mature mass affect output?
-- How should stress suppress or destabilize output?
-- How should body integrity affect output?
-- Should maturity, lifespan stage, exposure, contamination, sickness, or room conditions matter?
-- Can excellent care temporarily improve production, or does it only help the slime reach its genetic baseline?
-- How should output penalties be communicated without showing exact hidden math?
-- How should condition-based production connect to Collection Bay accumulation and later inventory transfer?
-
-This system should make creature care matter. Production should not be a static number printed by genetics. Genes define potential, but the organism’s condition determines how much of that potential is actually expressed.
-
-This should also create meaningful gameplay tradeoffs. A high-output specimen may be valuable, but if it is stressed, underfed, injured, or housed poorly, it should not perform at its best. Better feeding, safer containment, lower stress, and healthier mass should matter because they help the specimen sustain production.
-
-The UI should communicate this in broad biological terms rather than exact formulas. The player might see that production is suppressed by poor nutrition, reduced mass, stress, or injury, but not the exact multiplier. Tooltips can carry more detail and confidence than the main UI.
-
-The desired result is a natural byproduct production model where genes set baseline capability and current specimen condition determines real output. This model should become the basis for Collection Bay passive accumulation and later byproduct economy systems.
-
-Before coding, discuss the condition factors, production model, UI wording, and how this should connect to natural output bands and Collection Bay accumulation.
-
----
-
-## 3. Collected Byproduct Inventory Transfer System
+## 2. Collected Byproduct Inventory Transfer System
 
 Create a system for transferring accumulated Collection Bay byproducts into the Storage Room inventory ledger.
 
@@ -167,7 +134,7 @@ The system should answer questions like:
 - What should the player see when there is nothing ready to transfer?
 - How should partial or trace amounts be represented?
 
-The transfer should preserve the game’s separation of concepts:
+The transfer should preserve the gameâ€™s separation of concepts:
 - natural byproduct collection comes from living output caught by apparatus
 - feeding residue comes from meals and jobs
 - harvestable material comes from cutting into or breaking down the specimen
@@ -178,13 +145,13 @@ Before coding, discuss how collected byproduct should map into inventory items a
 
 ---
 
-## 4. Feeding Residue System
+## 3. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
 Feeding residue is not the same thing as a natural byproduct. Natural byproduct is routine biological output. Feeding residue is the mess, leftover material, contamination, waste, or transformed matter caused by a specific meal or job.
 
-A corpse-eating slime might leave loose biomatter, ruined organic matter, contaminated residue, slime trace, or almost nothing depending on the corpse, the slime’s biology, and how efficient the digestion is. A waste-disposal slime might reduce waste but leave trace contamination. A mismatched diet might create stress, poor nutrition, room mess, or low-quality residue.
+A corpse-eating slime might leave loose biomatter, ruined organic matter, contaminated residue, slime trace, or almost nothing depending on the corpse, the slimeâ€™s biology, and how efficient the digestion is. A waste-disposal slime might reduce waste but leave trace contamination. A mismatched diet might create stress, poor nutrition, room mess, or low-quality residue.
 
 The system should answer questions like:
 - What kinds of residue can different foods or jobs leave behind?
@@ -195,7 +162,7 @@ The system should answer questions like:
 - How does the player observe or learn residue behavior?
 - How does residue affect future cleanup, contamination, waste, or inventory systems?
 
-This system should make feeding and job outcomes feel more biological. A slime’s food should matter not only because it restores nutrition, but because digestion can create consequences.
+This system should make feeding and job outcomes feel more biological. A slimeâ€™s food should matter not only because it restores nutrition, but because digestion can create consequences.
 
 The desired result is a clear residue model that can support corpse processing, waste disposal, manual feeding, contamination, cleanup, and future material recovery without confusing residue with natural byproducts or harvestable specimen material.
 
@@ -203,9 +170,9 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 5. Harvestable Specimen Material System
+## 4. Harvestable Specimen Material System
 
-Create a system for materials that can be extracted from a slime’s body.
+Create a system for materials that can be extracted from a slimeâ€™s body.
 
 Harvestable specimen material is separate from natural byproduct and feeding residue. It is what the scientist can recover by cutting, draining, scraping, dissecting, rupturing, dissolving, or otherwise breaking down part or all of the specimen.
 
@@ -221,7 +188,7 @@ The system should answer questions like:
 - How does the scientist learn what a specimen is worth harvesting for?
 - How should harvesting be presented without exposing hidden gene mappings?
 
-This system should support the fantasy of a grim underground biology lab. Harvesting is not just clicking “delete corpse for resources.” It should feel like a procedure with consequences, value, and risk.
+This system should support the fantasy of a grim underground biology lab. Harvesting is not just clicking â€œdelete corpse for resources.â€ It should feel like a procedure with consequences, value, and risk.
 
 The desired result is a foundation for specimen-derived materials that can later support research, crafting, sale, preservation, mutation work, and more detailed necropsy chains.
 
@@ -229,11 +196,11 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 6. Container Compatibility & Material Resistance System
+## 5. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
-Containers should not be interchangeable boxes. A container’s material, sealing, drainage, porosity, structure, size, and handling properties should matter when housing strange organisms. A watery slime, acid slime, heavy mineral slime, vapor-producing slime, corrosive slime, hot slime, tiny puddle slime, and aggressive slime may all create different containment concerns.
+Containers should not be interchangeable boxes. A containerâ€™s material, sealing, drainage, porosity, structure, size, and handling properties should matter when housing strange organisms. A watery slime, acid slime, heavy mineral slime, vapor-producing slime, corrosive slime, hot slime, tiny puddle slime, and aggressive slime may all create different containment concerns.
 
 The system should answer questions like:
 - What makes a container good or bad for a specific specimen?
@@ -252,7 +219,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 7. Room-Local Storage and Hauling System
+## 6. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -275,7 +242,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 8. Lab Construction & Room Expansion System
+## 7. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -299,11 +266,11 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 9. Black Market Byproduct Economy System
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
-The black market should make the lab’s strange outputs economically meaningful. Natural byproducts, harvested specimen materials, corpses, preserved tissues, commissioned creatures, and services can eventually become sources of money, reputation, suspicion, and risk.
+The black market should make the labâ€™s strange outputs economically meaningful. Natural byproducts, harvested specimen materials, corpses, preserved tissues, commissioned creatures, and services can eventually become sources of money, reputation, suspicion, and risk.
 
 This system should begin with byproducts because Collection Bay and byproduct coherence create a natural production pipeline. The market should care about what the substance is, how rare or dangerous it is, how pure or fresh it is, how much the buyer wants it, and how risky it is to move.
 
@@ -314,7 +281,7 @@ The system should answer questions like:
 - How does selling affect black market reputation?
 - How does selling affect Suspicion?
 - How are commissions different from freeform sales?
-- How does the market avoid becoming a simple “sell all” button?
+- How does the market avoid becoming a simple â€œsell allâ€ button?
 - How does the UI keep deals readable and flavorful?
 
 The black market should feel illegal, useful, and dangerous. Selling weird substances should help fund the lab, but also create evidence trails, relationships, expectations, and exposure.
@@ -325,9 +292,9 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 10. Elemental Damage Type System
+## 9. Elemental Damage Type System
 
-Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
+Create a system that gives slime actions, hazards, and contact effects a damage type based on the slimeâ€™s element or biological output.
 
 The core idea is that elemental identity should matter mechanically. An acid slime should threaten things with acid damage. A fire slime should threaten things with heat or burn damage. An electric slime should threaten things with electrical damage. A cold slime should threaten things with freezing damage. A metal or stone slime may threaten things through physical abrasion, crushing, or impact rather than chemical damage.
 
@@ -342,7 +309,7 @@ The system should answer questions like:
 - How should the UI communicate damage type without exposing hidden formulas?
 - How should damage type connect to future container wear, tool durability, room damage, injuries, combat, and harvesting?
 
-Damage types should feel biological and material, not just RPG labels. “Acid damage” means corrosion, chemical burns, dissolving tissue, and eating through unsuitable materials. “Electric damage” means shocks, arcs, nerve disruption, and stress on conductive tools. “Heat damage” means burns, drying, melting, or ignition. “Cold damage” means freezing, brittleness, numbness, or condensation. Physical damage may include crushing, tearing, scraping, piercing, or abrasion depending on the slime.
+Damage types should feel biological and material, not just RPG labels. â€œAcid damageâ€ means corrosion, chemical burns, dissolving tissue, and eating through unsuitable materials. â€œElectric damageâ€ means shocks, arcs, nerve disruption, and stress on conductive tools. â€œHeat damageâ€ means burns, drying, melting, or ignition. â€œCold damageâ€ means freezing, brittleness, numbness, or condensation. Physical damage may include crushing, tearing, scraping, piercing, or abrasion depending on the slime.
 
 The desired result is a clear elemental damage vocabulary that future systems can reuse. Once this exists, equipment, containers, tools, rooms, and creatures can have resistances or vulnerabilities that make biological compatibility more meaningful.
 
@@ -350,7 +317,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 11. Tool Durability and Damage Resistance System
+## 10. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 

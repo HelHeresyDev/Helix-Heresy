@@ -6269,11 +6269,92 @@
     return { expression, band };
   }
 
+  function slimeStatPercent(slime, key) {
+    const stat = slimeStat(slime, key);
+    return clamp(((Number(stat.current) || 0) / Math.max(1, Number(stat.max) || 100)) * 100, 0, 100);
+  }
+
+  function byproductProductionConditionInfo(slime) {
+    if (!slime || slime.status === "dead") {
+      return { factor: 0, label: "Dormant", reasons: ["Specimen is not living."] };
+    }
+    const reasons = [];
+    let factor = 1;
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const mass = slimeStatPercent(slime, "currentMass");
+    const integrity = slimeStatPercent(slime, "bodyIntegrity");
+    const stress = slimeStatPercent(slime, "stress");
+
+    if (!slime.mature) {
+      factor = Math.min(factor, 0.18);
+      reasons.push("Immature body emits only trace output.");
+    }
+    if (nutrition <= 5) {
+      factor *= 0.25;
+      reasons.push("Starvation suppresses production.");
+    } else if (nutrition <= 20) {
+      factor *= 0.45;
+      reasons.push("Low nutrition suppresses production.");
+    } else if (nutrition <= 45) {
+      factor *= 0.7;
+      reasons.push("Nutrition is below ideal.");
+    }
+
+    if (mass <= 25) {
+      factor *= 0.35;
+      reasons.push("Fragmented current mass limits output.");
+    } else if (mass <= 50) {
+      factor *= 0.55;
+      reasons.push("Reduced current mass limits output.");
+    } else if (mass <= 75) {
+      factor *= 0.8;
+      reasons.push("Regrowing mass reduces output.");
+    }
+
+    if (integrity <= 15) {
+      factor *= 0.25;
+      reasons.push("Failing body integrity disrupts production.");
+    } else if (integrity <= 35) {
+      factor *= 0.5;
+      reasons.push("Body damage disrupts production.");
+    } else if (integrity <= 65) {
+      factor *= 0.75;
+      reasons.push("Body integrity is not fully stable.");
+    }
+
+    if (stress >= 90) {
+      factor *= 0.35;
+      reasons.push("Panic suppresses production.");
+    } else if (stress >= 70) {
+      factor *= 0.5;
+      reasons.push("High stress suppresses production.");
+    } else if (stress >= 45) {
+      factor *= 0.75;
+      reasons.push("Stress reduces production.");
+    }
+
+    factor = roundOutputValue(clamp(factor, 0, 1));
+    const label = factor <= 0.08 ? "Dormant"
+      : factor <= 0.22 ? "Trace"
+        : factor <= 0.45 ? "Suppressed"
+          : factor <= 0.7 ? "Weak"
+            : factor <= 0.9 ? "Reduced"
+              : "Steady";
+    return {
+      factor,
+      label,
+      reasons: reasons.length ? reasons : ["Healthy condition supports baseline production."],
+    };
+  }
+
   function byproductExpressionTitleLines(slime) {
     const { band } = byproductExpressionInfo(slime);
+    const condition = byproductProductionConditionInfo(slime);
     return [
       `Natural output: ${band.label}`,
-      `Metabolic demand: ${band.metabolicDemand}`
+      `Metabolic demand: ${band.metabolicDemand}`,
+      `Current expression: ${condition.label}`,
+      ...condition.reasons,
     ];
   }
 
@@ -6498,6 +6579,8 @@
       support: collectionBayContainerSupportFactor(container, "unclear"),
       rate: 0,
       outputLabel: "Idle",
+      conditionLabel: "Unresolved",
+      conditionReasons: [],
       status: "No specimen staged",
       canAccumulate: false,
       blockers: [],
@@ -6516,6 +6599,7 @@
       const byproduct = baseOutcomeLabel(evaluated.traits.byproduct) || "unknown byproduct";
       const methodType = byproductCollectionType(byproduct);
       const { expression, band } = byproductExpressionInfo(slime);
+      const condition = byproductProductionConditionInfo(slime);
       const entry = byproductGroups.get(byproduct) || {
         material: byproduct,
         methodType,
@@ -6523,10 +6607,16 @@
         slimes: [],
         scalarTotal: 0,
         bands: new Set(),
+        conditions: new Set(),
+        reasons: new Set(),
       };
       entry.slimes.push(slime);
-      entry.scalarTotal += Math.max(0, Number(expression?.scalar) || 0);
+      entry.scalarTotal += Math.max(0, Number(expression?.scalar) || 0) * condition.factor;
       entry.bands.add(band.label);
+      entry.conditions.add(condition.label);
+      for (const reason of condition.reasons) {
+        entry.reasons.add(reason);
+      }
       byproductGroups.set(byproduct, entry);
     }
 
@@ -6547,6 +6637,8 @@
     info.material = group.material;
     info.methodType = group.methodType;
     info.method = group.method;
+    info.conditionLabel = collectionBayConditionSummary(group.conditions);
+    info.conditionReasons = [...group.reasons];
     info.support = collectionBayContainerSupportFactor(container, group.methodType);
     if (!collectionBayConfigureStation(station, group.material, group.methodType)) {
       info.status = `Paused: receptacle contains ${station.material}`;
@@ -6582,6 +6674,18 @@
     if (value < 0.06) return "Collecting slowly";
     if (value < 0.12) return "Collecting steadily";
     return "Gathering heavy output";
+  }
+
+  function collectionBayConditionSummary(labels) {
+    const clean = [...(labels || [])].filter(Boolean);
+    if (!clean.length) return "Unresolved";
+    const rank = ["Dormant", "Trace", "Suppressed", "Weak", "Reduced", "Steady"];
+    const indexes = clean.map((label) => rank.indexOf(label)).filter((index) => index >= 0);
+    if (!indexes.length) return "Mixed";
+    const lowest = Math.min(...indexes);
+    const highest = Math.max(...indexes);
+    if (lowest === highest) return rank[lowest];
+    return `${rank[lowest]} to ${rank[highest]}`;
   }
 
   function applyCollectionBayAccumulation(station, amount) {
@@ -6674,11 +6778,13 @@
     const method = collectionBayMethodForByproduct(byproduct);
     const support = collectionBaySupport(slime, methodType);
     const { band } = byproductExpressionInfo(slime);
+    const condition = byproductProductionConditionInfo(slime);
     const facts = document.createElement("div");
     facts.className = "collection-bay-specimen-facts";
     facts.append(
       collectionBayFactEl("Byproduct", byproduct),
       collectionBayFactEl("Output", band.label),
+      collectionBayFactEl("Expression", condition.label),
       collectionBayFactEl("Method", method.label),
       collectionBayFactEl("Need", method.containerNeed),
     );
@@ -6687,7 +6793,7 @@
     supportLine.textContent = `Support: ${support.label}`;
     supportLine.title = support.detail;
     row.replaceChildren(header, facts, supportLine);
-    row.title = `${method.note} ${support.detail} This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
+    row.title = `${method.note} ${support.detail} Current expression: ${condition.label}. ${condition.reasons.join(" ")} This readout covers natural byproducts only; it does not include feeding residue or harvested tissue.`;
     return row;
   }
 
@@ -6716,9 +6822,13 @@
     facts.append(
       collectionBayFactEl("Output", info.material || "unresolved"),
       collectionBayFactEl("Rate", info.outputLabel),
+      collectionBayFactEl("Condition", info.conditionLabel),
       collectionBayFactEl("Method", info.method.label),
       collectionBayFactEl("Support", info.support.label),
     );
+    if (info.conditionReasons?.length) {
+      facts.title = info.conditionReasons.join(" ");
+    }
     station.append(facts);
 
     if (info.station) {

@@ -72,6 +72,8 @@ Natural byproduct output has broad bands: Trace, Low, Moderate, and High. Modera
 
 The genome defines the possible byproduct and output band, but an individual specimen can still roll a hidden expression value inside that band when created. This supports a creature-hunting loop where a specimen can have good genes and still be more or less exceptional as an individual.
 
+Current biological condition shapes how much of that potential is actually expressed. Nutrition, Current Mass, Body Integrity, Stress, and maturity affect natural byproduct production before collection support is applied. Healthy mature specimens can sustain their baseline potential, while hungry, fragmented, injured, stressed, or immature specimens produce less. Immature slimes can still emit trace output, but should not perform like mature production specimens. The UI should describe this broadly as current expression, such as Dormant, Trace, Suppressed, Weak, Reduced, or Steady, without exposing exact multipliers.
+
 Jobs and intended uses do not determine natural byproducts. Using a slime as a cleaner, corpse processor, waste disposer, or production creature should not rewrite what it naturally leaves behind. A slime’s job may create feeding residue, contamination, waste, or job outputs later, but that is not the same as its natural byproduct.
 
 Collection Bay is the lab space for gathering natural byproducts without dissecting the specimen. It contains grim industrial apparatus such as drain channels, sealed troughs, fume hoods, condensers, collection plates, filters, and catch basins. The room’s apparatus works with containers rather than magically collecting everything.
@@ -295,14 +297,14 @@ Open design questions:
 - Discovered-trait identity strip with color, element, shape, and byproduct slots.
 - Broad category icons for discovered shape and byproduct outcomes.
 - Element-compatible and physiology-compatible natural byproducts.
-- Natural output intensity bands with hidden rolled expression values and broad metabolic demand labels.
+- Natural output intensity bands with hidden rolled expression values, broad metabolic demand labels, and condition-shaped current expression.
 - Observable traits with scientist estimate ranges.
 - Sustenance outcomes have hidden categories that can support job suitability, future feedstocks, environmental feeding, and room/container systems.
 - Manual feeding can restore Nutrition and Current Mass, while bad matches can create Stress, Waste, or Body Integrity damage.
 - Best-match feeding is available once a slime's Sustenance is discovered.
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
 - Additional room foundations including Menagerie, Pit, Bedroom, Storage Room, and Collection Bay.
-- Collection Bay station readout for natural byproduct collection methods, receptacle fill levels, and per-station overflow.
+- Collection Bay station readout for natural byproduct collection methods, condition-shaped production, receptacle fill levels, and per-station overflow.
 - Specimen Drainage Tank foundation for drip/sludge/gel specimen housing and output routing.
 - Hood venting readout and condenser-flask receptacles for vapor/haze/fume/mist byproduct support.
 - Room attributes have current values, baselines, passive recovery, and descriptive player-facing bands.
