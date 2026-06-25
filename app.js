@@ -247,8 +247,8 @@
     { max: Infinity, label: "high" }
   ];
   const PHYSICAL_DIAGNOSTIC_TESTS = [
-    { id: "selfCheck", label: "Self-check", resultLabel: "Latest test", quality: 12, duration: 4, staminaCost: 1, skillIds: ["observation", "physiology"] },
-    { id: "basicAssay", label: "Basic assay", resultLabel: "Latest test", quality: 38, duration: 12, staminaCost: 4, skillIds: ["arcaneChemistry", "physiology", "observation"], exactConfidence: 70 }
+    { id: "selfCheck", label: "Self-check", resultLabel: "Latest test", quality: 12, duration: 4, staminaCost: 1, skillIds: ["analysis", "medicine"] },
+    { id: "basicAssay", label: "Basic assay", resultLabel: "Latest test", quality: 38, duration: 12, staminaCost: 4, skillIds: ["alchemy", "medicine", "analysis"], exactConfidence: 70 }
   ];
   const PHYSICAL_DIAGNOSTIC_TEST_BY_ID = Object.fromEntries(PHYSICAL_DIAGNOSTIC_TESTS.map((test) => [test.id, test]));
   const ROOM_EXPOSURE_BANDS = [
@@ -899,7 +899,7 @@
     { id: "very-fast", label: "1800x", description: "30 min/sec", minutesPerSecond: 30 },
     { id: "hourly", label: "3600x", description: "1 hr/sec", minutesPerSecond: 60 }
   ];
-  const MAX_SKILL_LEVEL = 100;
+  const MAX_SKILL_LEVEL = 999;
   const STAMINA_REGEN_MINUTES = 10;
   const MANA_REGEN_MINUTES = 10;
   const NEW_DISCOVERY_XP = 25;
@@ -1493,22 +1493,45 @@
   const WASTE_DISPOSAL_CONTAMINATION_SUSPICION = 2;
   const FRESH_NECROPSY_GENETIC_GAIN = 1;
 
+  const SKILL_TIER_DEFS = [
+    { id: "initiate", label: "Initiate", min: 1 },
+    { id: "novice", label: "Novice", min: 51 },
+    { id: "adept", label: "Adept", min: 101 },
+    { id: "master", label: "Master", min: 151 },
+    { id: "heroic", label: "Heroic", min: 201 },
+    { id: "legendary", label: "Legendary", min: 251 },
+    { id: "divine", label: "Divine", min: 301 }
+  ];
+  const LEGACY_SKILL_ID_MAP = {
+    observation: "analysis",
+    slimeHandling: "creatureHandling",
+    biofabrication: "fabrication",
+    nutrition: "husbandry",
+    arcaneChemistry: "alchemy",
+    materialsAnalysis: "materialsScience",
+    ethology: "creatureLore",
+    physiology: "medicine",
+    reproductiveBiology: "husbandry"
+  };
   const SKILL_DEFS = [
-    { id: "observation", label: "Observation" },
-    { id: "slimeHandling", label: "Slime Handling" },
-    { id: "biofabrication", label: "Biofabrication" },
-    { id: "nutrition", label: "Nutrition" },
-    { id: "arcaneChemistry", label: "Arcane Chemistry" },
-    { id: "materialsAnalysis", label: "Materials Analysis" },
-    { id: "ethology", label: "Ethology" },
-    { id: "physiology", label: "Physiology" },
-    { id: "reproductiveBiology", label: "Reproductive Biology" }
+    { id: "analysis", label: "Analysis", aliases: ["observation"], futureEvolutions: ["Combat Analysis", "Surgical Analysis", "Creature Analysis"] },
+    { id: "creatureHandling", label: "Creature Handling", aliases: ["slime handling", "specimen handling"], futureEvolutions: ["Containment Handling", "Predator Handling", "Slime Handling"] },
+    { id: "fabrication", label: "Fabrication", aliases: ["biofabrication"], futureEvolutions: ["Biofabrication", "Container Fabrication", "Warded Fabrication"] },
+    { id: "husbandry", label: "Husbandry", aliases: ["nutrition", "breeding", "reproductive biology"], futureEvolutions: ["Slime Husbandry", "Brood Husbandry", "Monstrous Husbandry"] },
+    { id: "alchemy", label: "Alchemy", aliases: ["arcane chemistry"], futureEvolutions: ["Arcane Chemistry", "Toxic Alchemy", "Elemental Reagents"] },
+    { id: "materialsScience", label: "Materials Science", aliases: ["materials analysis", "materials"], futureEvolutions: ["Specimen Materials", "Container Materials", "Hazard Materials"] },
+    { id: "creatureLore", label: "Creature Lore", aliases: ["ethology", "behavior"], futureEvolutions: ["Behavioral Lore", "Slime Lore", "Predator Lore"] },
+    { id: "medicine", label: "Medicine", aliases: ["physiology", "anatomy"], futureEvolutions: ["Anatomy", "Pathology", "Surgery"] }
   ];
   const SKILL_BY_ID = Object.fromEntries(SKILL_DEFS.map((skill) => [skill.id, skill]));
-  const SKILL_ALIASES = Object.fromEntries(SKILL_DEFS.flatMap((skill) => [
-    [normalizeCommandName(skill.id), skill.id],
-    [normalizeCommandName(skill.label), skill.id]
-  ]));
+  const SKILL_ALIASES = Object.fromEntries([
+    ...Object.entries(LEGACY_SKILL_ID_MAP).map(([alias, id]) => [normalizeCommandName(alias), id]),
+    ...SKILL_DEFS.flatMap((skill) => [
+      [normalizeCommandName(skill.id), skill.id],
+      [normalizeCommandName(skill.label), skill.id],
+      ...(skill.aliases || []).map((alias) => [normalizeCommandName(alias), skill.id])
+    ])
+  ]);
 
   const REGION_DEFS = [
     { key: "size", label: "Size", test: "visual" },
@@ -1556,15 +1579,15 @@
   ];
   const SLIME_DISPLAY_DEFS = SLIME_DISPLAY_KEYS.map((key) => REGION_BY_KEY[key] || VIRTUAL_TRAIT_DEFS[key]);
   const TESTS = [
-    { id: "visual", label: "Visual Survey", traits: ["size", "shape", "consistency", "appendages", "color"], duration: 4, skillId: "observation", xp: 15 },
-    { id: "sustenance", label: "Sustenance Test", traits: ["sustenance"], duration: 8, skillId: "nutrition", xp: 20 },
-    { id: "element", label: "Element Exposure", traits: ["element"], duration: 10, skillId: "arcaneChemistry", xp: 20 },
-    { id: "containment", label: "Containment Test", traits: ["stability"], duration: 12, skillId: "physiology", xp: 25 },
-    { id: "byproduct", label: "Byproduct Collection", traits: ["byproduct"], duration: 14, skillId: "materialsAnalysis", xp: 20 },
-    { id: "behavior", label: "Behavior Observation", traits: ["behavior"], duration: 9, skillId: "ethology", xp: 20 },
-    { id: "stress", label: "Stress Test", traits: ["stability", "lifespan"], duration: 16, skillId: "physiology", xp: 25 },
-    { id: "breeding", label: "Reproduction Survey", traits: ["brood", "growth"], duration: 18, skillId: "reproductiveBiology", xp: 30 },
-    { id: "lifespan", label: "Lifespan Study", traits: ["lifespan"], duration: 20, skillId: "physiology", xp: 25 }
+    { id: "visual", label: "Visual Survey", traits: ["size", "shape", "consistency", "appendages", "color"], duration: 4, skillId: "analysis", xp: 15 },
+    { id: "sustenance", label: "Sustenance Test", traits: ["sustenance"], duration: 8, skillId: "husbandry", xp: 20 },
+    { id: "element", label: "Element Exposure", traits: ["element"], duration: 10, skillId: "alchemy", xp: 20 },
+    { id: "containment", label: "Containment Test", traits: ["stability"], duration: 12, skillId: "medicine", xp: 25 },
+    { id: "byproduct", label: "Byproduct Collection", traits: ["byproduct"], duration: 14, skillId: "materialsScience", xp: 20 },
+    { id: "behavior", label: "Behavior Observation", traits: ["behavior"], duration: 9, skillId: "creatureLore", xp: 20 },
+    { id: "stress", label: "Stress Test", traits: ["stability", "lifespan"], duration: 16, skillId: "medicine", xp: 25 },
+    { id: "breeding", label: "Reproduction Survey", traits: ["brood", "growth"], duration: 18, skillId: "husbandry", xp: 30 },
+    { id: "lifespan", label: "Lifespan Study", traits: ["lifespan"], duration: 20, skillId: "medicine", xp: 25 }
   ];
 
   const dom = {};
@@ -1632,7 +1655,7 @@
         stamina: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
         mana: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX }
       },
-      skills: Object.fromEntries(SKILL_DEFS.map((skill) => [skill.id, { xp: 0 }]))
+      skills: {}
     };
   }
 
@@ -2096,7 +2119,7 @@
         type: "synthesize",
         label: "Synthesize slime",
         baseDuration: 8,
-        skillId: "biofabrication",
+        skillId: "fabrication",
         baseXp: 25,
         baseCost: BASE_ACTION_STAMINA,
         resourceCosts: { biomass: SYNTHESIS_BIOMASS_COST },
@@ -2135,7 +2158,7 @@
       if (!slime || slime.status === "dead") {
         return;
       }
-      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
+      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
       if (scientistIsDead()) {
       addEvent("The scientist is dead.");
       persist();
@@ -2168,7 +2191,7 @@
         releaseSlime(slime);
         addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
       }
-      awardXp("slimeHandling", 5, "Slime handling");
+      awardXp("creatureHandling", 5, "Creature handling");
       persist();
       render();
     });
@@ -2198,7 +2221,7 @@
         type: "breed",
         label: `Forced Recombination ${parentA.name} x ${parentB.name}`,
         baseDuration: 18,
-        skillId: "reproductiveBiology",
+        skillId: "husbandry",
         baseXp: 30,
         baseCost: BASE_ACTION_STAMINA,
         data: { parentAId: parentA.id, parentBId: parentB.id }
@@ -2691,7 +2714,7 @@
     if (riskyLabel && !confirmPhysicalStateRiskIfNeeded(riskyLabel)) {
       return false;
     }
-    const cost = adjustedStaminaCost(baseCost, [skillId, "slimeHandling"]);
+    const cost = adjustedStaminaCost(baseCost, [skillId, "creatureHandling"]);
     const resourceReason = resourceBlockReason(resourceCosts);
     if (resourceReason) {
       addEvent(resourceReason);
@@ -2978,25 +3001,37 @@
   }
 
   function awardActionXp(skillId, baseXp, revealSummary, label) {
-    if (!skillId || !SKILL_BY_ID[skillId]) {
+    const resolvedSkillId = normalizeSkillId(skillId);
+    if (!resolvedSkillId || !SKILL_BY_ID[resolvedSkillId]) {
       return;
     }
     const multipliers = revealSummary.repeatMultipliers.length ? revealSummary.repeatMultipliers : [1];
     const averageMultiplier = multipliers.reduce((sum, value) => sum + value, 0) / multipliers.length;
     const actionXp = baseXp * averageMultiplier;
     const bonusXp = revealSummary.newDiscoveries * NEW_DISCOVERY_XP;
-    awardXp(skillId, actionXp + bonusXp, label);
+    awardXp(resolvedSkillId, actionXp + bonusXp, label);
   }
 
   function awardXp(skillId, amount, reason) {
-    const skill = scientistSkill(skillId);
-    const before = skillLevel(skillId);
-    skill.xp = Math.max(0, skill.xp + Math.max(0, Number(amount) || 0));
-    const after = skillLevel(skillId);
-    const label = SKILL_BY_ID[skillId]?.label || skillId;
-    addEvent(`${label} gained ${formatXp(amount)} XP${reason ? ` from ${reason}` : ""}.`);
+    const resolvedSkillId = normalizeSkillId(skillId);
+    if (!resolvedSkillId || !SKILL_BY_ID[resolvedSkillId]) {
+      return;
+    }
+    const delta = Math.max(0, Number(amount) || 0);
+    if (!delta) {
+      return;
+    }
+    const skill = scientistSkill(resolvedSkillId, { create: true });
+    const before = skillLevel(resolvedSkillId);
+    skill.xp = Math.max(0, Number(skill.xp) + delta);
+    recordSkillPractice(skill, reason, delta);
+    const after = skillLevel(resolvedSkillId);
+    const label = skillDisplayName(resolvedSkillId, after);
+    addEvent(`${label} gained ${formatXp(delta)} XP${reason ? ` from ${reason}` : ""}.`);
     if (after > before) {
-      addEvent(`${label} reached level ${after}.`);
+      const tier = skillTierForLevel(after);
+      const learned = before <= 0 && after >= 1 ? " learned" : " reached";
+      addEvent(`${label}${learned} ${tier ? `${tier.label}, ` : ""}level ${after}.`);
     }
   }
 
@@ -3032,6 +3067,71 @@
 
   function xpToNextLevel(level) {
     return Math.round(100 * Math.pow(level + 1, 2.2));
+  }
+
+  function normalizeSkillId(skillId) {
+    const raw = String(skillId || "").trim();
+    if (!raw) {
+      return "";
+    }
+    return SKILL_BY_ID[raw] ? raw : LEGACY_SKILL_ID_MAP[raw] || SKILL_ALIASES[normalizeCommandName(raw)] || "";
+  }
+
+  function skillDef(skillId) {
+    return SKILL_BY_ID[normalizeSkillId(skillId)] || null;
+  }
+
+  function defaultSkillEntry() {
+    return { xp: 0, practiceTags: {}, evolvedLabel: "" };
+  }
+
+  function skillTierForLevel(level) {
+    const safe = Math.max(0, Math.floor(Number(level) || 0));
+    if (safe <= 0) {
+      return null;
+    }
+    return [...SKILL_TIER_DEFS].reverse().find((tier) => safe >= tier.min) || SKILL_TIER_DEFS[0];
+  }
+
+  function skillDisplayName(skillId, level = skillLevel(skillId)) {
+    const id = normalizeSkillId(skillId);
+    const skill = scientistSkill(id);
+    return skill.evolvedLabel || SKILL_BY_ID[id]?.label || String(skillId || "");
+  }
+
+  function learnedScientistSkills() {
+    return SKILL_DEFS
+      .map((def, index) => {
+        const progress = skillProgress(def.id);
+        return { def, index, progress, tier: skillTierForLevel(progress.level), entry: scientistSkill(def.id) };
+      })
+      .filter((item) => item.progress.level >= 1)
+      .sort((a, b) => a.index - b.index);
+  }
+
+  function skillPracticeTag(reason) {
+    return normalizeCommandName(reason || "practice") || "practice";
+  }
+
+  function recordSkillPractice(skill, reason, amount) {
+    skill.practiceTags ||= {};
+    const tag = skillPracticeTag(reason);
+    skill.practiceTags[tag] = roundOutputValue((Number(skill.practiceTags[tag]) || 0) + Math.max(0, Number(amount) || 0));
+  }
+
+  function normalizeSkillPracticeTags(candidate) {
+    const normalized = {};
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const [tag, amount] of Object.entries(candidate)) {
+      const key = skillPracticeTag(tag);
+      const value = roundOutputValue(Math.max(0, Number(amount) || 0));
+      if (key && value > 0) {
+        normalized[key] = roundOutputValue((normalized[key] || 0) + value);
+      }
+    }
+    return normalized;
   }
 
 
@@ -3811,12 +3911,19 @@
   }
 
   function predictionSkillSummary(skillIds = []) {
-    const ids = skillIds.filter((skillId) => SKILL_BY_ID[skillId]);
+    const ids = [...new Set(skillIds.map(normalizeSkillId).filter((skillId) => SKILL_BY_ID[skillId]))];
     if (!ids.length) {
       return { best: 0, text: "no relevant skill data" };
     }
-    const parts = ids.map((skillId) => `${SKILL_BY_ID[skillId].label} ${skillLevel(skillId)}`);
-    return { best: Math.max(...ids.map((skillId) => skillLevel(skillId))), text: parts.join(" · ") };
+    const parts = ids.map((skillId) => {
+      const level = skillLevel(skillId);
+      if (level <= 0) {
+        return `${SKILL_BY_ID[skillId].label} not learned`;
+      }
+      const tier = skillTierForLevel(level);
+      return `${skillDisplayName(skillId, level)} [${tier.label}] level ${level}`;
+    });
+    return { best: Math.max(...ids.map((skillId) => skillLevel(skillId))), text: parts.join(" / ") };
   }
 
   function predictionConfidenceFromContext({ unknownFactors = [], knownFactors = [], concerns = [], clearEvidence = 0, skillIds = [] } = {}) {
@@ -4008,7 +4115,7 @@
       knownFactors: helpfulFactors,
       concerns,
       clearEvidence,
-      skillIds: ["observation", "ethology", "slimeHandling"]
+      skillIds: ["analysis", "creatureLore", "creatureHandling"]
     });
     const range = predictionRangeFromBand(CLEANUP_EFFECT_BANDS, band, confidence.label, { unknownLow: "Trace", unknownHigh: "Strong" });
     return { range, confidence, helpfulFactors, concerns, unknownFactors, observationMinutes: observation.minutes };
@@ -4087,7 +4194,7 @@
       knownFactors,
       concerns,
       clearEvidence,
-      skillIds: ["observation", "ethology", "slimeHandling"]
+      skillIds: ["analysis", "creatureLore", "creatureHandling"]
     });
     const tooltip = [
       `Possible intent: ${text}.`,
@@ -4121,7 +4228,7 @@
     if (!slimeTraitKnown(slime, "byproduct")) unknownFactors.push("byproduct");
     if (!slimeTraitKnown(slime, "stability")) unknownFactors.push("stability");
     const concerns = ["no active intended use is selected"];
-    const confidence = predictionConfidenceFromContext({ unknownFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
+    const confidence = predictionConfidenceFromContext({ unknownFactors, concerns, skillIds: ["analysis", "creatureLore", "creatureHandling"] });
     const range = predictionRangeFromBand(["Poor", "Acceptable", "Good", "Excellent"], "Acceptable", confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" });
     return {
       intendedUse: creatureJobLabel(slime?.job || "idle"),
@@ -4136,7 +4243,7 @@
 
   function observedReleaseUseFit(slime) {
     if (!slime) {
-      const confidence = predictionConfidenceFromContext({ concerns: ["no living slime selected"], skillIds: ["observation", "ethology", "slimeHandling"] });
+      const confidence = predictionConfidenceFromContext({ concerns: ["no living slime selected"], skillIds: ["analysis", "creatureLore", "creatureHandling"] });
       return {
         intendedUse: "Unknown",
         band: "Unknown",
@@ -4172,7 +4279,7 @@
       const helpfulFactors = suitability.reasons || [];
       const unknownFactors = suitability.known ? [] : ["corpse processing fit"];
       const band = suitability.known ? suitability.band : "Acceptable";
-      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
+      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["analysis", "creatureLore", "creatureHandling"] });
       return {
         intendedUse,
         band,
@@ -4193,7 +4300,7 @@
       const helpfulFactors = suitability.reasons || [];
       const unknownFactors = suitability.known ? [] : ["waste disposal fit"];
       const band = suitability.known ? suitability.band : "Acceptable";
-      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["observation", "ethology", "slimeHandling"] });
+      const confidence = predictionConfidenceFromContext({ unknownFactors, knownFactors: helpfulFactors, concerns, skillIds: ["analysis", "creatureLore", "creatureHandling"] });
       return {
         intendedUse,
         band,
@@ -4462,7 +4569,7 @@
     if (!slime || !container) {
       const confidence = predictionConfidenceFromContext({
         unknownFactors: ["specimen", "container"],
-        skillIds: ["observation", "slimeHandling", "physiology", "materialsAnalysis"]
+        skillIds: ["analysis", "creatureHandling", "medicine", "materialsScience"]
       });
       return {
         range: { low: bands[0], high: bands[bands.length - 1] },
@@ -4574,7 +4681,7 @@
       knownFactors: uniqueKnown,
       concerns: uniqueConcerns,
       clearEvidence: uniqueKnown.length * 10 + uniqueConcerns.length * 8,
-      skillIds: ["observation", "slimeHandling", "physiology", "materialsAnalysis"]
+      skillIds: ["analysis", "creatureHandling", "medicine", "materialsScience"]
     });
     const range = predictionRangeFromBand(bands, baseBand, confidence.label, {
       unknownLow: "Comfortable",
@@ -5082,7 +5189,7 @@
       }
     }
 
-    const skill = skillLevel("slimeHandling");
+    const skill = skillLevel("creatureHandling");
     const expert = skill >= 30;
     const experienced = occupants.some((slime) => slimeHandlingExperience(slime) > 0);
     let certainty = "unknown";
@@ -5395,7 +5502,7 @@
       knownFactors,
       concerns,
       clearEvidence: (knownFactors.length * 10) + (methodNotes.length * 4),
-      skillIds: ["observation", "slimeHandling", "physiology"]
+      skillIds: ["analysis", "creatureHandling", "medicine"]
     });
 
     let riskRange;
@@ -5536,14 +5643,14 @@
       return false;
     }
     const baseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
-    const cost = adjustedStaminaCost(baseCost, ["slimeHandling"]);
+    const cost = adjustedStaminaCost(baseCost, ["creatureHandling"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
       return false;
     }
-    const duration = adjustedDuration(action === "close" ? CONTAINER_INTERACTION_CLOSE_DURATION : CONTAINER_INTERACTION_OPEN_DURATION, "slimeHandling");
+    const duration = adjustedDuration(action === "close" ? CONTAINER_INTERACTION_CLOSE_DURATION : CONTAINER_INTERACTION_OPEN_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -5727,14 +5834,14 @@
     if (!confirmPhysicalStateRiskIfNeeded(`transferring ${slime.name} from ${sourceContainer.name} to ${destination.name}`)) {
       return false;
     }
-    const cost = adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
+    const cost = adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["creatureHandling"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
       return false;
     }
-    const duration = adjustedDuration(LIVE_TRANSFER_DURATION, "slimeHandling");
+    const duration = adjustedDuration(LIVE_TRANSFER_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -5884,14 +5991,14 @@
     const corpses = containerCorpses(container.id);
     const destinationPit = availablePitHoleForRemains(corpses.length);
     const baseCost = action === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
-    const cost = adjustedStaminaCost(baseCost, ["slimeHandling"]);
+    const cost = adjustedStaminaCost(baseCost, ["creatureHandling"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
       return false;
     }
-    const duration = adjustedDuration(action === "scrapeRemains" ? REMAINS_SCRAPE_DURATION : REMAINS_DUMP_DURATION, "slimeHandling");
+    const duration = adjustedDuration(action === "scrapeRemains" ? REMAINS_SCRAPE_DURATION : REMAINS_DUMP_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -7625,11 +7732,11 @@
   }
 
   function renderFoundryActionState() {
-    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["biofabrication", "slimeHandling"]);
-    const duration = adjustedDuration(8, "biofabrication");
+    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"]);
+    const duration = adjustedDuration(8, "fabrication");
     const resourceCosts = { biomass: SYNTHESIS_BIOMASS_COST };
     renderSynthesisTubeStatus();
-    setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["biofabrication", "slimeHandling"], { duration: formatDuration(duration), suffix: formatResourceBundle(resourceCosts) });
+    setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"], { duration: formatDuration(duration), suffix: formatResourceBundle(resourceCosts) });
     const reason = synthesisTubeBlockReason()
       || resourceBlockReason(resourceCosts)
       || staminaBlockReason(cost);
@@ -7671,9 +7778,9 @@
 
   function refreshReleaseButtonState() {
     const selected = getSelectedSlime();
-    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
+    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
     const releaseLabel = selected?.status === "released" ? "Contain Creature" : "Release into Room";
-    setButtonStaminaLabel(dom.releaseBtn, releaseLabel, HANDLING_STAMINA, ["slimeHandling"]);
+    setButtonStaminaLabel(dom.releaseBtn, releaseLabel, HANDLING_STAMINA, ["creatureHandling"]);
     const reason = !selected || selected.status === "dead"
       ? "No living slime selected."
       : selected.status === "released" && !firstOpenPermanentContainer()
@@ -7692,9 +7799,9 @@
       if (!test) {
         continue;
       }
-      const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"]);
+      const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"]);
       const duration = adjustedDuration(test.duration, test.skillId);
-      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"], { duration: formatDuration(duration) });
+      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"], { duration: formatDuration(duration) });
       const reason = testBlockReason(test, slime, cost);
       setActionButtonState(button, Boolean(reason), reason);
     }
@@ -7712,9 +7819,9 @@
 
   function refreshBreedButtonState() {
     const breedable = state.slimes.filter(isBreedable);
-    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["reproductiveBiology", "slimeHandling"]);
-    const duration = adjustedDuration(18, "reproductiveBiology");
-    setButtonStaminaLabel(dom.breedBtn, "Force Recombination", BASE_ACTION_STAMINA, ["reproductiveBiology", "slimeHandling"], { duration: formatDuration(duration) });
+    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"]);
+    const duration = adjustedDuration(18, "husbandry");
+    setButtonStaminaLabel(dom.breedBtn, "Force Recombination", BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = breedable.length < 2
       ? "Forced recombination requires two mature slimes."
       : !canAddContainedSlime()
@@ -8652,7 +8759,7 @@
     if (!risk) {
       const confidence = predictionConfidenceFromContext({
         unknownFactors: ["active containment state"],
-        skillIds: ["observation", "ethology", "slimeHandling"]
+        skillIds: ["analysis", "creatureLore", "creatureHandling"]
       });
       return {
         range: { low: "Stable", high: "Failing" },
@@ -8666,7 +8773,7 @@
       const confidence = predictionConfidenceFromContext({
         knownFactors: ["synthesis tube suppression", "temporary universal containment"],
         clearEvidence: 60,
-        skillIds: ["observation", "ethology", "slimeHandling"]
+        skillIds: ["analysis", "creatureLore", "creatureHandling"]
       });
       return {
         range: { low: "Stable", high: "Stable" },
@@ -8688,7 +8795,7 @@
       knownFactors,
       concerns,
       clearEvidence,
-      skillIds: ["observation", "ethology", "slimeHandling"]
+      skillIds: ["analysis", "creatureLore", "creatureHandling"]
     });
     return {
       range: predictionRangeFromBand(activeContainmentRiskBands(), risk.label, confidence.label, { unknownLow: "Stable", unknownHigh: "Failing" }),
@@ -8928,7 +9035,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const button = document.createElement("button");
       button.type = "button";
       const interactionBaseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
-      setButtonStaminaLabel(button, action === "close" ? "Close Container" : "Open Container", interactionBaseCost, ["slimeHandling"]);
+      setButtonStaminaLabel(button, action === "close" ? "Close Container" : "Open Container", interactionBaseCost, ["creatureHandling"]);
       if (action === "open") {
         button.dataset.openContainerId = container.id;
       } else {
@@ -8938,11 +9045,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const reason = containerInteractionBlockReason(container, action)
         || physicalStateRiskBlockReason(physicalRiskLabel)
         || handlingMethodMissingToolReason(currentHandlingMethodId())
-        || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["slimeHandling"]));
+        || staminaBlockReason(adjustedStaminaCost(interactionBaseCost, ["creatureHandling"]));
       setActionButtonState(button, Boolean(reason), reason);
       const physicalRiskTitle = physicalStateRiskTitle(physicalRiskLabel);
       const directHandlingTitle = handlingRiskTitle(container, action, currentHandlingMethodId());
-      button.title = reason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${directHandlingTitle}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["slimeHandling"]).title}`;
+      button.title = reason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${physicalRiskTitle ? `${physicalRiskTitle}\n` : ""}${directHandlingTitle}\n${adjustedStaminaCostBreakdown(interactionBaseCost, ["creatureHandling"]).title}`;
       button.addEventListener("click", () => startContainerInteraction(container.id, action));
       actions.append(button);
 
@@ -8951,18 +9058,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const remainsBtn = document.createElement("button");
           remainsBtn.type = "button";
           const baseCost = remainsAction === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
-          setButtonStaminaLabel(remainsBtn, remainsHandlingActionLabel(remainsAction), baseCost, ["slimeHandling"]);
+          setButtonStaminaLabel(remainsBtn, remainsHandlingActionLabel(remainsAction), baseCost, ["creatureHandling"]);
           remainsBtn.dataset.remainsAction = remainsAction;
           remainsBtn.dataset.remainsContainerId = container.id;
           const remainsRiskLabel = `${remainsHandlingActionLabel(remainsAction).toLowerCase()} from ${container.name}`;
           const remainsReason = remainsHandlingBlockReason(container, remainsAction)
             || physicalStateRiskBlockReason(remainsRiskLabel)
             || handlingMethodMissingToolReason(currentHandlingMethodId())
-            || staminaBlockReason(adjustedStaminaCost(baseCost, ["slimeHandling"]));
+            || staminaBlockReason(adjustedStaminaCost(baseCost, ["creatureHandling"]));
           setActionButtonState(remainsBtn, Boolean(remainsReason), remainsReason);
           const remainsRiskTitle = physicalStateRiskTitle(remainsRiskLabel);
           const directRemainsHandlingTitle = handlingRiskTitle(container, remainsAction, currentHandlingMethodId());
-          remainsBtn.title = remainsReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${directRemainsHandlingTitle}\n${adjustedStaminaCostBreakdown(baseCost, ["slimeHandling"]).title}`;
+          remainsBtn.title = remainsReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${remainsRiskTitle ? `${remainsRiskTitle}\n` : ""}${directRemainsHandlingTitle}\n${adjustedStaminaCostBreakdown(baseCost, ["creatureHandling"]).title}`;
           remainsBtn.addEventListener("click", () => startRemainsHandling(container.id, remainsAction));
           actions.append(remainsBtn);
         }
@@ -8990,18 +9097,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
         const transferBtn = document.createElement("button");
         transferBtn.type = "button";
-        setButtonStaminaLabel(transferBtn, liveTransferActionLabel(), LIVE_TRANSFER_STAMINA, ["slimeHandling"]);
+        setButtonStaminaLabel(transferBtn, liveTransferActionLabel(), LIVE_TRANSFER_STAMINA, ["creatureHandling"]);
         transferBtn.dataset.liveTransferContainerId = container.id;
         const selectedDestinationId = transferSelect.value;
         const transferRiskLabel = "transferring a living slime";
         const transferReason = liveTransferBlockReason(container, selectedDestinationId)
           || physicalStateRiskBlockReason(transferRiskLabel)
           || handlingMethodMissingToolReason(currentHandlingMethodId())
-          || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["slimeHandling"]));
+          || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["creatureHandling"]));
         setActionButtonState(transferBtn, Boolean(transferReason), transferReason);
         const transferRiskTitle = physicalStateRiskTitle(transferRiskLabel);
         const directTransferHandlingTitle = handlingRiskTitle(container, "transferLivingSlime", currentHandlingMethodId());
-        transferBtn.title = transferReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${directTransferHandlingTitle}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["slimeHandling"]).title}`;
+        transferBtn.title = transferReason || `${handlingMethodActionTitle(currentHandlingMethodId())}\n${transferRiskTitle ? `${transferRiskTitle}\n` : ""}${directTransferHandlingTitle}\n${adjustedStaminaCostBreakdown(LIVE_TRANSFER_STAMINA, ["creatureHandling"]).title}`;
         transferBtn.addEventListener("click", () => startLiveSlimeTransfer(container.id, transferSelect.value));
         transferWrap.append(textEl("span", "Destination: "), transferSelect, transferBtn);
         actions.append(transferWrap);
@@ -9015,8 +9122,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       actions.className = "container-actions";
       const moveBtn = document.createElement("button");
       moveBtn.type = "button";
-      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
-      setButtonStaminaLabel(moveBtn, "Move to Open Container", HANDLING_STAMINA, ["slimeHandling"]);
+      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
+      setButtonStaminaLabel(moveBtn, "Move to Open Container", HANDLING_STAMINA, ["creatureHandling"]);
       const tubeMoveRiskLabel = `moving ${occupants[0].name} from the synthesis tube`;
       const reason = !firstOpenPermanentContainer()
         ? "No open permanent container is available."
@@ -9025,7 +9132,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           || staminaBlockReason(cost);
       setActionButtonState(moveBtn, Boolean(reason), reason);
       const tubeMoveRiskTitle = physicalStateRiskTitle(tubeMoveRiskLabel);
-      moveBtn.title = reason || `${tubeMoveRiskTitle ? `${tubeMoveRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(HANDLING_STAMINA, ["slimeHandling"]).title}`;
+      moveBtn.title = reason || `${tubeMoveRiskTitle ? `${tubeMoveRiskTitle}\n` : ""}${adjustedStaminaCostBreakdown(HANDLING_STAMINA, ["creatureHandling"]).title}`;
       moveBtn.addEventListener("click", () => moveTubeOccupantToOpenContainer(occupants[0].id));
       actions.append(moveBtn);
       card.append(actions);
@@ -9052,7 +9159,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!confirmPhysicalStateRiskIfNeeded(`moving ${slime.name} from the synthesis tube`)) {
       return false;
     }
-    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["slimeHandling"]);
+    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
@@ -9067,7 +9174,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       return;
     }
-    awardXp("slimeHandling", 5, "Slime handling");
+    awardXp("creatureHandling", 5, "Creature handling");
     addEvent(`${slime.name} assigned to ${container.name}.`);
     persist();
     render();
@@ -9181,7 +9288,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       type: "necropsy",
       label: `Necropsy ${corpse.name}`,
       baseDuration: duration,
-      skillId: "physiology",
+      skillId: "medicine",
       baseXp: 35,
       baseCost: BASE_ACTION_STAMINA,
       data: { corpseId: corpse.id }
@@ -9189,9 +9296,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function refreshNecropsyButton(button, corpse) {
-    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["physiology", "slimeHandling"]);
-    const duration = adjustedDuration(necropsyDuration(corpse), "physiology");
-    setButtonStaminaLabel(button, "Necropsy", BASE_ACTION_STAMINA, ["physiology", "slimeHandling"], { duration: formatDuration(duration) });
+    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
+    const duration = adjustedDuration(necropsyDuration(corpse), "medicine");
+    setButtonStaminaLabel(button, "Necropsy", BASE_ACTION_STAMINA, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = necropsyBlockReason(corpse, cost);
     setActionButtonState(button, Boolean(reason), reason);
   }
@@ -9574,7 +9681,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       return false;
     }
-    const cost = adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]);
+    const cost = adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
@@ -9582,7 +9689,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const fromRoomId = scientistRoomId();
-    const duration = adjustedDuration(SCIENTIST_MOVE_BASE_DURATION, "observation");
+    const duration = adjustedDuration(SCIENTIST_MOVE_BASE_DURATION, "analysis");
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
@@ -9664,12 +9771,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (freeCreatures.length) {
       knownFactors.push(`${freeCreatures.length} uncontained creature${freeCreatures.length === 1 ? "" : "s"} observed`);
       for (const slime of freeCreatures.slice(0, 2)) {
-        if (slimeHuntingInclination(slime) && (skillLevel("ethology") >= FREE_CREATURE_PRESSURE_HIGH_SKILL || slimeTraitKnown(slime, "behavior"))) {
+        if (slimeHuntingInclination(slime) && (skillLevel("creatureLore") >= FREE_CREATURE_PRESSURE_HIGH_SKILL || slimeTraitKnown(slime, "behavior"))) {
           knownFactors.push(`${slime.name} shows hunting behavior`);
-        } else if (!slimeTraitKnown(slime, "behavior") && skillLevel("ethology") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
+        } else if (!slimeTraitKnown(slime, "behavior") && skillLevel("creatureLore") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
           unknownFactors.push(`${slime.name} behavior`);
         }
-        if (!slimeTraitKnown(slime, "byproduct") && skillLevel("arcaneChemistry") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
+        if (!slimeTraitKnown(slime, "byproduct") && skillLevel("alchemy") < FREE_CREATURE_PRESSURE_HIGH_SKILL) {
           unknownFactors.push(`${slime.name} contact hazards`);
         }
       }
@@ -9704,7 +9811,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (observation.exposureScore >= 65) {
       score -= 8;
     }
-    score += Math.min(12, skillLevel("observation") * 3);
+    score += Math.min(12, skillLevel("analysis") * 3);
     return clamp(score, 0, 100);
   }
 
@@ -10075,12 +10182,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const target = roomById(targetId);
           const button = document.createElement("button");
           button.type = "button";
-          const moveCost = setButtonStaminaLabel(button, target.name, SCIENTIST_MOVE_BASE_STAMINA, ["observation"]);
+          const moveCost = setButtonStaminaLabel(button, target.name, SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]);
           button.dataset.scientistMoveRoomId = target.id;
           const reason = scientistMoveBlockReason(target.id) || staminaBlockReason(moveCost);
           setActionButtonState(button, Boolean(reason), reason);
           if (!reason) {
-            button.title = `${roomMoveWarningText(target.id)}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["observation"]).title}`;
+            button.title = `${roomMoveWarningText(target.id)}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]).title}`;
           }
           button.addEventListener("click", () => startScientistMove(target.id));
           if (index > 0) {
@@ -10161,7 +10268,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       knownFactors.push(crowdingReason);
     }
     const unknownFactors = [];
-    const skill = Math.max(skillLevel("observation"), skillLevel("ethology"), skillLevel("slimeHandling"));
+    const skill = Math.max(skillLevel("analysis"), skillLevel("creatureLore"), skillLevel("creatureHandling"));
     const highSkill = skill >= FREE_CREATURE_PRESSURE_HIGH_SKILL;
 
     for (const slime of creatures) {
@@ -11385,7 +11492,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       knownFactors: helpfulFactors,
       concerns,
       clearEvidence,
-      skillIds: ["observation", "ethology", "slimeHandling"]
+      skillIds: ["analysis", "creatureLore", "creatureHandling"]
     });
     let range;
     if (!known || band === "Unknown") {
@@ -12144,12 +12251,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.testButtons.textContent = "";
     const slime = getSelectedSlime();
     for (const test of TESTS) {
-      const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"]);
+      const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"]);
       const duration = adjustedDuration(test.duration, test.skillId);
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.testId = test.id;
-      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "slimeHandling"], { duration: formatDuration(duration) });
+      setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"], { duration: formatDuration(duration) });
       const reason = testBlockReason(test, slime, cost);
       setActionButtonState(button, Boolean(reason), reason);
       button.addEventListener("click", () => {
@@ -12436,7 +12543,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const [index, test] of PHYSICAL_DIAGNOSTIC_TESTS.entries()) {
       const button = document.createElement("button");
       button.type = "button";
-      setButtonStaminaLabel(button, test.label, test.staminaCost, test.skillIds || ["observation"]);
+      setButtonStaminaLabel(button, test.label, test.staminaCost, test.skillIds || ["analysis"]);
       button.dataset.physicalDiagnosticTestId = test.id;
       const reason = physicalDiagnosticBlockReason(test);
       setActionButtonState(button, Boolean(reason), reason);
@@ -12524,19 +12631,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderResources();
     dom.resourceList.append(physicalStatePanelEl(), restQualityPanelEl());
     dom.skillList.textContent = "";
-    for (const skill of SKILL_DEFS) {
-      const progress = skillProgress(skill.id);
+    const learnedSkills = learnedScientistSkills();
+    if (!learnedSkills.length) {
+      const note = document.createElement("p");
+      note.className = "journal-meta";
+      note.textContent = "No learned skills yet. Practice will reveal a skill once it reaches level 1.";
+      note.title = "Level 0 skills are not displayed; they do not exist on the sheet until enough practice forms an Initiate skill.";
+      dom.skillList.append(note);
+    }
+    for (const { def: skill, progress, tier, entry } of learnedSkills) {
       const row = document.createElement("div");
       row.className = "skill-row";
+      row.dataset.skillId = skill.id;
+      row.title = [
+        `${skillDisplayName(skill.id, progress.level)} [${tier.label}], level ${progress.level}`,
+        `Base domain: ${skill.label}.`,
+        (skill.futureEvolutions || []).length ? `Possible future specializations: ${skill.futureEvolutions.join(", ")}.` : "",
+        Object.keys(entry.practiceTags || {}).length ? `Practice tags: ${Object.keys(entry.practiceTags).join(", ")}.` : "No practice tags recorded yet."
+      ].filter(Boolean).join("\n");
 
       const header = document.createElement("div");
       header.className = "skill-header";
-      header.append(textEl("strong", skill.label), textEl("span", `Lvl ${progress.level}`));
+      header.append(textEl("strong", skillDisplayName(skill.id, progress.level)), textEl("span", `[${tier.label}], level ${progress.level}`));
 
       const meta = document.createElement("div");
       meta.className = "skill-meta";
       meta.textContent = progress.level >= MAX_SKILL_LEVEL
-        ? `${formatXp(scientistSkill(skill.id).xp)} XP`
+        ? `${formatXp(entry.xp)} XP`
         : `${formatXp(progress.current)} / ${formatXp(progress.next)} XP`;
 
       const bar = document.createElement("div");
@@ -12745,7 +12866,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const command = dom.xpCommandInput.value.trim();
     const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
     if (!match) {
-      dom.xpCommandStatus.textContent = "Use format: observation 5000";
+      dom.xpCommandStatus.textContent = "Use format: analysis 5000";
       return;
     }
     const skillId = SKILL_ALIASES[normalizeCommandName(match[1])];
@@ -13729,7 +13850,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function estimateBounds(value, traitKey, contextKey) {
     const numericValue = Number(value) || 0;
-    const level = skillLevel("observation");
+    const level = skillLevel("analysis");
     const spread = 0.8 - Math.min(0.68, level * 0.0068);
     const rng = seedRng(`${state?.seed || "seed"}:estimate:${level}:${traitKey}:${contextKey}`);
     const bias = (rng() - 0.5) * spread * 0.65;
@@ -13740,7 +13861,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function estimatedColor(hex, traitKey, contextKey) {
-    const level = skillLevel("observation");
+    const level = skillLevel("analysis");
     const maxShift = Math.max(8, 60 - level * 0.52);
     const rng = seedRng(`${state?.seed || "seed"}:color-estimate:${level}:${traitKey}:${contextKey}`);
     const channels = parseHexColor(hex).map((channel) => {
@@ -13751,7 +13872,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function makeColorObservation(outcome) {
-    const level = skillLevel("observation");
+    const level = skillLevel("analysis");
     const tier = colorObservationTier(level);
     const hex = outcome.meta?.color || "#000000";
     const rgb = parseHexColor(hex);
@@ -14492,11 +14613,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return slime.status !== "dead" && slime.mature;
   }
 
-  function scientistSkill(skillId) {
+  function scientistSkill(skillId, options = {}) {
     state.scientist ||= defaultScientist();
     state.scientist.skills ||= {};
-    state.scientist.skills[skillId] ||= { xp: 0 };
-    return state.scientist.skills[skillId];
+    const resolvedSkillId = normalizeSkillId(skillId);
+    if (!resolvedSkillId || !SKILL_BY_ID[resolvedSkillId]) {
+      return defaultSkillEntry();
+    }
+    if (!state.scientist.skills[resolvedSkillId] && options.create) {
+      state.scientist.skills[resolvedSkillId] = defaultSkillEntry();
+    }
+    return state.scientist.skills[resolvedSkillId] || defaultSkillEntry();
   }
 
   function scientistVital(key) {
@@ -14534,7 +14661,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function diagnosticConfidenceScore(test) {
-    const skillLevelBest = Math.max(...(test.skillIds || ["observation"]).map((skillId) => skillLevel(skillId)), 0);
+    const skillLevelBest = Math.max(...(test.skillIds || ["analysis"]).map((skillId) => skillLevel(skillId)), 0);
     return clamp((Number(test.quality) || 0) + skillLevelBest * 10, 0, 100);
   }
 
@@ -14647,7 +14774,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (physicalDiagnosticTask()) {
       return "A physical-state test is already in progress.";
     }
-    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["observation"]);
+    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["analysis"]);
     if (!hasStamina(cost)) {
       return `Not enough stamina. ${cost} required.`;
     }
@@ -14663,14 +14790,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       return false;
     }
-    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["observation"]);
+    const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["analysis"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
       return false;
     }
-    const skillId = test.skillIds?.[0] || "observation";
+    const skillId = test.skillIds?.[0] || "analysis";
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "physicalDiagnostic",
@@ -14721,7 +14848,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       testedAt: state.clock
     };
     scientistPhysicalState().latestTest = latestTest;
-    awardActionXp(task.data?.skillId || test.skillIds?.[0] || "observation", task.data?.baseXp || 6, emptyRevealSummary(), test.label);
+    awardActionXp(task.data?.skillId || test.skillIds?.[0] || "analysis", task.data?.baseXp || 6, emptyRevealSummary(), test.label);
     addEvent(`${test.label} complete. ${summary}. Confidence: ${confidence}.`);
     return true;
   }
@@ -15741,7 +15868,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function adjustedStaminaCostBreakdown(baseCost, skillIds = [], options = {}) {
     const base = Math.max(0, Number(baseCost) || 0);
-    const bestLevel = Math.max(...(skillIds || []).filter(Boolean).map((skillId) => skillLevel(skillId)), 0);
+    const resolvedSkillIds = [...new Set((skillIds || []).map(normalizeSkillId).filter(Boolean))];
+    const bestLevel = Math.max(...resolvedSkillIds.map((skillId) => skillLevel(skillId)), 0);
     const multiplierAdjusted = Math.max(1, Math.ceil(base * skillReductionMultiplier(bestLevel)));
     const levelStepDiscount = Math.floor(bestLevel / 5);
     const skillAdjusted = Math.max(1, Math.min(multiplierAdjusted, base - levelStepDiscount));
@@ -15751,8 +15879,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : physicalStateActionStrain();
     const finalCost = Math.max(1, skillAdjusted + strain.modifier);
     const netDelta = finalCost - base;
-    const skillLabels = (skillIds || [])
-      .filter(Boolean)
+    const skillLabels = resolvedSkillIds
       .map((skillId) => SKILL_BY_ID[skillId]?.label || skillId);
     const lines = [`Base cost: ${base} STA`];
     if (skillDelta < 0) {
@@ -16692,11 +16819,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         current: clamp(Number.isFinite(rawCurrent) ? rawCurrent : max, 0, max)
       };
     }
-    for (const skill of SKILL_DEFS) {
-      scientist.skills[skill.id] = {
-        xp: Math.max(0, Number(scientist.skills[skill.id]?.xp) || 0)
-      };
+    const normalizedSkills = {};
+    for (const [rawSkillId, rawSkill] of Object.entries(scientist.skills || {})) {
+      const skillId = normalizeSkillId(rawSkillId);
+      if (!skillId || !SKILL_BY_ID[skillId]) {
+        continue;
+      }
+      const xp = Math.max(0, Number(rawSkill?.xp) || 0);
+      if (!xp) {
+        continue;
+      }
+      const existing = normalizedSkills[skillId] || defaultSkillEntry();
+      existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
+      existing.evolvedLabel = String(rawSkill?.evolvedLabel || existing.evolvedLabel || "");
+      existing.practiceTags = normalizeSkillPracticeTags({
+        ...(existing.practiceTags || {}),
+        ...(rawSkill?.practiceTags || {})
+      });
+      normalizedSkills[skillId] = existing;
     }
+    scientist.skills = normalizedSkills;
     return scientist;
   }
 

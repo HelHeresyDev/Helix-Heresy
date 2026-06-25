@@ -162,8 +162,29 @@ Stats describe hidden biological capacity. Traits describe biological identity. 
 
 A skill should be something the actor can practice. An ability should be something the actor can do. An outcome should be something the game calculates.
 
-Examples of skills:
+Level 0 skills should not appear on character sheets. If an actor has not reached level 1 in a skill, that skill does not exist for that actor in player-facing UI. Practice below level 1 can exist as hidden progress, but the sheet should only populate once a skill becomes an Initiate skill.
+
+Base skills should be broad world-scale domains, not narrow lab job titles. The current prototype scientist skill domains are:
+
 - Analysis
+- Creature Handling
+- Fabrication
+- Husbandry
+- Alchemy
+- Materials Science
+- Creature Lore
+- Medicine
+
+These names should make sense beyond the starting scientist. Hunters, soldiers, nobles, monsters, assistants, and future non-slime creatures should be able to use the same system. More specialized names belong at higher tiers or after lived specialization. For example:
+
+- Fabrication can later evolve into Biofabrication, Container Fabrication, Warded Fabrication, or Ritual Fabrication.
+- Alchemy can later evolve into Arcane Chemistry, Toxic Alchemy, Reagent Alchemy, or Elemental Reagents.
+- Creature Handling can later evolve into Containment Handling, Predator Handling, Slime Handling, or another creature-family specialty.
+- Husbandry can later evolve into Slime Husbandry, Brood Husbandry, Monstrous Husbandry, or other care/reproduction specialties.
+- Analysis can later evolve into Combat Analysis, Surgical Analysis, Creature Analysis, or another reading specialty.
+
+Examples of creature or combat skills:
+
 - Physicality
 - Toughness
 - Grappling
@@ -175,16 +196,15 @@ Examples of skills:
 - Flame
 - Electricity
 - Acid
-- Basic Lab Tools
-- Specimen Handling
 - Blades
 - Axes
 - Firearms
 - Surgery
-- Biology
 - Animancy
 
 Examples of abilities:
+
+- Analyze
 - Flame Jet
 - Shock Arc
 - Acid Spit
@@ -197,6 +217,7 @@ Examples of abilities:
 - Axe Hook
 
 Examples of outcomes:
+
 - containment pressure
 - job suitability
 - collection rate
@@ -206,35 +227,37 @@ Examples of outcomes:
 - room contamination
 - market value
 
-Byproduct production is not a skill. A slime does not train “byproduct control” simply by existing and producing its natural output. Natural byproduct production is biology and condition-driven output. Skills may influence related procedures or active abilities, but the routine production itself is not a skill.
+Byproduct production is not a skill. A slime does not train byproduct control simply by existing and producing its natural output. Natural byproduct production is biology and condition-driven output. Skills may influence related procedures or active abilities, but routine production itself is not a skill.
 
 Movement is not a skill as a broad category. Specific practiced forms such as climbing, swimming, burrowing, squeezing, dodging, or pouncing can be skills if they matter mechanically and can improve through use.
 
-Basic tools such as gloves, tongs, hook poles, scrapers, trays, clamps, and simple restraints can belong under broad laboratory skills such as Basic Lab Tools or Specimen Handling. More complex, dangerous, or specialized tools and weapons can have their own skill families, such as Blades, Axes, Firearms, Surgery, Animancy, or specialized machinery.
+Basic tools such as gloves, tongs, hook poles, scrapers, trays, clamps, and simple restraints can belong under broad world skills such as Creature Handling, Fabrication, or future tool-family skills. More complex, dangerous, or specialized tools and weapons can have their own skill families, such as Blades, Axes, Firearms, Surgery, Animancy, or specialized machinery.
 
-Elemental skill names should remain flexible. The tier should be metadata, not forced grammar. Skills should be displayed as a skill name with a tier tag, such as `Flame [Initiate]`, `Smoldering Flame [Novice]`, `Electricity [Initiate]`, `Arcing Current [Adept]`, `Acid [Initiate]`, or `Corrosive Acid [Novice]`. This avoids trapping all skills into a rigid “Initiate of X” naming pattern.
+Elemental skill names should remain flexible. The tier should be metadata, not forced grammar. Skills should be displayed as a skill name with a tier tag, such as Flame [Initiate], Smoldering Flame [Novice], Electricity [Initiate], Arcing Current [Adept], Acid [Initiate], or Corrosive Acid [Novice]. This avoids trapping all skills into a rigid Initiate-of-X naming pattern.
 
-Specific elemental techniques such as Flame Jet, Shock Arc, Acid Spit, or Heat Pulse are abilities derived from elemental skills, not the skills themselves. A creature might have `Flame [Initiate]` and later evolve it into `Smoldering Flame [Novice]`, gaining or improving abilities such as Smoke Vent, Ember Cloud, or Choking Heat. Another creature might evolve the same initial skill into a different Novice form and fight very differently.
+Specific elemental techniques such as Flame Jet, Shock Arc, Acid Spit, or Heat Pulse are abilities derived from elemental skills, not the skills themselves. A creature might have Flame [Initiate] and later evolve it into Smoldering Flame [Novice], gaining or improving abilities such as Smoke Vent, Ember Cloud, or Choking Heat. Another creature might evolve the same initial skill into a different Novice form and fight very differently.
 
 Skills should evolve based on use, pressure, and lived experience. Two creatures with similar species, genes, or starting skills can become different because they practiced different things, survived different situations, or were shaped by different environments. The goal is that the same monster type should not always imply the same fight.
 
-Skill tiers can use broad thresholds such as Initiate, Novice, Adept, Master, Heroic, Legendary, and Divine. Each tier represents both advancement and increasing specialization. Higher-tier skill names should reflect the path that shaped them, not only numerical improvement.
+Skill tiers are Initiate, Novice, Adept, Master, Heroic, Legendary, and Divine. Each tier represents both advancement and increasing specialization. Higher-tier skill names should reflect the path that shaped them, not only numerical improvement.
 
-Analysis is a skill-reading ability and can be useful in both combat and research. In combat, it helps identify what an opponent can do and how practiced it is. In research, it helps track what a specimen has learned or developed through use. Analysis can reveal skill names, tiers, and levels. It does not reveal stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
+Analyze is the universal skill-reading ability. It can be useful in the laboratory, in combat, and in other contexts. In combat, Analyze helps identify what an opponent can do and how practiced it is. In research, it helps track what a specimen has learned or developed through use. Analyze can reveal skill names, tiers, and levels. It does not reveal stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
 
 The player may eventually see information like:
-- `Grappling [Adept], level 118`
-- `Pouncing [Novice], level 73`
-- `Acid [Initiate], level 29`
-- `Combat Analysis [Novice], level 61`
+
+- Grappling [Adept], level 118
+- Pouncing [Novice], level 73
+- Acid [Initiate], level 29
+- Combat Analysis [Novice], level 61
 
 The player should not see information like:
-- `Strength: 18`
-- `acid potency: 1.34`
-- `hidden stress value`
-- `genetic byproduct slot`
-- `weak to mineral solvents`
-- `container compatibility multiplier`
+
+- Strength: 18
+- acid potency: 1.34
+- hidden stress value
+- genetic byproduct slot
+- weak to mineral solvents
+- container compatibility multiplier
 
 Genes and traits define biological possibility. Hidden stats define capacity. Skills define practiced capability. Abilities define specific actions. Outcomes are produced when all of those things interact with the world.
 
@@ -281,7 +304,7 @@ Open design questions:
 - How should natural byproduct collection become economically useful without turning every specimen into a passive money printer?
 - When should observation/testing reveal output quality hints while still hiding exact rolls and gene mappings?
 - How should adaptive skill evolution avoid creating fake skills for passive biology or derived outcomes?
-- How visible should skill levels be before the player has enough Analysis or observation to read them confidently?
+- How visible should skill levels be before the player has enough Analysis or direct observation to read them confidently?
 
 ## Current Prototype
 
@@ -327,7 +350,8 @@ Open design questions:
 - Corpse Processing uses creature traits, sustenance categories, and policy-approved corpse states to turn waste-drum corpses into Biomass and tagged Waste while affecting slime condition.
 - Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output, condition-stat effects, and suitability learned through observed speed, exposure, and contamination.
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
-- Scientist stat sheet with health, stamina, mana, and individual skills.
+- Scientist stat sheet with health, stamina, mana, and learned skills only; level 0 practice stays off the sheet until a skill reaches Initiate.
+- First-pass adaptive skill foundation with world-scale domains such as Analysis, Creature Handling, Fabrication, Husbandry, Alchemy, Materials Science, Creature Lore, and Medicine.
 - Stamina costs, passive regeneration, and queued rest actions.
 - XP, resource, room, and inventory cheat commands for testing skill progression, resource-gated systems, room conditions, and inventory state.
 - Storage Room ledger with Materials and Tools & Supplies categories.

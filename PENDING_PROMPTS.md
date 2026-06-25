@@ -12,110 +12,19 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Adaptive Skill System Rework
-2. Feeding Residue System
-3. Harvestable Specimen Material System
-4. Container Compatibility & Material Resistance System
-5. Room-Local Storage and Hauling System
-6. Lab Construction & Room Expansion System
-7. Black Market Byproduct Economy System
-8. Elemental Damage Type System
-9. Tool Durability and Damage Resistance System
+1. Feeding Residue System
+2. Harvestable Specimen Material System
+3. Container Compatibility & Material Resistance System
+4. Room-Local Storage and Hauling System
+5. Lab Construction & Room Expansion System
+6. Black Market Byproduct Economy System
+7. Elemental Damage Type System
+8. Tool Durability and Damage Resistance System
+9. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Adaptive Skill System Rework
-
-Rework the skill system around practiced capabilities, evolving skill names, tiered progression, and skill-reading through Analyze.
-
-The goal is to make skills feel like things a creature, scientist, or other actor actually practices and develops through use. Skills should not be passive biology, hidden stats, or derived outcomes. A slime does not train byproduct production. A container does not create a â€œcontainment pressure skill.â€ Movement as a broad abstraction is not a skill. Skills should represent domains of action that can improve through practice and evolve into more specialized forms.
-
-The core model should distinguish:
-
-- stats: hidden biological capacity
-- traits: biological identity or discovered biological categories
-- skills: practiced domains
-- abilities: specific actions, techniques, procedures, or maneuvers derived from skills
-- outcomes: calculated results from traits, hidden stats, skills, condition, equipment, environment, and current context
-
-A skill should be something the actor can practice. An ability should be something the actor can do. An outcome should be something the game calculates.
-
-Skill tiers should use level ranges:
-
-- Initiate: levels 1â€“50
-- Novice: levels 51â€“100
-- Adept: levels 101â€“150
-- Master: levels 151â€“200
-- Heroic: levels 201â€“250
-- Legendary: levels 251â€“300
-- Divine: levels 301+
-
-Do not force skill names into a rigid â€œInitiate of Xâ€ format. Display skills as a skill name with a tier tag, such as:
-- `Flame [Initiate], level 12`
-- `Smoldering Flame [Novice], level 67`
-- `Electricity [Initiate], level 38`
-- `Arcing Current [Adept], level 122`
-- `Acid [Initiate], level 44`
-- `Corrosive Acid [Novice], level 86`
-- `Physicality [Initiate], level 29`
-- `Wrestlerâ€™s Physicality [Novice], level 74`
-
-Examples:
-- `Flame [Initiate]` is a skill.
-- `Smoldering Flame [Novice]` is an evolved skill.
-- `Flame Jet` is an ability derived from a fire-related skill.
-- burn damage, tool wear, and room ignition are outcomes.
-
-More examples:
-- `Grappling [Initiate]` can evolve into `Locking Grapple [Novice]` or `Crushing Grapple [Novice]`.
-- `Analyze [Initiate]` can evolve into `Combat Analyze [Novice]`, `Surgical Analyze [Novice]`, or another specialized reading skill.
-- `Basic Lab Tools [Initiate]` can cover simple handling tools like gloves, tongs, hook poles, scrapers, trays, clamps, and simple restraints.
-- complex weapons or advanced disciplines can have their own skill families, such as Blades, Axes, Firearms, Surgery, Biology, Animancy, or specialized machinery.
-
-Each tier represents both advancement and specialization. When a skill advances to a new tier, its evolved name and behavior should be influenced by how that skill was practiced, what pressures shaped it, and what kind of creature or actor developed it.
-
-This system should make two similar creatures diverge over time. Two slimes with similar genetics might become very different if one repeatedly wrestles with containment, one processes corpses, one survives fire exposure, and one fights predators. Their hidden biology still matters, but their skill history should create meaningful variety.
-
-Analyze should be treated as a skill-reading tool, not a biological scanner.
-
-Analyze may reveal:
-- skill names
-- skill tiers
-- skill levels
-- possibly confidence or partial recognition if the observerâ€™s Analyze is weak
-
-Analyze must not reveal:
-- hidden stats
-- genes
-- hidden biological traits
-- exact formulas
-- hidden output values
-- weaknesses
-- container compatibility multipliers
-- exact condition values
-
-In combat, Analyze helps the player understand what an opponent can do and how practiced it is. In research, Analyze helps the scientist track what a specimen has learned or developed through use. It reveals practiced capability, not biological truth.
-
-The system should answer questions like:
-- What skills currently exist for the scientist?
-- Which existing stats or actions should become skills?
-- Which current â€œskillsâ€ are actually outcomes, traits, or abilities and should be renamed or removed?
-- How should skills gain experience?
-- How should skill tiers work?
-- When does a skill evolve into a specialized version?
-- How does the game decide which evolved form a skill becomes?
-- How should abilities attach to or derive from skills?
-- How should Analyze reveal skill information?
-- How should skill information appear in the UI?
-- How should this system support both lab work and combat later?
-
-The desired result is a flexible skill architecture where practiced domains can grow, evolve, and create variety without turning every mechanic into a skill. The same creature type should not always imply the same fight, the same job performance, or the same future development path.
-
-Before coding, discuss the proposed skill model, current skill-system problems, migration plan, skill naming rules, Analyze behavior, UI presentation, and how much of the rework should be implemented in the first pass.
-
----
-
-## 2. Feeding Residue System
+## 1. Feeding Residue System
 
 Create a system for residue caused by what slimes eat.
 
@@ -140,7 +49,7 @@ Before coding, discuss how feeding residue should be represented, where it shoul
 
 ---
 
-## 3. Harvestable Specimen Material System
+## 2. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slimeâ€™s body.
 
@@ -166,7 +75,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 4. Container Compatibility & Material Resistance System
+## 3. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -189,7 +98,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 5. Room-Local Storage and Hauling System
+## 4. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -212,7 +121,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 6. Lab Construction & Room Expansion System
+## 5. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -236,7 +145,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 6. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -262,7 +171,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 8. Elemental Damage Type System
+## 7. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slimeâ€™s element or biological output.
 
@@ -287,7 +196,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 9. Tool Durability and Damage Resistance System
+## 8. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -313,3 +222,23 @@ The UI should communicate condition clearly without becoming spreadsheet-heavy. 
 The desired result is a foundation where tools are reusable but not indestructible. Handling choices should start to matter materially, and future systems like container movement, slime handling, Collection Bay work, cleanup, harvesting, and accidents can wear down equipment in consistent ways.
 
 Before coding, discuss the durability model, resistance categories, starting durability values, how tool wear should be triggered, and how much repair/replacement gameplay belongs in the first implementation.
+
+---
+
+## 9. Analyze Ability & Creature Skill Evolution Follow-Up
+
+Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
+
+The current foundation has broad world-scale skill domains, tier labels, hidden pre-level-1 practice, and scientist skill display rules. This follow-up should decide how actors use Analyze in laboratory and combat contexts, how much skill information Analyze reveals, and how creature skills become visible without exposing genes, hidden stats, weaknesses, or exact formulas.
+
+This system should answer questions like:
+- What UI action represents Analyze in the lab and in combat?
+- What can Analyze target: creatures, corpses, rooms, tools, materials, enemies, or hazards?
+- How does Analysis skill affect confidence, partial reads, and misreads?
+- When do creature skills first appear, and where should they be displayed?
+- Which creature actions grant skill practice?
+- When does a skill evolve into a specialized name?
+- Is skill evolution automatic, player-guided, or automatic for creatures and guided for the scientist?
+- How do abilities attach to evolved skills without turning passive biology into fake skills?
+
+Before coding, discuss the Analyze workflow, creature skill visibility, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
