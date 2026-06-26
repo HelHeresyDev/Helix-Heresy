@@ -56,6 +56,24 @@ const TRAIT_POOLS = {
     'brittle jelly',
     'clay-like',
   ],
+  sustenance: [
+    'organic feeder',
+    'carrion feeder',
+    'decay feeder',
+    'filth feeder',
+    'mineral feeder',
+    'metal feeder',
+    'silicate feeder',
+    'fuel feeder',
+    'arcane mineral feeder',
+    'hazard feeder',
+    'heat absorber',
+    'light absorber',
+    'ambient mana absorber',
+    'moisture absorber',
+    'electrical absorber',
+    'fume absorber',
+  ],
 };
 
 const BYPRODUCT_SLOT_CODES = ['AA', 'AC', 'CC', 'CT'];

@@ -730,6 +730,42 @@ h2 {
   border-radius: 6px;
 }
 
+.feeding-residue-panel {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  background: #181912;
+  border: 1px solid #343124;
+  border-radius: 6px;
+}
+
+.feeding-residue-panel > strong {
+  color: var(--amber);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.feeding-residue-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.feeding-residue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.45rem;
+  background: #15160f;
+  border: 1px solid #2a2d22;
+  border-radius: 6px;
+}
+
+.feeding-residue-row span {
+  color: var(--muted);
+}
+
 .policy-list {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
 }

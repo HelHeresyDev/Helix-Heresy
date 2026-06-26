@@ -12,44 +12,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Feeding Residue System
-2. Harvestable Specimen Material System
-3. Container Compatibility & Material Resistance System
-4. Room-Local Storage and Hauling System
-5. Lab Construction & Room Expansion System
-6. Black Market Byproduct Economy System
-7. Elemental Damage Type System
-8. Tool Durability and Damage Resistance System
-9. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Harvestable Specimen Material System
+2. Container Compatibility & Material Resistance System
+3. Room-Local Storage and Hauling System
+4. Lab Construction & Room Expansion System
+5. Black Market Byproduct Economy System
+6. Elemental Damage Type System
+7. Tool Durability and Damage Resistance System
+8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Feeding Residue System
-
-Create a system for residue caused by what slimes eat.
-
-Feeding residue is not the same thing as a natural byproduct. Natural byproduct is routine biological output. Feeding residue is the mess, leftover material, contamination, waste, or transformed matter caused by a specific meal or job.
-
-A corpse-eating slime might leave loose biomatter, ruined organic matter, contaminated residue, slime trace, or almost nothing depending on the corpse, the slimeâ€™s biology, and how efficient the digestion is. A waste-disposal slime might reduce waste but leave trace contamination. A mismatched diet might create stress, poor nutrition, room mess, or low-quality residue.
-
-The system should answer questions like:
-- What kinds of residue can different foods or jobs leave behind?
-- How does slime sustenance affect residue?
-- How do body traits, element, and efficiency affect residue?
-- How does corpse state affect residue?
-- Does residue appear in the room, in the container, in waste drums, or in inventory?
-- How does the player observe or learn residue behavior?
-- How does residue affect future cleanup, contamination, waste, or inventory systems?
-
-This system should make feeding and job outcomes feel more biological. A slimeâ€™s food should matter not only because it restores nutrition, but because digestion can create consequences.
-
-The desired result is a clear residue model that can support corpse processing, waste disposal, manual feeding, contamination, cleanup, and future material recovery without confusing residue with natural byproducts or harvestable specimen material.
-
-Before coding, discuss how feeding residue should be represented, where it should live, and how it should interact with existing feeding and job systems.
-
----
-
-## 2. Harvestable Specimen Material System
+## 1. Harvestable Specimen Material System
 
 Create a system for materials that can be extracted from a slimeâ€™s body.
 
@@ -75,7 +49,7 @@ Before coding, discuss the harvest model, living-versus-dead extraction, relatio
 
 ---
 
-## 3. Container Compatibility & Material Resistance System
+## 2. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -98,7 +72,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 4. Room-Local Storage and Hauling System
+## 3. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -121,7 +95,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 5. Lab Construction & Room Expansion System
+## 4. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -145,7 +119,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -171,7 +145,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 7. Elemental Damage Type System
+## 6. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slimeâ€™s element or biological output.
 
@@ -196,7 +170,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 8. Tool Durability and Damage Resistance System
+## 7. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -225,7 +199,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 9. Analyze Ability & Creature Skill Evolution Follow-Up
+## 8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

@@ -64,6 +64,8 @@ A slime’s natural byproduct is part of its biology. It is separate from feedin
 
 Natural byproduct describes what a living specimen naturally leaves behind or emits as part of its ordinary metabolism. Feeding residue describes the mess left because of what the slime ate, such as loose biomatter after corpse consumption. Harvestable material describes what can be extracted from the slime itself, such as tissue, glands, membranes, cores, or other specimen parts. These systems can interact later, but they should not be collapsed into one trait.
 
+Current prototype feeding residue is local mess, not clean inventory. Intended feedstock digestion is tidy and produces no residue. Mismatched or risky manual feeding, corpse consumption, Corpse Processing, and Waste Disposal can leave coarse residue units in the relevant container or room. Current residue categories include loose biomatter, contaminated residue, inert residue, elemental trace residue, slime trace, and hazardous sludge. Residue lightly increases local contamination and is visible in container or room readouts. It is intentionally separate from natural byproducts, Elemental Residue stockpiles, and future harvestable specimen material.
+
 Natural byproducts should be biologically coherent. A slime’s element, affinity, body consistency, and physiology constrain what byproducts make sense. Acid slimes should express acid-appropriate outputs, water slimes should express water-appropriate outputs, mineral or earthen slimes should express mineral-appropriate outputs, and so on. Byproducts should not be selected from an unrestricted global list unless a future mutation, hybridization, or unstable-experiment system explicitly justifies the mismatch.
 
 Byproduct genes still matter internally, but player-facing UI should not explain gene-slot mapping. The scientist observes byproduct results, output intensity, and collection fit, not the underlying allele table. The same gene pair should have stable internal meaning, and multiple gene pairs can produce the same apparent byproduct while differing in output intensity.
@@ -284,6 +286,7 @@ Likely future systems:
 - Corpse harvesting for biomass, tissues, organs, genetic samples, elemental residue, remaining byproducts, reagents, or contaminated waste.
 - Corpse disposal and processing chains using equipment, facilities, or living creatures such as acid slimes.
 - Separate feeding-residue and harvestable-material systems that do not overwrite natural byproduct identity.
+- Local feeding residue from messy digestion or creature jobs, tracked separately from clean inventory and natural byproduct collection.
 - Natural byproduct collection through Collection Bay stations, including Specimen Drainage Tanks for drip/sludge/gel routing, station receptacles for accumulated material, per-station overflow buffers, and hood/condenser workflows for vapor/haze/fume/mist outputs.
 - Inventory outputs from collected byproducts, recorded through inventory history/tooltips instead of event-log accounting spam.
 - Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.

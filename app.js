@@ -1316,6 +1316,15 @@
     bad: { label: "poor match", nutrition: 5, mass: 1, stress: 4, bodyDamage: 0, waste: 1 },
     harmful: { label: "harmful match", nutrition: 2, mass: 0, stress: 8, bodyDamage: 2, waste: 2 }
   };
+  const FEEDING_RESIDUE_DEFS = [
+    { key: "looseBiomatter", label: "Loose biomatter", contamination: 0.4 },
+    { key: "contaminatedResidue", label: "Contaminated residue", contamination: 1.2 },
+    { key: "inertResidue", label: "Inert residue", contamination: 0.1 },
+    { key: "elementalTrace", label: "Elemental trace residue", contamination: 0.2 },
+    { key: "slimeTrace", label: "Slime trace", contamination: 0.3 },
+    { key: "hazardousSludge", label: "Hazardous sludge", contamination: 2.5 }
+  ];
+  const FEEDING_RESIDUE_BY_KEY = Object.fromEntries(FEEDING_RESIDUE_DEFS.map((residue) => [residue.key, residue]));
   const CREATURE_JOBS = [
     { id: "idle", label: "Idle" },
     { id: "corpse", label: "Corpse Processing" },
@@ -1621,6 +1630,7 @@
       collectedByproducts: defaultCollectedByproducts(),
       collectedByproductHistory: defaultCollectedByproductHistory(),
       collectionBay: defaultCollectionBayState(),
+      feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
@@ -1633,6 +1643,7 @@
       selectedSlimeId: null,
       nextSlimeNumber: 1,
       nextCorpseNumber: 1,
+      nextResidueNumber: 1,
       nextTaskNumber: 1,
       discoveries: {},
       regionNotes: {},
@@ -9027,6 +9038,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
 
     card.append(title, meta, occupantList);
+    const residuePanel = feedingResiduePanelEl({ type: "container", containerId: container.id }, "Interior feeding residue");
+    if (residuePanel) {
+      card.append(residuePanel);
+    }
 
     if (container.type !== "synthesis") {
       const actions = document.createElement("div");
@@ -9190,8 +9205,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const eligibleCorpses = (state.corpses || []).filter(isCorpseProcessingTarget).length;
     const protectedCorpses = policyProtectedCorpseCount();
     const wasteUnits = resourceAmount("waste");
+    const residueUnits = feedingResidueTotal();
     dom.jobSummary.textContent = living.length
-      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} Waste`
+      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} Waste${residueUnits ? `; ${formatNumber(residueUnits)} local residue` : ""}`
       : "No living creatures available for jobs.";
 
     if (!living.length) {
@@ -9574,6 +9590,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { harmful: 0, bad: 1, partial: 2, good: 3 }[quality] || 0;
   }
 
+  function feedstockResidueOutcome(feedstock, match, effects) {
+    if (!feedstock || match?.quality === "good") {
+      return null;
+    }
+    const tags = new Set(feedstock.tags || []);
+    const amount = Math.max(1, Math.round(Number(effects?.waste) || (match?.quality === "partial" ? 1 : 1)));
+    if (tags.has("hazardous") || tags.has("contaminated") || tags.has("volatile") || match?.quality === "harmful") {
+      return { typeKey: "hazardousSludge", amount: Math.max(1, amount) };
+    }
+    if (tags.has("decay") || tags.has("corpse")) {
+      return { typeKey: "contaminatedResidue", amount };
+    }
+    if (tags.has("organic")) {
+      return { typeKey: "looseBiomatter", amount };
+    }
+    if (tags.has("arcane") || tags.has("mana")) {
+      return { typeKey: "elementalTrace", amount };
+    }
+    if (tags.has("mineral") || tags.has("metal") || tags.has("silicate")) {
+      return { typeKey: "inertResidue", amount };
+    }
+    return { typeKey: "slimeTrace", amount };
+  }
+
+  function applyFeedstockResidue(slime, feedstock, match, effects, source) {
+    const outcome = feedstockResidueOutcome(feedstock, match, effects);
+    if (!outcome) {
+      return false;
+    }
+    return addFeedingResidue(outcome.typeKey, outcome.amount, {
+      slime,
+      sourceLabel: `${source === "auto" ? "Auto-feed" : "Manual feed"}: ${feedstock.label}`,
+      tags: ["feeding", match.quality, ...feedstock.tags, ...(match.sharedTags || [])]
+    });
+  }
+
   function feedSlime(slime, feedstockKey, options = {}) {
     const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
     if (!slime || slime.status === "dead" || !feedstock || resourceAmount(feedstock.key) <= 0) {
@@ -9601,7 +9653,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (effects.waste) {
       addWaste(effects.waste, ["feeding", ...feedstock.tags]);
     }
-    addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${formatNumber(nutritionGain)} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}.`);
+    const leftResidue = applyFeedstockResidue(slime, feedstock, match, effects, options.source);
+    addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${formatNumber(nutritionGain)} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}${leftResidue ? ", left local residue" : ""}.`);
     expireSlimes();
     return true;
   }
@@ -10909,8 +10962,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN });
         addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE);
         addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target));
+        const leftResidue = applyCorpseProcessingResidue(slime, target, suitability, effects);
         applyCorpseProcessingEffects(slime, target, suitability, effects);
-        addEvent(`${slime.name} processed ${target.name} remains${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}.`);
+        addEvent(`${slime.name} processed ${target.name} remains${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}${leftResidue ? ", leaving local residue" : ""}.`);
         slime.jobProgress = 0;
         slime.jobTargetCorpseId = null;
         slime.jobNutritionGained = 0;
@@ -11793,6 +11847,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function corpseProcessingResidueOutcome(corpse, suitability, effects) {
+    const freshness = corpseFreshness(corpse);
+    const score = Math.max(0, Number(suitability?.score) || 0);
+    if (score >= 70 && effects?.extraWaste <= 0 && (freshness === "fresh" || freshness === "decaying")) {
+      return null;
+    }
+    let typeKey = "looseBiomatter";
+    if (freshness === "spoiled") {
+      typeKey = score < 25 ? "hazardousSludge" : "contaminatedResidue";
+    } else if (freshness === "ruined") {
+      typeKey = score < 25 ? "contaminatedResidue" : "inertResidue";
+    } else if (freshness === "decaying") {
+      typeKey = score < 40 ? "contaminatedResidue" : "looseBiomatter";
+    } else if (score < 25) {
+      typeKey = "contaminatedResidue";
+    }
+    const stateAmount = { fresh: 1, decaying: 1, spoiled: 2, ruined: 1 }[freshness] || 1;
+    const amount = Math.max(1, stateAmount + Math.max(0, Number(effects?.extraWaste) || 0) + (score < 25 ? 1 : 0));
+    return { typeKey, amount };
+  }
+
+  function applyCorpseProcessingResidue(slime, corpse, suitability, effects) {
+    const outcome = corpseProcessingResidueOutcome(corpse, suitability, effects);
+    if (!outcome) {
+      return false;
+    }
+    return addFeedingResidue(outcome.typeKey, outcome.amount, {
+      slime,
+      location: feedingResidueLocationForCorpseJob(slime, corpse),
+      sourceLabel: `Corpse processing: ${corpse.name}`,
+      tags: ["corpse-processing", ...corpseWasteTags(corpse), corpseFreshness(corpse), jobSuitabilityBand(suitability.score)]
+    });
+  }
+
   function corpseProcessingEffects(slime, corpse, suitability) {
     const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     const freshness = corpseFreshness(corpse);
@@ -11935,6 +12023,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     addEvent(`${slime.name} is proving slow at waste disposal.`);
   }
 
+  function wasteDisposalFeedingResidueOutcome(suitability, elementalResidueUnits) {
+    const score = Math.max(0, Number(suitability?.score) || 0);
+    if (score >= 75) {
+      return elementalResidueUnits > 0
+        ? { typeKey: "elementalTrace", amount: elementalResidueUnits }
+        : null;
+    }
+    if (score >= 50) {
+      return { typeKey: "inertResidue", amount: 1 };
+    }
+    if (score >= 25) {
+      return { typeKey: "contaminatedResidue", amount: 1 };
+    }
+    return { typeKey: "hazardousSludge", amount: 2 };
+  }
+
+  function applyWasteDisposalFeedingResidue(slime, suitability, elementalResidueUnits) {
+    const outcome = wasteDisposalFeedingResidueOutcome(suitability, elementalResidueUnits);
+    if (!outcome) {
+      return false;
+    }
+    return addFeedingResidue(outcome.typeKey, outcome.amount, {
+      slime,
+      sourceLabel: "Waste disposal",
+      tags: ["waste-disposal", "waste", jobSuitabilityBand(suitability.score)]
+    });
+  }
+
   function completeWasteDisposalUnit(slime, suitability) {
     const knowledge = ensureJobKnowledge(slime, "disposal");
     knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
@@ -11957,6 +12073,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (residue) {
       addResource("elementalResidue", residue);
     }
+    const leftLocalResidue = applyWasteDisposalFeedingResidue(slime, suitability, residue);
     if (suitability.score >= 70 && knowledge.completedUnits >= 2) {
       learnWasteDisposalFit(slime, "Good", "clean waste disposal");
     } else if (suitability.score >= 40 && knowledge.completedUnits >= 2) {
@@ -11969,7 +12086,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       learnWasteDisposalFit(slime, "Hazardous", "contamination during disposal");
       addEvent(`${slime.name} leaked contamination during waste disposal.`);
     }
-    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${adjustedNutrition ? `, gaining ${formatNumber(adjustedNutrition)} Nutrition` : ""}.`);
+    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${adjustedNutrition ? `, gaining ${formatNumber(adjustedNutrition)} Nutrition` : ""}${leftLocalResidue ? ", leaving local residue" : ""}.`);
   }
 
   function wasteDisposalNutritionGain(slime, suitability) {
@@ -12770,6 +12887,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const collectionReadout = collectionBayReadoutEl(room);
       if (collectionReadout) {
         card.append(collectionReadout);
+      }
+      const roomResiduePanel = feedingResiduePanelEl({ type: "room", roomId: room.id }, "Room feeding residue");
+      if (roomResiduePanel) {
+        card.append(roomResiduePanel);
       }
       card.append(attributes);
       card.append(freeCreaturePressureEl(room));
@@ -14561,6 +14682,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       adjustSlimeStat(slime, "currentMass", nutritionGain * 0.2);
       adjustSlimeStat(slime, "stress", -nutritionGain * 0.1);
       corpse.consumedProgress = clamp((Number(corpse.consumedProgress) || 0) + nutritionGain * feeding.consumption, 0, 100);
+      const residueUnits = accumulateCorpseFeedingResidue(slime, corpse, feeding, nutritionGain);
+      if (residueUnits > 0) {
+        changes += residueUnits;
+      }
       if (!corpse.feedingNoticed) {
         corpse.feedingNoticed = true;
         addEvent(`${slime.name} began feeding on ${corpse.name} remains in ${corpseLocationLabel(corpse)}.`);
@@ -14575,29 +14700,72 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return changes;
   }
 
+  function accumulateCorpseFeedingResidue(slime, corpse, feeding, nutritionGain) {
+    const residueRate = Math.max(0, Number(feeding?.residueRate) || 0);
+    if (!residueRate || nutritionGain <= 0) {
+      return 0;
+    }
+    corpse.feedingResidueProgress = Math.max(0, Number(corpse.feedingResidueProgress) || 0) + nutritionGain * residueRate;
+    const units = Math.floor(corpse.feedingResidueProgress);
+    if (!units) {
+      return 0;
+    }
+    corpse.feedingResidueProgress -= units;
+    addFeedingResidue(feeding.residueTypeKey || "looseBiomatter", units, {
+      slime,
+      location: feedingResidueLocationForCorpse(corpse),
+      sourceLabel: `Corpse feeding: ${corpse.name}`,
+      tags: ["corpse-feeding", ...corpseWasteTags(corpse), corpseFreshness(corpse)]
+    });
+    return units;
+  }
+
   function corpseFeedingRateForSlime(slime, corpse) {
     if (!slime || slime.status === "dead") {
-      return { rate: 0, consumption: 0 };
+      return { rate: 0, consumption: 0, residueRate: 0, residueTypeKey: "looseBiomatter" };
     }
     const evaluated = evaluateGenome(slime.genome);
     const tags = new Set(evaluated.traits.sustenance.meta?.tags || []);
     const freshness = corpseFreshness(corpse);
     let rate = 0;
     let consumption = 3;
+    let residueRate = 0;
+    let residueTypeKey = corpseFeedingResidueType(freshness, false);
     if (tags.has("corpse")) {
       rate = 18;
       consumption = 5;
+      residueRate = freshness === "fresh" ? 0 : 0.08;
+      residueTypeKey = corpseFeedingResidueType(freshness, true);
     } else if (tags.has("decay") && freshness !== "fresh") {
       rate = 12;
       consumption = 4;
+      residueRate = freshness === "decaying" ? 0.12 : 0.22;
+      residueTypeKey = corpseFeedingResidueType(freshness, true);
     } else if (tags.has("organic")) {
       rate = 5;
       consumption = 2;
+      residueRate = freshness === "fresh" ? 0.14 : 0.28;
+      residueTypeKey = corpseFeedingResidueType(freshness, false);
     } else if ((tags.has("waste") || tags.has("contaminated")) && (freshness === "spoiled" || freshness === "ruined")) {
       rate = 8;
       consumption = 3;
+      residueRate = 0.3;
+      residueTypeKey = corpseFeedingResidueType(freshness, true);
     }
-    return { rate, consumption };
+    return { rate, consumption, residueRate, residueTypeKey };
+  }
+
+  function corpseFeedingResidueType(freshness, matched) {
+    if (freshness === "spoiled") {
+      return matched ? "contaminatedResidue" : "hazardousSludge";
+    }
+    if (freshness === "ruined") {
+      return matched ? "inertResidue" : "contaminatedResidue";
+    }
+    if (freshness === "decaying") {
+      return matched ? "looseBiomatter" : "contaminatedResidue";
+    }
+    return matched ? "looseBiomatter" : "looseBiomatter";
   }
 
 
@@ -15201,6 +15369,272 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? [...new Set(candidate.sourceSlimes.map((item) => String(item || "").trim()).filter(Boolean))]
         : [],
     };
+  }
+
+  function normalizeFeedingResidues(candidate, context = state) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((residue) => normalizeFeedingResidue(residue, context))
+      .filter(Boolean);
+  }
+
+  function normalizeFeedingResidue(candidate, context = state) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const typeKey = FEEDING_RESIDUE_BY_KEY[candidate.typeKey]
+      ? candidate.typeKey
+      : FEEDING_RESIDUE_BY_KEY[candidate.key]
+        ? candidate.key
+        : "contaminatedResidue";
+    const amount = Math.max(0, Math.round(Number(candidate.amount) || 0));
+    if (!amount) {
+      return null;
+    }
+    const location = normalizeFeedingResidueLocation(candidate.location || candidate, context);
+    if (!location) {
+      return null;
+    }
+    return {
+      id: cleanResidueId(candidate.id) || `residue-${context?.nextResidueNumber || 1}`,
+      typeKey,
+      amount,
+      location,
+      tags: normalizeResidueTags(candidate.tags),
+      sourceLabels: normalizeResidueSourceLabels(candidate.sourceLabels || candidate.sources || candidate.sourceLabel),
+      sourceSlimeIds: idList(candidate.sourceSlimeIds),
+      createdAt: finiteTime(candidate.createdAt, context?.clock || 0),
+      updatedAt: finiteTime(candidate.updatedAt, candidate.createdAt || context?.clock || 0)
+    };
+  }
+
+  function cleanResidueId(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  }
+
+  function normalizeResidueTags(tags) {
+    return [...new Set((Array.isArray(tags) ? tags : [])
+      .map(normalizeWasteTag)
+      .filter(Boolean))]
+      .slice(0, 12);
+  }
+
+  function normalizeResidueSourceLabels(labels) {
+    const source = Array.isArray(labels) ? labels : [labels];
+    return [...new Set(source.map((label) => String(label || "").trim()).filter(Boolean))]
+      .slice(0, 6);
+  }
+
+  function normalizeFeedingResidueLocation(candidate, context = state) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const type = candidate.type === "container" ? "container" : "room";
+    if (type === "container") {
+      const containerId = cleanContainerId(candidate.containerId || candidate.id);
+      const container = feedingResidueContextContainerById(context, containerId);
+      if (!container) {
+        return null;
+      }
+      return {
+        type: "container",
+        containerId: container.id,
+        roomId: container.roomId || MAIN_ROOM_ID
+      };
+    }
+    const roomId = cleanRoomId(candidate.roomId || candidate.id) || MAIN_ROOM_ID;
+    const room = feedingResidueContextRoomById(context, roomId);
+    if (!room) {
+      return null;
+    }
+    return {
+      type: "room",
+      roomId: room.id
+    };
+  }
+
+  function feedingResidueContextContainerById(context, containerId) {
+    return (context?.containers || []).find((container) => container.id === containerId) || null;
+  }
+
+  function feedingResidueContextRoomById(context, roomId) {
+    return (context?.rooms || []).find((room) => room.id === roomId) || null;
+  }
+
+  function feedingResidueLocationForSlime(slime) {
+    if (slime?.status === "contained" && slime.containerId) {
+      const container = containerById(slime.containerId);
+      if (container) {
+        return {
+          type: "container",
+          containerId: container.id,
+          roomId: container.roomId || slime.roomId || MAIN_ROOM_ID
+        };
+      }
+    }
+    return {
+      type: "room",
+      roomId: roomById(slime?.roomId)?.id || slimeEffectiveRoomId(slime) || MAIN_ROOM_ID
+    };
+  }
+
+  function feedingResidueLocationForCorpse(corpse) {
+    if (corpse?.storage === "container") {
+      const container = containerById(corpse.containerId);
+      if (container) {
+        return {
+          type: "container",
+          containerId: container.id,
+          roomId: container.roomId || corpse.roomId || MAIN_ROOM_ID
+        };
+      }
+    }
+    return {
+      type: "room",
+      roomId: roomById(corpse?.roomId)?.id || MAIN_ROOM_ID
+    };
+  }
+
+  function feedingResidueLocationForCorpseJob(slime, corpse) {
+    if (corpse?.storage === "container" && isPitHoleContainer(containerById(corpse.containerId))) {
+      return feedingResidueLocationForCorpse(corpse);
+    }
+    return feedingResidueLocationForSlime(slime);
+  }
+
+  function sameFeedingResidueLocation(left, right) {
+    if (!left || !right || left.type !== right.type) {
+      return false;
+    }
+    if (left.type === "container") {
+      return left.containerId === right.containerId;
+    }
+    return left.roomId === right.roomId;
+  }
+
+  function addFeedingResidue(typeKey, amount, options = {}) {
+    const def = FEEDING_RESIDUE_BY_KEY[typeKey];
+    const units = Math.max(0, Math.round(Number(amount) || 0));
+    if (!def || !units) {
+      return false;
+    }
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    const location = normalizeFeedingResidueLocation(options.location || feedingResidueLocationForSlime(options.slime));
+    if (!location) {
+      return false;
+    }
+    const tags = normalizeResidueTags(options.tags);
+    const sourceLabels = normalizeResidueSourceLabels(options.sourceLabels || options.sourceLabel);
+    const sourceSlimeIds = idList(options.sourceSlimeIds || (options.slime?.id ? [options.slime.id] : []));
+    const existing = state.feedingResidues.find((residue) => (
+      residue.typeKey === typeKey
+      && sameFeedingResidueLocation(residue.location, location)
+      && residue.tags.join("|") === tags.join("|")
+    ));
+    if (existing) {
+      existing.amount += units;
+      existing.updatedAt = state.clock;
+      existing.sourceLabels = normalizeResidueSourceLabels([...(existing.sourceLabels || []), ...sourceLabels]);
+      existing.sourceSlimeIds = [...new Set([...(existing.sourceSlimeIds || []), ...sourceSlimeIds])].slice(0, 8);
+    } else {
+      const id = `residue-${state.nextResidueNumber++}`;
+      state.feedingResidues.push({
+        id,
+        typeKey,
+        amount: units,
+        location,
+        tags,
+        sourceLabels,
+        sourceSlimeIds,
+        createdAt: state.clock,
+        updatedAt: state.clock
+      });
+    }
+    applyFeedingResidueContamination(location, def.contamination * units);
+    return true;
+  }
+
+  function applyFeedingResidueContamination(location, amount) {
+    const increase = Math.max(0, Number(amount) || 0);
+    if (!increase || !location) {
+      return false;
+    }
+    if (location.type === "container") {
+      const container = containerById(location.containerId);
+      if (!container) {
+        return false;
+      }
+      container.environment = normalizeContainerEnvironment(container.environment);
+      container.environment.contamination.current = clamp(
+        (Number(container.environment.contamination.current) || 0) + increase,
+        0,
+        100
+      );
+      return true;
+    }
+    return adjustRoomAttribute(location.roomId || MAIN_ROOM_ID, "contamination", increase);
+  }
+
+  function feedingResiduesForLocation(location) {
+    const normalized = normalizeFeedingResidueLocation(location);
+    if (!normalized) {
+      return [];
+    }
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    return state.feedingResidues.filter((residue) => sameFeedingResidueLocation(residue.location, normalized));
+  }
+
+  function feedingResidueTotal() {
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    return state.feedingResidues.reduce((total, residue) => total + residue.amount, 0);
+  }
+
+  function feedingResidueLabel(typeKey) {
+    return FEEDING_RESIDUE_BY_KEY[typeKey]?.label || titleCase(typeKey);
+  }
+
+  function feedingResidueUnitText(amount) {
+    const units = Math.max(0, Math.round(Number(amount) || 0));
+    return `${formatNumber(units)} unit${units === 1 ? "" : "s"}`;
+  }
+
+  function feedingResidueTooltip(residue) {
+    const lines = [
+      `${feedingResidueLabel(residue.typeKey)}: ${feedingResidueUnitText(residue.amount)}.`,
+      "Local feeding residue is mess from digestion or job work, not natural byproduct inventory."
+    ];
+    if (residue.sourceLabels?.length) {
+      lines.push(`Sources: ${residue.sourceLabels.join(", ")}.`);
+    }
+    if (residue.tags?.length) {
+      lines.push(`Tags: ${residue.tags.join(", ")}.`);
+    }
+    return lines.join("\n");
+  }
+
+  function feedingResiduePanelEl(location, label = "Feeding residue") {
+    const entries = feedingResiduesForLocation(location);
+    if (!entries.length) {
+      return null;
+    }
+    const panel = document.createElement("div");
+    panel.className = "feeding-residue-panel";
+    panel.dataset.feedingResidueLocation = location.type === "container" ? location.containerId : location.roomId;
+    const title = document.createElement("strong");
+    title.textContent = label;
+    title.title = "Residue is local mess from feeding, corpse work, or waste digestion. It is separate from natural byproducts and stored inventory.";
+    panel.append(title);
+    const list = document.createElement("div");
+    list.className = "feeding-residue-list";
+    for (const residue of entries) {
+      const row = document.createElement("div");
+      row.className = "feeding-residue-row";
+      row.dataset.feedingResidueType = residue.typeKey;
+      row.title = feedingResidueTooltip(residue);
+      row.append(textEl("span", feedingResidueLabel(residue.typeKey)), textEl("strong", feedingResidueUnitText(residue.amount)));
+      list.append(row);
+    }
+    panel.append(list);
+    return panel;
   }
 
   function resourceAmount(key) {
@@ -16550,6 +16984,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
+    next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
+    next.nextResidueNumber = Math.max(
+      Number(next.nextResidueNumber) || 1,
+      next.feedingResidues.reduce((max, residue) => Math.max(max, numericSuffix(residue.id)), 0) + 1
+    );
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
@@ -16661,6 +17100,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
       corpse.consumedProgress = clamp(Number(corpse.consumedProgress) || 0, 0, 100);
+      corpse.feedingResidueProgress = Math.max(0, Number(corpse.feedingResidueProgress) || 0);
       corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
       normalizeCorpseLocation(corpse);
       if (corpse.storage === "drum") {
