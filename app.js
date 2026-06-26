@@ -1325,6 +1325,60 @@
     { key: "hazardousSludge", label: "Hazardous sludge", contamination: 2.5 }
   ];
   const FEEDING_RESIDUE_BY_KEY = Object.fromEntries(FEEDING_RESIDUE_DEFS.map((residue) => [residue.key, residue]));
+  const SPECIMEN_HARVEST_PROCEDURE_DEFS = [
+    {
+      id: "sample",
+      label: "Sample",
+      livingLabel: "Sample Living Tissue",
+      corpseLabel: "Sample Corpse Tissue",
+      livingDuration: 6,
+      corpseDuration: 6,
+      staminaCost: 6,
+      xp: 12,
+      outputFactor: 1,
+      bodyDamage: 2,
+      stressGain: 4,
+      massLoss: 1,
+      terminal: false,
+      corpseRuins: false,
+      corpseConsumes: false
+    },
+    {
+      id: "partial",
+      label: "Partial Harvest",
+      livingLabel: "Partial Harvest",
+      corpseLabel: "Harvest Corpse Tissue",
+      livingDuration: 14,
+      corpseDuration: 12,
+      staminaCost: 9,
+      xp: 24,
+      outputFactor: 3,
+      bodyDamage: 12,
+      stressGain: 14,
+      massLoss: 8,
+      terminal: false,
+      corpseRuins: true,
+      corpseConsumes: false
+    },
+    {
+      id: "breakdown",
+      label: "Break Down",
+      livingLabel: "Break Down Specimen",
+      corpseLabel: "Break Down Corpse",
+      livingDuration: 24,
+      corpseDuration: 18,
+      staminaCost: 14,
+      xp: 35,
+      outputFactor: 8,
+      bodyDamage: 100,
+      stressGain: 0,
+      massLoss: 100,
+      terminal: true,
+      corpseRuins: true,
+      corpseConsumes: true
+    }
+  ];
+  const SPECIMEN_HARVEST_PROCEDURE_BY_ID = Object.fromEntries(SPECIMEN_HARVEST_PROCEDURE_DEFS.map((procedure) => [procedure.id, procedure]));
   const CREATURE_JOBS = [
     { id: "idle", label: "Idle" },
     { id: "corpse", label: "Corpse Processing" },
@@ -1629,6 +1683,7 @@
       inventoryHistory: defaultInventoryHistory(),
       collectedByproducts: defaultCollectedByproducts(),
       collectedByproductHistory: defaultCollectedByproductHistory(),
+      specimenMaterials: defaultSpecimenMaterials(),
       collectionBay: defaultCollectionBayState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
@@ -1688,6 +1743,10 @@
   }
 
   function defaultCollectedByproductHistory() {
+    return {};
+  }
+
+  function defaultSpecimenMaterials() {
     return {};
   }
 
@@ -2659,6 +2718,16 @@
       return;
     }
 
+    if (task.type === "harvestSlime") {
+      completeLivingHarvest(task);
+      return;
+    }
+
+    if (task.type === "harvestCorpse") {
+      completeCorpseHarvest(task);
+      return;
+    }
+
     if (task.type === "containerHaul") {
       completeContainerHaul(task);
       return;
@@ -2697,6 +2766,67 @@
         addEvent(`Rest complete. Rest quality ${quality}. Recovered ${formatNumber(task.data.restore)} stamina.`);
       }
     }
+  }
+
+  function completeLivingHarvest(task) {
+    const slime = findSlime(task.data?.slimeId);
+    const procedure = SPECIMEN_HARVEST_PROCEDURE_BY_ID[task.data?.procedureId];
+    if (!slime || slime.status === "dead" || !procedure) {
+      addEvent("Living harvest could not complete; the specimen is no longer available.");
+      return;
+    }
+    const yieldInfo = specimenHarvestYieldForSlime(slime, procedure);
+    if (yieldInfo.amount > 0) {
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`);
+    }
+    if (procedure.terminal) {
+      removeLivingSlimeRecord(slime.id);
+      awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), procedure.label);
+      addEvent(`${procedure.label} complete for ${slime.name}. Recovered ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}; the living specimen was consumed.`);
+      return;
+    }
+    if (procedure.massLoss) {
+      adjustSlimeStat(slime, "currentMass", -procedure.massLoss);
+    }
+    if (procedure.stressGain) {
+      adjustSlimeStat(slime, "stress", procedure.stressGain);
+    }
+    if (procedure.bodyDamage) {
+      if (slimeStat(slime, "bodyIntegrity").current - procedure.bodyDamage <= 0) {
+        slime.deathCause = "harvesting trauma";
+      }
+      adjustSlimeStat(slime, "bodyIntegrity", -procedure.bodyDamage);
+    }
+    awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), procedure.label);
+    addEvent(`${procedure.label} complete for ${slime.name}. Recovered ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}; specimen condition worsened.`);
+    expireSlimes();
+  }
+
+  function completeCorpseHarvest(task) {
+    const corpse = findCorpse(task.data?.corpseId);
+    const procedure = SPECIMEN_HARVEST_PROCEDURE_BY_ID[task.data?.procedureId];
+    if (!corpse || !procedure || corpse.ruined || corpse.harvestBlocked) {
+      addEvent("Corpse harvest could not complete; the remains are no longer harvestable.");
+      return;
+    }
+    const yieldInfo = specimenHarvestYieldForCorpse(corpse, procedure);
+    if (yieldInfo.amount > 0) {
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`);
+    }
+    corpse.harvestedProcedures ||= {};
+    corpse.harvestedProcedures[procedure.id] = true;
+    if (procedure.corpseConsumes) {
+      removeCorpseRecord(corpse.id);
+      addEvent(`${procedure.label} complete for ${corpse.name} remains. Recovered ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}; no corpse remains.`);
+    } else {
+      if (procedure.corpseRuins) {
+        corpse.ruined = true;
+        corpse.lastFreshness = "ruined";
+        corpse.harvestBlocked = true;
+      }
+      addEvent(`${procedure.label} complete for ${corpse.name} remains. Recovered ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}${procedure.corpseRuins ? "; corpse ruined for further harvest." : "."}`);
+    }
+    awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), procedure.label);
   }
 
   function createTask({ type, label, duration, data }) {
@@ -3168,6 +3298,7 @@
       traitObservations: clonePlainObject(slime.traitObservations || {}),
       testsRun: [...(slime.testsRun || [])],
       necropsyReport: "",
+      harvestedProcedures: {},
       nextOverflowEventAt: location.storage === "overflow" ? state.clock + OVERFLOW_EVENT_INTERVAL : null
     };
     applyCorpseDecayWindows(corpse);
@@ -3195,7 +3326,8 @@
         const corpse = createCorpseFromSlime(slime, deathReason);
         const causeText = {
           "waste exposure": "succumbed to waste exposure",
-          "body integrity failure": "collapsed from body integrity failure"
+          "body integrity failure": "collapsed from body integrity failure",
+          "harvesting trauma": "collapsed from harvesting trauma"
         }[deathReason] || "reached the end of its lifespan";
         addEvent(`${slime.name} ${causeText}; remains are now in ${corpseLocationLabel(corpse)}.`);
         expired += 1;
@@ -7916,6 +8048,7 @@
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
         card.append(renderFeedingControls(slime));
+        card.append(renderLivingHarvestControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
       }
       card.append(renderSlimeGenomeFooter(slime));
@@ -7979,7 +8112,7 @@
       dump.addEventListener("click", () => {
         dumpCorpseOutside(corpse.id);
       });
-      actions.append(necropsy, dump);
+      actions.append(necropsy, ...corpseHarvestButtons(corpse), dump);
 
       card.append(title, renderIdentityStrip(corpse, evaluated), meta, actions);
       if (corpse.necropsyReport) {
@@ -9311,6 +9444,48 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
+  function startLivingHarvest(slime, procedureId) {
+    const procedure = SPECIMEN_HARVEST_PROCEDURE_BY_ID[procedureId];
+    const cost = adjustedStaminaCost(procedure?.staminaCost || BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
+    const reason = livingHarvestBlockReason(slime, procedure, cost);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    return startStaminaTask({
+      type: "harvestSlime",
+      label: `${procedure.livingLabel} ${slime.name}`,
+      baseDuration: procedure.livingDuration,
+      skillId: "medicine",
+      baseXp: procedure.xp,
+      baseCost: procedure.staminaCost,
+      data: { slimeId: slime.id, procedureId: procedure.id }
+    });
+  }
+
+  function startCorpseHarvest(corpse, procedureId) {
+    const procedure = SPECIMEN_HARVEST_PROCEDURE_BY_ID[procedureId];
+    const cost = adjustedStaminaCost(procedure?.staminaCost || BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
+    const reason = corpseHarvestBlockReason(corpse, procedure, cost);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    return startStaminaTask({
+      type: "harvestCorpse",
+      label: `${procedure.corpseLabel} ${corpse.name}`,
+      baseDuration: corpseHarvestDuration(corpse, procedure),
+      skillId: "medicine",
+      baseXp: procedure.xp,
+      baseCost: procedure.staminaCost,
+      data: { corpseId: corpse.id, procedureId: procedure.id }
+    });
+  }
+
   function refreshNecropsyButton(button, corpse) {
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
     const duration = adjustedDuration(necropsyDuration(corpse), "medicine");
@@ -9326,7 +9501,70 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (hasPendingNecropsy(corpse.id)) {
       return "Necropsy already pending.";
     }
+    if (hasPendingCorpseHarvest(corpse.id)) {
+      return "Harvest already pending for this corpse.";
+    }
     return staminaBlockReason(cost);
+  }
+
+  function refreshLivingHarvestButton(button, slime, procedure) {
+    const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
+    const duration = adjustedDuration(procedure.livingDuration, "medicine");
+    setButtonStaminaLabel(button, procedure.livingLabel, procedure.staminaCost, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
+    const reason = livingHarvestBlockReason(slime, procedure, cost);
+    setActionButtonState(button, Boolean(reason), reason);
+    if (!reason) {
+      button.title = livingHarvestProcedureTitle(slime, procedure);
+    }
+  }
+
+  function refreshCorpseHarvestButton(button, corpse, procedure) {
+    const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
+    const duration = adjustedDuration(corpseHarvestDuration(corpse, procedure), "medicine");
+    setButtonStaminaLabel(button, procedure.corpseLabel, procedure.staminaCost, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
+    const reason = corpseHarvestBlockReason(corpse, procedure, cost);
+    setActionButtonState(button, Boolean(reason), reason);
+    if (!reason) {
+      button.title = corpseHarvestProcedureTitle(corpse, procedure);
+    }
+  }
+
+  function livingHarvestBlockReason(slime, procedure, cost) {
+    if (!slime || !procedure) {
+      return "No living specimen selected.";
+    }
+    if (slime.status === "dead") {
+      return "Specimen is dead.";
+    }
+    if (hasPendingLivingHarvest(slime.id)) {
+      return "Harvest already pending for this specimen.";
+    }
+    if (isInSynthesisTube(slime)) {
+      return "Move specimen out of the synthesis tube before harvesting.";
+    }
+    if (slime.containerId && isContainerInTransit(slime.containerId)) {
+      return "Container is already being hauled.";
+    }
+    return physicalStateRiskBlockReason(`harvesting ${slime.name}`) || staminaBlockReason(cost);
+  }
+
+  function corpseHarvestBlockReason(corpse, procedure, cost) {
+    if (!corpse || !procedure) {
+      return "No corpse selected.";
+    }
+    if (corpse.ruined || corpse.harvestBlocked) {
+      return "Corpse is ruined for harvesting.";
+    }
+    if (corpse.harvestedProcedures?.[procedure.id]) {
+      return `${procedure.label} already performed.`;
+    }
+    if (hasPendingNecropsy(corpse.id)) {
+      return "Necropsy already pending.";
+    }
+    if (hasPendingCorpseHarvest(corpse.id)) {
+      return "Harvest already pending for this corpse.";
+    }
+    return physicalStateRiskBlockReason(`harvesting ${corpse.name} remains`) || staminaBlockReason(cost);
   }
 
   function necropsyDuration(corpse) {
@@ -9338,6 +9576,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 24;
     }
     return 30;
+  }
+
+  function corpseHarvestDuration(corpse, procedure) {
+    const freshness = corpseFreshness(corpse);
+    const multiplier = { fresh: 1, decaying: 1.15, spoiled: 1.35, ruined: 1.5 }[freshness] || 1.2;
+    return Math.max(4, Math.round(procedure.corpseDuration * multiplier));
+  }
+
+  function livingHarvestProcedureTitle(slime, procedure) {
+    const lines = [
+      `${procedure.label} extracts harvested specimen material.`,
+      "Separate from natural byproducts and feeding residue."
+    ];
+    if (procedure.terminal) {
+      lines.push("Terminal procedure: the living specimen will be consumed.");
+    } else {
+      lines.push(`Expected strain: -${formatNumber(procedure.bodyDamage)} Body Integrity, -${formatNumber(procedure.massLoss)} Current Mass, +${formatNumber(procedure.stressGain)} Stress.`);
+      if (slimeStat(slime, "bodyIntegrity").current <= procedure.bodyDamage) {
+        lines.push("Warning: this may kill the specimen.");
+      }
+    }
+    return lines.join("\n");
+  }
+
+  function corpseHarvestProcedureTitle(corpse, procedure) {
+    const lines = [
+      `${procedure.label} extracts harvested specimen material from ${corpseStateLabel(corpse).toLowerCase()} remains.`,
+      "Necropsied or ruined corpses cannot be harvested."
+    ];
+    if (procedure.corpseConsumes) {
+      lines.push("Consumes the corpse completely.");
+    } else if (procedure.corpseRuins) {
+      lines.push("Leaves a ruined corpse that still needs disposal.");
+    }
+    return lines.join("\n");
   }
 
   function dumpCorpseOutside(corpseId) {
@@ -9362,6 +9635,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (hasPendingNecropsy(corpse.id)) {
       return "Necropsy already pending.";
+    }
+    if (hasPendingCorpseHarvest(corpse.id)) {
+      return "Harvest already pending for this corpse.";
     }
     return "";
   }
@@ -11250,6 +11526,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function removeLivingSlimeRecord(slimeId) {
+    state.slimes = (state.slimes || []).filter((slime) => slime.id !== slimeId);
+    state.tasks = (state.tasks || []).filter((task) => !taskTargetsSlime(task, slimeId));
+    if (!findSlime(state.selectedSlimeId)) {
+      state.selectedSlimeId = state.slimes[0]?.id || null;
+    }
+  }
+
+  function taskTargetsSlime(task, slimeId) {
+    if (!task || !slimeId) {
+      return false;
+    }
+    const data = task.data || {};
+    return data.slimeId === slimeId || data.parentAId === slimeId || data.parentBId === slimeId;
+  }
+
   function normalizeSlimeJob(slime) {
     if (!slime) {
       return;
@@ -12324,6 +12616,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return section;
   }
 
+  function renderLivingHarvestControls(slime) {
+    const section = document.createElement("div");
+    section.className = "harvest-controls subpanel";
+    section.addEventListener("click", (event) => event.stopPropagation());
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Harvest";
+    const note = document.createElement("p");
+    note.className = "journal-meta harvest-note";
+    note.textContent = "Intentional extraction from the specimen body. Separate from feeding residue and natural byproducts.";
+    const row = document.createElement("div");
+    row.className = "harvest-row";
+    for (const procedure of SPECIMEN_HARVEST_PROCEDURE_DEFS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.harvestSlimeId = slime.id;
+      button.dataset.harvestProcedure = procedure.id;
+      if (procedure.terminal) {
+        button.className = "danger-action";
+      }
+      refreshLivingHarvestButton(button, slime, procedure);
+      button.addEventListener("click", () => {
+        startLivingHarvest(slime, procedure.id);
+      });
+      row.append(button);
+    }
+    section.append(title, note, row);
+    return section;
+  }
+
+  function corpseHarvestButtons(corpse) {
+    return SPECIMEN_HARVEST_PROCEDURE_DEFS.map((procedure) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.harvestCorpseId = corpse.id;
+      button.dataset.harvestProcedure = procedure.id;
+      if (procedure.terminal) {
+        button.className = "danger-action";
+      }
+      refreshCorpseHarvestButton(button, corpse, procedure);
+      button.addEventListener("click", () => {
+        startCorpseHarvest(corpse, procedure.id);
+      });
+      return button;
+    });
+  }
+
   function manualFeedBlockReason(slime, feedstockKey) {
     if (!slime || slime.status === "dead") {
       return "No living slime selected.";
@@ -12677,14 +13016,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderInventory() {
     state.inventory = normalizeInventory(state.inventory);
+    state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
     if (!dom.inventoryList) {
       return;
     }
     const items = INVENTORY_ITEM_DEFS;
     const byproductEntries = collectedByproductEntries();
-    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length + byproductEntries.length;
+    const specimenEntries = specimenMaterialEntries();
+    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length + byproductEntries.length + specimenEntries.length;
     dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Collected Byproducts are raw natural outputs transferred from Collection Bay receptacles. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
+    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Collected Byproducts are raw natural outputs transferred from Collection Bay receptacles. Harvested Specimen Materials are extracted by procedures from living specimens or corpses. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
     dom.inventoryList.textContent = "";
     for (const category of INVENTORY_CATEGORY_DEFS) {
       const categoryItems = items.filter((item) => item.category === category.id);
@@ -12733,12 +13074,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       byproductSection.append(note);
     }
     dom.inventoryList.append(byproductSection);
+    const specimenSection = document.createElement("section");
+    specimenSection.className = "inventory-section";
+    specimenSection.dataset.inventoryCategory = "specimenMaterials";
+    const specimenHeading = document.createElement("h3");
+    specimenHeading.className = "subpanel-title inventory-section-title";
+    specimenHeading.textContent = "Harvested Specimen Materials";
+    specimenHeading.title = "Material physically extracted from specimen bodies by sampling, partial harvest, or breakdown. Separate from natural byproducts and feeding residue.";
+    specimenSection.append(specimenHeading);
+    if (specimenEntries.length) {
+      for (const entry of specimenEntries) {
+        const row = document.createElement("div");
+        row.className = "inventory-row";
+        row.dataset.inventoryCategory = "specimenMaterials";
+        row.dataset.specimenMaterial = entry.key;
+        row.title = specimenMaterialTooltip(entry);
+        const label = entry.tags.length
+          ? `${entry.label} (${entry.tags.join(", ")})`
+          : entry.label;
+        row.append(textEl("span", label), textEl("strong", `${formatNumber(entry.amount)} unit${entry.amount === 1 ? "" : "s"}`));
+        specimenSection.append(row);
+      }
+    } else {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = "No harvested specimen materials yet.";
+      specimenSection.append(note);
+    }
+    dom.inventoryList.append(specimenSection);
     if (!items.length) {
       dom.inventoryList.append(emptyText("No inventory items defined."));
     } else if (!nonzeroCount) {
       const note = document.createElement("p");
       note.className = "journal-meta inventory-note";
-      note.textContent = "No stored materials, tools, or collected byproducts yet. Cheats can add any defined inventory item for testing.";
+      note.textContent = "No stored materials, tools, collected byproducts, or harvested specimen materials yet. Cheats can add any defined inventory item for testing.";
       dom.inventoryList.append(note);
     }
   }
@@ -13233,6 +13602,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "necropsy") {
       return "Necropsy";
+    }
+    if (task.type === "harvestSlime" || task.type === "harvestCorpse") {
+      return "Harvest";
     }
     if (task.type === "containerHaul") {
       return "Hauling";
@@ -14453,6 +14825,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.tasks.some((task) => task.type === "necropsy" && task.data.corpseId === corpseId);
   }
 
+  function hasPendingLivingHarvest(slimeId) {
+    return state.tasks.some((task) => task.type === "harvestSlime" && task.data?.slimeId === slimeId);
+  }
+
+  function hasPendingCorpseHarvest(corpseId) {
+    return state.tasks.some((task) => task.type === "harvestCorpse" && task.data?.corpseId === corpseId);
+  }
+
   function containedSlimeCount() {
     return state.slimes.filter((slime) => slime.status === "contained").length;
   }
@@ -15243,6 +15623,180 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return lines.join("\n");
   }
 
+  function specimenHarvestYieldForSlime(slime, procedure) {
+    const profile = specimenMaterialProfile(slime.genome);
+    const massFactor = clamp(slimeStatPercent(slime, "currentMass") / 100, 0.1, 1.25);
+    const integrityFactor = clamp(slimeStatPercent(slime, "bodyIntegrity") / 100, 0.15, 1);
+    const sizeFactor = specimenSizeYieldScalar(slime.genome);
+    const terminalBonus = procedure.terminal ? 1.35 : 1;
+    const amount = Math.max(1, Math.round(procedure.outputFactor * sizeFactor * massFactor * integrityFactor * terminalBonus));
+    return {
+      label: profile.label,
+      amount,
+      tags: normalizeSpecimenMaterialTags([...profile.tags, "living", procedure.id])
+    };
+  }
+
+  function specimenHarvestYieldForCorpse(corpse, procedure) {
+    const profile = specimenMaterialProfile(corpse.genome);
+    const freshness = corpseFreshness(corpse);
+    const freshnessFactor = { fresh: 1, decaying: 0.65, spoiled: 0.35, ruined: 0.2 }[freshness] || 0.5;
+    const sizeFactor = specimenSizeYieldScalar(corpse.genome);
+    const amount = Math.max(1, Math.round(procedure.outputFactor * sizeFactor * freshnessFactor));
+    return {
+      label: profile.label,
+      amount,
+      tags: normalizeSpecimenMaterialTags([...profile.tags, "corpse", freshness, procedure.id])
+    };
+  }
+
+  function specimenMaterialProfile(genome) {
+    const evaluated = evaluateGenome(genome);
+    const consistency = baseOutcomeLabel(evaluated.traits.consistency) || "soft gelatin";
+    const element = baseOutcomeLabel(evaluated.traits.element) || "none";
+    const tags = specimenMaterialPropertyTags(consistency, element);
+    const elementLabel = {
+      acid: "Caustic tissue",
+      poison: "Toxic tissue",
+      metal: "Metallic slime scrap",
+      stone: "Mineralized tissue",
+      frost: "Preserved crystal gel",
+      flame: "Heat-warped tissue",
+      storm: "Charged tissue",
+      wind: "Aerated slime foam",
+      water: "Specimen fluid",
+      wood: "Fibrous slime tissue",
+      gravity: "Dense specimen core",
+      null: "Null-aspected tissue",
+      ether: "Ethereal tissue",
+      dream: "Oneiric tissue",
+      shadow: "Umbral tissue",
+      light: "Luminous tissue"
+    }[element];
+    if (elementLabel) {
+      return { label: elementLabel, tags };
+    }
+    const consistencyLabel = {
+      watery: "Specimen fluid",
+      "runny gel": "Specimen fluid",
+      syrupy: "Viscous fluid",
+      "loose jelly": "Specimen gel",
+      "soft gelatin": "Specimen gel",
+      mucous: "Mucous membrane",
+      foamy: "Aerated slime foam",
+      "elastic gel": "Elastic tissue",
+      rubbery: "Elastic tissue",
+      "tar-like": "Viscous mass",
+      waxen: "Waxen tissue",
+      "fibrous gel": "Slime fibers",
+      "grainy slurry": "Mineralized tissue",
+      "crystalline gel": "Crystal shards",
+      "brittle jelly": "Crystal shards",
+      "clay-like": "Mineralized tissue"
+    }[consistency] || "Slime tissue";
+    return { label: consistencyLabel, tags };
+  }
+
+  function specimenMaterialPropertyTags(consistency, element) {
+    const tags = [];
+    const consistencyTags = {
+      watery: ["fluid"],
+      "runny gel": ["fluid", "gel"],
+      syrupy: ["viscous", "fluid"],
+      "loose jelly": ["gel"],
+      "soft gelatin": ["gel"],
+      mucous: ["mucous"],
+      foamy: ["aerated"],
+      "elastic gel": ["elastic", "gel"],
+      rubbery: ["elastic"],
+      "tar-like": ["viscous"],
+      waxen: ["waxen"],
+      "fibrous gel": ["fibrous"],
+      "grainy slurry": ["mineralized"],
+      "crystalline gel": ["crystalline"],
+      "brittle jelly": ["crystalline", "brittle"],
+      "clay-like": ["mineralized"]
+    }[consistency] || ["tissue"];
+    tags.push(...consistencyTags);
+    const elementTags = {
+      acid: ["caustic"],
+      poison: ["toxic"],
+      metal: ["metallic"],
+      stone: ["mineralized"],
+      frost: ["cold", "preserved"],
+      flame: ["heat-warped"],
+      storm: ["charged"],
+      wind: ["aerated"],
+      water: ["fluid"],
+      wood: ["fibrous"],
+      gravity: ["dense"],
+      null: ["null-aspected"],
+      ether: ["ethereal"],
+      dream: ["oneiric"],
+      shadow: ["umbral"],
+      light: ["luminous"]
+    }[element] || [];
+    tags.push(...elementTags);
+    return tags;
+  }
+
+  function specimenSizeYieldScalar(genome) {
+    const profile = physicalProfile(genome);
+    const volume = Math.max(1, Number(profile?.volumeCm3) || 1000);
+    return clamp(Math.sqrt(volume / 1000), 0.35, 4);
+  }
+
+  function addSpecimenMaterial(label, amount, tags = [], source = "Specimen harvest") {
+    const cleanLabel = String(label || "Slime tissue").trim();
+    const delta = Math.max(0, Math.round(Number(amount) || 0));
+    if (!cleanLabel || !delta) {
+      return 0;
+    }
+    const cleanTags = normalizeSpecimenMaterialTags(tags);
+    const key = specimenMaterialKey(cleanLabel, cleanTags);
+    const inventory = ensureSpecimenMaterials();
+    const entry = inventory[key] || {
+      key,
+      label: cleanLabel,
+      amount: 0,
+      tags: cleanTags,
+      history: []
+    };
+    entry.amount = Math.max(0, Math.round((Number(entry.amount) || 0) + delta));
+    entry.history = normalizeSpecimenMaterialHistory([
+      { amount: delta, source, tags: cleanTags },
+      ...(entry.history || [])
+    ]);
+    inventory[key] = entry;
+    return delta;
+  }
+
+  function specimenMaterialEntries() {
+    return Object.values(ensureSpecimenMaterials())
+      .filter((entry) => Number(entry.amount) > 0)
+      .sort((a, b) => a.label.localeCompare(b.label) || a.tags.join("|").localeCompare(b.tags.join("|")));
+  }
+
+  function specimenMaterialTooltip(entry) {
+    const lines = [
+      entry.label,
+      "Harvested specimen material extracted from a slime body.",
+      `Current amount: ${formatNumber(entry.amount)} unit${entry.amount === 1 ? "" : "s"}.`
+    ];
+    if (entry.tags.length) {
+      lines.push(`Tags: ${entry.tags.join(", ")}.`);
+    }
+    lines.push("", "Recent harvests:");
+    if (!entry.history.length) {
+      lines.push("No recorded harvests.");
+    } else {
+      for (const item of entry.history.slice(0, 10)) {
+        lines.push(`+${formatNumber(item.amount)} ${item.source || "Specimen harvest"}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
   function ensureInventory() {
     state.inventory = normalizeInventory(state.inventory);
     return state.inventory;
@@ -15261,6 +15815,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function ensureCollectedByproductHistory() {
     state.collectedByproductHistory = normalizeCollectedByproductHistory(state.collectedByproductHistory);
     return state.collectedByproductHistory;
+  }
+
+  function ensureSpecimenMaterials() {
+    state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
+    return state.specimenMaterials;
   }
 
   function normalizeInventory(candidate) {
@@ -15324,6 +15883,55 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }))
         .filter((entry) => entry.amount)
         .slice(0, 10);
+    }
+    return normalized;
+  }
+
+  function specimenMaterialKey(label, tags = []) {
+    const cleanLabel = normalizeCommandName(label || "slime tissue") || "slime-tissue";
+    const cleanTags = normalizeSpecimenMaterialTags(tags).sort();
+    return [cleanLabel, ...cleanTags].join("|");
+  }
+
+  function normalizeSpecimenMaterialTags(tags) {
+    return [...new Set((Array.isArray(tags) ? tags : [tags])
+      .map(normalizeWasteTag)
+      .filter(Boolean))]
+      .slice(0, 12);
+  }
+
+  function normalizeSpecimenMaterialHistory(candidate) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((entry) => ({
+        amount: Math.max(0, Math.round(Number(entry?.amount) || 0)),
+        source: String(entry?.source || "Specimen harvest"),
+        tags: normalizeSpecimenMaterialTags(entry?.tags)
+      }))
+      .filter((entry) => entry.amount > 0)
+      .slice(0, 10);
+  }
+
+  function normalizeSpecimenMaterials(candidate) {
+    const normalized = defaultSpecimenMaterials();
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const [rawKey, rawEntry] of Object.entries(candidate)) {
+      const legacyAmount = Number(rawEntry);
+      const entry = rawEntry && typeof rawEntry === "object"
+        ? rawEntry
+        : { label: titleCase(rawKey), amount: legacyAmount, tags: [], history: [] };
+      const label = String(entry.label || titleCase(String(rawKey).split("|")[0]) || "Slime tissue").trim();
+      const tags = normalizeSpecimenMaterialTags(entry.tags);
+      const amount = Math.max(0, Math.round(Number(entry.amount) || 0));
+      if (!label || !amount) {
+        continue;
+      }
+      const key = specimenMaterialKey(label, tags);
+      const existing = normalized[key] || { key, label, amount: 0, tags, history: [] };
+      existing.amount += amount;
+      existing.history = normalizeSpecimenMaterialHistory([...(existing.history || []), ...(entry.history || [])]);
+      normalized[key] = existing;
     }
     return normalized;
   }
@@ -16291,6 +16899,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (type === "necropsy") {
       return label || "necropsy";
     }
+    if (type === "harvestSlime" || type === "harvestCorpse") {
+      return label || "specimen harvest";
+    }
     if (type === "synthesize") {
       return label || "synthesis work";
     }
@@ -16983,6 +17594,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
+    next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
     next.nextResidueNumber = Math.max(
@@ -17099,6 +17711,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.testsRun ||= [];
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
+      corpse.harvestBlocked = Boolean(corpse.harvestBlocked);
+      corpse.harvestedProcedures = normalizeHarvestedProcedures(corpse.harvestedProcedures);
       corpse.consumedProgress = clamp(Number(corpse.consumedProgress) || 0, 0, 100);
       corpse.feedingResidueProgress = Math.max(0, Number(corpse.feedingResidueProgress) || 0);
       corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
@@ -17114,6 +17728,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
       }
     }
+  }
+
+  function normalizeHarvestedProcedures(candidate) {
+    const normalized = {};
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const procedure of SPECIMEN_HARVEST_PROCEDURE_DEFS) {
+      if (candidate[procedure.id]) {
+        normalized[procedure.id] = true;
+      }
+    }
+    return normalized;
   }
 
 

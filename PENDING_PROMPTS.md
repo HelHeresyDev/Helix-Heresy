@@ -12,45 +12,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Harvestable Specimen Material System
-2. Container Compatibility & Material Resistance System
-3. Room-Local Storage and Hauling System
-4. Lab Construction & Room Expansion System
-5. Black Market Byproduct Economy System
-6. Elemental Damage Type System
-7. Tool Durability and Damage Resistance System
-8. XP Curve and Breakthrough-Gated Skill Progression
-9. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Container Compatibility & Material Resistance System
+2. Room-Local Storage and Hauling System
+3. Lab Construction & Room Expansion System
+4. Black Market Byproduct Economy System
+5. Elemental Damage Type System
+6. Tool Durability and Damage Resistance System
+7. XP Curve and Breakthrough-Gated Skill Progression
+8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Harvestable Specimen Material System
-
-Create a system for materials that can be extracted from a slime’s body.
-
-Harvestable specimen material is separate from natural byproduct and feeding residue. It is what the scientist can recover by cutting, draining, scraping, dissecting, rupturing, dissolving, or otherwise breaking down part or all of the specimen.
-
-Different slimes should have different harvestable materials based on their biology. A watery slime, acid slime, mineral slime, vaporous slime, tar-like slime, crystalline slime, and fibrous slime should not all produce the same useful remains. Size, body consistency, element, condition, maturity, death state, and extraction method can all matter.
-
-The system should answer questions like:
-- What can be harvested from a living slime versus a corpse?
-- What harvest methods exist?
-- Which methods injure, stress, ruin, or kill the specimen?
-- How does harvestable material differ from necropsy?
-- How does corpse freshness affect harvest quality?
-- What materials should go to inventory?
-- How does the scientist learn what a specimen is worth harvesting for?
-- How should harvesting be presented without exposing hidden gene mappings?
-
-This system should support the fantasy of a grim underground biology lab. Harvesting is not just clicking “delete corpse for resources.” It should feel like a procedure with consequences, value, and risk.
-
-The desired result is a foundation for specimen-derived materials that can later support research, crafting, sale, preservation, mutation work, and more detailed necropsy chains.
-
-Before coding, discuss the harvest model, living-versus-dead extraction, relationship to necropsy, and how results should enter inventory.
-
----
-
-## 2. Container Compatibility & Material Resistance System
+## 1. Container Compatibility & Material Resistance System
 
 Create a deeper compatibility system between containers and the creatures housed inside them.
 
@@ -73,7 +46,7 @@ Before coding, discuss container properties, specimen compatibility factors, UI 
 
 ---
 
-## 3. Room-Local Storage and Hauling System
+## 2. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -96,7 +69,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 4. Lab Construction & Room Expansion System
+## 3. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -120,7 +93,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -146,7 +119,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 6. Elemental Damage Type System
+## 5. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -171,7 +144,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 7. Tool Durability and Damage Resistance System
+## 6. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -200,7 +173,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 8. XP Curve and Breakthrough-Gated Skill Progression
+## 7. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -265,7 +238,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 9. Analyze Ability & Creature Skill Evolution Follow-Up
+## 8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
