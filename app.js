@@ -2648,6 +2648,7 @@
     const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(minutes);
     const metabolismChanged = updateSlimeMetabolism(minutes);
     const collectionChanged = updateCollectionBayAccumulation(minutes);
+    const compatibilityChanged = updateContainerCompatibilityEffects(minutes);
     const containmentIncidentChanges = updateContainmentIncidents(minutes);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
@@ -2656,10 +2657,10 @@
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(minutes)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -4707,6 +4708,305 @@
     };
   }
 
+  function containerCompatibilityBands() {
+    return ["Good", "Serviceable", "Questionable", "Poor", "Unsafe"];
+  }
+
+  function containerCompatibilityBandIndex(label) {
+    const bands = containerCompatibilityBands();
+    const index = bands.indexOf(label);
+    return index >= 0 ? index : 1;
+  }
+
+  function containerCompatibilityBandFromScore(score) {
+    const safeScore = Math.max(0, Number(score) || 0);
+    if (safeScore >= 90) return "Unsafe";
+    if (safeScore >= 60) return "Poor";
+    if (safeScore >= 35) return "Questionable";
+    if (safeScore >= 15) return "Serviceable";
+    return "Good";
+  }
+
+  function containerCompatibilityClassName(range) {
+    const highIndex = containerCompatibilityBandIndex(range?.high);
+    if (highIndex >= containerCompatibilityBandIndex("Unsafe")) return "container-band-unsuitable";
+    if (highIndex >= containerCompatibilityBandIndex("Poor")) return "container-band-poor";
+    if (highIndex >= containerCompatibilityBandIndex("Questionable")) return "container-band-questionable";
+    return "container-band-good";
+  }
+
+  function containerCompatibilityAssessment(slime, container, options = {}) {
+    const knownOnly = options.knownOnly !== false;
+    const bands = containerCompatibilityBands();
+    if (!slime || !container) {
+      const confidence = predictionConfidenceFromContext({
+        unknownFactors: ["specimen", "container"],
+        skillIds: ["analysis", "creatureHandling", "materialsScience"]
+      });
+      return {
+        score: 0,
+        materialScore: 0,
+        supportScore: 0,
+        range: { low: bands[0], high: bands[bands.length - 1] },
+        confidence,
+        knownFactors: [],
+        supportFactors: [],
+        concerns: [],
+        unknownFactors: ["specimen", "container"],
+        className: "container-band-unknown"
+      };
+    }
+    if (container.type === "synthesis") {
+      const confidence = { label: "Strong", factors: ["synthesis tube compatibility is intentionally universal and temporary"] };
+      return {
+        score: 0,
+        materialScore: 0,
+        supportScore: 0,
+        range: { low: "Good", high: "Good" },
+        confidence,
+        knownFactors: ["synthesis tube suppresses ordinary compatibility problems"],
+        supportFactors: ["temporary universal containment"],
+        concerns: [],
+        unknownFactors: [],
+        className: "container-band-good"
+      };
+    }
+
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const type = containerTypeDef(container.typeId);
+    const revealed = slime.revealed || {};
+    const canUse = (traitKey) => !knownOnly || Boolean(revealed[traitKey]);
+    const knownFactors = [];
+    const supportFactors = [];
+    const concerns = [];
+    const unknownFactors = [];
+    let materialScore = 0;
+    let supportScore = 0;
+
+    if (canUse("element") && profile) {
+      const hazards = elementContainerHazards(profile.element);
+      if (hazards.length) {
+        for (const hazard of hazards) {
+          const result = containerHazardCompatibility(container, hazard);
+          materialScore += result.score;
+          if (result.concern) concerns.push(result.concern);
+          if (result.support) supportFactors.push(result.support);
+        }
+      } else {
+        knownFactors.push("Element creates no obvious material hazard.");
+      }
+    } else if (knownOnly) {
+      unknownFactors.push("elemental material hazard");
+    }
+
+    if (canUse("byproduct")) {
+      const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
+      const hazards = byproductContainerHazards(byproduct);
+      for (const hazard of hazards) {
+        const result = containerHazardCompatibility(container, hazard);
+        materialScore += result.score;
+        if (result.concern) concerns.push(result.concern);
+        if (result.support) supportFactors.push(result.support);
+      }
+      const methodType = byproductCollectionType(byproduct);
+      const methodSupport = containerFunctionalSupportForCollection(container, methodType);
+      supportScore += methodSupport.score;
+      if (methodSupport.concern) concerns.push(methodSupport.concern);
+      if (methodSupport.support) supportFactors.push(methodSupport.support);
+    } else if (knownOnly) {
+      unknownFactors.push("byproduct behavior");
+    }
+
+    if (canUse("consistency") && profile) {
+      const bodySupport = containerFunctionalSupportForConsistency(container, profile.consistency);
+      supportScore += bodySupport.score;
+      concerns.push(...bodySupport.concerns);
+      supportFactors.push(...bodySupport.supports);
+    } else if (knownOnly) {
+      unknownFactors.push("body consistency");
+    }
+
+    if (canUse("shape") && canUse("appendages") && profile) {
+      const mobilitySupport = containerFunctionalSupportForMobility(container, profile);
+      supportScore += mobilitySupport.score;
+      concerns.push(...mobilitySupport.concerns);
+      supportFactors.push(...mobilitySupport.supports);
+    } else if (knownOnly) {
+      unknownFactors.push("mobility and appendages");
+    }
+
+    const rawScore = materialScore + supportScore;
+    const band = containerCompatibilityBandFromScore(rawScore);
+    const uniqueKnown = [...new Set(knownFactors)].filter(Boolean).slice(0, 6);
+    const uniqueSupport = [...new Set(supportFactors)].filter(Boolean).slice(0, 6);
+    const uniqueConcerns = [...new Set(concerns)].filter(Boolean).slice(0, 6);
+    const uniqueUnknown = [...new Set(unknownFactors)].filter(Boolean).slice(0, 6);
+    const confidence = knownOnly
+      ? predictionConfidenceFromContext({
+          unknownFactors: uniqueUnknown,
+          knownFactors: [...uniqueKnown, ...uniqueSupport],
+          concerns: uniqueConcerns,
+          clearEvidence: uniqueKnown.length * 8 + uniqueSupport.length * 8 + uniqueConcerns.length * 10,
+          skillIds: ["analysis", "creatureHandling", "materialsScience"]
+        })
+      : { label: "Strong", factors: ["actual hidden biology used for simulation"] };
+    const range = knownOnly
+      ? predictionRangeFromBand(bands, band, confidence.label, { unknownLow: "Good", unknownHigh: "Unsafe" })
+      : { low: band, high: band };
+    return {
+      score: Math.round(rawScore),
+      materialScore: Math.round(materialScore),
+      supportScore: Math.round(supportScore),
+      range,
+      confidence,
+      knownFactors: uniqueKnown,
+      supportFactors: uniqueSupport,
+      concerns: uniqueConcerns,
+      unknownFactors: uniqueUnknown,
+      className: containerCompatibilityClassName(range)
+    };
+  }
+
+  function elementContainerHazards(element) {
+    return {
+      acid: [{ key: "acid", label: "corrosive exposure" }],
+      flame: [{ key: "flame", label: "heat exposure" }],
+      frost: [{ key: "frost", label: "freezing exposure" }],
+      storm: [{ key: "storm", label: "electrical exposure" }],
+      poison: [{ key: "poison", label: "toxic exposure" }],
+      dream: [{ key: "mana", label: "arcane seepage" }],
+      ether: [{ key: "mana", label: "etheric seepage" }],
+      gravity: [{ key: "mana", label: "gravity-aspected strain" }],
+      shadow: [{ key: "mana", label: "umbral seepage" }],
+      light: [{ key: "mana", label: "luminous seepage" }],
+      null: [{ key: "mana", label: "null-aspected interference" }]
+    }[element] || [];
+  }
+
+  function byproductContainerHazards(byproduct) {
+    if (["acid droplets", "corrosive slime", "dissolved sludge", "sterile solvent"].includes(byproduct)) {
+      return [{ key: "acid", label: "corrosive byproduct" }];
+    }
+    if (["smoke vapor", "numbing paste", "contaminated residue", "irritant film", "bitter sludge"].includes(byproduct)) {
+      return [{ key: "poison", label: "toxic byproduct" }];
+    }
+    if (["warm tar"].includes(byproduct)) {
+      return [{ key: "flame", label: "thermal byproduct" }];
+    }
+    if (["mana dew", "ether mist", "glow mucus"].includes(byproduct)) {
+      return [{ key: "mana", label: "arcane byproduct" }];
+    }
+    return [];
+  }
+
+  function containerHazardCompatibility(container, hazard) {
+    const type = containerTypeDef(container.typeId);
+    const baseResistance = Number(type.resistances?.[hazard.key]) || 0;
+    const ward = containerProtectionLabel(container, [hazard.key, hazard.label]);
+    const wardBonus = ward ? 30 : 0;
+    const conditionPenalty = containerCondition(container) < 50 ? 10 : containerCondition(container) < 75 ? 4 : 0;
+    const resistance = clamp(baseResistance + wardBonus - conditionPenalty, 0, 100);
+    if (resistance < 25) {
+      return { score: 28, concern: `${type.label} has very poor resistance to ${hazard.label}.`, support: "" };
+    }
+    if (resistance < 50) {
+      return { score: 16, concern: `${type.label} has weak resistance to ${hazard.label}.`, support: "" };
+    }
+    if (resistance < 65) {
+      return { score: 6, concern: `${type.label} only partly resists ${hazard.label}.`, support: ward ? `${ward} helps with ${hazard.label}.` : "" };
+    }
+    return { score: 0, concern: "", support: ward ? `${ward} protects against ${hazard.label}.` : `${type.label} resists ${hazard.label}.` };
+  }
+
+  function containerFunctionalSupportForConsistency(container, consistency) {
+    const type = containerTypeDef(container.typeId);
+    const concerns = [];
+    const supports = [];
+    let score = 0;
+    const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(consistency);
+    const sticky = ["mucous", "tar-like", "waxen", "syrupy"].includes(consistency);
+    const brittle = ["crystalline gel", "brittle jelly"].includes(consistency);
+    if (runny) {
+      if (type.drainage) {
+        supports.push(`${type.label} has drainage for fluid or slurry bodies.`);
+      } else {
+        score += 12;
+        concerns.push(`${type.label} lacks drainage for fluid or slurry bodies.`);
+      }
+      if (type.gap >= 45 || containerEffectiveSeal(container) < 45) {
+        score += 18;
+        concerns.push(`${type.label} has gaps or a weak seal for a fluid body.`);
+      }
+    }
+    if (sticky && !type.drainage) {
+      score += 8;
+      concerns.push(`${type.label} may foul without drainage or scraping support.`);
+    }
+    if (brittle) {
+      if (container.typeId === "softLinedBox") {
+        supports.push("Soft lining cushions brittle bodies.");
+      } else if (type.comfort < 50) {
+        score += 10;
+        concerns.push(`${type.label} is harsh for brittle bodies.`);
+      }
+    }
+    return { score, concerns, supports };
+  }
+
+  function containerFunctionalSupportForMobility(container, profile) {
+    const type = containerTypeDef(container.typeId);
+    const geometry = containerGeometry(container);
+    const concerns = [];
+    const supports = [];
+    let score = 0;
+    if (geometry?.openTop && ["climbing", "hopping", "scuttling", "clinging"].includes(profile.movement)) {
+      score += 14;
+      concerns.push("Open-top geometry is risky for this movement style.");
+    }
+    if (type.gap >= 60 && profile.appendages && profile.appendages !== "none") {
+      score += 10;
+      concerns.push("Large gaps let appendages interact with the room.");
+    }
+    if (!geometry?.openTop && type.gap <= 10 && !["climbing", "hopping", "scuttling", "clinging"].includes(profile.movement)) {
+      supports.push("Closed geometry limits obvious mobility escape paths.");
+    }
+    return { score, concerns, supports };
+  }
+
+  function containerFunctionalSupportForCollection(container, methodType) {
+    if (!methodType || methodType === "unclear") {
+      return { score: 0, concern: "", support: "" };
+    }
+    const support = collectionBayContainerSupportFactor(container, methodType);
+    if (support.factor <= 0) {
+      return { score: 20, concern: `Functional support: ${support.reason}`, support: "" };
+    }
+    if (support.factor < 0.5) {
+      return { score: 10, concern: `Functional support: ${support.reason}`, support: "" };
+    }
+    if (support.factor < 1) {
+      return { score: 4, concern: "", support: `Functional support: ${support.reason}` };
+    }
+    return { score: 0, concern: "", support: `Functional support: ${support.reason}` };
+  }
+
+  function activeContainmentPotentialFromCompatibility(actual, visible) {
+    if (!actual || actual.score < 20) {
+      return { points: 0, text: "" };
+    }
+    const points = actual.score >= 90 ? 34
+      : actual.score >= 60 ? 22
+        : actual.score >= 35 ? 12
+          : 6;
+    const visibleScore = Number(visible?.score) || 0;
+    const visibleHigh = visible?.range?.high || "Serviceable";
+    const text = visibleScore >= 20 || visible?.concerns?.length
+      ? `container compatibility range reaches ${visibleHigh.toLowerCase()} (${predictionRangeText(visible.range)}).`
+      : "unidentified container compatibility factors may be stressing containment.";
+    return { points, text };
+  }
+
   function physicalContainerFitPrediction(slime, container) {
     const bands = physicalContainerFitBands();
     if (!slime || !container) {
@@ -4872,6 +5172,45 @@
     const confidenceSpan = document.createElement("span");
     confidenceSpan.textContent = `Confidence: ${prediction.confidence.label}`;
     confidenceSpan.title = predictionConfidenceTooltip(prediction.confidence);
+    line.append(rangeSpan, document.createTextNode(" | "), confidenceSpan);
+    return line;
+  }
+
+  function containerCompatibilityTooltip(assessment) {
+    const lines = [
+      `Container compatibility range: ${predictionRangeText(assessment?.range)}.`,
+      "Compatibility covers material resistance and functional support. It is separate from physical fit and active containment pressure."
+    ];
+    if (assessment?.knownFactors?.length) {
+      lines.push(`Known fit context: ${assessment.knownFactors.join(" / ")}.`);
+    }
+    if (assessment?.supportFactors?.length) {
+      lines.push(`Known support: ${assessment.supportFactors.join(" / ")}.`);
+    }
+    if (assessment?.concerns?.length) {
+      lines.push(`Known concerns: ${assessment.concerns.join(" / ")}.`);
+    }
+    if (assessment?.unknownFactors?.length) {
+      lines.push(`Unknown factors widening the range: ${assessment.unknownFactors.join(", ")}.`);
+    }
+    lines.push(predictionConfidenceTooltip(assessment?.confidence));
+    return lines.join("\n");
+  }
+
+  function containerCompatibilityPredictionEl(slime, container) {
+    const assessment = containerCompatibilityAssessment(slime, container, { knownOnly: true });
+    const line = document.createElement("div");
+    line.className = "container-compatibility-prediction";
+    line.title = containerCompatibilityTooltip(assessment);
+    line.dataset.containerCompatibilityRange = predictionRangeText(assessment.range);
+    line.dataset.containerCompatibilityConfidence = assessment.confidence.label;
+    const rangeSpan = document.createElement("span");
+    rangeSpan.className = assessment.className;
+    rangeSpan.textContent = `Compatibility: ${predictionRangeText(assessment.range)}`;
+    rangeSpan.title = line.title;
+    const confidenceSpan = document.createElement("span");
+    confidenceSpan.textContent = `Confidence: ${assessment.confidence.label}`;
+    confidenceSpan.title = predictionConfidenceTooltip(assessment.confidence);
     line.append(rangeSpan, document.createTextNode(" | "), confidenceSpan);
     return line;
   }
@@ -8489,6 +8828,64 @@
     }
   }
 
+  function updateContainerCompatibilityEffects(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed || !state?.started) {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status !== "contained" || slime.status === "dead" || !slime.containerId) {
+        continue;
+      }
+      const container = containerById(slime.containerId);
+      if (!container || container.type === "synthesis") {
+        continue;
+      }
+      const compatibility = containerCompatibilityAssessment(slime, container, { knownOnly: false });
+      if (compatibility.score < 35) {
+        continue;
+      }
+      const days = elapsed / 1440;
+      const severity = compatibility.score >= 90 ? 1
+        : compatibility.score >= 60 ? 0.55
+          : 0.25;
+      const stressDelta = (1.5 + severity * 3) * days;
+      if (stressDelta >= 0.01) {
+        const beforeStress = slimeStat(slime, "stress").current;
+        adjustSlimeStat(slime, "stress", stressDelta);
+        if (Math.abs(slimeStat(slime, "stress").current - beforeStress) >= 0.01) {
+          changes += 1;
+        }
+      }
+      if (compatibility.materialScore >= 16) {
+        const contaminationDelta = (0.6 + severity * 2.4) * days;
+        if (contaminationDelta >= 0.01) {
+          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta) ? 1 : 0;
+        }
+        const conditionDelta = -(0.2 + severity * 0.8) * days;
+        if (Math.abs(conditionDelta) >= 0.01) {
+          changes += adjustContainerCondition(container, conditionDelta) ? 1 : 0;
+        }
+      }
+      if (compatibility.supportScore >= 16) {
+        const contaminationDelta = (0.4 + severity * 1.2) * days;
+        if (contaminationDelta >= 0.01) {
+          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta) ? 1 : 0;
+        }
+      }
+      if (compatibility.score >= 60) {
+        const record = containmentIncidentRecord(slime, container);
+        const beforeProgress = record.progress;
+        record.progress += elapsed * (compatibility.score >= 90 ? 0.28 : 0.12);
+        if (Math.abs(record.progress - beforeProgress) >= 0.01) {
+          changes += 1;
+        }
+      }
+    }
+    return changes;
+  }
+
   function updateContainmentIncidents(minutes) {
     const elapsed = Math.max(0, Number(minutes) || 0);
     if (!elapsed || !state?.started) {
@@ -8656,6 +9053,8 @@
     const revealed = slime.revealed || {};
     const stats = slime.stats || {};
     const physicalFit = physicalContainerFitPrediction(slime, container);
+    const visibleCompatibility = containerCompatibilityAssessment(slime, container, { knownOnly: true });
+    const actualCompatibility = containerCompatibilityAssessment(slime, container, { knownOnly: false });
     let potential = 0;
     let pressure = 0;
     const potentialReasons = [];
@@ -8680,6 +9079,11 @@
     const physicalFitPotential = activeContainmentPotentialFromPhysicalFit(physicalFit);
     if (physicalFitPotential.points) {
       addPotential(physicalFitPotential.points, physicalFitPotential.text);
+    }
+
+    const compatibilityPotential = activeContainmentPotentialFromCompatibility(actualCompatibility, visibleCompatibility);
+    if (compatibilityPotential.points) {
+      addPotential(compatibilityPotential.points, compatibilityPotential.text);
     }
 
     if (condition < 25) {
@@ -9151,20 +9555,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const row = document.createElement("div");
         row.className = "container-occupant-row";
         const physicalFit = physicalContainerFitPrediction(slime, container);
+        const compatibility = containerCompatibilityAssessment(slime, container, { knownOnly: true });
         const risk = activeContainmentRisk(slime, container);
         const statusLabel = textEl("span", slime.mature ? slime.status : "immature");
         const fitLabel = textEl("span", `physical fit ${predictionRangeText(physicalFit.range)}`);
         fitLabel.className = physicalFit.className;
         fitLabel.title = physicalContainerFitTooltip(physicalFit);
         fitLabel.dataset.physicalFitRange = predictionRangeText(physicalFit.range);
+        const compatibilityLabel = textEl("span", `compatibility ${predictionRangeText(compatibility.range)}`);
+        compatibilityLabel.className = compatibility.className;
+        compatibilityLabel.title = containerCompatibilityTooltip(compatibility);
+        compatibilityLabel.dataset.containerCompatibilityRange = predictionRangeText(compatibility.range);
         const riskPrediction = activeContainmentRiskPrediction(risk, slime, container);
         const riskLabel = textEl("span", `active risk ${predictionRangeText(riskPrediction.range)}`);
         riskLabel.className = risk.className;
         riskLabel.title = activeContainmentRiskRangeTooltip(riskPrediction, risk);
-        row.append(slimeNameLink(slime), statusLabel, fitLabel, riskLabel);
+        row.append(slimeNameLink(slime), statusLabel, fitLabel, compatibilityLabel, riskLabel);
         const warnings = document.createElement("div");
         warnings.className = "container-warning-list";
         warnings.append(physicalContainerFitPredictionEl(slime, container));
+        warnings.append(containerCompatibilityPredictionEl(slime, container));
         warnings.append(activeContainmentRiskPredictionEl(risk, slime, container));
         occupantList.append(row, warnings);
       }

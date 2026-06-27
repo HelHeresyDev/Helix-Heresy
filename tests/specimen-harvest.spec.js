@@ -168,7 +168,8 @@ test('sampling a living specimen stores harvested material and worsens condition
   expect(result.entries[0].amount).toBeGreaterThan(0);
   expect(result.bodyIntegrity).toBe(78);
   expect(result.currentMass).toBe(99);
-  expect(result.stress).toBe(9);
+  expect(result.stress).toBeGreaterThanOrEqual(9);
+  expect(result.stress).toBeLessThan(9.1);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

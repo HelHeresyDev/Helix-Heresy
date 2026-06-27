@@ -181,7 +181,13 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     seed: context.seed,
     complexity: context.complexity,
     baseGenome: context.currentGenome,
-    traits: { sustenance: 'hazard feeder', element: 'none', consistency: 'soft gelatin' },
+    traits: {
+      sustenance: 'hazard feeder',
+      element: 'none',
+      consistency: 'soft gelatin',
+      behavior: 'idle pooling',
+      stability: 'steady',
+    },
   });
   const workerSlime = residueTestSlime({
     id: 'residue-worker',
@@ -190,7 +196,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     containerId: 'basic-11',
     roomId: 'pits',
     job: 'disposal',
-    jobProgress: 10080,
+    jobProgress: 999999,
     stats: { bodyIntegrity: { current: 100, max: 100 }, nutrition: { current: 50, max: 100 } },
   });
 

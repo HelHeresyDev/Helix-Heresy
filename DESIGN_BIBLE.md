@@ -90,6 +90,16 @@ Collection Bay accumulation is station-based. Each staged specimen container act
 
 Collected byproducts move into inventory through a station-level Transfer Receptacle action. Transfer swaps only the active receptacle into the Storage Room's Collected Byproducts ledger; overflow remains in the Collection Bay apparatus and can flow into the replacement receptacle afterward. Raw byproduct names are preserved until a later processing system changes them, so smoke vapor stays smoke vapor unless it is run through a condenser or another refining procedure later. Routine transfer accounting belongs in inventory item history and tooltips, while the event log should remain for meaningful observations, incidents, and discoveries.
 
+## Container Compatibility
+
+Containers are physical lab equipment, not generic storage slots. Current prototype containers have base types with interior dimensions, openings, open or sealed geometry, load limits, durability, comfort, drainage, environment exchange, material resistance, and optional wards. Wards modify specific problems rather than solving all containment.
+
+Container readouts separate three related concepts. Physical Fit estimates whether the specimen's size, shape, weight, opening requirements, and body flexibility make sense in the container. Compatibility estimates material resistance and functional support, such as whether the container resists corrosive, toxic, thermal, cold, electrical, or arcane hazards and whether drainage, sealing, open-top geometry, or collection support suits the specimen. Active Containment Risk combines compatibility, current creature condition, stress, hunger, stability, container condition, handling state, corpses, and other pressure sources into the chance of incidents.
+
+Player-facing compatibility remains discovery-aware. Known traits can produce specific notes such as poor corrosive resistance or lack of drainage. Undiscovered traits widen the assessment without naming hidden hazards. The simulation still uses the real hidden biology, so an undiscovered acid slime can slowly stress a poor glass jar even before the scientist understands why.
+
+Poor compatibility has light first-pass consequences rather than catastrophic container destruction. Over time it can raise specimen Stress, foul the container interior, slightly wear unsuitable materials, and add pressure toward minor containment incidents. This keeps container choice meaningful while leaving full breakage, repair, replacement, tool durability, and formal elemental damage types for later systems.
+
 ## Design Vision
 
 Helix Heresy should feel like running an unsafe little arcane biology lab. The player should not start with a complete wiki. They should learn by making creatures, testing them, comparing notes, and steering reproduction or recombination toward goals they only partially understand.

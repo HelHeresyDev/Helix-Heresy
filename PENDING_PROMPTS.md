@@ -12,41 +12,17 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Container Compatibility & Material Resistance System
-2. Room-Local Storage and Hauling System
-3. Lab Construction & Room Expansion System
-4. Black Market Byproduct Economy System
-5. Elemental Damage Type System
-6. Tool Durability and Damage Resistance System
-7. XP Curve and Breakthrough-Gated Skill Progression
-8. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Room-Local Storage and Hauling System
+2. Lab Construction & Room Expansion System
+3. Black Market Byproduct Economy System
+4. Elemental Damage Type System
+5. Tool Durability and Damage Resistance System
+6. XP Curve and Breakthrough-Gated Skill Progression
+7. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Container Compatibility & Material Resistance System
-
-Create a deeper compatibility system between containers and the creatures housed inside them.
-
-Containers should not be interchangeable boxes. A container’s material, sealing, drainage, porosity, structure, size, and handling properties should matter when housing strange organisms. A watery slime, acid slime, heavy mineral slime, vapor-producing slime, corrosive slime, hot slime, tiny puddle slime, and aggressive slime may all create different containment concerns.
-
-The system should answer questions like:
-- What makes a container good or bad for a specific specimen?
-- How does container material resist acid, heat, cold, moisture, pressure, physical force, or magic?
-- How do drainage, sealing, open-top geometry, and porosity affect containment?
-- How does size/weight affect fit and safety?
-- How does byproduct behavior affect long-term housing?
-- How does the player see compatibility without receiving exact hidden formulas?
-- What happens when a container is a poor fit?
-
-This system should connect to existing ideas like physical fit, handling risk, Specimen Drainage Tanks, receptacles, hood venting, and room-specific staging. A container that is safe for a dry, docile specimen may be a terrible choice for an acid-dripping or vapor-producing one.
-
-The desired result is a container system where choosing the right vessel is part of the biology puzzle and future lab safety loop.
-
-Before coding, discuss container properties, specimen compatibility factors, UI presentation, and how incompatibility should affect the game.
-
----
-
-## 2. Room-Local Storage and Hauling System
+## 1. Room-Local Storage and Hauling System
 
 Create a system for room-local storage and hauling within the lab.
 
@@ -69,7 +45,7 @@ Before coding, discuss what should become room-local first and how to avoid over
 
 ---
 
-## 3. Lab Construction & Room Expansion System
+## 2. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -93,7 +69,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -119,7 +95,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 5. Elemental Damage Type System
+## 4. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -144,7 +120,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 6. Tool Durability and Damage Resistance System
+## 5. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -173,7 +149,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 7. XP Curve and Breakthrough-Gated Skill Progression
+## 6. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -238,7 +214,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 8. Analyze Ability & Creature Skill Evolution Follow-Up
+## 7. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
