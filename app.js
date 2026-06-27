@@ -291,6 +291,9 @@
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
+  const RESOURCE_HAUL_BASE_DURATION = 8;
+  const RESOURCE_HAUL_PER_UNIT_DURATION = 0.8;
+  const RESOURCE_HAUL_STAMINA = 3;
   // Pits hauling now moves only the container. Contents must be moved by direct interaction.
   const CONTAINER_INTERACTION_OPEN_DURATION = 8;
   const CONTAINER_INTERACTION_CLOSE_DURATION = 5;
@@ -1680,6 +1683,7 @@
       containers: defaultContainers(),
       resources: defaultResources(),
       inventory: defaultInventory(),
+      roomStockpiles: defaultRoomStockpiles(),
       inventoryHistory: defaultInventoryHistory(),
       collectedByproducts: defaultCollectedByproducts(),
       collectedByproductHistory: defaultCollectedByproductHistory(),
@@ -1752,6 +1756,26 @@
 
   function defaultResources() {
     return Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource.initial]));
+  }
+
+  function defaultRoomStockpiles() {
+    const stockpiles = {};
+    for (const roomDef of ROOM_BASE_DEFS) {
+      stockpiles[roomDef.id] = emptyRoomStockpile();
+    }
+    stockpiles[STORAGE_ROOM_ID] ||= emptyRoomStockpile();
+    stockpiles[STORAGE_ROOM_ID].resources = defaultResources();
+    stockpiles[STORAGE_ROOM_ID].inventory = defaultInventory();
+    return stockpiles;
+  }
+
+  function emptyRoomStockpile() {
+    return {
+      resources: {},
+      inventory: {},
+      collectedByproducts: {},
+      specimenMaterials: {}
+    };
   }
 
 
@@ -2031,10 +2055,10 @@
         subpanel.innerHTML = `
           <div class="subpanel-title">Inventory Cheat</div>
           <div class="cheat-row">
-            <input id="inventoryCommandInput" type="text" spellcheck="false" placeholder="trace slime 5">
+            <input id="inventoryCommandInput" type="text" spellcheck="false" placeholder="trace slime 5 storage">
             <button id="inventoryCommandBtn" type="button">Add Item</button>
           </div>
-          <p id="inventoryCommandStatus" class="journal-meta">Use inventory item name plus amount.</p>
+          <p id="inventoryCommandStatus" class="journal-meta">Use inventory item name plus amount, with optional room.</p>
         `;
         cheatGrid.append(subpanel);
         dom.inventoryCommandInput = document.getElementById("inventoryCommandInput");
@@ -2193,6 +2217,7 @@
         baseXp: 25,
         baseCost: BASE_ACTION_STAMINA,
         resourceCosts: { biomass: SYNTHESIS_BIOMASS_COST },
+        resourceRoomId: synthesisTube()?.roomId || MAIN_ROOM_ID,
         data: { genome: state.currentGenome }
       });
     });
@@ -2685,7 +2710,7 @@
     if (task.type === "synthesize") {
       const tube = synthesisTube();
       if (!tube || synthesisTubeOccupied()) {
-        addResources(task.data.resourceCosts || {});
+        addResources(task.data.resourceCosts || {}, task.data.resourceRoomId || tube?.roomId || MAIN_ROOM_ID);
         addEvent("Synthesis could not stabilize; the synthesis tube was occupied. Reserved resources recovered.");
         return;
       }
@@ -2734,6 +2759,11 @@
       return;
     }
 
+    if (task.type === "resourceHaul") {
+      completeResourceHaul(task);
+      return;
+    }
+
     if (task.type === "scientistMove") {
       completeScientistMove(task);
       return;
@@ -2741,6 +2771,11 @@
 
     if (task.type === "containerInteraction") {
       completeContainerInteraction(task);
+      return;
+    }
+
+    if (task.type === "collectionBayTransfer") {
+      completeCollectionBayTransfer(task);
       return;
     }
 
@@ -2778,7 +2813,7 @@
     }
     const yieldInfo = specimenHarvestYieldForSlime(slime, procedure);
     if (yieldInfo.amount > 0) {
-      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`);
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`, slimeEffectiveRoomId(slime));
     }
     if (procedure.terminal) {
       removeLivingSlimeRecord(slime.id);
@@ -2812,7 +2847,7 @@
     }
     const yieldInfo = specimenHarvestYieldForCorpse(corpse, procedure);
     if (yieldInfo.amount > 0) {
-      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`);
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`, corpse.roomId || scientistRoomId());
     }
     corpse.harvestedProcedures ||= {};
     corpse.harvestedProcedures[procedure.id] = true;
@@ -2845,7 +2880,7 @@
     render();
   }
 
-  function startStaminaTask({ type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts = {}, data }) {
+  function startStaminaTask({ type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts = {}, resourceRoomId = scientistRoomId(), allowResourceHaul = true, data }) {
     if (scientistIsDead()) {
       addEvent("The scientist is dead.");
       persist();
@@ -2857,8 +2892,22 @@
       return false;
     }
     const cost = adjustedStaminaCost(baseCost, [skillId, "creatureHandling"]);
-    const resourceReason = resourceBlockReason(resourceCosts);
+    const targetResourceRoomId = normalizeStockpileRoomId(resourceRoomId);
+    const globalResourceReason = resourceBlockReason(resourceCosts);
+    const localResourceReason = resourceBlockReasonForRoom(resourceCosts, targetResourceRoomId, { allowHaul: false });
+    const resourceReason = globalResourceReason || localResourceReason;
     if (resourceReason) {
+      if (!globalResourceReason && allowResourceHaul) {
+        return queueResourceHaulForContinuation({
+          costs: resourceCosts,
+          toRoomId: targetResourceRoomId,
+          actionLabel: label,
+          continuation: {
+            kind: "staminaTask",
+            task: { type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts, resourceRoomId: targetResourceRoomId, data }
+          }
+        });
+      }
       addEvent(resourceReason);
       persist();
       render();
@@ -2870,9 +2919,9 @@
       render();
       return false;
     }
-    if (!spendResources(resourceCosts)) {
+    if (!spendResourcesFromRoom(resourceCosts, targetResourceRoomId)) {
       restoreStamina(cost);
-      addEvent(resourceBlockReason(resourceCosts) || "Resources were not available.");
+      addEvent(resourceBlockReasonForRoom(resourceCosts, targetResourceRoomId, { allowHaul: false }) || "Resources were not available.");
       persist();
       render();
       return false;
@@ -2884,6 +2933,7 @@
       data: {
         ...data,
         resourceCosts: normalizeResourceCosts(resourceCosts),
+        resourceRoomId: targetResourceRoomId,
         skillId,
         baseXp,
         staminaCost: cost
@@ -3042,7 +3092,7 @@
     awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Necropsy");
     addEvent(`Necropsy complete for ${corpse.name}. Corpse ruined; disposal still required.`);
     if (freshness === "fresh") {
-      addResource("geneticMaterial", FRESH_NECROPSY_GENETIC_GAIN);
+      addResource("geneticMaterial", FRESH_NECROPSY_GENETIC_GAIN, corpse.roomId || scientistRoomId());
       addEvent(`Recovered ${FRESH_NECROPSY_GENETIC_GAIN} Genetic Material from fresh tissue.`);
     }
   }
@@ -6712,6 +6762,174 @@
     return true;
   }
 
+  function resourceHaulPlan(costs, toRoomId) {
+    const targetRoomId = normalizeStockpileRoomId(toRoomId);
+    const transfers = [];
+    for (const [key, required] of Object.entries(normalizeResourceCosts(costs))) {
+      const local = resourceAmountInRoom(key, targetRoomId);
+      let remaining = Math.max(0, required - local);
+      if (!remaining) {
+        continue;
+      }
+      if (resourceAmount(key) < required) {
+        return { ok: false, reason: `Not enough ${resourceLabel(key)}. ${formatNumber(required)} required.`, transfers: [] };
+      }
+      const sources = roomStockpileIds()
+        .filter((roomId) => roomId !== targetRoomId)
+        .map((roomId) => ({
+          roomId,
+          amount: resourceAmountInRoom(key, roomId),
+          routeLength: roomRouteBetween(roomId, targetRoomId, { ignoreDoors: true }).length
+        }))
+        .filter((source) => source.amount > 0)
+        .sort((a, b) => a.routeLength - b.routeLength || roomName(a.roomId).localeCompare(roomName(b.roomId)));
+      for (const source of sources) {
+        const moved = Math.min(source.amount, remaining);
+        if (moved <= 0) {
+          continue;
+        }
+        transfers.push({ key, amount: moved, fromRoomId: source.roomId, toRoomId: targetRoomId });
+        remaining -= moved;
+        if (remaining <= 0) {
+          break;
+        }
+      }
+      if (remaining > 0) {
+        return { ok: false, reason: `${resourceLabel(key)} exists in the lab, but no reachable stockpile can supply ${formatNumber(remaining)} more.`, transfers: [] };
+      }
+    }
+    if (!transfers.length) {
+      return { ok: true, reason: "", transfers: [] };
+    }
+    return { ok: true, reason: "", transfers };
+  }
+
+  function resourceHaulDuration(transfers) {
+    const totalUnits = (transfers || []).reduce((total, transfer) => total + (Number(transfer.amount) || 0), 0);
+    const routeSteps = (transfers || []).reduce((total, transfer) => {
+      const route = roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true });
+      return total + Math.max(0, route.length - 1);
+    }, 0);
+    return Math.max(1, Math.round(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION + routeSteps * 4));
+  }
+
+  function resourceHaulTransferText(transfers) {
+    return (transfers || [])
+      .map((transfer) => `${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)} from ${roomName(transfer.fromRoomId)}`)
+      .join("; ");
+  }
+
+  function queueResourceHaulForContinuation({ costs, toRoomId, actionLabel, continuation }) {
+    if (scientistIsDead()) {
+      addEvent("The scientist is dead.");
+      persist();
+      render();
+      return false;
+    }
+    const targetRoomId = normalizeStockpileRoomId(toRoomId);
+    const plan = resourceHaulPlan(costs, targetRoomId);
+    if (!plan.ok) {
+      addEvent(plan.reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!plan.transfers.length) {
+      addEvent(`${actionLabel} could not start; no material hauling was needed.`);
+      persist();
+      render();
+      return false;
+    }
+    const physicalBlock = physicalStateRiskBlockReason(`hauling materials for ${actionLabel}`);
+    if (physicalBlock) {
+      addEvent(physicalBlock);
+      persist();
+      render();
+      return false;
+    }
+    const cost = adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["fabrication", "creatureHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const routes = plan.transfers.map((transfer) => roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
+    const doorTransit = routes.flatMap((route) => doorTransitPlan(route));
+    const duration = resourceHaulDuration(plan.transfers);
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "resourceHaul",
+      label: `Haul materials for ${actionLabel}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        transfers: plan.transfers,
+        toRoomId: targetRoomId,
+        continuation,
+        staminaCost: cost,
+        doorTransit
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`Material hauling queued for ${actionLabel}: ${resourceHaulTransferText(plan.transfers)} to ${roomArticleName(targetRoomId)}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completeResourceHaul(task) {
+    const transfers = Array.isArray(task.data?.transfers) ? task.data.transfers : [];
+    if (!transfers.length) {
+      addEvent("Material hauling could not complete; no transfer was recorded.");
+      return false;
+    }
+    for (const transfer of transfers) {
+      if (resourceAmountInRoom(transfer.key, transfer.fromRoomId) < transfer.amount) {
+        addEvent(`Material hauling cancelled; ${roomName(transfer.fromRoomId)} no longer has ${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)}.`);
+        return false;
+      }
+    }
+    for (const transfer of transfers) {
+      moveRoomNumeric("resources", transfer.key, transfer.amount, transfer.fromRoomId, transfer.toRoomId);
+    }
+    applyDoorTransitPolicy(task.data?.doorTransit, "Material hauling");
+    addEvent(`Material hauling complete: ${resourceHaulTransferText(transfers)} delivered to ${roomArticleName(task.data?.toRoomId)}.`);
+    completeResourceHaulContinuation(task.data?.continuation);
+    return true;
+  }
+
+  function completeResourceHaulContinuation(continuation) {
+    if (!continuation?.kind) {
+      return false;
+    }
+    if (continuation.kind === "staminaTask") {
+      const task = continuation.task || {};
+      const reason = continuationTaskBlockReason(task);
+      if (reason) {
+        addEvent(`${task.label || "Queued action"} cancelled after material delivery: ${reason}`);
+        return false;
+      }
+      return startStaminaTask({ ...task, allowResourceHaul: false });
+    }
+    if (continuation.kind === "feedSlime") {
+      const slime = findSlime(continuation.slimeId);
+      if (!slime || slime.status === "dead") {
+        addEvent("Queued feeding cancelled after material delivery; specimen is no longer available.");
+        return false;
+      }
+      return feedSlime(slime, continuation.feedstockKey, { ...(continuation.options || {}), requireLocal: true });
+    }
+    return false;
+  }
+
+  function continuationTaskBlockReason(task) {
+    if (task?.type === "synthesize") {
+      return synthesisTubeBlockReason();
+    }
+    return "";
+  }
+
 
   function syncContainerContentsToRoom(container, roomId = container?.roomId || MAIN_ROOM_ID) {
     if (!container) {
@@ -7407,6 +7625,9 @@
     if (scientistRoomId() !== COLLECTION_BAY_ROOM_ID) {
       return "Scientist must be in the Collection Bay.";
     }
+    if (collectionBayTransferTask(info?.container?.id)) {
+      return "Receptacle transfer already queued for this station.";
+    }
     if (!info?.station || !info.station.material) {
       return "No collection receptacle is assigned.";
     }
@@ -7431,24 +7652,68 @@
     return parts.join("; ");
   }
 
+  function collectionBayTransferTask(containerId) {
+    return (state.tasks || []).find((task) => task.type === "collectionBayTransfer" && task.data?.containerId === containerId) || null;
+  }
+
   function transferCollectionBayReceptacle(containerId) {
     const container = containerById(containerId);
     const info = collectionBayStationInfo(container);
     const reason = collectionBayTransferDisabledReason(info);
     if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const physicalBlock = physicalStateRiskBlockReason(`transferring ${info.container?.name || "Collection Bay"} receptacle`);
+    if (physicalBlock) {
+      addEvent(physicalBlock);
+      persist();
+      render();
+      return false;
+    }
+    const cost = adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const duration = adjustedDuration(6, "materialsScience");
+    state.tasks.push({
+      id: `task-${state.nextTaskNumber++}`,
+      type: "collectionBayTransfer",
+      label: `Transfer ${info.container?.name || "Collection Bay"} receptacle`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        containerId,
+        staminaCost: cost
+      }
+    });
+    addEvent(`Collection Bay receptacle transfer queued for ${info.container?.name || "station"}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completeCollectionBayTransfer(task) {
+    const container = containerById(task.data?.containerId);
+    const info = collectionBayStationInfo(container);
+    if (!container || !info?.station || !info.station.material || (Number(info.station.receptacle?.amount) || 0) <= 0) {
+      addEvent("Collection Bay transfer could not complete; the station receptacle is no longer ready.");
       return false;
     }
     const amount = roundOutputValue(Number(info.station.receptacle.amount) || 0);
     const material = info.station.material || info.material;
-    const transferred = addCollectedByproduct(material, amount, collectionBayTransferSource(info));
+    const transferred = addCollectedByproduct(material, amount, collectionBayTransferSource(info), STORAGE_ROOM_ID);
     if (transferred <= 0) {
       return false;
     }
     info.station.receptacle.amount = 0;
     const drained = collectionBayDrainOverflowIntoReceptacle(info.station);
     addEvent(`Transferred ${formatCollectionAmount(transferred)} ${material} from ${info.container?.name || "Collection Bay"} receptacle to Storage Room${drained > 0 ? `; ${formatCollectionAmount(drained)} remains in the replacement receptacle` : ""}.`);
-    persist();
-    render();
     return true;
   }
 
@@ -7593,11 +7858,11 @@
       actions.className = "physical-state-actions collection-bay-station-actions";
       const transferButton = document.createElement("button");
       transferButton.type = "button";
-      transferButton.textContent = "Transfer Receptacle";
+      setButtonStaminaLabel(transferButton, "Transfer Receptacle", RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"], { duration: formatDuration(adjustedDuration(6, "materialsScience")) });
       transferButton.dataset.collectionBayTransfer = info.container?.id || "";
       const transferReason = collectionBayTransferDisabledReason(info);
       setActionButtonState(transferButton, Boolean(transferReason), transferReason);
-      transferButton.title = transferReason || "Move only the active receptacle contents into Collected Byproducts. Overflow remains in the apparatus and can refill the replacement receptacle.";
+      transferButton.title = transferReason || "Queue a scientist task to move only the active receptacle contents into Collected Byproducts in Storage Room. Overflow remains in the apparatus and can refill the replacement receptacle.";
       transferButton.addEventListener("click", () => transferCollectionBayReceptacle(info.container?.id));
       actions.append(transferButton);
       station.append(actions);
@@ -8217,12 +8482,19 @@
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"]);
     const duration = adjustedDuration(8, "fabrication");
     const resourceCosts = { biomass: SYNTHESIS_BIOMASS_COST };
+    const resourceRoomId = synthesisTube()?.roomId || MAIN_ROOM_ID;
     renderSynthesisTubeStatus();
-    setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"], { duration: formatDuration(duration), suffix: formatResourceBundle(resourceCosts) });
+    setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"], { duration: formatDuration(duration), suffix: `${formatResourceBundle(resourceCosts)} in ${roomName(resourceRoomId)}` });
     const reason = synthesisTubeBlockReason()
       || resourceBlockReason(resourceCosts)
       || staminaBlockReason(cost);
     setActionButtonState(dom.synthesizeBtn, Boolean(reason), reason);
+    if (!reason) {
+      const logisticsHint = resourceLogisticsHint(resourceCosts, resourceRoomId, "Synthesize slime");
+      if (logisticsHint) {
+        dom.synthesizeBtn.title = logisticsHint;
+      }
+    }
   }
 
   function renderSynthesisTubeStatus() {
@@ -9750,7 +10022,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const wasteUnits = resourceAmount("waste");
     const residueUnits = feedingResidueTotal();
     dom.jobSummary.textContent = living.length
-      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} Waste${residueUnits ? `; ${formatNumber(residueUnits)} local residue` : ""}`
+      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} Waste total${residueUnits ? `; ${formatNumber(residueUnits)} local residue` : ""}`
       : "No living creatures available for jobs.";
 
     if (!living.length) {
@@ -9783,9 +10055,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       } else if (slime.job === "disposal") {
         const suitability = observedWasteDisposalSuitability(slime);
+        const localWaste = resourceAmountInRoom("waste", slimeEffectiveRoomId(slime));
         meta.append(chip(suitability.known ? `${suitability.band.toLowerCase()} fit` : "suitability unknown"));
-        meta.append(chip(wasteUnits > 0 ? `${formatNumber(wasteUnits)} Waste available` : "no Waste"));
-        if (wasteUnits > 0) {
+        meta.append(chip(localWaste > 0 ? `${formatNumber(localWaste)} Waste in ${roomName(slimeEffectiveRoomId(slime))}` : "no local Waste"));
+        if (localWaste > 0) {
           const remainingChip = chip(jobRemainingText(slime));
           remainingChip.dataset.jobRemaining = slime.id;
           meta.append(remainingChip);
@@ -10087,9 +10360,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : `${slime.name} assigned to corpse processing; ${corpseProcessingUnavailableText()} is waiting.`);
     } else if (nextJob === "disposal") {
       ensureJobKnowledge(slime, "disposal");
-      addEvent(resourceAmount("waste") > 0
+      addEvent(resourceAmountInRoom("waste", slimeEffectiveRoomId(slime)) > 0
         ? `${slime.name} assigned to waste disposal.`
-        : `${slime.name} assigned to waste disposal; no Waste is waiting.`);
+        : `${slime.name} assigned to waste disposal; no Waste is waiting in ${roomArticleName(slimeEffectiveRoomId(slime))}.`);
     } else if (nextJob === "cleanup") {
       ensureJobKnowledge(slime, "cleanup");
       addEvent(`${slime.name} marked for cleanup use. It will still follow instincts; use doors to limit roaming.`);
@@ -10144,7 +10417,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (!feedstockKey) {
           break;
         }
-        if (!feedSlime(slime, feedstockKey, { source: "auto" })) {
+        if (!feedSlime(slime, feedstockKey, { source: "auto", requireLocal: true })) {
           break;
         }
         changes += 1;
@@ -10214,7 +10487,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!known && !policy.allowUnknownSustenance) {
       return "";
     }
-    const available = allowedFeedstockDefs(policy);
+    const roomId = slimeEffectiveRoomId(slime);
+    const available = allowedFeedstockDefs(policy, roomId);
     if (!available.length) {
       return "";
     }
@@ -10222,7 +10496,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const preferred = preferredFeedstockKeys(slime)
         .map((key) => FEEDSTOCK_BY_KEY[key])
         .filter(Boolean)
-        .filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy));
+        .filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy, roomId));
       if (preferred.length) {
         return preferred[0].key;
       }
@@ -10237,8 +10511,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ranked[0]?.feedstock.key || "";
   }
 
-  function allowedFeedstockDefs(policy) {
-    return FEEDSTOCK_DEFS.filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy));
+  function allowedFeedstockDefs(policy, roomId = null) {
+    return FEEDSTOCK_DEFS.filter((feedstock) => feedstockAllowedByPolicy(feedstock, policy) && feedstockAvailable(feedstock.key, policy, roomId));
   }
 
   function feedstockAllowedByPolicy(feedstock, policy) {
@@ -10251,9 +10525,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
-  function feedstockAvailable(feedstockKey, policy = null) {
+  function feedstockAvailable(feedstockKey, policy = null, roomId = null) {
     const reserve = Math.max(0, Math.floor(Number(policy?.preserveReserve) || 0));
-    return resourceAmount(feedstockKey) > reserve;
+    const amount = roomId ? resourceAmountInRoom(feedstockKey, roomId) : resourceAmount(feedstockKey);
+    return amount > reserve;
   }
 
   function policyAllowsFeedMatch(quality, policy) {
@@ -10312,14 +10587,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
-  function feedSlime(slime, feedstockKey, options = {}) {
+  function feedSlimeOrQueueDelivery(slime, feedstockKey, options = {}) {
     const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
     if (!slime || slime.status === "dead" || !feedstock || resourceAmount(feedstock.key) <= 0) {
       return false;
     }
+    const roomId = slimeEffectiveRoomId(slime);
+    if (resourceAmountInRoom(feedstock.key, roomId) > 0) {
+      return feedSlime(slime, feedstockKey, { ...options, requireLocal: true });
+    }
+    return queueResourceHaulForContinuation({
+      costs: { [feedstock.key]: 1 },
+      toRoomId: roomId,
+      actionLabel: `feeding ${slime.name}`,
+      continuation: {
+        kind: "feedSlime",
+        slimeId: slime.id,
+        feedstockKey: feedstock.key,
+        options
+      }
+    });
+  }
+
+  function feedSlime(slime, feedstockKey, options = {}) {
+    const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
+    const roomId = slime ? slimeEffectiveRoomId(slime) : MAIN_ROOM_ID;
+    const available = options.requireLocal ? resourceAmountInRoom(feedstock?.key, roomId) : resourceAmount(feedstock?.key);
+    if (!slime || slime.status === "dead" || !feedstock || available <= 0) {
+      return false;
+    }
     const match = feedstockMatch(slime, feedstock.key);
     const effects = FEED_MATCH_EFFECTS[match.quality] || FEED_MATCH_EFFECTS.bad;
-    addResource(feedstock.key, -1);
+    addResource(feedstock.key, -1, roomId);
     const nutritionGain = adjustedSlimeNutritionGain(slime, effects.nutrition);
     adjustSlimeStat(slime, "nutrition", nutritionGain);
     const mass = slimeStat(slime, "currentMass");
@@ -10337,7 +10636,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       adjustSlimeStat(slime, "bodyIntegrity", -effects.bodyDamage);
     }
     if (effects.waste) {
-      addWaste(effects.waste, ["feeding", ...feedstock.tags]);
+      addWaste(effects.waste, ["feeding", ...feedstock.tags], roomId);
     }
     const leftResidue = applyFeedstockResidue(slime, feedstock, match, effects, options.source);
     addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${formatNumber(nutritionGain)} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}${leftResidue ? ", left local residue" : ""}.`);
@@ -11589,9 +11888,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { key: "biomass", amount: 1, source: "corpse processing" };
   }
 
-  function addCorpseProcessingInventoryRecovery(corpse) {
+  function addCorpseProcessingInventoryRecovery(corpse, roomId = STORAGE_ROOM_ID) {
     const recovery = corpseProcessingInventoryRecovery(corpse);
-    return addInventoryItem(recovery.key, recovery.amount, recovery.source);
+    return addInventoryItem(recovery.key, recovery.amount, recovery.source, roomId);
   }
 
   function updateCorpseProcessingJobs(elapsed) {
@@ -11642,12 +11941,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         applyCorpseProcessingNutrition(slime, effects, slime.jobProgress, duration, duration);
         remaining -= needed;
         const nutritionGained = slime.jobNutritionGained || 0;
-        addCorpseProcessingInventoryRecovery(target);
+        const workRoomId = slimeEffectiveRoomId(slime);
+        addCorpseProcessingInventoryRecovery(target, workRoomId);
         removeCorpseRecord(target.id);
         reserved.delete(target.id);
-        addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN });
-        addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE);
-        addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target));
+        addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN }, workRoomId);
+        addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE, workRoomId);
+        addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target), workRoomId);
         const leftResidue = applyCorpseProcessingResidue(slime, target, suitability, effects);
         applyCorpseProcessingEffects(slime, target, suitability, effects);
         addEvent(`${slime.name} processed ${target.name} remains${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}${leftResidue ? ", leaving local residue" : ""}.`);
@@ -11671,19 +11971,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return slime.job === "disposal" && canWorkJob(slime);
     });
     for (const slime of workers) {
-      if (resourceAmount("waste") <= 0) {
+      const workRoomId = slimeEffectiveRoomId(slime);
+      if (resourceAmountInRoom("waste", workRoomId) <= 0) {
         slime.jobProgress = 0;
         continue;
       }
       const knowledge = ensureJobKnowledge(slime, "disposal");
       const suitability = wasteDisposalSuitability(slime);
       let remaining = elapsed;
-      while (remaining > 0 && resourceAmount("waste") > 0 && canWorkJob(slime)) {
+      while (remaining > 0 && resourceAmountInRoom("waste", workRoomId) > 0 && canWorkJob(slime)) {
         const duration = wasteDisposalDuration(slime);
         const needed = Math.max(0, duration - slime.jobProgress);
         if (needed <= 0) {
           slime.jobProgress = 0;
-          if (!spendWaste(WASTE_DISPOSAL_UNIT)) {
+          if (!spendWaste(WASTE_DISPOSAL_UNIT, workRoomId)) {
             break;
           }
           completeWasteDisposalUnit(slime, suitability);
@@ -11706,7 +12007,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           continue;
         }
         slime.jobProgress = 0;
-        if (!spendWaste(WASTE_DISPOSAL_UNIT)) {
+        if (!spendWaste(WASTE_DISPOSAL_UNIT, workRoomId)) {
           break;
         }
         completeWasteDisposalUnit(slime, suitability);
@@ -11726,7 +12027,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           type: "job"
         });
       }
-      if (slime.job === "disposal" && canWorkJob(slime) && resourceAmount("waste") > 0) {
+      if (slime.job === "disposal" && canWorkJob(slime) && resourceAmountInRoom("waste", slimeEffectiveRoomId(slime)) > 0) {
         const completion = state.clock + Math.max(0, wasteDisposalDuration(slime) - slime.jobProgress);
         events.push({
           time: completion,
@@ -12036,7 +12337,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (slime.job === "corpse" && isCorpseProcessingTarget(findCorpse(slime.jobTargetCorpseId))) {
       return Math.round(clamp((slime.jobProgress / corpseProcessingDuration(slime)) * 100, 0, 100));
     }
-    if (slime.job === "disposal" && resourceAmount("waste") > 0) {
+    if (slime.job === "disposal" && resourceAmountInRoom("waste", slimeEffectiveRoomId(slime)) > 0) {
       return Math.round(clamp((slime.jobProgress / wasteDisposalDuration(slime)) * 100, 0, 100));
     }
     return 0;
@@ -12047,7 +12348,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return isCorpseProcessingTarget(findCorpse(slime.jobTargetCorpseId)) && corpseProcessingTimingKnown(slime);
     }
     if (slime.job === "disposal") {
-      return resourceAmount("waste") > 0 && wasteDisposalTimingKnown(slime);
+      return resourceAmountInRoom("waste", slimeEffectiveRoomId(slime)) > 0 && wasteDisposalTimingKnown(slime);
     }
     return false;
   }
@@ -12773,7 +13074,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       knowledge.residueProgress -= WASTE_DISPOSAL_RESIDUE_INTERVAL;
     }
     if (residue) {
-      addResource("elementalResidue", residue);
+      addResource("elementalResidue", residue, slimeEffectiveRoomId(slime));
     }
     const leftLocalResidue = applyWasteDisposalFeedingResidue(slime, suitability, residue);
     if (suitability.score >= 70 && knowledge.completedUnits >= 2) {
@@ -12988,7 +13289,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const feedstock of FEEDSTOCK_DEFS) {
       const option = document.createElement("option");
       option.value = feedstock.key;
-      option.textContent = `${feedstock.label} (${formatNumber(resourceAmount(feedstock.key))})${slime.revealed?.sustenance ? ` - ${FEED_MATCH_EFFECTS[feedstockMatch(slime, feedstock.key).quality].label}` : ""}`;
+      const roomId = slimeEffectiveRoomId(slime);
+      option.textContent = `${feedstock.label} (${formatNumber(resourceAmountInRoom(feedstock.key, roomId))} here / ${formatNumber(resourceAmount(feedstock.key))} total)${slime.revealed?.sustenance ? ` - ${FEED_MATCH_EFFECTS[feedstockMatch(slime, feedstock.key).quality].label}` : ""}`;
       select.append(option);
     }
 
@@ -12997,12 +13299,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     feedButton.textContent = "Feed";
     const feedReason = manualFeedBlockReason(slime, select.value);
     setActionButtonState(feedButton, Boolean(feedReason), feedReason);
+    if (!feedReason) {
+      const hint = resourceLogisticsHint({ [select.value]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`);
+      if (hint) feedButton.title = hint;
+    }
     select.addEventListener("change", () => {
       const reason = manualFeedBlockReason(slime, select.value);
       setActionButtonState(feedButton, Boolean(reason), reason);
+      if (!reason) {
+        const hint = resourceLogisticsHint({ [select.value]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`);
+        if (hint) feedButton.title = hint;
+      }
     });
     feedButton.addEventListener("click", () => {
-      if (feedSlime(slime, select.value, { source: "manual" })) {
+      if (feedSlimeOrQueueDelivery(slime, select.value, { source: "manual" })) {
         persist();
         render();
       }
@@ -13013,9 +13323,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     bestButton.textContent = "Feed Best Match";
     const bestReason = bestFeedBlockReason(slime);
     setActionButtonState(bestButton, Boolean(bestReason), bestReason);
+    if (!bestReason) {
+      const feedstockKey = bestAvailableFeedstockKey(slime);
+      const hint = feedstockKey ? resourceLogisticsHint({ [feedstockKey]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`) : "";
+      if (hint) bestButton.title = hint;
+    }
     bestButton.addEventListener("click", () => {
       const feedstockKey = bestAvailableFeedstockKey(slime);
-      if (feedstockKey && feedSlime(slime, feedstockKey, { source: "manual" })) {
+      if (feedstockKey && feedSlimeOrQueueDelivery(slime, feedstockKey, { source: "manual" })) {
         persist();
         render();
       }
@@ -13434,8 +13749,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const byproductEntries = collectedByproductEntries();
     const specimenEntries = specimenMaterialEntries();
     const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length + byproductEntries.length + specimenEntries.length;
-    dom.inventorySummary.textContent = "Storage Room ledger · Lab-wide prototype";
-    dom.inventorySummary.title = "Inventory is tracked lab-wide for now and is assumed to be stored in the Storage Room. Collected Byproducts are raw natural outputs transferred from Collection Bay receptacles. Harvested Specimen Materials are extracted by procedures from living specimens or corpses. Starter tools are required by matching handling methods, are reusable, and are not consumed. No capacity, hauling, crafting, recipes, durability, or room-local storage is implemented yet.";
+    dom.inventorySummary.textContent = "Storage Room ledger - room-local stockpiles";
+    dom.inventorySummary.title = "Inventory shows lab-wide totals backed by room-local stockpiles. Storage Room capacity is infinite for now. Actions use materials in their room, or queue hauling when the needed material exists elsewhere.";
     dom.inventoryList.textContent = "";
     for (const category of INVENTORY_CATEGORY_DEFS) {
       const categoryItems = items.filter((item) => item.category === category.id);
@@ -13454,7 +13769,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.dataset.inventoryItemKey = item.key;
         row.dataset.inventoryCategory = item.category;
         row.title = inventoryItemTooltip(item);
-        row.append(textEl("span", item.label), textEl("strong", formatNumber(inventoryAmount(item.key))));
+        const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
+        row.append(textEl("span", item.label), textEl("strong", `${formatNumber(inventoryAmount(item.key))} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`));
         section.append(row);
       }
       dom.inventoryList.append(section);
@@ -13474,7 +13790,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.dataset.inventoryCategory = "collectedByproducts";
         row.dataset.collectedByproduct = entry.label;
         row.title = collectedByproductTooltip(entry);
-        row.append(textEl("span", entry.label), textEl("strong", formatCollectionAmount(entry.amount)));
+        const storageAmount = collectedByproductAmountInRoom(entry.label, STORAGE_ROOM_ID);
+        row.append(textEl("span", entry.label), textEl("strong", `${formatCollectionAmount(entry.amount)} total${storageAmount ? `; ${formatCollectionAmount(storageAmount)} storage` : ""}`));
         byproductSection.append(row);
       }
     } else {
@@ -13502,7 +13819,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const label = entry.tags.length
           ? `${entry.label} (${entry.tags.join(", ")})`
           : entry.label;
-        row.append(textEl("span", label), textEl("strong", `${formatNumber(entry.amount)} unit${entry.amount === 1 ? "" : "s"}`));
+        const storageAmount = specimenMaterialAmountInRoom(entry.key, STORAGE_ROOM_ID);
+        row.append(textEl("span", label), textEl("strong", `${formatNumber(entry.amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`));
         specimenSection.append(row);
       }
     } else {
@@ -13605,9 +13923,61 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const resource of RESOURCE_DEFS) {
       const row = document.createElement("div");
       row.className = "resource-row";
+      const breakdown = stockpileBreakdownLines("resources", resource.key);
+      row.title = breakdown.length
+        ? `${resource.label} stockpile: ${breakdown.join("; ")}.`
+        : `${resource.label} stockpile is empty.`;
       row.append(textEl("span", resource.label), textEl("strong", formatNumber(resourceAmount(resource.key))));
       dom.resourceList.append(row);
     }
+  }
+
+  function roomStockpilePanelEl(room) {
+    const stockpile = roomStockpile(room.id);
+    const resourceRows = RESOURCE_DEFS
+      .map((resource) => ({ label: resource.label, amount: resourceAmountInRoom(resource.key, room.id), type: "resource" }))
+      .filter((entry) => entry.amount > 0);
+    const inventoryRows = INVENTORY_ITEM_DEFS
+      .map((item) => ({ label: item.label, amount: inventoryAmountInRoom(item.key, room.id), type: "inventory" }))
+      .filter((entry) => entry.amount > 0);
+    const byproductRows = Object.entries(stockpile.collectedByproducts || {})
+      .map(([label, amount]) => ({ label, amount: roundOutputValue(amount), type: "byproduct" }))
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const specimenRows = Object.values(stockpile.specimenMaterials || {})
+      .map((entry) => ({ label: entry.tags?.length ? `${entry.label} (${entry.tags.join(", ")})` : entry.label, amount: Math.round(Number(entry.amount) || 0), type: "specimen" }))
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const rows = [...resourceRows, ...inventoryRows, ...byproductRows, ...specimenRows];
+    if (!rows.length) {
+      return null;
+    }
+    const panel = document.createElement("div");
+    panel.className = "room-stockpile subpanel";
+    panel.dataset.roomStockpile = room.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Local Stockpile";
+    title.title = "Physical materials currently stored in this room. Capacity is infinite for this prototype pass.";
+    panel.append(title);
+    const list = document.createElement("div");
+    list.className = "inventory-list";
+    for (const entry of rows.slice(0, 16)) {
+      const row = document.createElement("div");
+      row.className = "inventory-row";
+      row.dataset.stockpileType = entry.type;
+      const amount = entry.type === "byproduct" ? formatCollectionAmount(entry.amount) : formatNumber(entry.amount);
+      row.append(textEl("span", entry.label), textEl("strong", amount));
+      list.append(row);
+    }
+    if (rows.length > 16) {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = `${rows.length - 16} additional stockpile entries hidden.`;
+      list.append(note);
+    }
+    panel.append(list);
+    return panel;
   }
 
 
@@ -13670,6 +14040,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const roomResiduePanel = feedingResiduePanelEl({ type: "room", roomId: room.id }, "Room feeding residue");
       if (roomResiduePanel) {
         card.append(roomResiduePanel);
+      }
+      const stockpilePanel = roomStockpilePanelEl(room);
+      if (stockpilePanel) {
+        card.append(stockpilePanel);
       }
       card.append(attributes);
       card.append(freeCreaturePressureEl(room));
@@ -13784,25 +14158,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function runResourceCommand() {
     const command = dom.resourceCommandInput.value.trim();
-    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
+    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s+(.+))?$/);
     if (!match) {
-      dom.resourceCommandStatus.textContent = "Use format: biomass 100";
+      dom.resourceCommandStatus.textContent = "Use format: biomass 100 [room]";
       return;
     }
     const resourceKey = RESOURCE_ALIASES[normalizeCommandName(match[1])];
     const amount = Math.floor(Number(match[2]));
+    const roomId = roomIdFromCommand(match[3]) || defaultStockpileRoomForKey("resources", resourceKey);
     if (!resourceKey || !Number.isFinite(amount) || amount <= 0) {
       dom.resourceCommandStatus.textContent = "Unknown resource or invalid amount.";
       return;
     }
     if (resourceKey === "waste") {
-      addWaste(amount, ["cheat"]);
+      addWaste(amount, ["cheat"], roomId);
     } else {
-      addResource(resourceKey, amount);
+      addResource(resourceKey, amount, roomId);
     }
     dom.resourceCommandInput.value = "";
-    dom.resourceCommandStatus.textContent = `Added ${formatNumber(amount)} ${resourceLabel(resourceKey)}.`;
-    addEvent(`${resourceLabel(resourceKey)} increased by ${formatNumber(amount)} via cheat command.`);
+    dom.resourceCommandStatus.textContent = `Added ${formatNumber(amount)} ${resourceLabel(resourceKey)} to ${roomName(roomId)}.`;
+    addEvent(`${resourceLabel(resourceKey)} increased by ${formatNumber(amount)} in ${roomName(roomId)} via cheat command.`);
     persist();
     render();
   }
@@ -13810,26 +14185,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function runInventoryCommand() {
     const command = dom.inventoryCommandInput?.value.trim() || "";
-    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)$/);
+    const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s+(.+))?$/);
     if (!match) {
-      dom.inventoryCommandStatus.textContent = "Use format: trace slime 5";
+      dom.inventoryCommandStatus.textContent = "Use format: trace slime 5 [room]";
       return;
     }
     const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(match[1])];
     const amount = Math.floor(Number(match[2]));
+    const roomId = roomIdFromCommand(match[3]) || STORAGE_ROOM_ID;
     if (!itemKey || !Number.isFinite(amount) || amount === 0) {
       dom.inventoryCommandStatus.textContent = "Unknown inventory item or invalid amount.";
       return;
     }
-    const actualDelta = addInventoryItem(itemKey, amount, "cheat adjustment");
+    const actualDelta = addInventoryItem(itemKey, amount, "cheat adjustment", roomId);
     if (!actualDelta) {
       dom.inventoryCommandStatus.textContent = `${inventoryItemLabel(itemKey)} unchanged.`;
       return;
     }
     dom.inventoryCommandInput.value = "";
-    dom.inventoryCommandStatus.textContent = `${actualDelta > 0 ? "Added" : "Removed"} ${formatNumber(Math.abs(actualDelta))} ${inventoryItemLabel(itemKey)}.`;
+    dom.inventoryCommandStatus.textContent = `${actualDelta > 0 ? "Added" : "Removed"} ${formatNumber(Math.abs(actualDelta))} ${inventoryItemLabel(itemKey)} in ${roomName(roomId)}.`;
     persist();
     render();
+  }
+
+  function roomIdFromCommand(value) {
+    const normalized = normalizeCommandName(value || "");
+    if (!normalized) {
+      return "";
+    }
+    const aliases = {
+      main: MAIN_ROOM_ID,
+      lab: MAIN_ROOM_ID,
+      mainlab: MAIN_ROOM_ID,
+      menagerie: MENAGERIE_ROOM_ID,
+      pit: PITS_ROOM_ID,
+      pits: PITS_ROOM_ID,
+      bedroom: BEDROOM_ROOM_ID,
+      storage: STORAGE_ROOM_ID,
+      storageroom: STORAGE_ROOM_ID,
+      collection: COLLECTION_BAY_ROOM_ID,
+      bay: COLLECTION_BAY_ROOM_ID,
+      collectionbay: COLLECTION_BAY_ROOM_ID
+    };
+    if (aliases[normalized]) {
+      return aliases[normalized];
+    }
+    return (state.rooms || []).find((room) => normalizeCommandName(room.id) === normalized || normalizeCommandName(room.name) === normalized)?.id || "";
   }
 
   function runRoomCommand() {
@@ -14019,8 +14420,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "containerHaul") {
       return "Hauling";
     }
+    if (task.type === "resourceHaul") {
+      return "Logistics";
+    }
     if (task.type === "containerInteraction") {
       return "Handling";
+    }
+    if (task.type === "collectionBayTransfer") {
+      return "Collection";
     }
     if (task.type === "mature") {
       return "Growth";
@@ -15905,11 +16312,335 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
+  function normalizeStockpileRoomId(roomId) {
+    return roomById(roomId)?.id || STORAGE_ROOM_ID;
+  }
+
+  function roomStockpileIds(context = state) {
+    const ids = new Set((Array.isArray(context?.rooms) ? context.rooms : ROOM_BASE_DEFS).map((room) => room.id).filter(Boolean));
+    ids.add(STORAGE_ROOM_ID);
+    ids.add(MAIN_ROOM_ID);
+    return [...ids];
+  }
+
+  function normalizeNumericStockpileSection(candidate, validKeys = null, allowFractional = false) {
+    const normalized = {};
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    for (const [rawKey, rawAmount] of Object.entries(candidate)) {
+      const key = String(rawKey || "");
+      if (!key || (validKeys && !validKeys.has(key))) {
+        continue;
+      }
+      const value = allowFractional
+        ? roundOutputValue(Math.max(0, Number(rawAmount) || 0))
+        : Math.max(0, Math.floor(Number(rawAmount) || 0));
+      if (value > 0) {
+        normalized[key] = value;
+      }
+    }
+    return normalized;
+  }
+
+  function normalizeRoomStockpile(candidate) {
+    return {
+      resources: normalizeNumericStockpileSection(candidate?.resources, new Set(RESOURCE_DEFS.map((resource) => resource.key))),
+      inventory: normalizeNumericStockpileSection(candidate?.inventory, new Set(INVENTORY_ITEM_DEFS.map((item) => item.key))),
+      collectedByproducts: normalizeNumericStockpileSection(candidate?.collectedByproducts, null, true),
+      specimenMaterials: normalizeSpecimenMaterials(candidate?.specimenMaterials)
+    };
+  }
+
+  function normalizeRoomStockpiles(candidate, context = state) {
+    const roomIds = roomStockpileIds(context);
+    const normalized = Object.fromEntries(roomIds.map((roomId) => [roomId, emptyRoomStockpile()]));
+    if (candidate && typeof candidate === "object") {
+      for (const [rawRoomId, stockpile] of Object.entries(candidate)) {
+        const roomId = roomIds.includes(rawRoomId) ? rawRoomId : STORAGE_ROOM_ID;
+        const clean = normalizeRoomStockpile(stockpile);
+        mergeNumericStockpile(normalized[roomId].resources, clean.resources);
+        mergeNumericStockpile(normalized[roomId].inventory, clean.inventory);
+        mergeNumericStockpile(normalized[roomId].collectedByproducts, clean.collectedByproducts, true);
+        mergeSpecimenMaterialStockpile(normalized[roomId].specimenMaterials, clean.specimenMaterials);
+      }
+    }
+    reconcileNumericStockpileTotals(normalized, "resources", normalizeResources(context?.resources), RESOURCE_DEFS.map((resource) => resource.key));
+    reconcileNumericStockpileTotals(normalized, "inventory", normalizeInventory(context?.inventory), INVENTORY_ITEM_DEFS.map((item) => item.key));
+    reconcileNumericStockpileTotals(normalized, "collectedByproducts", normalizeCollectedByproducts(context?.collectedByproducts), null, true);
+    reconcileSpecimenMaterialStockpileTotals(normalized, normalizeSpecimenMaterials(context?.specimenMaterials));
+    return normalized;
+  }
+
+  function mergeNumericStockpile(target, source, allowFractional = false) {
+    for (const [key, amount] of Object.entries(source || {})) {
+      const next = (Number(target[key]) || 0) + (Number(amount) || 0);
+      target[key] = allowFractional ? roundOutputValue(next) : Math.max(0, Math.floor(next));
+      if (target[key] <= 0) {
+        delete target[key];
+      }
+    }
+  }
+
+  function mergeSpecimenMaterialStockpile(target, source) {
+    for (const entry of Object.values(source || {})) {
+      const amount = Math.max(0, Math.round(Number(entry.amount) || 0));
+      if (!amount) {
+        continue;
+      }
+      const key = specimenMaterialKey(entry.label, entry.tags);
+      const existing = target[key] || { key, label: entry.label, amount: 0, tags: normalizeSpecimenMaterialTags(entry.tags), history: [] };
+      existing.amount += amount;
+      existing.history = normalizeSpecimenMaterialHistory([...(existing.history || []), ...(entry.history || [])]);
+      target[key] = existing;
+    }
+  }
+
+  function reconcileNumericStockpileTotals(stockpiles, section, totals, keys = null, allowFractional = false) {
+    const allKeys = new Set(keys || []);
+    for (const stockpile of Object.values(stockpiles)) {
+      for (const key of Object.keys(stockpile[section] || {})) {
+        allKeys.add(key);
+      }
+    }
+    for (const key of Object.keys(totals || {})) {
+      allKeys.add(key);
+    }
+    for (const key of allKeys) {
+      const desired = allowFractional
+        ? roundOutputValue(Math.max(0, Number(totals?.[key]) || 0))
+        : Math.max(0, Math.floor(Number(totals?.[key]) || 0));
+      const current = roomStockpileNumericTotal(stockpiles, section, key);
+      const delta = allowFractional ? roundOutputValue(desired - current) : desired - current;
+      if (delta > 0) {
+        const defaultRoomId = defaultStockpileRoomForKey(section, key);
+        stockpiles[defaultRoomId] ||= emptyRoomStockpile();
+        stockpiles[defaultRoomId][section][key] = allowFractional
+          ? roundOutputValue((Number(stockpiles[defaultRoomId][section][key]) || 0) + delta)
+          : Math.max(0, Math.floor((Number(stockpiles[defaultRoomId][section][key]) || 0) + delta));
+      } else if (delta < 0) {
+        removeNumericFromStockpiles(stockpiles, section, key, -delta, allowFractional);
+      }
+    }
+  }
+
+  function defaultStockpileRoomForKey(section, key) {
+    if (section === "resources" && key === "waste") {
+      return PITS_ROOM_ID;
+    }
+    return STORAGE_ROOM_ID;
+  }
+
+  function reconcileSpecimenMaterialStockpileTotals(stockpiles, totals) {
+    const allKeys = new Set(Object.keys(totals || {}));
+    for (const stockpile of Object.values(stockpiles)) {
+      for (const key of Object.keys(stockpile.specimenMaterials || {})) {
+        allKeys.add(key);
+      }
+    }
+    for (const key of allKeys) {
+      const totalEntry = totals?.[key];
+      const desired = Math.max(0, Math.round(Number(totalEntry?.amount) || 0));
+      const current = roomSpecimenMaterialTotal(stockpiles, key);
+      const delta = desired - current;
+      if (delta > 0 && totalEntry) {
+        stockpiles[STORAGE_ROOM_ID] ||= emptyRoomStockpile();
+        const existing = stockpiles[STORAGE_ROOM_ID].specimenMaterials[key] || {
+          key,
+          label: totalEntry.label,
+          amount: 0,
+          tags: normalizeSpecimenMaterialTags(totalEntry.tags),
+          history: []
+        };
+        existing.amount += delta;
+        existing.history = normalizeSpecimenMaterialHistory([...(existing.history || []), ...(totalEntry.history || [])]);
+        stockpiles[STORAGE_ROOM_ID].specimenMaterials[key] = existing;
+      } else if (delta < 0) {
+        removeSpecimenMaterialFromStockpiles(stockpiles, key, -delta);
+      }
+    }
+  }
+
+  function roomStockpileNumericTotal(stockpiles, section, key) {
+    return roundOutputValue(Object.values(stockpiles || {}).reduce((total, stockpile) => total + (Number(stockpile?.[section]?.[key]) || 0), 0));
+  }
+
+  function roomSpecimenMaterialTotal(stockpiles, key) {
+    return Object.values(stockpiles || {}).reduce((total, stockpile) => total + (Number(stockpile?.specimenMaterials?.[key]?.amount) || 0), 0);
+  }
+
+  function removeNumericFromStockpiles(stockpiles, section, key, amount, allowFractional = false) {
+    let remaining = allowFractional ? roundOutputValue(amount) : Math.max(0, Math.floor(amount));
+    const orderedRoomIds = [STORAGE_ROOM_ID, ...Object.keys(stockpiles || {}).filter((roomId) => roomId !== STORAGE_ROOM_ID)];
+    for (const roomId of orderedRoomIds) {
+      const sectionMap = stockpiles?.[roomId]?.[section];
+      if (!sectionMap || remaining <= 0) {
+        continue;
+      }
+      const available = Number(sectionMap[key]) || 0;
+      const taken = Math.min(available, remaining);
+      sectionMap[key] = allowFractional ? roundOutputValue(available - taken) : Math.max(0, Math.floor(available - taken));
+      if (sectionMap[key] <= 0) {
+        delete sectionMap[key];
+      }
+      remaining = allowFractional ? roundOutputValue(remaining - taken) : remaining - taken;
+    }
+  }
+
+  function removeSpecimenMaterialFromStockpiles(stockpiles, key, amount) {
+    let remaining = Math.max(0, Math.round(Number(amount) || 0));
+    const orderedRoomIds = [STORAGE_ROOM_ID, ...Object.keys(stockpiles || {}).filter((roomId) => roomId !== STORAGE_ROOM_ID)];
+    for (const roomId of orderedRoomIds) {
+      const entry = stockpiles?.[roomId]?.specimenMaterials?.[key];
+      if (!entry || remaining <= 0) {
+        continue;
+      }
+      const taken = Math.min(Number(entry.amount) || 0, remaining);
+      entry.amount -= taken;
+      if (entry.amount <= 0) {
+        delete stockpiles[roomId].specimenMaterials[key];
+      }
+      remaining -= taken;
+    }
+  }
+
+  function ensureRoomStockpiles() {
+    state.resources = normalizeResources(state.resources);
+    state.inventory = normalizeInventory(state.inventory);
+    state.collectedByproducts = normalizeCollectedByproducts(state.collectedByproducts);
+    state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
+    state.roomStockpiles = normalizeRoomStockpiles(state.roomStockpiles, state);
+    return state.roomStockpiles;
+  }
+
+  function roomStockpile(roomId) {
+    const resolvedRoomId = normalizeStockpileRoomId(roomId);
+    const stockpiles = ensureRoomStockpiles();
+    stockpiles[resolvedRoomId] ||= emptyRoomStockpile();
+    return stockpiles[resolvedRoomId];
+  }
+
+  function resourceAmountInRoom(key, roomId) {
+    return Math.max(0, Math.floor(Number(roomStockpile(roomId).resources?.[key]) || 0));
+  }
+
+  function inventoryAmountInRoom(key, roomId) {
+    return Math.max(0, Math.floor(Number(roomStockpile(roomId).inventory?.[key]) || 0));
+  }
+
+  function collectedByproductAmountInRoom(label, roomId) {
+    const key = byproductInventoryKey(label);
+    return roundOutputValue(Number(roomStockpile(roomId).collectedByproducts?.[key]) || 0);
+  }
+
+  function specimenMaterialAmountInRoom(key, roomId) {
+    return Math.max(0, Math.round(Number(roomStockpile(roomId).specimenMaterials?.[key]?.amount) || 0));
+  }
+
+  function addRoomNumeric(section, key, amount, roomId, allowFractional = false) {
+    const room = roomStockpile(roomId);
+    const map = room[section] ||= {};
+    const delta = allowFractional ? roundOutputValue(Number(amount) || 0) : Math.trunc(Number(amount) || 0);
+    if (!delta) {
+      return 0;
+    }
+    const before = Number(map[key]) || 0;
+    const after = Math.max(0, before + delta);
+    const actual = allowFractional ? roundOutputValue(after - before) : Math.trunc(after - before);
+    if (after > 0) {
+      map[key] = allowFractional ? roundOutputValue(after) : Math.floor(after);
+    } else {
+      delete map[key];
+    }
+    return actual;
+  }
+
+  function moveRoomNumeric(section, key, amount, fromRoomId, toRoomId, allowFractional = false) {
+    const fromRoom = normalizeStockpileRoomId(fromRoomId);
+    const toRoom = normalizeStockpileRoomId(toRoomId);
+    const requested = allowFractional ? roundOutputValue(Number(amount) || 0) : Math.max(0, Math.floor(Number(amount) || 0));
+    if (requested <= 0 || fromRoom === toRoom) {
+      return 0;
+    }
+    const stockpiles = ensureRoomStockpiles();
+    stockpiles[fromRoom] ||= emptyRoomStockpile();
+    stockpiles[toRoom] ||= emptyRoomStockpile();
+    const fromMap = stockpiles[fromRoom][section] ||= {};
+    const toMap = stockpiles[toRoom][section] ||= {};
+    const available = Number(fromMap[key]) || 0;
+    const moved = Math.min(available, requested);
+    if (moved <= 0) {
+      return 0;
+    }
+    const remaining = allowFractional ? roundOutputValue(available - moved) : Math.max(0, Math.floor(available - moved));
+    if (remaining > 0) {
+      fromMap[key] = remaining;
+    } else {
+      delete fromMap[key];
+    }
+    const destination = (Number(toMap[key]) || 0) + moved;
+    toMap[key] = allowFractional ? roundOutputValue(destination) : Math.max(0, Math.floor(destination));
+    return allowFractional ? roundOutputValue(moved) : Math.floor(moved);
+  }
+
+  function moveSpecimenMaterialBetweenRooms(key, amount, fromRoomId, toRoomId) {
+    const fromRoom = normalizeStockpileRoomId(fromRoomId);
+    const toRoom = normalizeStockpileRoomId(toRoomId);
+    const requested = Math.max(0, Math.round(Number(amount) || 0));
+    const stockpiles = ensureRoomStockpiles();
+    stockpiles[fromRoom] ||= emptyRoomStockpile();
+    stockpiles[toRoom] ||= emptyRoomStockpile();
+    const fromEntry = stockpiles[fromRoom].specimenMaterials?.[key];
+    if (!fromEntry || requested <= 0 || fromRoom === toRoom) {
+      return 0;
+    }
+    const moved = Math.min(Number(fromEntry.amount) || 0, requested);
+    const toMaterials = stockpiles[toRoom].specimenMaterials;
+    const toEntry = toMaterials[key] || {
+      key,
+      label: fromEntry.label,
+      amount: 0,
+      tags: normalizeSpecimenMaterialTags(fromEntry.tags),
+      history: []
+    };
+    fromEntry.amount -= moved;
+    toEntry.amount += moved;
+    toEntry.history = normalizeSpecimenMaterialHistory([...(toEntry.history || []), ...(fromEntry.history || [])]);
+    toMaterials[key] = toEntry;
+    if (fromEntry.amount <= 0) {
+      delete stockpiles[fromRoom].specimenMaterials[key];
+    }
+    return moved;
+  }
+
+  function stockpileBreakdownLines(section, key, options = {}) {
+    const allowFractional = Boolean(options.allowFractional);
+    return roomStockpileIds()
+      .map((roomId) => {
+        const amount = Number(roomStockpile(roomId)[section]?.[key]) || 0;
+        if (amount <= 0) {
+          return "";
+        }
+        const formatted = allowFractional ? formatCollectionAmount(amount) : formatNumber(amount);
+        return `${roomName(roomId)}: ${formatted}`;
+      })
+      .filter(Boolean);
+  }
+
+  function specimenMaterialBreakdownLines(key) {
+    return roomStockpileIds()
+      .map((roomId) => {
+        const amount = specimenMaterialAmountInRoom(key, roomId);
+        return amount > 0 ? `${roomName(roomId)}: ${formatNumber(amount)}` : "";
+      })
+      .filter(Boolean);
+  }
+
   function inventoryAmount(key) {
     return ensureInventory()[key] || 0;
   }
 
-  function addInventoryItem(key, amount, source = "manual adjustment") {
+  function addInventoryItem(key, amount, source = "manual adjustment", roomId = STORAGE_ROOM_ID) {
     if (!INVENTORY_ITEM_BY_KEY[key]) {
       return 0;
     }
@@ -15917,12 +16648,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!requestedDelta) {
       return 0;
     }
-    const inventory = ensureInventory();
-    const before = inventory[key] || 0;
+    ensureRoomStockpiles();
+    ensureInventory();
+    const before = state.inventory[key] || 0;
     const after = Math.max(0, before + requestedDelta);
     const actualDelta = after - before;
-    inventory[key] = after;
     if (actualDelta) {
+      addRoomNumeric("inventory", key, actualDelta, roomId);
+      state.inventory[key] = after;
       recordInventoryChange(key, actualDelta, source);
     }
     return actualDelta;
@@ -15944,10 +16677,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function inventoryItemTooltip(item) {
+    const breakdown = stockpileBreakdownLines("inventory", item.key);
     const lines = [
       item.label,
       item.description,
       `Current amount: ${formatNumber(inventoryAmount(item.key))}.`,
+      breakdown.length ? `Stored in: ${breakdown.join("; ")}.` : "Stored in: none.",
       "",
       "Recent changes:"
     ];
@@ -15977,12 +16712,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ensureCollectedByproducts()[key] || 0;
   }
 
-  function addCollectedByproduct(label, amount, source = "Collection Bay transfer") {
+  function addCollectedByproduct(label, amount, source = "Collection Bay transfer", roomId = STORAGE_ROOM_ID) {
     const key = byproductInventoryKey(label);
     const delta = roundOutputValue(Number(amount) || 0);
     if (!key || delta <= 0) {
       return 0;
     }
+    ensureRoomStockpiles();
+    addRoomNumeric("collectedByproducts", key, delta, roomId, true);
     const inventory = ensureCollectedByproducts();
     inventory[key] = roundOutputValue((Number(inventory[key]) || 0) + delta);
     recordCollectedByproductChange(key, delta, source);
@@ -16015,10 +16752,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function collectedByproductTooltip(entry) {
+    const breakdown = stockpileBreakdownLines("collectedByproducts", byproductInventoryKey(entry.label), { allowFractional: true });
     const lines = [
       entry.label,
       "Raw natural byproduct collected from Collection Bay station receptacles.",
       `Current amount: ${formatCollectionAmount(entry.amount)}.`,
+      breakdown.length ? `Stored in: ${breakdown.join("; ")}.` : "Stored in: none.",
       "",
       "Recent transfers:"
     ];
@@ -16156,7 +16895,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return clamp(Math.sqrt(volume / 1000), 0.35, 4);
   }
 
-  function addSpecimenMaterial(label, amount, tags = [], source = "Specimen harvest") {
+  function addSpecimenMaterial(label, amount, tags = [], source = "Specimen harvest", roomId = STORAGE_ROOM_ID) {
     const cleanLabel = String(label || "Slime tissue").trim();
     const delta = Math.max(0, Math.round(Number(amount) || 0));
     if (!cleanLabel || !delta) {
@@ -16164,6 +16903,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const cleanTags = normalizeSpecimenMaterialTags(tags);
     const key = specimenMaterialKey(cleanLabel, cleanTags);
+    ensureRoomStockpiles();
+    const localInventory = roomStockpile(roomId).specimenMaterials;
+    const localEntry = localInventory[key] || {
+      key,
+      label: cleanLabel,
+      amount: 0,
+      tags: cleanTags,
+      history: []
+    };
+    localEntry.amount = Math.max(0, Math.round((Number(localEntry.amount) || 0) + delta));
+    localEntry.history = normalizeSpecimenMaterialHistory([
+      { amount: delta, source, tags: cleanTags },
+      ...(localEntry.history || [])
+    ]);
+    localInventory[key] = localEntry;
     const inventory = ensureSpecimenMaterials();
     const entry = inventory[key] || {
       key,
@@ -16188,10 +16942,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function specimenMaterialTooltip(entry) {
+    const breakdown = specimenMaterialBreakdownLines(entry.key);
     const lines = [
       entry.label,
       "Harvested specimen material extracted from a slime body.",
-      `Current amount: ${formatNumber(entry.amount)} unit${entry.amount === 1 ? "" : "s"}.`
+      `Current amount: ${formatNumber(entry.amount)} unit${entry.amount === 1 ? "" : "s"}.`,
+      breakdown.length ? `Stored in: ${breakdown.join("; ")}.` : "Stored in: none."
     ];
     if (entry.tags.length) {
       lines.push(`Tags: ${entry.tags.join(", ")}.`);
@@ -16659,7 +17415,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ensureResources()[key] || 0;
   }
 
-  function addResource(key, amount) {
+  function addResource(key, amount, roomId = STORAGE_ROOM_ID) {
     if (!RESOURCE_BY_KEY[key]) {
       return false;
     }
@@ -16667,28 +17423,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!delta) {
       return false;
     }
-    const resources = ensureResources();
-    resources[key] = Math.max(0, (resources[key] || 0) + delta);
-    return true;
+    ensureRoomStockpiles();
+    ensureResources();
+    const before = state.resources[key] || 0;
+    const after = Math.max(0, before + delta);
+    const actualDelta = after - before;
+    if (actualDelta) {
+      addRoomNumeric("resources", key, actualDelta, roomId);
+    }
+    state.resources[key] = after;
+    return Boolean(actualDelta);
   }
 
-  function addResources(changes) {
+  function addResources(changes, roomId = STORAGE_ROOM_ID) {
     let changed = false;
     for (const [key, amount] of Object.entries(normalizeResourceChanges(changes))) {
-      changed = addResource(key, amount) || changed;
+      changed = addResource(key, amount, roomId) || changed;
     }
     return changed;
   }
 
-  function addWaste(amount, tags = []) {
+  function addWaste(amount, tags = [], roomId = STORAGE_ROOM_ID) {
     const units = Math.max(0, Math.trunc(Number(amount) || 0));
     if (!units) {
       return false;
     }
-    addResource("waste", units);
+    addResource("waste", units, roomId);
     addWasteTags(tags, units);
     if (wasteTagsAreDirty(tags)) {
-      addResource("contaminatedFeedstock", units * CONTAMINATED_FEEDSTOCK_PER_DIRTY_WASTE);
+      addResource("contaminatedFeedstock", units * CONTAMINATED_FEEDSTOCK_PER_DIRTY_WASTE, roomId);
     }
     return true;
   }
@@ -16699,12 +17462,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .some((tag) => ["contaminated", "hazardous", "chemical", "toxic", "spoiled", "ruined"].includes(tag));
   }
 
-  function spendWaste(amount) {
+  function spendWaste(amount, roomId = null) {
     const units = Math.max(0, Math.trunc(Number(amount) || 0));
-    if (!units || resourceAmount("waste") < units) {
+    if (!units) {
       return false;
     }
-    addResource("waste", -units);
+    if (roomId) {
+      if (resourceAmountInRoom("waste", roomId) < units) {
+        return false;
+      }
+      addResource("waste", -units, roomId);
+    } else {
+      if (resourceAmount("waste") < units) {
+        return false;
+      }
+      addResource("waste", -units);
+    }
     consumeWasteTags(units);
     return true;
   }
@@ -16759,6 +17532,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+  function spendResourcesFromRoom(costs, roomId) {
+    const targetRoomId = normalizeStockpileRoomId(roomId);
+    if (resourceBlockReasonForRoom(costs, targetRoomId, { allowHaul: false })) {
+      return false;
+    }
+    for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
+      addResource(key, -amount, targetRoomId);
+    }
+    return true;
+  }
+
   function resourceBlockReason(costs) {
     for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
       if (amount > resourceAmount(key)) {
@@ -16766,6 +17550,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     return "";
+  }
+
+  function resourceBlockReasonForRoom(costs, roomId, options = {}) {
+    const targetRoomId = normalizeStockpileRoomId(roomId);
+    for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
+      if (amount > resourceAmount(key)) {
+        return `Not enough ${resourceLabel(key)}. ${formatNumber(amount)} required.`;
+      }
+      if (amount > resourceAmountInRoom(key, targetRoomId)) {
+        if (options.allowHaul !== false) {
+          continue;
+        }
+        return `Need ${formatNumber(amount)} ${resourceLabel(key)} in ${roomArticleName(targetRoomId)}.`;
+      }
+    }
+    return "";
+  }
+
+  function resourceLogisticsHint(costs, roomId, actionLabel = "action") {
+    const targetRoomId = normalizeStockpileRoomId(roomId);
+    if (!resourceBlockReasonForRoom(costs, targetRoomId, { allowHaul: false })) {
+      return "";
+    }
+    const plan = resourceHaulPlan(costs, targetRoomId);
+    if (!plan.ok) {
+      return plan.reason;
+    }
+    if (!plan.transfers.length) {
+      return "";
+    }
+    return `Click to queue material hauling before ${actionLabel}: ${resourceHaulTransferText(plan.transfers)} to ${roomArticleName(targetRoomId)}.`;
   }
 
   function resourceLabel(key) {
@@ -18005,6 +18820,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
+    next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
     next.nextResidueNumber = Math.max(

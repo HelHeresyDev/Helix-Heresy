@@ -12,40 +12,16 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Room-Local Storage and Hauling System
-2. Lab Construction & Room Expansion System
-3. Black Market Byproduct Economy System
-4. Elemental Damage Type System
-5. Tool Durability and Damage Resistance System
-6. XP Curve and Breakthrough-Gated Skill Progression
-7. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Lab Construction & Room Expansion System
+2. Black Market Byproduct Economy System
+3. Elemental Damage Type System
+4. Tool Durability and Damage Resistance System
+5. XP Curve and Breakthrough-Gated Skill Progression
+6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Room-Local Storage and Hauling System
-
-Create a system for room-local storage and hauling within the lab.
-
-Right now, many resources and inventory concepts are lab-wide for prototype convenience. As the lab grows, some things should physically live in rooms: containers, corpses, collected byproducts, feedstocks, tools, waste, preserved materials, and other objects. The player should eventually care where things are, how they move, and which rooms can use them.
-
-This system should answer questions like:
-- Which items should remain lab-wide abstractions and which should become room-local?
-- What kinds of objects need physical hauling?
-- How does the scientist move items between rooms?
-- What is stored in Storage Room versus Collection Bay versus waste areas?
-- How do room-local piles or ledgers avoid becoming tedious?
-- How do tools and materials become available to actions in other rooms?
-- How should hauling interact with doors, time, stamina, risk, and room conditions?
-
-This is not meant to turn Helix Heresy into a warehouse game. It should make physical lab logistics meaningful where they improve the biology/lab fantasy, while keeping routine management readable and manageable.
-
-The desired result is a foundation for location-aware lab resources that can support future construction, crafting, collection, feeding, corpse storage, and black market workflows.
-
-Before coding, discuss what should become room-local first and how to avoid overwhelming the player.
-
----
-
-## 2. Lab Construction & Room Expansion System
+## 1. Lab Construction & Room Expansion System
 
 Create a system for expanding the underground laboratory with new rooms and infrastructure.
 
@@ -69,7 +45,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -95,7 +71,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 4. Elemental Damage Type System
+## 3. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
 
@@ -120,7 +96,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 5. Tool Durability and Damage Resistance System
+## 4. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -149,7 +125,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 6. XP Curve and Breakthrough-Gated Skill Progression
+## 5. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -214,7 +190,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 7. Analyze Ability & Creature Skill Evolution Follow-Up
+## 6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

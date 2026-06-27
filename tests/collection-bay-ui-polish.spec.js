@@ -330,6 +330,14 @@ test('Collection Bay transfer moves active receptacle contents into Collected By
   await expect(station).toContainText('Overflow: apparatus buffer 3 / 3');
 
   await station.getByRole('button', { name: 'Transfer Receptacle' }).click();
+  await page.locator('#queueToggleBtn').click();
+
+  const transferTask = page.locator('#taskList .task-row').filter({ hasText: 'Transfer Transfer Drainage Tank receptacle' });
+  await expect(transferTask).toBeVisible();
+  const transferButton = station.getByRole('button', { name: 'Transfer Receptacle' });
+  await expect(transferButton).toBeDisabled();
+  await expect(transferButton).toHaveAttribute('title', /Receptacle transfer already queued/);
+  await transferTask.getByRole('button', { name: 'Finish' }).click();
 
   const inventory = page.locator('#inventoryList');
   await expect(inventory).toContainText('Collected Byproducts');

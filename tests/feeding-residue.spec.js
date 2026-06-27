@@ -96,6 +96,13 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
       metalFeedstock: 2,
       waste: 0,
     };
+    state.roomStockpiles ||= {};
+    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
+    state.roomStockpiles.mainLab.resources = {
+      ...(state.roomStockpiles.mainLab.resources || {}),
+      organicFeedstock: 2,
+      metalFeedstock: 2,
+    };
     state.feedingResidues = [];
     state.nextResidueNumber = 1;
     state.slimes = [

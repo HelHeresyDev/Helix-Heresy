@@ -88,7 +88,19 @@ Specimen Drainage Tanks support drip, sludge, gel, and similar surface or runoff
 
 Collection Bay accumulation is station-based. Each staged specimen container acts as a collection station with its own active receptacle, such as a jar, flask, bag, tray, filter, or condenser bottle. Multiple slimes in the same specimen container add their natural output rate together into that station. If different natural byproducts enter the same station, collection does not pause; the station produces mixed collection residue because the scientist chose to run incompatible outputs through one apparatus path. If the active receptacle fills, output can spill into that station's apparatus overflow buffer.
 
-Collected byproducts move into inventory through a station-level Transfer Receptacle action. Transfer swaps only the active receptacle into the Storage Room's Collected Byproducts ledger; overflow remains in the Collection Bay apparatus and can flow into the replacement receptacle afterward. Raw byproduct names are preserved until a later processing system changes them, so smoke vapor stays smoke vapor unless it is run through a condenser or another refining procedure later. Routine transfer accounting belongs in inventory item history and tooltips, while the event log should remain for meaningful observations, incidents, and discoveries.
+Collected byproducts move into inventory through a queued station-level Transfer Receptacle task. Transfer swaps only the active receptacle into the Storage Room's Collected Byproducts ledger; overflow remains in the Collection Bay apparatus and can flow into the replacement receptacle afterward. Raw byproduct names are preserved until a later processing system changes them, so smoke vapor stays smoke vapor unless it is run through a condenser or another refining procedure later. Routine transfer accounting belongs in inventory item history and tooltips, while the event log should remain for meaningful observations, incidents, and discoveries.
+
+## Room-Local Storage and Hauling
+
+Prototype resources and inventory now have lab-wide totals backed by room-local stockpiles. The global number is a ledger for readability, but physical availability depends on the room where the action happens. Most resources, tools, collected byproducts, and harvested specimen materials default to the Storage Room. Waste defaults to the Pits because it is a problem to manage, not a clean supply shelf.
+
+Storage capacity is infinite for now. This keeps the first pass focused on location and hauling instead of crate management. Later room upgrades, shelves, drums, cold storage, lockers, hazard cabinets, or black-market packaging can add capacity and storage quality.
+
+Actions consume materials from their action room. If the required material exists elsewhere in the lab, clicking the same action button should queue a material hauling task first, then automatically queue or perform the intended action once the delivery is complete. Synthesis therefore hauls Biomass to the Synthesis Tube before starting synthesis. Manual feeding hauls feedstock to the slime's room before feeding. Auto-feeding remains local-only for now so automation does not silently move supplies through the lab.
+
+Collection Bay transfer is also queued. The scientist closes the station path, swaps the active receptacle, carries the collected material to the Storage Room ledger, and leaves any apparatus overflow in the Collection Bay to flow into the replacement receptacle.
+
+Cheat commands can place resources and inventory into a specific room with an optional room argument. This is mainly for prototype testing and should make room-local systems easier to inspect without playing through long production chains.
 
 ## Container Compatibility
 
