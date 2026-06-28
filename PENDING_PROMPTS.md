@@ -14,16 +14,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 1. Lab Construction & Room Expansion System
 2. Blueprint Interaction & Spatial Readability System
-3. Object Placement, Occupancy, and Room Capacity System
-4. Door, Barrier, and Access Control System
-5. Creature Autonomous Movement & Escape Pathing System
-6. Map-Based Incident and Emergency Response System
-7. Spatial Environment Propagation System
-8. Black Market Byproduct Economy System
-9. Elemental Damage Type System
-10. Tool Durability and Damage Resistance System
-11. XP Curve and Breakthrough-Gated Skill Progression
-12. Analyze Ability & Creature Skill Evolution Follow-Up
+3. Door, Barrier, and Access Control System
+4. Creature Autonomous Movement & Escape Pathing System
+5. Map-Based Incident and Emergency Response System
+6. Spatial Environment Propagation System
+7. Black Market Byproduct Economy System
+8. Elemental Damage Type System
+9. Tool Durability and Damage Resistance System
+10. XP Curve and Breakthrough-Gated Skill Progression
+11. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
@@ -45,7 +44,7 @@ The system should answer questions like:
 
 Existing rooms like Main Lab, Bedroom, Storage Room, Pit, Menagerie, and Collection Bay should become part of a larger expansion model instead of a fixed list forever.
 
-Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, object occupancy glyphs, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
+Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, saved object placement, blocking container footprints, adjacent access paths for container hauling, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
 
 The desired result is a lab-growth foundation that lets future systems add morgues, containment wings, ritual chambers, black market docks, incinerators, cold storage, grow rooms, power rooms, and specialized research spaces.
 
@@ -57,7 +56,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 Turn the Lab Blueprint from a passive display into a readable, inspectable play surface.
 
-The blueprint already shows rooms, doors, object glyphs, room anchors, and a physical grid. The next step is making that information understandable and useful during normal play. The player should be able to inspect the map without memorizing glyphs or cross-referencing room panels.
+The blueprint already shows rooms, doors, saved object glyphs, blocking container footprints, room anchors, and a physical grid. The next step is making that information understandable and useful during normal play. The player should be able to inspect the map without memorizing glyphs or cross-referencing room panels.
 
 The system should answer questions like:
 - What happens when the player hovers over a tile?
@@ -77,33 +76,7 @@ Before coding, discuss the interaction model, hover/click behavior, selection be
 
 ---
 
-## 3. Object Placement, Occupancy, and Room Capacity System
-
-Create a stronger foundation for placing physical objects on the lab blueprint.
-
-The map now shows the scientist, containers, loose living creatures, and remains. This prompt should make those positions more consistent and meaningful. Objects should occupy actual map cells in a way that supports future hauling, crowding, containment incidents, construction, cleanup, and room logistics.
-
-The system should answer questions like:
-- How is an object's map cell chosen when it is created, moved, released, killed, dropped, or hauled?
-- Do containers, remains, loose creatures, and future furniture block tiles?
-- How should small objects, large objects, and multi-tile objects be represented?
-- What happens when a room becomes crowded?
-- How should the game pick fallback cells if the ideal destination is occupied?
-- How should objects be grouped or stacked when many items are in the same room?
-- Should containers have an exact tile while their contained creatures remain inside the container instead of occupying their own tile?
-- How should the UI communicate occupancy without overwhelming the room cards?
-
-Object placement should support the fiction that the laboratory is physical. A corpse in the Pits, a container in Collection Bay, and a loose creature in Main Lab should not feel like abstract list entries. They should have locations that future systems can use.
-
-This system should also avoid turning the prototype into a furniture-placement simulator too early. The goal is reliable spatial bookkeeping and readable object placement, not detailed interior decoration.
-
-The desired result is a map occupancy model that can support future construction, path blocking, accidents, hauling, creature movement, cleanup, and room capacity without rewriting object placement later.
-
-Before coding, discuss object placement rules, blocking rules, fallback placement, crowding, large objects, and how occupancy should be represented in saves and tests.
-
----
-
-## 4. Door, Barrier, and Access Control System
+## 3. Door, Barrier, and Access Control System
 
 Expand doors and barriers into a fuller access-control system for the physical lab map.
 
@@ -128,7 +101,7 @@ Before coding, discuss door states, access rules, pathfinding implications, UI r
 
 ---
 
-## 5. Creature Autonomous Movement & Escape Pathing System
+## 4. Creature Autonomous Movement & Escape Pathing System
 
 Create a system for creature movement through the physical lab map.
 
@@ -152,7 +125,7 @@ Before coding, discuss movement triggers, goal selection, pathfinding, movement 
 
 ---
 
-## 6. Map-Based Incident and Emergency Response System
+## 5. Map-Based Incident and Emergency Response System
 
 Create a spatial foundation for lab incidents and emergency response.
 
@@ -176,7 +149,7 @@ Before coding, discuss incident types, location rules, emergency task flow, map 
 
 ---
 
-## 7. Spatial Environment Propagation System
+## 6. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -200,7 +173,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 8. Black Market Byproduct Economy System
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -226,7 +199,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 9. Elemental Damage Type System
+## 8. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -251,7 +224,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 10. Tool Durability and Damage Resistance System
+## 9. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -280,7 +253,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 11. XP Curve and Breakthrough-Gated Skill Progression
+## 10. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -345,7 +318,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 12. Analyze Ability & Creature Skill Evolution Follow-Up
+## 11. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

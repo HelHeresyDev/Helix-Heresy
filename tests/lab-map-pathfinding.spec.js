@@ -34,9 +34,19 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   const initial = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
+      `${door.from.x},${door.from.y}`,
+      `${door.to.x},${door.to.y}`
+    ]));
     return {
       map: state.labMap,
-      scientist: state.scientist
+      scientist: state.scientist,
+      containers: state.containers,
+      containerCellsValid: (state.containers || []).every((container) =>
+        container.mapCell
+        && (state.labMap.rooms[container.roomId]?.cells || []).some((cell) => cell.x === container.mapCell.x && cell.y === container.mapCell.y)
+        && !doorCells.has(`${container.mapCell.x},${container.mapCell.y}`)
+      )
     };
   }, { key: storageKey });
 
@@ -51,6 +61,9 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(initial.scientist.roomId).toBe('mainLab');
   expect(initial.scientist.mapCell).toEqual(initial.map.rooms.mainLab.anchor);
   expect(initial.scientist.physicalPresence.moveSpeedMps).toBeGreaterThan(0);
+  expect(initial.containerCellsValid).toBe(true);
+  expect(initial.containers.find((container) => container.id === 'basic-11').mapCell).toBeTruthy();
+  expect(await page.locator('.lab-map-cell.blocking-object-cell').count()).toBeGreaterThan(initial.containers.length);
 
   await page.locator('[data-scientist-move-room-id="storageRoom"]').click();
 
@@ -87,4 +100,47 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('container hauling reserves a footprint and routes to adjacent access cells', async ({ page }) => {
+  await startRun(page);
+
+  const before = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const container = (state.containers || []).find((candidate) => candidate.id === 'basic-1');
+    return { container };
+  }, { key: storageKey });
+
+  expect(before.container.mapCell).toBeTruthy();
+
+  await page.locator('[data-container-room-select="basic-1"]').selectOption('collectionBay');
+
+  const queued = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = (state.tasks || []).find((candidate) => candidate.type === 'containerHaul');
+    return { task };
+  }, { key: storageKey });
+
+  expect(queued.task).toBeTruthy();
+  expect(queued.task.data.fromCell).toEqual(before.container.mapCell);
+  expect(queued.task.data.mapPath[0]).toEqual(queued.task.data.fromAccessCell);
+  expect(queued.task.data.mapPath.at(-1)).toEqual(queued.task.data.toAccessCell);
+  expect(queued.task.data.toCell).not.toEqual(queued.task.data.toAccessCell);
+  expect(Math.abs(queued.task.data.toCell.x - queued.task.data.toAccessCell.x)
+    + Math.abs(queued.task.data.toCell.y - queued.task.data.toAccessCell.y)).toBe(1);
+
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Haul Basic Glass Jar 1 to Collection Bay' }).getByRole('button', { name: 'Finish' }).click();
+
+  const arrived = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const container = (state.containers || []).find((candidate) => candidate.id === 'basic-1');
+    return { container };
+  }, { key: storageKey });
+
+  expect(arrived.container.roomId).toBe('collectionBay');
+  expect(arrived.container.mapCell).toEqual(queued.task.data.toCell);
 });

@@ -50,6 +50,7 @@
   const LAB_MAP_TILE_SIZE_M = 1;
   const LAB_MAP_DEFAULT_WIDTH = 40;
   const LAB_MAP_DEFAULT_HEIGHT = 25;
+  const LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS = 6;
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 16, y: 10, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 2, y: 11, width: 14, height: 8 },
@@ -1694,6 +1695,7 @@
   let state;
   let geneMap;
   let lastTickAt = Date.now();
+  let objectPlacementInProgress = false;
 
   function defaultState() {
     const seed = makeSeed();
@@ -3039,6 +3041,7 @@
       status: options.status || "contained",
       containerId: options.containerId ?? null,
       roomId: options.roomId || MAIN_ROOM_ID,
+      mapCell: objectMapCell(options),
       automationExcluded: Boolean(options.automationExcluded),
       job: "idle",
       jobProgress: 0,
@@ -3057,11 +3060,13 @@
       if (container) {
         slime.containerId = container.id;
         slime.roomId = container.roomId || slime.roomId;
+        slime.mapCell = null;
       } else {
         slime.containerId = null;
       }
     } else {
       slime.containerId = null;
+      slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, slime.mapCell);
     }
     state.nextSlimeNumber += 1;
     state.slimes.unshift(slime);
@@ -3408,6 +3413,7 @@
       roomId: location.roomId,
       containerId: location.containerId,
       storage: location.storage,
+      mapCell: location.mapCell || null,
       consumedProgress: 0,
       ruined: false,
       revealed: { ...(slime.revealed || {}) },
@@ -4032,6 +4038,267 @@
     ) || null;
   }
 
+  function objectMapCell(candidate) {
+    return cleanMapCell(candidate?.mapCell || candidate?.cell || candidate?.origin || candidate);
+  }
+
+  function objectFootprintCells(origin, footprint) {
+    const clean = cleanMapCell(origin);
+    const width = clamp(Math.ceil(Number(footprint?.width) || 1), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS);
+    const height = clamp(Math.ceil(Number(footprint?.height) || 1), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS);
+    if (!clean) {
+      return [];
+    }
+    const cells = [];
+    for (let y = clean.y; y < clean.y + height; y += 1) {
+      for (let x = clean.x; x < clean.x + width; x += 1) {
+        cells.push({ x, y });
+      }
+    }
+    return cells;
+  }
+
+  function containerFootprintDimensions(container) {
+    const geometry = containerGeometry(container);
+    const dims = geometry?.internalCm || {};
+    const xCm = Number(dims.length ?? dims.diameter ?? dims.width ?? 100);
+    const yCm = Number(dims.width ?? dims.diameter ?? dims.length ?? 100);
+    return {
+      width: clamp(Math.ceil((Number.isFinite(xCm) ? xCm : 100) / 100), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS),
+      height: clamp(Math.ceil((Number.isFinite(yCm) ? yCm : 100) / 100), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS)
+    };
+  }
+
+  function labMapCellIsDoor(cell, map = ensureLabMap()) {
+    return Boolean(cell && labMapDoorAtCell(cell, map));
+  }
+
+  function objectFootprintFits(origin, footprint, room, map, occupied = new Set(), options = {}) {
+    const cells = objectFootprintCells(origin, footprint);
+    if (!cells.length || !room) {
+      return false;
+    }
+    return cells.every((cell) => {
+      if (!mapCellInBounds(cell, map) || !mapCellInRoomFootprint(cell, room)) {
+        return false;
+      }
+      if (options.avoidDoors !== false && labMapCellIsDoor(cell, map)) {
+        return false;
+      }
+      if (!options.ignoreOccupied && occupied?.has(mapCellKey(cell))) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function reserveObjectFootprint(occupied, origin, footprint) {
+    for (const cell of objectFootprintCells(origin, footprint)) {
+      occupied.add(mapCellKey(cell));
+    }
+  }
+
+  function roomCellsSortedForPlacement(room, preferredCell = null) {
+    const preferred = cleanMapCell(preferredCell) || room?.anchor || roomCenterCell(room);
+    const cells = Array.isArray(room?.cells) && room.cells.length ? room.cells : rectangularRoomCells(room);
+    return [...cells].sort((a, b) => {
+      const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y);
+      const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y);
+      return distanceA - distanceB || a.y - b.y || a.x - b.x;
+    });
+  }
+
+  function findMapObjectPlacement(roomId, footprint, map = ensureLabMap(), occupied = new Set(), preferredCell = null) {
+    const room = labMapRoom(roomId, map);
+    if (!room) {
+      return null;
+    }
+    const candidates = roomCellsSortedForPlacement(room, preferredCell || room.anchor);
+    for (const cell of candidates) {
+      if (objectFootprintFits(cell, footprint, room, map, occupied)) {
+        return cell;
+      }
+    }
+    for (const cell of candidates) {
+      if (objectFootprintFits(cell, footprint, room, map, occupied, { ignoreOccupied: true })) {
+        return cell;
+      }
+    }
+    return nearestRoomFootprintCell(preferredCell || room.anchor, room);
+  }
+
+  function containerFootprintCells(container, map = ensureLabMap()) {
+    const cell = objectMapCell(container);
+    if (!cell) {
+      return [];
+    }
+    const room = labMapRoom(container?.roomId || MAIN_ROOM_ID, map);
+    const footprint = containerFootprintDimensions(container);
+    return objectFootprintCells(cell, footprint)
+      .filter((candidate) => room && mapCellInRoomFootprint(candidate, room));
+  }
+
+  function labMapBlockingCellKeys(map = ensureLabMap(), options = {}) {
+    if (!options.skipPlacement) {
+      ensurePhysicalObjectPlacements();
+    }
+    const excludedContainers = new Set(Array.isArray(options.excludeContainerIds) ? options.excludeContainerIds : []);
+    const blocked = new Set();
+    for (const container of state?.containers || []) {
+      if (!container || excludedContainers.has(container.id)) {
+        continue;
+      }
+      for (const cell of containerFootprintCells(container, map)) {
+        blocked.add(mapCellKey(cell));
+      }
+    }
+    return blocked;
+  }
+
+  function labMapCellIsPathBlocked(cell, options = {}) {
+    if (options.ignoreObjects) {
+      return false;
+    }
+    const key = mapCellKey(cell);
+    const allowed = options.allowBlockedCellKeys || new Set();
+    if (allowed.has(key)) {
+      return false;
+    }
+    const blocked = options.blockedCellKeys || labMapBlockingCellKeys(options.map || ensureLabMap(), options);
+    return blocked.has(key);
+  }
+
+  function nearestOpenMapCellInRoom(roomId, preferredCell = null, options = {}) {
+    const map = options.map || ensureLabMap();
+    const room = labMapRoom(roomId, map);
+    if (!room) {
+      return scientistDefaultMapCell(MAIN_ROOM_ID);
+    }
+    const blocked = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
+    const allowed = options.allowBlockedCellKeys || new Set();
+    for (const cell of roomCellsSortedForPlacement(room, preferredCell || room.anchor)) {
+      const key = mapCellKey(cell);
+      if (labMapCellIsDoor(cell, map) || (blocked.has(key) && !allowed.has(key))) {
+        continue;
+      }
+      return cell;
+    }
+    return nearestRoomFootprintCell(preferredCell || room.anchor, room);
+  }
+
+  function adjacentCellsForFootprint(origin, footprint, roomId, map = ensureLabMap()) {
+    const footprintCells = objectFootprintCells(origin, footprint);
+    const footprintKeys = new Set(footprintCells.map(mapCellKey));
+    const room = labMapRoom(roomId, map);
+    const seen = new Set();
+    const adjacent = [];
+    for (const cell of footprintCells) {
+      for (const candidate of [
+        { x: cell.x + 1, y: cell.y },
+        { x: cell.x - 1, y: cell.y },
+        { x: cell.x, y: cell.y + 1 },
+        { x: cell.x, y: cell.y - 1 }
+      ]) {
+        const key = mapCellKey(candidate);
+        if (seen.has(key) || footprintKeys.has(key) || !room || !mapCellInRoomFootprint(candidate, room)) {
+          continue;
+        }
+        seen.add(key);
+        adjacent.push(candidate);
+      }
+    }
+    return adjacent;
+  }
+
+  function nearestObjectAccessCell(origin, footprint, roomId, options = {}) {
+    const map = options.map || ensureLabMap();
+    const preferred = cleanMapCell(options.preferredCell) || origin;
+    const blocked = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
+    const allowed = options.allowBlockedCellKeys || new Set();
+    const candidates = adjacentCellsForFootprint(origin, footprint, roomId, map)
+      .sort((a, b) => {
+        const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y);
+        const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y);
+        return distanceA - distanceB || a.y - b.y || a.x - b.x;
+      });
+    for (const cell of candidates) {
+      const key = mapCellKey(cell);
+      if (labMapCellIsDoor(cell, map) || (blocked.has(key) && !allowed.has(key))) {
+        continue;
+      }
+      return cell;
+    }
+    return nearestOpenMapCellInRoom(roomId, preferred, { ...options, map, blockedCellKeys: blocked, allowBlockedCellKeys: allowed });
+  }
+
+  function ensurePhysicalObjectPlacements() {
+    if (!state || objectPlacementInProgress) {
+      return false;
+    }
+    objectPlacementInProgress = true;
+    try {
+      state.rooms = normalizeRooms(state.rooms);
+      state.labMap = normalizeLabMap(state.labMap, state.rooms);
+      state.containers = normalizeContainers(state.containers);
+      state.slimes ||= [];
+      state.corpses ||= [];
+
+      const map = state.labMap;
+      const occupied = new Set();
+      state.scientist = normalizeScientist(state.scientist);
+      state.scientist.mapCell = normalizeMapCellForRoom(state.scientist.mapCell, state.scientist.roomId || MAIN_ROOM_ID, map);
+      occupied.add(mapCellKey(state.scientist.mapCell));
+
+      for (const container of state.containers) {
+        const roomId = roomById(container.roomId)?.id || MAIN_ROOM_ID;
+        container.roomId = roomId;
+        const room = labMapRoom(roomId, map);
+        const footprint = containerFootprintDimensions(container);
+        const currentCell = objectMapCell(container);
+        const currentFits = currentCell && objectFootprintFits(currentCell, footprint, room, map, occupied);
+        container.mapCell = currentFits
+          ? currentCell
+          : findMapObjectPlacement(roomId, footprint, map, occupied, currentCell || room?.anchor);
+        if (container.mapCell) {
+          reserveObjectFootprint(occupied, container.mapCell, footprint);
+        }
+      }
+
+      const nonBlockingBlocked = new Set(occupied);
+      for (const slime of state.slimes) {
+        if (slime?.status === "released") {
+          slime.containerId = null;
+          slime.roomId = roomById(slime.roomId)?.id || MAIN_ROOM_ID;
+          slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, objectMapCell(slime), {
+            map,
+            blockedCellKeys: nonBlockingBlocked
+          });
+        } else if (slime) {
+          slime.mapCell = null;
+        }
+      }
+
+      for (const corpse of state.corpses) {
+        if (!corpse) {
+          continue;
+        }
+        normalizeCorpseLocation(corpse);
+        if (corpse.storage === "container") {
+          corpse.mapCell = null;
+          continue;
+        }
+        corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
+        corpse.mapCell = nearestOpenMapCellInRoom(corpse.roomId, objectMapCell(corpse), {
+          map,
+          blockedCellKeys: nonBlockingBlocked
+        });
+      }
+      return true;
+    } finally {
+      objectPlacementInProgress = false;
+    }
+  }
+
   function labMapNeighborCells(cell, options = {}) {
     const map = options.map || ensureLabMap();
     const roomId = labMapCellRoomId(cell, map);
@@ -4050,10 +4317,11 @@
         return false;
       }
       if (nextRoomId === roomId) {
-        return true;
+        return !labMapCellIsPathBlocked(candidate, { ...options, map });
       }
       const door = labMapDoorForCells(cell, candidate, map);
-      return Boolean(door && (options.ignoreDoors || doorIsOpen(door.roomIds[0], door.roomIds[1])));
+      return Boolean(door && (options.ignoreDoors || doorIsOpen(door.roomIds[0], door.roomIds[1]))
+        && !labMapCellIsPathBlocked(candidate, { ...options, map }));
     });
   }
 
@@ -4064,6 +4332,13 @@
     if (!start || !end || !labMapCellRoomId(start, map) || !labMapCellRoomId(end, map)) {
       return [];
     }
+    const allowBlockedCellKeys = new Set([
+      ...(options.allowBlockedCellKeys || []),
+      mapCellKey(start),
+      mapCellKey(end)
+    ]);
+    const blockedCellKeys = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
+    const pathOptions = { ...options, map, allowBlockedCellKeys, blockedCellKeys };
     if (start.x === end.x && start.y === end.y) {
       return [start];
     }
@@ -4072,7 +4347,7 @@
     while (queue.length) {
       const path = queue.shift();
       const current = path[path.length - 1];
-      for (const next of labMapNeighborCells(current, { ...options, map })) {
+      for (const next of labMapNeighborCells(current, pathOptions)) {
         const key = mapCellKey(next);
         if (visited.has(key)) {
           continue;
@@ -4092,8 +4367,12 @@
     const map = options.map || ensureLabMap();
     const startRoomId = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const targetRoomId = roomById(toRoomId)?.id || MAIN_ROOM_ID;
-    const start = options.fromCell ? normalizeMapCellForRoom(options.fromCell, startRoomId, map) : labMapRoomAnchor(startRoomId, map);
-    const end = options.toCell ? normalizeMapCellForRoom(options.toCell, targetRoomId, map) : labMapRoomAnchor(targetRoomId, map);
+    const start = options.fromCell
+      ? normalizeMapCellForRoom(options.fromCell, startRoomId, map)
+      : nearestOpenMapCellInRoom(startRoomId, labMapRoomAnchor(startRoomId, map), { ...options, map });
+    const end = options.toCell
+      ? normalizeMapCellForRoom(options.toCell, targetRoomId, map)
+      : nearestOpenMapCellInRoom(targetRoomId, labMapRoomAnchor(targetRoomId, map), { ...options, map });
     return labMapPathBetweenCells(start, end, { ...options, map });
   }
 
@@ -4121,6 +4400,10 @@
   function roomPathSummary(fromRoomId, toRoomId, options = {}) {
     const map = ensureLabMap();
     const path = roomPathBetween(fromRoomId, toRoomId, { ...options, map });
+    return mapPathSummary(path, map);
+  }
+
+  function mapPathSummary(path, map = ensureLabMap()) {
     if (!path.length) {
       return "no physical path";
     }
@@ -5806,6 +6089,7 @@
     slime.status = "contained";
     slime.containerId = container.id;
     slime.roomId = container.roomId || MAIN_ROOM_ID;
+    slime.mapCell = null;
     if (container.type === "synthesis") {
       slime.job = "idle";
       slime.jobProgress = 0;
@@ -5820,10 +6104,20 @@
     if (!slime || slime.status === "dead") {
       return false;
     }
+    ensurePhysicalObjectPlacements();
+    const previousContainer = slime.containerId ? containerById(slime.containerId) : null;
     const previousRoomId = slimeEffectiveRoomId(slime);
     slime.status = "released";
     slime.containerId = null;
     slime.roomId = previousRoomId || slime.roomId || MAIN_ROOM_ID;
+    if (previousContainer?.mapCell) {
+      slime.mapCell = nearestObjectAccessCell(previousContainer.mapCell, containerFootprintDimensions(previousContainer), slime.roomId, {
+        excludeContainerIds: [previousContainer.id],
+        preferredCell: scientistMapCell()
+      });
+    } else {
+      slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, objectMapCell(slime));
+    }
     slime.job = "idle";
     slime.jobProgress = 0;
     slime.jobTargetCorpseId = null;
@@ -7141,11 +7435,67 @@
     return containerOccupants(container?.id).length + containerCorpses(container?.id).length;
   }
 
-  function containerHaulDuration(container, toRoomId) {
+  function containerHaulMapPlan(container, toRoomId) {
+    if (!container) {
+      return { ok: false, reason: "No container selected." };
+    }
+    ensurePhysicalObjectPlacements();
+    const map = ensureLabMap();
+    const toRoom = roomById(toRoomId);
+    if (!toRoom) {
+      return { ok: false, reason: "Unknown destination room." };
+    }
+    const fromRoomId = container.roomId || MAIN_ROOM_ID;
+    const footprint = containerFootprintDimensions(container);
+    const fromCell = objectMapCell(container) || findMapObjectPlacement(fromRoomId, footprint, map, new Set(), labMapRoomAnchor(fromRoomId, map));
+    const blockedCellKeys = labMapBlockingCellKeys(map, { excludeContainerIds: [container.id] });
+    const toCell = findMapObjectPlacement(toRoom.id, footprint, map, blockedCellKeys, labMapRoomAnchor(toRoom.id, map));
+    if (!fromCell || !toCell) {
+      return { ok: false, reason: "No physical placement exists for that container move." };
+    }
+    const fromAccessCell = nearestObjectAccessCell(fromCell, footprint, fromRoomId, {
+      map,
+      blockedCellKeys,
+      preferredCell: scientistMapCell()
+    });
+    const toAccessCell = nearestObjectAccessCell(toCell, footprint, toRoom.id, {
+      map,
+      blockedCellKeys,
+      preferredCell: fromAccessCell
+    });
+    const mapPath = labMapPathBetweenCells(fromAccessCell, toAccessCell, {
+      map,
+      ignoreDoors: true,
+      blockedCellKeys
+    });
+    if (!mapPath.length) {
+      return {
+        ok: false,
+        reason: `No physical hauling route exists from ${container.name} to an access tile in ${roomArticleName(toRoom.id)}.`
+      };
+    }
+    return {
+      ok: true,
+      map,
+      fromRoomId,
+      toRoomId: toRoom.id,
+      footprint,
+      fromCell,
+      toCell,
+      fromAccessCell,
+      toAccessCell,
+      mapPath,
+      distanceMeters: Math.max(0, mapPath.length - 1) * map.tileSizeM
+    };
+  }
+
+  function containerHaulDuration(container, toRoomId, plan = null) {
     const contents = containerContentsCount(container);
     const base = contents ? CONTAINER_HAUL_WITH_CONTENTS_DURATION : CONTAINER_HAUL_BASE_DURATION;
     const pitsTrip = container?.roomId === PITS_ROOM_ID || toRoomId === PITS_ROOM_ID;
-    const distance = roomPathDistanceMeters(container?.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true });
+    const distance = plan?.ok
+      ? plan.distanceMeters
+      : roomPathDistanceMeters(container?.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true });
     const setupSeconds = minutesToSeconds(base + (pitsTrip ? 10 : 0));
     const travelSeconds = Number.isFinite(distance) ? distance / CONTAINER_HAUL_SPEED_MPS : 0;
     return Math.max(1, Math.round(setupSeconds + travelSeconds));
@@ -7177,6 +7527,10 @@
     if (!roomPathBetween(container.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true }).length) {
       return `No physical hauling route exists from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(toRoomId)}.`;
     }
+    const plan = containerHaulMapPlan(container, toRoomId);
+    if (!plan.ok) {
+      return plan.reason;
+    }
     const existing = containerHaulTask(container.id);
     if (existing) {
       return `${container.name} is already being hauled to ${roomName(existing.data?.toRoomId)}.`;
@@ -7201,25 +7555,36 @@
 
     const fromRoomId = container.roomId || MAIN_ROOM_ID;
     const haulRoute = roomRouteBetween(fromRoomId, room.id, { ignoreDoors: true });
-    const mapPath = roomPathBetween(fromRoomId, room.id, { ignoreDoors: true });
+    const haulPlan = containerHaulMapPlan(container, room.id);
+    if (!haulPlan.ok) {
+      addEvent(haulPlan.reason);
+      persist();
+      render();
+      return false;
+    }
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerHaul",
       label: `Haul ${container.name} to ${room.name}`,
       createdAt: state.clock,
-      dueAt: state.clock + containerHaulDuration(container, room.id),
+      dueAt: state.clock + containerHaulDuration(container, room.id, haulPlan),
       data: {
         containerId: container.id,
         fromRoomId,
         toRoomId: room.id,
         route: haulRoute,
-        mapPath,
+        fromCell: haulPlan.fromCell,
+        toCell: haulPlan.toCell,
+        fromAccessCell: haulPlan.fromAccessCell,
+        toAccessCell: haulPlan.toAccessCell,
+        footprint: haulPlan.footprint,
+        mapPath: haulPlan.mapPath,
         doorTransit: doorTransitPlan(haulRoute)
       }
     };
     state.tasks.push(task);
     const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
-    addEvent(`Hauling started: ${container.name} from ${roomArticleName(fromRoomId)} to ${roomArticleName(room.id)} via ${roomPathSummary(fromRoomId, room.id, { ignoreDoors: true })}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
+    addEvent(`Hauling started: ${container.name} from ${roomArticleName(fromRoomId)} to ${roomArticleName(room.id)} via ${mapPathSummary(haulPlan.mapPath, haulPlan.map)}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     persist();
     render();
     return true;
@@ -7238,12 +7603,24 @@
     const fromRoomId = container.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     const fromLabel = roomArticleName(fromRoomId);
     const toLabel = roomArticleName(toRoom.id);
+    const plannedCell = objectMapCell(task.data?.toCell);
 
     container.roomId = toRoom.id;
+    container.mapCell = plannedCell || container.mapCell;
     syncContainerContentsToRoom(container, toRoom.id);
+    ensurePhysicalObjectPlacements();
+    const placedContainer = containerById(task.data?.containerId);
+    if (placedContainer && plannedCell) {
+      const map = ensureLabMap();
+      const room = labMapRoom(toRoom.id, map);
+      const blockedCellKeys = labMapBlockingCellKeys(map, { excludeContainerIds: [placedContainer.id], skipPlacement: true });
+      if (objectFootprintFits(plannedCell, containerFootprintDimensions(placedContainer), room, map, blockedCellKeys)) {
+        placedContainer.mapCell = plannedCell;
+      }
+    }
     applyDoorTransitPolicy(task.data?.doorTransit, "Container hauling");
 
-    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomPathSummary(fromRoomId, toRoom.id, { ignoreDoors: true })}.`);
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${mapPathSummary(task.data?.mapPath || [], ensureLabMap())}.`);
     refreshCorpseProcessingTargets();
     return true;
   }
@@ -10213,7 +10590,10 @@
       }
     }
     if (container.type !== "synthesis") {
-      meta.append(chip(`${roomRoleLabel(container.roomId)} room`), chip(`access ${containerAccessLabel(container)}`));
+      const footprint = containerFootprintDimensions(container);
+      const cell = objectMapCell(container);
+      const cellText = cell ? `cell ${cell.x},${cell.y}` : "cell unplaced";
+      meta.append(chip(`${roomRoleLabel(container.roomId)} room`), chip(`access ${containerAccessLabel(container)}`), chip(`footprint ${footprint.width}x${footprint.height} m; ${cellText}`));
       if (isPitHoleContainer(container)) {
         meta.append(chip(`pit corpses ${pitHoleCorpseCount(container)}/${pitHoleCorpseCapacity(container)}`));
       }
@@ -11196,12 +11576,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!roomConnectedIds(fromRoomId).includes(target.id)) {
       return "The scientist can only move to connected rooms.";
     }
+    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true }).length) {
+      return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
+    }
     return "";
   }
 
   function scientistMoveDuration(fromRoomId, toRoomId, options = {}) {
     const fromCell = options.fromCell || scientistMapCell();
-    const toCell = options.toCell || labMapRoomAnchor(toRoomId);
+    const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId));
     const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
     const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
     const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
@@ -11227,7 +11610,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
-    const toCell = labMapRoomAnchor(target.id);
+    const toCell = nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
     const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell });
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
     const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
@@ -14513,39 +14896,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function labMapObjectAssignments(map) {
+    ensurePhysicalObjectPlacements();
     const assignments = new Map();
-    const nextIndexByRoom = {};
-    const add = (roomId, symbol, label, className) => {
-      const room = labMapRoom(roomId, map);
-      const cells = Array.isArray(room?.cells) && room.cells.length ? room.cells : null;
-      if (!cells?.length) {
+    const addCell = (cell, symbol, label, classNames = []) => {
+      if (!cell || !mapCellInBounds(cell, map)) {
         return;
       }
-      const index = nextIndexByRoom[roomId] || 0;
-      nextIndexByRoom[roomId] = index + 1;
-      const cell = cells[(index * 7 + 3) % cells.length];
       const key = mapCellKey(cell);
       const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set() };
       entry.symbols.push(symbol);
       entry.labels.push(label);
-      if (className) {
+      for (const className of classNames) {
         entry.classNames.add(className);
       }
       assignments.set(key, entry);
     };
     for (const container of state.containers || []) {
-      if (container.type === "synthesis") {
+      const footprint = containerFootprintCells(container, map);
+      if (!footprint.length) {
         continue;
       }
-      add(container.roomId || MAIN_ROOM_ID, "C", container.name || "container", "container-object-cell");
+      const footprintDef = containerFootprintDimensions(container);
+      const label = `${container.name || "container"} footprint ${footprintDef.width}x${footprintDef.height}`;
+      for (const cell of footprint) {
+        addCell(cell, "C", label, ["container-object-cell", "blocking-object-cell"]);
+      }
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "dead" && slimeIsUncontained(slime)) {
-        add(slimeEffectiveRoomId(slime), "L", `${slime.name} loose`, "living-object-cell");
+        addCell(objectMapCell(slime), "L", `${slime.name} loose`, ["living-object-cell"]);
       }
     }
     for (const corpse of state.corpses || []) {
-      add(corpse.roomId || MAIN_ROOM_ID, "R", `${corpse.name} remains`, "corpse-object-cell");
+      if (corpse.storage === "container") {
+        continue;
+      }
+      addCell(objectMapCell(corpse), "R", `${corpse.name} remains`, ["corpse-object-cell"]);
     }
     return assignments;
   }
@@ -14608,7 +14994,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("C = container"), chip("L = loose living"), chip("R = remains"), chip("room letters = room anchor"), chip("x = closed door"));
+    legend.append(chip("S = scientist"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("room letters = room anchor"), chip("x = closed door"));
     panel.append(legend);
     return panel;
   }
@@ -16409,13 +16795,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return {
         storage: "container",
         containerId: container.id,
-        roomId: container.roomId || slime.roomId || MAIN_ROOM_ID
+        roomId: container.roomId || slime.roomId || MAIN_ROOM_ID,
+        mapCell: null
       };
     }
     return {
       storage: "room",
       containerId: null,
-      roomId: slime?.roomId || MAIN_ROOM_ID
+      roomId: slime?.roomId || MAIN_ROOM_ID,
+      mapCell: objectMapCell(slime)
     };
   }
 
@@ -16429,6 +16817,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (container) {
         corpse.containerId = container.id;
         corpse.roomId = container.roomId || corpse.roomId || MAIN_ROOM_ID;
+        corpse.mapCell = null;
       } else {
         corpse.storage = "room";
         corpse.containerId = null;
@@ -18417,7 +18806,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : cleanRoomId(candidate.roomId) || starterContainerRoomId(starter || {}, Math.max(0, (numericSuffix(id) || 1) - 1)),
       condition: normalizeContainerCondition(candidate.condition),
       isOpen: normalizeContainerOpenState(candidate),
-      environment: normalizeContainerEnvironment(candidate.environment)
+      environment: normalizeContainerEnvironment(candidate.environment),
+      mapCell: objectMapCell(candidate)
     };
   }
 
@@ -19508,6 +19898,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function persist() {
     try {
+      ensurePhysicalObjectPlacements();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(savePayload()));
     } catch (error) {
       console.warn("Save failed", error);
@@ -19663,6 +20054,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);
+    }
+    const previousState = state;
+    try {
+      state = next;
+      ensurePhysicalObjectPlacements();
+    } finally {
+      state = previousState;
     }
     return next;
   }
