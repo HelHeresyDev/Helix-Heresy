@@ -3,6 +3,9 @@
 
   const STORAGE_KEY = "helix-heresy-v1-save";
   const SAVE_FILE_NAME = "helix-heresy-save.json";
+  const SECONDS_PER_MINUTE = 60;
+  const SECONDS_PER_HOUR = 3600;
+  const SECONDS_PER_DAY = 86400;
   const BASES = ["A", "C", "G", "T"];
   const COMPLEMENT = { A: "T", T: "A", C: "G", G: "C" };
   const STORAGE_CAPACITY = 12;
@@ -14,11 +17,11 @@
     openTop: false
   };
   const WASTE_DRUM_CAPACITY = 8;
-  const OVERFLOW_EVENT_INTERVAL = 360;
+  const OVERFLOW_EVENT_INTERVAL = minutesToSeconds(360);
   const OVERFLOW_SUSPICION = 4;
   const SUSPICION_MAX = 100;
-  const SUSPICION_DECAY_DELAY = 1440;
-  const SUSPICION_DECAY_INTERVAL = 360;
+  const SUSPICION_DECAY_DELAY = minutesToSeconds(1440);
+  const SUSPICION_DECAY_INTERVAL = minutesToSeconds(360);
   const SUSPICION_BANDS = [
     { id: "quiet", label: "Quiet", min: 0 },
     { id: "suspicious", label: "Suspicious", min: 20 },
@@ -33,7 +36,7 @@
     ruined: 7
   };
   const CONTAINMENT_INCIDENT_THRESHOLD = 240;
-  const CONTAINMENT_INCIDENT_COOLDOWN = 360;
+  const CONTAINMENT_INCIDENT_COOLDOWN = minutesToSeconds(360);
   const CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR = 20;
   const CONTAINER_CONDITION_DEFAULT = 100;
   const MAIN_ROOM_ID = "mainLab";
@@ -245,18 +248,23 @@
   const ROOM_CORPSE_FLOOR_LOAD_M2 = 0.75;
   const ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 = 100;
   const ROOM_EFFECT_REFERENCE_VOLUME_M3 = 300;
+  const SCIENTIST_MOVE_MIN_DURATION = 1;
+  const SCIENTIST_MOVE_SPEED_MPS = 1.1;
+  const SCIENTIST_DOOR_TRANSIT_SECONDS = 4;
+  const CONTAINER_HAUL_SPEED_MPS = 0.35;
+  const RESOURCE_HAUL_SPEED_MPS = 0.75;
   const SCIENTIST_DEFAULT_PHYSICAL_PRESENCE = {
     heightM: 1.75,
     shoulderWidthM: 0.55,
-    floorLoadM2: 1.0
+    floorLoadM2: 1.0,
+    moveSpeedMps: SCIENTIST_MOVE_SPEED_MPS
   };
-  const SCIENTIST_MOVE_BASE_DURATION = 6;
   const SCIENTIST_MOVE_BASE_STAMINA = 2;
   const PHYSICAL_STATE_MAX = 100;
   const PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR = 10;
   const PHYSICAL_STATE_EXPOSURE_DECAY_PER_HOUR = 3;
   const PHYSICAL_STATE_REST_RECOVERY_MULTIPLIER = 3;
-  const PHYSICAL_STATE_EVENT_INTERVAL = 60;
+  const PHYSICAL_STATE_EVENT_INTERVAL = minutesToSeconds(60);
   const PHYSICAL_STATE_BANDS = [
     { max: 5, label: "Steady" },
     { max: 20, label: "Uneasy" },
@@ -369,7 +377,7 @@
   const OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD = 4;
   const OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR = 10;
   const OUT_OF_CONTAINER_RESIDUE_PER_HOUR = 6;
-  const OUT_OF_CONTAINER_EVENT_INTERVAL = 60;
+  const OUT_OF_CONTAINER_EVENT_INTERVAL = minutesToSeconds(60);
   const FREE_CREATURE_PRESSURE_HIGH_SKILL = 4;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
@@ -922,11 +930,11 @@
   const REAL_TICK_MS = 250;
   const DEFAULT_TIME_SPEED = "normal";
   const TIME_SPEEDS = [
-    { id: "realtime", label: "1x", description: "real-time", minutesPerSecond: 1 / 60 },
-    { id: "normal", label: "60x", description: "1 min/sec", minutesPerSecond: 1 },
-    { id: "fast", label: "300x", description: "5 min/sec", minutesPerSecond: 5 },
-    { id: "very-fast", label: "1800x", description: "30 min/sec", minutesPerSecond: 30 },
-    { id: "hourly", label: "3600x", description: "1 hr/sec", minutesPerSecond: 60 }
+    { id: "realtime", label: "1x", description: "real-time", secondsPerSecond: 1 },
+    { id: "normal", label: "60x", description: "1 min/sec", secondsPerSecond: 60 },
+    { id: "fast", label: "300x", description: "5 min/sec", secondsPerSecond: 300 },
+    { id: "very-fast", label: "1800x", description: "30 min/sec", secondsPerSecond: 1800 },
+    { id: "hourly", label: "3600x", description: "1 hr/sec", secondsPerSecond: 3600 }
   ];
   const MAX_SKILL_LEVEL = 999;
   const STAMINA_REGEN_MINUTES = 10;
@@ -1581,7 +1589,7 @@
   const WASTE_DISPOSAL_UNIT = 1;
   const WASTE_DISPOSAL_RESIDUE_INTERVAL = 3;
   const WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS = 10;
-  const WASTE_DISPOSAL_SLOW_OBSERVATION = 1440;
+  const WASTE_DISPOSAL_SLOW_OBSERVATION = minutesToSeconds(1440);
   const WASTE_DISPOSAL_CONTAMINATION_SUSPICION = 2;
   const FRESH_NECROPSY_GENETIC_GAIN = 1;
 
@@ -2542,7 +2550,7 @@
     if (!state?.started || state.paused) {
       return;
     }
-    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().minutesPerSecond, { quiet: true });
+    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true });
     if (changed) {
       render();
     } else {
@@ -2679,10 +2687,10 @@
     if (vitalKey === "stamina" && state.tasks.some((task) => task.type === "rest" || task.data?.staminaCost > 0)) {
       return null;
     }
-    const minutesPerPoint = vitalKey === "mana" ? MANA_REGEN_MINUTES : STAMINA_REGEN_MINUTES;
-    const minutes = (vital.max - vital.current) * minutesPerPoint;
+    const secondsPerPoint = minutesToSeconds(vitalKey === "mana" ? MANA_REGEN_MINUTES : STAMINA_REGEN_MINUTES);
+    const seconds = (vital.max - vital.current) * secondsPerPoint;
     return {
-      time: state.clock + minutes,
+      time: state.clock + seconds,
       label: `${vitalKey} full`,
       type: "recovery"
     };
@@ -2712,29 +2720,30 @@
     };
   }
 
-  function advanceTime(minutes, options = {}) {
-    state.clock += minutes;
-    const vitalsChanged = recoverVitals(minutes);
-    const physicalStateChanged = updateScientistPhysicalExposure(minutes);
+  function advanceTime(seconds, options = {}) {
+    const elapsed = Math.max(0, Number(seconds) || 0);
+    state.clock += elapsed;
+    const vitalsChanged = recoverVitals(elapsed);
+    const physicalStateChanged = updateScientistPhysicalExposure(elapsed);
     const suspicionChanged = updateSuspicionDecay();
-    const roomChanges = recoverRoomAttributes(minutes);
-    const envChanges = exchangeContainerEnvironments(minutes);
+    const roomChanges = recoverRoomAttributes(elapsed);
+    const envChanges = exchangeContainerEnvironments(elapsed);
     const expired = expireSlimes();
-    const corpseChanges = updateCorpses(minutes);
-    const jobChanges = updateCreatureJobs(minutes);
-    const feedstockChanged = updateFeedstockIncome(minutes);
+    const corpseChanges = updateCorpses(elapsed);
+    const jobChanges = updateCreatureJobs(elapsed);
+    const feedstockChanged = updateFeedstockIncome(elapsed);
     const feedingChanged = updateAutoFeeding();
-    const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(minutes);
-    const metabolismChanged = updateSlimeMetabolism(minutes);
-    const collectionChanged = updateCollectionBayAccumulation(minutes);
-    const compatibilityChanged = updateContainerCompatibilityEffects(minutes);
-    const containmentIncidentChanges = updateContainmentIncidents(minutes);
+    const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(elapsed);
+    const metabolismChanged = updateSlimeMetabolism(elapsed);
+    const collectionChanged = updateCollectionBayAccumulation(elapsed);
+    const compatibilityChanged = updateContainerCompatibilityEffects(elapsed);
+    const containmentIncidentChanges = updateContainmentIncidents(elapsed);
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
     syncRoomObservationMemory();
     const observationChanged = Boolean(observeScientistRoom());
     if (!options.quiet) {
-      addEvent(`Advanced ${formatDuration(minutes)}.`);
+      addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
     if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
@@ -2998,10 +3007,11 @@
 
   function createRestTask(minutes) {
     const quality = restQualityInfo();
+    const duration = minutesToSeconds(minutes);
     createTask({
       type: "rest",
-      label: `Rest ${formatDuration(minutes)}`,
-      duration: minutes,
+      label: `Rest ${formatDuration(duration)}`,
+      duration,
       data: {
         restore: minutes,
         roomId: quality.roomId,
@@ -3015,13 +3025,14 @@
   function createSlime(genome, source, options = {}) {
     const evaluated = evaluateGenome(genome);
     const lifespanMinutes = slimeLifespanMinutes(evaluated);
+    const lifespanSeconds = minutesToSeconds(lifespanMinutes);
     const slime = {
       id: `slime-${state.nextSlimeNumber}`,
       name: `RG-${String(state.nextSlimeNumber).padStart(3, "0")}`,
       genome,
       source,
       createdAt: state.clock,
-      deathAt: state.clock + lifespanMinutes,
+      deathAt: state.clock + lifespanSeconds,
       lifecycleVersion: 1,
       matureAt: options.matureAt ?? state.clock,
       mature: options.mature ?? true,
@@ -3088,9 +3099,10 @@
     for (let i = 0; i < offspringCount; i += 1) {
       const childGenome = forcedRecombinationGenome(parentA.genome, parentB.genome, seedRng(`${state.seed}:child:${task.id}:${i}`), parentA, parentB);
       const growthMinutes = Math.max(4, Math.round(growthAverage * (0.8 + rng() * 0.4)));
+      const growthSeconds = minutesToSeconds(growthMinutes);
       const child = createSlime(childGenome, "Recombined", {
         mature: false,
-        matureAt: state.clock + growthMinutes,
+        matureAt: state.clock + growthSeconds,
         containerId: openContainers[i]?.id || null,
         roomId: openContainers[i]?.roomId || MAIN_ROOM_ID,
         stats: {
@@ -3105,7 +3117,7 @@
       createTask({
         type: "mature",
         label: `Mature ${child.name}`,
-        duration: growthMinutes,
+        duration: growthSeconds,
         data: { slimeId: child.id }
       });
       created.push(child.name);
@@ -3452,8 +3464,8 @@
   function applyCorpseDecayWindows(corpse) {
     const profile = corpseDecayProfile(corpse.genome);
     corpse.decayProfile = profile;
-    corpse.freshUntil = corpse.diedAt + profile.freshMinutes;
-    corpse.spoiledAt = corpse.freshUntil + profile.decayMinutes;
+    corpse.freshUntil = corpse.diedAt + profile.freshSeconds;
+    corpse.spoiledAt = corpse.freshUntil + profile.decaySeconds;
   }
 
   function corpseDecayProfile(genome) {
@@ -3502,7 +3514,7 @@
     const speed = Math.max(0.1, sizeSpeed * elementSpeed * consistencySpeed);
     const freshMinutes = clamp(Math.round(120 / speed), 15, 1440);
     const decayMinutes = clamp(Math.round(420 / speed), 30, 3600);
-    return { freshMinutes, decayMinutes, speed, element, consistency };
+    return { freshMinutes, decayMinutes, freshSeconds: minutesToSeconds(freshMinutes), decaySeconds: minutesToSeconds(decayMinutes), speed, element, consistency };
   }
 
   function corpseFreshness(corpse) {
@@ -3622,7 +3634,7 @@
         if (Math.abs(difference) < 0.01) {
           continue;
         }
-        const recovery = Math.max(0, attribute.recoveryPerHour) * (elapsed / 60);
+        const recovery = Math.max(0, attribute.recoveryPerHour) * secondsToHours(elapsed);
         if (!recovery) {
           continue;
         }
@@ -3683,7 +3695,7 @@
         if (Math.abs(diff) < 0.01) {
           continue;
         }
-        const step = Math.min(1, rate * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * (elapsed / 60));
+        const step = Math.min(1, rate * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed));
         const delta = step * diff;
         container.environment[key].current = clamp(envValue + delta, 0, 100);
         if (Math.abs(delta) >= 0.01) {
@@ -3753,6 +3765,72 @@
     };
   }
 
+  function rectangularRoomCells(rect) {
+    const cells = [];
+    for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+      for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+        cells.push({ x, y });
+      }
+    }
+    return cells;
+  }
+
+  function defaultLabMapRoomCells(roomId, rect) {
+    const cells = rectangularRoomCells(rect);
+    if (roomId !== PITS_ROOM_ID) {
+      return cells;
+    }
+    return cells.filter((cell) => {
+      const localX = cell.x - rect.x;
+      const localY = cell.y - rect.y;
+      if (localX === 0 && localY <= 1) return false;
+      if (localX === rect.width - 1 && localY <= 1) return false;
+      if (localX <= 1 && localY === rect.height - 1) return false;
+      if (localX >= rect.width - 2 && localY === rect.height - 1) return false;
+      return true;
+    });
+  }
+
+  function normalizeLabMapRoomCells(candidate, rect) {
+    const source = Array.isArray(candidate?.cells) ? candidate.cells : defaultLabMapRoomCells(rect.roomId, rect);
+    const seen = new Set();
+    const cells = [];
+    for (const rawCell of source) {
+      const cell = cleanMapCell(rawCell);
+      if (!cell || !mapCellInRoomRect(cell, rect)) {
+        continue;
+      }
+      const key = mapCellKey(cell);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      cells.push(cell);
+    }
+    return cells.length ? cells : rectangularRoomCells(rect);
+  }
+
+  function mapCellInRoomFootprint(cell, room) {
+    if (!room || !cell) {
+      return false;
+    }
+    if (!Array.isArray(room.cells) || !room.cells.length) {
+      return mapCellInRoomRect(cell, room);
+    }
+    return room.cells.some((candidate) => candidate.x === cell.x && candidate.y === cell.y);
+  }
+
+  function nearestRoomFootprintCell(cell, room) {
+    const clean = cleanMapCell(cell) || roomCenterCell(room);
+    const cells = Array.isArray(room?.cells) && room.cells.length ? room.cells : rectangularRoomCells(room);
+    return cells
+      .map((candidate) => ({
+        cell: candidate,
+        distance: Math.abs(candidate.x - clean.x) + Math.abs(candidate.y - clean.y)
+      }))
+      .sort((a, b) => a.distance - b.distance || a.cell.y - b.cell.y || a.cell.x - b.cell.x)[0]?.cell || roomCenterCell(room);
+  }
+
   function normalizeLabMapRoom(candidate, room = null) {
     const roomId = cleanRoomId(candidate?.roomId || room?.id) || MAIN_ROOM_ID;
     const fallbackRect = LAB_MAP_ROOM_RECTS[roomId] || {};
@@ -3776,7 +3854,8 @@
       width,
       height
     };
-    rect.anchor = clampMapCellToRect(candidate?.anchor, rect);
+    rect.cells = normalizeLabMapRoomCells(candidate, rect);
+    rect.anchor = nearestRoomFootprintCell(candidate?.anchor || roomCenterCell(rect), rect);
     return rect;
   }
 
@@ -3906,7 +3985,7 @@
       return "";
     }
     for (const room of Object.values(map.rooms || {})) {
-      if (mapCellInRoomRect(cell, room)) {
+      if (mapCellInRoomFootprint(cell, room)) {
         return room.roomId;
       }
     }
@@ -3915,7 +3994,7 @@
 
   function labMapRoomAnchor(roomId, map = ensureLabMap()) {
     const room = labMapRoom(roomId, map);
-    return room ? clampMapCellToRect(room.anchor, room) : scientistDefaultMapCell(MAIN_ROOM_ID);
+    return room ? nearestRoomFootprintCell(room.anchor, room) : scientistDefaultMapCell(MAIN_ROOM_ID);
   }
 
   function normalizeMapCellForRoom(candidate, roomId, map = ensureLabMap()) {
@@ -3924,7 +4003,7 @@
       return scientistDefaultMapCell(MAIN_ROOM_ID);
     }
     const clean = cleanMapCell(candidate);
-    if (clean && mapCellInRoomRect(clean, room)) {
+    if (clean && mapCellInRoomFootprint(clean, room)) {
       return clean;
     }
     return labMapRoomAnchor(roomId, map);
@@ -4648,26 +4727,30 @@
 
   function cleanupActivityPerformance(slime) {
     const observation = ensureCleanupObservation(slime);
+    const observedMinutes = secondsToMinutes(observation.minutes);
+    const feedingMinutes = secondsToMinutes(observation.feedingMinutes);
+    const residueMinutes = secondsToMinutes(observation.residueMinutes);
+    const seekingMinutes = secondsToMinutes(observation.seekingMinutes);
     const activityType = slime?.roomActivity?.type || "unknown";
     const helpfulFactors = [];
     const concerns = [];
     const unknownFactors = [];
     let band = "Trace";
-    let clearEvidence = Math.min(40, observation.minutes * 2);
+    let clearEvidence = Math.min(40, observedMinutes * 2);
 
     if (activityType === "feedingOnContamination") {
       band = "Good";
       helpfulFactors.push("observed feeding on contamination");
-      clearEvidence += Math.min(40, observation.feedingMinutes * 3);
+      clearEvidence += Math.min(40, feedingMinutes * 3);
     } else if (activityType === "seekingContamination") {
       band = "Weak";
       helpfulFactors.push("observed seeking contamination");
-      clearEvidence += Math.min(18, observation.seekingMinutes * 2);
+      clearEvidence += Math.min(18, seekingMinutes * 2);
       unknownFactors.push("whether it will feed when it arrives");
     } else if (activityType === "leavingResidue") {
       band = "Weak";
       concerns.push("observed leaving residue");
-      clearEvidence += Math.min(18, observation.residueMinutes * 2);
+      clearEvidence += Math.min(18, residueMinutes * 2);
       unknownFactors.push("net cleanup after residue");
     } else if (activityType === "pressingClosedDoor") {
       band = "Trace";
@@ -4677,15 +4760,15 @@
       unknownFactors.push("current cleanup behavior");
     }
 
-    if (observation.feedingMinutes >= 8) {
+    if (feedingMinutes >= 8) {
       helpfulFactors.push("sustained observed feeding");
     }
-    if (observation.residueMinutes >= 3) {
+    if (residueMinutes >= 3) {
       concerns.push("residue observed during cleanup");
     }
-    if (observation.minutes <= 0) {
+    if (observedMinutes <= 0) {
       unknownFactors.push("direct observation time");
-    } else if (observation.minutes < 6) {
+    } else if (observedMinutes < 6) {
       unknownFactors.push("short observation window");
     }
     if (!slime?.revealed?.sustenance) {
@@ -4750,7 +4833,7 @@
     const knownFactors = [];
     const concerns = [];
     const unknownFactors = [];
-    let clearEvidence = Math.min(25, observed.doorMinutes * 2);
+    let clearEvidence = Math.min(25, secondsToMinutes(observed.doorMinutes) * 2);
 
     if (info.seeksContamination || slime?.roomActivity?.targetRoomId) {
       possible.push("seeking contamination");
@@ -7063,7 +7146,9 @@
     const base = contents ? CONTAINER_HAUL_WITH_CONTENTS_DURATION : CONTAINER_HAUL_BASE_DURATION;
     const pitsTrip = container?.roomId === PITS_ROOM_ID || toRoomId === PITS_ROOM_ID;
     const distance = roomPathDistanceMeters(container?.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true });
-    return base + Math.round(distance * 0.6) + (pitsTrip ? 10 : 0);
+    const setupSeconds = minutesToSeconds(base + (pitsTrip ? 10 : 0));
+    const travelSeconds = Number.isFinite(distance) ? distance / CONTAINER_HAUL_SPEED_MPS : 0;
+    return Math.max(1, Math.round(setupSeconds + travelSeconds));
   }
 
   function containerHaulBlockReason(container, toRoomId) {
@@ -7209,7 +7294,9 @@
     const totalUnits = (transfers || []).reduce((total, transfer) => total + (Number(transfer.amount) || 0), 0);
     const distance = (transfers || []).reduce((total, transfer) =>
       total + roomPathDistanceMeters(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }), 0);
-    return Math.max(1, Math.round(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION + distance * 0.45));
+    const setupSeconds = minutesToSeconds(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION);
+    const travelSeconds = Number.isFinite(distance) ? distance / RESOURCE_HAUL_SPEED_MPS : 0;
+    return Math.max(1, Math.round(setupSeconds + travelSeconds));
   }
 
   function resourceHaulTransferText(transfers) {
@@ -8130,7 +8217,7 @@
       if (!info.canAccumulate) {
         continue;
       }
-      const added = applyCollectionBayAccumulation(info.station, info.rate * elapsed);
+      const added = applyCollectionBayAccumulation(info.station, info.rate * secondsToMinutes(elapsed));
       if (added > 0) {
         changes += 1;
       }
@@ -9520,7 +9607,7 @@
       if (compatibility.score < 35) {
         continue;
       }
-      const days = elapsed / 1440;
+      const days = secondsToDays(elapsed);
       const severity = compatibility.score >= 90 ? 1
         : compatibility.score >= 60 ? 0.55
           : 0.25;
@@ -9551,7 +9638,7 @@
       if (compatibility.score >= 60) {
         const record = containmentIncidentRecord(slime, container);
         const beforeProgress = record.progress;
-        record.progress += elapsed * (compatibility.score >= 90 ? 0.28 : 0.12);
+        record.progress += secondsToMinutes(elapsed) * (compatibility.score >= 90 ? 0.28 : 0.12);
         if (Math.abs(record.progress - beforeProgress) >= 0.01) {
           changes += 1;
         }
@@ -9584,7 +9671,7 @@
 
       if (risk.score < 75) {
         const before = record.progress;
-        record.progress = Math.max(0, record.progress - CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR * (elapsed / 60));
+        record.progress = Math.max(0, record.progress - CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR * secondsToHours(elapsed));
         if (Math.abs(record.progress - before) >= 0.01) {
           changes += 1;
         }
@@ -9592,7 +9679,7 @@
       }
 
       const riskMultiplier = risk.score >= 110 ? 1.6 : 1 + (risk.score - 75) / 80;
-      record.progress += elapsed * riskMultiplier;
+      record.progress += secondsToMinutes(elapsed) * riskMultiplier;
 
       const cooldownReady = record.lastIncidentAt == null || state.clock - record.lastIncidentAt >= CONTAINMENT_INCIDENT_COOLDOWN;
       if (record.progress >= CONTAINMENT_INCIDENT_THRESHOLD && cooldownReady) {
@@ -10791,7 +10878,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(state.feedstockIncomeProgress);
     let changes = 0;
     for (const feedstock of FEEDSTOCK_DEFS.filter((candidate) => candidate.passive)) {
-      const gain = elapsed * (PASSIVE_FEEDSTOCK_INCOME_PER_DAY / 1440);
+      const gain = elapsed * (PASSIVE_FEEDSTOCK_INCOME_PER_DAY / SECONDS_PER_DAY);
       const nextProgress = (state.feedstockIncomeProgress[feedstock.key] || 0) + gain;
       const wholeUnits = Math.floor(nextProgress);
       state.feedstockIncomeProgress[feedstock.key] = nextProgress - wholeUnits;
@@ -11116,7 +11203,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromCell = options.fromCell || scientistMapCell();
     const toCell = options.toCell || labMapRoomAnchor(toRoomId);
     const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
-    return adjustedDuration(Math.max(SCIENTIST_MOVE_BASE_DURATION, Math.round(distance * 0.75)), "analysis");
+    const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
+    const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
+    const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
+    return adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + doorDelay), "analysis");
   }
 
   function startScientistMove(toRoomId) {
@@ -11251,10 +11341,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     let score = 72;
     const age = Math.max(0, state.clock - (Number(observation.observedAt) || 0));
-    if (age > 360) score -= 36;
-    else if (age > 60) score -= 22;
-    else if (age > 15) score -= 12;
-    else if (age > 3) score -= 5;
+    if (age > minutesToSeconds(360)) score -= 36;
+    else if (age > minutesToSeconds(60)) score -= 22;
+    else if (age > minutesToSeconds(15)) score -= 12;
+    else if (age > minutesToSeconds(3)) score -= 5;
 
     if (observation.freeCreatureCount > 0) {
       score -= 18;
@@ -11282,8 +11372,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const factors = [];
     const age = Math.max(0, state.clock - (Number(observation.observedAt) || 0));
-    if (age > 360) factors.push("old observation");
-    else if (age > 60) factors.push("aging observation");
+    if (age > minutesToSeconds(360)) factors.push("old observation");
+    else if (age > minutesToSeconds(60)) factors.push("aging observation");
     else factors.push("recent observation");
 
     const creatureUncertaintyKnown =
@@ -11860,7 +11950,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const contamination = room?.attributes?.contamination;
         const current = Number(contamination?.current) || 0;
         if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
-          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * (elapsed / 60);
+          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
           const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
           if (drained > 0) {
             const before = contamination.current;
@@ -11915,7 +12005,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const contamination = room?.attributes?.contamination;
         if (room && contamination) {
           const before = contamination.current;
-          const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * roomEffectScale(room) * (elapsed / 60);
+          const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
           contamination.current = clamp(contamination.current + residue, 0, 100);
           slime.roomActivity = {
             type: "leavingResidue",
@@ -12089,7 +12179,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const availability = Math.pow(rawAvailability, ENVIRONMENTAL_SUSTENANCE_AVAILABILITY_POWER);
     return {
       availability,
-      rate: (ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY / 1440) * availability
+      rate: (ENVIRONMENTAL_SUSTENANCE_NUTRITION_PER_DAY / SECONDS_PER_DAY) * availability
     };
   }
 
@@ -12162,6 +12252,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSlimeMassRegrowth(slime, minutes) {
+    const elapsedMinutes = secondsToMinutes(minutes);
     const mass = slimeStat(slime, "currentMass");
     const nutrition = slimeStat(slime, "nutrition");
     if (mass.current >= mass.max || nutrition.current <= MASS_REGROWTH_NUTRITION_FLOOR) {
@@ -12174,7 +12265,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const nutritionCost = adjustedMassRegrowthNutritionCost(slime);
     const gain = Math.min(
       mass.max - mass.current,
-      minutes * growthRate,
+      elapsedMinutes * growthRate,
       availableNutrition / nutritionCost
     );
     if (gain <= 0) {
@@ -12188,7 +12279,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateDivisionPressure(slime, minutes, startedAtFullMass) {
     const pressure = slimeStat(slime, "divisionPressure");
     const conditions = divisionReadiness(slime);
-    const required = divisionPressureMinutes(slime);
+    const required = divisionPressureDuration(slime);
     if (conditions.ready && startedAtFullMass) {
       slime.splitBlocked = false;
       const gain = minutes * (pressure.max / required);
@@ -12204,7 +12295,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.splitBlocked = false;
       return false;
     }
-    const decay = minutes * (pressure.max / Math.max(60, required / 2));
+    const decay = minutes * (pressure.max / Math.max(minutesToSeconds(60), required / 2));
     adjustSlimeStat(slime, "divisionPressure", -decay);
     slime.splitBlocked = false;
     return true;
@@ -12237,6 +12328,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return clamp(Math.round(360 + brood * 90 + growth * 4 + Math.max(0, stabilityRisk - 3) * 30), 360, 2880);
   }
 
+  function divisionPressureDuration(slime) {
+    return minutesToSeconds(divisionPressureMinutes(slime));
+  }
+
   function tryNaturalSplit(slime) {
     if (slimeStat(slime, "divisionPressure").current < 100 || !divisionReadiness(slime).ready) {
       return false;
@@ -12253,9 +12348,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const created = [];
     for (let i = 0; i < broodCount; i += 1) {
       const childGenome = naturalSplitGenome(slime, rng, i);
+      const growthSeconds = Math.round(minutesToSeconds(growthMinutes * (0.75 + rng() * 0.5)));
       const child = createSlime(childGenome, "Split", {
         mature: false,
-        matureAt: state.clock + Math.round(growthMinutes * (0.75 + rng() * 0.5)),
+        matureAt: state.clock + growthSeconds,
         status: slime.status,
         containerId: slime.containerId,
         roomId: slime.roomId,
@@ -12498,7 +12594,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const evaluated = evaluateGenome(slime.genome);
     const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
-    const growthRate = mass.max / (growthMinutes * 12);
+    const growthRate = (mass.max / (growthMinutes * 12)) / SECONDS_PER_MINUTE;
     const availableNutrition = Math.max(0, nutrition.current - MASS_REGROWTH_NUTRITION_FLOOR);
     const nutritionCost = adjustedMassRegrowthNutritionCost(slime);
     const possibleGain = availableNutrition / nutritionCost;
@@ -12548,10 +12644,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (pressure.current >= pressure.max || !divisionReadiness(slime).ready) {
       return null;
     }
-    const required = divisionPressureMinutes(slime);
-    const minutes = (pressure.max - pressure.current) / (pressure.max / required);
+    const required = divisionPressureDuration(slime);
+    const seconds = (pressure.max - pressure.current) / (pressure.max / required);
     return {
-      time: state.clock + minutes,
+      time: state.clock + seconds,
       label: `${slime.name} division pressure`,
       type: "metabolism"
     };
@@ -12738,7 +12834,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function corpseProcessingDuration(slime) {
     const score = corpseProcessingSuitability(slime).score;
-    return Math.round(clamp(240 - score * 1.8, 45, 240));
+    return minutesToSeconds(Math.round(clamp(240 - score * 1.8, 45, 240)));
   }
 
   function jobRemainingText(slime) {
@@ -12929,16 +13025,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function wasteDisposalDuration(slime) {
     const score = wasteDisposalSuitability(slime).score;
+    let minutes;
     if (score >= 75) {
-      return Math.round(clamp(480 - (score - 75) * 12, 120, 480));
+      minutes = Math.round(clamp(480 - (score - 75) * 12, 120, 480));
+    } else if (score >= 50) {
+      minutes = Math.round(1440 - (score - 50) * 38.4);
+    } else if (score >= 25) {
+      minutes = Math.round(4320 - (score - 25) * 115.2);
+    } else {
+      minutes = Math.round(10080 - score * 230.4);
     }
-    if (score >= 50) {
-      return Math.round(1440 - (score - 50) * 38.4);
-    }
-    if (score >= 25) {
-      return Math.round(4320 - (score - 25) * 115.2);
-    }
-    return Math.round(10080 - score * 230.4);
+    return minutesToSeconds(minutes);
   }
 
   function cleanupUseSuitabilityBand(score, hasSevereConcern = false) {
@@ -13420,7 +13517,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stabilityRisk = Number(evaluated.traits.stability.meta?.risk) || 5;
     const badness = Math.max(0, 55 - score) / 55;
     const instability = Math.max(0, stabilityRisk - 5);
-    return badness * 0.015 + instability * 0.002;
+    return (badness * 0.015 + instability * 0.002) / SECONDS_PER_MINUTE;
   }
 
   function wasteDisposalStressRate(slime, suitability = wasteDisposalSuitability(slime)) {
@@ -13428,7 +13525,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stabilityRisk = wasteDisposalStabilityRisk(slime);
     const badness = Math.max(0, 60 - score) / 60;
     const instability = Math.max(0, stabilityRisk - 5);
-    return badness * 0.025 + instability * 0.003;
+    return (badness * 0.025 + instability * 0.003) / SECONDS_PER_MINUTE;
   }
 
   function observeSlowWasteDisposal(slime, suitability) {
@@ -14415,9 +14512,48 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return parts.join(" - ");
   }
 
+  function labMapObjectAssignments(map) {
+    const assignments = new Map();
+    const nextIndexByRoom = {};
+    const add = (roomId, symbol, label, className) => {
+      const room = labMapRoom(roomId, map);
+      const cells = Array.isArray(room?.cells) && room.cells.length ? room.cells : null;
+      if (!cells?.length) {
+        return;
+      }
+      const index = nextIndexByRoom[roomId] || 0;
+      nextIndexByRoom[roomId] = index + 1;
+      const cell = cells[(index * 7 + 3) % cells.length];
+      const key = mapCellKey(cell);
+      const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set() };
+      entry.symbols.push(symbol);
+      entry.labels.push(label);
+      if (className) {
+        entry.classNames.add(className);
+      }
+      assignments.set(key, entry);
+    };
+    for (const container of state.containers || []) {
+      if (container.type === "synthesis") {
+        continue;
+      }
+      add(container.roomId || MAIN_ROOM_ID, "C", container.name || "container", "container-object-cell");
+    }
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "dead" && slimeIsUncontained(slime)) {
+        add(slimeEffectiveRoomId(slime), "L", `${slime.name} loose`, "living-object-cell");
+      }
+    }
+    for (const corpse of state.corpses || []) {
+      add(corpse.roomId || MAIN_ROOM_ID, "R", `${corpse.name} remains`, "corpse-object-cell");
+    }
+    return assignments;
+  }
+
   function labMapPanelEl() {
     const map = ensureLabMap();
     const scientistCell = scientistMapCell();
+    const objectAssignments = labMapObjectAssignments(map);
     const panel = document.createElement("div");
     panel.className = "lab-map-panel subpanel";
     panel.dataset.labMapPanel = "true";
@@ -14450,10 +14586,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.classList.add("door-cell", doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "door-open" : "door-closed");
         }
         const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
+        const objectEntry = objectAssignments.get(mapCellKey(cell));
         if (scientistCell.x === x && scientistCell.y === y) {
           tile.classList.add("scientist-cell");
           tile.textContent = "S";
           tile.title += " - Scientist";
+        } else if (objectEntry) {
+          tile.classList.add("object-cell", ...objectEntry.classNames);
+          tile.textContent = objectEntry.symbols.length > 1 ? String(objectEntry.symbols.length) : objectEntry.symbols[0];
+          tile.title += ` - ${objectEntry.labels.join("; ")}`;
         } else if (anchorRoom) {
           tile.classList.add("room-anchor");
           tile.textContent = labMapRoomAbbreviation(anchorRoom.roomId);
@@ -14467,7 +14608,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("room letters = room anchor"), chip("x = closed door"));
+    legend.append(chip("S = scientist"), chip("C = container"), chip("L = loose living"), chip("R = remains"), chip("room letters = room anchor"), chip("x = closed door"));
     panel.append(legend);
     return panel;
   }
@@ -15248,7 +15389,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Unknown";
     }
     const profile = physicalProfile(slime.genome, evaluated);
-    return profile?.movement || "Unknown";
+    if (!profile) {
+      return "Unknown";
+    }
+    return `${profile.movement} (${formatSpeed(profile.speedMps * 100)})`;
   }
 
   function effectivenessReport(specimen, freshness) {
@@ -15311,6 +15455,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const volumeCm3 = sizeVolumeCm3(traits.size);
     const density = elementDensity(traits.element);
     const weightKg = (volumeCm3 * density) / 1000;
+    const movementProfile = { shape, consistency, appendages, element, weightKg, elementOutcome: traits.element };
     return {
       shape,
       consistency,
@@ -15319,7 +15464,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       volumeCm3,
       density,
       weightKg,
-      movement: derivedMovement(cleaned, { shape, consistency, appendages, element, weightKg, elementOutcome: traits.element })
+      movement: derivedMovement(cleaned, movementProfile),
+      speedMps: derivedMovementSpeedMps(cleaned, movementProfile)
     };
   }
 
@@ -15515,6 +15661,90 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return options[Math.floor(rng() * options.length)] || "oozes";
   }
 
+  function derivedMovementSpeedMps(genome, profile) {
+    const shapeBase = {
+      "cubic": 0.18,
+      "spherical": 0.55,
+      "humanoid-ish": 0.72,
+      "dog-shaped": 0.9,
+      "blob": 0.2,
+      "puddle": 0.08,
+      "worm-like": 0.28,
+      "columnar": 0.14,
+      "conical": 0.2,
+      "flat sheet": 0.12,
+      "mound": 0.16,
+      "disc": 0.42,
+      "branching": 0.24,
+      "star-like": 0.3,
+      "mushroom-shaped": 0.18,
+      "shell-like": 0.12
+    };
+    const consistencyFactor = {
+      watery: 0.7,
+      "runny gel": 0.8,
+      syrupy: 0.62,
+      "loose jelly": 0.82,
+      "soft gelatin": 1,
+      mucous: 0.75,
+      foamy: 0.9,
+      "elastic gel": 1.25,
+      rubbery: 1.15,
+      "tar-like": 0.45,
+      waxen: 0.68,
+      "fibrous gel": 0.92,
+      "grainy slurry": 0.7,
+      "crystalline gel": 0.58,
+      "brittle jelly": 0.55,
+      "clay-like": 0.6
+    };
+    const appendageFactor = {
+      none: 0.85,
+      "two tendrils": 1.1,
+      "four tendrils": 1.22,
+      "grasping pseudopods": 1.08,
+      "stub legs": 1.25,
+      "limb-like arms": 1.18,
+      "cilia fringe": 1.35,
+      spines: 0.95,
+      fins: 1.05,
+      "wing-like membranes": 1.15,
+      "feeler stalks": 0.9,
+      "tail-like rudder": 1.08,
+      rootlets: 0.75,
+      "hook claws": 1.18,
+      "asymmetrical limbs": 0.82,
+      "dissolving nubs": 0.65
+    };
+    const elementFactor = {
+      flame: 1.15,
+      frost: 0.86,
+      storm: 1.28,
+      stone: 0.68,
+      shadow: 1.12,
+      light: 1.2,
+      water: 1.08,
+      wind: 1.25,
+      wood: 0.82,
+      metal: 0.65,
+      poison: 0.92,
+      acid: 0.9,
+      dream: 0.95,
+      gravity: 0.5,
+      ether: 1.18,
+      null: 0.88
+    };
+    const base = shapeBase[profile.shape] || shapeBase.blob;
+    const consistency = consistencyFactor[profile.consistency] || 1;
+    const appendages = appendageFactor[profile.appendages] || 1;
+    const affinity = elementAffinity(profile.elementOutcome) / 100;
+    const element = 1 + ((elementFactor[profile.element] || 1) - 1) * affinity;
+    const weight = clamp(1 / Math.pow(Math.max(0.35, Number(profile.weightKg) || 1), 0.11), 0.55, 1.45);
+    const rng = seedRng(`${state.seed}:movement-speed:${genome}:${profile.shape}:${profile.consistency}:${profile.appendages}:${profile.element}`);
+    const individual = 0.88 + rng() * 0.24;
+    return roundOutputValue(clamp(base * consistency * appendages * element * weight * individual, 0.02, 1.6));
+  }
+
   function estimatedReading(traitKey, outcome, contextKey = "") {
     const meta = outcome.meta || {};
     const baseLabel = outcome.label.split(" / ")[0];
@@ -15593,10 +15823,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return `${meta.count} offspring/clutch`;
     }
     if (traitKey === "growth") {
-      return `${formatDuration(meta.growthMinutes)} to maturity`;
+      return `${formatDuration(minutesToSeconds(meta.growthMinutes))} to maturity`;
     }
     if (traitKey === "lifespan") {
-      return `${formatDuration(effectiveLifespanMinutes(meta))} expected lifespan`;
+      return `${formatDuration(minutesToSeconds(effectiveLifespanMinutes(meta)))} expected lifespan`;
     }
     return "";
   }
@@ -15620,7 +15850,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return formatSpeedRange(low, high, value);
     }
     if (kind === "duration") {
-      return `${formatDuration(low)} - ${formatDuration(high)}`;
+      return `${formatDuration(minutesToSeconds(low))} - ${formatDuration(minutesToSeconds(high))}`;
     }
     if (kind === "risk") {
       return `risk ${Math.max(1, Math.floor(low))} - ${Math.min(10, Math.ceil(high))}/10`;
@@ -16331,7 +16561,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       spoiled: 6,
       ruined: 4
     }[freshness] || 2;
-    const delta = contaminationPerDay * (elapsed / 1440);
+    const delta = contaminationPerDay * secondsToDays(elapsed);
     let changed = 0;
     if (corpse.storage === "container") {
       const container = containerById(corpse.containerId);
@@ -16339,7 +16569,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const incompatible = containerOccupants(corpse.containerId)
         .filter((slime) => !corpseFeedingRateForSlime(slime, corpse).rate);
       for (const slime of incompatible) {
-        adjustSlimeStat(slime, "stress", 0.5 * (elapsed / 1440));
+        adjustSlimeStat(slime, "stress", 0.5 * secondsToDays(elapsed));
       }
     } else if (corpse.storage === "room") {
       changed += adjustRoomAttribute(corpse.roomId || MAIN_ROOM_ID, "contamination", delta) ? 1 : 0;
@@ -16363,7 +16593,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (feeding.rate <= 0) {
         continue;
       }
-      const rawNutritionGain = feeding.rate * (elapsed / 1440);
+      const rawNutritionGain = feeding.rate * secondsToDays(elapsed);
       const nutritionGain = adjustedSlimeNutritionGain(slime, rawNutritionGain);
       if (nutritionGain <= 0) {
         continue;
@@ -16555,13 +16785,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     if (contamination >= 30) {
       const contaminationPressure = (contamination - 25) / 75;
-      delta = PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR * contaminationPressure * roomEffectScale(room) * (elapsed / 60);
+      delta = PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR * contaminationPressure * roomEffectScale(room) * secondsToHours(elapsed);
       exposure.sourceType = "contamination exposure";
       exposure.likelySource = currentExposureLikelySource(room);
     } else {
       const cleanBonus = contamination <= 8 ? 1.35 : contamination <= 20 ? 1 : 0.55;
       const restBonus = hasPendingRest() ? PHYSICAL_STATE_REST_RECOVERY_MULTIPLIER : 1;
-      delta = -PHYSICAL_STATE_EXPOSURE_DECAY_PER_HOUR * cleanBonus * restBonus * (elapsed / 60);
+      delta = -PHYSICAL_STATE_EXPOSURE_DECAY_PER_HOUR * cleanBonus * restBonus * secondsToHours(elapsed);
     }
 
     const nextExposure = clamp(before + delta, 0, max);
@@ -16572,7 +16802,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stamina = scientistVital("stamina");
     let staminaChanged = false;
     if (nextExposure >= 40 && !hasPendingRest()) {
-      const staminaDrain = ((nextExposure - 35) / 65) * 3 * (elapsed / 60);
+      const staminaDrain = ((nextExposure - 35) / 65) * 3 * secondsToHours(elapsed);
       const staminaBefore = stamina.current;
       stamina.current = clamp(stamina.current - staminaDrain, 0, stamina.max);
       staminaChanged = Math.abs(stamina.current - staminaBefore) >= 0.01;
@@ -16580,7 +16810,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     let healthChanged = false;
     if (nextExposure >= 65) {
-      const damage = ((nextExposure - 60) / 40) * 2.5 * (elapsed / 60);
+      const damage = ((nextExposure - 60) / 40) * 2.5 * secondsToHours(elapsed);
       if (damage > 0) {
         const health = scientistVital("health");
         const healthBefore = health.current;
@@ -18517,7 +18747,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
 
   function adjustedDuration(baseDuration, skillId) {
-    return Math.max(1, Math.ceil(baseDuration * skillReductionMultiplier(skillLevel(skillId))));
+    return Math.max(1, Math.ceil(minutesToSeconds(baseDuration) * skillReductionMultiplier(skillLevel(skillId))));
+  }
+
+  function adjustedSecondsDuration(baseSeconds, skillId) {
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId))));
   }
 
   function adjustedStaminaCost(baseCost, skillIds, options = {}) {
@@ -18750,15 +18984,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     stamina.current = Math.min(stamina.max, stamina.current + Math.max(0, Number(amount) || 0));
   }
 
-  function recoverVitals(minutes) {
+  function recoverVitals(seconds) {
     const beforeStamina = Math.floor(scientistVital("stamina").current);
     const beforeMana = Math.floor(scientistVital("mana").current);
     const hasWork = state.tasks.some((task) => task.type === "rest" || task.data?.staminaCost > 0);
     if (!hasWork) {
-      restoreStamina(minutes / STAMINA_REGEN_MINUTES);
+      restoreStamina(seconds / minutesToSeconds(STAMINA_REGEN_MINUTES));
     }
     const mana = scientistVital("mana");
-    mana.current = Math.min(mana.max, mana.current + minutes / MANA_REGEN_MINUTES);
+    mana.current = Math.min(mana.max, mana.current + seconds / minutesToSeconds(MANA_REGEN_MINUTES));
     return Math.floor(scientistVital("stamina").current) !== beforeStamina || Math.floor(mana.current) !== beforeMana;
   }
 
@@ -18894,23 +19128,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Math.min(max, Math.max(min, value));
   }
 
-  function formatClock(totalMinutes) {
-    const minutes = Math.max(0, Math.floor(totalMinutes));
-    const day = Math.floor(minutes / 1440) + 1;
-    const dayMinutes = minutes % 1440;
-    const hours = Math.floor(dayMinutes / 60);
-    const mins = dayMinutes % 60;
-    return `Day ${day} ${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+  function minutesToSeconds(minutes) {
+    return Math.max(0, Number(minutes) || 0) * SECONDS_PER_MINUTE;
   }
 
-  function formatDuration(minutes) {
-    const safe = Math.max(0, Math.ceil(minutes));
-    if (safe < 60) {
-      return `${safe}m`;
+  function secondsToMinutes(seconds) {
+    return Math.max(0, Number(seconds) || 0) / SECONDS_PER_MINUTE;
+  }
+
+  function secondsToHours(seconds) {
+    return Math.max(0, Number(seconds) || 0) / SECONDS_PER_HOUR;
+  }
+
+  function secondsToDays(seconds) {
+    return Math.max(0, Number(seconds) || 0) / SECONDS_PER_DAY;
+  }
+
+  function formatClock(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(totalSeconds));
+    const day = Math.floor(seconds / SECONDS_PER_DAY) + 1;
+    const daySeconds = seconds % SECONDS_PER_DAY;
+    const hours = Math.floor(daySeconds / SECONDS_PER_HOUR);
+    const mins = Math.floor((daySeconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+    const secs = daySeconds % SECONDS_PER_MINUTE;
+    return `Day ${day} ${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function formatDuration(seconds) {
+    const safe = Math.max(0, Math.ceil(seconds));
+    if (safe < SECONDS_PER_MINUTE) {
+      return `${safe}s`;
     }
-    const hours = Math.floor(safe / 60);
-    const mins = safe % 60;
-    return mins ? `${hours}h ${mins}m` : `${hours}h`;
+    const days = Math.floor(safe / SECONDS_PER_DAY);
+    const remainderAfterDays = safe % SECONDS_PER_DAY;
+    const hours = Math.floor(remainderAfterDays / SECONDS_PER_HOUR);
+    const mins = Math.floor((remainderAfterDays % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+    const secs = remainderAfterDays % SECONDS_PER_MINUTE;
+    if (days) {
+      const parts = [`${days}d`];
+      if (hours) parts.push(`${hours}h`);
+      if (!hours && mins) parts.push(`${mins}m`);
+      return parts.join(" ");
+    }
+    if (hours) {
+      return mins ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+    return secs ? `${mins}m ${secs}s` : `${mins}m`;
   }
 
   function formatNumber(value) {
@@ -19406,7 +19669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function normalizeSlimeLifecycle(slime) {
     const evaluated = evaluateGenome(slime.genome);
-    const targetDeathAt = (Number(slime.createdAt) || 0) + slimeLifespanMinutes(evaluated);
+    const targetDeathAt = (Number(slime.createdAt) || 0) + minutesToSeconds(slimeLifespanMinutes(evaluated));
     if ((Number(slime.lifecycleVersion) || 0) < 1) {
       slime.deathAt = Math.max(Number(slime.deathAt) || 0, targetDeathAt);
       slime.lifecycleVersion = 1;
@@ -19576,16 +19839,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const heightM = Number(candidate?.heightM);
     const shoulderWidthM = Number(candidate?.shoulderWidthM);
     const floorLoadM2 = Number(candidate?.floorLoadM2);
+    const moveSpeedMps = Number(candidate?.moveSpeedMps);
     return {
       heightM: clamp(Number.isFinite(heightM) ? heightM : fallback.heightM, 0.5, 3),
       shoulderWidthM: clamp(Number.isFinite(shoulderWidthM) ? shoulderWidthM : fallback.shoulderWidthM, 0.2, 2),
-      floorLoadM2: clamp(Number.isFinite(floorLoadM2) ? floorLoadM2 : fallback.floorLoadM2, 0.25, 4)
+      floorLoadM2: clamp(Number.isFinite(floorLoadM2) ? floorLoadM2 : fallback.floorLoadM2, 0.25, 4),
+      moveSpeedMps: clamp(Number.isFinite(moveSpeedMps) ? moveSpeedMps : fallback.moveSpeedMps, 0.1, 3)
     };
   }
 
   function scientistFloorLoadM2() {
     state.scientist = normalizeScientist(state.scientist);
     return Math.max(0, Number(state.scientist.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
+  }
+
+  function scientistMoveSpeedMps() {
+    state.scientist = normalizeScientist(state.scientist);
+    return Math.max(0.1, Number(state.scientist.physicalPresence?.moveSpeedMps) || SCIENTIST_MOVE_SPEED_MPS);
   }
 
   function normalizeScientist(candidate) {

@@ -104,9 +104,13 @@ Cheat commands can place resources and inventory into a specific room with an op
 
 ## Lab Blueprint and Physical Pathfinding
 
-The starter laboratory now has a saved physical blueprint instead of only an abstract room list. The map uses 1 meter tiles with fixed first-pass footprints for the Main Lab, Menagerie, Pits, Bedroom, Storage Room, and Collection Bay. Doors live on shared room edges, and pathfinding moves through floor tiles and valid door crossings rather than assuming all connected rooms are equally distant.
+The starter laboratory now has a saved physical blueprint instead of only an abstract room list. The map uses 1 meter tiles with fixed first-pass footprints for the Main Lab, Menagerie, Pits, Bedroom, Storage Room, and Collection Bay. Room footprints are stored as walkable cell masks, so rectangular rooms are only the default shape and irregular rooms such as the Pits can be represented without lying to pathfinding. Doors live on shared room edges, and pathfinding moves through floor tiles and valid door crossings rather than assuming all connected rooms are equally distant.
 
-The blueprint is a foundation for later construction rather than a full base-builder. Scientist movement, container hauling, and material hauling store room routes plus physical map paths in queued task data. Durations now scale lightly with physical distance. Closed doors still block uncontrolled movement, while scientist and hauling tasks can pass through doors and then apply the configured door policy.
+The simulation clock is seconds-based internally. UI speed controls still offer 1x real time, 60x, and faster speeds, but task `createdAt`, `dueAt`, lifespans, decay windows, movement, and passive updates are measured in seconds. Player-facing task definitions may still be authored in minutes where that is the natural design unit, then converted at scheduling boundaries.
+
+The blueprint is a foundation for later construction rather than a full base-builder. Scientist movement, container hauling, and material hauling store room routes plus physical map paths in queued task data. Scientist movement uses a stored movement speed in meters per second, while creature movement profiles derive both a movement style and a physical speed from shape, body consistency, appendages, element, and weight. Closed doors still block uncontrolled movement, while scientist and hauling tasks can pass through doors and then apply the configured door policy.
+
+The map now shows first-pass object occupancy: the scientist, containers, loose living creatures, and remains can appear on room cells. This is a visual/logistical foundation, not full collision or furniture placement yet.
 
 Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is.
 

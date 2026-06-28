@@ -39,7 +39,7 @@ The system should answer questions like:
 
 Existing rooms like Main Lab, Bedroom, Storage Room, Pit, Menagerie, and Collection Bay should become part of a larger expansion model instead of a fixed list forever.
 
-Current foundation: the starter lab now has a saved 1 meter tile blueprint, room footprints, door cells, BFS pathfinding, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
+Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, object occupancy glyphs, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
 
 The desired result is a lab-growth foundation that lets future systems add morgues, containment wings, ritual chambers, black market docks, incinerators, cold storage, grow rooms, power rooms, and specialized research spaces.
 

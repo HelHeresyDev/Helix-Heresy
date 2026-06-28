@@ -27,7 +27,9 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await startRun(page);
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
+  await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');
   await expect(page.locator('#roomSummary')).toContainText('Blueprint: 40 x 25 m; 6 mapped rooms');
+  await expect(page.locator('.lab-map-cell.object-cell').first()).toBeVisible();
 
   const initial = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -41,12 +43,14 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(initial.map.tileSizeM).toBe(1);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 16, y: 10, width: 12, height: 10 });
   expect(initial.map.rooms.storageRoom).toMatchObject({ x: 18, y: 5, width: 7, height: 5 });
+  expect(initial.map.rooms.pits.cells.length).toBeLessThan(initial.map.rooms.pits.width * initial.map.rooms.pits.height);
   expect(initial.map.doors['mainLab::storageRoom']).toMatchObject({
     from: { x: 21, y: 9 },
     to: { x: 21, y: 10 }
   });
   expect(initial.scientist.roomId).toBe('mainLab');
   expect(initial.scientist.mapCell).toEqual(initial.map.rooms.mainLab.anchor);
+  expect(initial.scientist.physicalPresence.moveSpeedMps).toBeGreaterThan(0);
 
   await page.locator('[data-scientist-move-room-id="storageRoom"]').click();
 
@@ -63,6 +67,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(queued.task.data.mapPath.length).toBeGreaterThan(1);
   expect(queued.task.data.toCell).toEqual(queued.storageAnchor);
   expect(queued.task.data.doorTransit.some((step) => step.fromRoomId === 'mainLab' && step.toRoomId === 'storageRoom')).toBe(true);
+  expect(queued.task.dueAt - queued.task.createdAt).toBeLessThan(60);
 
   await page.locator('#queueToggleBtn').click();
   await page.locator('#taskList .task-row').filter({ hasText: 'Move scientist to Storage Room' }).getByRole('button', { name: 'Finish' }).click();
