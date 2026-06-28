@@ -632,6 +632,23 @@ h2 {
   border-radius: 6px;
 }
 
+.room-card.selected-map-target,
+.container-card.selected-map-target,
+.room-door-row.selected-map-target {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.45);
+}
+
+.room-door-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem;
+  border: 1px solid #303329;
+  border-radius: 6px;
+}
+
 .lab-map-panel {
   display: grid;
   gap: 0.55rem;
@@ -678,6 +695,21 @@ h2 {
   font-size: 0.48rem;
   line-height: 1;
   font-weight: 700;
+}
+
+.lab-map-cell.map-clickable-cell {
+  cursor: pointer;
+}
+
+.lab-map-cell.queued-path-cell {
+  background: #26332d;
+  border-color: rgba(117, 184, 107, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(117, 184, 107, 0.18);
+}
+
+.lab-map-cell.selected-map-cell {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.7), inset 0 0 0 1px rgba(104, 200, 216, 0.35);
 }
 
 .lab-map-cell.room-cell {
@@ -755,6 +787,17 @@ h2 {
 .lab-map-cell.corpse-object-cell {
   background: #2d1f1d;
   color: var(--red);
+}
+
+.lab-map-cell.room-cell.queued-path-cell,
+.lab-map-cell.object-cell.queued-path-cell {
+  background: #26332d;
+  border-color: rgba(117, 184, 107, 0.5);
+}
+
+.lab-map-cell.selected-map-cell {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.7), inset 0 0 0 1px rgba(104, 200, 216, 0.35);
 }
 
 .lab-map-legend {
@@ -1565,7 +1608,10 @@ h2 {
 }
 
 .slime-card.focus-pulse,
-.corpse-card.focus-pulse {
+.corpse-card.focus-pulse,
+.container-card.focus-pulse,
+.room-card.focus-pulse,
+.room-door-row.focus-pulse {
   animation: entity-focus-pulse 1.35s ease-out;
 }
 

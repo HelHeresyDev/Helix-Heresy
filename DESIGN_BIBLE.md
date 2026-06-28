@@ -114,6 +114,8 @@ Map object placement is now saved instead of inferred only for display. Containe
 
 Pathfinding treats container footprints as blocked cells and routes controlled movement to usable access cells rather than onto the object tile. Container hauling records the source footprint, destination footprint, adjacent access cells, and physical path. Object placement is automatic for this prototype pass; manual furniture placement and fine-grained room capacity can come later.
 
+The blueprint is inspectable in the first pass. Hovering a tile reports its room, door, object, blocking, and route context. Clicking map cells focuses existing UI instead of creating separate map-only panels: room tiles focus room cards, door tiles focus door controls without toggling them, container footprints focus container cards, and loose creature or remains glyphs focus their existing records. Stacked-cell click priority is scientist, loose creature, corpse, container, door, then room. The map highlights the selected target and only the next queued movement or hauling path to avoid visual clutter.
+
 Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is.
 
 ## Container Compatibility

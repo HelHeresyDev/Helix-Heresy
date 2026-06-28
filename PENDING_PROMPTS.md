@@ -13,16 +13,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Lab Construction & Room Expansion System
-2. Blueprint Interaction & Spatial Readability System
-3. Door, Barrier, and Access Control System
-4. Creature Autonomous Movement & Escape Pathing System
-5. Map-Based Incident and Emergency Response System
-6. Spatial Environment Propagation System
-7. Black Market Byproduct Economy System
-8. Elemental Damage Type System
-9. Tool Durability and Damage Resistance System
-10. XP Curve and Breakthrough-Gated Skill Progression
-11. Analyze Ability & Creature Skill Evolution Follow-Up
+2. Door, Barrier, and Access Control System
+3. Creature Autonomous Movement & Escape Pathing System
+4. Map-Based Incident and Emergency Response System
+5. Spatial Environment Propagation System
+6. Black Market Byproduct Economy System
+7. Elemental Damage Type System
+8. Tool Durability and Damage Resistance System
+9. XP Curve and Breakthrough-Gated Skill Progression
+10. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
@@ -44,7 +43,7 @@ The system should answer questions like:
 
 Existing rooms like Main Lab, Bedroom, Storage Room, Pit, Menagerie, and Collection Bay should become part of a larger expansion model instead of a fixed list forever.
 
-Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, saved object placement, blocking container footprints, adjacent access paths for container hauling, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
+Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, saved object placement, blocking container footprints, adjacent access paths for container hauling, an inspectable/clickable blueprint, next queued movement path highlighting, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
 
 The desired result is a lab-growth foundation that lets future systems add morgues, containment wings, ritual chambers, black market docks, incinerators, cold storage, grow rooms, power rooms, and specialized research spaces.
 
@@ -52,31 +51,7 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 2. Blueprint Interaction & Spatial Readability System
-
-Turn the Lab Blueprint from a passive display into a readable, inspectable play surface.
-
-The blueprint already shows rooms, doors, saved object glyphs, blocking container footprints, room anchors, and a physical grid. The next step is making that information understandable and useful during normal play. The player should be able to inspect the map without memorizing glyphs or cross-referencing room panels.
-
-The system should answer questions like:
-- What happens when the player hovers over a tile?
-- What happens when the player clicks a room, door, container, loose creature, corpse, or scientist glyph?
-- How should selected objects be highlighted on the map and in the existing panels?
-- How should room boundaries, room anchors, doors, closed doors, and paths be visually distinguished?
-- Should the map show path previews before movement or hauling tasks are queued?
-- How should the blueprint communicate blocked paths, unreachable targets, or locked/sealed doors?
-- How should the legend scale as more glyph types are added?
-- How should the map stay readable when rooms become larger, irregular, crowded, or multi-purpose?
-
-This system should make the player understand where things are and why movement is happening. A container should not just be listed in a room card; the player should be able to find it spatially. A door should not just be a hidden movement rule; the player should see where it is and what state it is in.
-
-The desired result is a blueprint that supports planning. It should remain compact and prototype-friendly, but it should let the player inspect space, understand object locations, preview routes, and connect the map to the rest of the UI.
-
-Before coding, discuss the interaction model, hover/click behavior, selection behavior, path preview, glyph readability, and how much map UI polish belongs in the first pass.
-
----
-
-## 3. Door, Barrier, and Access Control System
+## 2. Door, Barrier, and Access Control System
 
 Expand doors and barriers into a fuller access-control system for the physical lab map.
 
@@ -101,7 +76,7 @@ Before coding, discuss door states, access rules, pathfinding implications, UI r
 
 ---
 
-## 4. Creature Autonomous Movement & Escape Pathing System
+## 3. Creature Autonomous Movement & Escape Pathing System
 
 Create a system for creature movement through the physical lab map.
 
@@ -125,7 +100,7 @@ Before coding, discuss movement triggers, goal selection, pathfinding, movement 
 
 ---
 
-## 5. Map-Based Incident and Emergency Response System
+## 4. Map-Based Incident and Emergency Response System
 
 Create a spatial foundation for lab incidents and emergency response.
 
@@ -149,7 +124,7 @@ Before coding, discuss incident types, location rules, emergency task flow, map 
 
 ---
 
-## 6. Spatial Environment Propagation System
+## 5. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -173,7 +148,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 6. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -199,7 +174,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 8. Elemental Damage Type System
+## 7. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -224,7 +199,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 9. Tool Durability and Damage Resistance System
+## 8. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -253,7 +228,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 10. XP Curve and Breakthrough-Gated Skill Progression
+## 9. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -318,7 +293,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 11. Analyze Ability & Creature Skill Evolution Follow-Up
+## 10. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

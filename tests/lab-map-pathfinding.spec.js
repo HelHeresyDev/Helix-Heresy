@@ -81,6 +81,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(queued.task.data.toCell).toEqual(queued.storageAnchor);
   expect(queued.task.data.doorTransit.some((step) => step.fromRoomId === 'mainLab' && step.toRoomId === 'storageRoom')).toBe(true);
   expect(queued.task.dueAt - queued.task.createdAt).toBeLessThan(60);
+  await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(queued.task.data.mapPath.length);
 
   await page.locator('#queueToggleBtn').click();
   await page.locator('#taskList .task-row').filter({ hasText: 'Move scientist to Storage Room' }).getByRole('button', { name: 'Finish' }).click();
@@ -143,4 +144,45 @@ test('container hauling reserves a footprint and routes to adjacent access cells
 
   expect(arrived.container.roomId).toBe('collectionBay');
   expect(arrived.container.mapCell).toEqual(queued.task.data.toCell);
+});
+
+test('lab blueprint clicks focus existing room door and object panels', async ({ page }) => {
+  await startRun(page);
+
+  await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
+  await expect(page.locator('[data-container-card="basic-1"]')).toHaveClass(/selected-map-target/);
+
+  let selected = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).selectedMapTarget;
+  }, { key: storageKey });
+  expect(selected).toEqual({ kind: 'container', id: 'basic-1' });
+
+  await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toHaveClass(/selected-map-target/);
+  selected = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).selectedMapTarget;
+  }, { key: storageKey });
+  expect(selected.kind).toBe('door');
+  expect(selected.key).toBe('mainLab::storageRoom');
+
+  const bedroomCell = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const bedroom = state.labMap.rooms.bedroom;
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
+      `${door.from.x},${door.from.y}`,
+      `${door.to.x},${door.to.y}`
+    ]));
+    return bedroom.cells.find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
+  }, { key: storageKey });
+
+  await page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`).click();
+  await expect(page.locator('[data-room-card="bedroom"]')).toHaveClass(/selected-map-target/);
+  selected = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).selectedMapTarget;
+  }, { key: storageKey });
+  expect(selected).toEqual({ kind: 'room', roomId: 'bedroom' });
 });

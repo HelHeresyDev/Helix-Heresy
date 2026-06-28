@@ -1737,6 +1737,7 @@
       corpses: [],
       tasks: [],
       selectedSlimeId: null,
+      selectedMapTarget: null,
       nextSlimeNumber: 1,
       nextCorpseNumber: 1,
       nextResidueNumber: 1,
@@ -4783,6 +4784,7 @@
       const row = document.createElement("div");
       row.className = "room-door-row";
       row.dataset.doorConnection = doorKey(room.id, connectedId);
+      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("door", doorKey(room.id, connectedId)));
       const stateText = textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`);
       stateText.classList.add("keyword-tooltip");
       stateText.dataset.doorStateLabel = doorKey(room.id, connectedId);
@@ -10563,6 +10565,8 @@
   function containerCardEl(container) {
     const card = document.createElement("div");
     card.className = `container-card ${container.type}`;
+    card.dataset.containerCard = container.id;
+    card.classList.toggle("selected-map-target", selectedTargetMatchesCard("container", container.id));
     const occupants = containerOccupants(container.id);
     const corpses = containerCorpses(container.id);
     const title = document.createElement("div");
@@ -14882,7 +14886,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return LAB_MAP_ROOM_ABBREVIATIONS[roomId] || roomName(roomId).slice(0, 2).toUpperCase();
   }
 
-  function labMapCellTitle(cell, map) {
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
@@ -14892,20 +14896,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (door) {
       parts.push(`${doorStateLabel(door.roomIds[0], door.roomIds[1])} door to ${door.roomIds.map(roomName).join(" / ")}`);
     }
+    if (objectEntry?.labels?.length) {
+      parts.push(objectEntry.labels.join("; "));
+    }
+    if (objectEntry?.classNames?.has?.("blocking-object-cell")) {
+      parts.push("blocks movement");
+    } else if (roomId) {
+      parts.push("walkable");
+    }
+    if (pathEntry) {
+      parts.push(`next route: ${pathEntry.label}`);
+    }
     return parts.join(" - ");
   }
 
   function labMapObjectAssignments(map) {
     ensurePhysicalObjectPlacements();
     const assignments = new Map();
-    const addCell = (cell, symbol, label, classNames = []) => {
+    const addCell = (cell, symbol, label, classNames = [], target = null) => {
       if (!cell || !mapCellInBounds(cell, map)) {
         return;
       }
       const key = mapCellKey(cell);
-      const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set() };
+      const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set(), targets: [] };
       entry.symbols.push(symbol);
       entry.labels.push(label);
+      if (target) {
+        entry.targets.push(target);
+      }
       for (const className of classNames) {
         entry.classNames.add(className);
       }
@@ -14919,27 +14937,197 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const footprintDef = containerFootprintDimensions(container);
       const label = `${container.name || "container"} footprint ${footprintDef.width}x${footprintDef.height}`;
       for (const cell of footprint) {
-        addCell(cell, "C", label, ["container-object-cell", "blocking-object-cell"]);
+        addCell(cell, "C", label, ["container-object-cell", "blocking-object-cell"], {
+          kind: "container",
+          id: container.id,
+          label: container.name || "container"
+        });
       }
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "dead" && slimeIsUncontained(slime)) {
-        addCell(objectMapCell(slime), "L", `${slime.name} loose`, ["living-object-cell"]);
+        addCell(objectMapCell(slime), "L", `${slime.name} loose`, ["living-object-cell"], {
+          kind: "slime",
+          id: slime.id,
+          label: slime.name
+        });
       }
     }
     for (const corpse of state.corpses || []) {
       if (corpse.storage === "container") {
         continue;
       }
-      addCell(objectMapCell(corpse), "R", `${corpse.name} remains`, ["corpse-object-cell"]);
+      addCell(objectMapCell(corpse), "R", `${corpse.name} remains`, ["corpse-object-cell"], {
+        kind: "corpse",
+        id: corpse.id,
+        label: `${corpse.name} remains`
+      });
     }
     return assignments;
+  }
+
+  function nextQueuedMovementPath(map = ensureLabMap()) {
+    const tasks = [...(state.tasks || [])]
+      .filter((task) => ["scientistMove", "containerHaul", "resourceHaul"].includes(task.type))
+      .sort((a, b) => a.dueAt - b.dueAt || a.createdAt - b.createdAt);
+    const task = tasks[0] || null;
+    if (!task) {
+      return { task: null, keys: new Set(), label: "" };
+    }
+    const path = task.type === "resourceHaul"
+      ? (task.data?.mapPaths || []).find((candidate) => Array.isArray(candidate) && candidate.length) || []
+      : task.data?.mapPath || [];
+    return {
+      task,
+      keys: new Set((Array.isArray(path) ? path : []).map((cell) => mapCellKey(cell)).filter(Boolean)),
+      label: task.label || "queued movement"
+    };
+  }
+
+  function selectedMapTarget() {
+    state.selectedMapTarget = normalizeMapTarget(state.selectedMapTarget);
+    return state.selectedMapTarget;
+  }
+
+  function normalizeMapTarget(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const kind = String(candidate.kind || "");
+    if (kind === "scientist") {
+      return { kind };
+    }
+    if (kind === "room") {
+      const roomId = roomById(candidate.roomId || candidate.id)?.id || "";
+      return roomId ? { kind, roomId } : null;
+    }
+    if (kind === "door") {
+      const key = doorKey(candidate.roomIds?.[0], candidate.roomIds?.[1]) || String(candidate.key || "");
+      const door = key ? labMapDoor(key) : null;
+      return door ? { kind, key: door.key, roomIds: [...door.roomIds] } : null;
+    }
+    if (kind === "container") {
+      const id = cleanContainerId(candidate.id);
+      return id && containerById(id) ? { kind, id } : null;
+    }
+    if (kind === "slime") {
+      const id = String(candidate.id || "");
+      return id && findSlime(id) ? { kind, id } : null;
+    }
+    if (kind === "corpse") {
+      const id = String(candidate.id || "");
+      return id && findCorpse(id) ? { kind, id } : null;
+    }
+    return null;
+  }
+
+  function setSelectedMapTarget(target) {
+    state.selectedMapTarget = normalizeMapTarget(target);
+  }
+
+  function selectedTargetMatchesTile(target, { roomId, door, objectEntry, scientistHere }) {
+    if (!target) {
+      return false;
+    }
+    if (target.kind === "scientist") {
+      return Boolean(scientistHere);
+    }
+    if (target.kind === "room") {
+      return roomId === target.roomId;
+    }
+    if (target.kind === "door") {
+      return door?.key === target.key;
+    }
+    return objectEntry?.targets?.some((candidate) => candidate.kind === target.kind && candidate.id === target.id) || false;
+  }
+
+  function selectedTargetMatchesCard(kind, idOrKey) {
+    const target = selectedMapTarget();
+    if (!target || target.kind !== kind) {
+      return false;
+    }
+    if (kind === "room") {
+      return target.roomId === idOrKey;
+    }
+    if (kind === "door") {
+      return target.key === idOrKey;
+    }
+    if (kind === "scientist") {
+      return true;
+    }
+    return target.id === idOrKey;
+  }
+
+  function mapTileClickTarget({ roomId, door, objectEntry, scientistHere }) {
+    if (scientistHere) {
+      return { kind: "scientist" };
+    }
+    const targets = objectEntry?.targets || [];
+    const priority = ["slime", "corpse", "container"];
+    for (const kind of priority) {
+      const target = targets.find((candidate) => candidate.kind === kind);
+      if (target) {
+        return target;
+      }
+    }
+    if (door) {
+      return { kind: "door", key: door.key, roomIds: door.roomIds };
+    }
+    if (roomId) {
+      return { kind: "room", roomId };
+    }
+    return null;
+  }
+
+  function focusMapTarget(target, options = {}) {
+    const normalized = normalizeMapTarget(target);
+    if (!normalized) {
+      return false;
+    }
+    setSelectedMapTarget(normalized);
+    if (normalized.kind === "scientist") {
+      persist();
+      render();
+      requestAnimationFrame(() => {
+        focusRoom(scientistRoomId(), options);
+      });
+      return true;
+    }
+    if (normalized.kind === "room") {
+      persist();
+      render();
+      requestAnimationFrame(() => focusRoom(normalized.roomId, options));
+      return true;
+    }
+    if (normalized.kind === "door") {
+      persist();
+      render();
+      requestAnimationFrame(() => focusDoor(normalized.key, options));
+      return true;
+    }
+    if (normalized.kind === "container") {
+      persist();
+      render();
+      requestAnimationFrame(() => focusContainer(normalized.id, options));
+      return true;
+    }
+    if (normalized.kind === "slime") {
+      focusSlime(normalized.id, options);
+      return true;
+    }
+    if (normalized.kind === "corpse") {
+      focusCorpse(normalized.id, options);
+      return true;
+    }
+    return false;
   }
 
   function labMapPanelEl() {
     const map = ensureLabMap();
     const scientistCell = scientistMapCell();
     const objectAssignments = labMapObjectAssignments(map);
+    const route = nextQueuedMovementPath(map);
+    const selectedTarget = selectedMapTarget();
     const panel = document.createElement("div");
     panel.className = "lab-map-panel subpanel";
     panel.dataset.labMapPanel = "true";
@@ -14959,21 +15147,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const cell = { x, y };
         const roomId = labMapCellRoomId(cell, map);
         const door = labMapDoorAtCell(cell, map);
+        const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
+        const objectEntry = objectAssignments.get(mapCellKey(cell));
+        const routeEntry = route.keys.has(mapCellKey(cell)) ? route : null;
+        const scientistHere = scientistCell.x === x && scientistCell.y === y;
+        const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, scientistHere });
         const tile = document.createElement("div");
         tile.className = "lab-map-cell";
         tile.dataset.mapX = String(x);
         tile.dataset.mapY = String(y);
-        tile.title = labMapCellTitle(cell, map);
+        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry);
         if (roomId) {
           tile.classList.add("room-cell", `room-${roomRole(roomId)}`);
           tile.dataset.mapRoom = roomId;
         }
         if (door) {
           tile.classList.add("door-cell", doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "door-open" : "door-closed");
+          tile.dataset.mapDoor = door.key;
         }
-        const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
-        const objectEntry = objectAssignments.get(mapCellKey(cell));
-        if (scientistCell.x === x && scientistCell.y === y) {
+        if (routeEntry) {
+          tile.classList.add("queued-path-cell");
+          tile.dataset.mapQueuedPath = routeEntry.task?.id || "next";
+        }
+        if (selectedTargetMatchesTile(selectedTarget, { roomId, door, objectEntry, scientistHere })) {
+          tile.classList.add("selected-map-cell");
+        }
+        if (clickTarget) {
+          tile.classList.add("map-clickable-cell");
+          tile.dataset.mapTargetKind = clickTarget.kind;
+          if (clickTarget.id) {
+            tile.dataset.mapTargetId = clickTarget.id;
+          }
+          if (clickTarget.roomId) {
+            tile.dataset.mapTargetRoom = clickTarget.roomId;
+          }
+          if (clickTarget.key) {
+            tile.dataset.mapTargetDoor = clickTarget.key;
+          }
+          tile.addEventListener("click", () => focusMapTarget(clickTarget));
+        }
+        if (scientistHere) {
           tile.classList.add("scientist-cell");
           tile.textContent = "S";
           tile.title += " - Scientist";
@@ -14994,7 +15207,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("room letters = room anchor"), chip("x = closed door"));
+    legend.append(chip("S = scientist"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"));
     panel.append(legend);
     return panel;
   }
@@ -15011,6 +15224,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const room of state.rooms) {
       const card = document.createElement("div");
       card.className = `room-card room-${room.role || "custom"}`;
+      card.dataset.roomCard = room.id;
+      card.classList.toggle("selected-map-target", selectedTargetMatchesCard("room", room.id));
       const title = document.createElement("div");
       title.className = "room-title";
       title.append(textEl("strong", room.name), textEl("span", roomOccupancySummary(room.id)));
@@ -19796,6 +20011,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     state.selectedSlimeId = slime.id;
+    setSelectedMapTarget({ kind: "slime", id: slime.id });
     persist();
     render();
     requestAnimationFrame(() => {
@@ -19809,17 +20025,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!corpse) {
       return;
     }
+    setSelectedMapTarget({ kind: "corpse", id: corpse.id });
+    persist();
+    render();
     requestAnimationFrame(() => {
       const card = elementByDataset("corpseCard", corpse.id);
       focusEntityCard(card, options);
     });
   }
 
+  function focusRoom(roomId, options = {}) {
+    const room = roomById(roomId);
+    if (!room) {
+      return;
+    }
+    focusEntityCard(elementByDataset("roomCard", room.id), options);
+  }
+
+  function focusDoor(key, options = {}) {
+    const door = labMapDoor(key);
+    if (!door) {
+      return;
+    }
+    const row = elementByDataset("doorConnection", door.key);
+    focusEntityCard(row, options);
+  }
+
+  function focusContainer(containerId, options = {}) {
+    const container = containerById(containerId);
+    if (!container) {
+      return;
+    }
+    focusEntityCard(elementByDataset("containerCard", container.id), options);
+  }
+
   function focusEntityCard(card, options = {}) {
     if (!card) {
       return;
     }
-    const container = card.closest(".slime-list, .corpse-list");
+    const container = card.closest(".slime-list, .corpse-list, .container-list, .room-list");
     const behavior = options.animate === false ? "auto" : "smooth";
     if (container) {
       scrollCardWithinContainer(container, card, behavior);
@@ -20059,6 +20303,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     try {
       state = next;
       ensurePhysicalObjectPlacements();
+      next.selectedMapTarget = normalizeMapTarget(next.selectedMapTarget);
     } finally {
       state = previousState;
     }
