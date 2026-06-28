@@ -13,11 +13,17 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Lab Construction & Room Expansion System
-2. Black Market Byproduct Economy System
-3. Elemental Damage Type System
-4. Tool Durability and Damage Resistance System
-5. XP Curve and Breakthrough-Gated Skill Progression
-6. Analyze Ability & Creature Skill Evolution Follow-Up
+2. Blueprint Interaction & Spatial Readability System
+3. Object Placement, Occupancy, and Room Capacity System
+4. Door, Barrier, and Access Control System
+5. Creature Autonomous Movement & Escape Pathing System
+6. Map-Based Incident and Emergency Response System
+7. Spatial Environment Propagation System
+8. Black Market Byproduct Economy System
+9. Elemental Damage Type System
+10. Tool Durability and Damage Resistance System
+11. XP Curve and Breakthrough-Gated Skill Progression
+12. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
@@ -47,11 +53,158 @@ Before coding, discuss the construction model, room unlock flow, layout represen
 
 ---
 
-## 2. Black Market Byproduct Economy System
+## 2. Blueprint Interaction & Spatial Readability System
+
+Turn the Lab Blueprint from a passive display into a readable, inspectable play surface.
+
+The blueprint already shows rooms, doors, object glyphs, room anchors, and a physical grid. The next step is making that information understandable and useful during normal play. The player should be able to inspect the map without memorizing glyphs or cross-referencing room panels.
+
+The system should answer questions like:
+- What happens when the player hovers over a tile?
+- What happens when the player clicks a room, door, container, loose creature, corpse, or scientist glyph?
+- How should selected objects be highlighted on the map and in the existing panels?
+- How should room boundaries, room anchors, doors, closed doors, and paths be visually distinguished?
+- Should the map show path previews before movement or hauling tasks are queued?
+- How should the blueprint communicate blocked paths, unreachable targets, or locked/sealed doors?
+- How should the legend scale as more glyph types are added?
+- How should the map stay readable when rooms become larger, irregular, crowded, or multi-purpose?
+
+This system should make the player understand where things are and why movement is happening. A container should not just be listed in a room card; the player should be able to find it spatially. A door should not just be a hidden movement rule; the player should see where it is and what state it is in.
+
+The desired result is a blueprint that supports planning. It should remain compact and prototype-friendly, but it should let the player inspect space, understand object locations, preview routes, and connect the map to the rest of the UI.
+
+Before coding, discuss the interaction model, hover/click behavior, selection behavior, path preview, glyph readability, and how much map UI polish belongs in the first pass.
+
+---
+
+## 3. Object Placement, Occupancy, and Room Capacity System
+
+Create a stronger foundation for placing physical objects on the lab blueprint.
+
+The map now shows the scientist, containers, loose living creatures, and remains. This prompt should make those positions more consistent and meaningful. Objects should occupy actual map cells in a way that supports future hauling, crowding, containment incidents, construction, cleanup, and room logistics.
+
+The system should answer questions like:
+- How is an object's map cell chosen when it is created, moved, released, killed, dropped, or hauled?
+- Do containers, remains, loose creatures, and future furniture block tiles?
+- How should small objects, large objects, and multi-tile objects be represented?
+- What happens when a room becomes crowded?
+- How should the game pick fallback cells if the ideal destination is occupied?
+- How should objects be grouped or stacked when many items are in the same room?
+- Should containers have an exact tile while their contained creatures remain inside the container instead of occupying their own tile?
+- How should the UI communicate occupancy without overwhelming the room cards?
+
+Object placement should support the fiction that the laboratory is physical. A corpse in the Pits, a container in Collection Bay, and a loose creature in Main Lab should not feel like abstract list entries. They should have locations that future systems can use.
+
+This system should also avoid turning the prototype into a furniture-placement simulator too early. The goal is reliable spatial bookkeeping and readable object placement, not detailed interior decoration.
+
+The desired result is a map occupancy model that can support future construction, path blocking, accidents, hauling, creature movement, cleanup, and room capacity without rewriting object placement later.
+
+Before coding, discuss object placement rules, blocking rules, fallback placement, crowding, large objects, and how occupancy should be represented in saves and tests.
+
+---
+
+## 4. Door, Barrier, and Access Control System
+
+Expand doors and barriers into a fuller access-control system for the physical lab map.
+
+Closed doors already matter, and movement tasks can pass through doors according to door policy. As the lab becomes more spatial, doors should become more than simple open/closed markers. They should support containment, safety, secrecy, routing, construction, and emergency response.
+
+The system should answer questions like:
+- What door states should exist: open, closed, locked, sealed, blocked, damaged, powered, warded, or breached?
+- Which actors can open which doors?
+- Can loose creatures open doors, squeeze through gaps, break doors, corrode doors, short doors, or bypass barriers?
+- How should scientist movement, container hauling, material hauling, and creature movement treat door states differently?
+- How should door policy interact with locked or sealed doors?
+- Can rooms be emergency-sealed?
+- How should barriers differ from doors?
+- How should the UI show access state without becoming cluttered?
+- How should pathfinding explain why a route is blocked?
+
+This system should make lab layout matter. A closed bedroom door, sealed Collection Bay door, containment wing gate, damaged barrier, or emergency lock should all create different implications for movement and risk.
+
+The desired result is a door and barrier foundation that can support construction, containment, escapes, raids, emergency lockdowns, room hazards, and creature autonomy while still remaining understandable in the current prototype.
+
+Before coding, discuss door states, access rules, pathfinding implications, UI readouts, emergency sealing, and how much creature-door interaction belongs in the first pass.
+
+---
+
+## 5. Creature Autonomous Movement & Escape Pathing System
+
+Create a system for creature movement through the physical lab map.
+
+Creatures now have movement speed, and the lab has real map paths. The next step is giving loose or uncontrolled creatures reasons to move and rules for how they move. Movement should be grounded in the map instead of abstractly jumping between rooms.
+
+The system should answer questions like:
+- When does a creature become loose or uncontrolled?
+- What makes a creature wander, flee, pursue food, seek shelter, approach heat, avoid hazards, follow the scientist, or attempt escape?
+- How does movement speed affect actual travel time?
+- How do shape, body consistency, appendages, element, weight, and condition affect movement behavior?
+- How do doors, barriers, sealed rooms, blocked paths, and room hazards affect creature pathing?
+- How should unintelligent creatures choose goals differently from intelligent creatures?
+- How should the UI show a creature's route or current intent?
+- How should movement interact with containment incidents, hunger, stress, pain, fear, and job assignments?
+
+This system should not make all slimes behave like tactical enemies. A loose slime might simply drift, ooze toward feedstock, hide in damp corners, press against a door, or fail to move because its body is poorly suited to the terrain. Faster, smarter, more aggressive, or more desperate creatures can become more dangerous later.
+
+The desired result is a creature movement foundation where escaped or loose creatures occupy space, move over time, use the map, and create logistical problems that future incident, combat, containment, and security systems can build on.
+
+Before coding, discuss movement triggers, goal selection, pathfinding, movement timing, door interaction, UI intent display, and how to keep the first implementation small enough for the current prototype.
+
+---
+
+## 6. Map-Based Incident and Emergency Response System
+
+Create a spatial foundation for lab incidents and emergency response.
+
+As rooms, creatures, containers, doors, and remains become physical map objects, accidents should eventually happen in places rather than only in abstract room panels. An escaped slime, broken container, hazardous spill, corpse overflow, door failure, or room contamination event should have a location and should create map-aware responses.
+
+The system should answer questions like:
+- What kinds of incidents should be spatial first?
+- How is an incident location chosen?
+- How does the scientist respond to an incident using the physical path system?
+- Can the player queue emergency movement, containment response, cleanup, sealing, or evacuation?
+- How should doors and barriers affect emergency response?
+- How should incidents affect nearby containers, loose creatures, remains, tools, and room conditions?
+- How should the UI communicate incident location and urgency?
+- Should incidents spread tile-by-tile, room-by-room, or by abstract room effect in the first pass?
+
+The goal is not to build every disaster system at once. The goal is to make incidents map-aware so future systems do not have to retrofit spatial logic later. A containment breach in Collection Bay should feel different from one in the Bedroom or Pits because objects, paths, doors, and room conditions differ.
+
+The desired result is a small but solid emergency framework: incidents can have locations, can be surfaced on the blueprint, can trigger or request response tasks, and can use physical paths to resolve response timing.
+
+Before coding, discuss incident types, location rules, emergency task flow, map highlights, spread model, and how much danger should exist in the first implementation.
+
+---
+
+## 7. Spatial Environment Propagation System
+
+Create a system for room attributes and hazards to propagate through the physical lab layout.
+
+The prototype already tracks room attributes such as temperature, light, ambient mana, moisture, contamination, and electrical charge. The physical map now makes adjacency, doors, vents, drains, and room boundaries meaningful. Environmental effects should eventually move through space instead of existing only as isolated room values.
+
+The system should answer questions like:
+- Which attributes can propagate between rooms or tiles?
+- Do heat, cold, contamination, moisture, fumes, electrical charge, or mana spread differently?
+- How do open doors, closed doors, sealed doors, vents, drains, cracks, and room materials affect propagation?
+- Should propagation be tile-based, room-based, or hybrid in the first implementation?
+- How should the UI show environmental gradients or spread warnings?
+- How do containers, loose creatures, corpses, spills, and apparatus contribute to local environment changes?
+- How should passive recovery interact with propagation?
+- How should environmental spread affect containment, creature condition, byproduct collection, tool durability, and lab safety?
+
+This system should make lab layout and infrastructure matter. A hot room next to a cold room, a contaminated pit connected to a clean lab, or a fume-producing specimen under poor ventilation should create spatial consequences.
+
+The desired result is an environmental propagation foundation that can later support ventilation systems, sealed rooms, drainage, contamination cleanup, fume hazards, electrical hazards, mana leaks, and room construction upgrades.
+
+Before coding, discuss which room attributes should propagate first, whether propagation should be room-level or tile-level, how doors and future infrastructure should modify spread, and how to keep the UI readable.
+
+---
+
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
-The black market should make the lab’s strange outputs economically meaningful. Natural byproducts, harvested specimen materials, corpses, preserved tissues, commissioned creatures, and services can eventually become sources of money, reputation, suspicion, and risk.
+The black market should make the lab's strange outputs economically meaningful. Natural byproducts, harvested specimen materials, corpses, preserved tissues, commissioned creatures, and services can eventually become sources of money, reputation, suspicion, and risk.
 
 This system should begin with byproducts because Collection Bay and byproduct coherence create a natural production pipeline. The market should care about what the substance is, how rare or dangerous it is, how pure or fresh it is, how much the buyer wants it, and how risky it is to move.
 
@@ -62,7 +215,7 @@ The system should answer questions like:
 - How does selling affect black market reputation?
 - How does selling affect Suspicion?
 - How are commissions different from freeform sales?
-- How does the market avoid becoming a simple “sell all” button?
+- How does the market avoid becoming a simple "sell all" button?
 - How does the UI keep deals readable and flavorful?
 
 The black market should feel illegal, useful, and dangerous. Selling weird substances should help fund the lab, but also create evidence trails, relationships, expectations, and exposure.
@@ -73,9 +226,9 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 3. Elemental Damage Type System
+## 9. Elemental Damage Type System
 
-Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime’s element or biological output.
+Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
 The core idea is that elemental identity should matter mechanically. An acid slime should threaten things with acid damage. A fire slime should threaten things with heat or burn damage. An electric slime should threaten things with electrical damage. A cold slime should threaten things with freezing damage. A metal or stone slime may threaten things through physical abrasion, crushing, or impact rather than chemical damage.
 
@@ -90,7 +243,7 @@ The system should answer questions like:
 - How should the UI communicate damage type without exposing hidden formulas?
 - How should damage type connect to future container wear, tool durability, room damage, injuries, combat, and harvesting?
 
-Damage types should feel biological and material, not just RPG labels. “Acid damage” means corrosion, chemical burns, dissolving tissue, and eating through unsuitable materials. “Electric damage” means shocks, arcs, nerve disruption, and stress on conductive tools. “Heat damage” means burns, drying, melting, or ignition. “Cold damage” means freezing, brittleness, numbness, or condensation. Physical damage may include crushing, tearing, scraping, piercing, or abrasion depending on the slime.
+Damage types should feel biological and material, not just RPG labels. "Acid damage" means corrosion, chemical burns, dissolving tissue, and eating through unsuitable materials. "Electric damage" means shocks, arcs, nerve disruption, and stress on conductive tools. "Heat damage" means burns, drying, melting, or ignition. "Cold damage" means freezing, brittleness, numbness, or condensation. Physical damage may include crushing, tearing, scraping, piercing, or abrasion depending on the slime.
 
 The desired result is a clear elemental damage vocabulary that future systems can reuse. Once this exists, equipment, containers, tools, rooms, and creatures can have resistances or vulnerabilities that make biological compatibility more meaningful.
 
@@ -98,7 +251,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 4. Tool Durability and Damage Resistance System
+## 10. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -127,39 +280,39 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 5. XP Curve and Breakthrough-Gated Skill Progression
+## 11. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
 The effective skill level cap should be around level 320. Skills should progress through tier bands:
 
-- Initiate: levels 1–50
-- Novice: levels 51–100
-- Adept: levels 101–150
-- Master: levels 151–200
-- Heroic: levels 201–250
-- Legendary: levels 251–300
-- Divine: levels 301–320+
+- Initiate: levels 1-50
+- Novice: levels 51-100
+- Adept: levels 101-150
+- Master: levels 151-200
+- Heroic: levels 201-250
+- Legendary: levels 251-300
+- Divine: levels 301-320+
 
 Normal levels should feel achievable through regular practice, but crossing into a new tier should require a breakthrough. Breakthroughs should happen at:
 
-- 0 → 1
-- 50 → 51
-- 100 → 101
-- 150 → 151
-- 200 → 201
-- 250 → 251
-- 300 → 301
+- 0 -> 1
+- 50 -> 51
+- 100 -> 101
+- 150 -> 151
+- 200 -> 201
+- 250 -> 251
+- 300 -> 301
 
 A breakthrough should require unusually concentrated progress. The XP required to cross a threshold should be based on the XP cost of a level 20 levels higher. For example:
 
-- 0 → 1 should cost about as much as 20 → 21
-- 50 → 51 should cost about as much as 70 → 71
-- 100 → 101 should cost about as much as 120 → 121
-- 150 → 151 should cost about as much as 170 → 171
-- 200 → 201 should cost about as much as 220 → 221
-- 250 → 251 should cost about as much as 270 → 271
-- 300 → 301 should cost about as much as 320 → 321
+- 0 -> 1 should cost about as much as 20 -> 21
+- 50 -> 51 should cost about as much as 70 -> 71
+- 100 -> 101 should cost about as much as 120 -> 121
+- 150 -> 151 should cost about as much as 170 -> 171
+- 200 -> 201 should cost about as much as 220 -> 221
+- 250 -> 251 should cost about as much as 270 -> 271
+- 300 -> 301 should cost about as much as 320 -> 321
 
 This should make tier advancement feel like a real barrier without making every ordinary level painfully slow.
 
@@ -173,7 +326,7 @@ This system should answer questions like:
 - Does decay happen over real time, game time, missed practice opportunities, or unrelated activity?
 - Do difficult challenges give breakthrough-favorable XP?
 - Can low-risk repetitive grinding cross a breakthrough, or only maintain progress?
-- How does 0 → 1 work for hidden pre-skill practice?
+- How does 0 -> 1 work for hidden pre-skill practice?
 - Does crossing a breakthrough immediately trigger skill evolution or only unlock the next tier?
 - How should the UI show threshold progress without making the system feel like a spreadsheet?
 
@@ -192,7 +345,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 6. Analyze Ability & Creature Skill Evolution Follow-Up
+## 12. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
