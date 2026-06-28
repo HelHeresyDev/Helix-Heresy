@@ -632,6 +632,109 @@ h2 {
   border-radius: 6px;
 }
 
+.lab-map-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  margin-top: 0;
+  background: #151610;
+  border: 1px solid #303329;
+  border-radius: 6px;
+}
+
+.lab-map-header,
+.lab-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.7rem;
+}
+
+.lab-map-header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.lab-map-grid {
+  display: grid;
+  gap: 1px;
+  padding: 0.35rem;
+  background: #090a08;
+  border: 1px solid #282a22;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.lab-map-cell {
+  aspect-ratio: 1;
+  min-width: 0.55rem;
+  display: grid;
+  place-items: center;
+  background: #0f100d;
+  color: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-size: 0.48rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.lab-map-cell.room-cell {
+  background: #1d2119;
+  border-color: #2c3128;
+  color: rgba(242, 240, 232, 0.68);
+}
+
+.lab-map-cell.room-mainLab {
+  background: #22251d;
+}
+
+.lab-map-cell.room-livingStorage {
+  background: #1a261d;
+}
+
+.lab-map-cell.room-corpseProcessing {
+  background: #251c1a;
+}
+
+.lab-map-cell.room-restRecovery {
+  background: #202234;
+}
+
+.lab-map-cell.room-materialStorage {
+  background: #252318;
+}
+
+.lab-map-cell.room-byproductCollection {
+  background: #1a2427;
+}
+
+.lab-map-cell.door-cell {
+  border-color: var(--amber);
+  box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.28);
+}
+
+.lab-map-cell.door-closed {
+  background: #39221f;
+  color: #ffb8a8;
+}
+
+.lab-map-cell.room-anchor {
+  color: var(--text);
+}
+
+.lab-map-cell.scientist-cell {
+  background: var(--cyan);
+  border-color: #bdefff;
+  color: #08110f;
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.45), 0 0 12px rgba(104, 200, 216, 0.35);
+}
+
+.lab-map-legend {
+  justify-content: flex-start;
+}
+
 .container-card {
   display: grid;
   gap: 0.5rem;

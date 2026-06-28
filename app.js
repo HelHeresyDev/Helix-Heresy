@@ -44,6 +44,32 @@
   const COLLECTION_BAY_ROOM_ID = "collectionBay";
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
+  const LAB_MAP_TILE_SIZE_M = 1;
+  const LAB_MAP_DEFAULT_WIDTH = 40;
+  const LAB_MAP_DEFAULT_HEIGHT = 25;
+  const LAB_MAP_ROOM_RECTS = {
+    [MAIN_ROOM_ID]: { x: 16, y: 10, width: 12, height: 10 },
+    [MENAGERIE_ROOM_ID]: { x: 2, y: 11, width: 14, height: 8 },
+    [PITS_ROOM_ID]: { x: 28, y: 16, width: 11, height: 8 },
+    [BEDROOM_ROOM_ID]: { x: 19, y: 20, width: 5, height: 4 },
+    [STORAGE_ROOM_ID]: { x: 18, y: 5, width: 7, height: 5 },
+    [COLLECTION_BAY_ROOM_ID]: { x: 28, y: 10, width: 9, height: 6 }
+  };
+  const LAB_MAP_DOOR_DEFS = [
+    { roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], from: { x: 15, y: 15 }, to: { x: 16, y: 15 } },
+    { roomIds: [STORAGE_ROOM_ID, MAIN_ROOM_ID], from: { x: 21, y: 9 }, to: { x: 21, y: 10 } },
+    { roomIds: [BEDROOM_ROOM_ID, MAIN_ROOM_ID], from: { x: 21, y: 20 }, to: { x: 21, y: 19 } },
+    { roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], from: { x: 28, y: 13 }, to: { x: 27, y: 13 } },
+    { roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], from: { x: 28, y: 18 }, to: { x: 27, y: 18 } }
+  ];
+  const LAB_MAP_ROOM_ABBREVIATIONS = {
+    [MAIN_ROOM_ID]: "ML",
+    [MENAGERIE_ROOM_ID]: "MN",
+    [PITS_ROOM_ID]: "PT",
+    [BEDROOM_ROOM_ID]: "BD",
+    [STORAGE_ROOM_ID]: "ST",
+    [COLLECTION_BAY_ROOM_ID]: "CB"
+  };
   const DOOR_POLICY_DEFS = [
     { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
     { id: "leaveOpenAfterUse", label: "Leave open after use", description: "Movement opens doors as needed and leaves them open afterward." },
@@ -1678,6 +1704,7 @@
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
+      labMap: defaultLabMap(),
       roomObservations: {},
       doors: defaultDoors(),
       containers: defaultContainers(),
@@ -1718,6 +1745,7 @@
   function defaultScientist() {
     return {
       roomId: MAIN_ROOM_ID,
+      mapCell: scientistDefaultMapCell(MAIN_ROOM_ID),
       physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
       physicalState: defaultScientistPhysicalState(),
       vitals: {
@@ -1809,6 +1837,32 @@
       }
     }
     return doors;
+  }
+
+  function defaultLabMap() {
+    const rooms = {};
+    for (const room of ROOM_BASE_DEFS) {
+      rooms[room.id] = normalizeLabMapRoom({
+        ...(LAB_MAP_ROOM_RECTS[room.id] || {}),
+        roomId: room.id
+      }, room);
+    }
+    const doors = {};
+    for (const doorDef of LAB_MAP_DOOR_DEFS) {
+      const key = doorKey(doorDef.roomIds[0], doorDef.roomIds[1]);
+      if (!key) {
+        continue;
+      }
+      doors[key] = normalizeLabMapDoor({ ...doorDef, key }, key);
+    }
+    return {
+      version: 1,
+      tileSizeM: LAB_MAP_TILE_SIZE_M,
+      width: LAB_MAP_DEFAULT_WIDTH,
+      height: LAB_MAP_DEFAULT_HEIGHT,
+      rooms,
+      doors
+    };
   }
 
 
@@ -3675,6 +3729,326 @@
     return roomById(roomId)?.roleLabel || "Custom room";
   }
 
+  function cleanMapCell(candidate) {
+    const x = Math.round(Number(candidate?.x));
+    const y = Math.round(Number(candidate?.y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  function clampMapCellToRect(cell, rect) {
+    const clean = cleanMapCell(cell) || roomCenterCell(rect);
+    return {
+      x: clamp(clean.x, rect.x, rect.x + rect.width - 1),
+      y: clamp(clean.y, rect.y, rect.y + rect.height - 1)
+    };
+  }
+
+  function roomCenterCell(rect) {
+    return {
+      x: Math.round(rect.x + (rect.width - 1) / 2),
+      y: Math.round(rect.y + (rect.height - 1) / 2)
+    };
+  }
+
+  function normalizeLabMapRoom(candidate, room = null) {
+    const roomId = cleanRoomId(candidate?.roomId || room?.id) || MAIN_ROOM_ID;
+    const fallbackRect = LAB_MAP_ROOM_RECTS[roomId] || {};
+    const geometry = normalizeRoomGeometry(room?.geometry || ROOM_BASE_DEF_BY_ID[roomId]?.geometry);
+    const width = clamp(
+      Math.round(Number(candidate?.width ?? candidate?.w ?? fallbackRect.width ?? geometry.lengthM)),
+      1,
+      80
+    );
+    const height = clamp(
+      Math.round(Number(candidate?.height ?? candidate?.h ?? fallbackRect.height ?? geometry.widthM)),
+      1,
+      80
+    );
+    const x = Math.round(Number(candidate?.x ?? fallbackRect.x ?? 0));
+    const y = Math.round(Number(candidate?.y ?? fallbackRect.y ?? 0));
+    const rect = {
+      roomId,
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0,
+      width,
+      height
+    };
+    rect.anchor = clampMapCellToRect(candidate?.anchor, rect);
+    return rect;
+  }
+
+  function normalizeLabMapDoor(candidate, fallbackKey = "") {
+    const key = doorKey(candidate?.roomIds?.[0], candidate?.roomIds?.[1]) || fallbackKey;
+    const roomIds = doorRoomIdsFromKey(key);
+    if (roomIds.length !== 2) {
+      return null;
+    }
+    const from = cleanMapCell(candidate?.from || candidate?.a);
+    const to = cleanMapCell(candidate?.to || candidate?.b);
+    if (!from || !to || Math.abs(from.x - to.x) + Math.abs(from.y - to.y) !== 1) {
+      return null;
+    }
+    return { key, roomIds, from, to };
+  }
+
+  function normalizeLabMap(candidate, roomsOverride = null) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const fallback = defaultLabMap();
+    const rooms = Array.isArray(roomsOverride) && roomsOverride.length
+      ? roomsOverride
+      : Array.isArray(state?.rooms) && state.rooms.length
+        ? state.rooms
+        : defaultRooms();
+    const normalizedRooms = {};
+    for (const room of rooms) {
+      const existing = source.rooms?.[room.id] || fallback.rooms?.[room.id] || {};
+      normalizedRooms[room.id] = normalizeLabMapRoom({ ...existing, roomId: room.id }, room);
+    }
+    let width = Math.max(1, Math.round(Number(source.width) || fallback.width || LAB_MAP_DEFAULT_WIDTH));
+    let height = Math.max(1, Math.round(Number(source.height) || fallback.height || LAB_MAP_DEFAULT_HEIGHT));
+    for (const room of Object.values(normalizedRooms)) {
+      width = Math.max(width, room.x + room.width + 1);
+      height = Math.max(height, room.y + room.height + 1);
+    }
+    const normalizedDoors = {};
+    for (const room of rooms) {
+      for (const connectedId of room.connections || []) {
+        const key = doorKey(room.id, connectedId);
+        if (!key || normalizedDoors[key]) {
+          continue;
+        }
+        const door = normalizeLabMapDoor(source.doors?.[key] || fallback.doors?.[key], key)
+          || inferLabMapDoorBetweenRooms(room.id, connectedId, normalizedRooms, key);
+        if (door) {
+          normalizedDoors[key] = door;
+        }
+      }
+    }
+    return {
+      version: 1,
+      tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
+      width,
+      height,
+      rooms: normalizedRooms,
+      doors: normalizedDoors
+    };
+  }
+
+  function inferLabMapDoorBetweenRooms(roomAId, roomBId, rooms, key = "") {
+    const a = rooms?.[roomAId];
+    const b = rooms?.[roomBId];
+    if (!a || !b) {
+      return null;
+    }
+    const verticalTouch = a.x + a.width === b.x || b.x + b.width === a.x;
+    const horizontalOverlapStart = Math.max(a.y, b.y);
+    const horizontalOverlapEnd = Math.min(a.y + a.height - 1, b.y + b.height - 1);
+    if (verticalTouch && horizontalOverlapStart <= horizontalOverlapEnd) {
+      const y = Math.round((horizontalOverlapStart + horizontalOverlapEnd) / 2);
+      const fromLeft = a.x + a.width === b.x;
+      return normalizeLabMapDoor({
+        roomIds: [roomAId, roomBId],
+        from: { x: fromLeft ? a.x + a.width - 1 : a.x, y },
+        to: { x: fromLeft ? b.x : b.x + b.width - 1, y }
+      }, key);
+    }
+    const horizontalTouch = a.y + a.height === b.y || b.y + b.height === a.y;
+    const verticalOverlapStart = Math.max(a.x, b.x);
+    const verticalOverlapEnd = Math.min(a.x + a.width - 1, b.x + b.width - 1);
+    if (horizontalTouch && verticalOverlapStart <= verticalOverlapEnd) {
+      const x = Math.round((verticalOverlapStart + verticalOverlapEnd) / 2);
+      const fromAbove = a.y + a.height === b.y;
+      return normalizeLabMapDoor({
+        roomIds: [roomAId, roomBId],
+        from: { x, y: fromAbove ? a.y + a.height - 1 : a.y },
+        to: { x, y: fromAbove ? b.y : b.y + b.height - 1 }
+      }, key);
+    }
+    return null;
+  }
+
+  function scientistDefaultMapCell(roomId = MAIN_ROOM_ID) {
+    const rect = LAB_MAP_ROOM_RECTS[roomId] || LAB_MAP_ROOM_RECTS[MAIN_ROOM_ID];
+    return roomCenterCell({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  }
+
+  function ensureLabMap() {
+    state.rooms = normalizeRooms(state.rooms);
+    state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    return state.labMap;
+  }
+
+  function labMapRoom(roomId, map = ensureLabMap()) {
+    return map.rooms?.[roomId] || map.rooms?.[MAIN_ROOM_ID] || null;
+  }
+
+  function labMapDoor(key, map = ensureLabMap()) {
+    return map.doors?.[key] || null;
+  }
+
+  function mapCellKey(cell) {
+    return `${cell.x},${cell.y}`;
+  }
+
+  function mapCellInBounds(cell, map = ensureLabMap()) {
+    return cell && cell.x >= 0 && cell.y >= 0 && cell.x < map.width && cell.y < map.height;
+  }
+
+  function mapCellInRoomRect(cell, rect) {
+    return Boolean(rect && cell && cell.x >= rect.x && cell.x < rect.x + rect.width && cell.y >= rect.y && cell.y < rect.y + rect.height);
+  }
+
+  function labMapCellRoomId(cell, map = ensureLabMap()) {
+    if (!mapCellInBounds(cell, map)) {
+      return "";
+    }
+    for (const room of Object.values(map.rooms || {})) {
+      if (mapCellInRoomRect(cell, room)) {
+        return room.roomId;
+      }
+    }
+    return "";
+  }
+
+  function labMapRoomAnchor(roomId, map = ensureLabMap()) {
+    const room = labMapRoom(roomId, map);
+    return room ? clampMapCellToRect(room.anchor, room) : scientistDefaultMapCell(MAIN_ROOM_ID);
+  }
+
+  function normalizeMapCellForRoom(candidate, roomId, map = ensureLabMap()) {
+    const room = labMapRoom(roomId, map);
+    if (!room) {
+      return scientistDefaultMapCell(MAIN_ROOM_ID);
+    }
+    const clean = cleanMapCell(candidate);
+    if (clean && mapCellInRoomRect(clean, room)) {
+      return clean;
+    }
+    return labMapRoomAnchor(roomId, map);
+  }
+
+  function scientistMapCell() {
+    const map = ensureLabMap();
+    state.scientist = normalizeScientist(state.scientist);
+    state.scientist.mapCell = normalizeMapCellForRoom(state.scientist.mapCell, state.scientist.roomId || MAIN_ROOM_ID, map);
+    return state.scientist.mapCell;
+  }
+
+  function labMapDoorForCells(cellA, cellB, map = ensureLabMap()) {
+    for (const door of Object.values(map.doors || {})) {
+      if ((door.from.x === cellA.x && door.from.y === cellA.y && door.to.x === cellB.x && door.to.y === cellB.y)
+        || (door.to.x === cellA.x && door.to.y === cellA.y && door.from.x === cellB.x && door.from.y === cellB.y)) {
+        return door;
+      }
+    }
+    return null;
+  }
+
+  function labMapDoorAtCell(cell, map = ensureLabMap()) {
+    return Object.values(map.doors || {}).find((door) =>
+      (door.from.x === cell.x && door.from.y === cell.y) || (door.to.x === cell.x && door.to.y === cell.y)
+    ) || null;
+  }
+
+  function labMapNeighborCells(cell, options = {}) {
+    const map = options.map || ensureLabMap();
+    const roomId = labMapCellRoomId(cell, map);
+    if (!roomId) {
+      return [];
+    }
+    const candidates = [
+      { x: cell.x + 1, y: cell.y },
+      { x: cell.x - 1, y: cell.y },
+      { x: cell.x, y: cell.y + 1 },
+      { x: cell.x, y: cell.y - 1 }
+    ];
+    return candidates.filter((candidate) => {
+      const nextRoomId = labMapCellRoomId(candidate, map);
+      if (!nextRoomId) {
+        return false;
+      }
+      if (nextRoomId === roomId) {
+        return true;
+      }
+      const door = labMapDoorForCells(cell, candidate, map);
+      return Boolean(door && (options.ignoreDoors || doorIsOpen(door.roomIds[0], door.roomIds[1])));
+    });
+  }
+
+  function labMapPathBetweenCells(startCell, endCell, options = {}) {
+    const map = options.map || ensureLabMap();
+    const start = cleanMapCell(startCell);
+    const end = cleanMapCell(endCell);
+    if (!start || !end || !labMapCellRoomId(start, map) || !labMapCellRoomId(end, map)) {
+      return [];
+    }
+    if (start.x === end.x && start.y === end.y) {
+      return [start];
+    }
+    const queue = [[start]];
+    const visited = new Set([mapCellKey(start)]);
+    while (queue.length) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+      for (const next of labMapNeighborCells(current, { ...options, map })) {
+        const key = mapCellKey(next);
+        if (visited.has(key)) {
+          continue;
+        }
+        const nextPath = [...path, next];
+        if (next.x === end.x && next.y === end.y) {
+          return nextPath;
+        }
+        visited.add(key);
+        queue.push(nextPath);
+      }
+    }
+    return [];
+  }
+
+  function roomPathBetween(fromRoomId, toRoomId, options = {}) {
+    const map = options.map || ensureLabMap();
+    const startRoomId = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
+    const targetRoomId = roomById(toRoomId)?.id || MAIN_ROOM_ID;
+    const start = options.fromCell ? normalizeMapCellForRoom(options.fromCell, startRoomId, map) : labMapRoomAnchor(startRoomId, map);
+    const end = options.toCell ? normalizeMapCellForRoom(options.toCell, targetRoomId, map) : labMapRoomAnchor(targetRoomId, map);
+    return labMapPathBetweenCells(start, end, { ...options, map });
+  }
+
+  function roomsFromMapPath(path, map = ensureLabMap()) {
+    const roomIds = [];
+    for (const cell of path || []) {
+      const roomId = labMapCellRoomId(cell, map);
+      if (roomId && roomIds[roomIds.length - 1] !== roomId) {
+        roomIds.push(roomId);
+      }
+    }
+    return roomIds;
+  }
+
+  function roomPathDistanceMeters(fromRoomId, toRoomId, options = {}) {
+    const map = options.map || ensureLabMap();
+    const path = roomPathBetween(fromRoomId, toRoomId, { ...options, map });
+    if (path.length) {
+      return Math.max(0, path.length - 1) * map.tileSizeM;
+    }
+    const fallbackRoute = roomGraphRouteBetween(fromRoomId, toRoomId, { ...options, requireReachable: true });
+    return fallbackRoute.length > 1 ? (fallbackRoute.length - 1) * map.tileSizeM : Number.POSITIVE_INFINITY;
+  }
+
+  function roomPathSummary(fromRoomId, toRoomId, options = {}) {
+    const map = ensureLabMap();
+    const path = roomPathBetween(fromRoomId, toRoomId, { ...options, map });
+    if (!path.length) {
+      return "no physical path";
+    }
+    const distance = Math.max(0, path.length - 1) * map.tileSizeM;
+    return `${formatDecimal(distance, 0)} m via ${roomsFromMapPath(path, map).map(roomName).join(" -> ")}`;
+  }
+
   function doorKey(roomAId, roomBId) {
     const a = cleanRoomId(roomAId);
     const b = cleanRoomId(roomBId);
@@ -3850,6 +4224,11 @@
   }
 
   function roomMapSummary() {
+    const map = ensureLabMap();
+    const roomCount = Object.keys(map.rooms || {}).length;
+    if (roomCount) {
+      return `Blueprint: ${map.width} x ${map.height} m; ${roomCount} mapped room${roomCount === 1 ? "" : "s"}`;
+    }
     const main = roomById(MAIN_ROOM_ID);
     if (!main) {
       return "";
@@ -3928,6 +4307,21 @@
   }
 
   function roomRouteBetween(fromRoomId, toRoomId, options = {}) {
+    const start = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
+    const target = roomById(toRoomId)?.id || MAIN_ROOM_ID;
+    if (start === target) {
+      return [start];
+    }
+    const map = ensureLabMap();
+    const path = roomPathBetween(start, target, { ...options, map });
+    const mappedRooms = roomsFromMapPath(path, map);
+    if (mappedRooms.length && mappedRooms[0] === start && mappedRooms[mappedRooms.length - 1] === target) {
+      return mappedRooms;
+    }
+    return roomGraphRouteBetween(start, target, options);
+  }
+
+  function roomGraphRouteBetween(fromRoomId, toRoomId, options = {}) {
     const start = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const target = roomById(toRoomId)?.id || MAIN_ROOM_ID;
     if (start === target) {
@@ -6668,7 +7062,8 @@
     const contents = containerContentsCount(container);
     const base = contents ? CONTAINER_HAUL_WITH_CONTENTS_DURATION : CONTAINER_HAUL_BASE_DURATION;
     const pitsTrip = container?.roomId === PITS_ROOM_ID || toRoomId === PITS_ROOM_ID;
-    return base + (pitsTrip ? 10 : 0);
+    const distance = roomPathDistanceMeters(container?.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true });
+    return base + Math.round(distance * 0.6) + (pitsTrip ? 10 : 0);
   }
 
   function containerHaulBlockReason(container, toRoomId) {
@@ -6694,6 +7089,9 @@
     if (container.roomId === toRoomId) {
       return `${container.name} is already in ${roomArticleName(toRoomId)}.`;
     }
+    if (!roomPathBetween(container.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true }).length) {
+      return `No physical hauling route exists from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(toRoomId)}.`;
+    }
     const existing = containerHaulTask(container.id);
     if (existing) {
       return `${container.name} is already being hauled to ${roomName(existing.data?.toRoomId)}.`;
@@ -6716,7 +7114,9 @@
       return false;
     }
 
-    const haulRoute = roomRouteBetween(container.roomId || MAIN_ROOM_ID, room.id, { ignoreDoors: true });
+    const fromRoomId = container.roomId || MAIN_ROOM_ID;
+    const haulRoute = roomRouteBetween(fromRoomId, room.id, { ignoreDoors: true });
+    const mapPath = roomPathBetween(fromRoomId, room.id, { ignoreDoors: true });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerHaul",
@@ -6725,15 +7125,16 @@
       dueAt: state.clock + containerHaulDuration(container, room.id),
       data: {
         containerId: container.id,
-        fromRoomId: container.roomId || MAIN_ROOM_ID,
+        fromRoomId,
         toRoomId: room.id,
         route: haulRoute,
+        mapPath,
         doorTransit: doorTransitPlan(haulRoute)
       }
     };
     state.tasks.push(task);
     const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
-    addEvent(`Hauling started: ${container.name} from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(room.id)} via ${roomRouteLabel(container.roomId || MAIN_ROOM_ID, room.id, { ignoreDoors: true })}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
+    addEvent(`Hauling started: ${container.name} from ${roomArticleName(fromRoomId)} to ${roomArticleName(room.id)} via ${roomPathSummary(fromRoomId, room.id, { ignoreDoors: true })}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     persist();
     render();
     return true;
@@ -6757,7 +7158,7 @@
     syncContainerContentsToRoom(container, toRoom.id);
     applyDoorTransitPolicy(task.data?.doorTransit, "Container hauling");
 
-    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomRouteLabel(fromRoomId, toRoom.id, { ignoreDoors: true })}.`);
+    addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${roomPathSummary(fromRoomId, toRoom.id, { ignoreDoors: true })}.`);
     refreshCorpseProcessingTargets();
     return true;
   }
@@ -6779,9 +7180,9 @@
         .map((roomId) => ({
           roomId,
           amount: resourceAmountInRoom(key, roomId),
-          routeLength: roomRouteBetween(roomId, targetRoomId, { ignoreDoors: true }).length
+          routeLength: roomPathDistanceMeters(roomId, targetRoomId, { ignoreDoors: true })
         }))
-        .filter((source) => source.amount > 0)
+        .filter((source) => source.amount > 0 && Number.isFinite(source.routeLength))
         .sort((a, b) => a.routeLength - b.routeLength || roomName(a.roomId).localeCompare(roomName(b.roomId)));
       for (const source of sources) {
         const moved = Math.min(source.amount, remaining);
@@ -6806,11 +7207,9 @@
 
   function resourceHaulDuration(transfers) {
     const totalUnits = (transfers || []).reduce((total, transfer) => total + (Number(transfer.amount) || 0), 0);
-    const routeSteps = (transfers || []).reduce((total, transfer) => {
-      const route = roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true });
-      return total + Math.max(0, route.length - 1);
-    }, 0);
-    return Math.max(1, Math.round(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION + routeSteps * 4));
+    const distance = (transfers || []).reduce((total, transfer) =>
+      total + roomPathDistanceMeters(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }), 0);
+    return Math.max(1, Math.round(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION + distance * 0.45));
   }
 
   function resourceHaulTransferText(transfers) {
@@ -6855,6 +7254,7 @@
       return false;
     }
     const routes = plan.transfers.map((transfer) => roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
+    const mapPaths = plan.transfers.map((transfer) => roomPathBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
     const doorTransit = routes.flatMap((route) => doorTransitPlan(route));
     const duration = resourceHaulDuration(plan.transfers);
     const task = {
@@ -6868,6 +7268,8 @@
         toRoomId: targetRoomId,
         continuation,
         staminaCost: cost,
+        routes,
+        mapPaths,
         doorTransit
       }
     };
@@ -10710,6 +11112,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
+  function scientistMoveDuration(fromRoomId, toRoomId, options = {}) {
+    const fromCell = options.fromCell || scientistMapCell();
+    const toCell = options.toCell || labMapRoomAnchor(toRoomId);
+    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
+    return adjustedDuration(Math.max(SCIENTIST_MOVE_BASE_DURATION, Math.round(distance * 0.75)), "analysis");
+  }
+
   function startScientistMove(toRoomId) {
     const target = roomById(toRoomId);
     const reason = scientistMoveBlockReason(toRoomId);
@@ -10727,8 +11136,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const fromRoomId = scientistRoomId();
-    const duration = adjustedDuration(SCIENTIST_MOVE_BASE_DURATION, "analysis");
-    const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true });
+    const fromCell = scientistMapCell();
+    const toCell = labMapRoomAnchor(target.id);
+    const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell });
+    const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
+    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
@@ -10739,6 +11151,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         fromRoomId,
         toRoomId: target.id,
         route,
+        fromCell,
+        toCell,
+        mapPath,
         doorTransit: doorTransitPlan(route),
         staminaCost: cost
       }
@@ -10760,6 +11175,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
+    state.scientist.mapCell = normalizeMapCellForRoom(task.data?.toCell, target.id);
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     addEvent(`Arrived in ${target.name}.`);
     observeScientistRoom({ discoverChanges: true });
@@ -11220,12 +11636,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const target = roomById(targetId);
           const button = document.createElement("button");
           button.type = "button";
-          const moveCost = setButtonStaminaLabel(button, target.name, SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]);
+          const moveDuration = scientistMoveDuration(room.id, target.id);
+          const routeSummary = roomPathSummary(room.id, target.id, { fromCell: scientistMapCell(), toCell: labMapRoomAnchor(target.id), ignoreDoors: true });
+          const moveCost = setButtonStaminaLabel(button, target.name, SCIENTIST_MOVE_BASE_STAMINA, ["analysis"], { duration: formatDuration(moveDuration) });
           button.dataset.scientistMoveRoomId = target.id;
           const reason = scientistMoveBlockReason(target.id) || staminaBlockReason(moveCost);
           setActionButtonState(button, Boolean(reason), reason);
           if (!reason) {
-            button.title = `${roomMoveWarningText(target.id)}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]).title}`;
+            button.title = `${roomMoveWarningText(target.id)}\nRoute: ${routeSummary}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]).title}`;
           }
           button.addEventListener("click", () => startScientistMove(target.id));
           if (index > 0) {
@@ -13980,12 +14398,87 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function labMapRoomAbbreviation(roomId) {
+    return LAB_MAP_ROOM_ABBREVIATIONS[roomId] || roomName(roomId).slice(0, 2).toUpperCase();
+  }
+
+  function labMapCellTitle(cell, map) {
+    const roomId = labMapCellRoomId(cell, map);
+    const door = labMapDoorAtCell(cell, map);
+    const parts = [`${cell.x}, ${cell.y}`];
+    if (roomId) {
+      parts.push(roomName(roomId));
+    }
+    if (door) {
+      parts.push(`${doorStateLabel(door.roomIds[0], door.roomIds[1])} door to ${door.roomIds.map(roomName).join(" / ")}`);
+    }
+    return parts.join(" - ");
+  }
+
+  function labMapPanelEl() {
+    const map = ensureLabMap();
+    const scientistCell = scientistMapCell();
+    const panel = document.createElement("div");
+    panel.className = "lab-map-panel subpanel";
+    panel.dataset.labMapPanel = "true";
+
+    const header = document.createElement("div");
+    header.className = "lab-map-header";
+    const title = textEl("strong", "Lab Blueprint");
+    const meta = textEl("span", `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`);
+    header.append(title, meta);
+    panel.append(header);
+
+    const grid = document.createElement("div");
+    grid.className = "lab-map-grid";
+    grid.style.gridTemplateColumns = `repeat(${map.width}, minmax(0, 1fr))`;
+    for (let y = 0; y < map.height; y += 1) {
+      for (let x = 0; x < map.width; x += 1) {
+        const cell = { x, y };
+        const roomId = labMapCellRoomId(cell, map);
+        const door = labMapDoorAtCell(cell, map);
+        const tile = document.createElement("div");
+        tile.className = "lab-map-cell";
+        tile.dataset.mapX = String(x);
+        tile.dataset.mapY = String(y);
+        tile.title = labMapCellTitle(cell, map);
+        if (roomId) {
+          tile.classList.add("room-cell", `room-${roomRole(roomId)}`);
+          tile.dataset.mapRoom = roomId;
+        }
+        if (door) {
+          tile.classList.add("door-cell", doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "door-open" : "door-closed");
+        }
+        const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
+        if (scientistCell.x === x && scientistCell.y === y) {
+          tile.classList.add("scientist-cell");
+          tile.textContent = "S";
+          tile.title += " - Scientist";
+        } else if (anchorRoom) {
+          tile.classList.add("room-anchor");
+          tile.textContent = labMapRoomAbbreviation(anchorRoom.roomId);
+        } else if (door) {
+          tile.textContent = doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "" : "x";
+        }
+        grid.append(tile);
+      }
+    }
+    panel.append(grid);
+
+    const legend = document.createElement("div");
+    legend.className = "lab-map-legend";
+    legend.append(chip("S = scientist"), chip("room letters = room anchor"), chip("x = closed door"));
+    panel.append(legend);
+    return panel;
+  }
+
 
   function renderRooms() {
     state.rooms = normalizeRooms(state.rooms);
     syncRoomObservationMemory();
     observeScientistRoom();
     dom.roomList.textContent = "";
+    dom.roomList.append(labMapPanelEl());
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
@@ -18803,6 +19296,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.roomObservations = normalizeRoomObservations(next.roomObservations);
     next.rooms = normalizeRooms(next.rooms);
     next.doors = normalizeDoors(next.doors, next.rooms);
+    next.labMap = normalizeLabMap(next.labMap, next.rooms);
+    if (!next.rooms.some((room) => room.id === next.scientist.roomId)) {
+      next.scientist.roomId = MAIN_ROOM_ID;
+    }
+    next.scientist.mapCell = normalizeMapCellForRoom(next.scientist.mapCell, next.scientist.roomId, next.labMap);
     for (const room of next.rooms) {
       if (room.observation) {
         next.roomObservations[room.id] = normalizeRoomObservation(room.observation);
@@ -19094,6 +19592,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fallback = defaultScientist();
     const scientist = {
       roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
+      mapCell: cleanMapCell(candidate?.mapCell) || fallback.mapCell || scientistDefaultMapCell(candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       physicalState: normalizeScientistPhysicalState(candidate?.physicalState),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },

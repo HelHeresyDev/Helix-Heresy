@@ -102,6 +102,14 @@ Collection Bay transfer is also queued. The scientist closes the station path, s
 
 Cheat commands can place resources and inventory into a specific room with an optional room argument. This is mainly for prototype testing and should make room-local systems easier to inspect without playing through long production chains.
 
+## Lab Blueprint and Physical Pathfinding
+
+The starter laboratory now has a saved physical blueprint instead of only an abstract room list. The map uses 1 meter tiles with fixed first-pass footprints for the Main Lab, Menagerie, Pits, Bedroom, Storage Room, and Collection Bay. Doors live on shared room edges, and pathfinding moves through floor tiles and valid door crossings rather than assuming all connected rooms are equally distant.
+
+The blueprint is a foundation for later construction rather than a full base-builder. Scientist movement, container hauling, and material hauling store room routes plus physical map paths in queued task data. Durations now scale lightly with physical distance. Closed doors still block uncontrolled movement, while scientist and hauling tasks can pass through doors and then apply the configured door policy.
+
+Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is.
+
 ## Container Compatibility
 
 Containers are physical lab equipment, not generic storage slots. Current prototype containers have base types with interior dimensions, openings, open or sealed geometry, load limits, durability, comfort, drainage, environment exchange, material resistance, and optional wards. Wards modify specific problems rather than solving all containment.
