@@ -45,6 +45,10 @@
   const BEDROOM_ROOM_ID = "bedroom";
   const STORAGE_ROOM_ID = "storageRoom";
   const COLLECTION_BAY_ROOM_ID = "collectionBay";
+  const EXCAVATED_ROOM_ROLE = "excavated";
+  const EXCAVATION_BASE_DURATION_MINUTES = 4;
+  const EXCAVATION_MINUTES_PER_TILE = 6;
+  const EXCAVATION_MAX_TILES = 80;
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
   const LAB_MAP_TILE_SIZE_M = 1;
@@ -324,6 +328,57 @@
     unsafe: { body: "Unsafe rest quality: Physical State may continue worsening. Confirm before resting here." }
   };
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
+  const ROOM_PURPOSE_DEFS = [
+    {
+      id: "workroom",
+      label: "Workroom",
+      role: "mainLab",
+      roleLabel: "Active lab",
+      nameBase: "Workroom",
+      description: "General laboratory space for synthesis, testing, handling, and future workbenches."
+    },
+    {
+      id: "containment",
+      label: "Containment Room",
+      role: "livingStorage",
+      roleLabel: "Living specimen storage",
+      nameBase: "Containment Room",
+      description: "Specimen storage and observation space. Stored creatures here cannot work jobs."
+    },
+    {
+      id: "corpseProcessing",
+      label: "Corpse Processing Room",
+      role: "corpseProcessing",
+      roleLabel: "Corpse storage and processing",
+      nameBase: "Corpse Processing Room",
+      description: "Crude remains workroom for necropsy staging, corpse storage, and disposal chains."
+    },
+    {
+      id: "quarters",
+      label: "Quarters",
+      role: "restRecovery",
+      roleLabel: "Rest and recovery",
+      nameBase: "Quarters",
+      description: "A recovery space for the scientist. Cleanliness and exposure affect rest quality."
+    },
+    {
+      id: "storage",
+      label: "Storage Room",
+      role: "materialStorage",
+      roleLabel: "Materials storage",
+      nameBase: "Storage Room",
+      description: "Material staging, stockpiles, tools, and future logistics storage."
+    },
+    {
+      id: "collection",
+      label: "Collection Room",
+      role: "byproductCollection",
+      roleLabel: "Byproduct collection",
+      nameBase: "Collection Room",
+      description: "Space for collection stations, receptacles, overflow apparatus, and future processing equipment."
+    }
+  ];
+  const ROOM_PURPOSE_BY_ID = Object.fromEntries(ROOM_PURPOSE_DEFS.map((purpose) => [purpose.id, purpose]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
   const RESOURCE_HAUL_BASE_DURATION = 8;
@@ -1738,6 +1793,7 @@
       tasks: [],
       selectedSlimeId: null,
       selectedMapTarget: null,
+      construction: defaultConstructionState(),
       nextSlimeNumber: 1,
       nextCorpseNumber: 1,
       nextResidueNumber: 1,
@@ -1775,6 +1831,13 @@
 
   function defaultCollectionBayState() {
     return { stations: {} };
+  }
+
+  function defaultConstructionState() {
+    return {
+      nextRoomNumber: 1,
+      lastDigRect: null
+    };
   }
 
   function defaultInventoryHistory() {
@@ -2850,6 +2913,11 @@
       return;
     }
 
+    if (task.type === "excavate") {
+      completeExcavation(task);
+      return;
+    }
+
     if (task.type === "mature") {
       const slime = findSlime(task.data.slimeId);
       if (slime && slime.status !== "dead") {
@@ -2944,6 +3012,136 @@
     addEvent(`${label} started.`);
     persist();
     render();
+  }
+
+  function startExcavationDesignation(rect) {
+    const clean = normalizeDigRect(rect);
+    const reason = digDesignationBlockReason(clean);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const cells = digRectCells(clean);
+    ensureLabMapCoversRect(clean);
+    state.construction = normalizeConstructionState({
+      ...state.construction,
+      lastDigRect: clean
+    }, state);
+    createTask({
+      type: "excavate",
+      label: `Excavate ${clean.width} x ${clean.height} chamber`,
+      duration: minutesToSeconds(EXCAVATION_BASE_DURATION_MINUTES + cells.length * EXCAVATION_MINUTES_PER_TILE),
+      data: {
+        rect: clean,
+        cells
+      }
+    });
+    return true;
+  }
+
+  function nextExcavatedRoomIdentity() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    let number = state.construction.nextRoomNumber;
+    while (state.rooms.some((room) => room.id === `excavation-${number}`)) {
+      number += 1;
+    }
+    state.construction.nextRoomNumber = number + 1;
+    return {
+      id: `excavation-${number}`,
+      number
+    };
+  }
+
+  function completeExcavation(task) {
+    const rect = normalizeDigRect(task.data?.rect);
+    const cells = excavationTaskCells(task);
+    if (!rect || !cells.length) {
+      addEvent("Excavation could not complete; the designation was invalid.");
+      return;
+    }
+    const map = ensureLabMap();
+    const blockingRoom = cells.map((cell) => labMapCellRoomId(cell, map)).find(Boolean);
+    if (blockingRoom) {
+      addEvent(`Excavation could not complete; the area now overlaps ${roomName(blockingRoom)}.`);
+      return;
+    }
+    const openings = digRectAdjacentOpenings(rect, map);
+    if (!openings.length) {
+      addEvent("Excavation could not complete; the area no longer touches the laboratory.");
+      return;
+    }
+    const identity = nextExcavatedRoomIdentity();
+    const connectedIds = openings.map((opening) => opening.roomId);
+    const tileSize = Math.max(0.25, Number(map.tileSizeM) || LAB_MAP_TILE_SIZE_M);
+    const floorArea = cells.length * tileSize * tileSize;
+    const room = {
+      id: identity.id,
+      name: `Unassigned Excavation ${identity.number}`,
+      articleName: `the Unassigned Excavation ${identity.number}`,
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Unassigned excavation",
+      description: "Freshly dug underground space. Assign a purpose before treating it as a real laboratory room.",
+      geometry: normalizeRoomGeometry({
+        shape: "rough dug-out chamber",
+        lengthM: rect.width * tileSize,
+        widthM: rect.height * tileSize,
+        heightM: 3,
+        floorAreaM2: floorArea,
+        volumeM3: floorArea * 3,
+        notes: "freshly excavated rough floor; no room purpose assigned"
+      }),
+      connections: connectedIds,
+      observation: null,
+      attributes: defaultRoomAttributes({
+        light: { current: 12, baseline: 12 },
+        ambientMana: { current: 45, baseline: 45 },
+        contamination: { current: 14, baseline: 10 }
+      })
+    };
+    state.rooms.push(room);
+    for (const connectedId of connectedIds) {
+      const connectedRoom = state.rooms.find((candidate) => candidate.id === connectedId);
+      if (connectedRoom && !connectedRoom.connections.includes(room.id)) {
+        connectedRoom.connections.push(room.id);
+      }
+    }
+    state.labMap.rooms ||= {};
+    state.labMap.rooms[room.id] = normalizeLabMapRoom({
+      roomId: room.id,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      cells,
+      anchor: cells[0]
+    }, room);
+    state.doors ||= {};
+    state.labMap.doors ||= {};
+    for (const opening of openings) {
+      const key = doorKey(room.id, opening.roomId);
+      if (!key) {
+        continue;
+      }
+      state.doors[key] = {
+        roomIds: doorRoomIdsFromKey(key),
+        state: DOOR_STATE_OPEN
+      };
+      const mapDoor = normalizeLabMapDoor({
+        roomIds: [room.id, opening.roomId],
+        from: opening.from,
+        to: opening.to
+      }, key);
+      if (mapDoor) {
+        state.labMap.doors[key] = mapDoor;
+      }
+    }
+    state.rooms = normalizeRooms(state.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms);
+    state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    state.roomStockpiles = normalizeRoomStockpiles(state.roomStockpiles, state);
+    addEvent(`${room.name} excavated. Assign a room purpose when ready.`);
   }
 
   function startStaminaTask({ type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts = {}, resourceRoomId = scientistRoomId(), allowResourceHaul = true, data }) {
@@ -3780,6 +3978,173 @@
       }
     }
     return cells;
+  }
+
+  function normalizeDigRect(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const x = Math.floor(Number(candidate.x));
+    const y = Math.floor(Number(candidate.y));
+    const width = Math.floor(Number(candidate.width ?? candidate.w));
+    const height = Math.floor(Number(candidate.height ?? candidate.h));
+    if (![x, y, width, height].every(Number.isFinite)) {
+      return null;
+    }
+    return {
+      x,
+      y,
+      width: Math.max(0, width),
+      height: Math.max(0, height)
+    };
+  }
+
+  function digRectCells(rect) {
+    const clean = normalizeDigRect(rect);
+    if (!clean || clean.width <= 0 || clean.height <= 0) {
+      return [];
+    }
+    return rectangularRoomCells(clean);
+  }
+
+  function digRectTileCount(rect) {
+    const clean = normalizeDigRect(rect);
+    return clean ? clean.width * clean.height : 0;
+  }
+
+  function pendingExcavationTasks() {
+    return (state.tasks || []).filter((task) => task.type === "excavate");
+  }
+
+  function excavationTaskCells(task) {
+    const cells = Array.isArray(task?.data?.cells) ? task.data.cells.map(cleanMapCell).filter(Boolean) : [];
+    if (cells.length) {
+      return cells;
+    }
+    return digRectCells(task?.data?.rect);
+  }
+
+  function pendingExcavationCellKeys(exceptTaskId = "") {
+    const keys = new Set();
+    for (const task of pendingExcavationTasks()) {
+      if (exceptTaskId && task.id === exceptTaskId) {
+        continue;
+      }
+      for (const cell of excavationTaskCells(task)) {
+        keys.add(mapCellKey(cell));
+      }
+    }
+    return keys;
+  }
+
+  function plannedExcavationAssignments() {
+    const assignments = new Map();
+    for (const task of pendingExcavationTasks()) {
+      for (const cell of excavationTaskCells(task)) {
+        assignments.set(mapCellKey(cell), {
+          task,
+          label: task.label || "Excavation"
+        });
+      }
+    }
+    return assignments;
+  }
+
+  function digRectAdjacentOpenings(rect, map = ensureLabMap()) {
+    const cells = digRectCells(rect);
+    const cellKeys = new Set(cells.map(mapCellKey));
+    const openings = [];
+    const roomSeen = new Set();
+    for (const cell of cells) {
+      for (const neighbor of [
+        { x: cell.x + 1, y: cell.y },
+        { x: cell.x - 1, y: cell.y },
+        { x: cell.x, y: cell.y + 1 },
+        { x: cell.x, y: cell.y - 1 }
+      ]) {
+        if (cellKeys.has(mapCellKey(neighbor))) {
+          continue;
+        }
+        const roomId = labMapCellRoomId(neighbor, map);
+        if (!roomId || roomSeen.has(roomId)) {
+          continue;
+        }
+        roomSeen.add(roomId);
+        openings.push({ roomId, from: cell, to: neighbor });
+      }
+    }
+    return openings;
+  }
+
+  function digDesignationBlockReason(rect, options = {}) {
+    const clean = normalizeDigRect(rect);
+    if (!clean) {
+      return "Enter a valid dig rectangle.";
+    }
+    if (clean.width <= 0 || clean.height <= 0) {
+      return "Dig designations need positive width and height.";
+    }
+    if (clean.x < 0 || clean.y < 0) {
+      return "Dig designations cannot use negative map coordinates.";
+    }
+    const tileCount = digRectTileCount(clean);
+    if (tileCount > EXCAVATION_MAX_TILES) {
+      return `Dig designations are capped at ${EXCAVATION_MAX_TILES} tiles for this prototype pass.`;
+    }
+    const map = ensureLabMap();
+    const pendingKeys = pendingExcavationCellKeys(options.exceptTaskId || "");
+    for (const cell of digRectCells(clean)) {
+      const roomId = labMapCellRoomId(cell, map);
+      if (roomId) {
+        return `Dig area overlaps ${roomName(roomId)}.`;
+      }
+      if (pendingKeys.has(mapCellKey(cell))) {
+        return "Dig area overlaps an active excavation designation.";
+      }
+    }
+    if (!digRectAdjacentOpenings(clean, map).length) {
+      return "Dig area must touch an existing room.";
+    }
+    return "";
+  }
+
+  function suggestDigRectangle() {
+    const map = ensureLabMap();
+    const width = 4;
+    const height = 4;
+    const rooms = Object.values(map.rooms || {}).sort((a, b) => {
+      if (a.roomId === MAIN_ROOM_ID) return -1;
+      if (b.roomId === MAIN_ROOM_ID) return 1;
+      return (a.y - b.y) || (a.x - b.x);
+    });
+    for (const room of rooms) {
+      const candidates = [];
+      for (let x = room.x - width + 1; x <= room.x + room.width - 1; x += 1) {
+        candidates.push({ x, y: room.y - height, width, height });
+        candidates.push({ x, y: room.y + room.height, width, height });
+      }
+      for (let y = room.y - height + 1; y <= room.y + room.height - 1; y += 1) {
+        candidates.push({ x: room.x - width, y, width, height });
+        candidates.push({ x: room.x + room.width, y, width, height });
+      }
+      for (const candidate of candidates) {
+        if (!digDesignationBlockReason(candidate)) {
+          return candidate;
+        }
+      }
+    }
+    return { x: map.width, y: 0, width, height };
+  }
+
+  function ensureLabMapCoversRect(rect) {
+    const clean = normalizeDigRect(rect);
+    if (!clean) {
+      return ensureLabMap();
+    }
+    const map = ensureLabMap();
+    state.labMap.width = Math.max(map.width, clean.x + clean.width + 1);
+    state.labMap.height = Math.max(map.height, clean.y + clean.height + 1);
+    return state.labMap;
   }
 
   function defaultLabMapRoomCells(roomId, rect) {
@@ -14886,12 +15251,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return LAB_MAP_ROOM_ABBREVIATIONS[roomId] || roomName(roomId).slice(0, 2).toUpperCase();
   }
 
-  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null) {
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
     if (roomId) {
       parts.push(roomName(roomId));
+    } else if (plannedEntry) {
+      parts.push(`planned dig: ${plannedEntry.label}`);
+    } else {
+      parts.push("solid earth");
     }
     if (door) {
       parts.push(`${doorStateLabel(door.roomIds[0], door.roomIds[1])} door to ${door.roomIds.map(roomName).join(" / ")}`);
@@ -15127,6 +15496,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistCell = scientistMapCell();
     const objectAssignments = labMapObjectAssignments(map);
     const route = nextQueuedMovementPath(map);
+    const plannedExcavations = plannedExcavationAssignments();
     const selectedTarget = selectedMapTarget();
     const panel = document.createElement("div");
     panel.className = "lab-map-panel subpanel";
@@ -15150,16 +15520,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
         const objectEntry = objectAssignments.get(mapCellKey(cell));
         const routeEntry = route.keys.has(mapCellKey(cell)) ? route : null;
+        const plannedEntry = plannedExcavations.get(mapCellKey(cell));
         const scientistHere = scientistCell.x === x && scientistCell.y === y;
         const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, scientistHere });
         const tile = document.createElement("div");
         tile.className = "lab-map-cell";
         tile.dataset.mapX = String(x);
         tile.dataset.mapY = String(y);
-        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry);
+        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry);
         if (roomId) {
           tile.classList.add("room-cell", `room-${roomRole(roomId)}`);
           tile.dataset.mapRoom = roomId;
+        } else if (plannedEntry) {
+          tile.classList.add("planned-excavation-cell");
+          tile.dataset.mapExcavation = plannedEntry.task?.id || "pending";
+        } else {
+          tile.classList.add("solid-earth-cell");
         }
         if (door) {
           tile.classList.add("door-cell", doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "door-open" : "door-closed");
@@ -15199,6 +15575,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.textContent = labMapRoomAbbreviation(anchorRoom.roomId);
         } else if (door) {
           tile.textContent = doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "" : "x";
+        } else if (plannedEntry) {
+          tile.textContent = "D";
         }
         grid.append(tile);
       }
@@ -15207,9 +15585,158 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"));
+    legend.append(chip("S = scientist"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"));
     panel.append(legend);
     return panel;
+  }
+
+  function constructionPanelEl() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    const panel = document.createElement("div");
+    panel.className = "construction-panel subpanel";
+    panel.dataset.constructionPanel = "true";
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Construction";
+    title.title = "Designate solid earth to dig. Completed excavations become unassigned rooms that can be given a purpose.";
+    panel.append(title);
+
+    const sourceRect = state.construction.lastDigRect || suggestDigRectangle();
+    const rect = normalizeDigRect(sourceRect) || { x: 0, y: 0, width: 4, height: 4 };
+    const grid = document.createElement("div");
+    grid.className = "construction-grid";
+    const fields = [
+      ["x", "X"],
+      ["y", "Y"],
+      ["width", "Width"],
+      ["height", "Height"]
+    ];
+    const inputs = {};
+    for (const [key, label] of fields) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "construction-field";
+      wrapper.append(textEl("span", label));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = key === "x" || key === "y" ? "0" : "1";
+      input.step = "1";
+      input.value = String(rect[key]);
+      input.dataset[`dig${titleCase(key)}`] = "true";
+      wrapper.append(input);
+      inputs[key] = input;
+      grid.append(wrapper);
+    }
+    panel.append(grid);
+
+    const status = emptyText("");
+    status.dataset.digStatus = "true";
+    const actions = document.createElement("div");
+    actions.className = "construction-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.designateDig = "true";
+    actions.append(button);
+    panel.append(actions, status);
+
+    const readRect = () => normalizeDigRect({
+      x: inputs.x.value,
+      y: inputs.y.value,
+      width: inputs.width.value,
+      height: inputs.height.value
+    });
+    const syncButton = () => {
+      const currentRect = readRect();
+      const reason = digDesignationBlockReason(currentRect);
+      const tileCount = digRectTileCount(currentRect);
+      button.textContent = tileCount ? `Designate Dig (${tileCount} tiles)` : "Designate Dig";
+      status.textContent = reason || `Queues excavation as rough floor. Duration: ${formatDuration(minutesToSeconds(EXCAVATION_BASE_DURATION_MINUTES + tileCount * EXCAVATION_MINUTES_PER_TILE))}.`;
+      setActionButtonState(button, Boolean(reason), reason);
+    };
+    for (const input of Object.values(inputs)) {
+      input.addEventListener("input", syncButton);
+    }
+    button.addEventListener("click", () => startExcavationDesignation(readRect()));
+    syncButton();
+
+    const activeTasks = pendingExcavationTasks();
+    if (activeTasks.length) {
+      const list = document.createElement("div");
+      list.className = "construction-task-list";
+      for (const task of activeTasks) {
+        const row = document.createElement("div");
+        row.className = "construction-task-row";
+        row.append(textEl("span", task.label), textEl("strong", `done ${formatClock(task.dueAt)}`));
+        list.append(row);
+      }
+      panel.append(list);
+    }
+    return panel;
+  }
+
+  function roomCanAssignPurpose(room) {
+    return Boolean(room && room.role === EXCAVATED_ROOM_ROLE);
+  }
+
+  function roomPurposeControlEl(room) {
+    if (!roomCanAssignPurpose(room)) {
+      return null;
+    }
+    const panel = document.createElement("div");
+    panel.className = "room-purpose-control subpanel";
+    panel.dataset.roomPurposeControl = room.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Assign Purpose";
+    panel.append(title);
+    const row = document.createElement("div");
+    row.className = "room-purpose-row";
+    const select = document.createElement("select");
+    select.dataset.roomPurposeSelect = room.id;
+    for (const purpose of ROOM_PURPOSE_DEFS) {
+      const option = document.createElement("option");
+      option.value = purpose.id;
+      option.textContent = purpose.label;
+      select.append(option);
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Assign";
+    button.dataset.assignRoomPurpose = room.id;
+    button.title = "Convert this rough excavation into the selected room purpose.";
+    button.addEventListener("click", () => assignRoomPurpose(room.id, select.value));
+    row.append(select, button);
+    const note = emptyText("Purpose can be changed later through future construction systems; for now this finalizes the room role.");
+    panel.append(row, note);
+    return panel;
+  }
+
+  function assignRoomPurpose(roomId, purposeId) {
+    const room = state.rooms.find((candidate) => candidate.id === roomId);
+    const purpose = ROOM_PURPOSE_BY_ID[purposeId];
+    if (!roomCanAssignPurpose(room) || !purpose) {
+      addEvent("Room purpose could not be assigned.");
+      persist();
+      render();
+      return false;
+    }
+    const suffix = numericSuffix(room.id);
+    const name = suffix ? `${purpose.nameBase} ${suffix}` : purpose.nameBase;
+    room.name = name;
+    room.articleName = `the ${name}`;
+    room.role = purpose.role;
+    room.roleLabel = purpose.roleLabel;
+    room.description = purpose.description;
+    room.geometry = normalizeRoomGeometry({
+      ...room.geometry,
+      notes: `${room.geometry?.notes || "excavated room"}; assigned purpose: ${purpose.label}`
+    });
+    state.rooms = normalizeRooms(state.rooms);
+    state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    syncRoomObservationMemory();
+    addEvent(`${name} assigned as ${purpose.label}.`);
+    persist();
+    render();
+    return true;
   }
 
 
@@ -15218,7 +15745,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     syncRoomObservationMemory();
     observeScientistRoom();
     dom.roomList.textContent = "";
-    dom.roomList.append(labMapPanelEl());
+    dom.roomList.append(labMapPanelEl(), constructionPanelEl());
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
@@ -15267,6 +15794,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       card.append(title, meta, roomGeometrySummaryEl(room), roomDoorControlsEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
       if (description.textContent) {
         card.append(description);
+      }
+      const purposeControl = roomPurposeControlEl(room);
+      if (purposeControl) {
+        card.append(purposeControl);
       }
       const collectionReadout = collectionBayReadoutEl(room);
       if (collectionReadout) {
@@ -19123,6 +19654,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return normalized;
   }
 
+  function normalizeConstructionState(candidate, context = state) {
+    const fallback = defaultConstructionState();
+    const existingMax = (Array.isArray(context?.rooms) ? context.rooms : [])
+      .filter((room) => room?.role === EXCAVATED_ROOM_ROLE || String(room?.id || "").startsWith("excavation-"))
+      .reduce((max, room) => Math.max(max, numericSuffix(room.id)), 0);
+    const pendingMax = (Array.isArray(context?.tasks) ? context.tasks : [])
+      .filter((task) => task?.type === "excavate")
+      .reduce((max, task) => Math.max(max, numericSuffix(task.data?.roomId)), 0);
+    return {
+      nextRoomNumber: Math.max(
+        1,
+        Math.floor(Number(candidate?.nextRoomNumber) || fallback.nextRoomNumber),
+        existingMax + 1,
+        pendingMax + 1
+      ),
+      lastDigRect: normalizeDigRect(candidate?.lastDigRect)
+    };
+  }
+
   function syncRoomObservationMemory() {
     state.roomObservations = normalizeRoomObservations(state.roomObservations);
     for (const room of state.rooms || []) {
@@ -20195,6 +20745,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.rooms = normalizeRooms(next.rooms);
     next.doors = normalizeDoors(next.doors, next.rooms);
     next.labMap = normalizeLabMap(next.labMap, next.rooms);
+    next.construction = normalizeConstructionState(next.construction, next);
     if (!next.rooms.some((room) => room.id === next.scientist.roomId)) {
       next.scientist.roomId = MAIN_ROOM_ID;
     }

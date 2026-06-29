@@ -186,3 +186,73 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
   }, { key: storageKey });
   expect(selected).toEqual({ kind: 'room', roomId: 'bedroom' });
 });
+
+test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {
+  await startRun(page);
+
+  await expect(page.locator('[data-construction-panel="true"]')).toBeVisible();
+  await page.locator('[data-dig-x="true"]').fill('25');
+  await page.locator('[data-dig-y="true"]').fill('6');
+  await page.locator('[data-dig-width="true"]').fill('4');
+  await page.locator('[data-dig-height="true"]').fill('4');
+  await page.locator('[data-designate-dig="true"]').click();
+
+  const queued = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = (state.tasks || []).find((candidate) => candidate.type === 'excavate');
+    return {
+      task,
+      map: state.labMap,
+      construction: state.construction
+    };
+  }, { key: storageKey });
+
+  expect(queued.task).toBeTruthy();
+  expect(queued.task.data.rect).toEqual({ x: 25, y: 6, width: 4, height: 4 });
+  expect(queued.task.data.cells).toHaveLength(16);
+  expect(queued.map.width).toBeGreaterThanOrEqual(40);
+  expect(queued.construction.lastDigRect).toEqual({ x: 25, y: 6, width: 4, height: 4 });
+  await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(16);
+
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Excavate 4 x 4 chamber' }).getByRole('button', { name: 'Finish' }).click();
+
+  const excavated = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const room = (state.rooms || []).find((candidate) => candidate.role === 'excavated');
+    const doorKeys = room
+      ? Object.keys(state.doors || {}).filter((keyName) => keyName.includes(room.id))
+      : [];
+    return {
+      room,
+      mapRoom: room ? state.labMap.rooms[room.id] : null,
+      doorKeys,
+      doors: state.doors
+    };
+  }, { key: storageKey });
+
+  expect(excavated.room).toBeTruthy();
+  expect(excavated.room.name).toBe('Unassigned Excavation 1');
+  expect(excavated.room.connections).toEqual(expect.arrayContaining(['mainLab']));
+  expect(excavated.mapRoom.cells).toHaveLength(16);
+  expect(excavated.doorKeys.length).toBeGreaterThan(0);
+  expect(excavated.doorKeys.some((keyName) => excavated.doors[keyName].state === 'open')).toBe(true);
+  await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(0);
+  await expect(page.locator(`[data-room-purpose-control="${excavated.room.id}"]`)).toBeVisible();
+
+  await page.locator(`[data-room-purpose-select="${excavated.room.id}"]`).selectOption('storage');
+  await page.locator(`[data-assign-room-purpose="${excavated.room.id}"]`).click();
+
+  const assigned = await page.evaluate(({ key, roomId }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const room = (state.rooms || []).find((candidate) => candidate.id === roomId);
+    return { room };
+  }, { key: storageKey, roomId: excavated.room.id });
+
+  expect(assigned.room.role).toBe('materialStorage');
+  expect(assigned.room.name).toBe('Storage Room 1');
+  await expect(page.locator(`[data-room-purpose-control="${excavated.room.id}"]`)).toHaveCount(0);
+});

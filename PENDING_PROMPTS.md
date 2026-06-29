@@ -12,46 +12,19 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Lab Construction & Room Expansion System
-2. Door, Barrier, and Access Control System
-3. Creature Autonomous Movement & Escape Pathing System
-4. Map-Based Incident and Emergency Response System
-5. Spatial Environment Propagation System
-6. Black Market Byproduct Economy System
-7. Elemental Damage Type System
-8. Tool Durability and Damage Resistance System
-9. XP Curve and Breakthrough-Gated Skill Progression
-10. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Door, Barrier, and Access Control System
+2. Creature Autonomous Movement & Escape Pathing System
+3. Map-Based Incident and Emergency Response System
+4. Spatial Environment Propagation System
+5. Black Market Byproduct Economy System
+6. Elemental Damage Type System
+7. Tool Durability and Damage Resistance System
+8. XP Curve and Breakthrough-Gated Skill Progression
+9. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Lab Construction & Room Expansion System
-
-Create a system for expanding the underground laboratory with new rooms and infrastructure.
-
-The lab should grow from a cramped illegal workspace into a larger hidden facility. Rooms should be physical spaces that can be unlocked, constructed, connected, upgraded, damaged, contaminated, sealed, or repurposed. Expansion should matter because different biological work requires different rooms, equipment, and risks.
-
-The system should answer questions like:
-- How does the player build a new room?
-- What does construction cost?
-- Does construction require time, labor, money, secrecy, or materials?
-- How are rooms connected?
-- Can doors, ventilation, drainage, power, light, mana, or containment infrastructure be built or upgraded?
-- How does construction affect Suspicion or risk?
-- How do room roles differ from room equipment?
-- How does the UI present lab layout without becoming a complex base-builder too early?
-
-Existing rooms like Main Lab, Bedroom, Storage Room, Pit, Menagerie, and Collection Bay should become part of a larger expansion model instead of a fixed list forever.
-
-Current foundation: the starter lab now has a saved 1 meter tile blueprint, irregular-capable room footprint cells, door cells, BFS pathfinding, saved object placement, blocking container footprints, adjacent access paths for container hauling, an inspectable/clickable blueprint, next queued movement path highlighting, a seconds-based simulation clock, and queued movement tasks that store physical map paths. Future construction should extend this blueprint model rather than returning to a purely abstract room graph.
-
-The desired result is a lab-growth foundation that lets future systems add morgues, containment wings, ritual chambers, black market docks, incinerators, cold storage, grow rooms, power rooms, and specialized research spaces.
-
-Before coding, discuss the construction model, room unlock flow, layout representation, costs, and how much base-building complexity belongs in the prototype.
-
----
-
-## 2. Door, Barrier, and Access Control System
+## 1. Door, Barrier, and Access Control System
 
 Expand doors and barriers into a fuller access-control system for the physical lab map.
 
@@ -76,7 +49,7 @@ Before coding, discuss door states, access rules, pathfinding implications, UI r
 
 ---
 
-## 3. Creature Autonomous Movement & Escape Pathing System
+## 2. Creature Autonomous Movement & Escape Pathing System
 
 Create a system for creature movement through the physical lab map.
 
@@ -100,7 +73,7 @@ Before coding, discuss movement triggers, goal selection, pathfinding, movement 
 
 ---
 
-## 4. Map-Based Incident and Emergency Response System
+## 3. Map-Based Incident and Emergency Response System
 
 Create a spatial foundation for lab incidents and emergency response.
 
@@ -124,7 +97,7 @@ Before coding, discuss incident types, location rules, emergency task flow, map 
 
 ---
 
-## 5. Spatial Environment Propagation System
+## 4. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -148,7 +121,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -174,7 +147,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 7. Elemental Damage Type System
+## 6. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -199,7 +172,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 8. Tool Durability and Damage Resistance System
+## 7. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -228,7 +201,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 9. XP Curve and Breakthrough-Gated Skill Progression
+## 8. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -293,7 +266,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 10. Analyze Ability & Creature Skill Evolution Follow-Up
+## 9. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

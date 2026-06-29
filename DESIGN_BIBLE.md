@@ -116,7 +116,9 @@ Pathfinding treats container footprints as blocked cells and routes controlled m
 
 The blueprint is inspectable in the first pass. Hovering a tile reports its room, door, object, blocking, and route context. Clicking map cells focuses existing UI instead of creating separate map-only panels: room tiles focus room cards, door tiles focus door controls without toggling them, container footprints focus container cards, and loose creature or remains glyphs focus their existing records. Stacked-cell click priority is scientist, loose creature, corpse, container, door, then room. The map highlights the selected target and only the next queued movement or hauling path to avoid visual clutter.
 
-Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is.
+Construction now begins from the physical blueprint. The player designates solid-earth tiles to excavate, and the work is queued as a timed Excavation task. Planned dig tiles are marked on the blueprint. When the task completes, the dug cells become a rough unassigned room with saved walkable cells and open door links to adjacent rooms. The player then assigns the room purpose, such as Workroom, Containment Room, Corpse Processing Room, Quarters, Storage Room, or Collection Room. This keeps the Dwarf Fortress-style order of operations: dig space first, then define what the room is for.
+
+Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is. This first construction pass does not yet model excavation materials, money, noise, secrecy, workers, supports, room equipment, or buildable infrastructure; those should be layered on top of tile designation and room-purpose assignment rather than replacing them.
 
 ## Container Compatibility
 

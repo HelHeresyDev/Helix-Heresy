@@ -697,6 +697,18 @@ h2 {
   font-weight: 700;
 }
 
+.lab-map-cell.solid-earth-cell {
+  background: #0b0b08;
+  border-color: #14150f;
+}
+
+.lab-map-cell.planned-excavation-cell {
+  background: #302618;
+  border-color: rgba(225, 183, 95, 0.65);
+  color: var(--amber);
+  box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.22);
+}
+
 .lab-map-cell.map-clickable-cell {
   cursor: pointer;
 }
@@ -740,6 +752,10 @@ h2 {
 
 .lab-map-cell.room-byproductCollection {
   background: #1a2427;
+}
+
+.lab-map-cell.room-excavated {
+  background: #2a241b;
 }
 
 .lab-map-cell.door-cell {
@@ -802,6 +818,59 @@ h2 {
 
 .lab-map-legend {
   justify-content: flex-start;
+}
+
+.construction-panel,
+.room-purpose-control {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.construction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: 0.45rem;
+}
+
+.construction-field {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.construction-field input {
+  width: 100%;
+}
+
+.construction-actions,
+.room-purpose-row,
+.construction-task-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.room-purpose-row {
+  flex-wrap: wrap;
+}
+
+.room-purpose-row select {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.construction-task-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.construction-task-row {
+  justify-content: space-between;
+  padding: 0.35rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
 }
 
 .container-card {
