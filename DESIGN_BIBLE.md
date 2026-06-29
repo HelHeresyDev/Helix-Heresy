@@ -227,6 +227,16 @@ Examples of the intended style:
 
 Odd combinations are acceptable. A puddle with stub legs or a metal slime with wing-like membranes may become physically awkward, but that awkwardness can later feed into creature stats, mobility, stability, containment difficulty, or combat/work usefulness.
 
+## Slime AI Direction
+
+Slimes now have a first-pass AI record stored on each living specimen as `slime.ai`. This is a shared behavior-state wrapper, not full intelligence yet. The record stores broad state, intent, target, reason, urgency, path, next decision time, and last update time. Current broad states include contained, idle, moving, seeking, feeding, working, blocked, stressed, and dead.
+
+The current implementation deliberately mirrors existing `roomActivity`, `autonomousMovement`, job, container, and containment-risk behavior instead of replacing those systems all at once. This keeps loose movement, blocked-door pressure, feeding behavior, cleanup observations, and incident alerts working while giving future systems a consistent place to read and write intent.
+
+Player-facing AI readouts should remain broad and readable, such as `AI: Moving - seeking loose biomatter` or `AI: Blocked - blocked from Loose biomatter`. Exact scores, hidden trait influences, and future drive weights should stay out of ordinary UI. Deeper debug views belong to the later AI debugging/readout system.
+
+Future slime AI passes should build on this foundation in order: needs and drives choose intent, perception discovers possible targets, autonomous movement executes map goals, feeding consumes local resources, habitat response adjusts comfort and movement, stress/threat response changes behavior under pressure, and containment/combat/job/social behavior can then use the same shared state model.
+
 ## Adaptive Skills and Abilities
 
 Skills are practiced domains. They represent something a creature, scientist, or other actor can actively practice, apply, refine, or perform. They are not passive biology and they are not every derived gameplay result.

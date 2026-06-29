@@ -12,55 +12,30 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Slime AI Architecture & Behavior State System
-2. Slime Needs, Drives, and Priority System
-3. Slime Perception and Awareness System
-4. Slime Autonomous Movement and Local Pathing System
-5. Slime Feeding Search and Consumption Behavior System
-6. Slime Habitat Preference and Environmental Response System
-7. Slime Stress, Fear, Pain, and Threat Response System
-8. Elemental Damage Type System
-9. Combat Foundation System
-10. XP Curve and Breakthrough-Gated Skill Progression
-11. Slime Skill Practice, Ability Use, and Behavior Learning System
-12. Analyze Ability & Creature Skill Evolution Follow-Up
-13. Slime Combat Behavior System
-14. Slime Containment Testing and Escape Behavior System
-15. Slime Container Interaction and Breach Behavior System
-16. Tool Durability and Damage Resistance System
-17. Slime Social, Territorial, and Group Behavior System
-18. Slime Job Autonomy and Work Behavior System
-19. Map-Based Slime Incident and Emergency Response System
-20. Slime AI Debugging and Behavior Readout System
-21. Black Market Byproduct Economy System
+1. Slime Needs, Drives, and Priority System
+2. Slime Perception and Awareness System
+3. Slime Autonomous Movement and Local Pathing System
+4. Slime Feeding Search and Consumption Behavior System
+5. Slime Habitat Preference and Environmental Response System
+6. Slime Stress, Fear, Pain, and Threat Response System
+7. Elemental Damage Type System
+8. Combat Foundation System
+9. XP Curve and Breakthrough-Gated Skill Progression
+10. Slime Skill Practice, Ability Use, and Behavior Learning System
+11. Analyze Ability & Creature Skill Evolution Follow-Up
+12. Slime Combat Behavior System
+13. Slime Containment Testing and Escape Behavior System
+14. Slime Container Interaction and Breach Behavior System
+15. Tool Durability and Damage Resistance System
+16. Slime Social, Territorial, and Group Behavior System
+17. Slime Job Autonomy and Work Behavior System
+18. Map-Based Slime Incident and Emergency Response System
+19. Slime AI Debugging and Behavior Readout System
+20. Black Market Byproduct Economy System
 
 ---
 
-## 1. Slime AI Architecture & Behavior State System
-
-Create the foundation for slime AI as a state-driven system that can support needs, movement, feeding, containment behavior, combat, work behavior, learning, and incidents.
-
-Slimes should not remain passive objects that only respond when the player clicks a button. They should have internal behavior state that can explain what they are currently doing, why they are doing it, and what they might do next. This does not mean every slime needs complex intelligence. A simple slime can have simple drives and simple behavior, while smarter future creatures can use the same architecture for more complex decisions.
-
-The system should answer questions like:
-- What behavior states can a slime occupy?
-- How often does slime AI update?
-- Which slimes are allowed to act autonomously?
-- How does AI differ for contained, loose, assigned, resting, feeding, stressed, injured, escaping, or working slimes?
-- How does a slime pick a current goal?
-- How does the AI store intent, target, path, urgency, and interruption state?
-- How does the simulation avoid updating every creature expensively every tick?
-- How should future smarter creatures reuse or extend this system?
-
-The architecture should respect the existing physical lab map, room-local objects, container locations, movement speed, and queued task systems. AI should reason about rooms, containers, doors, map paths, local objects, and the slime's current condition instead of using abstract room jumps.
-
-The desired result is a clean AI foundation where later systems can add needs, movement, feeding, escape, combat, jobs, social behavior, and incidents without each feature inventing its own separate behavior loop.
-
-Before coding, discuss the behavior state model, update cadence, data shape, interaction with saves, performance constraints, and the smallest first implementation that makes slime intent visible without overbuilding full creature intelligence.
-
----
-
-## 2. Slime Needs, Drives, and Priority System
+## 1. Slime Needs, Drives, and Priority System
 
 Create a system for slime needs and drive-based priorities.
 
@@ -84,7 +59,7 @@ Before coding, discuss which needs exist in the first pass, how they produce pri
 
 ---
 
-## 3. Slime Perception and Awareness System
+## 2. Slime Perception and Awareness System
 
 Create a perception system for slime AI.
 
@@ -107,7 +82,7 @@ Before coding, discuss perception types, range, container limits, door limits, t
 
 ---
 
-## 4. Slime Autonomous Movement and Local Pathing System
+## 3. Slime Autonomous Movement and Local Pathing System
 
 Create autonomous slime movement through the physical lab map.
 
@@ -131,7 +106,7 @@ Before coding, discuss movement triggers, pathfinding rules, door handling, spee
 
 ---
 
-## 5. Slime Feeding Search and Consumption Behavior System
+## 4. Slime Feeding Search and Consumption Behavior System
 
 Create autonomous feeding search and consumption behavior for slimes.
 
@@ -155,7 +130,7 @@ Before coding, discuss food target selection, contained versus loose feeding, lo
 
 ---
 
-## 6. Slime Habitat Preference and Environmental Response System
+## 5. Slime Habitat Preference and Environmental Response System
 
 Create habitat preferences and environmental response behavior for slimes.
 
@@ -179,7 +154,7 @@ Before coding, discuss which room/container attributes affect habitat first, how
 
 ---
 
-## 7. Slime Stress, Fear, Pain, and Threat Response System
+## 6. Slime Stress, Fear, Pain, and Threat Response System
 
 Create a richer response model for stress, fear, pain, and threats.
 
@@ -203,7 +178,7 @@ Before coding, discuss response categories, triggers, condition thresholds, trai
 
 ---
 
-## 8. Elemental Damage Type System
+## 7. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -228,7 +203,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 9. Combat Foundation System
+## 8. Combat Foundation System
 
 Create the foundation for combat as a map-aware simulation system.
 
@@ -252,7 +227,7 @@ Before coding, discuss combat timing, target selection, range, damage applicatio
 
 ---
 
-## 10. XP Curve and Breakthrough-Gated Skill Progression
+## 9. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -317,7 +292,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 11. Slime Skill Practice, Ability Use, and Behavior Learning System
+## 10. Slime Skill Practice, Ability Use, and Behavior Learning System
 
 Create a system for slime skill practice, ability use, and learned behavior.
 
@@ -341,7 +316,7 @@ Before coding, discuss practice sources, ability hooks, skill categories, XP int
 
 ---
 
-## 12. Analyze Ability & Creature Skill Evolution Follow-Up
+## 11. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
@@ -361,7 +336,7 @@ Before coding, discuss the Analyze workflow, creature skill visibility, evolutio
 
 ---
 
-## 13. Slime Combat Behavior System
+## 12. Slime Combat Behavior System
 
 Create slime-specific combat behavior on top of the combat foundation.
 
@@ -386,7 +361,7 @@ Before coding, discuss behavior categories, target selection, ability choice, fl
 
 ---
 
-## 14. Slime Containment Testing and Escape Behavior System
+## 13. Slime Containment Testing and Escape Behavior System
 
 Create a system for slimes to test containment and attempt escape.
 
@@ -410,7 +385,7 @@ Before coding, discuss escape triggers, containment testing actions, progress, f
 
 ---
 
-## 15. Slime Container Interaction and Breach Behavior System
+## 14. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -434,7 +409,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 16. Tool Durability and Damage Resistance System
+## 15. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -463,7 +438,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 17. Slime Social, Territorial, and Group Behavior System
+## 16. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -487,7 +462,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 18. Slime Job Autonomy and Work Behavior System
+## 17. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -511,7 +486,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 19. Map-Based Slime Incident and Emergency Response System
+## 18. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -535,7 +510,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 20. Slime AI Debugging and Behavior Readout System
+## 19. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -559,7 +534,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 21. Black Market Byproduct Economy System
+## 20. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

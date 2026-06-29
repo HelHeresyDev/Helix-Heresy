@@ -26,6 +26,58 @@ async function skipSeconds(page, seconds) {
   await page.locator('#skipTimeBtn').evaluate((element) => element.click());
 }
 
+test('slime ai record mirrors contained baseline behavior', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.selectedSlimeId = 'contained-ai';
+    state.slimes = [{
+      id: 'contained-ai',
+      name: 'AI-001',
+      genome: state.currentGenome,
+      source: 'AI fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-ai="contained-ai"]')).toContainText('AI: Contained');
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'contained-ai');
+    return slime.ai;
+  }, { key: storageKey });
+
+  expect(result).toMatchObject({
+    state: 'contained',
+    intent: 'rest',
+    urgency: 'low',
+    target: { kind: 'container' },
+  });
+});
+
 test('lab blueprint stores room footprints and queues scientist movement with map paths', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -183,6 +235,18 @@ test('released slimes move toward accessible residue without raiding packaged st
   await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText('uncontained');
   await skipSeconds(page, 1);
   await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText(/seeking|moving/i);
+  await expect(page.locator('[data-slime-ai="loose-seeker"]')).toContainText(/AI: (Moving|Seeking)/);
+
+  const earlyAi = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-seeker');
+    return slime.ai;
+  }, { key: storageKey });
+  expect(['moving', 'seeking']).toContain(earlyAi.state);
+  expect(earlyAi.intent).toBe('seekFood');
+  expect(earlyAi.target.kind).toBe('residue');
+
   await skipSeconds(page, 1800);
 
   const result = await page.evaluate(({ key }) => {
@@ -270,12 +334,19 @@ test('released slimes press blocked doors and expose possible intent instead of 
     const slime = (state.slimes || []).find((candidate) => candidate.id === 'door-seeker');
     return {
       activity: slime.roomActivity,
+      ai: slime.ai,
       tasks: state.tasks || [],
     };
   }, { key: storageKey });
 
   expect(result.activity.type).toBe('pressingClosedDoor');
   expect(result.activity.targetKind).toBe('residue');
+  expect(result.ai).toMatchObject({
+    state: 'blocked',
+    intent: 'blocked',
+    target: { kind: 'door' },
+  });
+  expect(result.ai.reason).toContain('blocked');
   expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 

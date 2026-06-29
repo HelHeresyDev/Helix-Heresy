@@ -2904,12 +2904,14 @@
       incidentAlertChanged: refreshIncidentAlerts(),
       jobExpired: 0,
       completed: 0,
-      observationChanged: false
+      observationChanged: false,
+      aiChanged: 0
     };
     changes.jobExpired = expireSlimes();
     changes.completed = completeDueTasks();
     syncRoomObservationMemory();
     changes.observationChanged = Boolean(observeScientistRoom());
+    changes.aiChanged = syncAllSlimeAi();
     return changes;
   }
 
@@ -2930,6 +2932,7 @@
       + changes.containmentIncidentChanges
       + changes.incidentAlertChanged
       + changes.completed
+      + changes.aiChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -3380,6 +3383,7 @@
       jobTargetCorpseId: null,
       jobNutritionGained: 0,
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
+      ai: null,
       byproductExpression: null,
       revealed: {},
       measured: {},
@@ -3400,6 +3404,7 @@
       slime.containerId = null;
       slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, slime.mapCell);
     }
+    syncSlimeAi(slime);
     state.nextSlimeNumber += 1;
     state.slimes.unshift(slime);
     return slime;
@@ -7395,6 +7400,7 @@
       slime.jobTargetCorpseId = null;
       slime.jobNutritionGained = 0;
     }
+    syncSlimeAi(slime);
     return true;
   }
 
@@ -7425,6 +7431,7 @@
     slime.nextAutonomousDecisionAt = state.clock;
     slime.accessibleFeedingProgress = 0;
     slime.roomActivity = { type: "emerging", label: "adjusting to the room", roomId: slime.roomId, updatedAt: state.clock };
+    syncSlimeAi(slime);
     return true;
   }
 
@@ -7460,6 +7467,363 @@
       return "";
     }
     return `Room: ${roomName(slimeEffectiveRoomId(slime))}`;
+  }
+
+
+  const SLIME_AI_STATE_LABELS = {
+    contained: "Contained",
+    idle: "Idle",
+    moving: "Moving",
+    seeking: "Seeking",
+    feeding: "Feeding",
+    working: "Working",
+    blocked: "Blocked",
+    stressed: "Stressed",
+    dead: "Dead"
+  };
+
+  const SLIME_AI_STATES = new Set(Object.keys(SLIME_AI_STATE_LABELS));
+  const SLIME_AI_INTENTS = new Set([
+    "none",
+    "rest",
+    "acclimate",
+    "wander",
+    "seekFood",
+    "seekHabitat",
+    "feed",
+    "continueJob",
+    "endureContainment",
+    "hunt",
+    "move",
+    "wait",
+    "blocked"
+  ]);
+  const SLIME_AI_URGENCY = new Set(["none", "low", "medium", "high", "critical"]);
+
+  function cleanSlimeAiState(value) {
+    const stateId = String(value || "idle");
+    return SLIME_AI_STATES.has(stateId) ? stateId : "idle";
+  }
+
+  function cleanSlimeAiIntent(value) {
+    const intent = String(value || "rest");
+    return SLIME_AI_INTENTS.has(intent) ? intent : "rest";
+  }
+
+  function cleanSlimeAiUrgency(value) {
+    const urgency = String(value || "low");
+    return SLIME_AI_URGENCY.has(urgency) ? urgency : "low";
+  }
+
+  function cleanSlimeAiTarget(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const target = {
+      kind: String(candidate.kind || ""),
+      id: String(candidate.id || ""),
+      label: String(candidate.label || ""),
+      roomId: candidate.roomId ? cleanRoomId(candidate.roomId) : "",
+      cell: cleanMapCell(candidate.cell)
+    };
+    if (!target.kind && !target.id && !target.label && !target.roomId && !target.cell) {
+      return null;
+    }
+    return target;
+  }
+
+  function normalizeSlimeAiRecord(candidate = {}) {
+    const path = (Array.isArray(candidate.path) ? candidate.path : [])
+      .map(cleanMapCell)
+      .filter(Boolean);
+    const rawNextThinkAt = candidate.nextThinkAt;
+    return {
+      state: cleanSlimeAiState(candidate.state),
+      intent: cleanSlimeAiIntent(candidate.intent),
+      target: cleanSlimeAiTarget(candidate.target),
+      reason: String(candidate.reason || ""),
+      urgency: cleanSlimeAiUrgency(candidate.urgency),
+      path,
+      nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
+        ? null
+        : Number.isFinite(Number(rawNextThinkAt)) ? Number(rawNextThinkAt) : null,
+      updatedAt: Number.isFinite(Number(candidate.updatedAt)) ? Number(candidate.updatedAt) : 0
+    };
+  }
+
+  function slimeAiTargetFromActivity(activity) {
+    if (!activity || typeof activity !== "object") {
+      return null;
+    }
+    if (activity.type === "pressingClosedDoor") {
+      return cleanSlimeAiTarget({
+        kind: "door",
+        id: activity.doorKey || "",
+        label: activity.targetRoomId ? `door toward ${roomName(activity.targetRoomId)}` : "blocked door",
+        roomId: activity.roomId || MAIN_ROOM_ID
+      });
+    }
+    if (activity.targetKind || activity.targetId || activity.targetLabel || activity.targetRoomId) {
+      return cleanSlimeAiTarget({
+        kind: activity.targetKind || "target",
+        id: activity.targetId || "",
+        label: activity.targetLabel || "",
+        roomId: activity.targetRoomId || activity.roomId || MAIN_ROOM_ID
+      });
+    }
+    return cleanSlimeAiTarget({
+      kind: "room",
+      id: activity.roomId || "",
+      label: activity.roomId ? roomName(activity.roomId) : "",
+      roomId: activity.roomId || MAIN_ROOM_ID
+    });
+  }
+
+  function slimeAiUrgencyFor(slime, stateId, activityType = "") {
+    if (!slime || slime.status === "dead") {
+      return "none";
+    }
+    const bodyIntegrity = slimeStat(slime, "bodyIntegrity").current;
+    const nutrition = slimeStat(slime, "nutrition").current;
+    const stress = slimeStat(slime, "stress").current;
+    if (bodyIntegrity <= 0) {
+      return "critical";
+    }
+    if (stateId === "blocked" || stress >= 90 || nutrition <= 8 || bodyIntegrity <= 15) {
+      return "high";
+    }
+    if (stateId === "stressed" || stateId === "feeding" || stateId === "seeking" || stress >= 65 || nutrition <= 25 || bodyIntegrity <= 35) {
+      return "medium";
+    }
+    if (activityType === "hunting") {
+      return "medium";
+    }
+    return "low";
+  }
+
+  function slimeAiFromContainedState(slime) {
+    const container = containerById(slime.containerId);
+    if (slime.job && slime.job !== "idle") {
+      return {
+        state: "working",
+        intent: "continueJob",
+        target: cleanSlimeAiTarget({ kind: "job", id: slime.job, label: creatureJobLabel(slime.job), roomId: slimeEffectiveRoomId(slime) }),
+        reason: `assigned to ${creatureJobLabel(slime.job).toLowerCase()}`,
+        urgency: "medium",
+        path: [],
+        nextThinkAt: null
+      };
+    }
+    if (container && isContainerInTransit(container.id)) {
+      return {
+        state: "moving",
+        intent: "wait",
+        target: cleanSlimeAiTarget({ kind: "container", id: container.id, label: container.name, roomId: container.roomId }),
+        reason: "container is being hauled",
+        urgency: "low",
+        path: [],
+        nextThinkAt: null
+      };
+    }
+    if (container) {
+      const risk = activeContainmentRisk(slime, container);
+      if (/Dangerous|Failing/i.test(risk.label)) {
+        return {
+          state: "stressed",
+          intent: "endureContainment",
+          target: cleanSlimeAiTarget({ kind: "container", id: container.id, label: container.name, roomId: container.roomId }),
+          reason: "straining containment",
+          urgency: /Failing/i.test(risk.label) ? "high" : "medium",
+          path: [],
+          nextThinkAt: null
+        };
+      }
+    }
+    if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime) && environmentalSustenanceRate(slime) > 0) {
+      return {
+        state: "feeding",
+        intent: "feed",
+        target: cleanSlimeAiTarget({ kind: "container", id: container?.id || "", label: container?.name || "containment", roomId: slimeEffectiveRoomId(slime) }),
+        reason: "drawing sustenance from containment environment",
+        urgency: slimeAiUrgencyFor(slime, "feeding"),
+        path: [],
+        nextThinkAt: null
+      };
+    }
+    return {
+      state: "contained",
+      intent: "rest",
+      target: cleanSlimeAiTarget({ kind: "container", id: container?.id || "", label: container?.name || "containment", roomId: slimeEffectiveRoomId(slime) }),
+      reason: container ? `held in ${container.name}` : "held in containment",
+      urgency: "low",
+      path: [],
+      nextThinkAt: null
+    };
+  }
+
+  function slimeAiFromMovement(slime, movement) {
+    const intent = movement.intent === "wander" ? "wander" : "seekFood";
+    const target = cleanSlimeAiTarget({
+      kind: movement.targetKind || (intent === "wander" ? "room" : "target"),
+      id: movement.targetId || "",
+      label: movement.targetLabel || movement.label,
+      roomId: movement.targetRoomId,
+      cell: movement.targetCell
+    });
+    return {
+      state: "moving",
+      intent,
+      target,
+      reason: movement.label || "moving through the lab",
+      urgency: slimeAiUrgencyFor(slime, "moving"),
+      path: movement.path || [],
+      nextThinkAt: movement.arriveAt
+    };
+  }
+
+  function slimeAiFromRoomActivity(slime, activity) {
+    const type = String(activity?.type || "");
+    const label = String(activity?.label || "");
+    let stateId = "idle";
+    let intent = "wander";
+    let reason = label || "acting on simple instincts";
+
+    if (type === "pressingClosedDoor") {
+      stateId = "blocked";
+      intent = "blocked";
+      reason = activity.targetKind ? `blocked from ${activity.targetLabel || activity.targetKind}` : "blocked by a closed route";
+    } else if (["feedingResidue", "feedingWaste", "feedingCorpse", "feedingOnContamination"].includes(type)) {
+      stateId = "feeding";
+      intent = "feed";
+      reason = label || "feeding";
+    } else if (["seekingFood", "seekingContamination"].includes(type)) {
+      stateId = "seeking";
+      intent = type === "seekingContamination" ? "seekHabitat" : "seekFood";
+      reason = label || "seeking a target";
+    } else if (type === "moving") {
+      stateId = "moving";
+      intent = "move";
+      reason = label || "moving";
+    } else if (type === "hunting") {
+      stateId = "seeking";
+      intent = "hunt";
+      reason = "hunting sensed prey";
+    } else if (type === "leavingResidue") {
+      stateId = "idle";
+      intent = "wander";
+      reason = "leaving residue as it roams";
+    } else if (type === "emerging") {
+      stateId = "idle";
+      intent = "acclimate";
+      reason = "adjusting to the room";
+    } else if (type === "exploring") {
+      stateId = "idle";
+      intent = "wander";
+      reason = "exploring";
+    }
+
+    return {
+      state: stateId,
+      intent,
+      target: slimeAiTargetFromActivity(activity),
+      reason,
+      urgency: slimeAiUrgencyFor(slime, stateId, type),
+      path: [],
+      nextThinkAt: Number.isFinite(Number(slime.nextAutonomousDecisionAt)) ? Number(slime.nextAutonomousDecisionAt) : null
+    };
+  }
+
+  function deriveSlimeAi(slime) {
+    if (!slime || slime.status === "dead") {
+      return {
+        state: "dead",
+        intent: "none",
+        target: null,
+        reason: "dead",
+        urgency: "none",
+        path: [],
+        nextThinkAt: null
+      };
+    }
+    if (!slimeIsUncontained(slime)) {
+      return slimeAiFromContainedState(slime);
+    }
+    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+    if (movement && state.clock < movement.arriveAt) {
+      slime.autonomousMovement = movement;
+      return slimeAiFromMovement(slime, movement);
+    }
+    if (slime.roomActivity?.label || slime.roomActivity?.type) {
+      return slimeAiFromRoomActivity(slime, slime.roomActivity);
+    }
+    return {
+      state: "idle",
+      intent: "wander",
+      target: cleanSlimeAiTarget({ kind: "room", id: slime.roomId || MAIN_ROOM_ID, label: roomName(slime.roomId || MAIN_ROOM_ID), roomId: slime.roomId || MAIN_ROOM_ID }),
+      reason: "following simple instincts",
+      urgency: slimeAiUrgencyFor(slime, "idle"),
+      path: [],
+      nextThinkAt: Number.isFinite(Number(slime.nextAutonomousDecisionAt)) ? Number(slime.nextAutonomousDecisionAt) : null
+    };
+  }
+
+  function slimeAiComparable(ai) {
+    return JSON.stringify({
+      state: ai.state,
+      intent: ai.intent,
+      target: ai.target,
+      reason: ai.reason,
+      urgency: ai.urgency,
+      path: ai.path,
+      nextThinkAt: ai.nextThinkAt
+    });
+  }
+
+  function syncSlimeAi(slime) {
+    if (!slime) {
+      return false;
+    }
+    const previous = slime.ai ? normalizeSlimeAiRecord(slime.ai) : null;
+    const derived = normalizeSlimeAiRecord(deriveSlimeAi(slime));
+    const same = previous && slimeAiComparable(previous) === slimeAiComparable(derived);
+    slime.ai = {
+      ...derived,
+      updatedAt: same ? previous.updatedAt : state.clock
+    };
+    return !same;
+  }
+
+  function syncAllSlimeAi() {
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (syncSlimeAi(slime)) {
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function slimeAiRecord(slime) {
+    return slime?.ai ? normalizeSlimeAiRecord(slime.ai) : normalizeSlimeAiRecord(deriveSlimeAi(slime));
+  }
+
+  function slimeAiLabel(slime) {
+    const ai = slimeAiRecord(slime);
+    const stateLabel = SLIME_AI_STATE_LABELS[ai.state] || titleCase(ai.state);
+    return `AI: ${stateLabel}${ai.reason ? ` - ${ai.reason}` : ""}`;
+  }
+
+  function slimeAiChip(slime) {
+    const ai = slimeAiRecord(slime);
+    const element = chip(slimeAiLabel(slime));
+    element.dataset.slimeAi = slime.id;
+    element.title = [
+      `Intent: ${ai.intent}`,
+      `Urgency: ${ai.urgency}`,
+      ai.target?.label ? `Target: ${ai.target.label}` : "",
+      ai.nextThinkAt ? `Next decision: ${formatDuration(Math.max(0, ai.nextThinkAt - state.clock))}` : ""
+    ].filter(Boolean).join(" - ");
+    return element;
   }
 
 
@@ -10829,6 +11193,7 @@
         meta.append(chip(roomChip));
       }
       meta.append(chip(slimeActivityLabel(slime)));
+      meta.append(slimeAiChip(slime));
       for (const activityChip of slimeDoorIntentChips(slime)) {
         meta.append(activityChip);
       }
@@ -22652,6 +23017,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state = next;
       ensurePhysicalObjectPlacements();
       next.selectedMapTarget = normalizeMapTarget(next.selectedMapTarget);
+      syncAllSlimeAi();
     } finally {
       state = previousState;
     }
