@@ -78,6 +78,108 @@ test('slime ai record mirrors contained baseline behavior', async ({ page }) => 
   });
 });
 
+test('slime ai drives summarize biological pressure without executing behavior', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const containers = state.containers || [];
+    const jarFor = (index) => containers.find((container) => container.id === `basic-${index}`) || containers[index - 1] || containers[0];
+    const makeSlime = (id, name, jar, stats, extra = {}) => ({
+      id,
+      name,
+      genome: state.currentGenome,
+      source: 'Drive fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+      ...extra,
+    });
+    state.selectedSlimeId = 'drive-hungry';
+    state.slimes = [
+      makeSlime('drive-hungry', 'DRIVE-FOOD', jarFor(1), {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 4, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      }),
+      makeSlime('drive-injured', 'DRIVE-INJURY', jarFor(4), {
+        bodyIntegrity: { current: 20, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      }),
+      makeSlime('drive-stressed', 'DRIVE-STRESS', jarFor(3), {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 82, max: 100 },
+      }),
+      makeSlime('drive-worker', 'DRIVE-WORK', jarFor(2), {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      }, { job: 'cleanup' }),
+    ];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-drive="drive-hungry"]')).toContainText('Drive: Hunger critical');
+  await expect(page.locator('[data-slime-drives="drive-hungry"]')).toContainText('Hunger');
+  await expect(page.locator('[data-slime-drives="drive-hungry"]')).toContainText('Critical');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const byId = Object.fromEntries((state.slimes || []).map((slime) => [slime.id, slime.ai]));
+    return byId;
+  }, { key: storageKey });
+
+  expect(result['drive-hungry']).toMatchObject({
+    dominantDrive: 'hunger',
+    intent: 'seekFood',
+    urgency: 'critical',
+    drives: { hunger: { band: 'critical' } },
+  });
+  expect(result['drive-injured']).toMatchObject({
+    dominantDrive: 'injury',
+    intent: 'rest',
+    urgency: 'high',
+    drives: { injury: { band: 'high' } },
+  });
+  expect(result['drive-stressed'].drives.stress.band).toBe('high');
+  expect(result['drive-stressed'].dominantDrive).toMatch(/stress|containment/);
+  expect(result['drive-worker']).toMatchObject({
+    dominantDrive: 'work',
+    state: 'working',
+    intent: 'continueJob',
+    drives: { work: { band: 'moderate' } },
+  });
+});
+
 test('lab blueprint stores room footprints and queues scientist movement with map paths', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];

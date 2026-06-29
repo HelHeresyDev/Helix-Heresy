@@ -7499,6 +7499,27 @@
     "blocked"
   ]);
   const SLIME_AI_URGENCY = new Set(["none", "low", "medium", "high", "critical"]);
+  const SLIME_DRIVE_KEYS = ["hunger", "regrowth", "injury", "stress", "containment", "work", "reproduction"];
+  const SLIME_DRIVE_LABELS = {
+    hunger: "Hunger",
+    regrowth: "Regrowth",
+    injury: "Injury",
+    stress: "Stress",
+    containment: "Containment",
+    work: "Work",
+    reproduction: "Reproduction"
+  };
+  const SLIME_DRIVE_BANDS = ["none", "low", "moderate", "high", "critical"];
+  const SLIME_DRIVE_BAND_RANK = Object.fromEntries(SLIME_DRIVE_BANDS.map((band, index) => [band, index]));
+  const SLIME_DRIVE_PRIORITY = {
+    injury: 70,
+    hunger: 65,
+    containment: 60,
+    stress: 55,
+    regrowth: 50,
+    reproduction: 40,
+    work: 30
+  };
 
   function cleanSlimeAiState(value) {
     const stateId = String(value || "idle");
@@ -7513,6 +7534,62 @@
   function cleanSlimeAiUrgency(value) {
     const urgency = String(value || "low");
     return SLIME_AI_URGENCY.has(urgency) ? urgency : "low";
+  }
+
+  function cleanSlimeDriveBand(value) {
+    const band = String(value || "none");
+    return SLIME_DRIVE_BANDS.includes(band) ? band : "none";
+  }
+
+  function cleanSlimeDriveKey(value) {
+    const key = String(value || "");
+    return SLIME_DRIVE_KEYS.includes(key) ? key : "";
+  }
+
+  function driveBandForLowStat(percent) {
+    if (percent <= 5) return "critical";
+    if (percent <= 25) return "high";
+    if (percent <= 45) return "moderate";
+    if (percent <= 70) return "low";
+    return "none";
+  }
+
+  function driveBandForHighStat(percent) {
+    if (percent >= 95) return "critical";
+    if (percent >= 75) return "high";
+    if (percent >= 45) return "moderate";
+    if (percent > 0) return "low";
+    return "none";
+  }
+
+  function driveBandForDeficit(percentFull) {
+    if (percentFull <= 20) return "critical";
+    if (percentFull <= 45) return "high";
+    if (percentFull <= 75) return "moderate";
+    if (percentFull < 100) return "low";
+    return "none";
+  }
+
+  function driveBandLabel(band) {
+    return band === "none" ? "none" : band;
+  }
+
+  function defaultSlimeDriveRecord() {
+    return Object.fromEntries(
+      SLIME_DRIVE_KEYS.map((key) => [key, { band: "none", reason: "" }])
+    );
+  }
+
+  function normalizeSlimeDriveRecord(candidate = {}) {
+    const drives = defaultSlimeDriveRecord();
+    for (const key of SLIME_DRIVE_KEYS) {
+      const raw = candidate?.[key];
+      drives[key] = {
+        band: cleanSlimeDriveBand(raw?.band),
+        reason: String(raw?.reason || "")
+      };
+    }
+    return drives;
   }
 
   function cleanSlimeAiTarget(candidate) {
@@ -7537,18 +7614,173 @@
       .map(cleanMapCell)
       .filter(Boolean);
     const rawNextThinkAt = candidate.nextThinkAt;
+    const drives = normalizeSlimeDriveRecord(candidate.drives);
     return {
       state: cleanSlimeAiState(candidate.state),
       intent: cleanSlimeAiIntent(candidate.intent),
       target: cleanSlimeAiTarget(candidate.target),
       reason: String(candidate.reason || ""),
       urgency: cleanSlimeAiUrgency(candidate.urgency),
+      drives,
+      dominantDrive: cleanSlimeDriveKey(candidate.dominantDrive),
       path,
       nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
         ? null
         : Number.isFinite(Number(rawNextThinkAt)) ? Number(rawNextThinkAt) : null,
       updatedAt: Number.isFinite(Number(candidate.updatedAt)) ? Number(candidate.updatedAt) : 0
     };
+  }
+
+  function slimeDriveEntry(band, reason) {
+    return { band: cleanSlimeDriveBand(band), reason: String(reason || "") };
+  }
+
+  function containmentDriveForSlime(slime) {
+    if (!slime || slime.status === "dead" || slimeIsUncontained(slime)) {
+      return slimeDriveEntry("none", "");
+    }
+    const container = containerById(slime.containerId);
+    if (!container) {
+      return slimeDriveEntry("moderate", "missing stable containment");
+    }
+    const risk = activeContainmentRisk(slime, container);
+    if (/Failing/i.test(risk.label)) {
+      return slimeDriveEntry("critical", "containment is failing");
+    }
+    if (/Dangerous/i.test(risk.label)) {
+      return slimeDriveEntry("high", "containment is dangerous");
+    }
+    if (/Strained/i.test(risk.label)) {
+      return slimeDriveEntry("moderate", "containment is strained");
+    }
+    if (/Watch/i.test(risk.label)) {
+      return slimeDriveEntry("low", "containment needs monitoring");
+    }
+    return slimeDriveEntry("none", "");
+  }
+
+  function workDriveForSlime(slime) {
+    if (!slime || slime.status === "dead" || !slime.job || slime.job === "idle") {
+      return slimeDriveEntry("none", "");
+    }
+    if (!slime.mature || isInSynthesisTube(slime)) {
+      return slimeDriveEntry("low", `assigned to ${creatureJobLabel(slime.job).toLowerCase()} but not ready`);
+    }
+    if (slimeJobRoomBlockReason(slime)) {
+      return slimeDriveEntry("low", `assigned to ${creatureJobLabel(slime.job).toLowerCase()} but blocked`);
+    }
+    return slimeDriveEntry("moderate", `assigned to ${creatureJobLabel(slime.job).toLowerCase()}`);
+  }
+
+  function evaluateSlimeDrives(slime) {
+    if (!slime || slime.status === "dead") {
+      return defaultSlimeDriveRecord();
+    }
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const mass = slimeStatPercent(slime, "currentMass");
+    const integrity = slimeStatPercent(slime, "bodyIntegrity");
+    const stress = slimeStatPercent(slime, "stress");
+    const division = slimeStatPercent(slime, "divisionPressure");
+    const drives = defaultSlimeDriveRecord();
+
+    drives.hunger = slimeDriveEntry(driveBandForLowStat(nutrition),
+      nutrition <= 65 ? `nutrition ${driveBandLabel(driveBandForLowStat(nutrition))}` : "");
+    drives.regrowth = slimeDriveEntry(driveBandForDeficit(mass),
+      mass < 100 ? `current mass ${formatNumber(mass)}%` : "");
+    drives.injury = slimeDriveEntry(driveBandForLowStat(integrity),
+      integrity <= 65 ? `body integrity ${driveBandLabel(driveBandForLowStat(integrity))}` : "");
+    drives.stress = slimeDriveEntry(driveBandForHighStat(stress),
+      stress > 0 ? `stress ${driveBandLabel(driveBandForHighStat(stress))}` : "");
+    drives.containment = containmentDriveForSlime(slime);
+    drives.work = workDriveForSlime(slime);
+    drives.reproduction = slimeDriveEntry(driveBandForHighStat(division),
+      division > 0 ? `division pressure ${driveBandLabel(driveBandForHighStat(division))}` : "");
+    return drives;
+  }
+
+  function dominantSlimeDrive(drives) {
+    let bestKey = "";
+    let bestScore = 0;
+    for (const key of SLIME_DRIVE_KEYS) {
+      const band = cleanSlimeDriveBand(drives?.[key]?.band);
+      const rank = SLIME_DRIVE_BAND_RANK[band] || 0;
+      if (rank < SLIME_DRIVE_BAND_RANK.moderate) {
+        continue;
+      }
+      const score = rank * 100 + (SLIME_DRIVE_PRIORITY[key] || 0);
+      if (score > bestScore) {
+        bestScore = score;
+        bestKey = key;
+      }
+    }
+    return bestKey;
+  }
+
+  function driveUrgencyForBand(band) {
+    if (band === "critical") return "critical";
+    if (band === "high") return "high";
+    if (band === "moderate") return "medium";
+    if (band === "low") return "low";
+    return "none";
+  }
+
+  function maxAiUrgency(...urgencies) {
+    const rank = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
+    return urgencies
+      .map(cleanSlimeAiUrgency)
+      .sort((a, b) => rank[b] - rank[a])[0] || "low";
+  }
+
+  function driveIntentFor(key, slime, currentState) {
+    if (key === "hunger" || key === "regrowth") {
+      return "seekFood";
+    }
+    if (key === "injury") {
+      return "rest";
+    }
+    if (key === "stress" || key === "containment") {
+      return slimeIsUncontained(slime) ? "wait" : "endureContainment";
+    }
+    if (key === "work") {
+      return "continueJob";
+    }
+    if (key === "reproduction") {
+      return "rest";
+    }
+    return currentState === "moving" ? "move" : "rest";
+  }
+
+  function shouldDriveInfluenceState(currentState) {
+    return !["moving", "feeding", "blocked", "dead"].includes(currentState);
+  }
+
+  function applySlimeDriveInfluence(slime, ai) {
+    const drives = evaluateSlimeDrives(slime);
+    const dominantDrive = dominantSlimeDrive(drives);
+    const next = {
+      ...ai,
+      drives,
+      dominantDrive
+    };
+    if (!dominantDrive) {
+      return next;
+    }
+    const drive = drives[dominantDrive];
+    const driveUrgency = driveUrgencyForBand(drive.band);
+    next.urgency = maxAiUrgency(next.urgency, driveUrgency);
+    if (!shouldDriveInfluenceState(next.state)) {
+      return next;
+    }
+    next.intent = driveIntentFor(dominantDrive, slime, next.state);
+    next.reason = drive.reason || next.reason;
+    if (slimeIsUncontained(slime) && ["hunger", "regrowth"].includes(dominantDrive)) {
+      next.state = "seeking";
+    } else if (["stress", "containment"].includes(dominantDrive) && next.state !== "working") {
+      next.state = "stressed";
+    } else if (dominantDrive === "work") {
+      next.state = "working";
+    }
+    return next;
   }
 
   function slimeAiTargetFromActivity(activity) {
@@ -7746,17 +7978,17 @@
       };
     }
     if (!slimeIsUncontained(slime)) {
-      return slimeAiFromContainedState(slime);
+      return applySlimeDriveInfluence(slime, slimeAiFromContainedState(slime));
     }
     const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
     if (movement && state.clock < movement.arriveAt) {
       slime.autonomousMovement = movement;
-      return slimeAiFromMovement(slime, movement);
+      return applySlimeDriveInfluence(slime, slimeAiFromMovement(slime, movement));
     }
     if (slime.roomActivity?.label || slime.roomActivity?.type) {
-      return slimeAiFromRoomActivity(slime, slime.roomActivity);
+      return applySlimeDriveInfluence(slime, slimeAiFromRoomActivity(slime, slime.roomActivity));
     }
-    return {
+    return applySlimeDriveInfluence(slime, {
       state: "idle",
       intent: "wander",
       target: cleanSlimeAiTarget({ kind: "room", id: slime.roomId || MAIN_ROOM_ID, label: roomName(slime.roomId || MAIN_ROOM_ID), roomId: slime.roomId || MAIN_ROOM_ID }),
@@ -7764,7 +7996,7 @@
       urgency: slimeAiUrgencyFor(slime, "idle"),
       path: [],
       nextThinkAt: Number.isFinite(Number(slime.nextAutonomousDecisionAt)) ? Number(slime.nextAutonomousDecisionAt) : null
-    };
+    });
   }
 
   function slimeAiComparable(ai) {
@@ -7774,6 +8006,8 @@
       target: ai.target,
       reason: ai.reason,
       urgency: ai.urgency,
+      drives: ai.drives,
+      dominantDrive: ai.dominantDrive,
       path: ai.path,
       nextThinkAt: ai.nextThinkAt
     });
@@ -7813,6 +8047,16 @@
     return `AI: ${stateLabel}${ai.reason ? ` - ${ai.reason}` : ""}`;
   }
 
+  function slimeDominantDriveLabel(slime) {
+    const ai = slimeAiRecord(slime);
+    const key = ai.dominantDrive;
+    if (!key || !ai.drives?.[key]) {
+      return "";
+    }
+    const drive = ai.drives[key];
+    return `Drive: ${SLIME_DRIVE_LABELS[key] || titleCase(key)} ${drive.band}`;
+  }
+
   function slimeAiChip(slime) {
     const ai = slimeAiRecord(slime);
     const element = chip(slimeAiLabel(slime));
@@ -7820,9 +8064,23 @@
     element.title = [
       `Intent: ${ai.intent}`,
       `Urgency: ${ai.urgency}`,
+      ai.dominantDrive ? `Dominant drive: ${SLIME_DRIVE_LABELS[ai.dominantDrive] || ai.dominantDrive}` : "",
       ai.target?.label ? `Target: ${ai.target.label}` : "",
       ai.nextThinkAt ? `Next decision: ${formatDuration(Math.max(0, ai.nextThinkAt - state.clock))}` : ""
     ].filter(Boolean).join(" - ");
+    return element;
+  }
+
+  function slimeDriveChip(slime) {
+    const label = slimeDominantDriveLabel(slime);
+    if (!label) {
+      return null;
+    }
+    const ai = slimeAiRecord(slime);
+    const drive = ai.drives[ai.dominantDrive];
+    const element = chip(label);
+    element.dataset.slimeDrive = slime.id;
+    element.title = drive.reason || label;
     return element;
   }
 
@@ -11194,6 +11452,10 @@
       }
       meta.append(chip(slimeActivityLabel(slime)));
       meta.append(slimeAiChip(slime));
+      const driveChip = slimeDriveChip(slime);
+      if (driveChip) {
+        meta.append(driveChip);
+      }
       for (const activityChip of slimeDoorIntentChips(slime)) {
         meta.append(activityChip);
       }
@@ -11206,6 +11468,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderSlimeDrives(slime));
         card.append(renderFeedingControls(slime));
         card.append(renderLivingHarvestControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
@@ -16388,6 +16651,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         textEl("span", stat.label),
         textEl("strong", formatSlimeStatValue(stat.key, value)),
         textEl("em", slimeStatBand(stat.key, value))
+      );
+      grid.append(row);
+    }
+    section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimeDrives(slime) {
+    const ai = slimeAiRecord(slime);
+    const section = document.createElement("div");
+    section.className = "slime-drives subpanel";
+    section.dataset.slimeDrives = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = ai.dominantDrive
+      ? `Drives - dominant: ${SLIME_DRIVE_LABELS[ai.dominantDrive]}`
+      : "Drives";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    for (const key of SLIME_DRIVE_KEYS) {
+      const drive = ai.drives[key] || { band: "none", reason: "" };
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (key === ai.dominantDrive) {
+        row.classList.add("selected-map-target");
+      }
+      row.dataset.slimeDriveKey = key;
+      row.title = drive.reason || `${SLIME_DRIVE_LABELS[key]} drive is ${drive.band}.`;
+      row.append(
+        textEl("span", SLIME_DRIVE_LABELS[key]),
+        textEl("strong", titleCase(drive.band)),
+        textEl("em", drive.reason || "quiet")
       );
       grid.append(row);
     }
