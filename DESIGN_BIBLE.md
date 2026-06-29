@@ -130,7 +130,7 @@ Future construction, room expansion, damage, sealing, ventilation, drainage, pow
 
 ## Frontend Architecture Direction
 
-Helix Heresy should move toward a map-first management interface. The physical lab blueprint should become the main surface for understanding the lab, inspecting rooms and objects, issuing contextual commands, following movement, reading incidents, and eventually managing combat or larger-scale emergencies. The existing panel-heavy prototype UI is useful scaffolding, but the long-term interface should feel more like a grim laboratory command console than a collection of disconnected web panels.
+Helix Heresy should move toward a map-first management interface similar to Dwarf Fortress. The physical lab blueprint should become the main surface for understanding the lab, inspecting rooms and objects, issuing contextual commands, following movement, reading incidents, and eventually managing combat or larger-scale emergencies. The existing panel-heavy prototype UI is useful scaffolding, but the long-term interface should feel more like a grim laboratory command console than a collection of disconnected web panels.
 
 The current browser foundation is still worth keeping for now. HTML and CSS are strong fits for dense management screens, forms, logs, policy tabs, tooltips, inspectors, inventory ledgers, journals, and readable text-heavy UI. A full engine rewrite should not happen unless the project hits a clear technical limit that cannot be solved with better architecture.
 
@@ -173,7 +173,7 @@ Core design pillars:
 
 ## Campaign Vision
 
-The full game should become a browser-based roguelike management game about illegal life creation in a magical world. The prototype is slime-first, but the larger arc is not slime-only: slimes are the first low-gene creature family before stranger, smarter, more dangerous life forms become possible.
+The full game should become a browser-based roguelike management and simulation game like Dwarf Fortress about illegal life creation in a magical world. The prototype is slime-first, but the larger arc is not slime-only: slimes are the first low-gene creature family before stranger, smarter, more dangerous life forms become possible.
 
 The intended long-term loop:
 
