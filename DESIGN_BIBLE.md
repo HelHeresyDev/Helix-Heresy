@@ -128,6 +128,27 @@ Construction now begins from the physical blueprint. The player designates solid
 
 Future construction, room expansion, damage, sealing, ventilation, drainage, power, and creature movement should extend this physical map model. Room cards remain the detailed management view, while the compact blueprint gives the player a readable sense of where the lab actually is. This first construction pass does not yet model excavation materials, money, noise, secrecy, workers, supports, room equipment, or buildable infrastructure; those should be layered on top of tile designation and room-purpose assignment rather than replacing them.
 
+## Frontend Architecture Direction
+
+Helix Heresy should move toward a map-first management interface. The physical lab blueprint should become the main surface for understanding the lab, inspecting rooms and objects, issuing contextual commands, following movement, reading incidents, and eventually managing combat or larger-scale emergencies. The existing panel-heavy prototype UI is useful scaffolding, but the long-term interface should feel more like a grim laboratory command console than a collection of disconnected web panels.
+
+The current browser foundation is still worth keeping for now. HTML and CSS are strong fits for dense management screens, forms, logs, policy tabs, tooltips, inspectors, inventory ledgers, journals, and readable text-heavy UI. A full engine rewrite should not happen unless the project hits a clear technical limit that cannot be solved with better architecture.
+
+The likely long-term rendering model is hybrid. The current DOM tile map is acceptable while the lab is small and glyph-based. Canvas should be prepared for, but deferred until the map needs larger spaces, hundreds of actors, smooth animation, sprite rendering, zoom and pan, combat overlays, path previews, or dense environmental visualization. HTML should remain the layer for menus, panels, inspectors, policy screens, and most controls even if the map itself eventually moves to Canvas.
+
+Simulation rules should not depend on either DOM rendering or a future Canvas renderer. Game state should be the source of truth. Rendering should read from state rather than becoming state. Player actions should flow through command functions, simulation should advance through explicit systems, and UI code should display derived view models instead of calculating core rules directly.
+
+Future organization should gradually move toward clear boundaries:
+
+- State: defaults, save data, normalization, migration or reset behavior, and schema-like conventions.
+- Systems: time, metabolism, movement, autonomous creature activity, contamination diffusion, jobs, incidents, reproduction, decay, and future AI.
+- Commands: player intent such as synthesize, move, feed, assign job, open door, transfer receptacle, designate excavation, harvest, sell, or change policy.
+- Selectors and view models: read-only derived data for panels, tooltips, map overlays, warnings, and contextual actions.
+- UI: DOM rendering, event binding, panel layout, hotkeys, command menus, and presentation state.
+- Map renderer: a replaceable boundary that can use DOM tiles now and Canvas later without rewriting pathfinding, rooms, actors, or simulation logic.
+
+The first architecture pass should be small and practical rather than a sweeping rewrite. A useful first step is to create a map view model, such as `buildMapView(state)`, and have the current map renderer consume that instead of mixing map derivation, DOM creation, selection logic, and simulation knowledge together. A second good target is clarifying the update pipeline as `advance time -> run systems -> collect events -> persist -> render`, so future AI and hundreds of actors have a clear place to live.
+
 ## Container Compatibility
 
 Containers are physical lab equipment, not generic storage slots. Current prototype containers have base types with interior dimensions, openings, open or sealed geometry, load limits, durability, comfort, drainage, environment exchange, material resistance, and optional wards. Wards modify specific problems rather than solving all containment.
@@ -338,6 +359,9 @@ Likely future systems:
 - Deeper processing chains that can turn local feeding residue and harvested specimen materials into useful or dangerous outputs without overwriting natural byproduct identity.
 - Natural byproduct collection through Collection Bay stations, including Specimen Drainage Tanks for drip/sludge/gel routing, station receptacles for accumulated material, per-station overflow buffers, and hood/condenser workflows for vapor/haze/fume/mist outputs.
 - Inventory outputs from collected byproducts, recorded through inventory history/tooltips instead of event-log accounting spam.
+- Map-first contextual command UI with inspectors, hotkeys, menus, overlays, and management panels organized around the physical lab.
+- A gradual frontend architecture split between state, systems, commands, selectors/view models, UI rendering, and a replaceable map renderer.
+- Hybrid rendering with HTML/CSS for management UI and a future Canvas map layer if actor count, sprites, animation, zoom/pan, or combat visualization outgrow DOM tiles.
 - Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
 - Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
 - A clearer distinction between casual observation, lab testing, and precise instrument readings.
@@ -423,4 +447,5 @@ Trait outcomes and gene mappings are intentionally hidden during normal play so 
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.
 - This is a prototype, so systems may be renamed or reshaped as the design becomes clearer.
+- Prefer gradual architecture refactors over a full engine rewrite unless the browser foundation reaches a clear technical limit.
 - Do not update the changelog for every prototype tweak; reserve it for milestone-ready versions.

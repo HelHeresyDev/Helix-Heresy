@@ -12,15 +12,58 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Black Market Byproduct Economy System
-2. Elemental Damage Type System
-3. Tool Durability and Damage Resistance System
-4. XP Curve and Breakthrough-Gated Skill Progression
-5. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Frontend Architecture & Map-Centric UI Refactor
+2. Black Market Byproduct Economy System
+3. Elemental Damage Type System
+4. Tool Durability and Damage Resistance System
+5. XP Curve and Breakthrough-Gated Skill Progression
+6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Black Market Byproduct Economy System
+## 1. Frontend Architecture & Map-Centric UI Refactor
+
+Evaluate and rework the game's frontend architecture so Helix Heresy can grow toward a Dwarf Fortress-style interface: a central map with contextual menus, inspectors, panels, hotkeys, management screens, and direct commands issued from physical space.
+
+The current prototype now has a physical lab blueprint, tile-based room footprints, object glyphs, pathfinding, queued movement, room-local logistics, autonomous loose creature activity, room contamination diffusion, and many growing panels. As more systems are added, the interface should shift away from many independent prototype panels and toward a map-first command surface.
+
+The goal is not to rewrite the game in a new engine right now. Prefer preserving the current browser foundation if it can support the intended direction with better architecture. A full engine rewrite should only be recommended if there is a strong reason.
+
+The expected long-term rendering direction is a hybrid model:
+- Keep HTML/CSS for menus, panels, inspectors, tooltips, forms, logs, policy screens, and management UI.
+- Keep the current DOM tile map while the prototype remains small and readable.
+- Prepare for a future Canvas map renderer when larger maps, hundreds of actors, sprite rendering, animation, zoom/pan, overlays, path previews, or combat visualization make DOM tiles awkward.
+- Avoid tying simulation rules to either DOM rendering or future Canvas rendering.
+
+This pass should answer questions like:
+- Is the current HTML/CSS/JavaScript foundation still appropriate for a simulation-heavy, map-and-menu management game?
+- What parts of the current UI are prototype scaffolding that should eventually be replaced by a map-first command interface?
+- How should simulation state, game rules, AI updates, map rendering, UI rendering, save/load, and tests be separated?
+- How should `app.js` be divided or organized so future work does not become unmanageable?
+- How should map state, room state, object state, creature state, task state, inventory state, AI state, and UI selection state relate to each other?
+- How should keyboard-driven navigation and command menus eventually work?
+- How should selecting a map tile, room, creature, container, corpse, tool, door, or task show the right contextual actions?
+- When would Canvas become necessary, and what should be prepared now without prematurely rewriting rendering?
+- How can the refactor happen gradually without stopping feature development?
+- What performance risks should be addressed before the simulation grows to hundreds of actors?
+
+The desired architecture direction is:
+- Game state is the source of truth.
+- Rendering reads from state rather than becoming state.
+- Simulation systems are separated from DOM manipulation.
+- Player actions move through command functions such as synthesize, move, feed, assign job, open door, transfer receptacle, or designate excavation.
+- Systems such as time, movement, metabolism, diffusion, jobs, incidents, and AI run in a clear update pipeline.
+- Selectors or view-model builders translate raw state into UI-ready data.
+- A map renderer boundary exists so the current DOM map can later be swapped or upgraded to Canvas without rewriting simulation rules.
+- Tests can target game logic separately from UI rendering where appropriate.
+
+The first useful implementation should likely be a small architectural pass rather than a sweeping rewrite. A good candidate is to introduce a map view model such as `buildMapView(state)` and route the current map renderer through it, while also clarifying the game-loop pipeline and identifying which systems can be extracted from direct UI rendering.
+
+Before coding, discuss whether the current foundation is worth keeping, what architecture problems exist now, what should be split or reorganized first, whether Canvas should be deferred or prepared for, whether a hybrid Canvas-plus-HTML interface makes sense, and what first-pass refactor best prepares the game for a simulation-heavy map-centric interface.
+
+---
+
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -46,7 +89,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 2. Elemental Damage Type System
+## 3. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -71,7 +114,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 3. Tool Durability and Damage Resistance System
+## 4. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -100,7 +143,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 4. XP Curve and Breakthrough-Gated Skill Progression
+## 5. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -165,7 +208,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 5. Analyze Ability & Creature Skill Evolution Follow-Up
+## 6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
