@@ -278,6 +278,110 @@ test('released slimes press blocked doors and expose possible intent instead of 
   expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 
+test('spatial incidents appear as map alerts without creating response tasks', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.paused = true;
+    state.clock = 0;
+    state.tasks = [];
+    state.incidents = [];
+    state.nextIncidentNumber = 1;
+    state.rooms = (state.rooms || []).map((room) => {
+      if (room.id !== 'mainLab') {
+        return room;
+      }
+      return {
+        ...room,
+        attributes: {
+          ...room.attributes,
+          contamination: {
+            ...(room.attributes?.contamination || {}),
+            current: 62,
+            baseline: 10,
+          },
+        },
+      };
+    });
+    state.feedingResidues = [{
+      id: 'residue-alert',
+      typeKey: 'hazardousSludge',
+      amount: 3,
+      location: { type: 'room', roomId: 'mainLab' },
+      tags: ['hazardous', 'mess'],
+      sourceLabels: ['alert fixture'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'alert-slime',
+      name: 'ALERT-001',
+      genome: state.currentGenome,
+      source: 'Incident alert fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 10000,
+      roomActivity: {
+        type: 'pressingClosedDoor',
+        label: 'pressing against closed door',
+        roomId: 'mainLab',
+        targetRoomId: 'storageRoom',
+        targetKind: 'residue',
+        targetId: 'residue-storage',
+        targetLabel: 'Loose biomatter',
+        doorKey: 'mainLab::storageRoom',
+        updatedAt: 0,
+      },
+      roomBehavior: { seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 20, max: 100 },
+        currentMass: { current: 50, max: 100 },
+      },
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  const panel = page.locator('[data-incident-panel="true"]');
+  await expect(panel).toContainText('Incident Alerts');
+  await expect(panel).toContainText('3 active alerts');
+  await expect(panel).toContainText('ALERT-001 pressing against a blocked door');
+  await expect(panel).toContainText('Main Lab contamination is fouled');
+  await expect(panel).toContainText('Hazardous sludge in Main Lab');
+  await expect(page.locator('[data-incident-alert]')).toHaveCount(3);
+
+  const highlightedAlerts = await page.locator('.lab-map-cell.incident-alert-cell').count();
+  expect(highlightedAlerts).toBeGreaterThan(0);
+  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('3 active alerts');
+
+  const tasks = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.tasks || [];
+  }, { key: storageKey });
+  expect(tasks).toEqual([]);
+});
+
 test('door access states block routing and show physical door data', async ({ page }) => {
   await startRun(page);
 

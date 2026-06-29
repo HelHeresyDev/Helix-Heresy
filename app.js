@@ -444,6 +444,9 @@
   const CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR = 6;
   const CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR = 3;
   const CREATURE_AUTONOMOUS_WANDER_CHANCE = 0.35;
+  const INCIDENT_CONTAMINATION_THRESHOLD = 30;
+  const INCIDENT_RESIDUE_THRESHOLD = 2;
+  const INCIDENT_RESOLVED_RETENTION = 24;
   const FREE_CREATURE_PRESSURE_HIGH_SKILL = 4;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
@@ -1491,6 +1494,22 @@
     { key: "hazardousSludge", label: "Hazardous sludge", contamination: 2.5 }
   ];
   const FEEDING_RESIDUE_BY_KEY = Object.fromEntries(FEEDING_RESIDUE_DEFS.map((residue) => [residue.key, residue]));
+  const INCIDENT_SEVERITIES = [
+    { id: "trace", label: "Trace", rank: 0 },
+    { id: "minor", label: "Minor", rank: 1 },
+    { id: "serious", label: "Serious", rank: 2 },
+    { id: "critical", label: "Critical", rank: 3 }
+  ];
+  const INCIDENT_SEVERITY_BY_ID = Object.fromEntries(INCIDENT_SEVERITIES.map((severity) => [severity.id, severity]));
+  const INCIDENT_TYPE_DEFS = {
+    looseCreature: { label: "Loose Creature" },
+    blockedDoorPressure: { label: "Blocked Door Pressure" },
+    roomContamination: { label: "Room Contamination" },
+    residueSpill: { label: "Feeding Residue Spill" },
+    exposedRemains: { label: "Exposed Remains" },
+    corpseOverflow: { label: "Corpse Overflow" },
+    breachedDoor: { label: "Door Breach" }
+  };
   const SPECIMEN_HARVEST_PROCEDURE_DEFS = [
     {
       id: "sample",
@@ -1858,6 +1877,7 @@
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
+      incidents: [],
       policies: defaultPolicies(),
       currentGenome: "",
       queueDrawerOpen: false,
@@ -1870,6 +1890,7 @@
       nextSlimeNumber: 1,
       nextCorpseNumber: 1,
       nextResidueNumber: 1,
+      nextIncidentNumber: 1,
       nextTaskNumber: 1,
       discoveries: {},
       regionNotes: {},
@@ -2874,6 +2895,7 @@
     const collectionChanged = updateCollectionBayAccumulation(elapsed);
     const compatibilityChanged = updateContainerCompatibilityEffects(elapsed);
     const containmentIncidentChanges = updateContainmentIncidents(elapsed);
+    const incidentAlertChanged = refreshIncidentAlerts();
     const jobExpired = expireSlimes();
     const completed = completeDueTasks();
     syncRoomObservationMemory();
@@ -2881,10 +2903,10 @@
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || incidentAlertChanged || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + incidentAlertChanged + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -6096,6 +6118,362 @@
       }
     }
     return def.bands[0];
+  }
+
+  function cleanIncidentSeverity(value) {
+    const severity = String(value || "").trim();
+    return INCIDENT_SEVERITY_BY_ID[severity] ? severity : "minor";
+  }
+
+  function incidentSeverityRank(severity) {
+    return INCIDENT_SEVERITY_BY_ID[cleanIncidentSeverity(severity)]?.rank || 0;
+  }
+
+  function incidentSeverityLabel(severity) {
+    return INCIDENT_SEVERITY_BY_ID[cleanIncidentSeverity(severity)]?.label || "Minor";
+  }
+
+  function cleanIncidentStatus(value) {
+    return value === "resolved" ? "resolved" : "active";
+  }
+
+  function cleanIncidentRoomId(roomId, context = state) {
+    const rooms = Array.isArray(context?.rooms) ? context.rooms : [];
+    const id = String(roomId || "").trim();
+    return rooms.some((room) => room.id === id) ? id : MAIN_ROOM_ID;
+  }
+
+  function incidentTypeLabel(type) {
+    return INCIDENT_TYPE_DEFS[type]?.label || titleCase(type || "incident");
+  }
+
+  function incidentKeyFor(data) {
+    const type = String(data?.type || "incident");
+    const sourceKind = String(data?.sourceKind || "room");
+    const sourceId = String(data?.sourceId || data?.roomId || "");
+    const roomId = String(data?.roomId || "");
+    return [type, sourceKind, sourceId || roomId].join("::");
+  }
+
+  function normalizeIncident(candidate, context = state) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const type = String(candidate.type || "incident").trim();
+    const roomId = cleanIncidentRoomId(candidate.roomId, context);
+    const sourceKind = String(candidate.sourceKind || "room").trim();
+    const sourceId = String(candidate.sourceId || roomId).trim();
+    const key = String(candidate.key || incidentKeyFor({ type, sourceKind, sourceId, roomId })).trim();
+    const label = String(candidate.label || incidentTypeLabel(type)).trim();
+    const createdAt = finiteTime(candidate.createdAt, context?.clock || 0);
+    const status = cleanIncidentStatus(candidate.status);
+    return {
+      id: String(candidate.id || "").trim(),
+      key,
+      type,
+      label,
+      summary: String(candidate.summary || "").trim(),
+      severity: cleanIncidentSeverity(candidate.severity),
+      status,
+      roomId,
+      cell: cleanMapCell(candidate.cell),
+      sourceKind,
+      sourceId,
+      sourceLabel: String(candidate.sourceLabel || "").trim(),
+      createdAt,
+      updatedAt: finiteTime(candidate.updatedAt, createdAt),
+      resolvedAt: status === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null
+    };
+  }
+
+  function normalizeIncidents(candidate, context = state) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((incident) => normalizeIncident(incident, context))
+      .filter(Boolean);
+  }
+
+  function activeIncidentAlerts() {
+    state.incidents = normalizeIncidents(state.incidents);
+    return state.incidents
+      .filter((incident) => incident.status === "active")
+      .sort((a, b) =>
+        incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity)
+        || b.createdAt - a.createdAt
+        || a.label.localeCompare(b.label)
+      );
+  }
+
+  function incidentCell(roomId, preferredCell = null) {
+    const map = ensureLabMap();
+    const room = roomById(roomId)?.id || MAIN_ROOM_ID;
+    const clean = cleanMapCell(preferredCell);
+    if (clean && labMapCellRoomId(clean, map) === room) {
+      return clean;
+    }
+    return nearestOpenMapCellInRoom(room, labMapRoomAnchor(room, map), { map, ignoreObjects: true });
+  }
+
+  function doorIncidentCell(doorKeyValue) {
+    const mapDoor = labMapDoor(doorKeyValue);
+    return cleanMapCell(mapDoor?.from || mapDoor?.to) || labMapRoomAnchor(MAIN_ROOM_ID);
+  }
+
+  function contaminationIncidentSeverity(value) {
+    if (value >= 78) {
+      return "critical";
+    }
+    if (value >= 55) {
+      return "serious";
+    }
+    return "minor";
+  }
+
+  function residueIncidentSeverity(residue) {
+    const typeKey = residue?.typeKey || "";
+    const amount = Number(residue?.amount) || 0;
+    if (typeKey === "hazardousSludge" || amount >= 8) {
+      return "serious";
+    }
+    if (typeKey === "contaminatedResidue" || amount >= 4) {
+      return "minor";
+    }
+    return "trace";
+  }
+
+  function corpseIncidentSeverity(corpse) {
+    const freshness = corpseFreshness(corpse);
+    if (corpse?.storage === "overflow") {
+      return freshness === "spoiled" || freshness === "ruined" ? "critical" : "serious";
+    }
+    return freshness === "fresh" ? "minor" : "serious";
+  }
+
+  function addDesiredIncident(desired, data) {
+    const roomId = roomById(data.roomId)?.id || MAIN_ROOM_ID;
+    const cell = incidentCell(roomId, data.cell);
+    desired.push({
+      key: incidentKeyFor({ ...data, roomId }),
+      type: data.type,
+      label: data.label || incidentTypeLabel(data.type),
+      summary: data.summary || "",
+      severity: data.severity || "minor",
+      roomId,
+      cell,
+      sourceKind: data.sourceKind || "room",
+      sourceId: data.sourceId || roomId,
+      sourceLabel: data.sourceLabel || ""
+    });
+  }
+
+  function collectDesiredIncidentAlerts() {
+    const desired = [];
+
+    for (const slime of state.slimes || []) {
+      if (!slimeIsUncontained(slime) || slime.status === "dead") {
+        continue;
+      }
+      const roomId = slimeEffectiveRoomId(slime);
+      if (!scientistObservesRoom(roomId)) {
+        continue;
+      }
+      const activity = slime.roomActivity || {};
+      if (activity.type === "pressingClosedDoor") {
+        addDesiredIncident(desired, {
+          type: "blockedDoorPressure",
+          label: `${slime.name} pressing against a blocked door`,
+          summary: slimeActivityLabel(slime).replace(/^Activity:\s*/i, ""),
+          severity: "serious",
+          roomId,
+          cell: objectMapCell(slime),
+          sourceKind: "slime",
+          sourceId: slime.id,
+          sourceLabel: slime.name
+        });
+      } else {
+        addDesiredIncident(desired, {
+          type: "looseCreature",
+          label: `${slime.name} loose in ${roomName(roomId)}`,
+          summary: slimeActivityLabel(slime),
+          severity: activity.type === "hunting" ? "serious" : "minor",
+          roomId,
+          cell: objectMapCell(slime),
+          sourceKind: "slime",
+          sourceId: slime.id,
+          sourceLabel: slime.name
+        });
+      }
+    }
+
+    for (const room of state.rooms || []) {
+      if (!scientistObservesRoom(room.id)) {
+        continue;
+      }
+      const contamination = roomContaminationValue(room.id);
+      if (contamination >= INCIDENT_CONTAMINATION_THRESHOLD) {
+        const band = roomAttributeBand("contamination", contamination);
+        addDesiredIncident(desired, {
+          type: "roomContamination",
+          label: `${room.name} contamination is ${band.label.toLowerCase()}`,
+          summary: `${formatDecimal(contamination, 1)} / 100 contamination`,
+          severity: contaminationIncidentSeverity(contamination),
+          roomId: room.id,
+          cell: labMapRoomAnchor(room.id),
+          sourceKind: "room",
+          sourceId: room.id,
+          sourceLabel: room.name
+        });
+      }
+    }
+
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    for (const residue of state.feedingResidues || []) {
+      const roomId = residue.location?.type === "room" ? residue.location.roomId : "";
+      if (!roomId || !scientistObservesRoom(roomId) || residue.amount < INCIDENT_RESIDUE_THRESHOLD) {
+        continue;
+      }
+      addDesiredIncident(desired, {
+        type: "residueSpill",
+        label: `${feedingResidueLabel(residue.typeKey)} in ${roomName(roomId)}`,
+        summary: `${feedingResidueUnitText(residue.amount)}; source ${residue.sourceLabels?.[0] || "unknown"}`,
+        severity: residueIncidentSeverity(residue),
+        roomId,
+        cell: labMapRoomAnchor(roomId),
+        sourceKind: "residue",
+        sourceId: residue.id,
+        sourceLabel: feedingResidueLabel(residue.typeKey)
+      });
+    }
+
+    for (const corpse of state.corpses || []) {
+      normalizeCorpseLocation(corpse);
+      const roomId = corpse.roomId || MAIN_ROOM_ID;
+      if (corpse.storage === "overflow") {
+        addDesiredIncident(desired, {
+          type: "corpseOverflow",
+          label: `${corpse.name} remains overflow storage`,
+          summary: `${corpseStateLabel(corpse)} corpse outside proper storage`,
+          severity: corpseIncidentSeverity(corpse),
+          roomId,
+          cell: objectMapCell(corpse),
+          sourceKind: "corpse",
+          sourceId: corpse.id,
+          sourceLabel: `${corpse.name} remains`
+        });
+      } else if (corpse.storage === "room" && scientistObservesRoom(roomId)) {
+        addDesiredIncident(desired, {
+          type: "exposedRemains",
+          label: `${corpse.name} remains exposed in ${roomName(roomId)}`,
+          summary: `${corpseStateLabel(corpse)} corpse not in a container or drum`,
+          severity: corpseIncidentSeverity(corpse),
+          roomId,
+          cell: objectMapCell(corpse),
+          sourceKind: "corpse",
+          sourceId: corpse.id,
+          sourceLabel: `${corpse.name} remains`
+        });
+      }
+    }
+
+    state.doors = normalizeDoors(state.doors);
+    for (const door of Object.values(state.doors || {})) {
+      if (!doorIsBreached(door)) {
+        continue;
+      }
+      const roomIds = door.roomIds || [];
+      if (!roomIds.some((roomId) => scientistObservesRoom(roomId))) {
+        continue;
+      }
+      const key = door.key || doorKey(roomIds[0], roomIds[1]);
+      addDesiredIncident(desired, {
+        type: "breachedDoor",
+        label: `${roomIds.map(roomName).join(" / ")} door breached`,
+        summary: `${doorTypeLabel(door.typeId)} no longer seals or locks`,
+        severity: "serious",
+        roomId: roomIds.find((roomId) => scientistObservesRoom(roomId)) || roomIds[0] || MAIN_ROOM_ID,
+        cell: doorIncidentCell(key),
+        sourceKind: "door",
+        sourceId: key,
+        sourceLabel: `${roomIds.map(roomName).join(" / ")} door`
+      });
+    }
+
+    return desired;
+  }
+
+  function incidentRecordNeedsUpdate(existing, desired) {
+    if (!existing) {
+      return true;
+    }
+    const fields = ["type", "label", "summary", "severity", "roomId", "sourceKind", "sourceId", "sourceLabel"];
+    if (fields.some((field) => existing[field] !== desired[field])) {
+      return true;
+    }
+    const existingCell = existing.cell ? mapCellKey(existing.cell) : "";
+    const desiredCell = desired.cell ? mapCellKey(desired.cell) : "";
+    return existingCell !== desiredCell || existing.status !== "active";
+  }
+
+  function refreshIncidentAlerts() {
+    if (!state) {
+      return 0;
+    }
+    state.incidents = normalizeIncidents(state.incidents);
+    state.nextIncidentNumber = Math.max(
+      Number(state.nextIncidentNumber) || 1,
+      state.incidents.reduce((max, incident) => Math.max(max, numericSuffix(incident.id)), 0) + 1
+    );
+    const desired = collectDesiredIncidentAlerts();
+    const desiredKeys = new Set();
+    const existingByKey = new Map(state.incidents.map((incident) => [incident.key, incident]));
+    let changes = 0;
+
+    for (const entry of desired) {
+      const key = entry.key || incidentKeyFor(entry);
+      desiredKeys.add(key);
+      const existing = existingByKey.get(key);
+      if (existing) {
+        if (incidentRecordNeedsUpdate(existing, entry)) {
+          Object.assign(existing, {
+            ...entry,
+            key,
+            id: existing.id,
+            status: "active",
+            createdAt: existing.status === "resolved" ? state.clock : existing.createdAt,
+            updatedAt: state.clock,
+            resolvedAt: null
+          });
+          changes += 1;
+        }
+      } else {
+        state.incidents.push(normalizeIncident({
+          ...entry,
+          key,
+          id: `incident-${state.nextIncidentNumber++}`,
+          status: "active",
+          createdAt: state.clock,
+          updatedAt: state.clock,
+          resolvedAt: null
+        }));
+        changes += 1;
+      }
+    }
+
+    for (const incident of state.incidents) {
+      if (incident.status === "active" && !desiredKeys.has(incident.key)) {
+        incident.status = "resolved";
+        incident.resolvedAt = state.clock;
+        incident.updatedAt = state.clock;
+        changes += 1;
+      }
+    }
+
+    const active = state.incidents.filter((incident) => incident.status === "active");
+    const resolved = state.incidents
+      .filter((incident) => incident.status === "resolved")
+      .sort((a, b) => b.resolvedAt - a.resolvedAt)
+      .slice(0, INCIDENT_RESOLVED_RETENTION);
+    state.incidents = [...active, ...resolved];
+    return changes;
   }
 
   function containerTypeDef(typeId) {
@@ -16245,7 +16623,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null) {
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, incidentEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
@@ -16274,7 +16652,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (pathEntry) {
       parts.push(`next route: ${pathEntry.label}`);
     }
+    if (incidentEntry?.alerts?.length) {
+      parts.push(`alerts: ${incidentEntry.alerts.map((incident) => incident.label).join("; ")}`);
+    }
     return parts.join(" - ");
+  }
+
+  function incidentSeverityClass(severity) {
+    return `incident-${cleanIncidentSeverity(severity)}`;
+  }
+
+  function labMapIncidentAssignments(map) {
+    const assignments = new Map();
+    for (const incident of activeIncidentAlerts()) {
+      const cell = incidentCell(incident.roomId, incident.cell);
+      if (!cell || !mapCellInBounds(cell, map)) {
+        continue;
+      }
+      const key = mapCellKey(cell);
+      const entry = assignments.get(key) || { alerts: [], highestSeverity: "trace" };
+      entry.alerts.push(incident);
+      if (incidentSeverityRank(incident.severity) > incidentSeverityRank(entry.highestSeverity)) {
+        entry.highestSeverity = incident.severity;
+      }
+      assignments.set(key, entry);
+    }
+    return assignments;
   }
 
   function slimeMapObjectLabel(slime) {
@@ -16498,6 +16901,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = ensureLabMap();
     const scientistCell = scientistMapCell();
     const objectAssignments = labMapObjectAssignments(map);
+    const incidentAssignments = labMapIncidentAssignments(map);
     const route = nextQueuedMovementPath(map);
     const plannedExcavations = plannedExcavationAssignments();
     const selectedTarget = selectedMapTarget();
@@ -16522,6 +16926,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const door = labMapDoorAtCell(cell, map);
         const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
         const objectEntry = objectAssignments.get(mapCellKey(cell));
+        const incidentEntry = incidentAssignments.get(mapCellKey(cell));
         const routeEntry = route.keys.has(mapCellKey(cell)) ? route : null;
         const plannedEntry = plannedExcavations.get(mapCellKey(cell));
         const scientistHere = scientistCell.x === x && scientistCell.y === y;
@@ -16530,7 +16935,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tile.className = "lab-map-cell";
         tile.dataset.mapX = String(x);
         tile.dataset.mapY = String(y);
-        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry);
+        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry);
         if (roomId) {
           tile.classList.add("room-cell", `room-${roomRole(roomId)}`);
           tile.dataset.mapRoom = roomId;
@@ -16547,6 +16952,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (routeEntry) {
           tile.classList.add("queued-path-cell");
           tile.dataset.mapQueuedPath = routeEntry.task?.id || "next";
+        }
+        if (incidentEntry) {
+          tile.classList.add("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
+          tile.dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
+          tile.dataset.mapIncidentCount = String(incidentEntry.alerts.length);
         }
         if (selectedTargetMatchesTile(selectedTarget, { roomId, door, objectEntry, scientistHere })) {
           tile.classList.add("selected-map-cell");
@@ -16580,6 +16990,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.textContent = doorMapGlyph(doorForConnection(door.roomIds[0], door.roomIds[1]) || door);
         } else if (plannedEntry) {
           tile.textContent = "D";
+        } else if (incidentEntry) {
+          tile.textContent = "A";
         }
         grid.append(tile);
       }
@@ -16588,8 +17000,73 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"), chip("l = locked"), chip("s = sealed"), chip("! = breached"));
+    legend.append(chip("S = scientist"), chip("A = active alert"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"), chip("l = locked"), chip("s = sealed"), chip("! = breached"));
     panel.append(legend);
+    return panel;
+  }
+
+  function incidentFocusTarget(incident) {
+    if (!incident) {
+      return null;
+    }
+    if (incident.sourceKind === "slime" && findSlime(incident.sourceId)) {
+      return { kind: "slime", id: incident.sourceId };
+    }
+    if (incident.sourceKind === "corpse" && findCorpse(incident.sourceId)) {
+      return { kind: "corpse", id: incident.sourceId };
+    }
+    if (incident.sourceKind === "container" && containerById(incident.sourceId)) {
+      return { kind: "container", id: incident.sourceId };
+    }
+    if (incident.sourceKind === "door") {
+      const door = doorForConnection(...doorRoomIdsFromKey(incident.sourceId));
+      if (door) {
+        return { kind: "door", key: door.key, roomIds: door.roomIds };
+      }
+    }
+    return { kind: "room", roomId: incident.roomId || MAIN_ROOM_ID };
+  }
+
+  function incidentAlertPanelEl() {
+    const panel = document.createElement("div");
+    panel.className = "incident-alert-panel subpanel";
+    panel.dataset.incidentPanel = "true";
+    const alerts = activeIncidentAlerts();
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Incident Alerts";
+    panel.append(title);
+    if (!alerts.length) {
+      panel.append(emptyText("No active spatial alerts."));
+      return panel;
+    }
+    const summary = emptyText(`${alerts.length} active alert${alerts.length === 1 ? "" : "s"} on the lab map.`);
+    panel.append(summary);
+    const list = document.createElement("div");
+    list.className = "incident-alert-list";
+    for (const incident of alerts) {
+      const row = document.createElement("div");
+      row.className = `incident-alert-row ${incidentSeverityClass(incident.severity)}`;
+      row.dataset.incidentAlert = incident.id;
+      const body = document.createElement("div");
+      const heading = document.createElement("strong");
+      heading.textContent = incident.label;
+      const meta = document.createElement("div");
+      meta.className = "incident-alert-meta";
+      meta.append(chip(incidentSeverityLabel(incident.severity)), chip(roomName(incident.roomId)), chip(formatClock(incident.createdAt)));
+      if (incident.summary) {
+        meta.append(chip(incident.summary));
+      }
+      body.append(heading, meta);
+      const focus = document.createElement("button");
+      focus.type = "button";
+      focus.textContent = "Focus";
+      focus.title = "Focus the map object or room connected to this alert.";
+      focus.addEventListener("click", () => focusMapTarget(incidentFocusTarget(incident)));
+      row.append(body, focus);
+      list.append(row);
+    }
+    panel.append(list);
     return panel;
   }
 
@@ -16747,8 +17224,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.rooms = normalizeRooms(state.rooms);
     syncRoomObservationMemory();
     observeScientistRoom();
+    refreshIncidentAlerts();
     dom.roomList.textContent = "";
-    dom.roomList.append(labMapPanelEl(), constructionPanelEl());
+    dom.roomList.append(labMapPanelEl(), incidentAlertPanelEl(), constructionPanelEl());
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
@@ -16768,6 +17246,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (room.id === PITS_ROOM_ID) {
         metaChips.push(chip("corpse work"));
+      }
+      const roomAlerts = activeIncidentAlerts().filter((incident) => incident.roomId === room.id);
+      if (roomAlerts.length) {
+        const alertChip = chip(`${roomAlerts.length} active alert${roomAlerts.length === 1 ? "" : "s"}`);
+        alertChip.classList.add("danger-chip");
+        alertChip.title = roomAlerts.map((incident) => incident.label).join("\n");
+        metaChips.push(alertChip);
       }
       for (const cleanupTag of roomBiologicalCleanupTags(room)) {
         metaChips.push(cleanupTag);
@@ -21788,6 +22273,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.nextResidueNumber = Math.max(
       Number(next.nextResidueNumber) || 1,
       next.feedingResidues.reduce((max, residue) => Math.max(max, numericSuffix(residue.id)), 0) + 1
+    );
+    next.incidents = normalizeIncidents(next.incidents, next);
+    next.nextIncidentNumber = Math.max(
+      Number(next.nextIncidentNumber) || 1,
+      next.incidents.reduce((max, incident) => Math.max(max, numericSuffix(incident.id)), 0) + 1
     );
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);

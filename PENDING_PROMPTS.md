@@ -12,41 +12,16 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Map-Based Incident and Emergency Response System
-2. Spatial Environment Propagation System
-3. Black Market Byproduct Economy System
-4. Elemental Damage Type System
-5. Tool Durability and Damage Resistance System
-6. XP Curve and Breakthrough-Gated Skill Progression
-7. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Spatial Environment Propagation System
+2. Black Market Byproduct Economy System
+3. Elemental Damage Type System
+4. Tool Durability and Damage Resistance System
+5. XP Curve and Breakthrough-Gated Skill Progression
+6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Map-Based Incident and Emergency Response System
-
-Create a spatial foundation for lab incidents and emergency response.
-
-As rooms, creatures, containers, doors, and remains become physical map objects, accidents should eventually happen in places rather than only in abstract room panels. An escaped slime, broken container, hazardous spill, corpse overflow, door failure, or room contamination event should have a location and should create map-aware responses.
-
-The system should answer questions like:
-- What kinds of incidents should be spatial first?
-- How is an incident location chosen?
-- How does the scientist respond to an incident using the physical path system?
-- Can the player queue emergency movement, containment response, cleanup, sealing, or evacuation?
-- How should doors and barriers affect emergency response?
-- How should incidents affect nearby containers, loose creatures, remains, tools, and room conditions?
-- How should the UI communicate incident location and urgency?
-- Should incidents spread tile-by-tile, room-by-room, or by abstract room effect in the first pass?
-
-The goal is not to build every disaster system at once. The goal is to make incidents map-aware so future systems do not have to retrofit spatial logic later. A containment breach in Collection Bay should feel different from one in the Bedroom or Pits because objects, paths, doors, and room conditions differ.
-
-The desired result is a small but solid emergency framework: incidents can have locations, can be surfaced on the blueprint, can trigger or request response tasks, and can use physical paths to resolve response timing.
-
-Before coding, discuss incident types, location rules, emergency task flow, map highlights, spread model, and how much danger should exist in the first implementation.
-
----
-
-## 2. Spatial Environment Propagation System
+## 1. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -70,7 +45,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -96,7 +71,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 4. Elemental Damage Type System
+## 3. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -121,7 +96,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 5. Tool Durability and Damage Resistance System
+## 4. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -150,7 +125,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 6. XP Curve and Breakthrough-Gated Skill Progression
+## 5. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -215,7 +190,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 7. Analyze Ability & Creature Skill Evolution Follow-Up
+## 6. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
