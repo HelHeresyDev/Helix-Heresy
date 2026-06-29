@@ -147,7 +147,7 @@ Future organization should gradually move toward clear boundaries:
 - UI: DOM rendering, event binding, panel layout, hotkeys, command menus, and presentation state.
 - Map renderer: a replaceable boundary that can use DOM tiles now and Canvas later without rewriting pathfinding, rooms, actors, or simulation logic.
 
-The first architecture pass should be small and practical rather than a sweeping rewrite. A useful first step is to create a map view model, such as `buildMapView(state)`, and have the current map renderer consume that instead of mixing map derivation, DOM creation, selection logic, and simulation knowledge together. A second good target is clarifying the update pipeline as `advance time -> run systems -> collect events -> persist -> render`, so future AI and hundreds of actors have a clear place to live.
+The first architecture pass is intentionally small and practical rather than a sweeping rewrite. The current DOM map now consumes a `buildLabMapView()` model that packages tiles, glyphs, classes, click targets, route highlights, selected state, planned digs, and incident markers before DOM nodes are created. The time update flow now routes through `runSimulationSystems(elapsed)` and `simulationChangeCount(changes)`, making the update pipeline easier to split into standalone systems later. Future passes should continue this direction by extracting command functions, selectors, system modules, and eventually a replaceable Canvas map renderer only when the DOM map becomes a real limit.
 
 ## Container Compatibility
 

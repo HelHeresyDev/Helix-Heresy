@@ -63,6 +63,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
+  await expect(page.locator('.lab-map-cell')).toHaveCount(initial.map.width * initial.map.height);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 16, y: 10, width: 12, height: 10 });
   expect(initial.map.rooms.storageRoom).toMatchObject({ x: 18, y: 5, width: 7, height: 5 });
   expect(initial.map.rooms.pits.cells.length).toBeLessThan(initial.map.rooms.pits.width * initial.map.rooms.pits.height);

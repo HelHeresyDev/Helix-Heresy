@@ -2883,37 +2883,71 @@
     };
   }
 
+  function runSimulationSystems(elapsed) {
+    const changes = {
+      vitalsChanged: recoverVitals(elapsed),
+      physicalStateChanged: updateScientistPhysicalExposure(elapsed),
+      suspicionChanged: updateSuspicionDecay(),
+      roomChanges: recoverRoomAttributes(elapsed),
+      roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
+      envChanges: exchangeContainerEnvironments(elapsed),
+      expired: expireSlimes(),
+      corpseChanges: updateCorpses(elapsed),
+      jobChanges: updateCreatureJobs(elapsed),
+      feedstockChanged: updateFeedstockIncome(elapsed),
+      feedingChanged: updateAutoFeeding(),
+      uncontainedBehaviorChanged: updateUncontainedSlimeBehavior(elapsed),
+      metabolismChanged: updateSlimeMetabolism(elapsed),
+      collectionChanged: updateCollectionBayAccumulation(elapsed),
+      compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
+      containmentIncidentChanges: updateContainmentIncidents(elapsed),
+      incidentAlertChanged: refreshIncidentAlerts(),
+      jobExpired: 0,
+      completed: 0,
+      observationChanged: false
+    };
+    changes.jobExpired = expireSlimes();
+    changes.completed = completeDueTasks();
+    syncRoomObservationMemory();
+    changes.observationChanged = Boolean(observeScientistRoom());
+    return changes;
+  }
+
+  function simulationChangeCount(changes) {
+    return changes.expired
+      + changes.jobExpired
+      + changes.corpseChanges
+      + changes.jobChanges
+      + changes.roomChanges
+      + changes.roomPropagationChanges
+      + changes.envChanges
+      + changes.feedstockChanged
+      + changes.feedingChanged
+      + changes.uncontainedBehaviorChanged
+      + changes.metabolismChanged
+      + changes.collectionChanged
+      + changes.compatibilityChanged
+      + changes.containmentIncidentChanges
+      + changes.incidentAlertChanged
+      + changes.completed
+      + (changes.vitalsChanged ? 1 : 0)
+      + (changes.physicalStateChanged ? 1 : 0)
+      + (changes.observationChanged ? 1 : 0)
+      + (changes.suspicionChanged ? 1 : 0);
+  }
+
   function advanceTime(seconds, options = {}) {
     const elapsed = Math.max(0, Number(seconds) || 0);
     state.clock += elapsed;
-    const vitalsChanged = recoverVitals(elapsed);
-    const physicalStateChanged = updateScientistPhysicalExposure(elapsed);
-    const suspicionChanged = updateSuspicionDecay();
-    const roomChanges = recoverRoomAttributes(elapsed);
-    const roomPropagationChanges = propagateRoomEnvironmentAttributes(elapsed);
-    const envChanges = exchangeContainerEnvironments(elapsed);
-    const expired = expireSlimes();
-    const corpseChanges = updateCorpses(elapsed);
-    const jobChanges = updateCreatureJobs(elapsed);
-    const feedstockChanged = updateFeedstockIncome(elapsed);
-    const feedingChanged = updateAutoFeeding();
-    const uncontainedBehaviorChanged = updateUncontainedSlimeBehavior(elapsed);
-    const metabolismChanged = updateSlimeMetabolism(elapsed);
-    const collectionChanged = updateCollectionBayAccumulation(elapsed);
-    const compatibilityChanged = updateContainerCompatibilityEffects(elapsed);
-    const containmentIncidentChanges = updateContainmentIncidents(elapsed);
-    const incidentAlertChanged = refreshIncidentAlerts();
-    const jobExpired = expireSlimes();
-    const completed = completeDueTasks();
-    syncRoomObservationMemory();
-    const observationChanged = Boolean(observeScientistRoom());
+    const changes = runSimulationSystems(elapsed);
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || roomPropagationChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || incidentAlertChanged || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
+    const changed = simulationChangeCount(changes);
+    if (!options.quiet || changed) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + roomPropagationChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + incidentAlertChanged + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return changed;
   }
 
   function completeDueTasks() {
@@ -16976,6 +17010,163 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return null;
   }
 
+  function labMapAnchorAssignments(map) {
+    const anchors = new Map();
+    for (const room of Object.values(map.rooms || {})) {
+      if (room?.anchor) {
+        anchors.set(mapCellKey(room.anchor), room);
+      }
+    }
+    return anchors;
+  }
+
+  function buildLabMapCellView({
+    cell,
+    map,
+    anchorRoom,
+    objectEntry,
+    incidentEntry,
+    routeEntry,
+    plannedEntry,
+    selectedTarget,
+    scientistCell
+  }) {
+    const roomId = labMapCellRoomId(cell, map);
+    const door = labMapDoorAtCell(cell, map);
+    const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
+    const scientistHere = scientistCell.x === cell.x && scientistCell.y === cell.y;
+    const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, scientistHere });
+    const classNames = ["lab-map-cell"];
+    const dataset = {
+      mapX: String(cell.x),
+      mapY: String(cell.y)
+    };
+    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry);
+    let text = "";
+
+    if (roomId) {
+      classNames.push("room-cell", `room-${roomRole(roomId)}`);
+      dataset.mapRoom = roomId;
+    } else if (plannedEntry) {
+      classNames.push("planned-excavation-cell");
+      dataset.mapExcavation = plannedEntry.task?.id || "pending";
+    } else {
+      classNames.push("solid-earth-cell");
+    }
+
+    if (door) {
+      classNames.push("door-cell", doorMapClassName(stateDoor));
+      dataset.mapDoor = door.key;
+    }
+    if (routeEntry) {
+      classNames.push("queued-path-cell");
+      dataset.mapQueuedPath = routeEntry.task?.id || "next";
+    }
+    if (incidentEntry) {
+      classNames.push("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
+      dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
+      dataset.mapIncidentCount = String(incidentEntry.alerts.length);
+    }
+    if (selectedTargetMatchesTile(selectedTarget, { roomId, door, objectEntry, scientistHere })) {
+      classNames.push("selected-map-cell");
+    }
+    if (clickTarget) {
+      classNames.push("map-clickable-cell");
+      dataset.mapTargetKind = clickTarget.kind;
+      if (clickTarget.id) {
+        dataset.mapTargetId = clickTarget.id;
+      }
+      if (clickTarget.roomId) {
+        dataset.mapTargetRoom = clickTarget.roomId;
+      }
+      if (clickTarget.key) {
+        dataset.mapTargetDoor = clickTarget.key;
+      }
+    }
+
+    if (scientistHere) {
+      classNames.push("scientist-cell");
+      text = "S";
+      title += " - Scientist";
+    } else if (objectEntry) {
+      classNames.push("object-cell", ...objectEntry.classNames);
+      text = objectEntry.symbols.length > 1 ? String(objectEntry.symbols.length) : objectEntry.symbols[0];
+      title += ` - ${objectEntry.labels.join("; ")}`;
+    } else if (anchorRoom) {
+      classNames.push("room-anchor");
+      text = labMapRoomAbbreviation(anchorRoom.roomId);
+    } else if (door) {
+      text = doorMapGlyph(stateDoor);
+    } else if (plannedEntry) {
+      text = "D";
+    } else if (incidentEntry) {
+      text = "A";
+    }
+
+    return {
+      key: mapCellKey(cell),
+      cell,
+      roomId,
+      classNames,
+      dataset,
+      title,
+      text,
+      clickTarget
+    };
+  }
+
+  function buildLabMapView(map = ensureLabMap()) {
+    const scientistCell = scientistMapCell();
+    const objectAssignments = labMapObjectAssignments(map);
+    const incidentAssignments = labMapIncidentAssignments(map);
+    const route = nextQueuedMovementPath(map);
+    const plannedExcavations = plannedExcavationAssignments();
+    const selectedTarget = selectedMapTarget();
+    const anchors = labMapAnchorAssignments(map);
+    const cells = [];
+
+    for (let y = 0; y < map.height; y += 1) {
+      for (let x = 0; x < map.width; x += 1) {
+        const cell = { x, y };
+        const key = mapCellKey(cell);
+        const routeEntry = route.keys.has(key) ? route : null;
+        cells.push(buildLabMapCellView({
+          cell,
+          map,
+          anchorRoom: anchors.get(key),
+          objectEntry: objectAssignments.get(key),
+          incidentEntry: incidentAssignments.get(key),
+          routeEntry,
+          plannedEntry: plannedExcavations.get(key),
+          selectedTarget,
+          scientistCell
+        }));
+      }
+    }
+
+    return {
+      width: map.width,
+      height: map.height,
+      tileSizeM: map.tileSizeM,
+      headerMeta: `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
+      cells,
+      legendItems: [
+        "S = scientist",
+        "A = active alert",
+        "D = planned dig",
+        "C = blocking container footprint",
+        "L = loose living",
+        "R = remains",
+        "route = next queued movement",
+        "room letters = room anchor",
+        "x = closed door",
+        "l = locked",
+        "s = sealed",
+        "! = breached"
+      ]
+    };
+  }
+
   function focusMapTarget(target, options = {}) {
     const normalized = normalizeMapTarget(target);
     if (!normalized) {
@@ -17020,13 +17211,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function labMapPanelEl() {
-    const map = ensureLabMap();
-    const scientistCell = scientistMapCell();
-    const objectAssignments = labMapObjectAssignments(map);
-    const incidentAssignments = labMapIncidentAssignments(map);
-    const route = nextQueuedMovementPath(map);
-    const plannedExcavations = plannedExcavationAssignments();
-    const selectedTarget = selectedMapTarget();
+    const mapView = buildLabMapView();
     const panel = document.createElement("div");
     panel.className = "lab-map-panel subpanel";
     panel.dataset.labMapPanel = "true";
@@ -17034,95 +17219,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const header = document.createElement("div");
     header.className = "lab-map-header";
     const title = textEl("strong", "Lab Blueprint");
-    const meta = textEl("span", `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`);
+    const meta = textEl("span", mapView.headerMeta);
     header.append(title, meta);
     panel.append(header);
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
-    grid.style.gridTemplateColumns = `repeat(${map.width}, minmax(0, 1fr))`;
-    for (let y = 0; y < map.height; y += 1) {
-      for (let x = 0; x < map.width; x += 1) {
-        const cell = { x, y };
-        const roomId = labMapCellRoomId(cell, map);
-        const door = labMapDoorAtCell(cell, map);
-        const anchorRoom = Object.values(map.rooms || {}).find((room) => room.anchor?.x === x && room.anchor?.y === y);
-        const objectEntry = objectAssignments.get(mapCellKey(cell));
-        const incidentEntry = incidentAssignments.get(mapCellKey(cell));
-        const routeEntry = route.keys.has(mapCellKey(cell)) ? route : null;
-        const plannedEntry = plannedExcavations.get(mapCellKey(cell));
-        const scientistHere = scientistCell.x === x && scientistCell.y === y;
-        const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, scientistHere });
-        const tile = document.createElement("div");
-        tile.className = "lab-map-cell";
-        tile.dataset.mapX = String(x);
-        tile.dataset.mapY = String(y);
-        tile.title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry);
-        if (roomId) {
-          tile.classList.add("room-cell", `room-${roomRole(roomId)}`);
-          tile.dataset.mapRoom = roomId;
-        } else if (plannedEntry) {
-          tile.classList.add("planned-excavation-cell");
-          tile.dataset.mapExcavation = plannedEntry.task?.id || "pending";
-        } else {
-          tile.classList.add("solid-earth-cell");
-        }
-        if (door) {
-          tile.classList.add("door-cell", doorMapClassName(doorForConnection(door.roomIds[0], door.roomIds[1]) || door));
-          tile.dataset.mapDoor = door.key;
-        }
-        if (routeEntry) {
-          tile.classList.add("queued-path-cell");
-          tile.dataset.mapQueuedPath = routeEntry.task?.id || "next";
-        }
-        if (incidentEntry) {
-          tile.classList.add("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
-          tile.dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
-          tile.dataset.mapIncidentCount = String(incidentEntry.alerts.length);
-        }
-        if (selectedTargetMatchesTile(selectedTarget, { roomId, door, objectEntry, scientistHere })) {
-          tile.classList.add("selected-map-cell");
-        }
-        if (clickTarget) {
-          tile.classList.add("map-clickable-cell");
-          tile.dataset.mapTargetKind = clickTarget.kind;
-          if (clickTarget.id) {
-            tile.dataset.mapTargetId = clickTarget.id;
-          }
-          if (clickTarget.roomId) {
-            tile.dataset.mapTargetRoom = clickTarget.roomId;
-          }
-          if (clickTarget.key) {
-            tile.dataset.mapTargetDoor = clickTarget.key;
-          }
-          tile.addEventListener("click", () => focusMapTarget(clickTarget));
-        }
-        if (scientistHere) {
-          tile.classList.add("scientist-cell");
-          tile.textContent = "S";
-          tile.title += " - Scientist";
-        } else if (objectEntry) {
-          tile.classList.add("object-cell", ...objectEntry.classNames);
-          tile.textContent = objectEntry.symbols.length > 1 ? String(objectEntry.symbols.length) : objectEntry.symbols[0];
-          tile.title += ` - ${objectEntry.labels.join("; ")}`;
-        } else if (anchorRoom) {
-          tile.classList.add("room-anchor");
-          tile.textContent = labMapRoomAbbreviation(anchorRoom.roomId);
-        } else if (door) {
-          tile.textContent = doorMapGlyph(doorForConnection(door.roomIds[0], door.roomIds[1]) || door);
-        } else if (plannedEntry) {
-          tile.textContent = "D";
-        } else if (incidentEntry) {
-          tile.textContent = "A";
-        }
-        grid.append(tile);
+    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0, 1fr))`;
+    for (const cellView of mapView.cells) {
+      const tile = document.createElement("div");
+      tile.className = cellView.classNames.join(" ");
+      tile.title = cellView.title;
+      tile.textContent = cellView.text;
+      for (const [key, value] of Object.entries(cellView.dataset)) {
+        tile.dataset[key] = value;
       }
+      if (cellView.clickTarget) {
+        tile.addEventListener("click", () => focusMapTarget(cellView.clickTarget));
+      }
+      grid.append(tile);
     }
     panel.append(grid);
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("A = active alert"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"), chip("l = locked"), chip("s = sealed"), chip("! = breached"));
+    legend.append(...mapView.legendItems.map((item) => chip(item)));
     panel.append(legend);
     return panel;
   }
