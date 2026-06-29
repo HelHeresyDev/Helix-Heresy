@@ -12,42 +12,17 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Creature Autonomous Movement & Escape Pathing System
-2. Map-Based Incident and Emergency Response System
-3. Spatial Environment Propagation System
-4. Black Market Byproduct Economy System
-5. Elemental Damage Type System
-6. Tool Durability and Damage Resistance System
-7. XP Curve and Breakthrough-Gated Skill Progression
-8. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Map-Based Incident and Emergency Response System
+2. Spatial Environment Propagation System
+3. Black Market Byproduct Economy System
+4. Elemental Damage Type System
+5. Tool Durability and Damage Resistance System
+6. XP Curve and Breakthrough-Gated Skill Progression
+7. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Creature Autonomous Movement & Escape Pathing System
-
-Create a system for creature movement through the physical lab map.
-
-Creatures now have movement speed, and the lab has real map paths. The next step is giving loose or uncontrolled creatures reasons to move and rules for how they move. Movement should be grounded in the map instead of abstractly jumping between rooms.
-
-The system should answer questions like:
-- When does a creature become loose or uncontrolled?
-- What makes a creature wander, flee, pursue food, seek shelter, approach heat, avoid hazards, follow the scientist, or attempt escape?
-- How does movement speed affect actual travel time?
-- How do shape, body consistency, appendages, element, weight, and condition affect movement behavior?
-- How do doors, barriers, sealed rooms, blocked paths, and room hazards affect creature pathing?
-- How should unintelligent creatures choose goals differently from intelligent creatures?
-- How should the UI show a creature's route or current intent?
-- How should movement interact with containment incidents, hunger, stress, pain, fear, and job assignments?
-
-This system should not make all slimes behave like tactical enemies. A loose slime might simply drift, ooze toward feedstock, hide in damp corners, press against a door, or fail to move because its body is poorly suited to the terrain. Faster, smarter, more aggressive, or more desperate creatures can become more dangerous later.
-
-The desired result is a creature movement foundation where escaped or loose creatures occupy space, move over time, use the map, and create logistical problems that future incident, combat, containment, and security systems can build on.
-
-Before coding, discuss movement triggers, goal selection, pathfinding, movement timing, door interaction, UI intent display, and how to keep the first implementation small enough for the current prototype.
-
----
-
-## 2. Map-Based Incident and Emergency Response System
+## 1. Map-Based Incident and Emergency Response System
 
 Create a spatial foundation for lab incidents and emergency response.
 
@@ -71,7 +46,7 @@ Before coding, discuss incident types, location rules, emergency task flow, map 
 
 ---
 
-## 3. Spatial Environment Propagation System
+## 2. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -95,7 +70,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -121,7 +96,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 5. Elemental Damage Type System
+## 4. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -146,7 +121,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 6. Tool Durability and Damage Resistance System
+## 5. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -175,7 +150,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 7. XP Curve and Breakthrough-Gated Skill Progression
+## 6. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -240,7 +215,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 8. Analyze Ability & Creature Skill Evolution Follow-Up
+## 7. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

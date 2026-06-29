@@ -14,6 +14,18 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
+async function loadSavedRun(page) {
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+}
+
+async function skipSeconds(page, seconds) {
+  await page.locator('#skipAmountInput').evaluate((element, value) => {
+    element.value = String(value);
+  }, seconds);
+  await page.locator('#skipTimeBtn').evaluate((element) => element.click());
+}
+
 test('lab blueprint stores room footprints and queues scientist movement with map paths', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -101,6 +113,169 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('released slimes move toward accessible residue without raiding packaged storage supplies', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'loose-seeker';
+    state.resources = { ...(state.resources || {}), organicFeedstock: 5 };
+    state.roomStockpiles ||= {};
+    state.roomStockpiles.storageRoom ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
+    state.roomStockpiles.storageRoom.resources = {
+      ...(state.roomStockpiles.storageRoom.resources || {}),
+      organicFeedstock: 5,
+    };
+    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
+    delete state.roomStockpiles.mainLab.resources?.organicFeedstock;
+    state.feedingResidues = [{
+      id: 'residue-menagerie',
+      typeKey: 'looseBiomatter',
+      amount: 4,
+      location: { type: 'room', roomId: 'menagerie' },
+      tags: ['organic', 'mess'],
+      sourceLabels: ['test spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'loose-seeker',
+      name: 'LOOSE-001',
+      genome: state.currentGenome,
+      source: 'Autonomous movement fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 20, max: 100 },
+        currentMass: { current: 50, max: 100 },
+      },
+      revealed: { shape: true, consistency: true, appendages: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText('uncontained');
+  await skipSeconds(page, 1);
+  await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText(/seeking|moving/i);
+  await skipSeconds(page, 1800);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-seeker');
+    return {
+      slime,
+      storageOrganic: state.roomStockpiles?.storageRoom?.resources?.organicFeedstock || 0,
+      residueAmount: (state.feedingResidues || []).find((residue) => residue.id === 'residue-menagerie')?.amount || 0,
+      tasks: state.tasks || [],
+    };
+  }, { key: storageKey });
+
+  expect(result.slime.roomId).toBe('menagerie');
+  expect(result.residueAmount).toBeLessThan(4);
+  expect(result.storageOrganic).toBe(5);
+  expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
+  await expect(page.locator('[data-map-target-kind="slime"][data-map-target-id="loose-seeker"]').first()).toHaveAttribute('title', /feeding|seeking|loose/i);
+});
+
+test('released slimes press blocked doors and expose possible intent instead of queueing movement', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'door-seeker';
+    state.feedingResidues = [{
+      id: 'residue-storage',
+      typeKey: 'looseBiomatter',
+      amount: 3,
+      location: { type: 'room', roomId: 'storageRoom' },
+      tags: ['organic', 'mess'],
+      sourceLabels: ['test spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'door-seeker',
+      name: 'DOOR-001',
+      genome: state.currentGenome,
+      source: 'Blocked door fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 20, max: 100 },
+        currentMass: { current: 50, max: 100 },
+      },
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await skipSeconds(page, 1);
+
+  await expect(page.locator('[data-slime-card="door-seeker"]')).toContainText('pressing against closed door');
+  await expect(page.locator('[data-slime-card="door-seeker"]')).toContainText('Possible intent: seeking accessible food');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'door-seeker');
+    return {
+      activity: slime.roomActivity,
+      tasks: state.tasks || [],
+    };
+  }, { key: storageKey });
+
+  expect(result.activity.type).toBe('pressingClosedDoor');
+  expect(result.activity.targetKind).toBe('residue');
+  expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 
 test('door access states block routing and show physical door data', async ({ page }) => {

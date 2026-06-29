@@ -438,6 +438,12 @@
   const OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR = 10;
   const OUT_OF_CONTAINER_RESIDUE_PER_HOUR = 6;
   const OUT_OF_CONTAINER_EVENT_INTERVAL = minutesToSeconds(60);
+  const CREATURE_AUTONOMOUS_DECISION_INTERVAL = minutesToSeconds(2);
+  const CREATURE_AUTONOMOUS_BLOCK_RECHECK_INTERVAL = minutesToSeconds(3);
+  const CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS = 4;
+  const CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR = 6;
+  const CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR = 3;
+  const CREATURE_AUTONOMOUS_WANDER_CHANCE = 0.35;
   const FREE_CREATURE_PRESSURE_HIGH_SKILL = 4;
   const CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR = 1;
   const PIT_HOLE_TYPE_IDS = ["openDirtPit", "gratedDirtPit", "cappedDirtPit"];
@@ -4699,10 +4705,17 @@
         if (slime?.status === "released") {
           slime.containerId = null;
           slime.roomId = roomById(slime.roomId)?.id || MAIN_ROOM_ID;
-          slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, objectMapCell(slime), {
-            map,
-            blockedCellKeys: nonBlockingBlocked
-          });
+          const movingCell = objectMapCell(slime);
+          const movingRoomId = movingCell ? labMapCellRoomId(movingCell, map) : "";
+          if (slimeAutonomousMovementActive(slime) && movingCell && movingRoomId) {
+            slime.roomId = movingRoomId;
+            slime.mapCell = movingCell;
+          } else {
+            slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, movingCell, {
+              map,
+              blockedCellKeys: nonBlockingBlocked
+            });
+          }
         } else if (slime) {
           slime.mapCell = null;
         }
@@ -5410,28 +5423,6 @@
     return route.length ? route.map(roomName).join(" → ") : "no open route";
   }
 
-  function nextConnectedRoomToward(fromRoomId, toRoomId, options = {}) {
-    const route = roomRouteBetween(fromRoomId, toRoomId, options);
-    return route[1] || "";
-  }
-
-  function bestContaminationTargetRoom() {
-    return state.rooms
-      .map((room) => ({ room, contamination: roomContaminationValue(room.id) }))
-      .sort((a, b) => b.contamination - a.contamination)[0] || null;
-  }
-
-  function bestReachableContaminationTargetRoom(fromRoomId) {
-    return state.rooms
-      .map((room) => ({
-        room,
-        contamination: roomContaminationValue(room.id),
-        route: roomRouteBetween(fromRoomId, room.id, { requireReachable: true })
-      }))
-      .filter((entry) => entry.room.id === fromRoomId || entry.route.length > 0)
-      .sort((a, b) => b.contamination - a.contamination)[0] || null;
-  }
-
   function roomGeometrySummaryEl(room) {
     const panel = document.createElement("div");
     panel.className = "room-geometry-summary";
@@ -5882,7 +5873,14 @@
     const unknownFactors = [];
     let clearEvidence = Math.min(25, secondsToMinutes(observed.doorMinutes) * 2);
 
-    if (info.seeksContamination || slime?.roomActivity?.targetRoomId) {
+    const targetKind = slime?.roomActivity?.targetKind || "";
+    const targetLabel = slime?.roomActivity?.targetLabel || "";
+    if (["residue", "waste", "corpse"].includes(targetKind)) {
+      possible.push("seeking accessible food");
+      knownFactors.push(targetLabel ? `pressed against a blocked route toward ${targetLabel}` : "pressed against a blocked route toward messy material");
+      clearEvidence += 14;
+    }
+    if (info.seeksContamination || targetKind === "contamination") {
       possible.push("seeking contamination");
       knownFactors.push("pressed against a closed route toward contamination");
       clearEvidence += 16;
@@ -6854,6 +6852,9 @@
     slime.containerId = container.id;
     slime.roomId = container.roomId || MAIN_ROOM_ID;
     slime.mapCell = null;
+    slime.autonomousMovement = null;
+    slime.nextAutonomousDecisionAt = null;
+    slime.accessibleFeedingProgress = 0;
     if (container.type === "synthesis") {
       slime.job = "idle";
       slime.jobProgress = 0;
@@ -6886,6 +6887,9 @@
     slime.jobProgress = 0;
     slime.jobTargetCorpseId = null;
     slime.jobNutritionGained = 0;
+    slime.autonomousMovement = null;
+    slime.nextAutonomousDecisionAt = state.clock;
+    slime.accessibleFeedingProgress = 0;
     slime.roomActivity = { type: "emerging", label: "adjusting to the room", roomId: slime.roomId, updatedAt: state.clock };
     return true;
   }
@@ -7028,8 +7032,14 @@
 
     if (slime.roomActivity?.label) {
       const contamination = slimeContaminationTraitInfo(slime);
+      if (slime.autonomousMovement) {
+        const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+        if (movement && state.clock < movement.arriveAt) {
+          return `Activity: ${movement.label}; arrives in ${formatDuration(movement.arriveAt - state.clock)}`;
+        }
+      }
       if (slime.roomActivity.type === "pressingClosedDoor") {
-        return "Activity: pressing against closed door";
+        return `Activity: ${slime.roomActivity.label}`;
       }
       if ((slime.roomActivity.type === "seekingContamination" || slime.roomActivity.type === "feedingOnContamination") && !contamination.seeksContamination && !contamination.eatsContamination && slimeHuntingInclination(slime)) {
         return "Activity: hunting sensed prey";
@@ -13064,6 +13074,557 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function normalizeSlimeAutonomousMovement(candidate, clock = state?.clock || 0) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const path = (Array.isArray(candidate.path) ? candidate.path : [])
+      .map(cleanMapCell)
+      .filter(Boolean);
+    if (path.length < 2) {
+      return null;
+    }
+    const startAt = finiteTime(candidate.startAt, clock);
+    const arriveAt = finiteTime(candidate.arriveAt, startAt + CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS);
+    if (arriveAt <= startAt) {
+      return null;
+    }
+    const targetCell = cleanMapCell(candidate.targetCell) || path[path.length - 1];
+    return {
+      intent: String(candidate.intent || "wander"),
+      label: String(candidate.label || "moving"),
+      targetKind: String(candidate.targetKind || ""),
+      targetId: String(candidate.targetId || ""),
+      targetLabel: String(candidate.targetLabel || ""),
+      fromRoomId: cleanRoomId(candidate.fromRoomId),
+      targetRoomId: cleanRoomId(candidate.targetRoomId),
+      targetCell,
+      path,
+      startAt,
+      arriveAt,
+      updatedAt: finiteTime(candidate.updatedAt, startAt)
+    };
+  }
+
+  function slimeAutonomousMovementActive(slime) {
+    if (!slime?.autonomousMovement) {
+      return false;
+    }
+    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+    slime.autonomousMovement = movement;
+    return Boolean(movement && state.clock < movement.arriveAt);
+  }
+
+  function slimeMoveSpeedMps(slime) {
+    const profile = physicalProfile(slime?.genome || "");
+    return clamp(Number(profile?.speedMps) || 0.12, 0.02, 1.6);
+  }
+
+  function autonomousMovementProgress(movement) {
+    const duration = Math.max(1, movement.arriveAt - movement.startAt);
+    return clamp((state.clock - movement.startAt) / duration, 0, 1);
+  }
+
+  function firstBlockedDoorOnPath(path, map = ensureLabMap()) {
+    for (let index = 0; index < (path || []).length - 1; index += 1) {
+      const current = path[index];
+      const next = path[index + 1];
+      const fromRoomId = labMapCellRoomId(current, map);
+      const toRoomId = labMapCellRoomId(next, map);
+      if (!fromRoomId || !toRoomId || fromRoomId === toRoomId) {
+        continue;
+      }
+      const door = labMapDoorForCells(current, next, map);
+      if (door && !doorIsOpen(door.roomIds[0], door.roomIds[1])) {
+        return {
+          fromRoomId,
+          toRoomId,
+          door,
+          state: doorStateLabel(door.roomIds[0], door.roomIds[1])
+        };
+      }
+    }
+    return null;
+  }
+
+  function setSlimeBlockedDoorActivity(slime, block, target = {}) {
+    if (!slime || !block) {
+      return false;
+    }
+    slime.autonomousMovement = null;
+    slime.roomActivity = {
+      type: "pressingClosedDoor",
+      label: `pressing against ${block.state || "blocked"} door`,
+      roomId: slime.roomId || MAIN_ROOM_ID,
+      targetRoomId: target.roomId || block.toRoomId,
+      targetKind: target.kind || "",
+      targetId: target.id || "",
+      targetLabel: target.label || "",
+      doorKey: block.door?.key || doorKey(block.fromRoomId, block.toRoomId),
+      updatedAt: state.clock
+    };
+    slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_BLOCK_RECHECK_INTERVAL;
+    recordCleanupObservation(slime, "pressingClosedDoor", 0, slime.roomId);
+    return true;
+  }
+
+  function targetCellForRoomTarget(roomId, preferredCell = null) {
+    return nearestOpenMapCellInRoom(roomId, preferredCell || labMapRoomAnchor(roomId), { ignoreObjects: false });
+  }
+
+  function accessibleFoodTargetCandidates(slime) {
+    const candidates = [];
+    const addTarget = (target) => {
+      const room = roomById(target.roomId);
+      if (!room) {
+        return;
+      }
+      const cell = cleanMapCell(target.cell) || targetCellForRoomTarget(room.id);
+      candidates.push({
+        ...target,
+        roomId: room.id,
+        cell,
+        score: Math.max(1, Number(target.score) || 1)
+      });
+    };
+
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    for (const residue of state.feedingResidues) {
+      if (residue.location?.type !== "room" || residue.amount <= 0) {
+        continue;
+      }
+      addTarget({
+        kind: "residue",
+        id: residue.id,
+        roomId: residue.location.roomId,
+        label: feedingResidueLabel(residue.typeKey),
+        score: 70 + residue.amount * 8
+      });
+    }
+
+    for (const roomId of roomStockpileIds()) {
+      const amount = resourceAmountInRoom("waste", roomId);
+      if (amount <= 0 || roomId === STORAGE_ROOM_ID) {
+        continue;
+      }
+      addTarget({
+        kind: "waste",
+        id: "waste",
+        roomId,
+        label: "loose waste",
+        score: 55 + amount * 6
+      });
+    }
+
+    for (const corpse of state.corpses || []) {
+      normalizeCorpseLocation(corpse);
+      if (!["room", "overflow"].includes(corpse.storage) || corpse.harvestBlocked) {
+        continue;
+      }
+      addTarget({
+        kind: "corpse",
+        id: corpse.id,
+        roomId: corpse.roomId || MAIN_ROOM_ID,
+        cell: objectMapCell(corpse),
+        label: `${corpse.name} remains`,
+        score: 75 + (corpseFreshness(corpse) === "fresh" ? 18 : corpseFreshness(corpse) === "spoiled" ? 6 : 10)
+      });
+    }
+
+    const info = slimeContaminationTraitInfo(slime);
+    if (info.seeksContamination) {
+      for (const room of state.rooms || []) {
+        const contamination = roomContaminationValue(room.id);
+        if (contamination <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
+          continue;
+        }
+        addTarget({
+          kind: "contamination",
+          id: room.id,
+          roomId: room.id,
+          label: "visible contamination",
+          score: 35 + contamination
+        });
+      }
+    }
+    return candidates;
+  }
+
+  function pathToAutonomousTarget(slime, target) {
+    const map = ensureLabMap();
+    const fromRoomId = slimeEffectiveRoomId(slime);
+    const fromCell = objectMapCell(slime) || nearestOpenMapCellInRoom(fromRoomId, labMapRoomAnchor(fromRoomId), { map });
+    const toCell = normalizeMapCellForRoom(target.cell, target.roomId, map);
+    return roomPathBetween(fromRoomId, target.roomId, {
+      map,
+      fromCell,
+      toCell,
+      requireReachable: true
+    });
+  }
+
+  function blockedDoorTowardTarget(slime, target) {
+    const route = roomRouteBetween(slimeEffectiveRoomId(slime), target.roomId, {
+      ignoreDoors: true,
+      ignoreDoorSecurity: true,
+      requireReachable: true
+    });
+    if (route.length < 2) {
+      return null;
+    }
+    for (let index = 0; index < route.length - 1; index += 1) {
+      const fromRoomId = route[index];
+      const toRoomId = route[index + 1];
+      if (!doorIsOpen(fromRoomId, toRoomId)) {
+        return {
+          fromRoomId,
+          toRoomId,
+          door: doorForConnection(fromRoomId, toRoomId),
+          state: doorStateLabel(fromRoomId, toRoomId)
+        };
+      }
+    }
+    return null;
+  }
+
+  function chooseAutonomousFoodTarget(slime) {
+    const targets = accessibleFoodTargetCandidates(slime);
+    if (!targets.length) {
+      return null;
+    }
+    const reachable = [];
+    const blocked = [];
+    for (const target of targets) {
+      const path = pathToAutonomousTarget(slime, target);
+      if (path.length) {
+        const distance = Math.max(0, path.length - 1);
+        reachable.push({ target, path, value: target.score - distance * 2 });
+      } else {
+        const block = blockedDoorTowardTarget(slime, target);
+        if (block) {
+          blocked.push({ target, block, value: target.score });
+        }
+      }
+    }
+    if (reachable.length) {
+      return reachable.sort((a, b) => b.value - a.value || a.path.length - b.path.length)[0];
+    }
+    if (blocked.length) {
+      return blocked.sort((a, b) => b.value - a.value)[0];
+    }
+    return null;
+  }
+
+  function chooseAutonomousWanderTarget(slime) {
+    const currentRoomId = slimeEffectiveRoomId(slime);
+    const map = ensureLabMap();
+    const rng = seedRng(`${state.seed}:wander:${slime.id}:${Math.floor(state.clock / CREATURE_AUTONOMOUS_DECISION_INTERVAL)}`);
+    if (rng() > CREATURE_AUTONOMOUS_WANDER_CHANCE) {
+      return null;
+    }
+    const roomIds = [
+      currentRoomId,
+      ...roomConnectedIds(currentRoomId).filter((roomId) => doorIsOpen(currentRoomId, roomId))
+    ];
+    const options = [];
+    for (const roomId of roomIds) {
+      const room = labMapRoom(roomId, map);
+      if (!room) {
+        continue;
+      }
+      const cells = roomCellsSortedForPlacement(room, {
+        x: room.x + Math.floor(rng() * Math.max(1, room.width)),
+        y: room.y + Math.floor(rng() * Math.max(1, room.height))
+      }).slice(0, 8);
+      for (const cell of cells) {
+        if (labMapCellIsDoor(cell, map) || labMapCellIsPathBlocked(cell, { map })) {
+          continue;
+        }
+        const path = roomPathBetween(currentRoomId, roomId, {
+          map,
+          fromCell: objectMapCell(slime),
+          toCell: cell,
+          requireReachable: true
+        });
+        if (path.length > 1) {
+          options.push({
+            target: { kind: "wander", id: "", roomId, cell, label: "open floor", score: 1 },
+            path,
+            value: rng()
+          });
+          break;
+        }
+      }
+    }
+    return options.sort((a, b) => b.value - a.value)[0] || null;
+  }
+
+  function startSlimeAutonomousMovement(slime, target, path) {
+    if (!slime || !target || !Array.isArray(path) || path.length < 2) {
+      return false;
+    }
+    const map = ensureLabMap();
+    const distanceMeters = Math.max(0, path.length - 1) * map.tileSizeM;
+    const duration = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, distanceMeters / slimeMoveSpeedMps(slime));
+    const label = target.kind === "wander"
+      ? `wandering toward ${roomName(target.roomId)}`
+      : target.kind === "contamination"
+        ? `moving toward contamination in ${roomName(target.roomId)}`
+        : `seeking ${target.label}`;
+    slime.autonomousMovement = {
+      intent: target.kind === "wander" ? "wander" : "seekFood",
+      label,
+      targetKind: target.kind,
+      targetId: target.id || "",
+      targetLabel: target.label || "",
+      fromRoomId: slimeEffectiveRoomId(slime),
+      targetRoomId: target.roomId,
+      targetCell: path[path.length - 1],
+      path,
+      startAt: state.clock,
+      arriveAt: state.clock + duration,
+      updatedAt: state.clock
+    };
+    slime.roomActivity = {
+      type: target.kind === "wander" ? "moving" : "seekingFood",
+      label,
+      roomId: slime.roomId || MAIN_ROOM_ID,
+      targetRoomId: target.roomId,
+      targetKind: target.kind,
+      targetId: target.id || "",
+      targetLabel: target.label || "",
+      updatedAt: state.clock
+    };
+    return true;
+  }
+
+  function arriveAtAutonomousTarget(slime, movement) {
+    const path = movement.path || [];
+    const destination = path[path.length - 1];
+    const roomId = labMapCellRoomId(destination) || movement.targetRoomId || slime.roomId || MAIN_ROOM_ID;
+    slime.mapCell = destination;
+    slime.roomId = roomId;
+    slime.autonomousMovement = null;
+    const target = {
+      kind: movement.targetKind,
+      id: movement.targetId,
+      roomId,
+      label: movement.targetLabel
+    };
+    const activityType = target.kind === "contamination"
+      ? "seekingContamination"
+      : target.kind === "wander"
+        ? "exploring"
+        : "seekingFood";
+    slime.roomActivity = {
+      type: activityType,
+      label: target.kind === "wander" ? "exploring" : target.kind === "contamination" ? "seeking contamination" : `seeking ${target.label || "food"}`,
+      roomId,
+      targetRoomId: movement.targetRoomId,
+      targetKind: target.kind,
+      targetId: target.id || "",
+      targetLabel: target.label || "",
+      updatedAt: state.clock
+    };
+    return true;
+  }
+
+  function updateSlimeAutonomousMovement(slime) {
+    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+    if (!movement) {
+      slime.autonomousMovement = null;
+      return 0;
+    }
+    slime.autonomousMovement = movement;
+    const blocked = firstBlockedDoorOnPath(movement.path);
+    if (blocked) {
+      setSlimeBlockedDoorActivity(slime, blocked, {
+        kind: movement.targetKind,
+        id: movement.targetId,
+        roomId: movement.targetRoomId,
+        label: movement.targetLabel
+      });
+      return 1;
+    }
+    const previousKey = mapCellKey(objectMapCell(slime) || movement.path[0]);
+    if (state.clock >= movement.arriveAt) {
+      arriveAtAutonomousTarget(slime, movement);
+      return 1;
+    }
+    const progress = autonomousMovementProgress(movement);
+    const index = clamp(Math.floor(progress * (movement.path.length - 1)), 0, movement.path.length - 1);
+    const cell = movement.path[index];
+    const roomId = labMapCellRoomId(cell) || slime.roomId || MAIN_ROOM_ID;
+    slime.mapCell = cell;
+    slime.roomId = roomId;
+    slime.roomActivity = {
+      type: "moving",
+      label: movement.label,
+      roomId,
+      targetRoomId: movement.targetRoomId,
+      targetKind: movement.targetKind,
+      targetId: movement.targetId,
+      targetLabel: movement.targetLabel,
+      updatedAt: state.clock
+    };
+    return mapCellKey(cell) === previousKey ? 0 : 1;
+  }
+
+  function localAccessibleFoodTarget(slime) {
+    const roomId = slimeEffectiveRoomId(slime);
+    return accessibleFoodTargetCandidates(slime)
+      .filter((target) => target.roomId === roomId)
+      .sort((a, b) => b.score - a.score)[0] || null;
+  }
+
+  function consumeFeedingResidueForSlime(slime, target, elapsed) {
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    const roomId = slimeEffectiveRoomId(slime);
+    const residue = state.feedingResidues.find((entry) =>
+      entry.id === target.id && entry.location?.type === "room" && entry.location.roomId === roomId
+    ) || state.feedingResidues.find((entry) =>
+      entry.location?.type === "room" && entry.location.roomId === roomId && entry.amount > 0
+    );
+    if (!residue) {
+      return 0;
+    }
+    slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0)
+      + CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR * secondsToHours(elapsed);
+    const units = Math.min(residue.amount, Math.floor(slime.accessibleFeedingProgress));
+    slime.roomActivity = {
+      type: "feedingResidue",
+      label: `feeding on ${feedingResidueLabel(residue.typeKey).toLowerCase()}`,
+      roomId,
+      targetKind: "residue",
+      targetId: residue.id,
+      targetLabel: feedingResidueLabel(residue.typeKey),
+      updatedAt: state.clock
+    };
+    if (units <= 0) {
+      return 0;
+    }
+    slime.accessibleFeedingProgress -= units;
+    residue.amount -= units;
+    adjustSlimeStat(slime, "nutrition", adjustedSlimeNutritionGain(slime, units * 4));
+    adjustSlimeStat(slime, "currentMass", units * 0.5);
+    if (residue.amount <= 0) {
+      state.feedingResidues = state.feedingResidues.filter((entry) => entry.id !== residue.id);
+    }
+    return 1;
+  }
+
+  function consumeWasteForLooseSlime(slime, elapsed) {
+    const roomId = slimeEffectiveRoomId(slime);
+    if (resourceAmountInRoom("waste", roomId) <= 0 || roomId === STORAGE_ROOM_ID) {
+      return 0;
+    }
+    slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0)
+      + CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR * secondsToHours(elapsed);
+    const units = Math.min(resourceAmountInRoom("waste", roomId), Math.floor(slime.accessibleFeedingProgress));
+    slime.roomActivity = {
+      type: "feedingWaste",
+      label: "feeding on loose waste",
+      roomId,
+      targetKind: "waste",
+      targetId: "waste",
+      targetLabel: "loose waste",
+      updatedAt: state.clock
+    };
+    if (units <= 0) {
+      return 0;
+    }
+    slime.accessibleFeedingProgress -= units;
+    spendWaste(units, roomId);
+    adjustSlimeStat(slime, "nutrition", adjustedSlimeNutritionGain(slime, units * 2));
+    adjustSlimeStat(slime, "stress", units * 0.3);
+    return 1;
+  }
+
+  function feedLooseSlimeOnCorpse(slime, target, elapsed) {
+    const corpse = findCorpse(target.id);
+    if (!corpse || !["room", "overflow"].includes(corpse.storage) || (corpse.roomId || MAIN_ROOM_ID) !== slimeEffectiveRoomId(slime)) {
+      return 0;
+    }
+    const feeding = corpseFeedingRateForSlime(slime, corpse);
+    slime.roomActivity = {
+      type: "feedingCorpse",
+      label: `feeding on ${corpse.name} remains`,
+      roomId: slimeEffectiveRoomId(slime),
+      targetKind: "corpse",
+      targetId: corpse.id,
+      targetLabel: `${corpse.name} remains`,
+      updatedAt: state.clock
+    };
+    if (feeding.rate <= 0) {
+      adjustSlimeStat(slime, "stress", 0.1 * secondsToHours(elapsed));
+      return 0;
+    }
+    const rawNutritionGain = feeding.rate * secondsToDays(elapsed);
+    const nutritionGain = adjustedSlimeNutritionGain(slime, rawNutritionGain);
+    if (nutritionGain <= 0) {
+      return 0;
+    }
+    adjustSlimeStat(slime, "nutrition", nutritionGain);
+    adjustSlimeStat(slime, "currentMass", nutritionGain * 0.2);
+    adjustSlimeStat(slime, "stress", -nutritionGain * 0.1);
+    corpse.consumedProgress = clamp((Number(corpse.consumedProgress) || 0) + nutritionGain * feeding.consumption, 0, 100);
+    accumulateCorpseFeedingResidue(slime, corpse, feeding, nutritionGain);
+    if (!corpse.feedingNoticed && scientistObservesRoom(slimeEffectiveRoomId(slime))) {
+      corpse.feedingNoticed = true;
+      addEvent(`${slime.name} began feeding on ${corpse.name} remains in ${corpseLocationLabel(corpse)}.`);
+    }
+    if (corpse.consumedProgress >= 100) {
+      addEvent(`${corpse.name} remains were fully consumed in ${corpseLocationLabel(corpse)}.`);
+      removeCorpseRecord(corpse.id);
+    }
+    return 1;
+  }
+
+  function updateAccessibleSlimeFeeding(slime, elapsed) {
+    const target = localAccessibleFoodTarget(slime);
+    if (!target) {
+      return 0;
+    }
+    if (target.kind === "residue") {
+      return consumeFeedingResidueForSlime(slime, target, elapsed);
+    }
+    if (target.kind === "waste") {
+      return consumeWasteForLooseSlime(slime, elapsed);
+    }
+    if (target.kind === "corpse") {
+      return feedLooseSlimeOnCorpse(slime, target, elapsed);
+    }
+    return 0;
+  }
+
+  function chooseAutonomousSlimeActivity(slime) {
+    const food = chooseAutonomousFoodTarget(slime);
+    if (food?.block) {
+      setSlimeBlockedDoorActivity(slime, food.block, food.target);
+      return true;
+    }
+    if (food?.target && food.path?.length) {
+      if (food.path.length <= 1) {
+        slime.roomActivity = {
+          type: food.target.kind === "contamination" ? "seekingContamination" : "seekingFood",
+          label: food.target.kind === "contamination" ? "seeking contamination" : `seeking ${food.target.label}`,
+          roomId: slimeEffectiveRoomId(slime),
+          targetRoomId: food.target.roomId,
+          targetKind: food.target.kind,
+          targetId: food.target.id || "",
+          targetLabel: food.target.label || "",
+          updatedAt: state.clock
+        };
+        return true;
+      }
+      return startSlimeAutonomousMovement(slime, food.target, food.path);
+    }
+    const wander = chooseAutonomousWanderTarget(slime);
+    if (wander?.target && wander.path?.length > 1) {
+      return startSlimeAutonomousMovement(slime, wander.target, wander.path);
+    }
+    return false;
+  }
 
   function updateUncontainedSlimeBehavior(minutes) {
     const elapsed = Math.max(0, Number(minutes) || 0);
@@ -13077,83 +13638,75 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         continue;
       }
       slime.roomId ||= MAIN_ROOM_ID;
+      slime.autonomousMovement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
       const info = slimeContaminationTraitInfo(slime);
       const currentRoom = roomById(slime.roomId);
       if (!currentRoom) {
         slime.roomId = MAIN_ROOM_ID;
       }
 
-      if (info.seeksContamination) {
-        const bestRoom = bestReachableContaminationTargetRoom(slime.roomId);
-
-        if (bestRoom && bestRoom.room.id !== slime.roomId && bestRoom.contamination >= roomContaminationValue(slime.roomId) + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
-          const fromRoomId = slime.roomId;
-          const fromRoom = roomName(fromRoomId);
-          const nextRoomId = nextConnectedRoomToward(fromRoomId, bestRoom.room.id, { requireReachable: true });
-          if (!nextRoomId || !doorIsOpen(fromRoomId, nextRoomId)) {
-            slime.roomActivity = {
-              type: "pressingClosedDoor",
-              label: "pressing against closed door",
-              roomId: slime.roomId,
-              targetRoomId: bestRoom.room.id,
-              updatedAt: state.clock
-            };
-            recordCleanupObservation(slime, "pressingClosedDoor", elapsed, slime.roomId);
-            continue;
+      if (slime.autonomousMovement) {
+        changes += updateSlimeAutonomousMovement(slime);
+        if (slime.autonomousMovement) {
+          if (slime.roomActivity?.targetKind === "contamination") {
+            recordCleanupObservation(slime, "seekingContamination", elapsed, slime.roomId);
           }
-          slime.roomId = nextRoomId;
-          slime.roomActivity = {
-            type: "seekingContamination",
-            label: "seeking contamination",
-            roomId: slime.roomId,
-            targetRoomId: bestRoom.room.id,
-            updatedAt: state.clock
-          };
-          recordCleanupObservation(slime, "seekingContamination", elapsed, slime.roomId);
-          changes += 1;
+          continue;
         }
+      }
 
-        const room = roomById(slime.roomId);
-        const contamination = room?.attributes?.contamination;
-        const current = Number(contamination?.current) || 0;
-        if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
-          const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
-          const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
-          if (drained > 0) {
-            const before = contamination.current;
-            contamination.current = clamp(contamination.current - drained, 0, 100);
-            adjustSlimeStat(slime, "nutrition", drained * 0.4);
-            adjustSlimeStat(slime, "stress", -drained * 0.05);
-            slime.roomActivity = {
-              type: "feedingOnContamination",
-              label: "feeding on contamination",
-              roomId: slime.roomId,
-              updatedAt: state.clock
-            };
-            recordCleanupObservation(slime, "feedingOnContamination", elapsed, room.id);
-            if (before > OUT_OF_CONTAINER_CONTAMINATION_FLOOR && contamination.current <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR && !room.biologicalCleanupClearedNotifiedAt) {
-              const observation = ensureCleanupObservation(slime);
-              observation.clearEvents += 1;
-              room.biologicalCleanupClearedNotifiedAt = state.clock;
-              if (scientistObservesRoom(room.id)) {
-                addEvent(`${room.name} visible contamination cleared by biological cleanup.`);
-              }
-            } else if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
-              room.biologicalCleanupClearedNotifiedAt = 0;
-            }
-            if (Math.abs(before - contamination.current) >= 0.01) {
-              changes += 1;
-            }
-          }
-        } else {
-          slime.roomActivity ||= {
-            type: "seekingContamination",
-            label: "seeking contamination",
+      changes += updateAccessibleSlimeFeeding(slime, elapsed);
+
+      const room = roomById(slime.roomId);
+      const contamination = room?.attributes?.contamination;
+      const current = Number(contamination?.current) || 0;
+      if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
+        const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
+        const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
+        if (drained > 0) {
+          const before = contamination.current;
+          contamination.current = clamp(contamination.current - drained, 0, 100);
+          adjustSlimeStat(slime, "nutrition", drained * 0.4);
+          adjustSlimeStat(slime, "stress", -drained * 0.05);
+          slime.roomActivity = {
+            type: "feedingOnContamination",
+            label: "feeding on contamination",
             roomId: slime.roomId,
+            targetKind: "contamination",
+            targetId: room.id,
+            targetLabel: "visible contamination",
             updatedAt: state.clock
           };
+          recordCleanupObservation(slime, "feedingOnContamination", elapsed, room.id);
+          if (before > OUT_OF_CONTAINER_CONTAMINATION_FLOOR && contamination.current <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR && !room.biologicalCleanupClearedNotifiedAt) {
+            const observation = ensureCleanupObservation(slime);
+            observation.clearEvents += 1;
+            room.biologicalCleanupClearedNotifiedAt = state.clock;
+            if (scientistObservesRoom(room.id)) {
+              addEvent(`${room.name} visible contamination cleared by biological cleanup.`);
+            }
+          } else if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
+            room.biologicalCleanupClearedNotifiedAt = 0;
+          }
+          if (Math.abs(before - contamination.current) >= 0.01) {
+            changes += 1;
+          }
         }
         continue;
+      }
+
+      if (state.clock >= finiteTime(slime.nextAutonomousDecisionAt, 0)) {
+        if (chooseAutonomousSlimeActivity(slime)) {
+          slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
+          if (slime.roomActivity?.type === "seekingContamination" || slime.roomActivity?.targetKind === "contamination") {
+            recordCleanupObservation(slime, "seekingContamination", elapsed, slime.roomId);
+          } else if (slime.roomActivity?.type === "pressingClosedDoor") {
+            recordCleanupObservation(slime, "pressingClosedDoor", elapsed, slime.roomId);
+          }
+          changes += 1;
+          continue;
+        }
+        slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
       }
 
       if (slimeHuntingInclination(slime)) {
@@ -15724,6 +16277,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return parts.join(" - ");
   }
 
+  function slimeMapObjectLabel(slime) {
+    const activity = slimeActivityLabel(slime).replace(/^Activity:\s*/i, "");
+    return `${slime.name} loose; ${activity}`;
+  }
+
   function labMapObjectAssignments(map) {
     ensurePhysicalObjectPlacements();
     const assignments = new Map();
@@ -15760,7 +16318,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "dead" && slimeIsUncontained(slime)) {
-        addCell(objectMapCell(slime), "L", `${slime.name} loose`, ["living-object-cell"], {
+        addCell(objectMapCell(slime), "L", slimeMapObjectLabel(slime), ["living-object-cell"], {
           kind: "slime",
           id: slime.id,
           label: slime.name
@@ -21285,10 +21843,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.roomId = next.rooms.some((room) => room.id === slime.roomId) ? slime.roomId : MAIN_ROOM_ID;
       if (slime.status === "dead") {
         slime.containerId = null;
+        slime.autonomousMovement = null;
       } else if (slime.status === "released") {
         slime.containerId = null;
+        slime.autonomousMovement = normalizeSlimeAutonomousMovement(slime.autonomousMovement, next.clock);
+        slime.nextAutonomousDecisionAt = finiteTime(slime.nextAutonomousDecisionAt, next.clock);
       } else {
         slime.status = "contained";
+        slime.autonomousMovement = null;
+        slime.nextAutonomousDecisionAt = null;
         if (!validContainerIds.has(slime.containerId)) {
           const openContainerId = basicContainerIds.find((id) => !existingBasicAssignments.has(id));
           slime.containerId = openContainerId || basicContainerIds[0] || SYNTHESIS_TUBE_ID;
@@ -21302,6 +21865,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       slime.automationExcluded = Boolean(slime.automationExcluded);
+      slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0);
       slime.stats = normalizeSlimeStats(slime.stats);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
