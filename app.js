@@ -257,6 +257,12 @@
   const ROOM_CORPSE_FLOOR_LOAD_M2 = 0.75;
   const ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 = 100;
   const ROOM_EFFECT_REFERENCE_VOLUME_M3 = 300;
+  const CONTAMINATION_DIFFUSION_EXCHANGE_M3_PER_HOUR = 18;
+  const CONTAMINATION_DIFFUSION_MIN_DELTA = 0.01;
+  const CONTAMINATION_DIFFUSION_OPEN_MODIFIER = 1;
+  const CONTAMINATION_DIFFUSION_BREACHED_MODIFIER = 1.35;
+  const CONTAMINATION_DIFFUSION_CLOSED_MODIFIER = 0.18;
+  const CONTAMINATION_DIFFUSION_SEALED_MODIFIER = 0.08;
   const SCIENTIST_MOVE_MIN_DURATION = 1;
   const SCIENTIST_MOVE_SPEED_MPS = 1.1;
   const SCIENTIST_DOOR_TRANSIT_SECONDS = 4;
@@ -2884,6 +2890,7 @@
     const physicalStateChanged = updateScientistPhysicalExposure(elapsed);
     const suspicionChanged = updateSuspicionDecay();
     const roomChanges = recoverRoomAttributes(elapsed);
+    const roomPropagationChanges = propagateRoomEnvironmentAttributes(elapsed);
     const envChanges = exchangeContainerEnvironments(elapsed);
     const expired = expireSlimes();
     const corpseChanges = updateCorpses(elapsed);
@@ -2903,10 +2910,10 @@
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
-    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || incidentAlertChanged || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
+    if (!options.quiet || expired || jobExpired || corpseChanges || jobChanges || roomChanges || roomPropagationChanges || envChanges || feedstockChanged || feedingChanged || uncontainedBehaviorChanged || metabolismChanged || collectionChanged || compatibilityChanged || containmentIncidentChanges || incidentAlertChanged || completed || vitalsChanged || physicalStateChanged || observationChanged || suspicionChanged) {
       persist();
     }
-    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + incidentAlertChanged + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
+    return expired + jobExpired + corpseChanges + jobChanges + roomChanges + roomPropagationChanges + envChanges + feedstockChanged + feedingChanged + uncontainedBehaviorChanged + metabolismChanged + collectionChanged + compatibilityChanged + containmentIncidentChanges + incidentAlertChanged + completed + (vitalsChanged ? 1 : 0) + (physicalStateChanged ? 1 : 0) + (observationChanged ? 1 : 0) + (suspicionChanged ? 1 : 0);
   }
 
   function completeDueTasks() {
@@ -3938,6 +3945,120 @@
         attribute.current += Math.sign(difference) * Math.min(Math.abs(difference), recovery);
         changes += 1;
       }
+    }
+    return changes;
+  }
+
+  function contaminationDiffusionLeakFraction(door) {
+    return clamp((100 - doorEffectiveSeal(door)) / 100, 0, 1);
+  }
+
+  function contaminationDiffusionDoorModifier(door) {
+    if (!door) {
+      return 0;
+    }
+    if (doorIsBreached(door)) {
+      return CONTAMINATION_DIFFUSION_BREACHED_MODIFIER;
+    }
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      return CONTAMINATION_DIFFUSION_SEALED_MODIFIER * Math.pow(contaminationDiffusionLeakFraction(door), 1.25);
+    }
+    if (door.state === DOOR_STATE_OPEN) {
+      return CONTAMINATION_DIFFUSION_OPEN_MODIFIER;
+    }
+    return CONTAMINATION_DIFFUSION_CLOSED_MODIFIER * contaminationDiffusionLeakFraction(door);
+  }
+
+  function contaminationDiffusionDoorLabel(door) {
+    const modifier = contaminationDiffusionDoorModifier(door);
+    if (!modifier) {
+      return "blocks contamination diffusion";
+    }
+    if (doorIsBreached(door)) {
+      return "breached: contamination moves freely";
+    }
+    if (door?.state === DOOR_STATE_OPEN && door?.sealState !== DOOR_SEAL_SEALED) {
+      return "open: contamination diffuses freely";
+    }
+    const leak = Math.round(contaminationDiffusionLeakFraction(door) * 100);
+    if (door?.sealState === DOOR_SEAL_SEALED) {
+      return `sealed: about ${leak}% leak potential`;
+    }
+    return `closed: about ${leak}% leak potential`;
+  }
+
+  function roomConnectionDoorPairs() {
+    state.rooms = normalizeRooms(state.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms);
+    const roomMap = new Map(state.rooms.map((room) => [room.id, room]));
+    const seen = new Set();
+    const pairs = [];
+    for (const room of state.rooms) {
+      for (const connectedId of room.connections || []) {
+        const key = doorKey(room.id, connectedId);
+        if (!key || seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        const roomA = roomMap.get(room.id);
+        const roomB = roomMap.get(connectedId);
+        const door = state.doors[key];
+        if (roomA && roomB && door) {
+          pairs.push({ roomA, roomB, door });
+        }
+      }
+    }
+    return pairs;
+  }
+
+  function propagateContaminationBetweenRooms(roomA, roomB, door, elapsed) {
+    const attributeA = roomA?.attributes?.contamination;
+    const attributeB = roomB?.attributes?.contamination;
+    if (!attributeA || !attributeB) {
+      return 0;
+    }
+    const valueA = Number(attributeA.current);
+    const valueB = Number(attributeB.current);
+    if (!Number.isFinite(valueA) || !Number.isFinite(valueB)) {
+      return 0;
+    }
+    const diff = valueA - valueB;
+    if (Math.abs(diff) < CONTAMINATION_DIFFUSION_MIN_DELTA) {
+      return 0;
+    }
+    const modifier = contaminationDiffusionDoorModifier(door);
+    if (modifier <= 0) {
+      return 0;
+    }
+    const volumeA = roomVolumeM3(roomA);
+    const volumeB = roomVolumeM3(roomB);
+    const exchangeVolume = CONTAMINATION_DIFFUSION_EXCHANGE_M3_PER_HOUR * modifier * secondsToHours(elapsed);
+    if (exchangeVolume <= 0) {
+      return 0;
+    }
+    const transferLoad = Math.sign(diff)
+      * Math.min(
+        Math.abs(diff) * exchangeVolume,
+        Math.abs(diff) * Math.min(volumeA, volumeB) * 0.5
+      );
+    const nextA = clamp(valueA - transferLoad / volumeA, 0, 100);
+    const nextB = clamp(valueB + transferLoad / volumeB, 0, 100);
+    if (Math.abs(nextA - valueA) < CONTAMINATION_DIFFUSION_MIN_DELTA && Math.abs(nextB - valueB) < CONTAMINATION_DIFFUSION_MIN_DELTA) {
+      return 0;
+    }
+    attributeA.current = nextA;
+    attributeB.current = nextB;
+    return 1;
+  }
+
+  function propagateRoomEnvironmentAttributes(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed) {
+      return 0;
+    }
+    let changes = 0;
+    for (const { roomA, roomB, door } of roomConnectionDoorPairs()) {
+      changes += propagateContaminationBetweenRooms(roomA, roomB, door, elapsed);
     }
     return changes;
   }
@@ -5100,12 +5221,12 @@
       return `No usable door data for ${connectionLabel}.`;
     }
     const type = doorTypeDef(door.typeId);
-    const physical = `${type.label}; material ${type.material}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
+    const physical = `${type.label}; material ${type.material}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; ${contaminationDiffusionDoorLabel(door)}; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
     if (doorIsBreached(door)) {
       return `Breached door: movement can pass through ${connectionLabel}, but the door no longer locks or seals. ${physical}`;
     }
     if (door.sealState === DOOR_SEAL_SEALED) {
-      return `Sealed door: movement, hauling, free creatures, and future environmental spread are blocked through ${connectionLabel} until it is unsealed. ${physical}`;
+      return `Sealed door: movement, hauling, and free creatures are blocked through ${connectionLabel} until it is unsealed. Environmental diffusion is reduced by seal quality. ${physical}`;
     }
     if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
       return `Locked door: ordinary movement and hauling will not auto-pass through ${connectionLabel}; unlock it first. Free creatures are blocked. ${physical}`;
@@ -5507,12 +5628,13 @@
         const details = document.createElement("div");
         details.className = "room-door-details";
         details.append(
-          chip(type.label),
-          chip(`material: ${type.material}`),
-          chip(`condition: ${doorConditionLabel(door)}`),
-          chip(`seal: ${formatNumber(doorEffectiveSeal(door))}/100`),
-          chip(`lock: ${formatNumber(type.lockStrength)}/100`)
-        );
+        chip(type.label),
+        chip(`material: ${type.material}`),
+        chip(`condition: ${doorConditionLabel(door)}`),
+        chip(`seal: ${formatNumber(doorEffectiveSeal(door))}/100`),
+        chip(`lock: ${formatNumber(type.lockStrength)}/100`),
+        chip(contaminationDiffusionDoorLabel(door))
+      );
         const wards = doorWardLabels(door.wardIds);
         details.append(chip(`wards: ${wards.length ? wards.join(", ") : "none"}`));
         info.append(details);
@@ -17254,6 +17376,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         alertChip.title = roomAlerts.map((incident) => incident.label).join("\n");
         metaChips.push(alertChip);
       }
+      for (const diffusionTag of roomContaminationDiffusionTags(room)) {
+        metaChips.push(diffusionTag);
+      }
       for (const cleanupTag of roomBiologicalCleanupTags(room)) {
         metaChips.push(cleanupTag);
       }
@@ -17342,6 +17467,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return ["feedingOnContamination", "seekingContamination", "leavingResidue"].includes(slime.roomActivity?.type);
     });
+  }
+
+  function roomContaminationDiffusionTags(room) {
+    const current = roomContaminationValue(room.id);
+    const incoming = [];
+    const outgoing = [];
+    for (const connectedId of roomConnectedIds(room.id)) {
+      const door = doorForConnection(room.id, connectedId);
+      const modifier = contaminationDiffusionDoorModifier(door);
+      if (modifier <= 0) {
+        continue;
+      }
+      const neighbor = roomContaminationValue(connectedId);
+      const delta = neighbor - current;
+      if (Math.abs(delta) < 2) {
+        continue;
+      }
+      const entry = `${roomName(connectedId)} through ${doorStateLabel(room.id, connectedId)} door (${contaminationDiffusionDoorLabel(door)})`;
+      if (delta > 0) {
+        incoming.push(entry);
+      } else {
+        outgoing.push(entry);
+      }
+    }
+    if (!incoming.length && !outgoing.length) {
+      return [];
+    }
+    const tags = [];
+    if (incoming.length) {
+      const tag = chip("contamination drifting in");
+      tag.classList.add("danger-chip");
+      tag.title = incoming.join("\n");
+      tags.push(tag);
+    }
+    if (outgoing.length) {
+      const tag = chip("contamination drifting out");
+      tag.title = outgoing.join("\n");
+      tags.push(tag);
+    }
+    return tags;
   }
 
   function roomBiologicalCleanupTags(room) {

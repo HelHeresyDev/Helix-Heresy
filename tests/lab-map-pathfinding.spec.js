@@ -382,6 +382,80 @@ test('spatial incidents appear as map alerts without creating response tasks', a
   expect(tasks).toEqual([]);
 });
 
+test('room contamination diffuses through connected doors according to seal quality', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.paused = true;
+    state.clock = 0;
+    state.tasks = [];
+    state.slimes = [];
+    state.corpses = [];
+    state.feedingResidues = [];
+    state.rooms = (state.rooms || []).map((room) => {
+      const current = room.id === 'mainLab' ? 80 : 0;
+      return {
+        ...room,
+        attributes: {
+          ...room.attributes,
+          contamination: {
+            ...(room.attributes?.contamination || {}),
+            current,
+            baseline: current,
+            recoveryPerHour: 0,
+          },
+        },
+      };
+    });
+    state.doors['mainLab::storageRoom'] = {
+      ...state.doors['mainLab::storageRoom'],
+      typeId: 'wardedContainmentDoor',
+      condition: 100,
+      state: 'closed',
+      lockState: 'unlocked',
+      sealState: 'sealed',
+      wardIds: ['sealTightening'],
+      breached: false,
+    };
+    state.doors['bedroom::mainLab'] = {
+      ...state.doors['bedroom::mainLab'],
+      typeId: 'roughWoodDoor',
+      condition: 30,
+      state: 'closed',
+      lockState: 'unlocked',
+      sealState: 'sealed',
+      wardIds: [],
+      breached: false,
+    };
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  await skipSeconds(page, 3600);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const roomValue = (roomId) => (state.rooms || []).find((room) => room.id === roomId)?.attributes?.contamination?.current;
+    return {
+      main: roomValue('mainLab'),
+      storage: roomValue('storageRoom'),
+      bedroom: roomValue('bedroom'),
+      tasks: state.tasks || [],
+    };
+  }, { key: storageKey });
+
+  expect(result.main).toBeLessThan(80);
+  expect(result.storage).toBeLessThan(0.1);
+  expect(result.bedroom).toBeGreaterThan(1);
+  expect(result.bedroom).toBeGreaterThan(result.storage + 1);
+  expect(result.tasks).toEqual([]);
+  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toContainText('blocks contamination diffusion');
+  await expect(page.locator('[data-door-connection="bedroom::mainLab"]').first()).toContainText('sealed: about 78% leak potential');
+  await expect(page.locator('[data-room-card="bedroom"]')).toContainText('contamination drifting in');
+});
+
 test('door access states block routing and show physical door data', async ({ page }) => {
   await startRun(page);
 

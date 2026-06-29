@@ -12,40 +12,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Spatial Environment Propagation System
-2. Black Market Byproduct Economy System
-3. Elemental Damage Type System
-4. Tool Durability and Damage Resistance System
-5. XP Curve and Breakthrough-Gated Skill Progression
-6. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Black Market Byproduct Economy System
+2. Elemental Damage Type System
+3. Tool Durability and Damage Resistance System
+4. XP Curve and Breakthrough-Gated Skill Progression
+5. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Spatial Environment Propagation System
-
-Create a system for room attributes and hazards to propagate through the physical lab layout.
-
-The prototype already tracks room attributes such as temperature, light, ambient mana, moisture, contamination, and electrical charge. The physical map now makes adjacency, doors, vents, drains, and room boundaries meaningful. Environmental effects should eventually move through space instead of existing only as isolated room values.
-
-The system should answer questions like:
-- Which attributes can propagate between rooms or tiles?
-- Do heat, cold, contamination, moisture, fumes, electrical charge, or mana spread differently?
-- How do open doors, closed doors, sealed doors, vents, drains, cracks, and room materials affect propagation?
-- Should propagation be tile-based, room-based, or hybrid in the first implementation?
-- How should the UI show environmental gradients or spread warnings?
-- How do containers, loose creatures, corpses, spills, and apparatus contribute to local environment changes?
-- How should passive recovery interact with propagation?
-- How should environmental spread affect containment, creature condition, byproduct collection, tool durability, and lab safety?
-
-This system should make lab layout and infrastructure matter. A hot room next to a cold room, a contaminated pit connected to a clean lab, or a fume-producing specimen under poor ventilation should create spatial consequences.
-
-The desired result is an environmental propagation foundation that can later support ventilation systems, sealed rooms, drainage, contamination cleanup, fume hazards, electrical hazards, mana leaks, and room construction upgrades.
-
-Before coding, discuss which room attributes should propagate first, whether propagation should be room-level or tile-level, how doors and future infrastructure should modify spread, and how to keep the UI readable.
-
----
-
-## 2. Black Market Byproduct Economy System
+## 1. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -71,7 +46,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 3. Elemental Damage Type System
+## 2. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -96,7 +71,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 4. Tool Durability and Damage Resistance System
+## 3. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -125,7 +100,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 5. XP Curve and Breakthrough-Gated Skill Progression
+## 4. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -190,7 +165,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 6. Analyze Ability & Creature Skill Evolution Follow-Up
+## 5. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
