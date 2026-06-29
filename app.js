@@ -51,6 +51,10 @@
   const EXCAVATION_MAX_TILES = 80;
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
+  const DOOR_LOCK_UNLOCKED = "unlocked";
+  const DOOR_LOCK_LOCKED = "locked";
+  const DOOR_SEAL_UNSEALED = "unsealed";
+  const DOOR_SEAL_SEALED = "sealed";
   const LAB_MAP_TILE_SIZE_M = 1;
   const LAB_MAP_DEFAULT_WIDTH = 40;
   const LAB_MAP_DEFAULT_HEIGHT = 25;
@@ -961,6 +965,69 @@
     [normalizeCommandName(ward.label), ward.id],
     ...ward.protects.map((tag) => [normalizeCommandName(tag), ward.id])
   ]));
+  const DOOR_BASE_TYPE_DEFS = [
+    {
+      id: "roughWoodDoor",
+      label: "Rough Wood Door",
+      material: "wood",
+      durability: 35,
+      seal: 20,
+      lockStrength: 20,
+      resistances: { acid: 20, flame: 15, frost: 35, storm: 20, poison: 20, mana: 15 },
+      notes: ["Cheap", "Weak seal", "Primitive construction"]
+    },
+    {
+      id: "reinforcedWoodDoor",
+      label: "Reinforced Wood Door",
+      material: "wood and iron",
+      durability: 55,
+      seal: 35,
+      lockStrength: 45,
+      resistances: { acid: 25, flame: 25, frost: 40, storm: 25, poison: 25, mana: 20 },
+      notes: ["Basic lab door", "Reinforced frame"]
+    },
+    {
+      id: "ironBandDoor",
+      label: "Iron-Band Door",
+      material: "iron",
+      durability: 75,
+      seal: 45,
+      lockStrength: 65,
+      resistances: { acid: 20, flame: 75, frost: 65, storm: 15, poison: 25, mana: 25 },
+      notes: ["Strong", "Conductive", "Poor acid resistance"]
+    },
+    {
+      id: "stoneSlabDoor",
+      label: "Stone Slab Door",
+      material: "stone",
+      durability: 90,
+      seal: 60,
+      lockStrength: 55,
+      resistances: { acid: 65, flame: 90, frost: 75, storm: 45, poison: 55, mana: 35 },
+      notes: ["Very heavy", "Good primitive seal", "Slow to work with"]
+    },
+    {
+      id: "glassObservationDoor",
+      label: "Glass Observation Door",
+      material: "reinforced glass",
+      durability: 45,
+      seal: 75,
+      lockStrength: 50,
+      resistances: { acid: 25, flame: 35, frost: 30, storm: 20, poison: 65, mana: 25 },
+      notes: ["High visibility", "Good seal", "Fragile under force"]
+    },
+    {
+      id: "wardedContainmentDoor",
+      label: "Warded Containment Door",
+      material: "warded composite",
+      durability: 90,
+      seal: 85,
+      lockStrength: 80,
+      resistances: { acid: 55, flame: 55, frost: 55, storm: 55, poison: 55, mana: 55 },
+      notes: ["Purpose-built", "Ward-ready", "Strong baseline"]
+    }
+  ];
+  const DOOR_BASE_TYPE_BY_ID = Object.fromEntries(DOOR_BASE_TYPE_DEFS.map((type) => [type.id, type]));
   const STARTER_CONTAINER_LOADOUT = [
     { typeId: "basicGlassJar" },
     { typeId: "sealedGlassTank" },
@@ -1904,10 +1971,7 @@
         if (!key || doors[key]) {
           continue;
         }
-        doors[key] = {
-          roomIds: doorRoomIdsFromKey(key),
-          state: defaultDoorState(room.id, connectedId)
-        };
+        doors[key] = defaultDoorObject(room.id, connectedId);
       }
     }
     return doors;
@@ -3125,7 +3189,7 @@
         continue;
       }
       state.doors[key] = {
-        roomIds: doorRoomIdsFromKey(key),
+        ...defaultDoorObject(room.id, opening.roomId),
         state: DOOR_STATE_OPEN
       };
       const mapDoor = normalizeLabMapDoor({
@@ -4686,7 +4750,7 @@
         return !labMapCellIsPathBlocked(candidate, { ...options, map });
       }
       const door = labMapDoorForCells(cell, candidate, map);
-      return Boolean(door && (options.ignoreDoors || doorIsOpen(door.roomIds[0], door.roomIds[1]))
+      return Boolean(door && doorAllowsPassage(door.roomIds[0], door.roomIds[1], options)
         && !labMapCellIsPathBlocked(candidate, { ...options, map }));
     });
   }
@@ -4790,6 +4854,42 @@
     return String(key || "").split("::").map(cleanRoomId).filter(Boolean).slice(0, 2);
   }
 
+  function doorTypeDef(typeId) {
+    return DOOR_BASE_TYPE_BY_ID[typeId] || DOOR_BASE_TYPE_BY_ID.reinforcedWoodDoor;
+  }
+
+  function doorTypeLabel(typeId) {
+    return doorTypeDef(typeId).label;
+  }
+
+  function defaultDoorTypeId(roomAId, roomBId) {
+    const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
+    if ([...ids].some((id) => String(id).startsWith("excavation-"))) {
+      return "roughWoodDoor";
+    }
+    if (ids.has(PITS_ROOM_ID)) {
+      return "stoneSlabDoor";
+    }
+    if (ids.has(MENAGERIE_ROOM_ID)) {
+      return "ironBandDoor";
+    }
+    if (ids.has(COLLECTION_BAY_ROOM_ID)) {
+      return "glassObservationDoor";
+    }
+    return "reinforcedWoodDoor";
+  }
+
+  function defaultDoorWardIds(roomAId, roomBId) {
+    const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
+    if (ids.has(COLLECTION_BAY_ROOM_ID)) {
+      return ["poisonSealing"];
+    }
+    if (ids.has(PITS_ROOM_ID)) {
+      return ["sealTightening"];
+    }
+    return [];
+  }
+
   function defaultDoorState(roomAId, roomBId) {
     const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
     const isMainRoomDoor = ids.has(MAIN_ROOM_ID);
@@ -4797,6 +4897,133 @@
       isMainRoomDoor &&
       (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID) || ids.has(COLLECTION_BAY_ROOM_ID));
     return startsClosed ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
+  }
+
+  function defaultDoorObject(roomAId, roomBId) {
+    const typeId = defaultDoorTypeId(roomAId, roomBId);
+    return {
+      roomIds: doorRoomIdsFromKey(doorKey(roomAId, roomBId)),
+      state: defaultDoorState(roomAId, roomBId),
+      lockState: DOOR_LOCK_UNLOCKED,
+      sealState: DOOR_SEAL_UNSEALED,
+      typeId,
+      condition: CONTAINER_CONDITION_DEFAULT,
+      wardIds: defaultDoorWardIds(roomAId, roomBId),
+      breached: false
+    };
+  }
+
+  function normalizeDoorPositionState(value, fallback = DOOR_STATE_CLOSED) {
+    return value === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : fallback === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
+  }
+
+  function normalizeDoorLockState(value) {
+    return value === DOOR_LOCK_LOCKED ? DOOR_LOCK_LOCKED : DOOR_LOCK_UNLOCKED;
+  }
+
+  function normalizeDoorSealState(value) {
+    return value === DOOR_SEAL_SEALED ? DOOR_SEAL_SEALED : DOOR_SEAL_UNSEALED;
+  }
+
+  function normalizeDoorCondition(value) {
+    return normalizeContainerCondition(value);
+  }
+
+  function doorCondition(door) {
+    if (!door) return CONTAINER_CONDITION_DEFAULT;
+    door.condition = normalizeDoorCondition(door.condition);
+    return door.condition;
+  }
+
+  function doorConditionLabel(door) {
+    const condition = doorCondition(door);
+    if (doorIsBreached(door)) return "breached";
+    if (condition < 25) return `${formatNumber(condition)}% critical`;
+    if (condition < 50) return `${formatNumber(condition)}% damaged`;
+    if (condition < 75) return `${formatNumber(condition)}% worn`;
+    return `${formatNumber(condition)}% intact`;
+  }
+
+  function doorWardLabels(wardIds) {
+    return containerWardLabels(wardIds);
+  }
+
+  function doorHasWard(door, wardId) {
+    return normalizeContainerWardIds(door?.wardIds).includes(wardId);
+  }
+
+  function doorEffectiveSeal(door) {
+    if (doorIsBreached(door)) {
+      return 0;
+    }
+    const type = doorTypeDef(door?.typeId);
+    const condition = doorCondition(door);
+    const conditionPenalty = condition < 50 ? 18 : condition < 75 ? 8 : 0;
+    const sealedBonus = door?.sealState === DOOR_SEAL_SEALED ? 20 : 0;
+    const wardBonus = doorHasWard(door, "sealTightening") ? 25 : 0;
+    return clamp(type.seal + sealedBonus + wardBonus - conditionPenalty, 0, 100);
+  }
+
+  function doorIsBreached(doorOrRoomAId, roomBId = "") {
+    const door = typeof doorOrRoomAId === "object"
+      ? doorOrRoomAId
+      : doorForConnection(doorOrRoomAId, roomBId);
+    return Boolean(door?.breached || normalizeDoorCondition(door?.condition) <= 0);
+  }
+
+  function doorPositionIsOpen(doorOrRoomAId, roomBId = "") {
+    const door = typeof doorOrRoomAId === "object"
+      ? doorOrRoomAId
+      : doorForConnection(doorOrRoomAId, roomBId);
+    return Boolean(door && door.state === DOOR_STATE_OPEN);
+  }
+
+  function doorSecurityBlockReason(roomAId, roomBId) {
+    const door = doorForConnection(roomAId, roomBId);
+    if (!door || doorIsBreached(door)) {
+      return "";
+    }
+    const label = `${roomName(roomAId)} to ${roomName(roomBId)} door`;
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      return `${label} is sealed. Unseal it before routing movement or hauling through it.`;
+    }
+    if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
+      return `${label} is locked. Unlock it before routing movement or hauling through it.`;
+    }
+    return "";
+  }
+
+  function doorAllowsPassage(roomAId, roomBId, options = {}) {
+    const door = doorForConnection(roomAId, roomBId);
+    if (!door) {
+      return false;
+    }
+    if (doorIsBreached(door)) {
+      return true;
+    }
+    if (options.ignoreDoorSecurity) {
+      return options.ignoreDoors || door.state === DOOR_STATE_OPEN;
+    }
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      return false;
+    }
+    if (door.state === DOOR_STATE_OPEN) {
+      return true;
+    }
+    if (door.lockState === DOOR_LOCK_LOCKED) {
+      return false;
+    }
+    return Boolean(options.ignoreDoors);
+  }
+
+  function firstDoorSecurityBlockReason(route) {
+    for (let index = 0; index < (route || []).length - 1; index += 1) {
+      const reason = doorSecurityBlockReason(route[index], route[index + 1]);
+      if (reason) {
+        return reason;
+      }
+    }
+    return "";
   }
 
   function doorForConnection(roomAId, roomBId) {
@@ -4810,19 +5037,48 @@
   }
 
   function doorIsOpen(roomAId, roomBId) {
-    return doorState(roomAId, roomBId) === DOOR_STATE_OPEN;
+    const door = doorForConnection(roomAId, roomBId);
+    return Boolean(door && (doorIsBreached(door) || (door.state === DOOR_STATE_OPEN && door.sealState !== DOOR_SEAL_SEALED)));
   }
 
   function doorStateLabel(roomAId, roomBId) {
-    return doorIsOpen(roomAId, roomBId) ? "open" : "closed";
+    const door = doorForConnection(roomAId, roomBId);
+    if (!door) {
+      return "missing";
+    }
+    if (doorIsBreached(door)) {
+      return "breached";
+    }
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      return "sealed";
+    }
+    if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
+      return "locked";
+    }
+    return door.state === DOOR_STATE_OPEN ? "open" : "closed";
   }
 
   function doorStateTooltipText(roomAId, roomBId) {
+    const door = doorForConnection(roomAId, roomBId);
     const connectionLabel = `${roomName(roomAId)} ↔ ${roomName(roomBId)}`;
-    if (doorIsOpen(roomAId, roomBId)) {
-      return `Open door: free creatures, scientist movement, and container hauling can pass through ${connectionLabel}. Free creatures may move through open doors if their behavior leads them that way. Doors currently affect movement only; they do not seal air, contamination, sound, or exposure.`;
+    if (!door) {
+      return `No usable door data for ${connectionLabel}.`;
     }
-    return `Closed door: free creature movement is blocked through ${connectionLabel}. Scientist movement and container hauling can still pass through automatically, then follow the Door behavior policy. Doors currently affect movement only; they do not seal air, contamination, sound, or exposure.`;
+    const type = doorTypeDef(door.typeId);
+    const physical = `${type.label}; material ${type.material}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
+    if (doorIsBreached(door)) {
+      return `Breached door: movement can pass through ${connectionLabel}, but the door no longer locks or seals. ${physical}`;
+    }
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      return `Sealed door: movement, hauling, free creatures, and future environmental spread are blocked through ${connectionLabel} until it is unsealed. ${physical}`;
+    }
+    if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
+      return `Locked door: ordinary movement and hauling will not auto-pass through ${connectionLabel}; unlock it first. Free creatures are blocked. ${physical}`;
+    }
+    if (door.state === DOOR_STATE_OPEN) {
+      return `Open door: free creatures, scientist movement, and container hauling can pass through ${connectionLabel}. ${physical}`;
+    }
+    return `Closed door: free creature movement is blocked through ${connectionLabel}. Scientist movement and hauling can still pass through automatically, then follow the Door behavior policy. ${physical}`;
   }
 
   function doorControlsTooltipText(roomOrId) {
@@ -4851,12 +5107,82 @@
       return false;
     }
     const nextState = stateValue === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
+    if (doorIsBreached(door)) {
+      if (options.event !== false) {
+        addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door is breached and cannot be opened or closed.`);
+      }
+      return false;
+    }
+    if (nextState === DOOR_STATE_OPEN) {
+      const block = doorSecurityBlockReason(roomAId, roomBId);
+      if (block) {
+        if (options.event !== false) {
+          addEvent(block);
+        }
+        return false;
+      }
+    }
     if (door.state === nextState) {
       return false;
     }
     door.state = nextState;
     if (options.event !== false) {
       addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door ${nextState === DOOR_STATE_OPEN ? "opened" : "closed"}.`);
+    }
+    return true;
+  }
+
+  function setDoorLockState(roomAId, roomBId, lockState, options = {}) {
+    const key = doorKey(roomAId, roomBId);
+    state.doors = normalizeDoors(state.doors);
+    const door = state.doors[key];
+    if (!door || doorIsBreached(door)) {
+      if (options.event !== false) {
+        addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door cannot be ${lockState === DOOR_LOCK_LOCKED ? "locked" : "unlocked"} while breached.`);
+      }
+      return false;
+    }
+    if (door.sealState === DOOR_SEAL_SEALED && lockState === DOOR_LOCK_LOCKED) {
+      if (options.event !== false) {
+        addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door is already sealed.`);
+      }
+      return false;
+    }
+    const nextState = lockState === DOOR_LOCK_LOCKED ? DOOR_LOCK_LOCKED : DOOR_LOCK_UNLOCKED;
+    if (door.lockState === nextState) {
+      return false;
+    }
+    if (nextState === DOOR_LOCK_LOCKED) {
+      door.state = DOOR_STATE_CLOSED;
+    }
+    door.lockState = nextState;
+    if (options.event !== false) {
+      addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door ${nextState === DOOR_LOCK_LOCKED ? "locked" : "unlocked"}.`);
+    }
+    return true;
+  }
+
+  function setDoorSealState(roomAId, roomBId, sealState, options = {}) {
+    const key = doorKey(roomAId, roomBId);
+    state.doors = normalizeDoors(state.doors);
+    const door = state.doors[key];
+    if (!door || doorIsBreached(door)) {
+      if (options.event !== false) {
+        addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door cannot be ${sealState === DOOR_SEAL_SEALED ? "sealed" : "unsealed"} while breached.`);
+      }
+      return false;
+    }
+    const nextState = sealState === DOOR_SEAL_SEALED ? DOOR_SEAL_SEALED : DOOR_SEAL_UNSEALED;
+    if (door.sealState === nextState) {
+      return false;
+    }
+    if (nextState === DOOR_SEAL_SEALED) {
+      door.state = DOOR_STATE_CLOSED;
+      door.lockState = DOOR_LOCK_UNLOCKED;
+    }
+    door.sealState = nextState;
+    if (options.event !== false) {
+      addEvent(`${roomName(roomAId)} ↔ ${roomName(roomBId)} door ${nextState === DOOR_SEAL_SEALED ? "sealed" : "unsealed"}.`);
     }
     return true;
   }
@@ -4896,14 +5222,18 @@
       if (!step?.key || !state.doors?.[step.key]) {
         continue;
       }
+      const door = state.doors[step.key];
+      if (doorIsBreached(door) || door.sealState === DOOR_SEAL_SEALED || door.lockState === DOOR_LOCK_LOCKED) {
+        continue;
+      }
       let finalState = step.previousState === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
       if (policyId === "leaveOpenAfterUse") {
         finalState = DOOR_STATE_OPEN;
       } else if (policyId === "closeAfterUse") {
         finalState = DOOR_STATE_CLOSED;
       }
-      if (state.doors[step.key].state !== finalState) {
-        state.doors[step.key].state = finalState;
+      if (door.state !== finalState) {
+        door.state = finalState;
         changed.push(`${roomName(step.fromRoomId)} ↔ ${roomName(step.toRoomId)} ${finalState}`);
       }
     }
@@ -5031,7 +5361,7 @@
   }
 
   function roomPassableConnectedIds(roomId, options = {}) {
-    return roomConnectedIds(roomId).filter((connectedId) => options.ignoreDoors || doorIsOpen(roomId, connectedId));
+    return roomConnectedIds(roomId).filter((connectedId) => doorAllowsPassage(roomId, connectedId, options));
   }
 
   function roomRouteBetween(fromRoomId, toRoomId, options = {}) {
@@ -5145,29 +5475,96 @@
     }
     panel.append(textEl("strong", "Doors"));
     for (const connectedId of connections) {
+      const key = doorKey(room.id, connectedId);
+      const door = doorForConnection(room.id, connectedId);
       const stateLabel = doorStateLabel(room.id, connectedId);
       const row = document.createElement("div");
       row.className = "room-door-row";
-      row.dataset.doorConnection = doorKey(room.id, connectedId);
-      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("door", doorKey(room.id, connectedId)));
+      row.dataset.doorConnection = key;
+      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("door", key));
+      const info = document.createElement("div");
+      info.className = "room-door-info";
       const stateText = textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`);
       stateText.classList.add("keyword-tooltip");
-      stateText.dataset.doorStateLabel = doorKey(room.id, connectedId);
+      stateText.dataset.doorStateLabel = key;
       stateText.title = doorStateTooltipText(room.id, connectedId);
-      row.append(stateText);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.doorToggle = doorKey(room.id, connectedId);
-      button.textContent = stateLabel === "open" ? "Close door" : "Open door";
-      button.title = stateLabel === "open"
-        ? `Close the ${roomName(room.id)} ↔ ${roomName(connectedId)} door. Closed doors block free creature movement.`
-        : `Open the ${roomName(room.id)} ↔ ${roomName(connectedId)} door. Open doors allow free creature movement if behavior leads creatures through.`;
-      button.addEventListener("click", () => {
-        setDoorState(room.id, connectedId, stateLabel === "open" ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
+      info.append(stateText);
+      if (door) {
+        const type = doorTypeDef(door.typeId);
+        const details = document.createElement("div");
+        details.className = "room-door-details";
+        details.append(
+          chip(type.label),
+          chip(`material: ${type.material}`),
+          chip(`condition: ${doorConditionLabel(door)}`),
+          chip(`seal: ${formatNumber(doorEffectiveSeal(door))}/100`),
+          chip(`lock: ${formatNumber(type.lockStrength)}/100`)
+        );
+        const wards = doorWardLabels(door.wardIds);
+        details.append(chip(`wards: ${wards.length ? wards.join(", ") : "none"}`));
+        info.append(details);
+      }
+      row.append(info);
+
+      const actions = document.createElement("div");
+      actions.className = "room-door-actions";
+
+      const positionButton = document.createElement("button");
+      positionButton.type = "button";
+      positionButton.dataset.doorToggle = key;
+      const isOpen = doorPositionIsOpen(door) && !doorIsBreached(door);
+      const openBlock = !isOpen ? doorSecurityBlockReason(room.id, connectedId) : "";
+      const positionBlock = doorIsBreached(door) ? "Breached doors cannot be opened or closed." : openBlock;
+      positionButton.textContent = isOpen ? "Close" : "Open";
+      positionButton.title = isOpen
+        ? `Close the ${roomName(room.id)} to ${roomName(connectedId)} door. Closed doors block free creature movement.`
+        : `Open the ${roomName(room.id)} to ${roomName(connectedId)} door. Open doors allow free creature movement if behavior leads creatures through.`;
+      setActionButtonState(positionButton, Boolean(positionBlock), positionBlock);
+      positionButton.addEventListener("click", () => {
+        setDoorState(room.id, connectedId, isOpen ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
         persist();
         render();
       });
-      row.append(button);
+      actions.append(positionButton);
+
+      const lockButton = document.createElement("button");
+      lockButton.type = "button";
+      lockButton.dataset.doorLockToggle = key;
+      const locked = door?.lockState === DOOR_LOCK_LOCKED;
+      const lockBlock = doorIsBreached(door)
+        ? "Breached doors cannot be locked."
+        : door?.sealState === DOOR_SEAL_SEALED
+          ? "Sealed doors cannot also be locked."
+          : "";
+      lockButton.textContent = locked ? "Unlock" : "Lock";
+      lockButton.title = locked
+        ? `Unlock the ${roomName(room.id)} to ${roomName(connectedId)} door.`
+        : `Lock the ${roomName(room.id)} to ${roomName(connectedId)} door. Locked doors block movement and hauling until unlocked.`;
+      setActionButtonState(lockButton, Boolean(lockBlock), lockBlock);
+      lockButton.addEventListener("click", () => {
+        setDoorLockState(room.id, connectedId, locked ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED);
+        persist();
+        render();
+      });
+      actions.append(lockButton);
+
+      const sealButton = document.createElement("button");
+      sealButton.type = "button";
+      sealButton.dataset.doorSealToggle = key;
+      const sealed = door?.sealState === DOOR_SEAL_SEALED;
+      const sealBlock = doorIsBreached(door) ? "Breached doors cannot hold a seal." : "";
+      sealButton.textContent = sealed ? "Unseal" : "Seal";
+      sealButton.title = sealed
+        ? `Unseal the ${roomName(room.id)} to ${roomName(connectedId)} door.`
+        : `Seal the ${roomName(room.id)} to ${roomName(connectedId)} door. Sealed doors block movement, hauling, loose creatures, and future spread.`;
+      setActionButtonState(sealButton, Boolean(sealBlock), sealBlock);
+      sealButton.addEventListener("click", () => {
+        setDoorSealState(room.id, connectedId, sealed ? DOOR_SEAL_UNSEALED : DOOR_SEAL_SEALED);
+        persist();
+        render();
+      });
+      actions.append(sealButton);
+      row.append(actions);
       panel.append(row);
     }
     return panel;
@@ -7890,6 +8287,15 @@
     }
     if (container.roomId === toRoomId) {
       return `${container.name} is already in ${roomArticleName(toRoomId)}.`;
+    }
+    const securityRoute = roomRouteBetween(container.roomId || MAIN_ROOM_ID, toRoomId, {
+      ignoreDoors: true,
+      ignoreDoorSecurity: true,
+      requireReachable: true
+    });
+    const doorBlock = firstDoorSecurityBlockReason(securityRoute);
+    if (doorBlock) {
+      return doorBlock;
     }
     if (!roomPathBetween(container.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true }).length) {
       return `No physical hauling route exists from ${roomArticleName(container.roomId || MAIN_ROOM_ID)} to ${roomArticleName(toRoomId)}.`;
@@ -11945,6 +12351,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!roomConnectedIds(fromRoomId).includes(target.id)) {
       return "The scientist can only move to connected rooms.";
     }
+    const securityRoute = roomRouteBetween(fromRoomId, target.id, {
+      ignoreDoors: true,
+      ignoreDoorSecurity: true,
+      requireReachable: true
+    });
+    const doorBlock = firstDoorSecurityBlockReason(securityRoute);
+    if (doorBlock) {
+      return doorBlock;
+    }
     if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true }).length) {
       return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
     }
@@ -15251,6 +15666,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return LAB_MAP_ROOM_ABBREVIATIONS[roomId] || roomName(roomId).slice(0, 2).toUpperCase();
   }
 
+  function doorMapClassName(door) {
+    if (doorIsBreached(door)) {
+      return "door-breached";
+    }
+    if (door?.sealState === DOOR_SEAL_SEALED) {
+      return "door-sealed";
+    }
+    if (door?.state !== DOOR_STATE_OPEN && door?.lockState === DOOR_LOCK_LOCKED) {
+      return "door-locked";
+    }
+    return door?.state === DOOR_STATE_OPEN ? "door-open" : "door-closed";
+  }
+
+  function doorMapGlyph(door) {
+    if (doorIsBreached(door)) {
+      return "!";
+    }
+    if (door?.sealState === DOOR_SEAL_SEALED) {
+      return "s";
+    }
+    if (door?.state !== DOOR_STATE_OPEN && door?.lockState === DOOR_LOCK_LOCKED) {
+      return "l";
+    }
+    return door?.state === DOOR_STATE_OPEN ? "" : "x";
+  }
+
   function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
@@ -15264,6 +15705,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (door) {
       parts.push(`${doorStateLabel(door.roomIds[0], door.roomIds[1])} door to ${door.roomIds.map(roomName).join(" / ")}`);
+      const stateDoor = doorForConnection(door.roomIds[0], door.roomIds[1]);
+      if (stateDoor) {
+        parts.push(`${doorTypeLabel(stateDoor.typeId)}, ${doorConditionLabel(stateDoor)}`);
+      }
     }
     if (objectEntry?.labels?.length) {
       parts.push(objectEntry.labels.join("; "));
@@ -15538,7 +15983,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.classList.add("solid-earth-cell");
         }
         if (door) {
-          tile.classList.add("door-cell", doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "door-open" : "door-closed");
+          tile.classList.add("door-cell", doorMapClassName(doorForConnection(door.roomIds[0], door.roomIds[1]) || door));
           tile.dataset.mapDoor = door.key;
         }
         if (routeEntry) {
@@ -15574,7 +16019,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.classList.add("room-anchor");
           tile.textContent = labMapRoomAbbreviation(anchorRoom.roomId);
         } else if (door) {
-          tile.textContent = doorIsOpen(door.roomIds[0], door.roomIds[1]) ? "" : "x";
+          tile.textContent = doorMapGlyph(doorForConnection(door.roomIds[0], door.roomIds[1]) || door);
         } else if (plannedEntry) {
           tile.textContent = "D";
         }
@@ -15585,7 +16030,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const legend = document.createElement("div");
     legend.className = "lab-map-legend";
-    legend.append(chip("S = scientist"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"));
+    legend.append(chip("S = scientist"), chip("D = planned dig"), chip("C = blocking container footprint"), chip("L = loose living"), chip("R = remains"), chip("route = next queued movement"), chip("room letters = room anchor"), chip("x = closed door"), chip("l = locked"), chip("s = sealed"), chip("! = breached"));
     panel.append(legend);
     return panel;
   }
@@ -19828,15 +20273,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           continue;
         }
         const existing = source[key];
-        const roomIdsForDoor = doorRoomIdsFromKey(key);
-        const stateValue = existing?.state === DOOR_STATE_CLOSED || existing === DOOR_STATE_CLOSED
-          ? DOOR_STATE_CLOSED
-          : existing?.state === DOOR_STATE_OPEN || existing === DOOR_STATE_OPEN
-            ? DOOR_STATE_OPEN
-            : defaultDoorState(room.id, connectedId);
+        const fallback = defaultDoorObject(room.id, connectedId);
+        const raw = existing && typeof existing === "object" ? existing : { state: existing };
+        const condition = normalizeDoorCondition(raw.condition ?? fallback.condition);
+        const breached = Boolean(raw.breached) || condition <= 0;
+        const sealState = breached ? DOOR_SEAL_UNSEALED : normalizeDoorSealState(raw.sealState ?? fallback.sealState);
+        const lockState = sealState === DOOR_SEAL_SEALED || breached
+          ? DOOR_LOCK_UNLOCKED
+          : normalizeDoorLockState(raw.lockState ?? fallback.lockState);
+        const positionState = breached
+          ? DOOR_STATE_OPEN
+          : normalizeDoorPositionState(raw.state ?? raw.position, fallback.state);
+        const typeId = DOOR_BASE_TYPE_BY_ID[raw.typeId] ? raw.typeId : fallback.typeId;
         normalized[key] = {
-          roomIds: roomIdsForDoor,
-          state: stateValue
+          roomIds: doorRoomIdsFromKey(key),
+          state: sealState === DOOR_SEAL_SEALED ? DOOR_STATE_CLOSED : positionState,
+          lockState,
+          sealState,
+          typeId,
+          condition,
+          wardIds: normalizeContainerWardIds(raw.wardIds || fallback.wardIds),
+          breached
         };
       }
     }

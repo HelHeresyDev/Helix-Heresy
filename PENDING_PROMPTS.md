@@ -12,44 +12,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Door, Barrier, and Access Control System
-2. Creature Autonomous Movement & Escape Pathing System
-3. Map-Based Incident and Emergency Response System
-4. Spatial Environment Propagation System
-5. Black Market Byproduct Economy System
-6. Elemental Damage Type System
-7. Tool Durability and Damage Resistance System
-8. XP Curve and Breakthrough-Gated Skill Progression
-9. Analyze Ability & Creature Skill Evolution Follow-Up
+1. Creature Autonomous Movement & Escape Pathing System
+2. Map-Based Incident and Emergency Response System
+3. Spatial Environment Propagation System
+4. Black Market Byproduct Economy System
+5. Elemental Damage Type System
+6. Tool Durability and Damage Resistance System
+7. XP Curve and Breakthrough-Gated Skill Progression
+8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 ---
 
-## 1. Door, Barrier, and Access Control System
-
-Expand doors and barriers into a fuller access-control system for the physical lab map.
-
-Closed doors already matter, and movement tasks can pass through doors according to door policy. As the lab becomes more spatial, doors should become more than simple open/closed markers. They should support containment, safety, secrecy, routing, construction, and emergency response.
-
-The system should answer questions like:
-- What door states should exist: open, closed, locked, sealed, blocked, damaged, powered, warded, or breached?
-- Which actors can open which doors?
-- Can loose creatures open doors, squeeze through gaps, break doors, corrode doors, short doors, or bypass barriers?
-- How should scientist movement, container hauling, material hauling, and creature movement treat door states differently?
-- How should door policy interact with locked or sealed doors?
-- Can rooms be emergency-sealed?
-- How should barriers differ from doors?
-- How should the UI show access state without becoming cluttered?
-- How should pathfinding explain why a route is blocked?
-
-This system should make lab layout matter. A closed bedroom door, sealed Collection Bay door, containment wing gate, damaged barrier, or emergency lock should all create different implications for movement and risk.
-
-The desired result is a door and barrier foundation that can support construction, containment, escapes, raids, emergency lockdowns, room hazards, and creature autonomy while still remaining understandable in the current prototype.
-
-Before coding, discuss door states, access rules, pathfinding implications, UI readouts, emergency sealing, and how much creature-door interaction belongs in the first pass.
-
----
-
-## 2. Creature Autonomous Movement & Escape Pathing System
+## 1. Creature Autonomous Movement & Escape Pathing System
 
 Create a system for creature movement through the physical lab map.
 
@@ -73,7 +47,7 @@ Before coding, discuss movement triggers, goal selection, pathfinding, movement 
 
 ---
 
-## 3. Map-Based Incident and Emergency Response System
+## 2. Map-Based Incident and Emergency Response System
 
 Create a spatial foundation for lab incidents and emergency response.
 
@@ -97,7 +71,7 @@ Before coding, discuss incident types, location rules, emergency task flow, map 
 
 ---
 
-## 4. Spatial Environment Propagation System
+## 3. Spatial Environment Propagation System
 
 Create a system for room attributes and hazards to propagate through the physical lab layout.
 
@@ -121,7 +95,7 @@ Before coding, discuss which room attributes should propagate first, whether pro
 
 ---
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
@@ -147,7 +121,7 @@ Before coding, discuss the market model, the first sellable goods, pricing philo
 
 ---
 
-## 6. Elemental Damage Type System
+## 5. Elemental Damage Type System
 
 Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
 
@@ -172,7 +146,7 @@ Before coding, discuss the damage type model, the element-to-damage mapping, how
 
 ---
 
-## 7. Tool Durability and Damage Resistance System
+## 6. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -201,7 +175,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 8. XP Curve and Breakthrough-Gated Skill Progression
+## 7. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -266,7 +240,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 9. Analyze Ability & Creature Skill Evolution Follow-Up
+## 8. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 

@@ -103,6 +103,60 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(pageErrors).toEqual([]);
 });
 
+test('door access states block routing and show physical door data', async ({ page }) => {
+  await startRun(page);
+
+  const initialDoors = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors;
+  }, { key: storageKey });
+
+  expect(initialDoors['mainLab::storageRoom']).toMatchObject({
+    typeId: 'reinforcedWoodDoor',
+    condition: 100,
+    lockState: 'unlocked',
+    sealState: 'unsealed',
+    breached: false
+  });
+  expect(initialDoors['collectionBay::mainLab'].typeId).toBe('glassObservationDoor');
+  expect(initialDoors['mainLab::pits'].wardIds).toContain('sealTightening');
+  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toContainText('Reinforced Wood Door');
+
+  await page.locator('[data-door-lock-toggle="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeDisabled();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toHaveAttribute('title', /locked/i);
+  await expect(page.locator('[data-map-door="mainLab::storageRoom"].door-locked').first()).toBeVisible();
+
+  let door = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors['mainLab::storageRoom'];
+  }, { key: storageKey });
+  expect(door.state).toBe('closed');
+  expect(door.lockState).toBe('locked');
+
+  await page.locator('[data-door-lock-toggle="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeEnabled();
+
+  await page.locator('[data-door-seal-toggle="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeDisabled();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toHaveAttribute('title', /sealed/i);
+  await expect(page.locator('[data-map-door="mainLab::storageRoom"].door-sealed').first()).toBeVisible();
+
+  door = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors['mainLab::storageRoom'];
+  }, { key: storageKey });
+  expect(door.state).toBe('closed');
+  expect(door.lockState).toBe('unlocked');
+  expect(door.sealState).toBe('sealed');
+
+  await page.locator('[data-door-seal-toggle="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeEnabled();
+});
+
 test('container hauling reserves a footprint and routes to adjacent access cells', async ({ page }) => {
   await startRun(page);
 

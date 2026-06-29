@@ -641,12 +641,32 @@ h2 {
 
 .room-door-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.35rem;
   border: 1px solid #303329;
   border-radius: 6px;
+}
+
+.room-door-info {
+  display: grid;
+  gap: 0.28rem;
+  flex: 1 1 13rem;
+  min-width: 0;
+}
+
+.room-door-details,
+.room-door-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.room-door-actions {
+  justify-content: flex-end;
 }
 
 .lab-map-panel {
@@ -766,6 +786,24 @@ h2 {
 .lab-map-cell.door-closed {
   background: #39221f;
   color: #ffb8a8;
+}
+
+.lab-map-cell.door-locked {
+  background: #322038;
+  border-color: #b68cff;
+  color: #dfc7ff;
+}
+
+.lab-map-cell.door-sealed {
+  background: #202f38;
+  border-color: var(--cyan);
+  color: #bdefff;
+}
+
+.lab-map-cell.door-breached {
+  background: #451f1f;
+  border-color: var(--red);
+  color: #ffd1ca;
 }
 
 .lab-map-cell.room-anchor {
