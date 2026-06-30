@@ -7525,12 +7525,36 @@
     "feed",
     "continueJob",
     "endureContainment",
+    "endureHabitat",
     "hunt",
     "move",
     "wait",
     "blocked"
   ]);
   const SLIME_AI_URGENCY = new Set(["none", "low", "medium", "high", "critical"]);
+  const SLIME_RESPONSE_STATE_LABELS = {
+    calm: "Calm",
+    wary: "Wary",
+    agitated: "Agitated",
+    pained: "Pained",
+    panicked: "Panicked",
+    desperate: "Desperate"
+  };
+  const SLIME_RESPONSE_STATES = Object.keys(SLIME_RESPONSE_STATE_LABELS);
+  const SLIME_RESPONSE_INTENT_LABELS = {
+    rest: "rest",
+    watch: "watch",
+    hide: "hide",
+    freeze: "freeze",
+    flee: "flee",
+    lashOut: "lash out",
+    feedDesperate: "seek food desperately",
+    endure: "endure",
+    recover: "recover"
+  };
+  const SLIME_RESPONSE_INTENTS = new Set(Object.keys(SLIME_RESPONSE_INTENT_LABELS));
+  const SLIME_RESPONSE_INTENSITIES = ["none", "low", "moderate", "high", "critical"];
+  const SLIME_RECENT_PAIN_WINDOW = minutesToSeconds(60);
   const SLIME_DRIVE_KEYS = ["hunger", "regrowth", "injury", "stress", "containment", "work", "reproduction"];
   const SLIME_DRIVE_LABELS = {
     hunger: "Hunger",
@@ -7583,6 +7607,21 @@
   function cleanSlimeAiUrgency(value) {
     const urgency = String(value || "low");
     return SLIME_AI_URGENCY.has(urgency) ? urgency : "low";
+  }
+
+  function cleanSlimeResponseState(value) {
+    const stateId = String(value || "calm");
+    return SLIME_RESPONSE_STATES.includes(stateId) ? stateId : "calm";
+  }
+
+  function cleanSlimeResponseIntent(value) {
+    const intent = String(value || "rest");
+    return SLIME_RESPONSE_INTENTS.has(intent) ? intent : "rest";
+  }
+
+  function cleanSlimeResponseIntensity(value) {
+    const intensity = String(value || "none");
+    return SLIME_RESPONSE_INTENSITIES.includes(intensity) ? intensity : "none";
   }
 
   function cleanSlimeDriveBand(value) {
@@ -7692,6 +7731,39 @@
     };
   }
 
+  function defaultSlimeResponseRecord() {
+    return {
+      state: "calm",
+      label: SLIME_RESPONSE_STATE_LABELS.calm,
+      intensity: "none",
+      intent: "rest",
+      score: 0,
+      reasons: [],
+      unknownFactors: []
+    };
+  }
+
+  function normalizeSlimeResponseRecord(candidate = {}) {
+    const stateId = cleanSlimeResponseState(candidate?.state);
+    const reasons = (Array.isArray(candidate?.reasons) ? candidate.reasons : [])
+      .map((reason) => String(reason || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    const unknownFactors = (Array.isArray(candidate?.unknownFactors) ? candidate.unknownFactors : [])
+      .map((factor) => String(factor || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    return {
+      state: stateId,
+      label: String(candidate?.label || SLIME_RESPONSE_STATE_LABELS[stateId] || titleCase(stateId)),
+      intensity: cleanSlimeResponseIntensity(candidate?.intensity),
+      intent: cleanSlimeResponseIntent(candidate?.intent),
+      score: clamp(Number(candidate?.score) || 0, 0, 100),
+      reasons,
+      unknownFactors
+    };
+  }
+
   function cleanSlimeAiTarget(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -7716,6 +7788,7 @@
     const rawNextThinkAt = candidate.nextThinkAt;
     const drives = normalizeSlimeDriveRecord(candidate.drives);
     const perception = normalizeSlimePerceptionRecord(candidate.perception);
+    const response = normalizeSlimeResponseRecord(candidate.response);
     return {
       state: cleanSlimeAiState(candidate.state),
       intent: cleanSlimeAiIntent(candidate.intent),
@@ -7725,6 +7798,7 @@
       drives,
       dominantDrive: cleanSlimeDriveKey(candidate.dominantDrive),
       perception,
+      response,
       path,
       nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
         ? null
@@ -8434,8 +8508,213 @@
     };
   }
 
+  function recentPainForSlime(slime) {
+    const painAt = Number(slime?.lastPainAt) || 0;
+    if (!painAt || state.clock - painAt > SLIME_RECENT_PAIN_WINDOW) {
+      return null;
+    }
+    return {
+      age: Math.max(0, state.clock - painAt),
+      amount: Math.max(0, Number(slime.lastPainAmount) || 0)
+    };
+  }
+
+  function responseIntensityForScore(score) {
+    if (score >= 80) return "critical";
+    if (score >= 55) return "high";
+    if (score >= 30) return "moderate";
+    if (score >= 12) return "low";
+    return "none";
+  }
+
+  function responseStateForScore(score, context = {}) {
+    if (context.bodyIntegrity <= 12 || context.stress >= 95 || score >= 85) {
+      return "panicked";
+    }
+    if ((context.nutrition <= 8 || context.currentMass <= 12) && score >= 40) {
+      return "desperate";
+    }
+    if ((context.recentPain || context.bodyIntegrity <= 35) && score >= 40) {
+      return "pained";
+    }
+    if (score >= 55) return "panicked";
+    if (score >= 30) return "agitated";
+    if (score >= 12) return "wary";
+    return "calm";
+  }
+
+  function slimeThreatTraitProfile(slime) {
+    if (!slime?.genome) {
+      return { behavior: "", stability: "", unknownFactors: [] };
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const behavior = baseOutcomeLabel(evaluated.traits.behavior);
+    const stability = baseOutcomeLabel(evaluated.traits.stability);
+    const unknownFactors = [];
+    if (!slimeTraitKnown(slime, "behavior")) {
+      unknownFactors.push("Behavior");
+    }
+    if (!slimeTraitKnown(slime, "stability")) {
+      unknownFactors.push("Stability");
+    }
+    return { behavior, stability, unknownFactors };
+  }
+
+  function responseIntentForSlime(slime, stateId, context = {}) {
+    const behavior = String(context.behavior || "").toLowerCase();
+    const stability = String(context.stability || "").toLowerCase();
+    if (stateId === "calm") {
+      return "rest";
+    }
+    if (stateId === "desperate") {
+      return "feedDesperate";
+    }
+    if (/guarding|vibration hunting|still ambush/.test(behavior) || /predatory|territorial/.test(stability)) {
+      return "lashOut";
+    }
+    if (/hiding|light avoiding|burrowing|still ambush/.test(behavior)) {
+      return stateId === "wary" ? "hide" : "freeze";
+    }
+    if (slimeIsUncontained(slime) && ["agitated", "pained", "panicked"].includes(stateId)) {
+      return "flee";
+    }
+    if (stateId === "pained") {
+      return "recover";
+    }
+    if (stateId === "wary") {
+      return "watch";
+    }
+    return "endure";
+  }
+
+  function evaluateSlimeThreatResponse(slime) {
+    if (!slime || slime.status === "dead") {
+      return defaultSlimeResponseRecord();
+    }
+    const reasons = [];
+    const unknownFactors = [];
+    let score = 0;
+    const add = (amount, reason) => {
+      score += Math.max(0, Number(amount) || 0);
+      if (reason) {
+        reasons.push(reason);
+      }
+    };
+    const addUnknown = (factor) => {
+      if (factor && !unknownFactors.includes(factor)) {
+        unknownFactors.push(factor);
+      }
+    };
+
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const currentMass = slimeStatPercent(slime, "currentMass");
+    const bodyIntegrity = slimeStatPercent(slime, "bodyIntegrity");
+    const stress = slimeStatPercent(slime, "stress");
+    const recentPain = recentPainForSlime(slime);
+
+    if (stress >= 90) add(42, "extreme stress");
+    else if (stress >= 70) add(30, "high stress");
+    else if (stress >= 45) add(18, "rising stress");
+    else if (stress >= 20) add(8, "minor stress");
+
+    if (bodyIntegrity <= 15) add(46, "body integrity is failing");
+    else if (bodyIntegrity <= 35) add(30, "body integrity is damaged");
+    else if (bodyIntegrity <= 60) add(14, "body integrity is weakened");
+
+    if (nutrition <= 8) add(32, "critical hunger");
+    else if (nutrition <= 25) add(18, "hunger pressure");
+    if (currentMass <= 15) add(22, "mass loss leaves it vulnerable");
+    else if (currentMass <= 40) add(10, "reduced mass");
+
+    if (recentPain) {
+      add(clamp(8 + recentPain.amount * 1.4, 8, 26), "recent injury");
+    }
+
+    if (!slimeIsUncontained(slime)) {
+      const container = containerById(slime.containerId);
+      if (!container) {
+        add(20, "missing containment record");
+      } else {
+        const risk = activeContainmentRisk(slime, container);
+        if (/Failing/i.test(risk.label)) add(30, "containment is failing");
+        else if (/Dangerous/i.test(risk.label)) add(22, "dangerous containment");
+        else if (/Strained/i.test(risk.label)) add(12, "strained containment");
+      }
+    }
+
+    const actualHabitat = slimeHabitatFit(slime);
+    const knownHabitat = slimeHabitatFit(slime, { knownOnly: true });
+    if (actualHabitat.band.id === "hostile") {
+      add(18, knownHabitat.band.id === "hostile" ? "known hostile habitat" : "environmental mismatch");
+      if (knownHabitat.band.id !== "hostile") {
+        for (const factor of actualHabitat.unknownFactors || []) addUnknown(factor);
+      }
+    } else if (actualHabitat.band.id === "poor") {
+      add(10, knownHabitat.band.id === "poor" ? "known poor habitat" : "possible habitat strain");
+      if (knownHabitat.band.id !== "poor") {
+        for (const factor of actualHabitat.unknownFactors || []) addUnknown(factor);
+      }
+    }
+
+    const traitProfile = slimeThreatTraitProfile(slime);
+    const stability = traitProfile.stability;
+    const behavior = traitProfile.behavior;
+    if (["volatile", "erratic", "predatory"].includes(stability)) {
+      add(12, slimeTraitKnown(slime, "stability") ? `${stability} stability` : "");
+    } else if (["nervous", "flickering", "fractious", "fragile", "territorial", "hungry"].includes(stability)) {
+      add(7, slimeTraitKnown(slime, "stability") ? `${stability} stability` : "");
+    } else if (["placid", "steady", "docile", "obedient", "self-knitting", "dormant"].includes(stability)) {
+      score -= 6;
+      if (slimeTraitKnown(slime, "stability")) {
+        reasons.push(`${stability} stability dampens panic`);
+      }
+    }
+    if (["vibration hunting", "guarding", "still ambush", "hiding", "burrowing", "swarming"].includes(behavior)) {
+      add(5, slimeTraitKnown(slime, "behavior") ? `${behavior} behavior shapes reaction` : "");
+    }
+    for (const factor of traitProfile.unknownFactors) {
+      addUnknown(factor);
+    }
+
+    score = clamp(score, 0, 100);
+    const context = { nutrition, currentMass, bodyIntegrity, stress, recentPain, behavior, stability };
+    const stateId = responseStateForScore(score, context);
+    const intent = responseIntentForSlime(slime, stateId, context);
+    return normalizeSlimeResponseRecord({
+      state: stateId,
+      label: SLIME_RESPONSE_STATE_LABELS[stateId] || titleCase(stateId),
+      intensity: responseIntensityForScore(score),
+      intent,
+      score,
+      reasons: [...new Set(reasons)].slice(0, 5),
+      unknownFactors: unknownFactors.slice(0, 5)
+    });
+  }
+
+  function applySlimeThreatResponse(slime, ai) {
+    const response = evaluateSlimeThreatResponse(slime);
+    const next = {
+      ...ai,
+      response
+    };
+    if (response.intensity === "high" || response.intensity === "critical") {
+      next.urgency = maxAiUrgency(next.urgency, response.intensity === "critical" ? "critical" : "high");
+    }
+    if (!["pained", "panicked", "desperate"].includes(response.state) || !shouldDriveInfluenceState(next.state) || next.state === "working") {
+      return next;
+    }
+    next.state = response.state === "desperate" && slimeIsUncontained(slime) ? "seeking" : "stressed";
+    next.intent = response.state === "desperate"
+      ? "seekFood"
+      : slimeIsUncontained(slime)
+        ? "wait"
+        : "endureContainment";
+    next.reason = response.reasons[0] || `${response.label.toLowerCase()} threat response`;
+    return next;
+  }
+
   function finalizeSlimeAi(slime, ai) {
-    return applySlimeDriveInfluence(slime, applySlimePerception(slime, ai));
+    return applySlimeThreatResponse(slime, applySlimeDriveInfluence(slime, applySlimePerception(slime, ai)));
   }
 
   function slimeAiTargetFromActivity(activity) {
@@ -8607,6 +8886,10 @@
       stateId = "seeking";
       intent = "hunt";
       reason = "hunting sensed prey";
+    } else if (type === "threatResponse") {
+      stateId = "stressed";
+      intent = "wait";
+      reason = label || "reacting to threat";
     } else if (type === "leavingResidue") {
       stateId = "idle";
       intent = "wander";
@@ -8676,6 +8959,7 @@
       drives: ai.drives,
       dominantDrive: ai.dominantDrive,
       perception: ai.perception,
+      response: ai.response,
       path: ai.path,
       nextThinkAt: ai.nextThinkAt
     });
@@ -8736,6 +9020,30 @@
       ai.target?.label ? `Target: ${ai.target.label}` : "",
       ai.nextThinkAt ? `Next decision: ${formatDuration(Math.max(0, ai.nextThinkAt - state.clock))}` : ""
     ].filter(Boolean).join(" - ");
+    return element;
+  }
+
+  function slimeResponseLabel(slime) {
+    const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
+    return `Response: ${response.label}`;
+  }
+
+  function slimeResponseChip(slime) {
+    if (!slime || slime.status === "dead") {
+      return null;
+    }
+    const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
+    if (response.state === "calm") {
+      return null;
+    }
+    const element = chip(slimeResponseLabel(slime));
+    element.dataset.slimeResponse = slime.id;
+    element.title = [
+      `Likely action: ${SLIME_RESPONSE_INTENT_LABELS[response.intent] || response.intent}`,
+      `Intensity: ${response.intensity}`,
+      response.reasons?.length ? `Observed factors: ${response.reasons.join("; ")}` : "",
+      response.unknownFactors?.length ? `Unknown factors may affect this: ${response.unknownFactors.join(", ")}` : ""
+    ].filter(Boolean).join("\n");
     return element;
   }
 
@@ -12391,6 +12699,10 @@
         meta.append(movementChip);
       }
       meta.append(slimeAiChip(slime));
+      const responseChip = slimeResponseChip(slime);
+      if (responseChip) {
+        meta.append(responseChip);
+      }
       const driveChip = slimeDriveChip(slime);
       if (driveChip) {
         meta.append(driveChip);
@@ -12415,6 +12727,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderSlimeResponse(slime));
         card.append(renderSlimeHabitat(slime));
         card.append(renderSlimeDrives(slime));
         card.append(renderSlimePerception(slime));
@@ -16035,6 +16348,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return 0;
   }
 
+  function applyLooseThreatResponseActivity(slime) {
+    const response = evaluateSlimeThreatResponse(slime);
+    if (!["pained", "panicked", "desperate"].includes(response.state) || response.intent === "feedDesperate") {
+      return false;
+    }
+    const labels = {
+      hide: "hiding under stress",
+      freeze: "freezing under stress",
+      flee: "recoiling from threat",
+      lashOut: "lashing out defensively",
+      recover: "contracting around injury",
+      endure: "enduring threat"
+    };
+    slime.roomActivity = {
+      type: "threatResponse",
+      label: labels[response.intent] || `${response.label.toLowerCase()} threat response`,
+      roomId: slimeEffectiveRoomId(slime),
+      targetKind: "self",
+      targetId: slime.id,
+      targetLabel: response.label,
+      updatedAt: state.clock
+    };
+    return true;
+  }
+
   function chooseAutonomousSlimeActivity(slime) {
     const food = chooseAutonomousFoodTarget(slime);
     if (food?.block) {
@@ -16077,6 +16415,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return true;
       }
       return startSlimeAutonomousMovement(slime, habitat.target, habitat.path);
+    }
+    if (applyLooseThreatResponseActivity(slime)) {
+      return true;
     }
     const wander = chooseAutonomousWanderTarget(slime);
     if (wander?.target && wander.path?.length > 1) {
@@ -17953,6 +18294,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       );
       grid.append(row);
     }
+    section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimeResponse(slime) {
+    const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
+    const section = document.createElement("div");
+    section.className = "slime-response subpanel";
+    section.dataset.slimeResponsePanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Threat Response";
+    title.title = "Derived from current condition, containment, habitat, and observed biology. It is not a separate genetic trait.";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("State", response.label, response.intensity);
+    addRow("Likely action", SLIME_RESPONSE_INTENT_LABELS[response.intent] || titleCase(response.intent), "inferred");
+    addRow(
+      "Observed factors",
+      response.reasons?.length ? response.reasons.join("; ") : "None clear",
+      response.reasons?.length ? "current" : "quiet"
+    );
+    addRow(
+      "Unknown factors",
+      response.unknownFactors?.length ? response.unknownFactors.join(", ") : "None",
+      response.unknownFactors?.length ? "could matter" : "all response traits visible"
+    );
     section.append(title, grid);
     return section;
   }
@@ -21938,8 +22315,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function adjustSlimeStat(slime, key, delta) {
+    const amount = Number(delta) || 0;
     const current = slimeStat(slime, key);
-    return setSlimeStat(slime, key, current.current + (Number(delta) || 0));
+    const before = current.current;
+    const next = setSlimeStat(slime, key, before + amount);
+    if (key === "bodyIntegrity" && amount < 0 && next && next.current < before) {
+      slime.lastPainAt = state.clock;
+      slime.lastPainAmount = Math.max(Number(slime.lastPainAmount) || 0, before - next.current);
+    }
+    return next;
   }
 
   function normalizeSlimeStats(candidate = {}) {

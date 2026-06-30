@@ -181,6 +181,86 @@ test('slime ai drives summarize biological pressure without executing behavior',
   });
 });
 
+test('slime threat response reflects pain, stress, and hidden response traits', async ({ page }) => {
+  await startRun(page);
+  const context = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { seed: state.seed, complexity: state.complexity, currentGenome: state.currentGenome };
+  }, { key: storageKey });
+  const genome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: {
+      behavior: 'hiding',
+      stability: 'volatile',
+    },
+  });
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.paused = true;
+    state.clock = 120;
+    state.selectedSlimeId = 'response-pained';
+    state.slimes = [{
+      id: 'response-pained',
+      name: 'RESPONSE-001',
+      genome,
+      source: 'Threat response fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats: {
+        bodyIntegrity: { current: 45, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 50, max: 100 },
+      },
+      lastPainAt: 110,
+      lastPainAmount: 10,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-response="response-pained"]')).toContainText(/Response: (Pained|Panicked)/);
+  await expect(page.locator('[data-slime-response-panel="response-pained"]')).toContainText('Threat Response');
+  await expect(page.locator('[data-slime-response-panel="response-pained"]')).toContainText('recent injury');
+  await expect(page.locator('[data-slime-response-panel="response-pained"]')).toContainText('Behavior');
+  await expect(page.locator('[data-slime-response-panel="response-pained"]')).toContainText('Stability');
+
+  const response = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'response-pained');
+    return slime.ai?.response;
+  }, { key: storageKey });
+
+  expect(['pained', 'panicked']).toContain(response.state);
+  expect(['high', 'critical']).toContain(response.intensity);
+  expect(response.reasons).toEqual(expect.arrayContaining(['rising stress', 'body integrity is weakened', 'recent injury']));
+  expect(response.unknownFactors).toEqual(expect.arrayContaining(['Behavior', 'Stability']));
+});
+
 test('slime ai perception stays local and respects containment limits', async ({ page }) => {
   await startRun(page);
 
