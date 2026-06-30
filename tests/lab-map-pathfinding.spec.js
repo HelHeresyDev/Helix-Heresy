@@ -475,16 +475,41 @@ test('released slimes move toward accessible residue without raiding packaged st
   await skipSeconds(page, 1);
   await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText(/seeking|moving/i);
   await expect(page.locator('[data-slime-ai="loose-seeker"]')).toContainText(/AI: (Moving|Seeking)/);
+  await expect(page.locator('[data-slime-movement="loose-seeker"]')).toContainText('Move:');
 
   const earlyAi = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-seeker');
-    return slime.ai;
+    const movement = slime.autonomousMovement;
+    const crossingStates = [];
+    for (let index = 0; index < (movement?.path || []).length - 1; index += 1) {
+      const current = movement.path[index];
+      const next = movement.path[index + 1];
+      const mapDoor = Object.values(state.labMap?.doors || {}).find((door) =>
+        (door.from.x === current.x && door.from.y === current.y && door.to.x === next.x && door.to.y === next.y)
+        || (door.to.x === current.x && door.to.y === current.y && door.from.x === next.x && door.from.y === next.y)
+      );
+      if (mapDoor) {
+        const door = state.doors?.[mapDoor.key] || mapDoor;
+        crossingStates.push({
+          key: mapDoor.key,
+          state: door.state,
+          lockState: door.lockState,
+          sealState: door.sealState,
+          breached: Boolean(door.breached || door.condition <= 0),
+        });
+      }
+    }
+    return { ai: slime.ai, movement, crossingStates };
   }, { key: storageKey });
-  expect(['moving', 'seeking']).toContain(earlyAi.state);
-  expect(earlyAi.intent).toBe('seekFood');
-  expect(earlyAi.target.kind).toBe('residue');
+  expect(['moving', 'seeking']).toContain(earlyAi.ai.state);
+  expect(earlyAi.ai.intent).toBe('seekFood');
+  expect(earlyAi.ai.target.kind).toBe('residue');
+  expect(earlyAi.movement.distanceMeters).toBeGreaterThan(0);
+  expect(earlyAi.movement.speedMps).toBeGreaterThan(0);
+  expect(earlyAi.movement.movementFactors).toEqual(expect.arrayContaining(['reduced mass']));
+  expect(earlyAi.crossingStates.every((door) => door.breached || (door.state === 'open' && door.sealState !== 'sealed'))).toBe(true);
 
   await skipSeconds(page, 1800);
 
@@ -505,6 +530,119 @@ test('released slimes move toward accessible residue without raiding packaged st
   expect(result.storageOrganic).toBe(5);
   expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
   await expect(page.locator('[data-map-target-kind="slime"][data-map-target-id="loose-seeker"]').first()).toHaveAttribute('title', /feeding|seeking|loose/i);
+});
+
+test('released slime movement stops if an open route closes ahead of it', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const menagerieDoor = state.doors?.['mainLab::menagerie'] || state.doors?.['menagerie::mainLab'];
+    if (menagerieDoor) {
+      menagerieDoor.state = 'open';
+      menagerieDoor.lockState = 'unlocked';
+      menagerieDoor.sealState = 'unsealed';
+    }
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'door-route';
+    state.feedingResidues = [{
+      id: 'residue-menagerie-route',
+      typeKey: 'looseBiomatter',
+      amount: 4,
+      location: { type: 'room', roomId: 'menagerie' },
+      tags: ['organic', 'mess'],
+      sourceLabels: ['test spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'door-route',
+      name: 'ROUTE-001',
+      genome: state.currentGenome,
+      source: 'Mid-route door fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 20, max: 100 },
+        bodyIntegrity: { current: 30, max: 100 },
+        currentMass: { current: 20, max: 100 },
+        stress: { current: 90, max: 100 },
+      },
+      revealed: { shape: true, consistency: true, appendages: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await skipSeconds(page, 1);
+  const started = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'door-route');
+    return {
+      movement: slime.autonomousMovement,
+      ai: slime.ai,
+    };
+  }, { key: storageKey });
+  expect(started.movement).toBeTruthy();
+  expect(started.ai.intent).toBe('seekFood');
+
+  await page.locator('[data-door-toggle="mainLab::menagerie"]').first().evaluate((element) => element.click());
+  const doorAfterClose = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors?.['mainLab::menagerie'] || state.doors?.['menagerie::mainLab'];
+  }, { key: storageKey });
+  expect(doorAfterClose.state).toBe('closed');
+  await skipSeconds(page, 1);
+
+  await expect(page.locator('[data-slime-card="door-route"]')).toContainText('pressing against closed door');
+  const blocked = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'door-route');
+    return {
+      roomId: slime.roomId,
+      movement: slime.autonomousMovement,
+      activity: slime.roomActivity,
+      ai: slime.ai,
+      tasks: state.tasks || [],
+    };
+  }, { key: storageKey });
+
+  expect(blocked.roomId).toBe('mainLab');
+  expect(blocked.movement).toBeNull();
+  expect(blocked.activity).toMatchObject({
+    type: 'pressingClosedDoor',
+    targetKind: 'residue',
+  });
+  expect(blocked.ai).toMatchObject({
+    state: 'blocked',
+    intent: 'blocked',
+    target: { kind: 'door' },
+  });
+  expect(blocked.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 
 test('released slimes press blocked doors and expose possible intent instead of queueing movement', async ({ page }) => {

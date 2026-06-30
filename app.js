@@ -447,6 +447,8 @@
   const CREATURE_AUTONOMOUS_DECISION_INTERVAL = minutesToSeconds(2);
   const CREATURE_AUTONOMOUS_BLOCK_RECHECK_INTERVAL = minutesToSeconds(3);
   const CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS = 4;
+  const CREATURE_AUTONOMOUS_MIN_SPEED_MPS = 0.01;
+  const CREATURE_AUTONOMOUS_MAX_SPEED_MPS = 1.6;
   const CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR = 6;
   const CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR = 3;
   const CREATURE_AUTONOMOUS_WANDER_CHANCE = 0.35;
@@ -5110,7 +5112,13 @@
   }
 
   function normalizeDoorPositionState(value, fallback = DOOR_STATE_CLOSED) {
-    return value === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : fallback === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
+    if (value === DOOR_STATE_OPEN) {
+      return DOOR_STATE_OPEN;
+    }
+    if (value === DOOR_STATE_CLOSED) {
+      return DOOR_STATE_CLOSED;
+    }
+    return fallback === DOOR_STATE_OPEN ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
   }
 
   function normalizeDoorLockState(value) {
@@ -8283,7 +8291,7 @@
       state: "moving",
       intent,
       target,
-      reason: movement.label || "moving through the lab",
+      reason: `${movement.label || "moving through the lab"} (${movementRouteText(movement)})`,
       urgency: slimeAiUrgencyFor(slime, "moving"),
       path: movement.path || [],
       nextThinkAt: movement.arriveAt
@@ -11843,6 +11851,10 @@
         meta.append(chip(roomChip));
       }
       meta.append(chip(slimeActivityLabel(slime)));
+      const movementChip = slimeMovementChip(slime);
+      if (movementChip) {
+        meta.append(movementChip);
+      }
       meta.append(slimeAiChip(slime));
       const driveChip = slimeDriveChip(slime);
       if (driveChip) {
@@ -14637,6 +14649,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!candidate || typeof candidate !== "object") {
       return null;
     }
+    const map = ensureLabMap();
     const path = (Array.isArray(candidate.path) ? candidate.path : [])
       .map(cleanMapCell)
       .filter(Boolean);
@@ -14649,6 +14662,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return null;
     }
     const targetCell = cleanMapCell(candidate.targetCell) || path[path.length - 1];
+    const distanceMeters = Number.isFinite(Number(candidate.distanceMeters))
+      ? Math.max(0, Number(candidate.distanceMeters))
+      : Math.max(0, path.length - 1) * map.tileSizeM;
+    const impliedSpeed = distanceMeters > 0 ? distanceMeters / Math.max(1, arriveAt - startAt) : CREATURE_AUTONOMOUS_MIN_SPEED_MPS;
+    const speedMps = clamp(
+      Number.isFinite(Number(candidate.speedMps)) ? Number(candidate.speedMps) : impliedSpeed,
+      CREATURE_AUTONOMOUS_MIN_SPEED_MPS,
+      CREATURE_AUTONOMOUS_MAX_SPEED_MPS
+    );
+    const baseSpeedMps = clamp(
+      Number.isFinite(Number(candidate.baseSpeedMps)) ? Number(candidate.baseSpeedMps) : speedMps,
+      CREATURE_AUTONOMOUS_MIN_SPEED_MPS,
+      CREATURE_AUTONOMOUS_MAX_SPEED_MPS
+    );
     return {
       intent: String(candidate.intent || "wander"),
       label: String(candidate.label || "moving"),
@@ -14659,6 +14686,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       targetRoomId: cleanRoomId(candidate.targetRoomId),
       targetCell,
       path,
+      distanceMeters,
+      speedMps,
+      baseSpeedMps,
+      conditionFactor: Number.isFinite(Number(candidate.conditionFactor)) ? Math.max(0, Number(candidate.conditionFactor)) : speedMps / Math.max(CREATURE_AUTONOMOUS_MIN_SPEED_MPS, baseSpeedMps),
+      movementStyle: String(candidate.movementStyle || ""),
+      movementFactors: Array.isArray(candidate.movementFactors)
+        ? candidate.movementFactors.map((factor) => String(factor || "").trim()).filter(Boolean).slice(0, 6)
+        : [],
       startAt,
       arriveAt,
       updatedAt: finiteTime(candidate.updatedAt, startAt)
@@ -14675,8 +14710,102 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function slimeMoveSpeedMps(slime) {
+    return slimeMovementProfile(slime).speedMps;
+  }
+
+  function slimeMovementProfile(slime) {
     const profile = physicalProfile(slime?.genome || "");
-    return clamp(Number(profile?.speedMps) || 0.12, 0.02, 1.6);
+    const baseSpeedMps = clamp(
+      Number(profile?.speedMps) || 0.12,
+      CREATURE_AUTONOMOUS_MIN_SPEED_MPS,
+      CREATURE_AUTONOMOUS_MAX_SPEED_MPS
+    );
+    const factors = [];
+    let conditionFactor = 1;
+    const addFactor = (factor, label) => {
+      conditionFactor *= factor;
+      factors.push(label);
+    };
+
+    if (slime && !slime.mature) {
+      addFactor(0.45, "immature body");
+    }
+
+    const mass = slime ? slimeStatPercent(slime, "currentMass") : 100;
+    if (mass < 25) {
+      addFactor(0.45, "very low mass");
+    } else if (mass < 50) {
+      addFactor(0.65, "low mass");
+    } else if (mass < 80) {
+      addFactor(0.85, "reduced mass");
+    }
+
+    const integrity = slime ? slimeStatPercent(slime, "bodyIntegrity") : 100;
+    if (integrity < 15) {
+      addFactor(0.25, "failing integrity");
+    } else if (integrity < 35) {
+      addFactor(0.45, "damaged integrity");
+    } else if (integrity < 60) {
+      addFactor(0.72, "strained integrity");
+    } else if (integrity < 85) {
+      addFactor(0.9, "worn integrity");
+    }
+
+    const stress = slime ? slimeStatPercent(slime, "stress") : 0;
+    if (stress >= 90) {
+      addFactor(0.55, "panic stress");
+    } else if (stress >= 70) {
+      addFactor(0.7, "high stress");
+    } else if (stress >= 45) {
+      addFactor(0.88, "stress");
+    }
+
+    const speedMps = roundOutputValue(clamp(
+      baseSpeedMps * conditionFactor,
+      CREATURE_AUTONOMOUS_MIN_SPEED_MPS,
+      CREATURE_AUTONOMOUS_MAX_SPEED_MPS
+    ));
+    return {
+      movementStyle: profile?.movement || "oozes",
+      baseSpeedMps,
+      speedMps,
+      conditionFactor,
+      factors
+    };
+  }
+
+  function movementSpeedText(speedMps) {
+    return formatSpeed(Math.max(0, Number(speedMps) || 0) * 100);
+  }
+
+  function movementDistanceText(distanceMeters) {
+    return formatLength(Math.max(0, Number(distanceMeters) || 0) * 100);
+  }
+
+  function movementRouteText(movement) {
+    if (!movement) {
+      return "";
+    }
+    const distance = movementDistanceText(movement.distanceMeters);
+    const speed = movementSpeedText(movement.speedMps);
+    return `${distance} route at ${speed}`;
+  }
+
+  function slimeMovementChip(slime) {
+    const movement = normalizeSlimeAutonomousMovement(slime?.autonomousMovement);
+    if (!movement || state.clock >= movement.arriveAt) {
+      return null;
+    }
+    const element = chip(`Move: ${movementSpeedText(movement.speedMps)}`);
+    element.dataset.slimeMovement = slime.id;
+    const lines = [
+      movementRouteText(movement),
+      movement.movementStyle ? `Style: ${movement.movementStyle}` : "",
+      movement.movementFactors?.length ? `Condition modifiers: ${movement.movementFactors.join(", ")}` : "Condition modifiers: none",
+      `Arrives in ${formatDuration(Math.max(0, movement.arriveAt - state.clock))}`
+    ].filter(Boolean);
+    element.title = lines.join("\n");
+    return element;
   }
 
   function autonomousMovementProgress(movement) {
@@ -14684,8 +14813,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return clamp((state.clock - movement.startAt) / duration, 0, 1);
   }
 
-  function firstBlockedDoorOnPath(path, map = ensureLabMap()) {
-    for (let index = 0; index < (path || []).length - 1; index += 1) {
+  function firstBlockedDoorOnPath(path, map = ensureLabMap(), startIndex = 0) {
+    const firstIndex = clamp(Math.floor(Number(startIndex) || 0), 0, Math.max(0, (path || []).length - 1));
+    for (let index = firstIndex; index < (path || []).length - 1; index += 1) {
       const current = path[index];
       const next = path[index + 1];
       const fromRoomId = labMapCellRoomId(current, map);
@@ -14694,12 +14824,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         continue;
       }
       const door = labMapDoorForCells(current, next, map);
-      if (door && !doorIsOpen(door.roomIds[0], door.roomIds[1])) {
+      if (!door || !doorAllowsPassage(door.roomIds[0], door.roomIds[1])) {
         return {
           fromRoomId,
           toRoomId,
           door,
-          state: doorStateLabel(door.roomIds[0], door.roomIds[1])
+          state: door ? doorStateLabel(door.roomIds[0], door.roomIds[1]) : "missing"
         };
       }
     }
@@ -14818,6 +14948,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       map,
       fromCell,
       toCell,
+      ignoreDoors: false,
+      ignoreDoorSecurity: false,
       requireReachable: true
     });
   }
@@ -14903,6 +15035,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           map,
           fromCell: objectMapCell(slime),
           toCell: cell,
+          ignoreDoors: false,
+          ignoreDoorSecurity: false,
           requireReachable: true
         });
         if (path.length > 1) {
@@ -14924,7 +15058,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const map = ensureLabMap();
     const distanceMeters = Math.max(0, path.length - 1) * map.tileSizeM;
-    const duration = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, distanceMeters / slimeMoveSpeedMps(slime));
+    const movementProfile = slimeMovementProfile(slime);
+    const duration = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, distanceMeters / movementProfile.speedMps);
     const label = target.kind === "wander"
       ? `wandering toward ${roomName(target.roomId)}`
       : target.kind === "contamination"
@@ -14940,6 +15075,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       targetRoomId: target.roomId,
       targetCell: path[path.length - 1],
       path,
+      distanceMeters,
+      speedMps: movementProfile.speedMps,
+      baseSpeedMps: movementProfile.baseSpeedMps,
+      conditionFactor: movementProfile.conditionFactor,
+      movementStyle: movementProfile.movementStyle,
+      movementFactors: movementProfile.factors,
       startAt: state.clock,
       arriveAt: state.clock + duration,
       updatedAt: state.clock
@@ -14995,7 +15136,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 0;
     }
     slime.autonomousMovement = movement;
-    const blocked = firstBlockedDoorOnPath(movement.path);
+    const progress = autonomousMovementProgress(movement);
+    const currentIndex = clamp(Math.floor(progress * (movement.path.length - 1)), 0, movement.path.length - 1);
+    const blocked = firstBlockedDoorOnPath(movement.path, ensureLabMap(), currentIndex);
     if (blocked) {
       setSlimeBlockedDoorActivity(slime, blocked, {
         kind: movement.targetKind,
@@ -15010,7 +15153,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arriveAtAutonomousTarget(slime, movement);
       return 1;
     }
-    const progress = autonomousMovementProgress(movement);
     const index = clamp(Math.floor(progress * (movement.path.length - 1)), 0, movement.path.length - 1);
     const cell = movement.path[index];
     const roomId = labMapCellRoomId(cell) || slime.roomId || MAIN_ROOM_ID;
@@ -15206,9 +15348,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
       if (slime.autonomousMovement) {
         changes += updateSlimeAutonomousMovement(slime);
-        if (slime.autonomousMovement) {
+        if (slime.autonomousMovement || slime.roomActivity?.type === "pressingClosedDoor") {
           if (slime.roomActivity?.targetKind === "contamination") {
             recordCleanupObservation(slime, "seekingContamination", elapsed, slime.roomId);
+          } else if (slime.roomActivity?.type === "pressingClosedDoor") {
+            recordCleanupObservation(slime, "pressingClosedDoor", elapsed, slime.roomId);
           }
           continue;
         }
