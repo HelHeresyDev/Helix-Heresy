@@ -1493,6 +1493,12 @@
     bad: { label: "poor match", nutrition: 5, mass: 1, stress: 4, bodyDamage: 0, waste: 1 },
     harmful: { label: "harmful match", nutrition: 2, mass: 0, stress: 8, bodyDamage: 2, waste: 2 }
   };
+  const LOOSE_FEED_MATCH_EFFECTS = {
+    good: { label: "good match", rate: 1.25, nutrition: 4, mass: 0.5, stress: -0.2, bodyDamage: 0, residue: 0 },
+    partial: { label: "partial match", rate: 1, nutrition: 2.5, mass: 0.25, stress: 0.2, bodyDamage: 0, residue: 0 },
+    bad: { label: "poor match", rate: 0.65, nutrition: 1, mass: 0.1, stress: 1, bodyDamage: 0, residue: 1 },
+    harmful: { label: "harmful match", rate: 0.4, nutrition: 0.5, mass: 0, stress: 2, bodyDamage: 0.5, residue: 1 }
+  };
   const FEEDING_RESIDUE_DEFS = [
     { key: "looseBiomatter", label: "Loose biomatter", contamination: 0.4 },
     { key: "contaminatedResidue", label: "Contaminated residue", contamination: 1.2 },
@@ -7529,11 +7535,12 @@
     reproduction: 40,
     work: 30
   };
-  const SLIME_PERCEPTION_KINDS = new Set(["self", "environment", "food", "corpse", "waste", "residue", "creature", "actor", "door", "containment"]);
+  const SLIME_PERCEPTION_KINDS = new Set(["self", "environment", "food", "trace", "corpse", "waste", "residue", "creature", "actor", "door", "containment"]);
   const SLIME_PERCEPTION_KIND_LABELS = {
     self: "Self",
     environment: "Environment",
     food: "Food",
+    trace: "Trace",
     corpse: "Corpse",
     waste: "Waste",
     residue: "Residue",
@@ -7957,6 +7964,172 @@
     return "trace";
   }
 
+  function perceptionIntensityAfterDrop(intensity, drop) {
+    const rank = perceptionIntensityRank(intensity) - Math.max(0, Math.floor(Number(drop) || 0));
+    return rank >= 0 ? SLIME_PERCEPTION_INTENSITIES[rank] : "";
+  }
+
+  function foodTraceDoorDrop(fromRoomId, toRoomId) {
+    const door = doorForConnection(fromRoomId, toRoomId);
+    if (!door) {
+      return 99;
+    }
+    if (doorIsBreached(door) || doorIsOpen(fromRoomId, toRoomId)) {
+      return 0;
+    }
+    const seal = doorEffectiveSeal(door);
+    let drop = seal >= 85 ? 3 : seal >= 55 ? 2 : 1;
+    if (door.sealState === DOOR_SEAL_SEALED) {
+      drop += 1;
+    }
+    return drop;
+  }
+
+  function adjustedFoodTraceIntensity(baseIntensity, fromRoomId, sourceRoomId) {
+    return perceptionIntensityAfterDrop(baseIntensity, foodTraceDoorDrop(fromRoomId, sourceRoomId));
+  }
+
+  function residueFoodTags(residue) {
+    const tags = [...(residue?.tags || [])];
+    if (residue?.typeKey === "looseBiomatter") {
+      tags.push("organic", "mess");
+    } else if (residue?.typeKey === "contaminatedResidue") {
+      tags.push("waste", "contaminated", "organic");
+    } else if (residue?.typeKey === "hazardousSludge") {
+      tags.push("waste", "contaminated", "hazardous", "chemical");
+    } else if (residue?.typeKey === "inertResidue") {
+      tags.push("mineral", "inert");
+    } else if (residue?.typeKey === "elementalTrace") {
+      tags.push("arcane", "mana", "residue");
+    } else if (residue?.typeKey === "slimeTrace") {
+      tags.push("organic", "slime", "residue");
+    }
+    return normalizeResidueTags(tags);
+  }
+
+  function residueTraceLabel(residue) {
+    const tags = new Set(residueFoodTags(residue));
+    if (tags.has("hazardous")) return "hazardous";
+    if (tags.has("contaminated")) return "contaminated";
+    if (tags.has("arcane") || tags.has("mana")) return "arcane";
+    if (tags.has("mineral") || tags.has("metal") || tags.has("inert")) return "mineral";
+    if (tags.has("organic")) return "organic";
+    return "feeding";
+  }
+
+  function corpseTraceIntensity(corpses) {
+    const strongest = (corpses || []).reduce((best, corpse) => {
+      const rank = { fresh: 2, decaying: 3, spoiled: 3, ruined: 2 }[corpseFreshness(corpse)] ?? 1;
+      return Math.max(best, rank);
+    }, 0);
+    return SLIME_PERCEPTION_INTENSITIES[clamp(strongest, 0, SLIME_PERCEPTION_INTENSITIES.length - 1)] || "faint";
+  }
+
+  function corpseTraceLabel(corpses) {
+    if ((corpses || []).some((corpse) => ["spoiled", "ruined"].includes(corpseFreshness(corpse)))) {
+      return "foul carrion";
+    }
+    if ((corpses || []).some((corpse) => corpseFreshness(corpse) === "decaying")) {
+      return "decay";
+    }
+    return "carrion";
+  }
+
+  function accessibleCorpsesInRoom(roomId) {
+    return (state.corpses || []).filter((corpse) => {
+      normalizeCorpseLocation(corpse);
+      return ["room", "overflow"].includes(corpse.storage) && (corpse.roomId || MAIN_ROOM_ID) === roomId;
+    });
+  }
+
+  function foodTraceSourcesForRoom(roomId, slime = null) {
+    const room = roomById(roomId);
+    if (!room) {
+      return [];
+    }
+    const sources = [];
+    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
+    for (const residue of feedingResiduesForLocation({ type: "room", roomId: room.id })) {
+      if (residue.amount <= 0) {
+        continue;
+      }
+      const trace = residueTraceLabel(residue);
+      sources.push({
+        targetKind: "residue",
+        targetId: residue.id,
+        roomId: room.id,
+        label: feedingResidueLabel(residue.typeKey),
+        traceLabel: trace,
+        baseIntensity: residuePerceptionIntensity(residue),
+        score: 38 + residue.amount * 5,
+        tags: residueFoodTags(residue)
+      });
+    }
+
+    const corpses = accessibleCorpsesInRoom(room.id);
+    if (corpses.length) {
+      const single = corpses.length === 1 ? corpses[0] : null;
+      sources.push({
+        targetKind: "corpse",
+        targetId: single?.id || "",
+        roomId: room.id,
+        label: single ? `${single.name} remains` : corpsePerceptionLabel(corpses),
+        traceLabel: corpseTraceLabel(corpses),
+        baseIntensity: corpseTraceIntensity(corpses),
+        score: 48 + corpses.length * 8,
+        tags: ["corpse", "organic", "decay", ...corpses.map(corpseFreshness)]
+      });
+    }
+
+    const waste = room.id === STORAGE_ROOM_ID ? 0 : resourceAmountInRoom("waste", room.id);
+    if (waste > 0) {
+      sources.push({
+        targetKind: "waste",
+        targetId: "waste",
+        roomId: room.id,
+        label: "loose waste",
+        traceLabel: "waste",
+        baseIntensity: waste >= 10 ? "strong" : waste >= 3 ? "clear" : "faint",
+        score: 30 + waste * 4,
+        tags: ["waste", "contaminated", "hazardous", "chemical"]
+      });
+    }
+
+    const info = slime ? slimeContaminationTraitInfo(slime) : null;
+    const contamination = roomContaminationValue(room.id);
+    if (info?.seeksContamination && contamination > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
+      sources.push({
+        targetKind: "contamination",
+        targetId: room.id,
+        roomId: room.id,
+        label: "visible contamination",
+        traceLabel: "contamination",
+        baseIntensity: contamination >= 55 ? "strong" : contamination >= 25 ? "clear" : "faint",
+        score: 20 + contamination,
+        tags: ["contaminated", "waste", "chemical"]
+      });
+    }
+    return sources.sort((a, b) => b.score - a.score);
+  }
+
+  function addAdjacentFoodTracePerceptionEntries(entries, slime, roomId) {
+    for (const connectedId of roomConnectedIds(roomId)) {
+      for (const source of foodTraceSourcesForRoom(connectedId, slime).slice(0, 2)) {
+        const intensity = adjustedFoodTraceIntensity(source.baseIntensity, roomId, connectedId);
+        if (!intensity) {
+          continue;
+        }
+        addSlimePerceptionEntry(entries, slimePerceptionEntry("trace", `${intensity} ${source.traceLabel} trace from ${roomName(connectedId)}`, {
+          intensity,
+          sourceLabel: `${doorStateLabel(roomId, connectedId)} door`,
+          roomId,
+          targetKind: "room",
+          targetId: connectedId
+        }));
+      }
+    }
+  }
+
   function addResiduePerceptionEntries(entries, location, sourceLabel, roomId, intensityOverride = "") {
     for (const residue of feedingResiduesForLocation(location)) {
       addSlimePerceptionEntry(entries, slimePerceptionEntry(residuePerceptionKind(residue), feedingResidueLabel(residue.typeKey), {
@@ -8060,6 +8233,9 @@
     }
     if (options.includeDoors !== false) {
       addDoorPerceptionEntries(entries, room.id, options.doorIntensity || "faint");
+    }
+    if (options.includeFoodTraces !== false) {
+      addAdjacentFoodTracePerceptionEntries(entries, slime, room.id);
     }
   }
 
@@ -14861,7 +15037,90 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return nearestOpenMapCellInRoom(roomId, preferredCell || labMapRoomAnchor(roomId), { ignoreObjects: false });
   }
 
-  function accessibleFoodTargetCandidates(slime) {
+  function slimeHasFeedingNeed(slime) {
+    if (!slime || slime.status === "dead") {
+      return false;
+    }
+    return slimeStatPercent(slime, "nutrition") <= 75 || slimeStatPercent(slime, "currentMass") < 100;
+  }
+
+  function looseFoodMatch(slime, sourceTags = []) {
+    const evaluated = evaluateGenome(slime.genome);
+    const label = baseOutcomeLabel(evaluated.traits.sustenance);
+    const foodTags = new Set(normalizeResidueTags(sourceTags));
+    const preferredTags = new Set(preferredFeedstockKeys(slime)
+      .flatMap((key) => FEEDSTOCK_BY_KEY[key]?.tags || [])
+      .filter((tag) => !["material", "clean"].includes(tag)));
+    const preferredShared = [...foodTags].filter((tag) => preferredTags.has(tag));
+    if (preferredShared.length) {
+      return { quality: "good", label, sharedTags: preferredShared };
+    }
+    const sustenanceTags = new Set(evaluated.traits.sustenance.meta?.tags || []);
+    const sharedTags = [...foodTags].filter((tag) => sustenanceTags.has(tag) && !["material", "clean"].includes(tag));
+    if (sharedTags.length) {
+      return { quality: "partial", label, sharedTags };
+    }
+    if ([...foodTags].some((tag) => ["hazardous", "contaminated", "volatile", "chemical", "toxic"].includes(tag))) {
+      return { quality: "harmful", label, sharedTags: [] };
+    }
+    return { quality: "bad", label, sharedTags: [] };
+  }
+
+  function looseFeedingResidueType(sourceTags = [], match = null) {
+    const tags = new Set(normalizeResidueTags(sourceTags));
+    if (match?.quality === "harmful" || tags.has("hazardous") || tags.has("toxic")) {
+      return "hazardousSludge";
+    }
+    if (tags.has("contaminated") || tags.has("waste") || tags.has("chemical")) {
+      return "contaminatedResidue";
+    }
+    if (tags.has("mineral") || tags.has("metal") || tags.has("silicate") || tags.has("inert")) {
+      return "inertResidue";
+    }
+    if (tags.has("arcane") || tags.has("mana")) {
+      return "elementalTrace";
+    }
+    return "contaminatedResidue";
+  }
+
+  function applyLooseFoodEffects(slime, units, match, options = {}) {
+    const count = Math.max(0, Math.floor(Number(units) || 0));
+    if (!slime || !count) {
+      return { nutritionGain: 0, massGain: 0, residueLeft: false };
+    }
+    const effects = LOOSE_FEED_MATCH_EFFECTS[match?.quality] || LOOSE_FEED_MATCH_EFFECTS.bad;
+    const nutritionGain = adjustedSlimeNutritionGain(slime, count * effects.nutrition);
+    if (nutritionGain > 0) {
+      adjustSlimeStat(slime, "nutrition", nutritionGain);
+    }
+    const mass = slimeStat(slime, "currentMass");
+    const massGain = Math.max(0, Math.min(count * effects.mass, mass.max - mass.current));
+    if (massGain > 0) {
+      adjustSlimeStat(slime, "currentMass", massGain);
+    }
+    if (effects.stress) {
+      adjustSlimeStat(slime, "stress", count * effects.stress);
+    }
+    if (effects.bodyDamage) {
+      const damage = count * effects.bodyDamage;
+      if (slimeStat(slime, "bodyIntegrity").current - damage <= 0) {
+        slime.deathCause = "bad feeding";
+      }
+      adjustSlimeStat(slime, "bodyIntegrity", -damage);
+    }
+    let residueLeft = false;
+    if (effects.residue > 0) {
+      residueLeft = addFeedingResidue(looseFeedingResidueType(options.tags, match), count * effects.residue, {
+        slime,
+        location: { type: "room", roomId: options.roomId || slimeEffectiveRoomId(slime) },
+        sourceLabel: `Uncontrolled feeding: ${options.label || "local food"}`,
+        tags: ["loose-feeding", match?.quality || "bad", ...(options.tags || [])]
+      });
+    }
+    return { nutritionGain, massGain, residueLeft };
+  }
+
+  function localFoodTargetCandidates(slime, roomId = slimeEffectiveRoomId(slime)) {
     const candidates = [];
     const addTarget = (target) => {
       const room = roomById(target.roomId);
@@ -14878,65 +15137,94 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
 
     state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
-    for (const residue of state.feedingResidues) {
-      if (residue.location?.type !== "room" || residue.amount <= 0) {
+    for (const residue of feedingResiduesForLocation({ type: "room", roomId })) {
+      if (residue.amount <= 0) {
         continue;
       }
       addTarget({
         kind: "residue",
         id: residue.id,
-        roomId: residue.location.roomId,
+        roomId,
         label: feedingResidueLabel(residue.typeKey),
+        tags: residueFoodTags(residue),
         score: 70 + residue.amount * 8
       });
     }
 
-    for (const roomId of roomStockpileIds()) {
-      const amount = resourceAmountInRoom("waste", roomId);
-      if (amount <= 0 || roomId === STORAGE_ROOM_ID) {
-        continue;
-      }
+    const waste = roomId === STORAGE_ROOM_ID ? 0 : resourceAmountInRoom("waste", roomId);
+    if (waste > 0) {
       addTarget({
         kind: "waste",
         id: "waste",
         roomId,
         label: "loose waste",
-        score: 55 + amount * 6
+        tags: ["waste", "contaminated", "hazardous", "chemical"],
+        score: 55 + waste * 6
       });
     }
 
-    for (const corpse of state.corpses || []) {
-      normalizeCorpseLocation(corpse);
-      if (!["room", "overflow"].includes(corpse.storage) || corpse.harvestBlocked) {
-        continue;
-      }
+    for (const corpse of accessibleCorpsesInRoom(roomId)) {
       addTarget({
         kind: "corpse",
         id: corpse.id,
         roomId: corpse.roomId || MAIN_ROOM_ID,
         cell: objectMapCell(corpse),
         label: `${corpse.name} remains`,
+        tags: ["corpse", "organic", "decay", corpseFreshness(corpse)],
         score: 75 + (corpseFreshness(corpse) === "fresh" ? 18 : corpseFreshness(corpse) === "spoiled" ? 6 : 10)
       });
     }
 
     const info = slimeContaminationTraitInfo(slime);
     if (info.seeksContamination) {
-      for (const room of state.rooms || []) {
-        const contamination = roomContaminationValue(room.id);
-        if (contamination <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
-          continue;
-        }
+      const contamination = roomContaminationValue(roomId);
+      if (contamination > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD) {
         addTarget({
           kind: "contamination",
-          id: room.id,
-          roomId: room.id,
+          id: roomId,
+          roomId,
           label: "visible contamination",
+          tags: ["contaminated", "waste", "chemical"],
           score: 35 + contamination
         });
       }
     }
     return candidates;
+  }
+
+  function traceFoodTargetCandidates(slime) {
+    const currentRoomId = slimeEffectiveRoomId(slime);
+    const candidates = [];
+    for (const connectedId of roomConnectedIds(currentRoomId)) {
+      for (const source of foodTraceSourcesForRoom(connectedId, slime).slice(0, 3)) {
+        const intensity = adjustedFoodTraceIntensity(source.baseIntensity, currentRoomId, connectedId);
+        if (!intensity) {
+          continue;
+        }
+        const rank = perceptionIntensityRank(intensity) + 1;
+        candidates.push({
+          kind: source.targetKind,
+          id: "",
+          roomId: connectedId,
+          cell: targetCellForRoomTarget(connectedId),
+          label: `${source.traceLabel} trace from ${roomName(connectedId)}`,
+          tags: source.tags,
+          score: Math.max(1, source.score * (rank / SLIME_PERCEPTION_INTENSITIES.length))
+        });
+      }
+    }
+    return candidates.sort((a, b) => b.score - a.score);
+  }
+
+  function accessibleFoodTargetCandidates(slime) {
+    if (!slimeHasFeedingNeed(slime)) {
+      return [];
+    }
+    const local = localFoodTargetCandidates(slime);
+    if (local.length) {
+      return local;
+    }
+    return traceFoodTargetCandidates(slime);
   }
 
   function pathToAutonomousTarget(slime, target) {
@@ -15172,9 +15460,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function localAccessibleFoodTarget(slime) {
-    const roomId = slimeEffectiveRoomId(slime);
-    return accessibleFoodTargetCandidates(slime)
-      .filter((target) => target.roomId === roomId)
+    if (!slimeHasFeedingNeed(slime)) {
+      return null;
+    }
+    return localFoodTargetCandidates(slime)
       .sort((a, b) => b.score - a.score)[0] || null;
   }
 
@@ -15189,8 +15478,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!residue) {
       return 0;
     }
+    const match = looseFoodMatch(slime, residueFoodTags(residue));
+    const effects = LOOSE_FEED_MATCH_EFFECTS[match.quality] || LOOSE_FEED_MATCH_EFFECTS.bad;
     slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0)
-      + CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR * secondsToHours(elapsed);
+      + CREATURE_AUTONOMOUS_RESIDUE_UNITS_PER_HOUR * effects.rate * secondsToHours(elapsed);
     const units = Math.min(residue.amount, Math.floor(slime.accessibleFeedingProgress));
     slime.roomActivity = {
       type: "feedingResidue",
@@ -15206,8 +15497,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     slime.accessibleFeedingProgress -= units;
     residue.amount -= units;
-    adjustSlimeStat(slime, "nutrition", adjustedSlimeNutritionGain(slime, units * 4));
-    adjustSlimeStat(slime, "currentMass", units * 0.5);
+    applyLooseFoodEffects(slime, units, match, {
+      roomId,
+      label: feedingResidueLabel(residue.typeKey),
+      tags: residueFoodTags(residue)
+    });
     if (residue.amount <= 0) {
       state.feedingResidues = state.feedingResidues.filter((entry) => entry.id !== residue.id);
     }
@@ -15219,8 +15513,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (resourceAmountInRoom("waste", roomId) <= 0 || roomId === STORAGE_ROOM_ID) {
       return 0;
     }
+    const tags = ["waste", "contaminated", "hazardous", "chemical"];
+    const match = looseFoodMatch(slime, tags);
+    const effects = LOOSE_FEED_MATCH_EFFECTS[match.quality] || LOOSE_FEED_MATCH_EFFECTS.bad;
     slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0)
-      + CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR * secondsToHours(elapsed);
+      + CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR * effects.rate * secondsToHours(elapsed);
     const units = Math.min(resourceAmountInRoom("waste", roomId), Math.floor(slime.accessibleFeedingProgress));
     slime.roomActivity = {
       type: "feedingWaste",
@@ -15236,8 +15533,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     slime.accessibleFeedingProgress -= units;
     spendWaste(units, roomId);
-    adjustSlimeStat(slime, "nutrition", adjustedSlimeNutritionGain(slime, units * 2));
-    adjustSlimeStat(slime, "stress", units * 0.3);
+    applyLooseFoodEffects(slime, units, match, {
+      roomId,
+      label: "loose waste",
+      tags
+    });
     return 1;
   }
 

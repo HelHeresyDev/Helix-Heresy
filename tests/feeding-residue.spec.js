@@ -20,6 +20,13 @@ async function loadSavedRun(page) {
   await page.locator('#loadLastSaveBtn').click();
 }
 
+async function skipSeconds(page, seconds) {
+  await page.locator('#skipAmountInput').evaluate((element, value) => {
+    element.value = String(value);
+  }, seconds);
+  await page.locator('#skipTimeBtn').evaluate((element) => element.click());
+}
+
 function residueTestSlime({ id, name, genome, containerId, roomId = 'mainLab', job = 'idle', jobProgress = 0, stats = {} }) {
   return {
     id,
@@ -258,6 +265,182 @@ test('waste disposal can leave local feeding residue apart from elemental residu
       typeKey: 'inertResidue',
       amount: 1,
       location: expect.objectContaining({ type: 'container', containerId: 'basic-11' }),
+    }),
+  ]));
+
+  expect(consoleIssues).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('loose scavenging uses Sustenance match quality for local residue', async ({ page }) => {
+  const consoleIssues = [];
+  const pageErrors = [];
+  page.on('console', (message) => {
+    if (['warning', 'error'].includes(message.type())) {
+      consoleIssues.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await startRun(page);
+  const context = await saveContext(page);
+  const organicGenome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: { sustenance: 'organic feeder', behavior: 'idle pooling' },
+  });
+  const metalGenome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: { sustenance: 'metal feeder', behavior: 'idle pooling' },
+  });
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.started = true;
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'loose-good-feed';
+    state.feedingResidues = [{
+      id: 'local-good-food',
+      typeKey: 'looseBiomatter',
+      amount: 2,
+      location: { type: 'room', roomId: 'mainLab' },
+      tags: ['organic', 'mess'],
+      sourceLabels: ['local spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'loose-good-feed',
+      name: 'LOOSE-GOOD',
+      genome,
+      source: 'Loose feeding fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { hunting: false, seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 10, max: 100 },
+        currentMass: { current: 50, max: 100 },
+        bodyIntegrity: { current: 100, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+      revealed: { sustenance: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome: organicGenome });
+  await loadSavedRun(page);
+  await skipSeconds(page, 1200);
+
+  const goodResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-good-feed');
+    return {
+      nutrition: slime.stats.nutrition.current,
+      stress: slime.stats.stress.current,
+      residues: state.feedingResidues || [],
+    };
+  }, { key: storageKey });
+
+  expect(goodResult.nutrition).toBeGreaterThan(10);
+  expect(goodResult.stress).toBe(0);
+  expect(goodResult.residues.some((residue) => residue.typeKey === 'contaminatedResidue' || residue.typeKey === 'hazardousSludge')).toBe(false);
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.started = true;
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'loose-bad-feed';
+    state.feedingResidues = [{
+      id: 'local-bad-food',
+      typeKey: 'looseBiomatter',
+      amount: 2,
+      location: { type: 'room', roomId: 'mainLab' },
+      tags: ['organic', 'mess'],
+      sourceLabels: ['local spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    state.nextResidueNumber = 2;
+    state.slimes = [{
+      id: 'loose-bad-feed',
+      name: 'LOOSE-BAD',
+      genome,
+      source: 'Loose feeding fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { hunting: false, seeksContamination: false, eatsContamination: false },
+      stats: {
+        nutrition: { current: 10, max: 100 },
+        currentMass: { current: 50, max: 100 },
+        bodyIntegrity: { current: 100, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+      revealed: { sustenance: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome: metalGenome });
+  await loadSavedRun(page);
+  await skipSeconds(page, 2000);
+
+  const badResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-bad-feed');
+    return {
+      nutrition: slime.stats.nutrition.current,
+      stress: slime.stats.stress.current,
+      residues: state.feedingResidues || [],
+    };
+  }, { key: storageKey });
+
+  expect(badResult.nutrition).toBeGreaterThan(10);
+  expect(badResult.stress).toBeGreaterThan(0);
+  expect(badResult.residues).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      typeKey: 'contaminatedResidue',
+      location: expect.objectContaining({ type: 'room', roomId: 'mainLab' }),
     }),
   ]));
 

@@ -506,6 +506,14 @@ test('released slimes move toward accessible residue without raiding packaged st
   expect(['moving', 'seeking']).toContain(earlyAi.ai.state);
   expect(earlyAi.ai.intent).toBe('seekFood');
   expect(earlyAi.ai.target.kind).toBe('residue');
+  expect(earlyAi.ai.target.label).toMatch(/trace from Menagerie/);
+  expect(earlyAi.ai.perception.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      kind: 'trace',
+      targetKind: 'room',
+      targetId: 'menagerie',
+    }),
+  ]));
   expect(earlyAi.movement.distanceMeters).toBeGreaterThan(0);
   expect(earlyAi.movement.speedMps).toBeGreaterThan(0);
   expect(earlyAi.movement.movementFactors).toEqual(expect.arrayContaining(['reduced mass']));
@@ -723,6 +731,13 @@ test('released slimes press blocked doors and expose possible intent instead of 
     intent: 'blocked',
     target: { kind: 'door' },
   });
+  expect(result.ai.perception.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      kind: 'trace',
+      targetKind: 'room',
+      targetId: 'storageRoom',
+    }),
+  ]));
   expect(result.ai.reason).toContain('blocked');
   expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
