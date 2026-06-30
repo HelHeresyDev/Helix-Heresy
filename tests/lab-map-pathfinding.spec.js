@@ -180,6 +180,143 @@ test('slime ai drives summarize biological pressure without executing behavior',
   });
 });
 
+test('slime ai perception stays local and respects containment limits', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const containers = state.containers || [];
+    const jarFor = (index) => containers.find((container) => container.id === `basic-${index}`) || containers[index - 1] || containers[0];
+    const mainLab = (state.rooms || []).find((room) => room.id === 'mainLab');
+    if (mainLab?.attributes?.contamination) {
+      mainLab.attributes.contamination.current = 55;
+    }
+    const mainPitDoor = Object.values(state.doors || {}).find((door) => {
+      const ids = door.roomIds || [];
+      return ids.includes('mainLab') && ids.includes('pits');
+    });
+    if (mainPitDoor) {
+      mainPitDoor.state = 'open';
+      mainPitDoor.lockState = 'unlocked';
+      mainPitDoor.sealState = 'unsealed';
+    }
+    state.roomStockpiles ||= {};
+    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
+    state.roomStockpiles.mainLab.resources ||= {};
+    state.roomStockpiles.mainLab.resources.waste = 6;
+    state.resources ||= {};
+    state.resources.waste = 6;
+    state.nextResidueNumber = Math.max(2, Number(state.nextResidueNumber) || 1);
+    state.feedingResidues = [{
+      id: 'residue-perception',
+      typeKey: 'looseBiomatter',
+      amount: 5,
+      location: { type: 'room', roomId: 'mainLab' },
+      tags: ['organic'],
+      sourceLabels: ['test spill'],
+      sourceSlimeIds: [],
+      createdAt: 0,
+      updatedAt: 0,
+    }];
+    const now = Number(state.clock) || 0;
+    state.corpses = [{
+      id: 'corpse-perception',
+      specimenId: 'dead-perception',
+      name: 'PERCEPT-DEAD',
+      genome: state.currentGenome,
+      source: 'Perception fixture',
+      deathReason: 'fixture',
+      diedAt: now,
+      roomId: 'mainLab',
+      containerId: null,
+      storage: 'room',
+      mapCell: { x: 20, y: 14 },
+      consumedProgress: 0,
+      ruined: false,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      necropsyReport: '',
+      harvestedProcedures: {},
+    }];
+    const stats = {
+      bodyIntegrity: { current: 100, max: 100 },
+      nutrition: { current: 80, max: 100 },
+      currentMass: { current: 100, max: 100 },
+      divisionPressure: { current: 0, max: 100 },
+      stress: { current: 0, max: 100 },
+    };
+    const makeSlime = (id, name, extra = {}) => ({
+      id,
+      name,
+      genome: state.currentGenome,
+      source: 'Perception fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: { x: 20, y: 15 },
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+      ...extra,
+    });
+    const sealedJar = jarFor(2);
+    state.selectedSlimeId = 'perception-loose';
+    state.slimes = [
+      makeSlime('perception-loose', 'PERCEPT-LOOSE'),
+      makeSlime('perception-contained', 'PERCEPT-SEALED', {
+        status: 'contained',
+        containerId: sealedJar.id,
+        roomId: sealedJar.roomId,
+        mapCell: null,
+      }),
+    ];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-perception="perception-loose"]')).toContainText('Perceives:');
+  await expect(page.locator('[data-slime-perception-panel="perception-loose"]')).toContainText('Loose biomatter');
+  await expect(page.locator('[data-slime-perception-panel="perception-loose"]')).toContainText('corpse');
+  await expect(page.locator('[data-slime-perception-panel="perception-loose"]')).toContainText('open air from Pits');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return Object.fromEntries((state.slimes || []).map((slime) => [slime.id, slime.ai?.perception]));
+  }, { key: storageKey });
+
+  const looseLabels = result['perception-loose'].entries.map((entry) => entry.label);
+  expect(result['perception-loose'].scope).toBe('room-local');
+  expect(looseLabels).toEqual(expect.arrayContaining([
+    'Loose biomatter',
+    'waste stores',
+    'scientist nearby',
+    'open air from Pits',
+  ]));
+  expect(looseLabels.some((label) => label.includes('corpse'))).toBe(true);
+  expect(result['perception-loose'].entries.map((entry) => entry.kind)).toEqual(expect.arrayContaining(['food', 'corpse', 'waste', 'actor', 'door']));
+
+  const containedLabels = result['perception-contained'].entries.map((entry) => entry.label);
+  expect(result['perception-contained'].scope).toBe('container-local');
+  expect(containedLabels).toContain('container muffles room cues');
+  expect(containedLabels).not.toContain('Loose biomatter');
+});
+
 test('lab blueprint stores room footprints and queues scientist movement with map paths', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];

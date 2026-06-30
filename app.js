@@ -1769,6 +1769,7 @@
   };
   const SKILL_DEFS = [
     { id: "analysis", label: "Analysis", aliases: ["observation"], futureEvolutions: ["Combat Analysis", "Surgical Analysis", "Creature Analysis"] },
+    { id: "perception", label: "Perception", aliases: ["awareness", "senses", "detection"], futureEvolutions: ["Threat Perception", "Arcane Sense", "Tracking"] },
     { id: "creatureHandling", label: "Creature Handling", aliases: ["slime handling", "specimen handling"], futureEvolutions: ["Containment Handling", "Predator Handling", "Slime Handling"] },
     { id: "fabrication", label: "Fabrication", aliases: ["biofabrication"], futureEvolutions: ["Biofabrication", "Container Fabrication", "Warded Fabrication"] },
     { id: "husbandry", label: "Husbandry", aliases: ["nutrition", "breeding", "reproductive biology"], futureEvolutions: ["Slime Husbandry", "Brood Husbandry", "Monstrous Husbandry"] },
@@ -7520,6 +7521,22 @@
     reproduction: 40,
     work: 30
   };
+  const SLIME_PERCEPTION_KINDS = new Set(["self", "environment", "food", "corpse", "waste", "residue", "creature", "actor", "door", "containment"]);
+  const SLIME_PERCEPTION_KIND_LABELS = {
+    self: "Self",
+    environment: "Environment",
+    food: "Food",
+    corpse: "Corpse",
+    waste: "Waste",
+    residue: "Residue",
+    creature: "Creature",
+    actor: "Actor",
+    door: "Door",
+    containment: "Containment"
+  };
+  const SLIME_PERCEPTION_INTENSITIES = ["trace", "faint", "clear", "strong"];
+  const SLIME_PERCEPTION_ENTRY_LIMIT = 12;
+  const SLIME_PERCEPTION_SUMMARY_LIMIT = 4;
 
   function cleanSlimeAiState(value) {
     const stateId = String(value || "idle");
@@ -7592,6 +7609,57 @@
     return drives;
   }
 
+  function cleanSlimePerceptionKind(value) {
+    const kind = String(value || "environment");
+    return SLIME_PERCEPTION_KINDS.has(kind) ? kind : "environment";
+  }
+
+  function cleanSlimePerceptionIntensity(value) {
+    const intensity = String(value || "clear");
+    return SLIME_PERCEPTION_INTENSITIES.includes(intensity) ? intensity : "clear";
+  }
+
+  function normalizeSlimePerceptionEntry(candidate = {}) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const label = String(candidate.label || "").trim();
+    if (!label) {
+      return null;
+    }
+    return {
+      kind: cleanSlimePerceptionKind(candidate.kind),
+      label,
+      intensity: cleanSlimePerceptionIntensity(candidate.intensity),
+      sourceLabel: String(candidate.sourceLabel || candidate.source || "").trim(),
+      roomId: candidate.roomId ? cleanRoomId(candidate.roomId) : "",
+      targetKind: String(candidate.targetKind || "").trim(),
+      targetId: String(candidate.targetId || "").trim()
+    };
+  }
+
+  function defaultSlimePerceptionRecord() {
+    return {
+      summary: "Perceives: no clear stimuli",
+      scope: "local",
+      entries: []
+    };
+  }
+
+  function normalizeSlimePerceptionRecord(candidate = {}) {
+    const entries = (Array.isArray(candidate.entries) ? candidate.entries : [])
+      .map(normalizeSlimePerceptionEntry)
+      .filter(Boolean)
+      .slice(0, SLIME_PERCEPTION_ENTRY_LIMIT);
+    const summary = String(candidate.summary || "").trim()
+      || (entries.length ? slimePerceptionSummaryText(entries) : defaultSlimePerceptionRecord().summary);
+    return {
+      summary,
+      scope: String(candidate.scope || "local").trim() || "local",
+      entries
+    };
+  }
+
   function cleanSlimeAiTarget(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -7615,6 +7683,7 @@
       .filter(Boolean);
     const rawNextThinkAt = candidate.nextThinkAt;
     const drives = normalizeSlimeDriveRecord(candidate.drives);
+    const perception = normalizeSlimePerceptionRecord(candidate.perception);
     return {
       state: cleanSlimeAiState(candidate.state),
       intent: cleanSlimeAiIntent(candidate.intent),
@@ -7623,6 +7692,7 @@
       urgency: cleanSlimeAiUrgency(candidate.urgency),
       drives,
       dominantDrive: cleanSlimeDriveKey(candidate.dominantDrive),
+      perception,
       path,
       nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
         ? null
@@ -7781,6 +7851,313 @@
       next.state = "working";
     }
     return next;
+  }
+
+  function perceptionIntensityRank(intensity) {
+    const index = SLIME_PERCEPTION_INTENSITIES.indexOf(cleanSlimePerceptionIntensity(intensity));
+    return index >= 0 ? index : 0;
+  }
+
+  function slimePerceptionEntry(kind, label, options = {}) {
+    return normalizeSlimePerceptionEntry({
+      kind,
+      label,
+      intensity: options.intensity || "clear",
+      sourceLabel: options.sourceLabel || "",
+      roomId: options.roomId || "",
+      targetKind: options.targetKind || "",
+      targetId: options.targetId || ""
+    });
+  }
+
+  function addSlimePerceptionEntry(entries, entry) {
+    const normalized = normalizeSlimePerceptionEntry(entry);
+    if (!normalized) {
+      return;
+    }
+    const key = [
+      normalized.kind,
+      normalizeCommandName(normalized.label),
+      normalized.roomId,
+      normalized.targetKind,
+      normalized.targetId
+    ].join("|");
+    const existing = entries.find((candidate) => candidate._key === key);
+    if (existing) {
+      if (perceptionIntensityRank(normalized.intensity) > perceptionIntensityRank(existing.intensity)) {
+        existing.intensity = normalized.intensity;
+      }
+      if (!existing.sourceLabel && normalized.sourceLabel) {
+        existing.sourceLabel = normalized.sourceLabel;
+      }
+      return;
+    }
+    entries.push({ ...normalized, _key: key });
+  }
+
+  function cleanPerceptionEntries(entries) {
+    return entries
+      .map(({ _key, ...entry }) => entry)
+      .slice(0, SLIME_PERCEPTION_ENTRY_LIMIT);
+  }
+
+  function slimePerceptionSummaryText(entries) {
+    const visible = (entries || []).filter(Boolean);
+    if (!visible.length) {
+      return "Perceives: no clear stimuli";
+    }
+    const labels = visible.slice(0, SLIME_PERCEPTION_SUMMARY_LIMIT).map((entry) => entry.label);
+    const extra = visible.length > labels.length ? `, +${visible.length - labels.length} more` : "";
+    return `Perceives: ${labels.join(", ")}${extra}`;
+  }
+
+  function addEnvironmentPerceptionEntries(entries, attributes, sourceLabel, roomId, intensity = "clear") {
+    for (const def of ROOM_ATTRIBUTE_DEFS) {
+      const value = clamp(Number(attributes?.[def.key]?.current) || 0, 0, 100);
+      const band = roomAttributeBand(def.key, value);
+      const lowExtreme = !["contamination", "electricalCharge"].includes(def.key) && value <= 25;
+      const highExtreme = value >= 75;
+      const contaminated = def.key === "contamination" && value >= 25;
+      const charged = def.key === "electricalCharge" && value >= 75;
+      const manaExtreme = def.key === "ambientMana" && (value <= 25 || value >= 80);
+      if (!lowExtreme && !highExtreme && !contaminated && !charged && !manaExtreme) {
+        continue;
+      }
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("environment", `${band.label} ${def.label.toLowerCase()}`, {
+        intensity: highExtreme || value <= 12 ? "strong" : intensity,
+        sourceLabel,
+        roomId
+      }));
+    }
+  }
+
+  function residuePerceptionKind(residue) {
+    if (residue.typeKey === "looseBiomatter" || residue.tags?.includes("organic")) {
+      return "food";
+    }
+    if (["contaminatedResidue", "hazardousSludge"].includes(residue.typeKey) || residue.tags?.includes("hazardous")) {
+      return "waste";
+    }
+    return "residue";
+  }
+
+  function residuePerceptionIntensity(residue) {
+    const amount = Math.max(0, Number(residue?.amount) || 0);
+    if (amount >= 8) return "strong";
+    if (amount >= 3) return "clear";
+    if (amount >= 1) return "faint";
+    return "trace";
+  }
+
+  function addResiduePerceptionEntries(entries, location, sourceLabel, roomId, intensityOverride = "") {
+    for (const residue of feedingResiduesForLocation(location)) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry(residuePerceptionKind(residue), feedingResidueLabel(residue.typeKey), {
+        intensity: intensityOverride || residuePerceptionIntensity(residue),
+        sourceLabel,
+        roomId,
+        targetKind: "residue",
+        targetId: residue.id
+      }));
+    }
+  }
+
+  function roomLocalCorpses(roomId) {
+    return (state.corpses || []).filter((corpse) => corpse.storage === "room" && (corpse.roomId || MAIN_ROOM_ID) === roomId);
+  }
+
+  function corpsePerceptionLabel(corpses) {
+    if (corpses.length === 1) {
+      return `${corpseStateLabel(corpses[0]).toLowerCase()} corpse`;
+    }
+    return `${corpses.length} corpses`;
+  }
+
+  function addCorpsePerceptionEntries(entries, corpses, sourceLabel, roomId, intensity = "clear") {
+    if (!corpses.length) {
+      return;
+    }
+    addSlimePerceptionEntry(entries, slimePerceptionEntry("corpse", corpsePerceptionLabel(corpses), {
+      intensity: corpses.length > 1 ? "strong" : intensity,
+      sourceLabel,
+      roomId,
+      targetKind: "corpse",
+      targetId: corpses.length === 1 ? corpses[0].id : ""
+    }));
+  }
+
+  function addRoomStockpilePerceptionEntries(entries, roomId, sourceLabel, intensity = "clear") {
+    const waste = resourceAmountInRoom("waste", roomId);
+    if (waste > 0) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("waste", "waste stores", {
+        intensity: waste >= 10 ? "strong" : intensity,
+        sourceLabel,
+        roomId,
+        targetKind: "resource",
+        targetId: "waste"
+      }));
+    }
+  }
+
+  function addActorPerceptionEntries(entries, slime, roomId, sourceLabel, intensity = "clear") {
+    const otherFree = freeCreaturesInRoom(roomId).filter((candidate) => candidate.id !== slime.id);
+    if (otherFree.length) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("creature", otherFree.length === 1 ? "another slime moving" : `${otherFree.length} slimes moving`, {
+        intensity: otherFree.length > 1 ? "strong" : intensity,
+        sourceLabel,
+        roomId,
+        targetKind: "creature",
+        targetId: otherFree.length === 1 ? otherFree[0].id : ""
+      }));
+    }
+    if (scientistRoomId() === roomId && !scientistIsDead()) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("actor", "scientist nearby", {
+        intensity,
+        sourceLabel,
+        roomId,
+        targetKind: "scientist",
+        targetId: "scientist"
+      }));
+    }
+  }
+
+  function addDoorPerceptionEntries(entries, roomId, intensity = "faint") {
+    for (const connectedId of roomConnectedIds(roomId)) {
+      const door = doorForConnection(roomId, connectedId);
+      if (!doorIsOpen(roomId, connectedId)) {
+        continue;
+      }
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("door", `open air from ${roomName(connectedId)}`, {
+        intensity: doorIsBreached(door) ? "clear" : intensity,
+        sourceLabel: `${roomName(roomId)} doorway`,
+        roomId,
+        targetKind: "room",
+        targetId: connectedId
+      }));
+    }
+  }
+
+  function addRoomPerceptionEntries(entries, slime, roomId, options = {}) {
+    const room = roomById(roomId);
+    if (!room) {
+      return;
+    }
+    const intensity = options.intensity || "clear";
+    const sourceLabel = options.sourceLabel || room.name;
+    addEnvironmentPerceptionEntries(entries, room.attributes, sourceLabel, room.id, intensity);
+    addResiduePerceptionEntries(entries, { type: "room", roomId: room.id }, `${room.name} floor`, room.id, options.residueIntensity || "");
+    addCorpsePerceptionEntries(entries, roomLocalCorpses(room.id), room.name, room.id, intensity);
+    addRoomStockpilePerceptionEntries(entries, room.id, sourceLabel, intensity);
+    if (options.includeActors !== false) {
+      addActorPerceptionEntries(entries, slime, room.id, sourceLabel, intensity);
+    }
+    if (options.includeDoors !== false) {
+      addDoorPerceptionEntries(entries, room.id, options.doorIntensity || "faint");
+    }
+  }
+
+  function containerPerceptionAccess(container) {
+    if (!container) {
+      return 0;
+    }
+    const type = containerTypeDef(container.typeId);
+    if (container.type === "synthesis" || container.typeId === "synthesisTube") {
+      return 0.1;
+    }
+    if (type.geometry?.openTop || isPitHoleTypeId(container.typeId)) {
+      return 1;
+    }
+    const seal = containerEffectiveSeal(container);
+    const conditionPenalty = containerCondition(container) < 50 ? 0.12 : 0;
+    const visibilityBonus = type.visibility === "high" ? 0.1 : type.visibility === "low" ? -0.08 : 0;
+    return clamp((100 - seal) / 100 + visibilityBonus + conditionPenalty, 0.05, 1);
+  }
+
+  function addContainerPerceptionEntries(entries, slime, container) {
+    const roomId = slimeEffectiveRoomId(slime);
+    const sourceLabel = container?.name || "containment";
+    if (!container) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("containment", "unstable containment", {
+        intensity: "clear",
+        sourceLabel: "missing container",
+        roomId
+      }));
+      return;
+    }
+    container.environment = normalizeContainerEnvironment(container.environment);
+    addEnvironmentPerceptionEntries(entries, container.environment, `${sourceLabel} interior`, roomId);
+    addResiduePerceptionEntries(entries, { type: "container", containerId: container.id }, `${sourceLabel} interior`, roomId);
+    addCorpsePerceptionEntries(entries, containerCorpses(container.id), sourceLabel, roomId);
+    const otherContained = containerOccupants(container.id).filter((candidate) => candidate.id !== slime.id);
+    if (otherContained.length) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("creature", otherContained.length === 1 ? "another slime in container" : `${otherContained.length} slimes in container`, {
+        intensity: "clear",
+        sourceLabel,
+        roomId,
+        targetKind: "creature",
+        targetId: otherContained.length === 1 ? otherContained[0].id : ""
+      }));
+    }
+    const risk = activeContainmentRisk(slime, container);
+    if (/Watch|Strained|Dangerous|Failing/i.test(risk.label)) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("containment", `${risk.label.toLowerCase()} containment`, {
+        intensity: /Dangerous|Failing/i.test(risk.label) ? "strong" : "clear",
+        sourceLabel,
+        roomId,
+        targetKind: "container",
+        targetId: container.id
+      }));
+    }
+  }
+
+  function evaluateSlimePerception(slime) {
+    if (!slime || slime.status === "dead") {
+      return defaultSlimePerceptionRecord();
+    }
+    const entries = [];
+    const roomId = slimeEffectiveRoomId(slime);
+    const contained = !slimeIsUncontained(slime);
+    const container = contained ? containerById(slime.containerId) : null;
+
+    if (contained) {
+      addContainerPerceptionEntries(entries, slime, container);
+      const access = containerPerceptionAccess(container);
+      if (access >= 0.45) {
+        addRoomPerceptionEntries(entries, slime, roomId, {
+          intensity: access >= 0.75 ? "clear" : "faint",
+          residueIntensity: access >= 0.75 ? "" : "faint",
+          doorIntensity: "trace",
+          sourceLabel: `${roomName(roomId)} beyond container`
+        });
+      } else {
+        addSlimePerceptionEntry(entries, slimePerceptionEntry("containment", "container muffles room cues", {
+          intensity: "faint",
+          sourceLabel: container?.name || "containment",
+          roomId,
+          targetKind: "container",
+          targetId: container?.id || ""
+        }));
+      }
+    } else {
+      addRoomPerceptionEntries(entries, slime, roomId, { sourceLabel: roomName(roomId) });
+    }
+
+    const cleanEntries = cleanPerceptionEntries(entries);
+    return normalizeSlimePerceptionRecord({
+      scope: contained ? "container-local" : "room-local",
+      summary: slimePerceptionSummaryText(cleanEntries),
+      entries: cleanEntries
+    });
+  }
+
+  function applySlimePerception(slime, ai) {
+    return {
+      ...ai,
+      perception: evaluateSlimePerception(slime)
+    };
+  }
+
+  function finalizeSlimeAi(slime, ai) {
+    return applySlimeDriveInfluence(slime, applySlimePerception(slime, ai));
   }
 
   function slimeAiTargetFromActivity(activity) {
@@ -7978,17 +8355,17 @@
       };
     }
     if (!slimeIsUncontained(slime)) {
-      return applySlimeDriveInfluence(slime, slimeAiFromContainedState(slime));
+      return finalizeSlimeAi(slime, slimeAiFromContainedState(slime));
     }
     const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
     if (movement && state.clock < movement.arriveAt) {
       slime.autonomousMovement = movement;
-      return applySlimeDriveInfluence(slime, slimeAiFromMovement(slime, movement));
+      return finalizeSlimeAi(slime, slimeAiFromMovement(slime, movement));
     }
     if (slime.roomActivity?.label || slime.roomActivity?.type) {
-      return applySlimeDriveInfluence(slime, slimeAiFromRoomActivity(slime, slime.roomActivity));
+      return finalizeSlimeAi(slime, slimeAiFromRoomActivity(slime, slime.roomActivity));
     }
-    return applySlimeDriveInfluence(slime, {
+    return finalizeSlimeAi(slime, {
       state: "idle",
       intent: "wander",
       target: cleanSlimeAiTarget({ kind: "room", id: slime.roomId || MAIN_ROOM_ID, label: roomName(slime.roomId || MAIN_ROOM_ID), roomId: slime.roomId || MAIN_ROOM_ID }),
@@ -8008,6 +8385,7 @@
       urgency: ai.urgency,
       drives: ai.drives,
       dominantDrive: ai.dominantDrive,
+      perception: ai.perception,
       path: ai.path,
       nextThinkAt: ai.nextThinkAt
     });
@@ -8081,6 +8459,20 @@
     const element = chip(label);
     element.dataset.slimeDrive = slime.id;
     element.title = drive.reason || label;
+    return element;
+  }
+
+  function slimePerceptionChip(slime) {
+    const ai = slimeAiRecord(slime);
+    const perception = ai.perception || defaultSlimePerceptionRecord();
+    if (!perception.entries.length) {
+      return null;
+    }
+    const element = chip(perception.summary);
+    element.dataset.slimePerception = slime.id;
+    element.title = perception.entries
+      .map((entry) => `${SLIME_PERCEPTION_KIND_LABELS[entry.kind] || titleCase(entry.kind)}: ${entry.label}${entry.sourceLabel ? ` (${entry.sourceLabel})` : ""}`)
+      .join("\n");
     return element;
   }
 
@@ -11456,6 +11848,10 @@
       if (driveChip) {
         meta.append(driveChip);
       }
+      const perceptionChip = slimePerceptionChip(slime);
+      if (perceptionChip) {
+        meta.append(perceptionChip);
+      }
       for (const activityChip of slimeDoorIntentChips(slime)) {
         meta.append(activityChip);
       }
@@ -11469,6 +11865,7 @@
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
         card.append(renderSlimeDrives(slime));
+        card.append(renderSlimePerception(slime));
         card.append(renderFeedingControls(slime));
         card.append(renderLivingHarvestControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
@@ -16687,6 +17084,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       grid.append(row);
     }
     section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimePerception(slime) {
+    const ai = slimeAiRecord(slime);
+    const perception = ai.perception || defaultSlimePerceptionRecord();
+    const section = document.createElement("div");
+    section.className = "slime-perception subpanel";
+    section.dataset.slimePerceptionPanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Perception";
+    title.title = "Current local stimuli only. This is not memory and does not mean the slime can target distant resources.";
+    const summary = document.createElement("div");
+    summary.className = "journal-meta";
+    summary.dataset.slimePerceptionSummary = slime.id;
+    summary.textContent = perception.summary;
+    section.append(title, summary);
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    if (!perception.entries.length) {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      row.append(textEl("span", "Stimuli"), textEl("strong", "None clear"), textEl("em", perception.scope));
+      grid.append(row);
+    } else {
+      for (const entry of perception.entries) {
+        const row = document.createElement("div");
+        row.className = "slime-stat-row";
+        row.dataset.slimePerceptionKind = entry.kind;
+        row.title = [
+          `${SLIME_PERCEPTION_KIND_LABELS[entry.kind] || titleCase(entry.kind)} cue`,
+          `Intensity: ${entry.intensity}`,
+          entry.sourceLabel ? `Source: ${entry.sourceLabel}` : "",
+          entry.roomId ? `Room: ${roomName(entry.roomId)}` : ""
+        ].filter(Boolean).join("\n");
+        row.append(
+          textEl("span", SLIME_PERCEPTION_KIND_LABELS[entry.kind] || titleCase(entry.kind)),
+          textEl("strong", titleCase(entry.intensity)),
+          textEl("em", `${entry.label}${entry.sourceLabel ? ` - ${entry.sourceLabel}` : ""}`)
+        );
+        grid.append(row);
+      }
+    }
+    section.append(grid);
     return section;
   }
 

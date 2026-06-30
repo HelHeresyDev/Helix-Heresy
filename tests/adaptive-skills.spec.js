@@ -29,6 +29,7 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await expect(skillList).toContainText('No learned skills yet');
   await expect(skillList).not.toContainText('Analysis');
   await expect(skillList).not.toContainText('Observation');
+  await expect(skillList).not.toContainText('Perception');
 
   await page.locator('#xpCommandInput').fill('analysis 99');
   await page.locator('#xpCommandBtn').click();
@@ -40,16 +41,26 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await expect(skillList).toContainText('Analysis');
   await expect(skillList).toContainText('[Initiate], level 1');
   await expect(skillList).not.toContainText('Observation');
+  await expect(skillList).not.toContainText('Perception');
 
-  const savedSkill = await page.evaluate(() => {
+  await page.locator('#xpCommandInput').fill('perception 100');
+  await page.locator('#xpCommandBtn').click();
+  await expect(skillList).toContainText('Perception');
+  await expect(skillList).toContainText('[Initiate], level 1');
+
+  const savedSkills = await page.evaluate(() => {
     const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
     const state = payload.state || payload;
-    return state.scientist?.skills?.analysis || null;
+    return {
+      analysis: state.scientist?.skills?.analysis || null,
+      perception: state.scientist?.skills?.perception || null,
+    };
   });
 
-  expect(savedSkill?.xp).toBe(100);
-  expect(savedSkill?.practiceTags?.cheatcommand).toBe(100);
+  expect(savedSkills.analysis?.xp).toBe(100);
+  expect(savedSkills.analysis?.practiceTags?.cheatcommand).toBe(100);
+  expect(savedSkills.perception?.xp).toBe(100);
+  expect(savedSkills.perception?.practiceTags?.cheatcommand).toBe(100);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
-

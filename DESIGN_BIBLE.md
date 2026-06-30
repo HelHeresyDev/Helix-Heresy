@@ -235,6 +235,8 @@ Slimes also have first-pass drive records stored at `slime.ai.drives`. Current d
 
 Drives are intentionally lightweight in this pass. They can raise urgency and nudge broad intent, such as hunger or regrowth producing `seekFood`, injury producing `rest`, assigned work producing `continueJob`, and containment or stress producing `endureContainment`. They do not yet execute full behavior, perceive distant targets, or override active movement/feeding/blockage states. Needs and drives describe what the slime wants; later perception, movement, feeding, habitat, threat, containment, and work-autonomy systems decide what it can actually do.
 
+Slimes now have first-pass current perception stored at `slime.ai.perception`. Perception is local and qualitative. Loose slimes can perceive same-room stimuli such as notable environment bands, feeding residue, local corpses, waste, nearby free creatures, the scientist, and open-door air from adjacent rooms. Contained slimes primarily perceive their own container interior, container-local residue/corpses/other occupants, containment strain, and only limited room cues when the container seal/visibility allows it. Sealed containers should block or muffle room cues rather than granting omniscient awareness. This record is current awareness only, not long-term memory; later movement, feeding, combat, and work autonomy should target perceived or remembered things instead of global resources.
+
 The current implementation deliberately mirrors existing `roomActivity`, `autonomousMovement`, job, container, and containment-risk behavior instead of replacing those systems all at once. This keeps loose movement, blocked-door pressure, feeding behavior, cleanup observations, and incident alerts working while giving future systems a consistent place to read and write intent.
 
 Player-facing AI readouts should remain broad and readable, such as `AI: Moving - seeking loose biomatter` or `AI: Blocked - blocked from Loose biomatter`. Exact scores, hidden trait influences, and future drive weights should stay out of ordinary UI. Deeper debug views belong to the later AI debugging/readout system.
@@ -254,6 +256,7 @@ Level 0 skills should not appear on character sheets. If an actor has not reache
 Base skills should be broad world-scale domains, not narrow lab job titles. The current prototype scientist skill domains are:
 
 - Analysis
+- Perception
 - Creature Handling
 - Fabrication
 - Husbandry
@@ -269,6 +272,7 @@ These names should make sense beyond the starting scientist. Hunters, soldiers, 
 - Creature Handling can later evolve into Containment Handling, Predator Handling, Slime Handling, or another creature-family specialty.
 - Husbandry can later evolve into Slime Husbandry, Brood Husbandry, Monstrous Husbandry, or other care/reproduction specialties.
 - Analysis can later evolve into Combat Analysis, Surgical Analysis, Creature Analysis, or another reading specialty.
+- Perception can later evolve into Threat Perception, Arcane Sense, Tracking, or another awareness specialty.
 
 Examples of creature or combat skills:
 
