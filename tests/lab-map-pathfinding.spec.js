@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -315,6 +316,205 @@ test('slime ai perception stays local and respects containment limits', async ({
   expect(result['perception-contained'].scope).toBe('container-local');
   expect(containedLabels).toContain('container muffles room cues');
   expect(containedLabels).not.toContain('Loose biomatter');
+});
+
+test('known habitat fit appears on selected slimes and bad habitat raises stress', async ({ page }) => {
+  await startRun(page);
+  const context = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { seed: state.seed, complexity: state.complexity, currentGenome: state.currentGenome };
+  }, { key: storageKey });
+  const genome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: {
+      element: 'water',
+      consistency: 'watery',
+      sustenance: 'moisture absorber',
+      behavior: 'idle pooling',
+      stability: 'nervous',
+    },
+  });
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    jar.environment ||= {};
+    for (const def of ['temperature', 'light', 'ambientMana', 'moisture', 'contamination', 'electricalCharge']) {
+      jar.environment[def] ||= { current: 50, baseline: 50, recoveryPerHour: 0 };
+    }
+    jar.environment.moisture.current = 0;
+    jar.environment.moisture.baseline = 0;
+    jar.environment.temperature.current = 85;
+    jar.environment.temperature.baseline = 85;
+    state.paused = true;
+    state.clock = 0;
+    state.selectedSlimeId = 'habitat-contained';
+    state.slimes = [{
+      id: 'habitat-contained',
+      name: 'HAB-CONTAINED',
+      genome,
+      source: 'Habitat fixture',
+      createdAt: 0,
+      deathAt: 100000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 90, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+      revealed: { element: true, consistency: true, sustenance: true, behavior: true, stability: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome });
+  await loadSavedRun(page);
+
+  await expect(page.locator('[data-slime-habitat="habitat-contained"]')).toContainText('Habitat: Hostile');
+  await expect(page.locator('[data-slime-habitat-panel="habitat-contained"]')).toContainText('Moisture is below');
+  await skipSeconds(page, 21600);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'habitat-contained');
+    return {
+      stress: slime.stats.stress.current,
+      habitat: slime.habitat,
+    };
+  }, { key: storageKey });
+
+  expect(result.stress).toBeGreaterThan(0.5);
+  expect(['Hostile', 'Poor Fit']).toContain(result.habitat.label);
+});
+
+test('released slimes can seek better adjacent habitat when no food is available', async ({ page }) => {
+  await startRun(page);
+  const context = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { seed: state.seed, complexity: state.complexity, currentGenome: state.currentGenome };
+  }, { key: storageKey });
+  const genome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: {
+      element: 'water',
+      consistency: 'watery',
+      sustenance: 'moisture absorber',
+      behavior: 'idle pooling',
+      stability: 'nervous',
+    },
+  });
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const main = (state.rooms || []).find((room) => room.id === 'mainLab');
+    const menagerie = (state.rooms || []).find((room) => room.id === 'menagerie');
+    main.attributes.moisture.current = 0;
+    main.attributes.moisture.baseline = 0;
+    menagerie.attributes.moisture.current = 95;
+    menagerie.attributes.moisture.baseline = 95;
+    const door = state.doors?.['mainLab::menagerie'] || state.doors?.['menagerie::mainLab'];
+    if (door) {
+      door.state = 'open';
+      door.lockState = 'unlocked';
+      door.sealState = 'unsealed';
+      door.breached = false;
+    }
+    state.paused = true;
+    state.clock = 0;
+    state.feedingResidues = [];
+    state.resources ||= {};
+    state.resources.waste = 0;
+    state.roomStockpiles ||= {};
+    for (const stockpile of Object.values(state.roomStockpiles)) {
+      stockpile.resources ||= {};
+      stockpile.resources.waste = 0;
+    }
+    state.selectedSlimeId = 'habitat-seeker';
+    state.slimes = [{
+      id: 'habitat-seeker',
+      name: 'HAB-SEEKER',
+      genome,
+      source: 'Habitat fixture',
+      createdAt: 0,
+      deathAt: 100000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'mainLab',
+      mapCell: state.labMap.rooms.mainLab.anchor,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      nextAutonomousDecisionAt: 0,
+      roomBehavior: { hunting: false, seeksContamination: false, eatsContamination: false },
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 100, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+      revealed: { element: true, consistency: true, sustenance: true, behavior: true, stability: true },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome });
+  await loadSavedRun(page);
+  await skipSeconds(page, 1);
+
+  await expect(page.locator('[data-slime-card="habitat-seeker"]')).toContainText(/better habitat|moving/i);
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'habitat-seeker');
+    return {
+      ai: slime.ai,
+      movement: slime.autonomousMovement,
+      activity: slime.roomActivity,
+      perception: slime.ai?.perception,
+    };
+  }, { key: storageKey });
+
+  expect(result.ai.intent).toBe('seekHabitat');
+  expect(result.ai.target.kind).toBe('habitat');
+  expect(result.movement.targetRoomId).toBe('menagerie');
+  expect(result.activity.type).toBe('seekingHabitat');
+  expect(result.perception.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      kind: 'environment',
+      targetKind: 'room',
+      targetId: 'menagerie',
+    }),
+  ]));
 });
 
 test('lab blueprint stores room footprints and queues scientist movement with map paths', async ({ page }) => {

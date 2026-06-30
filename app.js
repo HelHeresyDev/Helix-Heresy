@@ -1499,6 +1499,16 @@
     bad: { label: "poor match", rate: 0.65, nutrition: 1, mass: 0.1, stress: 1, bodyDamage: 0, residue: 1 },
     harmful: { label: "harmful match", rate: 0.4, nutrition: 0.5, mass: 0, stress: 2, bodyDamage: 0.5, residue: 1 }
   };
+  const HABITAT_FIT_BANDS = [
+    { id: "hostile", label: "Hostile", min: 0, productionFactor: 0.75, stressPerDay: 4, className: "container-band-poor" },
+    { id: "poor", label: "Poor Fit", min: 30, productionFactor: 1, stressPerDay: 1.8, className: "container-band-questionable" },
+    { id: "tolerable", label: "Tolerable", min: 52, productionFactor: 1, stressPerDay: 0, className: "container-band-questionable" },
+    { id: "comfortable", label: "Comfortable", min: 72, productionFactor: 1, stressPerDay: -0.35, className: "container-band-good" },
+    { id: "ideal", label: "Ideal", min: 90, productionFactor: 1, stressPerDay: -0.75, className: "container-band-good" }
+  ];
+  const HABITAT_TRACE_IMPROVEMENT_THRESHOLD = 14;
+  const HABITAT_SEEK_SCORE_THRESHOLD = 52;
+  const HABITAT_MOVEMENT_IMPROVEMENT_THRESHOLD = 18;
   const FEEDING_RESIDUE_DEFS = [
     { key: "looseBiomatter", label: "Loose biomatter", contamination: 0.4 },
     { key: "contaminatedResidue", label: "Contaminated residue", contamination: 1.2 },
@@ -2900,6 +2910,7 @@
       roomChanges: recoverRoomAttributes(elapsed),
       roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
       envChanges: exchangeContainerEnvironments(elapsed),
+      habitatChanged: updateSlimeHabitatEffects(elapsed),
       expired: expireSlimes(),
       corpseChanges: updateCorpses(elapsed),
       jobChanges: updateCreatureJobs(elapsed),
@@ -2932,6 +2943,7 @@
       + changes.roomChanges
       + changes.roomPropagationChanges
       + changes.envChanges
+      + changes.habitatChanged
       + changes.feedstockChanged
       + changes.feedingChanged
       + changes.uncontainedBehaviorChanged
@@ -6083,6 +6095,11 @@
       knownFactors.push("pressed against a closed route toward contamination");
       clearEvidence += 16;
     }
+    if (targetKind === "habitat") {
+      possible.push("seeking better habitat");
+      knownFactors.push(targetLabel ? `pressed against a blocked route toward ${targetLabel}` : "pressed against a blocked route toward different room air");
+      clearEvidence += 12;
+    }
     if (slimeHuntingInclination(slime)) {
       possible.push("hunting");
       concerns.push("predatory or hunting signs are possible");
@@ -8130,6 +8147,80 @@
     }
   }
 
+  function habitatTraceIntensity(improvement) {
+    const value = Number(improvement) || 0;
+    if (value >= 35) return "strong";
+    if (value >= 22) return "clear";
+    if (value >= HABITAT_TRACE_IMPROVEMENT_THRESHOLD) return "faint";
+    return "";
+  }
+
+  function adjustedHabitatTraceIntensity(baseIntensity, fromRoomId, sourceRoomId) {
+    return perceptionIntensityAfterDrop(baseIntensity, foodTraceDoorDrop(fromRoomId, sourceRoomId));
+  }
+
+  function roomHabitatSource(roomId) {
+    const room = roomById(roomId);
+    if (!room) {
+      return null;
+    }
+    return {
+      type: "room",
+      id: room.id,
+      roomId: room.id,
+      label: room.name,
+      attributes: room.attributes
+    };
+  }
+
+  function adjacentHabitatTraceTargets(slime, roomId = slimeEffectiveRoomId(slime)) {
+    if (!slime || slime.status === "dead") {
+      return [];
+    }
+    const currentFit = slimeHabitatFit(slime, { source: roomHabitatSource(roomId) });
+    if (currentFit.score >= HABITAT_SEEK_SCORE_THRESHOLD) {
+      return [];
+    }
+    const targets = [];
+    for (const connectedId of roomConnectedIds(roomId)) {
+      const source = roomHabitatSource(connectedId);
+      if (!source) {
+        continue;
+      }
+      const fit = slimeHabitatFit(slime, { source });
+      const improvement = fit.score - currentFit.score;
+      const baseIntensity = habitatTraceIntensity(improvement);
+      const intensity = baseIntensity ? adjustedHabitatTraceIntensity(baseIntensity, roomId, connectedId) : "";
+      if (!intensity || improvement < HABITAT_TRACE_IMPROVEMENT_THRESHOLD) {
+        continue;
+      }
+      targets.push({
+        kind: "habitat",
+        id: connectedId,
+        roomId: connectedId,
+        cell: targetCellForRoomTarget(connectedId),
+        label: `environmental trace from ${roomName(connectedId)}`,
+        score: fit.score + improvement,
+        improvement,
+        fitLabel: fit.label,
+        intensity
+      });
+    }
+    return targets.sort((a, b) => b.score - a.score);
+  }
+
+  function addAdjacentHabitatTracePerceptionEntries(entries, slime, roomId) {
+    for (const target of adjacentHabitatTraceTargets(slime, roomId).slice(0, 2)) {
+      addSlimePerceptionEntry(entries, slimePerceptionEntry("environment", target.label, {
+        intensity: target.intensity,
+        sourceLabel: `${doorStateLabel(roomId, target.roomId)} door`,
+        roomId,
+        targetKind: "room",
+        targetId: target.roomId
+      }));
+    }
+  }
+
   function addResiduePerceptionEntries(entries, location, sourceLabel, roomId, intensityOverride = "") {
     for (const residue of feedingResiduesForLocation(location)) {
       addSlimePerceptionEntry(entries, slimePerceptionEntry(residuePerceptionKind(residue), feedingResidueLabel(residue.typeKey), {
@@ -8236,6 +8327,9 @@
     }
     if (options.includeFoodTraces !== false) {
       addAdjacentFoodTracePerceptionEntries(entries, slime, room.id);
+    }
+    if (options.includeHabitatTraces !== false) {
+      addAdjacentHabitatTracePerceptionEntries(entries, slime, room.id);
     }
   }
 
@@ -8432,6 +8526,18 @@
         };
       }
     }
+    const habitat = slimeHabitatFit(slime);
+    if (habitat.band.id === "hostile" || (habitat.band.id === "poor" && slimeStat(slime, "stress").current >= 35)) {
+      return {
+        state: "stressed",
+        intent: "endureHabitat",
+        target: cleanSlimeAiTarget({ kind: "container", id: container?.id || "", label: container?.name || "containment", roomId: slimeEffectiveRoomId(slime) }),
+        reason: `${habitat.label.toLowerCase()} habitat in containment`,
+        urgency: habitat.band.id === "hostile" ? "medium" : "low",
+        path: [],
+        nextThinkAt: null
+      };
+    }
     if (slime.revealed?.sustenance && isEnvironmentalSustenance(slime) && environmentalSustenanceRate(slime) > 0) {
       return {
         state: "feeding",
@@ -8455,7 +8561,7 @@
   }
 
   function slimeAiFromMovement(slime, movement) {
-    const intent = movement.intent === "wander" ? "wander" : "seekFood";
+    const intent = movement.intent || (movement.targetKind === "habitat" ? "seekHabitat" : movement.targetKind === "wander" ? "wander" : "seekFood");
     const target = cleanSlimeAiTarget({
       kind: movement.targetKind || (intent === "wander" ? "room" : "target"),
       id: movement.targetId || "",
@@ -8489,9 +8595,9 @@
       stateId = "feeding";
       intent = "feed";
       reason = label || "feeding";
-    } else if (["seekingFood", "seekingContamination"].includes(type)) {
+    } else if (["seekingFood", "seekingContamination", "seekingHabitat"].includes(type)) {
       stateId = "seeking";
-      intent = type === "seekingContamination" ? "seekHabitat" : "seekFood";
+      intent = type === "seekingFood" ? "seekFood" : "seekHabitat";
       reason = label || "seeking a target";
     } else if (type === "moving") {
       stateId = "moving";
@@ -10479,6 +10585,253 @@
     return clamp(((Number(stat.current) || 0) / Math.max(1, Number(stat.max) || 100)) * 100, 0, 100);
   }
 
+  function habitatFitBand(score) {
+    const value = clamp(Number(score) || 0, 0, 100);
+    return [...HABITAT_FIT_BANDS].reverse().find((band) => value >= band.min) || HABITAT_FIT_BANDS[0];
+  }
+
+  function habitatAttributeValue(attributes, key) {
+    return clamp(Number(attributes?.[key]?.current) || 0, 0, 100);
+  }
+
+  function addSlimeHabitatPreference(preferences, slime, options, traitKey, preference) {
+    if (options?.knownOnly && traitKey && !slimeTraitKnown(slime, traitKey)) {
+      return;
+    }
+    preferences.push({
+      traitKey,
+      attributeKey: preference.attributeKey,
+      min: clamp(Number(preference.min) || 0, 0, 100),
+      max: clamp(Number(preference.max) || 100, 0, 100),
+      weight: Math.max(0.1, Number(preference.weight) || 1),
+      label: preference.label || ROOM_ATTRIBUTE_BY_KEY[preference.attributeKey]?.label || preference.attributeKey,
+      reason: preference.reason || ""
+    });
+  }
+
+  function slimeHabitatPreferences(slime, options = {}) {
+    if (!slime?.genome) {
+      return [];
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const traits = evaluated.traits || {};
+    const preferences = [];
+    const add = (traitKey, preference) => addSlimeHabitatPreference(preferences, slime, options, traitKey, preference);
+    const element = baseOutcomeLabel(traits.element);
+    const consistency = baseOutcomeLabel(traits.consistency);
+    const sustenance = baseOutcomeLabel(traits.sustenance);
+    const behavior = baseOutcomeLabel(traits.behavior);
+
+    if (element === "flame") add("element", { attributeKey: "temperature", min: 65, max: 100, weight: 2, label: "warmth", reason: "flame affinity" });
+    if (element === "frost") add("element", { attributeKey: "temperature", min: 0, max: 38, weight: 2, label: "cold", reason: "frost affinity" });
+    if (element === "storm") add("element", { attributeKey: "electricalCharge", min: 40, max: 100, weight: 1.8, label: "charged air", reason: "storm affinity" });
+    if (element === "water") add("element", { attributeKey: "moisture", min: 65, max: 100, weight: 1.8, label: "wet air", reason: "water affinity" });
+    if (element === "light") add("element", { attributeKey: "light", min: 65, max: 100, weight: 1.4, label: "bright light", reason: "light affinity" });
+    if (element === "shadow") add("element", { attributeKey: "light", min: 0, max: 35, weight: 1.5, label: "low light", reason: "shadow affinity" });
+    if (element === "wood") {
+      add("element", { attributeKey: "moisture", min: 55, max: 90, weight: 1.1, label: "damp air", reason: "wood affinity" });
+      add("element", { attributeKey: "light", min: 35, max: 85, weight: 0.8, label: "growth light", reason: "wood affinity" });
+    }
+    if (["stone", "metal"].includes(element)) add("element", { attributeKey: "moisture", min: 0, max: 60, weight: 1.1, label: "dry footing", reason: `${element} affinity` });
+    if (["poison", "acid"].includes(element)) add("element", { attributeKey: "contamination", min: 20, max: 85, weight: 1.1, label: "fouled medium", reason: `${element} affinity` });
+    if (["dream", "ether", "gravity"].includes(element)) add("element", { attributeKey: "ambientMana", min: 62, max: 100, weight: 1.5, label: "rich mana", reason: `${element} affinity` });
+
+    if (["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy"].includes(consistency)) {
+      add("consistency", { attributeKey: "moisture", min: 60, max: 100, weight: 1.2, label: "humid body support", reason: `${consistency} body` });
+    }
+    if (["soft gelatin", "elastic gel", "rubbery"].includes(consistency)) {
+      add("consistency", { attributeKey: "moisture", min: 35, max: 80, weight: 0.7, label: "balanced moisture", reason: `${consistency} body` });
+    }
+    if (["tar-like", "waxen"].includes(consistency)) {
+      add("consistency", { attributeKey: "temperature", min: 55, max: 90, weight: 1, label: "softening warmth", reason: `${consistency} body` });
+    }
+    if (["grainy slurry", "crystalline gel", "brittle jelly", "clay-like"].includes(consistency)) {
+      add("consistency", { attributeKey: "moisture", min: 0, max: 55, weight: 1, label: "dry structure", reason: `${consistency} body` });
+    }
+    if (consistency === "fibrous gel") {
+      add("consistency", { attributeKey: "moisture", min: 35, max: 85, weight: 0.8, label: "fibrous moisture", reason: "fibrous body" });
+    }
+
+    const sustenancePrefs = {
+      "heat absorber": { attributeKey: "temperature", min: 68, max: 100, weight: 2.4, label: "available heat", reason: "environmental Sustenance" },
+      "light absorber": { attributeKey: "light", min: 68, max: 100, weight: 2.4, label: "available light", reason: "environmental Sustenance" },
+      "ambient mana absorber": { attributeKey: "ambientMana", min: 70, max: 100, weight: 2.4, label: "available mana", reason: "environmental Sustenance" },
+      "moisture absorber": { attributeKey: "moisture", min: 70, max: 100, weight: 2.4, label: "available moisture", reason: "environmental Sustenance" },
+      "electrical absorber": { attributeKey: "electricalCharge", min: 45, max: 100, weight: 2.4, label: "available charge", reason: "environmental Sustenance" },
+      "fume absorber": { attributeKey: "contamination", min: 35, max: 95, weight: 2.2, label: "available fumes", reason: "environmental Sustenance" },
+      "filth feeder": { attributeKey: "contamination", min: 20, max: 85, weight: 1.3, label: "fouled surroundings", reason: "filth Sustenance" },
+      "hazard feeder": { attributeKey: "contamination", min: 30, max: 95, weight: 1.4, label: "hazardous surroundings", reason: "hazard Sustenance" },
+      "decay feeder": { attributeKey: "contamination", min: 15, max: 75, weight: 0.9, label: "decay traces", reason: "decay Sustenance" },
+      "arcane mineral feeder": { attributeKey: "ambientMana", min: 50, max: 95, weight: 0.8, label: "arcane mineral charge", reason: "arcane Sustenance" }
+    };
+    if (sustenancePrefs[sustenance]) add("sustenance", sustenancePrefs[sustenance]);
+
+    if (behavior === "light seeking") add("behavior", { attributeKey: "light", min: 62, max: 100, weight: 0.9, label: "visible light", reason: "light-seeking behavior" });
+    if (behavior === "light avoiding" || behavior === "hiding") add("behavior", { attributeKey: "light", min: 0, max: 38, weight: 0.9, label: "cover from light", reason: `${behavior} behavior` });
+    if (behavior === "heat seeking") add("behavior", { attributeKey: "temperature", min: 62, max: 100, weight: 0.8, label: "warm route", reason: "heat-seeking behavior" });
+    if (behavior === "cold nesting") add("behavior", { attributeKey: "temperature", min: 0, max: 42, weight: 0.8, label: "cool nest", reason: "cold-nesting behavior" });
+
+    return preferences;
+  }
+
+  function slimeHabitatSensitivity(slime, options = {}) {
+    if (!slime?.genome || (options.knownOnly && !slimeTraitKnown(slime, "stability"))) {
+      return 1;
+    }
+    const stability = baseOutcomeLabel(evaluateGenome(slime.genome).traits.stability);
+    if (["nervous", "fragile", "flickering", "volatile", "fractious", "erratic"].includes(stability)) {
+      return 1.2;
+    }
+    if (["placid", "steady", "docile", "self-knitting", "dormant"].includes(stability)) {
+      return 0.9;
+    }
+    return 1;
+  }
+
+  function habitatPreferenceResult(preference, attributes, sensitivity = 1) {
+    const value = habitatAttributeValue(attributes, preference.attributeKey);
+    const def = ROOM_ATTRIBUTE_BY_KEY[preference.attributeKey];
+    if (value >= preference.min && value <= preference.max) {
+      return {
+        preference,
+        value,
+        delta: preference.weight * 4,
+        label: `${def?.label || preference.attributeKey} supports ${preference.label}`
+      };
+    }
+    const below = value < preference.min;
+    const distance = below ? preference.min - value : value - preference.max;
+    const severity = distance >= 35 ? 2 : distance >= 18 ? 1.3 : 0.6;
+    const delta = -preference.weight * severity * 5 * sensitivity;
+    return {
+      preference,
+      value,
+      delta,
+      label: `${def?.label || preference.attributeKey} is ${below ? "below" : "above"} ${preference.label}`
+    };
+  }
+
+  function habitatUnknownFactors(slime) {
+    const keys = ["element", "consistency", "sustenance", "behavior", "stability"];
+    return keys
+      .filter((key) => !slimeTraitKnown(slime, key))
+      .map((key) => getRegionLabel(key));
+  }
+
+  function slimeHabitatSource(slime, sourceOverride = null) {
+    if (sourceOverride?.attributes) {
+      return {
+        type: sourceOverride.type || "room",
+        id: sourceOverride.id || sourceOverride.roomId || "",
+        roomId: sourceOverride.roomId || sourceOverride.id || slimeEffectiveRoomId(slime),
+        label: sourceOverride.label || roomName(sourceOverride.roomId || sourceOverride.id || slimeEffectiveRoomId(slime)),
+        attributes: sourceOverride.attributes
+      };
+    }
+    if (!slime) {
+      return null;
+    }
+    if (slime.status === "contained" && slime.containerId) {
+      const container = containerById(slime.containerId);
+      if (container) {
+        container.environment = normalizeContainerEnvironment(container.environment);
+        return {
+          type: "container",
+          id: container.id,
+          roomId: container.roomId || slime.roomId || MAIN_ROOM_ID,
+          label: `${container.name} interior`,
+          attributes: container.environment
+        };
+      }
+    }
+    const room = roomById(slime.roomId || MAIN_ROOM_ID);
+    if (!room) {
+      return null;
+    }
+    return {
+      type: "room",
+      id: room.id,
+      roomId: room.id,
+      label: room.name,
+      attributes: room.attributes
+    };
+  }
+
+  function slimeHabitatFit(slime, options = {}) {
+    if (!slime || slime.status === "dead") {
+      return {
+        score: 0,
+        band: HABITAT_FIT_BANDS[0],
+        label: "Dormant",
+        className: "container-band-unknown",
+        productionFactor: 0,
+        stressPerDay: 0,
+        source: null,
+        preferences: [],
+        supports: [],
+        concerns: ["Specimen is not living."],
+        unknownFactors: []
+      };
+    }
+    const source = slimeHabitatSource(slime, options.source);
+    const preferences = slimeHabitatPreferences(slime, options);
+    const unknownFactors = options.knownOnly ? habitatUnknownFactors(slime) : [];
+    if (!source || !preferences.length) {
+      return {
+        score: 58,
+        band: habitatFitBand(58),
+        label: options.knownOnly ? "Uncertain" : "Tolerable",
+        className: "container-band-unknown",
+        productionFactor: 1,
+        stressPerDay: 0,
+        source,
+        preferences,
+        supports: [],
+        concerns: [],
+        unknownFactors
+      };
+    }
+    const sensitivity = slimeHabitatSensitivity(slime, options);
+    const results = preferences.map((preference) => habitatPreferenceResult(preference, source.attributes, sensitivity));
+    const score = clamp(Math.round(70 + results.reduce((sum, result) => sum + result.delta, 0)), 0, 100);
+    const band = habitatFitBand(score);
+    const supports = results
+      .filter((result) => result.delta > 0)
+      .sort((a, b) => b.delta - a.delta)
+      .slice(0, 3)
+      .map((result) => result.label);
+    const concerns = results
+      .filter((result) => result.delta < 0)
+      .sort((a, b) => a.delta - b.delta)
+      .slice(0, 3)
+      .map((result) => result.label);
+    return {
+      score,
+      band,
+      label: band.label,
+      className: band.className,
+      productionFactor: band.productionFactor,
+      stressPerDay: band.stressPerDay,
+      source,
+      preferences,
+      supports,
+      concerns,
+      unknownFactors
+    };
+  }
+
+  function cleanSlimeHabitatRecord(fit) {
+    return {
+      score: Math.round(Number(fit?.score) || 0),
+      label: fit?.label || "Unknown",
+      sourceType: fit?.source?.type || "",
+      sourceId: fit?.source?.id || "",
+      sourceLabel: fit?.source?.label || "",
+      supports: [...(fit?.supports || [])],
+      concerns: [...(fit?.concerns || [])]
+    };
+  }
+
   function byproductProductionConditionInfo(slime) {
     if (!slime || slime.status === "dead") {
       return { factor: 0, label: "Dormant", reasons: ["Specimen is not living."] };
@@ -10536,6 +10889,12 @@
     } else if (stress >= 45) {
       factor *= 0.75;
       reasons.push("Stress reduces production.");
+    }
+
+    const habitat = slimeHabitatFit(slime);
+    if (habitat.productionFactor > 0 && habitat.productionFactor < 1) {
+      factor *= habitat.productionFactor;
+      reasons.push(`${habitat.label} habitat reduces production.`);
     }
 
     factor = roundOutputValue(clamp(factor, 0, 1));
@@ -12040,6 +12399,10 @@
       if (perceptionChip) {
         meta.append(perceptionChip);
       }
+      const habitatChip = slimeHabitatChip(slime);
+      if (habitatChip) {
+        meta.append(habitatChip);
+      }
       for (const activityChip of slimeDoorIntentChips(slime)) {
         meta.append(activityChip);
       }
@@ -12052,6 +12415,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderSlimeHabitat(slime));
         card.append(renderSlimeDrives(slime));
         card.append(renderSlimePerception(slime));
         card.append(renderFeedingControls(slime));
@@ -12496,6 +12860,39 @@
     }
   }
 
+  function updateSlimeHabitatEffects(minutes) {
+    const elapsed = Math.max(0, Number(minutes) || 0);
+    if (!elapsed || !state?.started) {
+      return 0;
+    }
+    let changes = 0;
+    const days = secondsToDays(elapsed);
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      if (slime.status === "contained" && containerById(slime.containerId)?.type === "synthesis") {
+        continue;
+      }
+      const fit = slimeHabitatFit(slime);
+      const previousRecord = JSON.stringify(slime.habitat || {});
+      slime.habitat = cleanSlimeHabitatRecord(fit);
+      if (JSON.stringify(slime.habitat) !== previousRecord) {
+        changes += 1;
+      }
+      const stressDelta = fit.stressPerDay * days;
+      if (Math.abs(stressDelta) < 0.01) {
+        continue;
+      }
+      const beforeStress = slimeStat(slime, "stress").current;
+      adjustSlimeStat(slime, "stress", stressDelta);
+      if (Math.abs(slimeStat(slime, "stress").current - beforeStress) >= 0.01) {
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
   function updateContainerCompatibilityEffects(minutes) {
     const elapsed = Math.max(0, Number(minutes) || 0);
     if (!elapsed || !state?.started) {
@@ -12752,6 +13149,13 @@
     const compatibilityPotential = activeContainmentPotentialFromCompatibility(actualCompatibility, visibleCompatibility);
     if (compatibilityPotential.points) {
       addPotential(compatibilityPotential.points, compatibilityPotential.text);
+    }
+
+    const habitat = slimeHabitatFit(slime);
+    if (habitat.band.id === "hostile") {
+      addPressure(8, "hostile habitat is agitating the slime.");
+    } else if (habitat.band.id === "poor" && slimeStat(slime, "stress").current >= 35) {
+      addPressure(4, "poor habitat fit is making containment less comfortable.");
     }
 
     if (condition < 25) {
@@ -15294,6 +15698,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return null;
   }
 
+  function chooseAutonomousHabitatTarget(slime) {
+    const targets = adjacentHabitatTraceTargets(slime)
+      .filter((target) => target.improvement >= HABITAT_MOVEMENT_IMPROVEMENT_THRESHOLD);
+    if (!targets.length) {
+      return null;
+    }
+    const reachable = [];
+    const blocked = [];
+    for (const target of targets) {
+      const path = pathToAutonomousTarget(slime, target);
+      if (path.length) {
+        const distance = Math.max(0, path.length - 1);
+        reachable.push({ target, path, value: target.score - distance * 2 });
+      } else {
+        const block = blockedDoorTowardTarget(slime, target);
+        if (block) {
+          blocked.push({ target, block, value: target.score });
+        }
+      }
+    }
+    if (reachable.length) {
+      return reachable.sort((a, b) => b.value - a.value || a.path.length - b.path.length)[0];
+    }
+    if (blocked.length) {
+      return blocked.sort((a, b) => b.value - a.value)[0];
+    }
+    return null;
+  }
+
   function chooseAutonomousWanderTarget(slime) {
     const currentRoomId = slimeEffectiveRoomId(slime);
     const map = ensureLabMap();
@@ -15352,9 +15785,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? `wandering toward ${roomName(target.roomId)}`
       : target.kind === "contamination"
         ? `moving toward contamination in ${roomName(target.roomId)}`
-        : `seeking ${target.label}`;
+        : target.kind === "habitat"
+          ? `moving toward better habitat in ${roomName(target.roomId)}`
+          : `seeking ${target.label}`;
     slime.autonomousMovement = {
-      intent: target.kind === "wander" ? "wander" : "seekFood",
+      intent: target.kind === "wander" ? "wander" : target.kind === "habitat" ? "seekHabitat" : "seekFood",
       label,
       targetKind: target.kind,
       targetId: target.id || "",
@@ -15374,7 +15809,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       updatedAt: state.clock
     };
     slime.roomActivity = {
-      type: target.kind === "wander" ? "moving" : "seekingFood",
+      type: target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : "seekingFood",
       label,
       roomId: slime.roomId || MAIN_ROOM_ID,
       targetRoomId: target.roomId,
@@ -15401,12 +15836,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     const activityType = target.kind === "contamination"
       ? "seekingContamination"
+      : target.kind === "habitat"
+        ? "seekingHabitat"
       : target.kind === "wander"
         ? "exploring"
         : "seekingFood";
     slime.roomActivity = {
       type: activityType,
-      label: target.kind === "wander" ? "exploring" : target.kind === "contamination" ? "seeking contamination" : `seeking ${target.label || "food"}`,
+      label: target.kind === "wander" ? "exploring" : target.kind === "contamination" ? "seeking contamination" : target.kind === "habitat" ? "settling into better habitat" : `seeking ${target.label || "food"}`,
       roomId,
       targetRoomId: movement.targetRoomId,
       targetKind: target.kind,
@@ -15619,6 +16056,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return true;
       }
       return startSlimeAutonomousMovement(slime, food.target, food.path);
+    }
+    const habitat = chooseAutonomousHabitatTarget(slime);
+    if (habitat?.block) {
+      setSlimeBlockedDoorActivity(slime, habitat.block, habitat.target);
+      return true;
+    }
+    if (habitat?.target && habitat.path?.length) {
+      if (habitat.path.length <= 1) {
+        slime.roomActivity = {
+          type: "seekingHabitat",
+          label: "settling into better habitat",
+          roomId: slimeEffectiveRoomId(slime),
+          targetRoomId: habitat.target.roomId,
+          targetKind: "habitat",
+          targetId: habitat.target.id || "",
+          targetLabel: habitat.target.label || "",
+          updatedAt: state.clock
+        };
+        return true;
+      }
+      return startSlimeAutonomousMovement(slime, habitat.target, habitat.path);
     }
     const wander = chooseAutonomousWanderTarget(slime);
     if (wander?.target && wander.path?.length > 1) {
@@ -17495,6 +17953,65 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       );
       grid.append(row);
     }
+    section.append(title, grid);
+    return section;
+  }
+
+  function slimeHabitatChip(slime) {
+    if (!slime || slime.status === "dead") {
+      return null;
+    }
+    const fit = slimeHabitatFit(slime, { knownOnly: true });
+    const element = chip(`Habitat: ${fit.label}`);
+    element.dataset.slimeHabitat = slime.id;
+    element.title = slimeHabitatTooltip(fit);
+    return element;
+  }
+
+  function slimeHabitatTooltip(fit) {
+    const lines = [
+      `Habitat fit: ${fit.label}.`,
+      fit.source?.label ? `Current environment: ${fit.source.label}.` : ""
+    ].filter(Boolean);
+    if (fit.supports?.length) {
+      lines.push(`Known supports: ${fit.supports.join(" · ")}.`);
+    }
+    if (fit.concerns?.length) {
+      lines.push(`Known concerns: ${fit.concerns.join(" · ")}.`);
+    }
+    if (fit.unknownFactors?.length) {
+      lines.push(`Unknown factors: ${fit.unknownFactors.join(", ")}.`);
+    }
+    if (!fit.supports?.length && !fit.concerns?.length && fit.label === "Uncertain") {
+      lines.push("No discovered traits provide a clear habitat estimate yet.");
+    }
+    return lines.join("\n");
+  }
+
+  function renderSlimeHabitat(slime) {
+    const fit = slimeHabitatFit(slime, { knownOnly: true });
+    const section = document.createElement("div");
+    section.className = "slime-habitat subpanel";
+    section.dataset.slimeHabitatPanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Habitat";
+    title.title = "Derived from discovered biology and the current room or container environment. Hidden traits can still affect the real slime.";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("Fit", fit.label, fit.source?.label || "current environment", slimeHabitatTooltip(fit));
+    addRow("Supports", fit.supports?.length ? fit.supports.join("; ") : "None clear", fit.supports?.length ? "known" : "not observed");
+    addRow("Concerns", fit.concerns?.length ? fit.concerns.join("; ") : "None clear", fit.concerns?.length ? "known" : "not observed");
+    addRow("Unknown", fit.unknownFactors?.length ? fit.unknownFactors.join(", ") : "None", fit.unknownFactors?.length ? "could matter" : "all habitat traits visible");
     section.append(title, grid);
     return section;
   }
