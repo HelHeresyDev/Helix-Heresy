@@ -118,6 +118,24 @@ test('known material and support problems appear in container compatibility read
   const title = await compatibility.getAttribute('title');
   expect(title).toContain('corrosive exposure');
   expect(title).toContain('lacks drainage');
+  await expect(page.locator('[data-slime-elemental-hazard="compat-slime"]')).toContainText('Hazard: Corrosive');
+  await expect(page.locator('[data-slime-elemental-hazards="compat-slime"]')).toContainText('Corrosive');
+  await expect(page.locator('[data-slime-elemental-hazards="compat-slime"]')).toContainText('corrosive exposure');
+
+  const resistance = page.locator('[data-container-damage-resistance="basic-1"]');
+  await expect(resistance).toBeVisible();
+  await expect(resistance).toContainText('Material resistance:');
+  const resistanceTitle = await resistance.getAttribute('title');
+  expect(resistanceTitle).toContain('Corrosive');
+  expect(resistanceTitle).toContain('Physical');
+
+  await page.locator('[data-handling-method-select="true"]').selectOption('thickGloves');
+  const handlingNote = page.locator('[data-handling-inventory-note="true"]');
+  await expect(handlingNote).toContainText('Tool resistance:');
+  await expect(handlingNote).toContainText('Physical');
+  const handlingTitle = await handlingNote.getAttribute('title');
+  expect(handlingTitle).toContain('Thick gloves hazard resistance');
+  expect(handlingTitle).toContain('Toxic');
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
@@ -141,6 +159,23 @@ test('undiscovered traits widen compatibility without naming hidden hazards', as
   expect(title).toContain('elemental material hazard');
   expect(title).not.toContain('corrosive exposure');
   expect(title).not.toContain('acid');
+  await expect(page.locator('[data-slime-elemental-hazards="compat-slime"]')).toHaveCount(0);
+});
+
+test('none element displays physical hazard when discovered', async ({ page }) => {
+  await startRun(page);
+  const context = await saveContext(page);
+  const genome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: { element: 'none' },
+  });
+  await stageCompatibilitySlime(page, { genome, revealed: { element: true } });
+
+  await expect(page.locator('[data-slime-elemental-hazard="compat-slime"]')).toContainText('Hazard: Physical');
+  await expect(page.locator('[data-slime-elemental-hazards="compat-slime"]')).toContainText('Physical');
+  await expect(page.locator('[data-slime-elemental-hazards="compat-slime"]')).toContainText('physical impact and abrasion');
 });
 
 test('bad hidden compatibility slowly stresses specimen and fouls container', async ({ page }) => {

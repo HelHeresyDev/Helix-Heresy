@@ -399,6 +399,61 @@
   const CONTAINER_INTERACTION_CLOSE_DURATION = 5;
   const CONTAINER_INTERACTION_OPEN_STAMINA = 5;
   const CONTAINER_INTERACTION_CLOSE_STAMINA = 2;
+  const DAMAGE_TYPE_DEFS = [
+    { id: "physical", label: "Physical", exposureLabel: "physical impact and abrasion", description: "Mass, pressure, crushing, scraping, tearing, and direct body contact." },
+    { id: "corrosive", label: "Corrosive", exposureLabel: "corrosive exposure", description: "Acidic, caustic, or solvent-like damage that eats through unsuitable materials." },
+    { id: "toxic", label: "Toxic", exposureLabel: "toxic exposure", description: "Poison, fumes, contamination, and biological toxicity." },
+    { id: "heat", label: "Heat", exposureLabel: "heat exposure", description: "Burning, drying, ignition, melting, and thermal shock." },
+    { id: "cold", label: "Cold", exposureLabel: "freezing exposure", description: "Freezing, brittleness, numbness, condensation, and cold shock." },
+    { id: "electrical", label: "Electrical", exposureLabel: "electrical exposure", description: "Shocks, arcs, conductive surges, and nerve disruption." },
+    { id: "moisture", label: "Moisture", exposureLabel: "saturation exposure", description: "Waterlogging, seepage, swelling, dissolution, and fluid pressure." },
+    { id: "pressure", label: "Pressure", exposureLabel: "pressure and shear exposure", description: "Wind shear, drying airflow, pressure shifts, and turbulent force." },
+    { id: "radiant", label: "Radiant", exposureLabel: "radiant exposure", description: "Light-aspected intensity, glare, bleaching, and purifying burn." },
+    { id: "shadow", label: "Shadow", exposureLabel: "shadow exposure", description: "Umbral seepage, light suppression, chill, and occult corrosion." },
+    { id: "arcane", label: "Arcane", exposureLabel: "arcane seepage", description: "Etheric, dream, mana, and unstable magical interference." },
+    { id: "force", label: "Force", exposureLabel: "force exposure", description: "Gravity-aspected strain, compression, sudden load, and spatial pressure." }
+  ];
+  const DAMAGE_TYPE_BY_ID = Object.fromEntries(DAMAGE_TYPE_DEFS.map((type) => [type.id, type]));
+  const DAMAGE_TYPE_LEGACY_RESISTANCE_KEYS = {
+    physical: ["physical"],
+    corrosive: ["corrosive", "acid"],
+    toxic: ["toxic", "poison"],
+    heat: ["heat", "flame"],
+    cold: ["cold", "frost"],
+    electrical: ["electrical", "electric", "storm"],
+    moisture: ["moisture", "water", "leak"],
+    pressure: ["pressure", "wind", "drying"],
+    radiant: ["radiant", "light"],
+    shadow: ["shadow", "umbral"],
+    arcane: ["arcane", "mana", "dream", "ether"],
+    force: ["force", "gravity", "weight"]
+  };
+  const ELEMENT_DAMAGE_TYPE_IDS = {
+    none: ["physical"],
+    flame: ["heat"],
+    frost: ["cold"],
+    storm: ["electrical"],
+    stone: ["physical"],
+    shadow: ["shadow"],
+    light: ["radiant"],
+    water: ["moisture"],
+    wind: ["pressure"],
+    wood: ["physical"],
+    metal: ["physical"],
+    poison: ["toxic"],
+    acid: ["corrosive"],
+    dream: ["arcane"],
+    gravity: ["force"],
+    ether: ["arcane"],
+    null: ["arcane", "force"]
+  };
+  const HANDLING_METHOD_DAMAGE_RESISTANCES = {
+    bareHands: {},
+    thickGloves: { physical: 35, toxic: 35, cold: 25, corrosive: 18, heat: 18, moisture: 15, electrical: 5 },
+    longTongs: { physical: 35, corrosive: 40, toxic: 40, heat: 35, cold: 25, electrical: 25, moisture: 25, pressure: 20 },
+    hookPole: { physical: 30, force: 25, pressure: 25, corrosive: 15, toxic: 15, electrical: 15 },
+    scraper: { physical: 35, toxic: 30, corrosive: 25, heat: 15, cold: 15, moisture: 20 }
+  };
   const HANDLING_METHOD_DEFS = [
     {
       id: "bareHands",
@@ -967,14 +1022,14 @@
     [normalizeCommandName(type.label), type.id]
   ]));
   const CONTAINER_WARD_DEFS = [
-    { id: "acidAbsorbing", label: "Acid-Absorbing Ward", protects: ["acid"], notes: ["Absorbs acid exposure"] },
+    { id: "acidAbsorbing", label: "Acid-Absorbing Ward", protects: ["acid", "corrosive"], notes: ["Absorbs acid exposure"] },
     { id: "flameDampening", label: "Flame-Dampening Ward", protects: ["flame", "heat"], notes: ["Dampens flame and heat"] },
     { id: "frostStabilizing", label: "Frost-Stabilizing Ward", protects: ["frost", "cold"], notes: ["Buffers frost shock"] },
-    { id: "stormGrounding", label: "Storm-Grounding Ward", protects: ["storm", "electric"], notes: ["Grounds storm charge"] },
+    { id: "stormGrounding", label: "Storm-Grounding Ward", protects: ["storm", "electric", "electrical"], notes: ["Grounds storm charge"] },
     { id: "poisonSealing", label: "Poison-Sealing Ward", protects: ["poison", "toxic", "fume"], notes: ["Seals toxic traces"] },
-    { id: "manaInsulating", label: "Mana-Insulating Ward", protects: ["mana", "arcane", "dream", "ether"], notes: ["Insulates arcane seepage"] },
-    { id: "sealTightening", label: "Seal-Tightening Ward", protects: ["leak"], notes: ["Improves physical sealing"] },
-    { id: "loadBearing", label: "Load-Bearing Ward", protects: ["weight", "gravity"], notes: ["Reinforces against heavy bodies"] }
+    { id: "manaInsulating", label: "Mana-Insulating Ward", protects: ["mana", "arcane", "dream", "ether", "radiant", "shadow"], notes: ["Insulates arcane seepage"] },
+    { id: "sealTightening", label: "Seal-Tightening Ward", protects: ["leak", "moisture", "pressure"], notes: ["Improves physical sealing"] },
+    { id: "loadBearing", label: "Load-Bearing Ward", protects: ["weight", "gravity", "force", "physical"], notes: ["Reinforces against heavy bodies"] }
   ];
   const CONTAINER_WARD_BY_ID = Object.fromEntries(CONTAINER_WARD_DEFS.map((ward) => [ward.id, ward]));
   const CONTAINER_WARD_ALIASES = Object.fromEntries(CONTAINER_WARD_DEFS.flatMap((ward) => [
@@ -6790,6 +6845,188 @@
     return wardId ? containerWardDef(wardId)?.label || "" : "";
   }
 
+  function normalizeDamageTypeId(value) {
+    const normalized = normalizeCommandName(value);
+    if (DAMAGE_TYPE_BY_ID[normalized]) {
+      return normalized;
+    }
+    for (const [damageId, aliases] of Object.entries(DAMAGE_TYPE_LEGACY_RESISTANCE_KEYS)) {
+      if (aliases.some((alias) => normalizeCommandName(alias) === normalized)) {
+        return damageId;
+      }
+    }
+    return "";
+  }
+
+  function damageTypeDef(value) {
+    return DAMAGE_TYPE_BY_ID[normalizeDamageTypeId(value)] || null;
+  }
+
+  function damageProtectionTags(damageTypeId) {
+    const id = normalizeDamageTypeId(damageTypeId);
+    return [id, ...(DAMAGE_TYPE_LEGACY_RESISTANCE_KEYS[id] || [])].filter(Boolean);
+  }
+
+  function damageTypesForElementLabel(elementLabel) {
+    const label = String(elementLabel || "none").toLowerCase();
+    const ids = ELEMENT_DAMAGE_TYPE_IDS[label] || ELEMENT_DAMAGE_TYPE_IDS.none;
+    const seen = new Set();
+    return ids
+      .map(damageTypeDef)
+      .filter(Boolean)
+      .filter((type) => {
+        if (seen.has(type.id)) {
+          return false;
+        }
+        seen.add(type.id);
+        return true;
+      });
+  }
+
+  function damageTypesForElementOutcome(outcome) {
+    return damageTypesForElementLabel(baseOutcomeLabel(outcome) || "none");
+  }
+
+  function damageTypeListText(types) {
+    const list = (types || []).map((type) => type.label);
+    return list.length ? list.join(", ") : "Physical";
+  }
+
+  function elementalDamageTooltip(elementLabel, types) {
+    const lines = [
+      `Element: ${elementLabel || "none"}.`,
+      `Damage tags: ${damageTypeListText(types)}.`
+    ];
+    for (const type of types || []) {
+      lines.push(`${type.label}: ${type.description}`);
+    }
+    return lines.join("\n");
+  }
+
+  function elementContainerHazards(element) {
+    return damageTypesForElementLabel(element).map((type) => ({
+      key: type.id,
+      damageType: type.id,
+      label: type.exposureLabel
+    }));
+  }
+
+  function resistanceScoreFromMap(resistances = {}, damageTypeId = "") {
+    for (const key of damageProtectionTags(damageTypeId)) {
+      const value = Number(resistances?.[key]);
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  function derivedContainerResistanceScore(type, damageTypeId) {
+    const durability = Number(type?.durability) || 0;
+    const seal = Number(type?.seal) || 0;
+    const gap = Number(type?.gap) || 0;
+    if (damageTypeId === "physical") {
+      return durability;
+    }
+    if (damageTypeId === "moisture") {
+      return clamp((type?.drainage ? 55 : 20) + seal * 0.35 - gap * 0.15, 0, 100);
+    }
+    if (damageTypeId === "pressure") {
+      return clamp(durability * 0.45 + seal * 0.45 - gap * 0.1, 0, 100);
+    }
+    if (damageTypeId === "force") {
+      return clamp(durability * 0.65 + Math.log10(Math.max(10, Number(type?.maxWeightKg) || 10)) * 9, 0, 100);
+    }
+    return 0;
+  }
+
+  function containerTypeDamageResistanceScore(type, damageTypeId) {
+    const damageId = normalizeDamageTypeId(damageTypeId);
+    if (!damageId) {
+      return 0;
+    }
+    const explicit = resistanceScoreFromMap(type?.resistances, damageId);
+    return explicit === null ? derivedContainerResistanceScore(type, damageId) : explicit;
+  }
+
+  function containerDamageResistanceScore(container, damageTypeId) {
+    const type = containerTypeDef(container?.typeId);
+    const damageId = normalizeDamageTypeId(damageTypeId);
+    const baseResistance = containerTypeDamageResistanceScore(type, damageId);
+    const ward = containerProtectionLabel(container, damageProtectionTags(damageId));
+    const wardBonus = ward ? 30 : 0;
+    const conditionPenalty = containerCondition(container) < 50 ? 10 : containerCondition(container) < 75 ? 4 : 0;
+    return clamp(baseResistance + wardBonus - conditionPenalty, 0, 100);
+  }
+
+  function damageResistanceBand(score) {
+    if (score >= 75) return "Strong";
+    if (score >= 55) return "Good";
+    if (score >= 35) return "Partial";
+    if (score >= 20) return "Weak";
+    return "Poor";
+  }
+
+  function damageResistanceEntriesForContainer(container) {
+    if (!container || container.type === "synthesis") {
+      return [];
+    }
+    return DAMAGE_TYPE_DEFS.map((type) => ({
+      ...type,
+      score: containerDamageResistanceScore(container, type.id),
+      band: damageResistanceBand(containerDamageResistanceScore(container, type.id)),
+      ward: containerProtectionLabel(container, damageProtectionTags(type.id))
+    }));
+  }
+
+  function damageResistanceEntriesForHandlingMethod(methodId) {
+    const resistances = HANDLING_METHOD_DAMAGE_RESISTANCES[methodId] || {};
+    return DAMAGE_TYPE_DEFS.map((type) => {
+      const score = clamp(Number(resistances[type.id]) || 0, 0, 100);
+      return {
+        ...type,
+        score,
+        band: damageResistanceBand(score),
+        ward: ""
+      };
+    });
+  }
+
+  function damageResistanceSummary(entries, emptyText = "no special resistance") {
+    const useful = (entries || []).filter((entry) => entry.score >= 35).map((entry) => entry.label);
+    const weak = (entries || []).filter((entry) => entry.score < 25).map((entry) => entry.label);
+    if (!useful.length && weak.length >= DAMAGE_TYPE_DEFS.length - 1) {
+      return `Resists: ${emptyText}`;
+    }
+    const parts = [];
+    parts.push(`Resists: ${useful.length ? useful.slice(0, 4).join(", ") : emptyText}`);
+    if (weak.length) {
+      parts.push(`Weak vs: ${weak.slice(0, 4).join(", ")}`);
+    }
+    return parts.join("; ");
+  }
+
+  function damageResistanceTooltip(entries, heading = "Damage resistance") {
+    const lines = [
+      `${heading}.`,
+      "Broad bands only; exact resistance math is hidden."
+    ];
+    for (const entry of entries || []) {
+      lines.push(`${entry.label}: ${entry.band}${entry.ward ? ` (${entry.ward})` : ""}. ${entry.description}`);
+    }
+    return lines.join("\n");
+  }
+
+  function handlingMethodDamageResistanceSummary(methodId = currentHandlingMethodId()) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    return `Tool resistance: ${damageResistanceSummary(damageResistanceEntriesForHandlingMethod(method.id), "none")}`;
+  }
+
+  function handlingMethodDamageResistanceTitle(methodId = currentHandlingMethodId()) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    return damageResistanceTooltip(damageResistanceEntriesForHandlingMethod(method.id), `${method.label} hazard resistance`);
+  }
+
   function physicalContainerFitBands() {
     return ["Comfortable", "Serviceable", "Tight", "Cramped", "Strained", "Overfilled"];
   }
@@ -7011,22 +7248,6 @@
     };
   }
 
-  function elementContainerHazards(element) {
-    return {
-      acid: [{ key: "acid", label: "corrosive exposure" }],
-      flame: [{ key: "flame", label: "heat exposure" }],
-      frost: [{ key: "frost", label: "freezing exposure" }],
-      storm: [{ key: "storm", label: "electrical exposure" }],
-      poison: [{ key: "poison", label: "toxic exposure" }],
-      dream: [{ key: "mana", label: "arcane seepage" }],
-      ether: [{ key: "mana", label: "etheric seepage" }],
-      gravity: [{ key: "mana", label: "gravity-aspected strain" }],
-      shadow: [{ key: "mana", label: "umbral seepage" }],
-      light: [{ key: "mana", label: "luminous seepage" }],
-      null: [{ key: "mana", label: "null-aspected interference" }]
-    }[element] || [];
-  }
-
   function byproductContainerHazards(byproduct) {
     if (["acid droplets", "corrosive slime", "dissolved sludge", "sterile solvent"].includes(byproduct)) {
       return [{ key: "acid", label: "corrosive byproduct" }];
@@ -7045,21 +7266,20 @@
 
   function containerHazardCompatibility(container, hazard) {
     const type = containerTypeDef(container.typeId);
-    const baseResistance = Number(type.resistances?.[hazard.key]) || 0;
-    const ward = containerProtectionLabel(container, [hazard.key, hazard.label]);
-    const wardBonus = ward ? 30 : 0;
-    const conditionPenalty = containerCondition(container) < 50 ? 10 : containerCondition(container) < 75 ? 4 : 0;
-    const resistance = clamp(baseResistance + wardBonus - conditionPenalty, 0, 100);
+    const damageType = damageTypeDef(hazard.damageType || hazard.key) || DAMAGE_TYPE_BY_ID.arcane;
+    const label = hazard.label || damageType.exposureLabel;
+    const ward = containerProtectionLabel(container, damageProtectionTags(damageType.id));
+    const resistance = containerDamageResistanceScore(container, damageType.id);
     if (resistance < 25) {
-      return { score: 28, concern: `${type.label} has very poor resistance to ${hazard.label}.`, support: "" };
+      return { score: 28, concern: `${type.label} has very poor resistance to ${label}.`, support: "" };
     }
     if (resistance < 50) {
-      return { score: 16, concern: `${type.label} has weak resistance to ${hazard.label}.`, support: "" };
+      return { score: 16, concern: `${type.label} has weak resistance to ${label}.`, support: "" };
     }
     if (resistance < 65) {
-      return { score: 6, concern: `${type.label} only partly resists ${hazard.label}.`, support: ward ? `${ward} helps with ${hazard.label}.` : "" };
+      return { score: 6, concern: `${type.label} only partly resists ${label}.`, support: ward ? `${ward} helps with ${label}.` : "" };
     }
-    return { score: 0, concern: "", support: ward ? `${ward} protects against ${hazard.label}.` : `${type.label} resists ${hazard.label}.` };
+    return { score: 0, concern: "", support: ward ? `${ward} protects against ${label}.` : `${type.label} resists ${label}.` };
   }
 
   function containerFunctionalSupportForConsistency(container, consistency) {
@@ -8700,6 +8920,9 @@
     if (response.intensity === "high" || response.intensity === "critical") {
       next.urgency = maxAiUrgency(next.urgency, response.intensity === "critical" ? "critical" : "high");
     }
+    if (next.dominantDrive === "injury") {
+      return next;
+    }
     if (!["pained", "panicked", "desperate"].includes(response.state) || !shouldDriveInfluenceState(next.state) || next.state === "working") {
       return next;
     }
@@ -9298,6 +9521,7 @@
     const lines = [
       `${handlingMethodToolPreviewSummary(method.id)}.`,
       `${info.item.label}: ${formatNumber(info.amount)} cataloged in the Storage Room.`,
+      `${handlingMethodDamageResistanceSummary(method.id)}.`,
       `${handlingMethodProtocolSummary(method.id)}.`,
       `${handlingMethodRequirementSummary(method.id)}.`,
       "Tool requirements are enforced for this handling method.",
@@ -9312,7 +9536,7 @@
 
   function handlingMethodActionTitle(methodId = currentHandlingMethodId()) {
     const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
-    return `${method.label}: ${method.description}\n${handlingMethodToolPreviewSummary(method.id)}. ${handlingMethodInventorySummary(method.id)}. ${handlingMethodProtocolSummary(method.id)}. ${handlingMethodRequirementSummary(method.id)}.\n${handlingMethodInventoryTitle(method.id)}`;
+    return `${method.label}: ${method.description}\n${handlingMethodToolPreviewSummary(method.id)}. ${handlingMethodInventorySummary(method.id)}. ${handlingMethodDamageResistanceSummary(method.id)}. ${handlingMethodProtocolSummary(method.id)}. ${handlingMethodRequirementSummary(method.id)}.\n${handlingMethodInventoryTitle(method.id)}\n${handlingMethodDamageResistanceTitle(method.id)}`;
   }
 
   function setHandlingMethod(methodId) {
@@ -9397,11 +9621,11 @@
         unknownMajor += 1;
       }
 
-      if (!slimeTraitKnown(slime, "element") && !slimeTraitKnown(slime, "byproduct")) {
-        unknownFactors.push("contact hazards");
+      if (!slimeTraitKnown(slime, "element")) {
+        unknownFactors.push("elemental contact hazards");
         unknownMajor += 1;
       } else {
-        knownFactors.push("some hazard traits are known");
+        knownFactors.push("elemental contact hazard is known");
       }
 
       if (slimeHandlingExperience(slime) > 0) {
@@ -9482,6 +9706,28 @@
       notes,
       method
     };
+  }
+
+  function handlingMethodDamageResistanceScore(methodId, damageTypeId) {
+    const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
+    return clamp(Number(HANDLING_METHOD_DAMAGE_RESISTANCES[method.id]?.[normalizeDamageTypeId(damageTypeId)]) || 0, 0, 100);
+  }
+
+  function handlingDamageRiskPoints(damageTypeId) {
+    return {
+      physical: 5,
+      corrosive: 16,
+      toxic: 14,
+      heat: 14,
+      cold: 10,
+      electrical: 15,
+      moisture: 6,
+      pressure: 8,
+      radiant: 11,
+      shadow: 11,
+      arcane: 13,
+      force: 14
+    }[normalizeDamageTypeId(damageTypeId)] || 8;
   }
 
   function qualitativeHarmEstimate(score, certainty) {
@@ -9631,6 +9877,14 @@
       const appendages = evaluated.traits.appendages?.id || "";
       if (appendages && appendages !== "none") {
         add(6, `${slime.name} has appendages that can reach the opening.`);
+      }
+      for (const damageType of damageTypesForElementOutcome(evaluated.traits.element)) {
+        const basePoints = handlingDamageRiskPoints(damageType.id);
+        const protection = handlingMethodDamageResistanceScore(methodId, damageType.id);
+        const mitigated = Math.max(0, basePoints - Math.floor(protection / 8));
+        if (mitigated > 0) {
+          add(mitigated, `${slime.name} may cause ${damageType.exposureLabel}.`);
+        }
       }
     }
 
@@ -9782,6 +10036,7 @@
       `Method: ${risk.method.label}`,
       handlingMethodToolPreviewSummary(risk.method.id),
       handlingMethodInventorySummary(risk.method.id),
+      handlingMethodDamageResistanceSummary(risk.method.id),
       handlingMethodProtocolSummary(risk.method.id),
       handlingMethodRequirementSummary(risk.method.id)
     ].join(" | ");
@@ -12715,6 +12970,10 @@
       if (habitatChip) {
         meta.append(habitatChip);
       }
+      const elementalHazardChip = slimeElementalHazardChip(slime, evaluated);
+      if (elementalHazardChip) {
+        meta.append(elementalHazardChip);
+      }
       for (const activityChip of slimeDoorIntentChips(slime)) {
         meta.append(activityChip);
       }
@@ -12728,6 +12987,10 @@
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
         card.append(renderSlimeResponse(slime));
+        const elementalHazards = renderSlimeElementalHazards(slime, evaluated);
+        if (elementalHazards) {
+          card.append(elementalHazards);
+        }
         card.append(renderSlimeHabitat(slime));
         card.append(renderSlimeDrives(slime));
         card.append(renderSlimePerception(slime));
@@ -13540,13 +13803,10 @@
     }
 
     if (revealed.element && profile) {
-      const resistanceKey = { acid: "acid", flame: "flame", frost: "frost", storm: "storm", poison: "poison", dream: "mana", ether: "mana", gravity: "mana" }[profile.element];
-      if (resistanceKey && !containerProtectsAny(container, [resistanceKey])) {
-        const resistance = Number(type.resistances?.[resistanceKey]) || 0;
-        if (resistance < 25) {
-          addPotential(28, `${type.label} has very poor ${resistanceKey} resistance.`);
-        } else if (resistance < 50) {
-          addPotential(16, `${type.label} has weak ${resistanceKey} resistance.`);
+      for (const hazard of elementContainerHazards(profile.element)) {
+        const result = containerHazardCompatibility(container, hazard);
+        if (result.score >= 16 && result.concern) {
+          addPotential(result.score >= 28 ? 28 : 16, result.concern);
         }
       }
     }
@@ -13912,6 +14172,14 @@
     }
 
     if (container.type !== "synthesis") {
+      const resistanceEntries = damageResistanceEntriesForContainer(container);
+      const resistance = document.createElement("div");
+      resistance.className = "container-damage-resistance";
+      resistance.dataset.containerDamageResistance = container.id;
+      resistance.textContent = `Material resistance: ${damageResistanceSummary(resistanceEntries)}`;
+      resistance.title = damageResistanceTooltip(resistanceEntries, `${container.name} material resistance`);
+      card.append(resistance);
+
       const handling = document.createElement("div");
       handling.className = "container-handling-risk";
       const handlingAction = containerAccessOpen(container) ? "close" : "open";
@@ -18334,6 +18602,65 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return section;
   }
 
+  function slimeElementalHazardProfile(slime, evaluated = null) {
+    if (!slime?.revealed?.element) {
+      return null;
+    }
+    const traits = evaluated?.traits || evaluateGenome(slime.genome).traits;
+    const outcome = traits.element;
+    const elementLabel = slime.revealed.element || baseOutcomeLabel(outcome) || "none";
+    const damageTypes = damageTypesForElementOutcome(outcome);
+    return {
+      elementLabel,
+      damageTypes,
+      summary: damageTypeListText(damageTypes),
+      tooltip: elementalDamageTooltip(elementLabel, damageTypes)
+    };
+  }
+
+  function slimeElementalHazardChip(slime, evaluated = null) {
+    const profile = slimeElementalHazardProfile(slime, evaluated);
+    if (!profile) {
+      return null;
+    }
+    const element = chip(`Hazard: ${profile.summary}`);
+    element.dataset.slimeElementalHazard = slime.id;
+    element.title = profile.tooltip;
+    return element;
+  }
+
+  function renderSlimeElementalHazards(slime, evaluated = null) {
+    const profile = slimeElementalHazardProfile(slime, evaluated);
+    if (!profile) {
+      return null;
+    }
+    const section = document.createElement("div");
+    section.className = "slime-elemental-hazards subpanel";
+    section.dataset.slimeElementalHazards = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Elemental Hazards";
+    title.title = "Derived from the discovered Element trait. Byproducts are intentionally not damage tags in this first pass.";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("Element", profile.elementLabel, "discovered", profile.tooltip);
+    addRow("Damage tags", profile.summary, "broad", profile.tooltip);
+    for (const type of profile.damageTypes) {
+      addRow(type.label, type.exposureLabel, "hazard", type.description);
+    }
+    section.append(title, grid);
+    return section;
+  }
+
   function slimeHabitatChip(slime) {
     if (!slime || slime.status === "dead") {
       return null;
@@ -18721,8 +19048,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const methodInventoryNote = document.createElement("div");
     methodInventoryNote.className = "policy-inventory-note";
     methodInventoryNote.dataset.handlingInventoryNote = "true";
-    methodInventoryNote.textContent = `${handlingMethodToolPreviewSummary(currentHandlingMethodId())}. ${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodProtocolSummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
-    methodInventoryNote.title = handlingMethodInventoryTitle(currentHandlingMethodId());
+    methodInventoryNote.textContent = `${handlingMethodToolPreviewSummary(currentHandlingMethodId())}. ${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodDamageResistanceSummary(currentHandlingMethodId())}. ${handlingMethodProtocolSummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
+    methodInventoryNote.title = `${handlingMethodInventoryTitle(currentHandlingMethodId())}\n${handlingMethodDamageResistanceTitle(currentHandlingMethodId())}`;
     corpseControls.append(methodInventoryNote);
 
     const doorPolicyLabel = document.createElement("label");
@@ -20590,6 +20917,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function traitValueEl(traitKey, outcome, value) {
     const wrapper = document.createElement("span");
     wrapper.className = "trait-value";
+    if (traitKey === "element" && value !== "Unknown") {
+      wrapper.title = elementalDamageTooltip(baseOutcomeLabel(outcome) || "none", damageTypesForElementOutcome(outcome));
+    }
     if (value !== "Unknown") {
       const icon = traitRowValueIconEl(traitKey, outcome);
       if (icon) {
@@ -22765,6 +23095,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "",
       "Recent changes:"
     ];
+    const methodId = handlingMethodIdForInventoryItem(item.key);
+    if (methodId) {
+      lines.splice(2, 0, handlingMethodDamageResistanceSummary(methodId), handlingMethodDamageResistanceTitle(methodId));
+    }
     const history = inventoryChangeHistory(item.key);
     if (!history.length) {
       lines.push("No recorded changes.");
@@ -22776,6 +23110,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     return lines.join("\n");
+  }
+
+  function handlingMethodIdForInventoryItem(itemKey) {
+    return Object.entries(HANDLING_METHOD_INVENTORY_ITEM_KEYS)
+      .find(([, key]) => key === itemKey)?.[0] || "";
   }
 
   function inventoryChangeHistory(key) {

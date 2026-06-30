@@ -64,6 +64,8 @@ Habitat fit is derived from existing biology rather than being its own gene. Ele
 
 Threat response is derived from condition and biology rather than being a separate gene. Stress, Body Integrity, Nutrition, Current Mass, recent injury, containment risk, habitat mismatch, behavior, and stability can make a slime calm, wary, agitated, pained, panicked, or desperate. The UI shows a broad likely action such as watch, hide, freeze, flee, lash out, seek food desperately, recover, or endure. Hidden behavior and stability can still shape the real response, but the readout should list them as unknown factors until discovered instead of revealing the trait.
 
+Elemental damage tags are the shared vocabulary for physical and magical hazards. The prototype currently derives them only from Element, not byproduct: none, stone, metal, and wood are Physical; acid is Corrosive; poison is Toxic; flame is Heat; frost is Cold; storm is Electrical; water is Moisture; wind is Pressure; light is Radiant; shadow is Shadow; dream and ether are Arcane; gravity is Force; null is Arcane and Force. Once Element is discovered, the slime panel shows broad tags and exposure descriptions. Containers and handling tools have broad resistance summaries that future combat, tool durability, room damage, and containment wear can reuse without exposing exact formulas.
+
 ## Natural Byproducts and Collection
 
 A slime’s natural byproduct is part of its biology. It is separate from feeding residue and separate from material harvested from the slime’s body.
@@ -434,6 +436,7 @@ Open design questions:
 - Habitat effects gently change Stress, natural byproduct expression, active containment pressure, and loose-slime room seeking.
 - Loose slimes can follow qualitative adjacent-room environmental traces when a nearby room is substantially better habitat.
 - Derived slime threat response with calm, wary, agitated, pained, panicked, and desperate bands, recent-injury memory, selected-slime readouts, and light loose-slime idle reactions when food and habitat are not already driving behavior.
+- Element-derived damage tags and broad resistance readouts for discovered slimes, containers, and handling tools; byproducts do not contribute damage tags in this first pass.
 - Best-match feeding is available once a slime's Sustenance is discovered.
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
 - Additional room foundations including Menagerie, Pit, Bedroom, Storage Room, and Collection Bay.

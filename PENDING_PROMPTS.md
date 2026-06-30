@@ -12,49 +12,23 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Elemental Damage Type System
-2. Combat Foundation System
-3. XP Curve and Breakthrough-Gated Skill Progression
-4. Slime Skill Practice, Ability Use, and Behavior Learning System
-5. Analyze Ability & Creature Skill Evolution Follow-Up
-6. Slime Combat Behavior System
-7. Slime Containment Testing and Escape Behavior System
-8. Slime Container Interaction and Breach Behavior System
-9. Tool Durability and Damage Resistance System
-10. Slime Social, Territorial, and Group Behavior System
-11. Slime Job Autonomy and Work Behavior System
-12. Map-Based Slime Incident and Emergency Response System
-13. Slime AI Debugging and Behavior Readout System
-14. Black Market Byproduct Economy System
+1. Combat Foundation System
+2. XP Curve and Breakthrough-Gated Skill Progression
+3. Slime Skill Practice, Ability Use, and Behavior Learning System
+4. Analyze Ability & Creature Skill Evolution Follow-Up
+5. Slime Combat Behavior System
+6. Slime Containment Testing and Escape Behavior System
+7. Slime Container Interaction and Breach Behavior System
+8. Tool Durability and Damage Resistance System
+9. Slime Social, Territorial, and Group Behavior System
+10. Slime Job Autonomy and Work Behavior System
+11. Map-Based Slime Incident and Emergency Response System
+12. Slime AI Debugging and Behavior Readout System
+13. Black Market Byproduct Economy System
 
 ---
 
-## 1. Elemental Damage Type System
-
-Create a system that gives slime actions, hazards, and contact effects a damage type based on the slime's element or biological output.
-
-The core idea is that elemental identity should matter mechanically. An acid slime should threaten things with acid damage. A fire slime should threaten things with heat or burn damage. An electric slime should threaten things with electrical damage. A cold slime should threaten things with freezing damage. A metal or stone slime may threaten things through physical abrasion, crushing, or impact rather than chemical damage.
-
-This system should make elemental traits matter when slimes interact with containers, tools, rooms, corpses, equipment, and eventually other creatures. The goal is not just combat damage. Damage type should become a shared language for biological hazards and material resistance.
-
-The system should answer questions like:
-- What damage type does each slime element naturally produce?
-- Can a slime have multiple relevant damage types, such as acid plus physical abrasion?
-- What damage type applies during direct handling?
-- What damage type applies when a slime leaks, drips, burns, shocks, freezes, corrodes, scrapes, or crushes something?
-- How should neutral, non-elemental, or strange elements be represented?
-- How should the UI communicate damage type without exposing hidden formulas?
-- How should damage type connect to future container wear, tool durability, room damage, injuries, combat, and harvesting?
-
-Damage types should feel biological and material, not just RPG labels. "Acid damage" means corrosion, chemical burns, dissolving tissue, and eating through unsuitable materials. "Electric damage" means shocks, arcs, nerve disruption, and stress on conductive tools. "Heat damage" means burns, drying, melting, or ignition. "Cold damage" means freezing, brittleness, numbness, or condensation. Physical damage may include crushing, tearing, scraping, piercing, or abrasion depending on the slime.
-
-The desired result is a clear elemental damage vocabulary that future systems can reuse. Once this exists, equipment, containers, tools, rooms, and creatures can have resistances or vulnerabilities that make biological compatibility more meaningful.
-
-Before coding, discuss the damage type model, the element-to-damage mapping, how many damage types the prototype needs, and where damage type should first appear in the UI.
-
----
-
-## 2. Combat Foundation System
+## 1. Combat Foundation System
 
 Create the foundation for combat as a map-aware simulation system.
 
@@ -78,7 +52,7 @@ Before coding, discuss combat timing, target selection, range, damage applicatio
 
 ---
 
-## 3. XP Curve and Breakthrough-Gated Skill Progression
+## 2. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -143,7 +117,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 4. Slime Skill Practice, Ability Use, and Behavior Learning System
+## 3. Slime Skill Practice, Ability Use, and Behavior Learning System
 
 Create a system for slime skill practice, ability use, and learned behavior.
 
@@ -167,7 +141,7 @@ Before coding, discuss practice sources, ability hooks, skill categories, XP int
 
 ---
 
-## 5. Analyze Ability & Creature Skill Evolution Follow-Up
+## 4. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
@@ -187,7 +161,7 @@ Before coding, discuss the Analyze workflow, creature skill visibility, evolutio
 
 ---
 
-## 6. Slime Combat Behavior System
+## 5. Slime Combat Behavior System
 
 Create slime-specific combat behavior on top of the combat foundation.
 
@@ -212,7 +186,7 @@ Before coding, discuss behavior categories, target selection, ability choice, fl
 
 ---
 
-## 7. Slime Containment Testing and Escape Behavior System
+## 6. Slime Containment Testing and Escape Behavior System
 
 Create a system for slimes to test containment and attempt escape.
 
@@ -236,7 +210,7 @@ Before coding, discuss escape triggers, containment testing actions, progress, f
 
 ---
 
-## 8. Slime Container Interaction and Breach Behavior System
+## 7. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -260,7 +234,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 9. Tool Durability and Damage Resistance System
+## 8. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -289,7 +263,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 10. Slime Social, Territorial, and Group Behavior System
+## 9. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -313,7 +287,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 11. Slime Job Autonomy and Work Behavior System
+## 10. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -337,7 +311,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 12. Map-Based Slime Incident and Emergency Response System
+## 11. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -361,7 +335,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 13. Slime AI Debugging and Behavior Readout System
+## 12. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -385,7 +359,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 14. Black Market Byproduct Economy System
+## 13. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
