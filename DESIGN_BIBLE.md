@@ -352,11 +352,12 @@ Analysis is the parent skill for interpreting practiced capability. Analyze is t
 
 The scientist starts with Analysis [Initiate], level 1, which grants base Analyze. Base Analyze can be used on a living specimen in the lab UI. It costs Mana immediately and reveals only practiced creature capabilities that already exist at level 1 or above, plus broad learned behavior memories. Base Analyze shows skill name and tier, such as Toughness [Initiate], but not exact levels. It does not reveal level 0 practice, raw XP, stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
 
-Analyze output is ability-defined, not continuously determined by the current level of Analysis. When Analysis advances to a later stage, it should grant new abilities such as Advanced Analyze, Combat Analyze, Deep Analyze, or Forensic Analyze. Those abilities can reveal stronger or different information. Base Analyze should remain a stable, simple read.
+Analyze output is ability-defined, not continuously determined by the current level of Analysis. Advanced Analyze unlocks at Analysis [Novice], level 21. It costs Mana and reveals exact levels only for skills that base Analyze has already identified; it does not discover new hidden skills by itself. When Analysis advances to later stages, it should grant additional abilities such as Combat Analyze, Deep Analyze, or Forensic Analyze. Those abilities can reveal stronger or different information. Base Analyze should remain a stable, simple read.
 
 The player may eventually see information like:
 
 - Toughness [Initiate]
+- Toughness [Initiate], level 3 after Advanced Analyze
 - Pouncing [Novice]
 - Corrosive [Initiate]
 - Combat Analysis [Novice], level 61
@@ -385,7 +386,7 @@ Likely future systems:
 - Test failure or inconclusive results based on skill, equipment, and sample difficulty.
 - Adaptive skill evolution where practiced skills evolve into specialized forms based on use, pressure, biology, environment, and lived experience.
 - Abilities derived from skills, such as Flame Jet from a fire-related skill or Locking Grapple from a grappling-related skill.
-- Advanced Analyze-style abilities for combat appraisal, forensic reads, exact skill levels, ability hints, and skill evolution paths without revealing stats, genes, biological traits, weaknesses, or hidden formulas.
+- Analyze-style abilities for combat appraisal, forensic reads, ability hints, and skill evolution paths without revealing stats, genes, biological traits, weaknesses, or hidden formulas. Exact creature skill levels require Advanced Analyze and only apply to skills already identified by base Analyze.
 - Mutation as a risk layered on top of deterministic genetics.
 - Creature stats derived from physical compatibility, affinity, stability, and biology.
 - More meaningful containment, risk, escape, and lab safety systems.

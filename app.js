@@ -1174,6 +1174,9 @@
   const ANALYZE_MANA_COST = 8;
   const ANALYZE_XP = 4;
   const ANALYZE_MEMORY_REVEAL_THRESHOLD = 10;
+  const ADVANCED_ANALYZE_UNLOCK_LEVEL = 21;
+  const ADVANCED_ANALYZE_MANA_COST = 16;
+  const ADVANCED_ANALYZE_XP = 6;
   const XP_OUTCOME_MULTIPLIERS = {
     success: 1,
     partial: 0.5,
@@ -4244,7 +4247,16 @@
   }
 
   function defaultAnalyzedCapabilities() {
-    return { skills: {}, behaviors: {}, attempts: 0, lastAnalyzedAt: null, lastResult: "" };
+    return {
+      skills: {},
+      behaviors: {},
+      attempts: 0,
+      advancedAttempts: 0,
+      lastAnalyzedAt: null,
+      lastAdvancedAnalyzedAt: null,
+      lastResult: "",
+      lastAdvancedResult: ""
+    };
   }
 
   function normalizeAnalyzedCapabilities(candidate) {
@@ -4265,7 +4277,11 @@
           label: String(rawSkill?.label || CREATURE_SKILL_BY_ID[skillId].label),
           tierId: String(rawSkill?.tierId || tier.id),
           tierLabel: String(rawSkill?.tierLabel || tier.label),
-          observedAt: finiteTime(rawSkill?.observedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
+          observedAt: finiteTime(rawSkill?.observedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+          exactLevel: Math.max(0, Math.floor(Number(rawSkill?.exactLevel) || 0)),
+          exactLevelObservedAt: rawSkill?.exactLevelObservedAt == null
+            ? null
+            : finiteTime(rawSkill.exactLevelObservedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
         };
       }
     }
@@ -4289,8 +4305,11 @@
       skills,
       behaviors,
       attempts: Math.max(0, Math.floor(Number(candidate?.attempts) || 0)),
+      advancedAttempts: Math.max(0, Math.floor(Number(candidate?.advancedAttempts) || 0)),
       lastAnalyzedAt: candidate?.lastAnalyzedAt == null ? fallback.lastAnalyzedAt : finiteTime(candidate.lastAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
-      lastResult: String(candidate?.lastResult || fallback.lastResult)
+      lastAdvancedAnalyzedAt: candidate?.lastAdvancedAnalyzedAt == null ? fallback.lastAdvancedAnalyzedAt : finiteTime(candidate.lastAdvancedAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+      lastResult: String(candidate?.lastResult || fallback.lastResult),
+      lastAdvancedResult: String(candidate?.lastAdvancedResult || fallback.lastAdvancedResult)
     };
   }
 
@@ -4353,7 +4372,14 @@
     const skills = analyzeSkillFindings(slime);
     const behaviors = analyzeBehaviorFindings(slime);
     for (const finding of skills) {
-      slime.analyzedCapabilities.skills[finding.skillId] = finding;
+      const previous = slime.analyzedCapabilities.skills[finding.skillId] || {};
+      const keepExactRead = previous.exactLevel > 0 && previous.tierId === finding.tierId;
+      slime.analyzedCapabilities.skills[finding.skillId] = {
+        ...previous,
+        ...finding,
+        exactLevel: keepExactRead ? previous.exactLevel : 0,
+        exactLevelObservedAt: keepExactRead ? previous.exactLevelObservedAt : null
+      };
     }
     for (const finding of behaviors) {
       slime.analyzedCapabilities.behaviors[finding.key] = finding;
@@ -4365,6 +4391,41 @@
       ? `${found} practiced ${found === 1 ? "capability" : "capabilities"} perceived`
       : "No practiced capabilities clearly perceived";
     return { skills, behaviors, found };
+  }
+
+  function advancedAnalyzeKnownSkills(slime) {
+    slime.skills = normalizeCreatureSkills(slime.skills);
+    slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
+    const knownSkills = Object.keys(slime.analyzedCapabilities.skills || {});
+    const updated = [];
+    for (const skillId of knownSkills) {
+      const def = CREATURE_SKILL_BY_ID[skillId];
+      if (!def) {
+        continue;
+      }
+      const progress = skillProgressForXp(slime.skills[skillId]?.xp || 0);
+      if (progress.level < 1) {
+        continue;
+      }
+      const tier = skillTierForLevel(progress.level) || SKILL_TIER_DEFS[0];
+      const finding = {
+        ...slime.analyzedCapabilities.skills[skillId],
+        skillId,
+        label: String(slime.analyzedCapabilities.skills[skillId]?.label || def.label),
+        tierId: tier.id,
+        tierLabel: tier.label,
+        exactLevel: progress.level,
+        exactLevelObservedAt: state.clock
+      };
+      slime.analyzedCapabilities.skills[skillId] = finding;
+      updated.push(finding);
+    }
+    slime.analyzedCapabilities.advancedAttempts += 1;
+    slime.analyzedCapabilities.lastAdvancedAnalyzedAt = state.clock;
+    slime.analyzedCapabilities.lastAdvancedResult = updated.length
+      ? `${updated.length} exact ${updated.length === 1 ? "skill level" : "skill levels"} read`
+      : "No identified skills available for exact reading";
+    return { skills: updated, found: updated.length };
   }
 
   function analyzedSkillFindings(slime) {
@@ -4394,6 +4455,23 @@
     return manaBlockReason(ANALYZE_MANA_COST);
   }
 
+  function advancedAnalyzeSlimeBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (skillLevel("analysis") < ADVANCED_ANALYZE_UNLOCK_LEVEL) {
+      return `Advanced Analyze requires Analysis [Novice], level ${ADVANCED_ANALYZE_UNLOCK_LEVEL}.`;
+    }
+    const knownSkills = analyzedSkillFindings(slime);
+    if (!knownSkills.length) {
+      return "Use Analyze to identify a practiced skill first.";
+    }
+    return manaBlockReason(ADVANCED_ANALYZE_MANA_COST);
+  }
+
   function startAnalyzeSlime(slimeId) {
     const slime = findSlime(slimeId);
     const reason = analyzeSlimeBlockReason(slime);
@@ -4421,6 +4499,40 @@
       addEvent(`Analyze read ${slime.name}: ${[skillText, behaviorText].filter(Boolean).join("; ")}.`);
     } else {
       addEvent(`Analyze found no practiced capabilities in ${slime.name}.`);
+    }
+    persist();
+    render();
+    return true;
+  }
+
+  function startAdvancedAnalyzeSlime(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = advancedAnalyzeSlimeBlockReason(slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!spendMana(ADVANCED_ANALYZE_MANA_COST)) {
+      addEvent(`Not enough mana. ${ADVANCED_ANALYZE_MANA_COST} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const result = advancedAnalyzeKnownSkills(slime);
+    awardXp(
+      "analysis",
+      result.found ? ADVANCED_ANALYZE_XP : ADVANCED_ANALYZE_XP * skillXpOutcomeMultiplier("failure"),
+      "Advanced Analyze"
+    );
+    if (result.found) {
+      const skillText = result.skills
+        .map((finding) => `${finding.label} [${finding.tierLabel}], level ${finding.exactLevel}`)
+        .join(", ");
+      addEvent(`Advanced Analyze read ${slime.name}: ${skillText}.`);
+    } else {
+      addEvent(`Advanced Analyze found no identified skills to read in ${slime.name}.`);
     }
     persist();
     render();
@@ -19898,6 +20010,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     analyze.addEventListener("click", () => startAnalyzeSlime(slime.id));
     actions.append(analyze);
 
+    const advancedAnalyze = document.createElement("button");
+    advancedAnalyze.type = "button";
+    advancedAnalyze.dataset.advancedAnalyzeSlimeId = slime.id;
+    advancedAnalyze.textContent = `Advanced Analyze (${ADVANCED_ANALYZE_MANA_COST} MANA)`;
+    const advancedReason = advancedAnalyzeSlimeBlockReason(slime);
+    setActionButtonState(advancedAnalyze, Boolean(advancedReason), advancedReason);
+    advancedAnalyze.title = advancedReason || `Spend ${ADVANCED_ANALYZE_MANA_COST} Mana to read exact levels for skills already found by Analyze.`;
+    advancedAnalyze.addEventListener("click", () => startAdvancedAnalyzeSlime(slime.id));
+    actions.append(advancedAnalyze);
+
     const knowledge = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
     const grid = document.createElement("div");
     grid.className = "slime-stat-grid";
@@ -19916,13 +20038,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addRow("Result", "Not analyzed", "unknown", "Use Analyze to read practiced capabilities. Level 0 practice is not visible.");
     } else {
       addRow("Last read", formatClock(knowledge.lastAnalyzedAt), "Analyze", knowledge.lastResult || "");
+      if (knowledge.lastAdvancedAnalyzedAt != null) {
+        addRow("Last exact read", formatClock(knowledge.lastAdvancedAnalyzedAt), "Advanced Analyze", knowledge.lastAdvancedResult || "");
+      }
       const skills = analyzedSkillFindings(slime);
       const behaviors = analyzedBehaviorFindings(slime);
       if (!skills.length && !behaviors.length) {
         addRow("Result", "No practiced capabilities clearly perceived", "quiet");
       }
       for (const finding of skills) {
-        const row = addRow("Skill", `${finding.label} [${finding.tierLabel}]`, "analyzed", "Base Analyze reveals skill name and tier, not exact level or raw XP.");
+        const exactLevel = Math.max(0, Math.floor(Number(finding.exactLevel) || 0));
+        const note = exactLevel > 0 ? `level ${exactLevel}` : "analyzed";
+        const titleText = exactLevel > 0
+          ? "Advanced Analyze has read the exact level for this already-identified skill. Raw XP and formulas remain hidden."
+          : "Base Analyze reveals skill name and tier, not exact level or raw XP.";
+        const row = addRow("Skill", `${finding.label} [${finding.tierLabel}]`, note, titleText);
         row.dataset.analyzedSkill = finding.skillId;
       }
       for (const finding of behaviors) {

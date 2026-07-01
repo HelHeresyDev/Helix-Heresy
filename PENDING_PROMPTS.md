@@ -12,7 +12,7 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Advanced Analyze & Creature Skill Evolution Follow-Up
+1. Analyze Variants & Creature Skill Evolution Follow-Up
 2. Slime Combat Behavior System
 3. Slime Containment Testing and Escape Behavior System
 4. Slime Container Interaction and Breach Behavior System
@@ -25,18 +25,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ---
 
-## 1. Advanced Analyze & Creature Skill Evolution Follow-Up
+## 1. Analyze Variants & Creature Skill Evolution Follow-Up
 
-Build on the base Analyze implementation by adding stronger Analysis-derived abilities, combat/forensic Analyze variants, and creature skill evolution behavior.
+Build on the existing Analyze implementation by adding stronger Analysis-derived abilities, combat/forensic Analyze variants, and creature skill evolution behavior.
 
-The current foundation has broad world-scale skill domains, tier labels, hidden pre-level-1 practice, scientist skill display rules, hidden slime skill practice, and a base Analyze ability. Base Analyze is instant, costs Mana, is granted by Analysis [Initiate], and reveals only level-1+ creature skill names/tiers plus broad learned behavior memories. It does not reveal exact levels, raw XP, genes, hidden stats, biological traits, weaknesses, compatibility formulas, or level-0 practice.
+The current foundation has broad world-scale skill domains, tier labels, hidden pre-level-1 practice, scientist skill display rules, hidden slime skill practice, base Analyze, and Advanced Analyze. Base Analyze is instant, costs Mana, is granted by Analysis [Initiate], and reveals only level-1+ creature skill names/tiers plus broad learned behavior memories. It does not reveal exact levels, raw XP, genes, hidden stats, biological traits, weaknesses, compatibility formulas, or level-0 practice. Advanced Analyze unlocks at Analysis [Novice], level 21, costs Mana, and reveals exact levels only for skills already identified by base Analyze.
 
-This follow-up should decide how later Analysis stages grant new abilities such as Advanced Analyze, Combat Analyze, Deep Analyze, or Forensic Analyze, and how creature skills evolve into specialized names without turning passive biology into fake skills.
+This follow-up should decide how later Analysis stages grant new abilities such as Combat Analyze, Deep Analyze, or Forensic Analyze, and how creature skills evolve into specialized names without turning passive biology into fake skills.
 
 This system should answer questions like:
-- Which Analysis stages unlock which new Analyze-derived abilities?
+- Which Analysis stages unlock the next Analyze-derived abilities after Advanced Analyze?
 - What can advanced Analyze variants target: corpses, rooms, tools, materials, enemies, hazards, or combat opponents?
-- Should Advanced Analyze reveal exact skill levels, approximate level bands, ability hints, or skill evolution paths?
+- Which future ability should reveal approximate threat bands, ability hints, or skill evolution paths?
 - How should Combat Analyze differ from base lab Analyze?
 - How should Forensic Analyze work on corpses, residue, harvested material, or old evidence?
 - Which creature actions grant skill practice?
@@ -44,7 +44,7 @@ This system should answer questions like:
 - Is skill evolution automatic, player-guided, or automatic for creatures and guided for the scientist?
 - How do abilities attach to evolved skills without turning passive biology into fake skills?
 
-Before coding, discuss advanced Analyze unlocks, target scope, exact-level visibility, combat reads, forensic reads, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
+Before coding, discuss future Analyze targets, combat reads, forensic reads, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
 
 ---
 

@@ -18,6 +18,14 @@ function xpToNextLevel(level) {
     : normalXpToNextLevel(level);
 }
 
+function totalXpForLevel(level) {
+  let total = 0;
+  for (let current = 0; current < level; current += 1) {
+    total += xpToNextLevel(current);
+  }
+  return total;
+}
+
 async function startRun(page) {
   await page.goto(appUrl);
   await page.evaluate(() => window.localStorage.clear());
@@ -321,6 +329,139 @@ test('Analyze spends mana and reveals only level-one creature capabilities', asy
   expect(result.analyzedSkills).toEqual(['toughness']);
   expect(result.analyzedBehaviors).toEqual(['attackWorked']);
   expect(result.thermalHiddenXp).toBe(firstBreakthrough - 1);
+});
+
+test('Advanced Analyze reveals exact levels only for already analyzed creature skills', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, genome, analysisXp, toughnessXp, hiddenThermalXp }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.selectedSlimeId = 'advanced-analyze-target';
+    state.scientist.vitals.mana = { current: 100, max: 100 };
+    state.scientist.skills.analysis = {
+      xp: analysisXp,
+      practiceTags: { fixture: analysisXp },
+      evolvedLabel: '',
+      lastPracticedAt: 0,
+      lastBreakthroughDecayAt: 0,
+    };
+    state.slimes = [{
+      id: 'advanced-analyze-target',
+      name: 'ADVANCED-ANALYZE-TARGET',
+      genome,
+      source: 'Advanced Analyze fixture',
+      createdAt: 0,
+      deathAt: 1000000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {
+        toughness: {
+          xp: toughnessXp,
+          practiceTags: { fixture: toughnessXp },
+          evolvedLabel: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+        thermal: {
+          xp: hiddenThermalXp,
+          practiceTags: { fixture: hiddenThermalXp },
+          evolvedLabel: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+      },
+      behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      analyzedCapabilities: {
+        skills: {
+          toughness: {
+            skillId: 'toughness',
+            label: 'Toughness',
+            tierId: 'initiate',
+            tierLabel: 'Initiate',
+            observedAt: 0,
+          },
+        },
+        behaviors: {},
+        attempts: 1,
+        advancedAttempts: 0,
+        lastAnalyzedAt: 0,
+        lastAdvancedAnalyzedAt: null,
+        lastResult: '1 practiced capability perceived',
+        lastAdvancedResult: '',
+      },
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 80, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, {
+    key: storageKey,
+    genome,
+    analysisXp: totalXpForLevel(21),
+    toughnessXp: totalXpForLevel(3),
+    hiddenThermalXp: totalXpForLevel(2),
+  });
+  await loadSavedRun(page);
+
+  const panel = page.locator('[data-slime-analyze-panel="advanced-analyze-target"]');
+  await expect(panel).toContainText('Toughness [Initiate]');
+  await expect(panel).not.toContainText('level 3');
+  await expect(panel).not.toContainText('Thermal');
+
+  await page.locator('[data-advanced-analyze-slime-id="advanced-analyze-target"]').click();
+
+  await expect(panel).toContainText('Toughness [Initiate]');
+  await expect(panel).toContainText('level 3');
+  await expect(panel).toContainText('Last exact read');
+  await expect(panel).not.toContainText('Thermal');
+  await expect(panel).not.toContainText('level 2');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = state.slimes.find((entry) => entry.id === 'advanced-analyze-target');
+    return {
+      mana: state.scientist.vitals.mana.current,
+      analysisXp: state.scientist.skills.analysis.xp,
+      knownSkills: Object.keys(slime?.analyzedCapabilities?.skills || {}),
+      toughnessExactLevel: slime?.analyzedCapabilities?.skills?.toughness?.exactLevel || 0,
+      thermalKnown: Boolean(slime?.analyzedCapabilities?.skills?.thermal),
+      advancedAttempts: slime?.analyzedCapabilities?.advancedAttempts || 0,
+    };
+  }, { key: storageKey });
+
+  expect(result.mana).toBe(84);
+  expect(result.analysisXp).toBe(totalXpForLevel(21) + 6);
+  expect(result.knownSkills).toEqual(['toughness']);
+  expect(result.toughnessExactLevel).toBe(3);
+  expect(result.thermalKnown).toBe(false);
+  expect(result.advancedAttempts).toBe(1);
 });
 
 test('slime breakthrough progress decays at the same threshold as scientist skills', async ({ page }) => {
