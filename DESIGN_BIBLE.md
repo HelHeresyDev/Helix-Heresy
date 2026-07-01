@@ -348,13 +348,17 @@ Skills should evolve based on use, pressure, and lived experience. Two creatures
 
 Skill tiers are Initiate, Novice, Adept, Master, Heroic, Legendary, and Divine. Each tier represents both advancement and increasing specialization. Higher-tier skill names should reflect the path that shaped them, not only numerical improvement.
 
-Analyze is the universal skill-reading ability. It can be useful in the laboratory, in combat, and in other contexts. In combat, Analyze helps identify what an opponent can do and how practiced it is. In research, it helps track what a specimen has learned or developed through use. Analyze can reveal skill names, tiers, and levels. It does not reveal stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
+Analysis is the parent skill for interpreting practiced capability. Analyze is the base magical ability derived from Analysis. All magical abilities should consume Mana and be basically instant unless a specific ability has a charge-up, ritual, or wind-up reason.
+
+The scientist starts with Analysis [Initiate], level 1, which grants base Analyze. Base Analyze can be used on a living specimen in the lab UI. It costs Mana immediately and reveals only practiced creature capabilities that already exist at level 1 or above, plus broad learned behavior memories. Base Analyze shows skill name and tier, such as Toughness [Initiate], but not exact levels. It does not reveal level 0 practice, raw XP, stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
+
+Analyze output is ability-defined, not continuously determined by the current level of Analysis. When Analysis advances to a later stage, it should grant new abilities such as Advanced Analyze, Combat Analyze, Deep Analyze, or Forensic Analyze. Those abilities can reveal stronger or different information. Base Analyze should remain a stable, simple read.
 
 The player may eventually see information like:
 
-- Grappling [Adept], level 118
-- Pouncing [Novice], level 73
-- Acid [Initiate], level 29
+- Toughness [Initiate]
+- Pouncing [Novice]
+- Corrosive [Initiate]
 - Combat Analysis [Novice], level 61
 
 The player should not see information like:
@@ -381,7 +385,7 @@ Likely future systems:
 - Test failure or inconclusive results based on skill, equipment, and sample difficulty.
 - Adaptive skill evolution where practiced skills evolve into specialized forms based on use, pressure, biology, environment, and lived experience.
 - Abilities derived from skills, such as Flame Jet from a fire-related skill or Locking Grapple from a grappling-related skill.
-- Analysis as a skill-reading tool for combat appraisal and laboratory tracking, revealing skill names, tiers, and levels but not stats, genes, biological traits, weaknesses, or hidden formulas.
+- Advanced Analyze-style abilities for combat appraisal, forensic reads, exact skill levels, ability hints, and skill evolution paths without revealing stats, genes, biological traits, weaknesses, or hidden formulas.
 - Mutation as a risk layered on top of deterministic genetics.
 - Creature stats derived from physical compatibility, affinity, stability, and biology.
 - More meaningful containment, risk, escape, and lab safety systems.

@@ -50,30 +50,26 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await startRun(page);
 
   const skillList = page.locator('#skillList');
-  await expect(skillList).toContainText('No learned skills yet');
-  await expect(skillList).not.toContainText('Analysis');
+  await expect(skillList).toContainText('Analysis');
+  await expect(skillList).toContainText('[Initiate], level 1');
+  await expect(skillList).toContainText(`0 / ${xpToNextLevel(1)} XP to level 2`);
+  await expect(skillList).not.toContainText('No learned skills yet');
   await expect(skillList).not.toContainText('Observation');
   await expect(skillList).not.toContainText('Perception');
 
   const firstBreakthrough = xpToNextLevel(0);
 
-  await page.locator('#xpCommandInput').fill(`analysis ${firstBreakthrough - 1}`);
-  await page.locator('#xpCommandBtn').click();
-  await expect(skillList).toContainText('No learned skills yet');
-  await expect(skillList).not.toContainText('Analysis');
-
-  await page.locator('#xpCommandInput').fill('analysis 1');
+  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Analysis');
-  await expect(skillList).toContainText('[Initiate], level 1');
-  await expect(skillList).toContainText(`0 / ${xpToNextLevel(1)} XP to level 2`);
-  await expect(skillList).not.toContainText('Observation');
   await expect(skillList).not.toContainText('Perception');
 
-  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough + 500}`);
+  await page.locator('#xpCommandInput').fill('perception 1');
   await page.locator('#xpCommandBtn').click();
+  await expect(skillList).toContainText('Analysis');
   await expect(skillList).toContainText('Perception');
   await expect(skillList).toContainText('[Initiate], level 1');
+  await expect(skillList).not.toContainText('Observation');
 
   const savedSkills = await page.evaluate(() => {
     const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
@@ -85,15 +81,16 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   });
 
   expect(savedSkills.analysis?.xp).toBe(firstBreakthrough);
-  expect(savedSkills.analysis?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
+  expect(savedSkills.analysis?.practiceTags?.starter).toBe(firstBreakthrough);
   expect(savedSkills.perception?.xp).toBe(firstBreakthrough);
   expect(savedSkills.perception?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
 
-test('low-confidence diagnostic failure grants reduced XP', async ({ page }) => {
+test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   await startRun(page);
+  const firstBreakthrough = xpToNextLevel(0);
 
   await page.locator('[data-physical-diagnostic-test-id="selfCheck"]').click();
   await page.locator('#skipAmountInput').evaluate((element) => {
@@ -107,16 +104,16 @@ test('low-confidence diagnostic failure grants reduced XP', async ({ page }) => 
     return state.scientist?.skills?.analysis || null;
   }, { key: storageKey });
 
-  expect(skill?.xp).toBe(1.5);
-  expect(skill?.practiceTags?.selfcheck).toBe(1.5);
-  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+  expect(skill?.xp).toBe(firstBreakthrough + 3);
+  expect(skill?.practiceTags?.selfcheck).toBe(3);
+  await expect(page.locator('#skillList')).toContainText('Analysis');
 });
 
 test('breakthrough progress decays after sustained idle time', async ({ page }) => {
   await startRun(page);
 
   const firstBreakthrough = xpToNextLevel(0);
-  await page.locator('#xpCommandInput').fill(`analysis ${firstBreakthrough - 1}`);
+  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
 
   await skipSeconds(page, 60 * 60 * 48);
@@ -124,13 +121,14 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
   const skill = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    return state.scientist?.skills?.analysis || null;
+    return state.scientist?.skills?.perception || null;
   }, { key: storageKey });
 
   const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
   expect(skill?.xp).toBeCloseTo(expected, 4);
   expect(skill?.lastBreakthroughDecayAt).toBe(60 * 60 * 48);
-  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+  await expect(page.locator('#skillList')).toContainText('Analysis');
+  await expect(page.locator('#skillList')).not.toContainText('Perception');
 });
 
 test('slime combat practice stores hidden component skills and pain memory', async ({ page }) => {
@@ -210,14 +208,119 @@ test('slime combat practice stores hidden component skills and pain memory', asy
     };
   }, { key: storageKey });
 
-  expect(result.scientistSkills).toEqual([]);
+  expect(result.scientistSkills).toEqual(['analysis']);
   expect(result.flameThermal).toBeGreaterThan(0);
   expect(result.frostCold).toBeGreaterThan(0);
   expect(result.flameToughness).toBeGreaterThan(0);
   expect(result.frostToughness).toBeGreaterThan(0);
   expect(result.flameMemory).toBeGreaterThan(0);
   expect(result.frostMemory).toBeGreaterThan(0);
-  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+  await expect(page.locator('#skillList')).toContainText('Analysis');
+});
+
+test('Analyze spends mana and reveals only level-one creature capabilities', async ({ page }) => {
+  await startRun(page);
+  const firstBreakthrough = xpToNextLevel(0);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, genome, firstBreakthrough }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.selectedSlimeId = 'analyze-target';
+    state.scientist.vitals.mana = { current: 100, max: 100 };
+    state.slimes = [{
+      id: 'analyze-target',
+      name: 'ANALYZE-TARGET',
+      genome,
+      source: 'Analyze fixture',
+      createdAt: 0,
+      deathAt: 1000000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {
+        toughness: {
+          xp: firstBreakthrough,
+          practiceTags: { fixture: firstBreakthrough },
+          evolvedLabel: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+        thermal: {
+          xp: firstBreakthrough - 1,
+          practiceTags: { fixture: firstBreakthrough - 1 },
+          evolvedLabel: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+      },
+      behaviorMemory: {
+        tags: { attackWorked: 30 },
+        recent: [{ key: 'attackWorked', reason: 'fixture', amount: 30, at: 0 }],
+        lastUpdatedAt: 0,
+      },
+      analyzedCapabilities: { skills: {}, behaviors: {}, attempts: 0, lastAnalyzedAt: null, lastResult: '' },
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 80, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome, firstBreakthrough });
+  await loadSavedRun(page);
+
+  const panel = page.locator('[data-slime-analyze-panel="analyze-target"]');
+  await expect(panel).toContainText('Not analyzed');
+  await expect(panel).not.toContainText('Toughness');
+  await expect(panel).not.toContainText('Thermal');
+
+  await page.locator('[data-analyze-slime-id="analyze-target"]').click();
+
+  await expect(panel).toContainText('Toughness [Initiate]');
+  await expect(panel).toContainText('Successful attack habit');
+  await expect(panel).not.toContainText('Thermal');
+  await expect(panel).not.toContainText('level 1');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = state.slimes.find((entry) => entry.id === 'analyze-target');
+    return {
+      mana: state.scientist.vitals.mana.current,
+      analysisXp: state.scientist.skills.analysis.xp,
+      analyzedSkills: Object.keys(slime?.analyzedCapabilities?.skills || {}),
+      analyzedBehaviors: Object.keys(slime?.analyzedCapabilities?.behaviors || {}),
+      thermalHiddenXp: slime?.skills?.thermal?.xp || 0,
+    };
+  }, { key: storageKey });
+
+  expect(result.mana).toBe(92);
+  expect(result.analysisXp).toBe(firstBreakthrough + 4);
+  expect(result.analyzedSkills).toEqual(['toughness']);
+  expect(result.analyzedBehaviors).toEqual(['attackWorked']);
+  expect(result.thermalHiddenXp).toBe(firstBreakthrough - 1);
 });
 
 test('slime breakthrough progress decays at the same threshold as scientist skills', async ({ page }) => {

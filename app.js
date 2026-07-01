@@ -1169,6 +1169,11 @@
   const SKILL_BREAKTHROUGH_OFFSET = 20;
   const SKILL_BREAKTHROUGH_DECAY_DELAY = minutesToSeconds(1440);
   const SKILL_BREAKTHROUGH_DECAY_PER_DAY = 0.1;
+  const STARTING_ANALYSIS_LEVEL = 1;
+  const STARTING_ANALYSIS_XP = totalXpForLevel(STARTING_ANALYSIS_LEVEL);
+  const ANALYZE_MANA_COST = 8;
+  const ANALYZE_XP = 4;
+  const ANALYZE_MEMORY_REVEAL_THRESHOLD = 10;
   const XP_OUTCOME_MULTIPLIERS = {
     success: 1,
     partial: 0.5,
@@ -2097,7 +2102,9 @@
         stamina: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
         mana: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX }
       },
-      skills: {}
+      skills: {
+        analysis: starterAnalysisSkillEntry()
+      }
     };
   }
 
@@ -3580,6 +3587,7 @@
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
       skills: normalizeCreatureSkills(options.skills || {}),
       behaviorMemory: normalizeCreatureBehaviorMemory(options.behaviorMemory),
+      analyzedCapabilities: normalizeAnalyzedCapabilities(options.analyzedCapabilities),
       nextPerceptionPracticeAt: finiteTime(options.nextPerceptionPracticeAt, 0),
       ai: null,
       byproductExpression: null,
@@ -4008,6 +4016,16 @@
     return { xp: 0, practiceTags: {}, evolvedLabel: "", lastPracticedAt: null, lastBreakthroughDecayAt: null };
   }
 
+  function starterAnalysisSkillEntry() {
+    return {
+      ...defaultSkillEntry(),
+      xp: STARTING_ANALYSIS_XP,
+      practiceTags: { starter: STARTING_ANALYSIS_XP },
+      lastPracticedAt: 0,
+      lastBreakthroughDecayAt: 0
+    };
+  }
+
   function normalizeActorSkillId(skillId, skillDefsById, aliases = {}) {
     const raw = String(skillId || "").trim();
     if (!raw) {
@@ -4223,6 +4241,190 @@
       slime.nextPerceptionPracticeAt = state.clock + CREATURE_PERCEPTION_PRACTICE_INTERVAL;
     }
     return changes;
+  }
+
+  function defaultAnalyzedCapabilities() {
+    return { skills: {}, behaviors: {}, attempts: 0, lastAnalyzedAt: null, lastResult: "" };
+  }
+
+  function normalizeAnalyzedCapabilities(candidate) {
+    const fallback = defaultAnalyzedCapabilities();
+    const skills = {};
+    if (candidate?.skills && typeof candidate.skills === "object") {
+      for (const [rawSkillId, rawSkill] of Object.entries(candidate.skills)) {
+        const skillId = normalizeCreatureSkillId(rawSkillId);
+        if (!skillId || !CREATURE_SKILL_BY_ID[skillId]) {
+          continue;
+        }
+        const storedTier = SKILL_TIER_DEFS.find((tierDef) =>
+          tierDef.id === rawSkill?.tierId || tierDef.label === rawSkill?.tierLabel
+        );
+        const tier = storedTier || skillTierForLevel(Number(rawSkill?.tierMin) || Number(rawSkill?.level) || 1) || SKILL_TIER_DEFS[0];
+        skills[skillId] = {
+          skillId,
+          label: String(rawSkill?.label || CREATURE_SKILL_BY_ID[skillId].label),
+          tierId: String(rawSkill?.tierId || tier.id),
+          tierLabel: String(rawSkill?.tierLabel || tier.label),
+          observedAt: finiteTime(rawSkill?.observedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
+        };
+      }
+    }
+    const behaviors = {};
+    if (candidate?.behaviors && typeof candidate.behaviors === "object") {
+      for (const [rawKey, rawBehavior] of Object.entries(candidate.behaviors)) {
+        const key = normalizeCreatureMemoryKey(rawKey);
+        if (!key) {
+          continue;
+        }
+        const def = analyzeBehaviorDef(key);
+        behaviors[key] = {
+          key,
+          label: String(rawBehavior?.label || def.label),
+          note: String(rawBehavior?.note || def.note),
+          observedAt: finiteTime(rawBehavior?.observedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
+        };
+      }
+    }
+    return {
+      skills,
+      behaviors,
+      attempts: Math.max(0, Math.floor(Number(candidate?.attempts) || 0)),
+      lastAnalyzedAt: candidate?.lastAnalyzedAt == null ? fallback.lastAnalyzedAt : finiteTime(candidate.lastAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+      lastResult: String(candidate?.lastResult || fallback.lastResult)
+    };
+  }
+
+  function analyzeBehaviorDef(key) {
+    return {
+      perceivedStimuli: { label: "Practiced awareness", note: "repeated sensory impressions" },
+      combatHurt: { label: "Combat-shaped caution", note: "remembers being hurt" },
+      scientistPain: { label: "Scientist-associated pain", note: "remembers the scientist as a source of injury" },
+      attackWorked: { label: "Successful attack habit", note: "has learned that attacking can work" },
+      attackFailed: { label: "Failed attack memory", note: "has learned that some attacks fail" },
+      combatWon: { label: "Victory memory", note: "has survived a successful fight" },
+      fledThreat: { label: "Flight response", note: "has practiced fleeing danger" },
+      blockedDoor: { label: "Blocked-route fixation", note: "has pressed against closed paths" },
+      hazardHurt: { label: "Hazard pain memory", note: "remembers environmental harm" }
+    }[normalizeCreatureMemoryKey(key)] || { label: titleCase(key), note: "learned behavior" };
+  }
+
+  function analyzeSkillFindings(slime) {
+    slime.skills = normalizeCreatureSkills(slime.skills);
+    return CREATURE_SKILL_DEFS
+      .map((def) => {
+        const entry = slime.skills[def.id];
+        const progress = skillProgressForXp(entry?.xp || 0);
+        if (progress.level < 1) {
+          return null;
+        }
+        const tier = skillTierForLevel(progress.level) || SKILL_TIER_DEFS[0];
+        return {
+          skillId: def.id,
+          label: def.label,
+          tierId: tier.id,
+          tierLabel: tier.label,
+          observedAt: state.clock
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function analyzeBehaviorFindings(slime) {
+    slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+    return [...CREATURE_BEHAVIOR_MEMORY_KEYS]
+      .map((key) => {
+        const value = creatureMemoryValue(slime, key);
+        if (value < ANALYZE_MEMORY_REVEAL_THRESHOLD) {
+          return null;
+        }
+        const def = analyzeBehaviorDef(key);
+        return {
+          key,
+          label: def.label,
+          note: def.note,
+          observedAt: state.clock
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function analyzeSlimeCapabilities(slime) {
+    slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
+    const skills = analyzeSkillFindings(slime);
+    const behaviors = analyzeBehaviorFindings(slime);
+    for (const finding of skills) {
+      slime.analyzedCapabilities.skills[finding.skillId] = finding;
+    }
+    for (const finding of behaviors) {
+      slime.analyzedCapabilities.behaviors[finding.key] = finding;
+    }
+    slime.analyzedCapabilities.attempts += 1;
+    slime.analyzedCapabilities.lastAnalyzedAt = state.clock;
+    const found = skills.length + behaviors.length;
+    slime.analyzedCapabilities.lastResult = found
+      ? `${found} practiced ${found === 1 ? "capability" : "capabilities"} perceived`
+      : "No practiced capabilities clearly perceived";
+    return { skills, behaviors, found };
+  }
+
+  function analyzedSkillFindings(slime) {
+    const knowledge = normalizeAnalyzedCapabilities(slime?.analyzedCapabilities);
+    return CREATURE_SKILL_DEFS
+      .map((def) => knowledge.skills[def.id])
+      .filter(Boolean);
+  }
+
+  function analyzedBehaviorFindings(slime) {
+    const knowledge = normalizeAnalyzedCapabilities(slime?.analyzedCapabilities);
+    return [...CREATURE_BEHAVIOR_MEMORY_KEYS]
+      .map((key) => knowledge.behaviors[key])
+      .filter(Boolean);
+  }
+
+  function analyzeSlimeBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (skillLevel("analysis") < STARTING_ANALYSIS_LEVEL) {
+      return "Analyze requires Analysis [Initiate].";
+    }
+    return manaBlockReason(ANALYZE_MANA_COST);
+  }
+
+  function startAnalyzeSlime(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = analyzeSlimeBlockReason(slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!spendMana(ANALYZE_MANA_COST)) {
+      addEvent(`Not enough mana. ${ANALYZE_MANA_COST} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const result = analyzeSlimeCapabilities(slime);
+    awardXp("analysis", result.found ? ANALYZE_XP : ANALYZE_XP * skillXpOutcomeMultiplier("failure"), "Analyze");
+    if (result.found) {
+      const skillText = result.skills.length
+        ? result.skills.map((finding) => `${finding.label} [${finding.tierLabel}]`).join(", ")
+        : "";
+      const behaviorText = result.behaviors.length
+        ? result.behaviors.map((finding) => finding.label).join(", ")
+        : "";
+      addEvent(`Analyze read ${slime.name}: ${[skillText, behaviorText].filter(Boolean).join("; ")}.`);
+    } else {
+      addEvent(`Analyze found no practiced capabilities in ${slime.name}.`);
+    }
+    persist();
+    render();
+    return true;
   }
 
   function skillTierForLevel(level) {
@@ -14086,6 +14288,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderSlimeAnalyzePanel(slime));
         card.append(renderSlimeResponse(slime));
         card.append(renderSlimeCombatControls(slime));
         const elementalHazards = renderSlimeElementalHazards(slime, evaluated);
@@ -19672,6 +19875,66 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return section;
   }
 
+  function renderSlimeAnalyzePanel(slime) {
+    const section = document.createElement("div");
+    section.className = "slime-analyze subpanel";
+    section.dataset.slimeAnalyzePanel = slime.id;
+    section.addEventListener("click", (event) => event.stopPropagation());
+
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Analyze";
+    title.title = "Analyze is an instant magical ability derived from Analysis. Base Analyze reads practiced capabilities, not genes, stats, traits, weaknesses, raw XP, or exact formulas.";
+
+    const actions = document.createElement("div");
+    actions.className = "combat-actions";
+    const analyze = document.createElement("button");
+    analyze.type = "button";
+    analyze.dataset.analyzeSlimeId = slime.id;
+    analyze.textContent = `Analyze (${ANALYZE_MANA_COST} MANA)`;
+    const reason = analyzeSlimeBlockReason(slime);
+    setActionButtonState(analyze, Boolean(reason), reason);
+    analyze.title = reason || `Spend ${ANALYZE_MANA_COST} Mana to read practiced skills and broad learned behavior. Base Analyze shows skill name and tier only.`;
+    analyze.addEventListener("click", () => startAnalyzeSlime(slime.id));
+    actions.append(analyze);
+
+    const knowledge = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+      return row;
+    };
+
+    if (knowledge.lastAnalyzedAt == null) {
+      addRow("Result", "Not analyzed", "unknown", "Use Analyze to read practiced capabilities. Level 0 practice is not visible.");
+    } else {
+      addRow("Last read", formatClock(knowledge.lastAnalyzedAt), "Analyze", knowledge.lastResult || "");
+      const skills = analyzedSkillFindings(slime);
+      const behaviors = analyzedBehaviorFindings(slime);
+      if (!skills.length && !behaviors.length) {
+        addRow("Result", "No practiced capabilities clearly perceived", "quiet");
+      }
+      for (const finding of skills) {
+        const row = addRow("Skill", `${finding.label} [${finding.tierLabel}]`, "analyzed", "Base Analyze reveals skill name and tier, not exact level or raw XP.");
+        row.dataset.analyzedSkill = finding.skillId;
+      }
+      for (const finding of behaviors) {
+        const row = addRow("Learned behavior", finding.label, "analyzed", finding.note);
+        row.dataset.analyzedBehavior = finding.key;
+      }
+    }
+
+    section.append(title, actions, grid);
+    return section;
+  }
+
   function renderSlimeResponse(slime) {
     const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
     const section = document.createElement("div");
@@ -21594,6 +21857,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function staminaBlockReason(cost) {
     return hasStamina(cost) ? "" : `Not enough stamina. ${cost} required.`;
+  }
+
+  function manaBlockReason(cost) {
+    return hasMana(cost) ? "" : `Not enough mana. ${cost} required.`;
   }
 
   function runXpCommand() {
@@ -25860,12 +26127,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return scientistVital("stamina").current >= cost;
   }
 
+  function hasMana(cost) {
+    return scientistVital("mana").current >= cost;
+  }
+
   function spendStamina(cost) {
     const stamina = scientistVital("stamina");
     if (stamina.current < cost) {
       return false;
     }
     stamina.current = Math.max(0, stamina.current - cost);
+    return true;
+  }
+
+  function spendMana(cost) {
+    const mana = scientistVital("mana");
+    if (mana.current < cost) {
+      return false;
+    }
+    mana.current = Math.max(0, mana.current - cost);
     return true;
   }
 
@@ -26595,6 +26875,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.stats = normalizeSlimeStats(slime.stats);
       slime.skills = normalizeCreatureSkills(slime.skills);
       slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+      slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
       slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
@@ -26849,6 +27130,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ...(rawSkill?.practiceTags || {})
       });
       normalizedSkills[skillId] = existing;
+    }
+    if (!normalizedSkills.analysis || skillProgressForXp(normalizedSkills.analysis.xp).level < STARTING_ANALYSIS_LEVEL) {
+      const starter = starterAnalysisSkillEntry();
+      normalizedSkills.analysis = {
+        ...starter,
+        ...(normalizedSkills.analysis || {}),
+        xp: Math.max(Number(normalizedSkills.analysis?.xp) || 0, starter.xp),
+        practiceTags: normalizeSkillPracticeTags({
+          ...(starter.practiceTags || {}),
+          ...(normalizedSkills.analysis?.practiceTags || {})
+        }),
+        lastPracticedAt: finiteTime(normalizedSkills.analysis?.lastPracticedAt, starter.lastPracticedAt),
+        lastBreakthroughDecayAt: finiteTime(normalizedSkills.analysis?.lastBreakthroughDecayAt, starter.lastBreakthroughDecayAt)
+      };
     }
     scientist.skills = normalizedSkills;
     return scientist;
