@@ -12,45 +12,20 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Slime Skill Practice, Ability Use, and Behavior Learning System
-2. Analyze Ability & Creature Skill Evolution Follow-Up
-3. Slime Combat Behavior System
-4. Slime Containment Testing and Escape Behavior System
-5. Slime Container Interaction and Breach Behavior System
-6. Tool Durability and Damage Resistance System
-7. Slime Social, Territorial, and Group Behavior System
-8. Slime Job Autonomy and Work Behavior System
-9. Map-Based Slime Incident and Emergency Response System
-10. Slime AI Debugging and Behavior Readout System
-11. Black Market Byproduct Economy System
+1. Analyze Ability & Creature Skill Evolution Follow-Up
+2. Slime Combat Behavior System
+3. Slime Containment Testing and Escape Behavior System
+4. Slime Container Interaction and Breach Behavior System
+5. Tool Durability and Damage Resistance System
+6. Slime Social, Territorial, and Group Behavior System
+7. Slime Job Autonomy and Work Behavior System
+8. Map-Based Slime Incident and Emergency Response System
+9. Slime AI Debugging and Behavior Readout System
+10. Black Market Byproduct Economy System
 
 ---
 
-## 1. Slime Skill Practice, Ability Use, and Behavior Learning System
-
-Create a system for slime skill practice, ability use, and learned behavior.
-
-Slimes should improve at things they actually do. A slime that repeatedly grapples, squeezes through gaps, digests corpses, withstands harsh conditions, spits acid, hides, climbs, or fights should gain relevant practice. This should connect to the adaptive skill system without turning passive biology into fake skills.
-
-The system should answer questions like:
-- Which slime actions grant skill practice?
-- Which behaviors are skills, which are abilities, and which are outcomes?
-- How do slimes unlock or improve abilities through skill use?
-- How does the game avoid creating skills for passive byproduct production, containment pressure, collection rate, or other derived outcomes?
-- How do current traits and hidden stats shape which skills a slime can practice effectively?
-- How does practice connect to the XP breakthrough system?
-- How does behavior history affect future AI choices?
-- How should the UI reveal learned behavior without exposing hidden biological truths?
-
-This system should make slimes become different over time. Two similar slimes should diverge if one is used for corpse work, one survives repeated containment stress, one fights intruders, and one spends its life in a comfortable collection station.
-
-The desired result is a learning foundation where repeated action shapes skill progress, abilities, and behavior tendencies, while biology remains separate from skill identity.
-
-Before coding, discuss practice sources, ability hooks, skill categories, XP integration, behavior history, save structure, and how this should connect to Analyze.
-
----
-
-## 2. Analyze Ability & Creature Skill Evolution Follow-Up
+## 1. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
@@ -70,7 +45,7 @@ Before coding, discuss the Analyze workflow, creature skill visibility, evolutio
 
 ---
 
-## 3. Slime Combat Behavior System
+## 2. Slime Combat Behavior System
 
 Create slime-specific combat behavior on top of the combat foundation.
 
@@ -95,7 +70,7 @@ Before coding, discuss behavior categories, target selection, ability choice, fl
 
 ---
 
-## 4. Slime Containment Testing and Escape Behavior System
+## 3. Slime Containment Testing and Escape Behavior System
 
 Create a system for slimes to test containment and attempt escape.
 
@@ -119,7 +94,7 @@ Before coding, discuss escape triggers, containment testing actions, progress, f
 
 ---
 
-## 5. Slime Container Interaction and Breach Behavior System
+## 4. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -143,7 +118,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 6. Tool Durability and Damage Resistance System
+## 5. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -172,7 +147,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 7. Slime Social, Territorial, and Group Behavior System
+## 6. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -196,7 +171,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 8. Slime Job Autonomy and Work Behavior System
+## 7. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -220,7 +195,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 9. Map-Based Slime Incident and Emergency Response System
+## 8. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -244,7 +219,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 10. Slime AI Debugging and Behavior Readout System
+## 9. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -268,7 +243,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 11. Black Market Byproduct Economy System
+## 10. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

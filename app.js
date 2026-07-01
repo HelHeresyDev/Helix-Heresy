@@ -1904,6 +1904,64 @@
       ...(skill.aliases || []).map((alias) => [normalizeCommandName(alias), skill.id])
     ])
   ]);
+  const CREATURE_SKILL_DEFS = [
+    { id: "perception", label: "Perception", aliases: ["awareness", "sensing"] },
+    { id: "toughness", label: "Toughness", aliases: ["endurance", "resilience"] },
+    { id: "striking", label: "Striking", aliases: ["strike", "impact"] },
+    { id: "grappling", label: "Grappling", aliases: ["grapple", "hold"] },
+    { id: "evasion", label: "Evasion", aliases: ["dodging", "fleeing"] },
+    { id: "guarding", label: "Guarding", aliases: ["guard", "defense"] },
+    { id: "corrosive", label: "Corrosive", aliases: ["acid", "caustic"] },
+    { id: "toxic", label: "Toxic", aliases: ["poison", "venom"] },
+    { id: "thermal", label: "Thermal", aliases: ["heat", "flame", "fire"] },
+    { id: "cold", label: "Cold", aliases: ["frost", "freezing"] },
+    { id: "electrical", label: "Electrical", aliases: ["storm", "lightning"] },
+    { id: "fluid", label: "Fluid", aliases: ["moisture", "water"] },
+    { id: "pressure", label: "Pressure", aliases: ["wind", "air"] },
+    { id: "radiant", label: "Radiant", aliases: ["light"] },
+    { id: "umbral", label: "Umbral", aliases: ["shadow"] },
+    { id: "arcane", label: "Arcane", aliases: ["mana", "dream", "ether"] },
+    { id: "force", label: "Force", aliases: ["gravity"] }
+  ];
+  const CREATURE_SKILL_BY_ID = Object.fromEntries(CREATURE_SKILL_DEFS.map((skill) => [skill.id, skill]));
+  const CREATURE_SKILL_ALIASES = Object.fromEntries(CREATURE_SKILL_DEFS.flatMap((skill) => [
+    [normalizeCommandName(skill.id), skill.id],
+    [normalizeCommandName(skill.label), skill.id],
+    ...(skill.aliases || []).map((alias) => [normalizeCommandName(alias), skill.id])
+  ]));
+  const CREATURE_DAMAGE_SKILL_BY_TYPE = {
+    corrosive: "corrosive",
+    toxic: "toxic",
+    heat: "thermal",
+    cold: "cold",
+    electrical: "electrical",
+    moisture: "fluid",
+    pressure: "pressure",
+    radiant: "radiant",
+    shadow: "umbral",
+    arcane: "arcane",
+    force: "force"
+  };
+  const CREATURE_BEHAVIOR_MEMORY_KEYS = new Set([
+    "perceivedStimuli",
+    "combatHurt",
+    "scientistPain",
+    "attackWorked",
+    "attackFailed",
+    "combatWon",
+    "fledThreat",
+    "blockedDoor",
+    "hazardHurt"
+  ]);
+  const CREATURE_BEHAVIOR_MEMORY_RECENT_LIMIT = 12;
+  const CREATURE_PERCEPTION_PRACTICE_INTERVAL = minutesToSeconds(60);
+  const CREATURE_PRACTICE_XP = {
+    perception: 2,
+    toughnessPerDamage: 0.35,
+    strikingPerCycle: 4,
+    elementalPerCycle: 3,
+    evasion: 2
+  };
 
   const REGION_DEFS = [
     { key: "size", label: "Size", test: "visual" },
@@ -3031,6 +3089,7 @@
       compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
       containmentIncidentChanges: updateContainmentIncidents(elapsed),
       combatChanged: updateCombat(elapsed),
+      creatureSkillPracticeChanged: updateCreatureSkillPractice(elapsed),
       incidentAlertChanged: refreshIncidentAlerts(),
       jobExpired: 0,
       completed: 0,
@@ -3064,6 +3123,7 @@
       + changes.compatibilityChanged
       + changes.containmentIncidentChanges
       + changes.combatChanged
+      + changes.creatureSkillPracticeChanged
       + changes.incidentAlertChanged
       + changes.completed
       + changes.skillDecayChanged
@@ -3518,6 +3578,9 @@
       jobTargetCorpseId: null,
       jobNutritionGained: 0,
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
+      skills: normalizeCreatureSkills(options.skills || {}),
+      behaviorMemory: normalizeCreatureBehaviorMemory(options.behaviorMemory),
+      nextPerceptionPracticeAt: finiteTime(options.nextPerceptionPracticeAt, 0),
       ai: null,
       byproductExpression: null,
       revealed: {},
@@ -3845,13 +3908,13 @@
     };
   }
 
-  function updateSkillBreakthroughDecay(elapsed = 0) {
-    if (!state?.scientist?.skills || elapsed <= 0) {
+  function updateSkillMapBreakthroughDecay(skills, skillDefsById, elapsed = 0) {
+    if (!skills || typeof skills !== "object" || elapsed <= 0) {
       return 0;
     }
     let changes = 0;
-    for (const [skillId, skill] of Object.entries(state.scientist.skills)) {
-      if (!SKILL_BY_ID[skillId] || !skill) {
+    for (const [skillId, skill] of Object.entries(skills)) {
+      if (!skillDefsById[skillId] || !skill) {
         continue;
       }
       const progress = skillProgressForXp(skill.xp);
@@ -3879,6 +3942,20 @@
       skill.xp = totalXpForLevel(progress.level) + Math.max(0, progress.current - applied);
       skill.lastBreakthroughDecayAt = state.clock;
       changes += applied >= 0.01 ? 1 : 0;
+    }
+    return changes;
+  }
+
+  function updateSkillBreakthroughDecay(elapsed = 0) {
+    if (elapsed <= 0) {
+      return 0;
+    }
+    let changes = updateSkillMapBreakthroughDecay(state?.scientist?.skills, SKILL_BY_ID, elapsed);
+    for (const slime of state?.slimes || []) {
+      if (slime?.status === "dead") {
+        continue;
+      }
+      changes += updateSkillMapBreakthroughDecay(slime.skills, CREATURE_SKILL_BY_ID, elapsed);
     }
     return changes;
   }
@@ -3929,6 +4006,223 @@
 
   function defaultSkillEntry() {
     return { xp: 0, practiceTags: {}, evolvedLabel: "", lastPracticedAt: null, lastBreakthroughDecayAt: null };
+  }
+
+  function normalizeActorSkillId(skillId, skillDefsById, aliases = {}) {
+    const raw = String(skillId || "").trim();
+    if (!raw) {
+      return "";
+    }
+    return skillDefsById[raw] ? raw : aliases[normalizeCommandName(raw)] || "";
+  }
+
+  function normalizeActorSkillMap(candidate, skillDefsById, aliases = {}) {
+    const normalized = {};
+    if (!candidate || typeof candidate !== "object") {
+      return normalized;
+    }
+    const fallbackTime = Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0;
+    for (const [rawSkillId, rawSkill] of Object.entries(candidate)) {
+      const skillId = normalizeActorSkillId(rawSkillId, skillDefsById, aliases);
+      if (!skillId || !skillDefsById[skillId]) {
+        continue;
+      }
+      const source = rawSkill && typeof rawSkill === "object" ? rawSkill : { xp: rawSkill };
+      const xp = Math.max(0, Number(source.xp) || 0);
+      if (!xp) {
+        continue;
+      }
+      const existing = normalized[skillId] || defaultSkillEntry();
+      existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
+      existing.evolvedLabel = String(source.evolvedLabel || existing.evolvedLabel || "");
+      const lastPracticedAt = finiteTime(source.lastPracticedAt, fallbackTime);
+      const lastDecayAt = finiteTime(source.lastBreakthroughDecayAt, lastPracticedAt);
+      existing.lastPracticedAt = Math.max(finiteTime(existing.lastPracticedAt, lastPracticedAt), lastPracticedAt);
+      existing.lastBreakthroughDecayAt = Math.max(finiteTime(existing.lastBreakthroughDecayAt, lastDecayAt), lastDecayAt);
+      existing.practiceTags = normalizeSkillPracticeTags({
+        ...(existing.practiceTags || {}),
+        ...(source.practiceTags || {})
+      });
+      normalized[skillId] = existing;
+    }
+    return normalized;
+  }
+
+  function normalizeCreatureSkillId(skillId) {
+    return normalizeActorSkillId(skillId, CREATURE_SKILL_BY_ID, CREATURE_SKILL_ALIASES);
+  }
+
+  function normalizeCreatureSkills(candidate) {
+    return normalizeActorSkillMap(candidate, CREATURE_SKILL_BY_ID, CREATURE_SKILL_ALIASES);
+  }
+
+  function defaultCreatureBehaviorMemory() {
+    return { tags: {}, recent: [], lastUpdatedAt: null };
+  }
+
+  function normalizeCreatureBehaviorMemory(candidate) {
+    const fallback = defaultCreatureBehaviorMemory();
+    const tags = {};
+    if (candidate?.tags && typeof candidate.tags === "object") {
+      for (const [rawKey, rawValue] of Object.entries(candidate.tags)) {
+        const key = normalizeCreatureMemoryKey(rawKey);
+        const value = clamp(Number(rawValue) || 0, 0, 100);
+        if (key && value > 0) {
+          tags[key] = roundOutputValue(Math.max(tags[key] || 0, value));
+        }
+      }
+    }
+    const recent = Array.isArray(candidate?.recent)
+      ? candidate.recent
+        .map((entry) => ({
+          key: normalizeCreatureMemoryKey(entry?.key),
+          reason: String(entry?.reason || "").trim(),
+          amount: roundOutputValue(Math.max(0, Number(entry?.amount) || 0)),
+          at: finiteTime(entry?.at, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
+        }))
+        .filter((entry) => entry.key && entry.amount > 0)
+        .slice(0, CREATURE_BEHAVIOR_MEMORY_RECENT_LIMIT)
+      : [];
+    return {
+      tags,
+      recent,
+      lastUpdatedAt: candidate?.lastUpdatedAt == null
+        ? fallback.lastUpdatedAt
+        : finiteTime(candidate.lastUpdatedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0)
+    };
+  }
+
+  function normalizeCreatureMemoryKey(key) {
+    const normalized = normalizeCommandName(key);
+    if (!normalized) {
+      return "";
+    }
+    const direct = [...CREATURE_BEHAVIOR_MEMORY_KEYS].find((candidate) => normalizeCommandName(candidate) === normalized);
+    return direct || "";
+  }
+
+  function rememberCreatureExperience(slime, key, amount, reason = "") {
+    if (!slime || slime.status === "dead") {
+      return false;
+    }
+    const memoryKey = normalizeCreatureMemoryKey(key);
+    const delta = Math.max(0, Number(amount) || 0);
+    if (!memoryKey || delta <= 0) {
+      return false;
+    }
+    slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+    slime.behaviorMemory.tags[memoryKey] = roundOutputValue(clamp((Number(slime.behaviorMemory.tags[memoryKey]) || 0) + delta, 0, 100));
+    slime.behaviorMemory.lastUpdatedAt = state.clock;
+    slime.behaviorMemory.recent.unshift({
+      key: memoryKey,
+      reason: String(reason || "").trim(),
+      amount: roundOutputValue(delta),
+      at: state.clock
+    });
+    slime.behaviorMemory.recent = slime.behaviorMemory.recent.slice(0, CREATURE_BEHAVIOR_MEMORY_RECENT_LIMIT);
+    return true;
+  }
+
+  function creatureMemoryValue(slime, key) {
+    const memoryKey = normalizeCreatureMemoryKey(key);
+    if (!memoryKey) {
+      return 0;
+    }
+    slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+    return clamp(Number(slime.behaviorMemory.tags[memoryKey]) || 0, 0, 100);
+  }
+
+  function creatureSkill(slime, skillId, options = {}) {
+    if (!slime) {
+      return defaultSkillEntry();
+    }
+    const resolvedSkillId = normalizeCreatureSkillId(skillId);
+    if (!resolvedSkillId || !CREATURE_SKILL_BY_ID[resolvedSkillId]) {
+      return defaultSkillEntry();
+    }
+    slime.skills = normalizeCreatureSkills(slime.skills);
+    if (!slime.skills[resolvedSkillId] && options.create) {
+      slime.skills[resolvedSkillId] = defaultSkillEntry();
+    }
+    return slime.skills[resolvedSkillId] || defaultSkillEntry();
+  }
+
+  function creatureSkillLevel(slime, skillId) {
+    return skillProgressForXp(creatureSkill(slime, skillId).xp).level;
+  }
+
+  function awardCreatureSkillXp(slime, skillId, amount, reason = "", options = {}) {
+    if (!slime || slime.status === "dead") {
+      return 0;
+    }
+    const resolvedSkillId = normalizeCreatureSkillId(skillId);
+    if (!resolvedSkillId || !CREATURE_SKILL_BY_ID[resolvedSkillId]) {
+      return 0;
+    }
+    const delta = Math.max(0, Number(amount) || 0) * skillXpOutcomeMultiplier(options.outcome || "success");
+    if (!delta) {
+      return 0;
+    }
+    const skill = creatureSkill(slime, resolvedSkillId, { create: true });
+    const before = skillProgressForXp(skill.xp).level;
+    const award = applySkillXp(skill.xp, delta);
+    skill.xp = award.xp;
+    skill.lastPracticedAt = state.clock;
+    skill.lastBreakthroughDecayAt = state.clock;
+    recordSkillPractice(skill, reason, award.applied);
+    if (skillProgressForXp(skill.xp).level > before) {
+      rememberCreatureExperience(slime, "perceivedStimuli", 1, `${CREATURE_SKILL_BY_ID[resolvedSkillId].label} improved`);
+    }
+    return award.applied;
+  }
+
+  function creatureSkillIdForDamageType(damageTypeId) {
+    return CREATURE_DAMAGE_SKILL_BY_TYPE[normalizeDamageTypeId(damageTypeId)] || "";
+  }
+
+  function awardCreatureDamageSkillXp(slime, damageTypes, amount, reason = "", options = {}) {
+    let applied = 0;
+    const seen = new Set();
+    for (const type of damageTypes || []) {
+      const skillId = creatureSkillIdForDamageType(type?.id || type);
+      if (!skillId || seen.has(skillId)) {
+        continue;
+      }
+      seen.add(skillId);
+      applied += awardCreatureSkillXp(slime, skillId, amount, reason, options);
+    }
+    return applied;
+  }
+
+  function updateCreatureSkillPractice(elapsed = 0) {
+    if (!state?.slimes?.length || elapsed <= 0) {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of state.slimes) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      slime.skills = normalizeCreatureSkills(slime.skills);
+      slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+      slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
+      if (state.clock < slime.nextPerceptionPracticeAt) {
+        continue;
+      }
+      const perception = evaluateSlimePerception(slime);
+      if (!perception.entries.length) {
+        slime.nextPerceptionPracticeAt = state.clock + CREATURE_PERCEPTION_PRACTICE_INTERVAL;
+        continue;
+      }
+      const highestRank = Math.max(...perception.entries.map((entry) => perceptionIntensityRank(entry.intensity)));
+      const xp = CREATURE_PRACTICE_XP.perception * (1 + highestRank * 0.35);
+      if (awardCreatureSkillXp(slime, "perception", xp, "sensing stimuli", { outcome: "partial" }) > 0) {
+        rememberCreatureExperience(slime, "perceivedStimuli", 1 + highestRank, perception.summary);
+        changes += 1;
+      }
+      slime.nextPerceptionPracticeAt = state.clock + CREATURE_PERCEPTION_PRACTICE_INTERVAL;
+    }
+    return changes;
   }
 
   function skillTierForLevel(level) {
@@ -7355,6 +7649,15 @@
     if (slimeHuntingInclination(slime)) add(20, "hunting behavior");
     if (/guarding|swarming|still ambush|vibration hunting/.test(behavior)) add(12, behavior);
     if (/predatory|territorial|volatile|fractious|hungry|erratic/.test(stability)) add(14, stability);
+    const attackMemory = creatureMemoryValue(slime, "attackWorked");
+    if (attackMemory >= 60) {
+      add(10, "remembered successful attacks");
+    } else if (attackMemory >= 25) {
+      add(5, "remembered successful attacks");
+    }
+    if (target?.id === "scientist" && creatureMemoryValue(slime, "scientistPain") >= 35) {
+      add(12, "remembers scientist injury");
+    }
     if (target?.id && slime.lastCombatAttackerId === target.id && state.clock - finiteTime(slime.lastCombatAttackedAt, 0) <= minutesToSeconds(10)) {
       add(35, target.id === "scientist" ? "retaliating against scientist" : "retaliating");
     }
@@ -7450,6 +7753,8 @@
     const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
     const leftDamage = Math.ceil(slimeCombatDamageAmount(right, 3) * 0.75) * cycleCount;
     const rightDamage = Math.ceil(slimeCombatDamageAmount(left, 3) * 0.75) * cycleCount;
+    awardCreatureDamageSkillXp(left, slimeCombatDamageTypes(left), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "elemental clash", { outcome: "partial" });
+    awardCreatureDamageSkillXp(right, slimeCombatDamageTypes(right), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "elemental clash", { outcome: "partial" });
     applySlimeCombatDamage(left, leftDamage, right.id, `${right.name}'s elemental clash`);
     applySlimeCombatDamage(right, rightDamage, left.id, `${left.name}'s elemental clash`);
     addEvent(`Elemental clash injured ${left.name} and ${right.name}.`);
@@ -7465,11 +7770,14 @@
     }
     const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
     const damage = slimeCombatDamageAmount(attacker, 4) * cycleCount;
+    awardCreatureSkillXp(attacker, "striking", CREATURE_PRACTICE_XP.strikingPerCycle * cycleCount, "combat attack");
+    awardCreatureDamageSkillXp(attacker, slimeCombatDamageTypes(attacker), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "combat attack", { outcome: "partial" });
     if (targetId === "scientist") {
       const changed = damageScientistCombat(damage, `${attacker.name} attack (${damageTypeListText(slimeCombatDamageTypes(attacker))})`);
       if (changed) {
         attacker.lastCombatTargetId = "scientist";
         attacker.lastCombatActionAt = state.clock;
+        rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, "attacked scientist");
       }
       return changed ? 1 : 0;
     }
@@ -7480,6 +7788,7 @@
     applySlimeCombatDamage(target, damage, attacker.id, `${attacker.name} attack`);
     attacker.lastCombatTargetId = target.id;
     attacker.lastCombatActionAt = state.clock;
+    rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, `attacked ${target.name}`);
     addEvent(`${attacker.name} struck ${target.name}.`);
     expireSlimes();
     return 1;
@@ -7494,12 +7803,22 @@
       slime.deathCause = "combat trauma";
     }
     adjustSlimeStat(slime, "bodyIntegrity", -damage);
-    adjustSlimeStat(slime, "stress", Math.max(1, Math.round(damage * 0.45)));
+    const stressGain = attackerId === "scientist"
+      ? COMBAT_SCIENTIST_STRIKE_STRESS
+      : Math.max(1, Math.round(damage * 0.45));
+    adjustSlimeStat(slime, "stress", stressGain);
     slime.lastPainAt = state.clock;
     slime.lastPainAmount = damage;
     slime.lastCombatAttackerId = String(attackerId || "");
     slime.lastCombatAttackedAt = state.clock;
     slime.lastCombatReason = String(reason || "combat injury");
+    awardCreatureSkillXp(slime, "toughness", Math.max(1, damage * CREATURE_PRACTICE_XP.toughnessPerDamage), reason || "combat injury", { outcome: damage >= 8 ? "partial" : "failure" });
+    rememberCreatureExperience(
+      slime,
+      attackerId === "scientist" ? "scientistPain" : "combatHurt",
+      clamp(3 + damage * 0.6, 3, 24),
+      reason || "combat injury"
+    );
     syncSlimeAi(slime);
     return true;
   }
@@ -7650,16 +7969,7 @@
       render();
       return false;
     }
-    if (slimeStat(slime, "bodyIntegrity").current - COMBAT_SCIENTIST_STRIKE_DAMAGE <= 0) {
-      slime.deathCause = "combat trauma";
-    }
-    adjustSlimeStat(slime, "bodyIntegrity", -COMBAT_SCIENTIST_STRIKE_DAMAGE);
-    adjustSlimeStat(slime, "stress", COMBAT_SCIENTIST_STRIKE_STRESS);
-    slime.lastPainAt = state.clock;
-    slime.lastPainAmount = COMBAT_SCIENTIST_STRIKE_DAMAGE;
-    slime.lastCombatAttackerId = "scientist";
-    slime.lastCombatAttackedAt = state.clock;
-    slime.lastCombatReason = "scientist strike";
+    applySlimeCombatDamage(slime, COMBAT_SCIENTIST_STRIKE_DAMAGE, "scientist", "scientist strike");
     awardXp("creatureHandling", 6, "Strike");
     addEvent(`Scientist struck ${slime.name} for ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage.`);
     expireSlimes();
@@ -9551,11 +9861,21 @@
   function responseIntentForSlime(slime, stateId, context = {}) {
     const behavior = String(context.behavior || "").toLowerCase();
     const stability = String(context.stability || "").toLowerCase();
+    const painMemory = Math.max(0, Number(context.painMemory) || 0);
     if (stateId === "calm") {
       return "rest";
     }
     if (stateId === "desperate") {
       return "feedDesperate";
+    }
+    if (
+      slimeIsUncontained(slime)
+      && painMemory >= 35
+      && ["wary", "agitated", "pained", "panicked"].includes(stateId)
+      && !/guarding|vibration hunting|still ambush/.test(behavior)
+      && !/predatory|territorial/.test(stability)
+    ) {
+      return "flee";
     }
     if (/guarding|vibration hunting|still ambush/.test(behavior) || /predatory|territorial/.test(stability)) {
       return "lashOut";
@@ -9617,6 +9937,14 @@
     if (recentPain) {
       add(clamp(8 + recentPain.amount * 1.4, 8, 26), "recent injury");
     }
+    const painMemory = Math.max(creatureMemoryValue(slime, "combatHurt"), creatureMemoryValue(slime, "scientistPain"), creatureMemoryValue(slime, "hazardHurt"));
+    if (painMemory >= 60) {
+      add(22, "remembered combat pain");
+    } else if (painMemory >= 35) {
+      add(14, "remembered combat pain");
+    } else if (painMemory >= 15) {
+      add(7, "faint pain memory");
+    }
 
     if (!slimeIsUncontained(slime)) {
       const container = containerById(slime.containerId);
@@ -9665,7 +9993,7 @@
     }
 
     score = clamp(score, 0, 100);
-    const context = { nutrition, currentMass, bodyIntegrity, stress, recentPain, behavior, stability };
+    const context = { nutrition, currentMass, bodyIntegrity, stress, recentPain, behavior, stability, painMemory };
     const stateId = responseStateForScore(score, context);
     const intent = responseIntentForSlime(slime, stateId, context);
     return normalizeSlimeResponseRecord({
@@ -16788,6 +17116,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_BLOCK_RECHECK_INTERVAL;
     recordCleanupObservation(slime, "pressingClosedDoor", 0, slime.roomId);
+    rememberCreatureExperience(slime, "blockedDoor", 2, slime.roomActivity.label);
     return true;
   }
 
@@ -17411,6 +17740,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       targetLabel: response.label,
       updatedAt: state.clock
     };
+    if (response.intent === "flee") {
+      awardCreatureSkillXp(slime, "evasion", CREATURE_PRACTICE_XP.evasion, "fleeing threat", { outcome: "partial" });
+      rememberCreatureExperience(slime, "fledThreat", 3, response.reasons?.[0] || response.label);
+    }
     return true;
   }
 
@@ -26260,6 +26593,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.automationExcluded = Boolean(slime.automationExcluded);
       slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0);
       slime.stats = normalizeSlimeStats(slime.stats);
+      slime.skills = normalizeCreatureSkills(slime.skills);
+      slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+      slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);

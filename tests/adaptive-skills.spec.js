@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -29,6 +30,11 @@ async function skipSeconds(page, seconds) {
     element.value = String(value);
   }, seconds);
   await page.locator('#skipTimeBtn').evaluate((element) => element.click());
+}
+
+async function loadSavedRun(page) {
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
 }
 
 test('skill sheet hides level-zero practice and reveals Initiate skills', async ({ page }) => {
@@ -125,4 +131,226 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
   expect(skill?.xp).toBeCloseTo(expected, 4);
   expect(skill?.lastBreakthroughDecayAt).toBe(60 * 60 * 48);
   await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+});
+
+test('slime combat practice stores hidden component skills and pain memory', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const flameGenome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
+  const frostGenome = genomeForTraits({ seed, traits: { element: 'frost', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, flameGenome, frostGenome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    const makeSlime = (id, name, genome) => ({
+      id,
+      name,
+      genome,
+      source: 'Adaptive skill fixture',
+      createdAt: 0,
+      deathAt: 100000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: { element: genome === flameGenome ? 'flame' : 'frost' },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {},
+      behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 20, max: 100 },
+        currentMass: { current: 50, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    });
+    state.paused = false;
+    state.timeSpeed = 'normal';
+    state.selectedSlimeId = 'flame-skill';
+    state.slimes = [
+      makeSlime('flame-skill', 'FLAME-SKILL', flameGenome),
+      makeSlime('frost-skill', 'FROST-SKILL', frostGenome),
+    ];
+    state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, flameGenome, frostGenome });
+  await loadSavedRun(page);
+
+  await skipSeconds(page, 90);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const flame = state.slimes.find((slime) => slime.id === 'flame-skill');
+    const frost = state.slimes.find((slime) => slime.id === 'frost-skill');
+    return {
+      scientistSkills: Object.keys(state.scientist?.skills || {}),
+      flameThermal: flame?.skills?.thermal?.xp || 0,
+      frostCold: frost?.skills?.cold?.xp || 0,
+      flameToughness: flame?.skills?.toughness?.xp || 0,
+      frostToughness: frost?.skills?.toughness?.xp || 0,
+      flameMemory: flame?.behaviorMemory?.tags?.combatHurt || 0,
+      frostMemory: frost?.behaviorMemory?.tags?.combatHurt || 0,
+    };
+  }, { key: storageKey });
+
+  expect(result.scientistSkills).toEqual([]);
+  expect(result.flameThermal).toBeGreaterThan(0);
+  expect(result.frostCold).toBeGreaterThan(0);
+  expect(result.flameToughness).toBeGreaterThan(0);
+  expect(result.frostToughness).toBeGreaterThan(0);
+  expect(result.flameMemory).toBeGreaterThan(0);
+  expect(result.frostMemory).toBeGreaterThan(0);
+  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+});
+
+test('slime breakthrough progress decays at the same threshold as scientist skills', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
+  const firstBreakthrough = xpToNextLevel(0);
+
+  await page.evaluate(({ key, genome, firstBreakthrough }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.slimes = [{
+      id: 'threshold-slime',
+      name: 'THRESHOLD-SLIME',
+      genome,
+      source: 'Adaptive skill fixture',
+      createdAt: 0,
+      deathAt: 10000000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {
+        perception: {
+          xp: firstBreakthrough - 1,
+          practiceTags: { fixture: firstBreakthrough - 1 },
+          evolvedLabel: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+      },
+      behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome, firstBreakthrough });
+  await loadSavedRun(page);
+
+  await skipSeconds(page, 60 * 60 * 48);
+
+  const skill = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.slimes.find((slime) => slime.id === 'threshold-slime')?.skills?.perception || null;
+  }, { key: storageKey });
+
+  const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
+  expect(skill?.xp).toBeCloseTo(expected, 4);
+  expect(skill?.lastBreakthroughDecayAt).toBe(60 * 60 * 48);
+});
+
+test('slime pain memory biases loose threat response toward fleeing', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.slimes = [{
+      id: 'memory-slime',
+      name: 'MEMORY-SLIME',
+      genome,
+      source: 'Adaptive skill fixture',
+      createdAt: 0,
+      deathAt: 100000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: state.scientist.roomId,
+      mapCell: state.scientist.mapCell,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: { behavior: 'idle pooling', stability: 'placid' },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {},
+      behaviorMemory: {
+        tags: { combatHurt: 80 },
+        recent: [{ key: 'combatHurt', reason: 'fixture pain memory', amount: 80, at: 0 }],
+        lastUpdatedAt: 0,
+      },
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome });
+  await loadSavedRun(page);
+
+  const response = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.slimes[0]?.ai?.response || null;
+  }, { key: storageKey });
+
+  expect(response?.intent).toBe('flee');
+  expect(response?.reasons).toContain('remembered combat pain');
 });

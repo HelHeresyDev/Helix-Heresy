@@ -290,17 +290,17 @@ These names should make sense beyond the starting scientist. Hunters, soldiers, 
 
 Examples of creature or combat skills:
 
-- Physicality
 - Toughness
+- Striking
 - Grappling
-- Climbing
-- Swimming
-- Burrowing
-- Squeezing
-- Stealth
-- Flame
-- Electricity
-- Acid
+- Evasion
+- Guarding
+- Perception
+- Thermal
+- Electrical
+- Corrosive
+- Toxic
+- Arcane
 - Blades
 - Axes
 - Firearms
@@ -335,6 +335,8 @@ Examples of outcomes:
 Byproduct production is not a skill. A slime does not train byproduct control simply by existing and producing its natural output. Natural byproduct production is biology and condition-driven output. Skills may influence related procedures or active abilities, but routine production itself is not a skill.
 
 Movement is not a skill as a broad category. Specific practiced forms such as climbing, swimming, burrowing, squeezing, dodging, or pouncing can be skills if they matter mechanically and can improve through use.
+
+The current first-pass creature skill foundation stores slime skill practice hidden from the normal specimen sheet until Analyze exists. Slimes can currently gain hidden practice from meaningful actions such as perceiving stimuli, surviving combat damage, striking, elemental clashes, elemental attacks, and fleeing from remembered danger. Level 0 practice remains invisible and does not count as an existing displayed skill. Normal sustenance, digestion, passive byproduct production, and generic movement are not skills.
 
 Basic tools such as gloves, tongs, hook poles, scrapers, trays, clamps, and simple restraints can belong under broad world skills such as Creature Handling, Fabrication, or future tool-family skills. More complex, dangerous, or specialized tools and weapons can have their own skill families, such as Blades, Axes, Firearms, Surgery, Animancy, or specialized machinery.
 
