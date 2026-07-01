@@ -24,6 +24,13 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
+async function skipSeconds(page, seconds) {
+  await page.locator('#skipAmountInput').evaluate((element, value) => {
+    element.value = String(value);
+  }, seconds);
+  await page.locator('#skipTimeBtn').evaluate((element) => element.click());
+}
+
 test('skill sheet hides level-zero practice and reveals Initiate skills', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -96,5 +103,26 @@ test('low-confidence diagnostic failure grants reduced XP', async ({ page }) => 
 
   expect(skill?.xp).toBe(1.5);
   expect(skill?.practiceTags?.selfcheck).toBe(1.5);
+  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
+});
+
+test('breakthrough progress decays after sustained idle time', async ({ page }) => {
+  await startRun(page);
+
+  const firstBreakthrough = xpToNextLevel(0);
+  await page.locator('#xpCommandInput').fill(`analysis ${firstBreakthrough - 1}`);
+  await page.locator('#xpCommandBtn').click();
+
+  await skipSeconds(page, 60 * 60 * 48);
+
+  const skill = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.scientist?.skills?.analysis || null;
+  }, { key: storageKey });
+
+  const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
+  expect(skill?.xp).toBeCloseTo(expected, 4);
+  expect(skill?.lastBreakthroughDecayAt).toBe(60 * 60 * 48);
   await expect(page.locator('#skillList')).toContainText('No learned skills yet');
 });

@@ -1167,6 +1167,8 @@
   const MAX_SKILL_LEVEL = 320;
   const SKILL_BREAKTHROUGH_LEVELS = new Set([0, 50, 100, 150, 200, 250, 300]);
   const SKILL_BREAKTHROUGH_OFFSET = 20;
+  const SKILL_BREAKTHROUGH_DECAY_DELAY = minutesToSeconds(1440);
+  const SKILL_BREAKTHROUGH_DECAY_PER_DAY = 0.1;
   const XP_OUTCOME_MULTIPLIERS = {
     success: 1,
     partial: 0.5,
@@ -3032,11 +3034,13 @@
       incidentAlertChanged: refreshIncidentAlerts(),
       jobExpired: 0,
       completed: 0,
+      skillDecayChanged: 0,
       observationChanged: false,
       aiChanged: 0
     };
     changes.jobExpired = expireSlimes();
     changes.completed = completeDueTasks();
+    changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
     syncRoomObservationMemory();
     changes.observationChanged = Boolean(observeScientistRoom());
     changes.aiChanged = syncAllSlimeAi();
@@ -3062,6 +3066,7 @@
       + changes.combatChanged
       + changes.incidentAlertChanged
       + changes.completed
+      + changes.skillDecayChanged
       + changes.aiChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
@@ -3755,6 +3760,8 @@
     const before = skillLevel(resolvedSkillId);
     const award = applySkillXp(skill.xp, delta);
     skill.xp = award.xp;
+    skill.lastPracticedAt = state.clock;
+    skill.lastBreakthroughDecayAt = state.clock;
     recordSkillPractice(skill, reason, award.applied);
     const after = skillLevel(resolvedSkillId);
     const label = skillDisplayName(resolvedSkillId, after);
@@ -3838,6 +3845,44 @@
     };
   }
 
+  function updateSkillBreakthroughDecay(elapsed = 0) {
+    if (!state?.scientist?.skills || elapsed <= 0) {
+      return 0;
+    }
+    let changes = 0;
+    for (const [skillId, skill] of Object.entries(state.scientist.skills)) {
+      if (!SKILL_BY_ID[skillId] || !skill) {
+        continue;
+      }
+      const progress = skillProgressForXp(skill.xp);
+      if (!progress.breakthrough || progress.current <= 0 || progress.level >= MAX_SKILL_LEVEL) {
+        skill.lastBreakthroughDecayAt = state.clock;
+        continue;
+      }
+      const lastPracticedAt = finiteTime(skill.lastPracticedAt, state.clock);
+      const decayStart = lastPracticedAt + SKILL_BREAKTHROUGH_DECAY_DELAY;
+      if (state.clock <= decayStart) {
+        skill.lastBreakthroughDecayAt = Math.min(finiteTime(skill.lastBreakthroughDecayAt, lastPracticedAt), state.clock);
+        continue;
+      }
+      const lastDecayAt = Math.max(finiteTime(skill.lastBreakthroughDecayAt, decayStart), decayStart);
+      const decaySeconds = Math.max(0, state.clock - lastDecayAt);
+      if (decaySeconds <= 0) {
+        continue;
+      }
+      const decay = progress.next * SKILL_BREAKTHROUGH_DECAY_PER_DAY * secondsToDays(decaySeconds);
+      const applied = Math.min(progress.current, decay);
+      if (applied <= 0) {
+        skill.lastBreakthroughDecayAt = state.clock;
+        continue;
+      }
+      skill.xp = totalXpForLevel(progress.level) + Math.max(0, progress.current - applied);
+      skill.lastBreakthroughDecayAt = state.clock;
+      changes += applied >= 0.01 ? 1 : 0;
+    }
+    return changes;
+  }
+
   function totalXpForLevel(targetLevel) {
     const limit = clamp(Math.floor(Number(targetLevel) || 0), 0, MAX_SKILL_LEVEL);
     let total = 0;
@@ -3883,7 +3928,7 @@
   }
 
   function defaultSkillEntry() {
-    return { xp: 0, practiceTags: {}, evolvedLabel: "" };
+    return { xp: 0, practiceTags: {}, evolvedLabel: "", lastPracticedAt: null, lastBreakthroughDecayAt: null };
   }
 
   function skillTierForLevel(level) {
@@ -20168,7 +20213,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       row.title = [
         `${skillDisplayName(skill.id, progress.level)} [${tier.label}], level ${progress.level}`,
         `Base domain: ${skill.label}.`,
-        progress.breakthrough ? `Breakthrough: progress toward ${progress.nextTier?.label || "next tier"} level ${progress.nextLevel}; overflow XP will not carry through.` : `Next level: ${progress.nextLevel}.`,
+        progress.breakthrough ? `Breakthrough: progress toward ${progress.nextTier?.label || "next tier"} level ${progress.nextLevel}; overflow XP will not carry through. Progress begins decaying after ${formatDuration(SKILL_BREAKTHROUGH_DECAY_DELAY)} without practice.` : `Next level: ${progress.nextLevel}.`,
         (skill.futureEvolutions || []).length ? `Possible future specializations: ${skill.futureEvolutions.join(", ")}.` : "",
         Object.keys(entry.practiceTags || {}).length ? `Practice tags: ${Object.keys(entry.practiceTags).join(", ")}.` : "No practice tags recorded yet."
       ].filter(Boolean).join("\n");
@@ -26458,6 +26503,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const existing = normalizedSkills[skillId] || defaultSkillEntry();
       existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
       existing.evolvedLabel = String(rawSkill?.evolvedLabel || existing.evolvedLabel || "");
+      const fallbackTime = Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0;
+      const lastPracticedAt = finiteTime(rawSkill?.lastPracticedAt, fallbackTime);
+      const lastDecayAt = finiteTime(rawSkill?.lastBreakthroughDecayAt, lastPracticedAt);
+      existing.lastPracticedAt = Math.max(finiteTime(existing.lastPracticedAt, lastPracticedAt), lastPracticedAt);
+      existing.lastBreakthroughDecayAt = Math.max(finiteTime(existing.lastBreakthroughDecayAt, lastDecayAt), lastDecayAt);
       existing.practiceTags = normalizeSkillPracticeTags({
         ...(existing.practiceTags || {}),
         ...(rawSkill?.practiceTags || {})
