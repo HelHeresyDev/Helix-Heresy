@@ -1164,7 +1164,15 @@
     { id: "very-fast", label: "1800x", description: "30 min/sec", secondsPerSecond: 1800 },
     { id: "hourly", label: "3600x", description: "1 hr/sec", secondsPerSecond: 3600 }
   ];
-  const MAX_SKILL_LEVEL = 999;
+  const MAX_SKILL_LEVEL = 320;
+  const SKILL_BREAKTHROUGH_LEVELS = new Set([0, 50, 100, 150, 200, 250, 300]);
+  const SKILL_BREAKTHROUGH_OFFSET = 20;
+  const XP_OUTCOME_MULTIPLIERS = {
+    success: 1,
+    partial: 0.5,
+    failure: 0.25,
+    cancelled: 0
+  };
   const STAMINA_REGEN_MINUTES = 10;
   const MANA_REGEN_MINUTES = 10;
   const NEW_DISCOVERY_XP = 25;
@@ -3722,14 +3730,14 @@
     return target;
   }
 
-  function awardActionXp(skillId, baseXp, revealSummary, label) {
+  function awardActionXp(skillId, baseXp, revealSummary, label, options = {}) {
     const resolvedSkillId = normalizeSkillId(skillId);
     if (!resolvedSkillId || !SKILL_BY_ID[resolvedSkillId]) {
       return;
     }
     const multipliers = revealSummary.repeatMultipliers.length ? revealSummary.repeatMultipliers : [1];
     const averageMultiplier = multipliers.reduce((sum, value) => sum + value, 0) / multipliers.length;
-    const actionXp = baseXp * averageMultiplier;
+    const actionXp = baseXp * averageMultiplier * skillXpOutcomeMultiplier(options.outcome || "success");
     const bonusXp = revealSummary.newDiscoveries * NEW_DISCOVERY_XP;
     awardXp(resolvedSkillId, actionXp + bonusXp, label);
   }
@@ -3745,11 +3753,13 @@
     }
     const skill = scientistSkill(resolvedSkillId, { create: true });
     const before = skillLevel(resolvedSkillId);
-    skill.xp = Math.max(0, Number(skill.xp) + delta);
-    recordSkillPractice(skill, reason, delta);
+    const award = applySkillXp(skill.xp, delta);
+    skill.xp = award.xp;
+    recordSkillPractice(skill, reason, award.applied);
     const after = skillLevel(resolvedSkillId);
     const label = skillDisplayName(resolvedSkillId, after);
-    addEvent(`${label} gained ${formatXp(delta)} XP${reason ? ` from ${reason}` : ""}.`);
+    const discardedText = award.discarded > 0 ? `; ${formatXp(award.discarded)} overflow lost at breakthrough` : "";
+    addEvent(`${label} gained ${formatXp(award.applied)} XP${reason ? ` from ${reason}` : ""}${discardedText}.`);
     if (after > before) {
       const tier = skillTierForLevel(after);
       const learned = before <= 0 && after >= 1 ? " learned" : " reached";
@@ -3758,37 +3768,106 @@
   }
 
   function skillLevel(skillId) {
-    const xp = scientistSkill(skillId).xp;
-    let level = 0;
-    let remaining = xp;
-    while (level < MAX_SKILL_LEVEL) {
-      const needed = xpToNextLevel(level);
-      if (remaining < needed) {
-        break;
-      }
-      remaining -= needed;
-      level += 1;
-    }
-    return level;
+    return skillProgress(skillId).level;
   }
 
   function skillProgress(skillId) {
-    const xp = scientistSkill(skillId).xp;
+    return skillProgressForXp(scientistSkill(skillId).xp);
+  }
+
+  function skillProgressForXp(xpValue) {
+    const xp = Math.max(0, Number(xpValue) || 0);
     let level = 0;
     let remaining = xp;
     while (level < MAX_SKILL_LEVEL) {
       const needed = xpToNextLevel(level);
       if (remaining < needed) {
-        return { level, current: remaining, next: needed, percent: needed ? remaining / needed : 1 };
+        return {
+          level,
+          current: remaining,
+          next: needed,
+          percent: needed ? remaining / needed : 1,
+          breakthrough: isBreakthroughLevel(level),
+          nextLevel: Math.min(MAX_SKILL_LEVEL, level + 1),
+          nextTier: skillTierForLevel(level + 1)
+        };
       }
       remaining -= needed;
       level += 1;
     }
-    return { level: MAX_SKILL_LEVEL, current: 0, next: 0, percent: 1 };
+    return { level: MAX_SKILL_LEVEL, current: 0, next: 0, percent: 1, breakthrough: false, nextLevel: MAX_SKILL_LEVEL, nextTier: skillTierForLevel(MAX_SKILL_LEVEL) };
+  }
+
+  function applySkillXp(currentXp, amount) {
+    const delta = Math.max(0, Number(amount) || 0);
+    const progress = skillProgressForXp(currentXp);
+    let level = progress.level;
+    let current = progress.current;
+    let remaining = delta;
+    let discarded = 0;
+    while (remaining > 0 && level < MAX_SKILL_LEVEL) {
+      const needed = xpToNextLevel(level);
+      const space = Math.max(0, needed - current);
+      if (remaining < space) {
+        current += remaining;
+        remaining = 0;
+        break;
+      }
+      remaining -= space;
+      level += 1;
+      current = 0;
+      if (isBreakthroughLevel(level - 1)) {
+        discarded += remaining;
+        remaining = 0;
+        break;
+      }
+    }
+    if (level >= MAX_SKILL_LEVEL) {
+      discarded += remaining;
+      remaining = 0;
+      current = 0;
+      level = MAX_SKILL_LEVEL;
+    }
+    const xp = totalXpForLevel(level) + current;
+    return {
+      xp,
+      applied: Math.max(0, delta - discarded),
+      discarded,
+      level,
+      current
+    };
+  }
+
+  function totalXpForLevel(targetLevel) {
+    const limit = clamp(Math.floor(Number(targetLevel) || 0), 0, MAX_SKILL_LEVEL);
+    let total = 0;
+    for (let level = 0; level < limit; level += 1) {
+      total += xpToNextLevel(level);
+    }
+    return total;
   }
 
   function xpToNextLevel(level) {
-    return Math.round(100 * Math.pow(level + 1, 2.2));
+    const safe = clamp(Math.floor(Number(level) || 0), 0, MAX_SKILL_LEVEL);
+    if (safe >= MAX_SKILL_LEVEL) {
+      return 0;
+    }
+    const referenceLevel = isBreakthroughLevel(safe) ? safe + SKILL_BREAKTHROUGH_OFFSET : safe;
+    return normalXpToNextLevel(referenceLevel);
+  }
+
+  function normalXpToNextLevel(level) {
+    const safe = Math.max(0, Math.floor(Number(level) || 0));
+    return Math.round(25 + Math.pow(safe + 1, 1.25) * 4);
+  }
+
+  function isBreakthroughLevel(level) {
+    return SKILL_BREAKTHROUGH_LEVELS.has(Math.floor(Number(level) || 0));
+  }
+
+  function skillXpOutcomeMultiplier(outcome = "success") {
+    const key = String(outcome || "success").trim().toLowerCase();
+    return XP_OUTCOME_MULTIPLIERS[key] ?? XP_OUTCOME_MULTIPLIERS.success;
   }
 
   function normalizeSkillId(skillId) {
@@ -20089,6 +20168,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       row.title = [
         `${skillDisplayName(skill.id, progress.level)} [${tier.label}], level ${progress.level}`,
         `Base domain: ${skill.label}.`,
+        progress.breakthrough ? `Breakthrough: progress toward ${progress.nextTier?.label || "next tier"} level ${progress.nextLevel}; overflow XP will not carry through.` : `Next level: ${progress.nextLevel}.`,
         (skill.futureEvolutions || []).length ? `Possible future specializations: ${skill.futureEvolutions.join(", ")}.` : "",
         Object.keys(entry.practiceTags || {}).length ? `Practice tags: ${Object.keys(entry.practiceTags).join(", ")}.` : "No practice tags recorded yet."
       ].filter(Boolean).join("\n");
@@ -20101,7 +20181,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       meta.className = "skill-meta";
       meta.textContent = progress.level >= MAX_SKILL_LEVEL
         ? `${formatXp(entry.xp)} XP`
-        : `${formatXp(progress.current)} / ${formatXp(progress.next)} XP`;
+        : progress.breakthrough
+          ? `${formatXp(progress.current)} / ${formatXp(progress.next)} XP to ${progress.nextTier?.label || "breakthrough"}`
+          : `${formatXp(progress.current)} / ${formatXp(progress.next)} XP to level ${progress.nextLevel}`;
 
       const bar = document.createElement("div");
       bar.className = "skill-bar";
@@ -23129,6 +23211,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return (DIAGNOSTIC_CONFIDENCE_BANDS.find((band) => score <= band.max) || DIAGNOSTIC_CONFIDENCE_BANDS[DIAGNOSTIC_CONFIDENCE_BANDS.length - 1]).label;
   }
 
+  function diagnosticXpOutcome(score) {
+    if (score < 20) {
+      return "failure";
+    }
+    if (score < 35) {
+      return "partial";
+    }
+    return "success";
+  }
+
   function currentExposureLikelySource(room) {
     const contamination = roomContaminationValue(room?.id || scientistRoomId());
     if (contamination >= 78) return `hazardous contamination in ${roomName(room?.id || scientistRoomId())}`;
@@ -23308,7 +23400,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       testedAt: state.clock
     };
     scientistPhysicalState().latestTest = latestTest;
-    awardActionXp(task.data?.skillId || test.skillIds?.[0] || "analysis", task.data?.baseXp || 6, emptyRevealSummary(), test.label);
+    awardActionXp(task.data?.skillId || test.skillIds?.[0] || "analysis", task.data?.baseXp || 6, emptyRevealSummary(), test.label, { outcome: diagnosticXpOutcome(score) });
     addEvent(`${test.label} complete. ${summary}. Confidence: ${confidence}.`);
     return true;
   }

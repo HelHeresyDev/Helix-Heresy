@@ -5,6 +5,17 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
+const storageKey = 'helix-heresy-v1-save';
+
+function normalXpToNextLevel(level) {
+  return Math.round(25 + Math.pow(level + 1, 1.25) * 4);
+}
+
+function xpToNextLevel(level) {
+  return [0, 50, 100, 150, 200, 250, 300].includes(level)
+    ? normalXpToNextLevel(level + 20)
+    : normalXpToNextLevel(level);
+}
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -31,7 +42,9 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await expect(skillList).not.toContainText('Observation');
   await expect(skillList).not.toContainText('Perception');
 
-  await page.locator('#xpCommandInput').fill('analysis 99');
+  const firstBreakthrough = xpToNextLevel(0);
+
+  await page.locator('#xpCommandInput').fill(`analysis ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('No learned skills yet');
   await expect(skillList).not.toContainText('Analysis');
@@ -40,10 +53,11 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Analysis');
   await expect(skillList).toContainText('[Initiate], level 1');
+  await expect(skillList).toContainText(`0 / ${xpToNextLevel(1)} XP to level 2`);
   await expect(skillList).not.toContainText('Observation');
   await expect(skillList).not.toContainText('Perception');
 
-  await page.locator('#xpCommandInput').fill('perception 100');
+  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough + 500}`);
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Perception');
   await expect(skillList).toContainText('[Initiate], level 1');
@@ -57,10 +71,30 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
     };
   });
 
-  expect(savedSkills.analysis?.xp).toBe(100);
-  expect(savedSkills.analysis?.practiceTags?.cheatcommand).toBe(100);
-  expect(savedSkills.perception?.xp).toBe(100);
-  expect(savedSkills.perception?.practiceTags?.cheatcommand).toBe(100);
+  expect(savedSkills.analysis?.xp).toBe(firstBreakthrough);
+  expect(savedSkills.analysis?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
+  expect(savedSkills.perception?.xp).toBe(firstBreakthrough);
+  expect(savedSkills.perception?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('low-confidence diagnostic failure grants reduced XP', async ({ page }) => {
+  await startRun(page);
+
+  await page.locator('[data-physical-diagnostic-test-id="selfCheck"]').click();
+  await page.locator('#skipAmountInput').evaluate((element) => {
+    element.value = '300';
+  });
+  await page.locator('#skipTimeBtn').evaluate((element) => element.click());
+
+  const skill = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.scientist?.skills?.analysis || null;
+  }, { key: storageKey });
+
+  expect(skill?.xp).toBe(1.5);
+  expect(skill?.practiceTags?.selfcheck).toBe(1.5);
+  await expect(page.locator('#skillList')).toContainText('No learned skills yet');
 });

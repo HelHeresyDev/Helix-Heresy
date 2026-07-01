@@ -12,87 +12,21 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. XP Curve and Breakthrough-Gated Skill Progression
-2. Slime Skill Practice, Ability Use, and Behavior Learning System
-3. Analyze Ability & Creature Skill Evolution Follow-Up
-4. Slime Combat Behavior System
-5. Slime Containment Testing and Escape Behavior System
-6. Slime Container Interaction and Breach Behavior System
-7. Tool Durability and Damage Resistance System
-8. Slime Social, Territorial, and Group Behavior System
-9. Slime Job Autonomy and Work Behavior System
-10. Map-Based Slime Incident and Emergency Response System
-11. Slime AI Debugging and Behavior Readout System
-12. Black Market Byproduct Economy System
+1. Slime Skill Practice, Ability Use, and Behavior Learning System
+2. Analyze Ability & Creature Skill Evolution Follow-Up
+3. Slime Combat Behavior System
+4. Slime Containment Testing and Escape Behavior System
+5. Slime Container Interaction and Breach Behavior System
+6. Tool Durability and Damage Resistance System
+7. Slime Social, Territorial, and Group Behavior System
+8. Slime Job Autonomy and Work Behavior System
+9. Map-Based Slime Incident and Emergency Response System
+10. Slime AI Debugging and Behavior Readout System
+11. Black Market Byproduct Economy System
 
 ---
 
-## 1. XP Curve and Breakthrough-Gated Skill Progression
-
-Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
-
-The effective skill level cap should be around level 320. Skills should progress through tier bands:
-
-- Initiate: levels 1-50
-- Novice: levels 51-100
-- Adept: levels 101-150
-- Master: levels 151-200
-- Heroic: levels 201-250
-- Legendary: levels 251-300
-- Divine: levels 301-320+
-
-Normal levels should feel achievable through regular practice, but crossing into a new tier should require a breakthrough. Breakthroughs should happen at:
-
-- 0 -> 1
-- 50 -> 51
-- 100 -> 101
-- 150 -> 151
-- 200 -> 201
-- 250 -> 251
-- 300 -> 301
-
-A breakthrough should require unusually concentrated progress. The XP required to cross a threshold should be based on the XP cost of a level 20 levels higher. For example:
-
-- 0 -> 1 should cost about as much as 20 -> 21
-- 50 -> 51 should cost about as much as 70 -> 71
-- 100 -> 101 should cost about as much as 120 -> 121
-- 150 -> 151 should cost about as much as 170 -> 171
-- 200 -> 201 should cost about as much as 220 -> 221
-- 250 -> 251 should cost about as much as 270 -> 271
-- 300 -> 301 should cost about as much as 320 -> 321
-
-This should make tier advancement feel like a real barrier without making every ordinary level painfully slow.
-
-Breakthrough progress should decay while the actor is stalled at a threshold. The idea is that a breakthrough requires dedicated and consistent effort, or a large spike of XP from a difficult challenge. A creature or scientist casually touching a skill once and then ignoring it should not slowly bank a breakthrough forever.
-
-This system should answer questions like:
-- What XP curve gives good pacing up to an effective cap around 320?
-- How much XP should normal levels require?
-- How should breakthrough XP be stored separately from normal XP?
-- How quickly should breakthrough progress decay?
-- Does decay happen over real time, game time, missed practice opportunities, or unrelated activity?
-- Do difficult challenges give breakthrough-favorable XP?
-- Can low-risk repetitive grinding cross a breakthrough, or only maintain progress?
-- How does 0 -> 1 work for hidden pre-skill practice?
-- Does crossing a breakthrough immediately trigger skill evolution or only unlock the next tier?
-- How should the UI show threshold progress without making the system feel like a spreadsheet?
-
-The intended feel is:
-- normal practice builds competence
-- tier transitions require breakthroughs
-- breakthroughs reward focus, pressure, danger, or unusually meaningful experience
-- progress at a threshold can be lost if it is not sustained
-- earned levels are not lost through decay
-- stats and biological truths remain hidden
-- skills remain observable through the skill system and Analyze rules
-
-The desired result is a skill progression model where reaching a new tier feels like a meaningful event, not just another XP tick. A scientist or creature should be able to grind basic competence, but higher-tier evolution should require sustained dedication or extraordinary experience.
-
-Before coding, discuss the XP curve, breakthrough storage, decay rules, tier transition behavior, UI presentation, and how this should interact with existing skill levels and future Analyze/evolution behavior.
-
----
-
-## 2. Slime Skill Practice, Ability Use, and Behavior Learning System
+## 1. Slime Skill Practice, Ability Use, and Behavior Learning System
 
 Create a system for slime skill practice, ability use, and learned behavior.
 
@@ -116,7 +50,7 @@ Before coding, discuss practice sources, ability hooks, skill categories, XP int
 
 ---
 
-## 3. Analyze Ability & Creature Skill Evolution Follow-Up
+## 2. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
@@ -136,7 +70,7 @@ Before coding, discuss the Analyze workflow, creature skill visibility, evolutio
 
 ---
 
-## 4. Slime Combat Behavior System
+## 3. Slime Combat Behavior System
 
 Create slime-specific combat behavior on top of the combat foundation.
 
@@ -161,7 +95,7 @@ Before coding, discuss behavior categories, target selection, ability choice, fl
 
 ---
 
-## 5. Slime Containment Testing and Escape Behavior System
+## 4. Slime Containment Testing and Escape Behavior System
 
 Create a system for slimes to test containment and attempt escape.
 
@@ -185,7 +119,7 @@ Before coding, discuss escape triggers, containment testing actions, progress, f
 
 ---
 
-## 6. Slime Container Interaction and Breach Behavior System
+## 5. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -209,7 +143,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 7. Tool Durability and Damage Resistance System
+## 6. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -238,7 +172,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 8. Slime Social, Territorial, and Group Behavior System
+## 7. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -262,7 +196,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 9. Slime Job Autonomy and Work Behavior System
+## 8. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -286,7 +220,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 10. Map-Based Slime Incident and Emergency Response System
+## 9. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -310,7 +244,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 11. Slime AI Debugging and Behavior Readout System
+## 10. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -334,7 +268,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 12. Black Market Byproduct Economy System
+## 11. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
