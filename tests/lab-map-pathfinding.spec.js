@@ -689,8 +689,13 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
 test('released slimes move toward accessible residue without raiding packaged storage supplies', async ({ page }) => {
   await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
 
-  await page.evaluate(({ key }) => {
+  await page.evaluate(({ key, genome }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     state.paused = true;
@@ -720,7 +725,7 @@ test('released slimes move toward accessible residue without raiding packaged st
     state.slimes = [{
       id: 'loose-seeker',
       name: 'LOOSE-001',
-      genome: state.currentGenome,
+      genome,
       source: 'Autonomous movement fixture',
       createdAt: 0,
       deathAt: 10000,
@@ -748,7 +753,7 @@ test('released slimes move toward accessible residue without raiding packaged st
       jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: storageKey, genome });
   await loadSavedRun(page);
 
   await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText('uncontained');
@@ -822,8 +827,13 @@ test('released slimes move toward accessible residue without raiding packaged st
 
 test('released slime movement stops if an open route closes ahead of it', async ({ page }) => {
   await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
 
-  await page.evaluate(({ key }) => {
+  await page.evaluate(({ key, genome }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const menagerieDoor = state.doors?.['mainLab::menagerie'] || state.doors?.['menagerie::mainLab'];
@@ -850,7 +860,7 @@ test('released slime movement stops if an open route closes ahead of it', async 
     state.slimes = [{
       id: 'door-route',
       name: 'ROUTE-001',
-      genome: state.currentGenome,
+      genome,
       source: 'Mid-route door fixture',
       createdAt: 0,
       deathAt: 10000,
@@ -869,9 +879,9 @@ test('released slime movement stops if an open route closes ahead of it', async 
       roomBehavior: { seeksContamination: false, eatsContamination: false },
       stats: {
         nutrition: { current: 20, max: 100 },
-        bodyIntegrity: { current: 30, max: 100 },
+        bodyIntegrity: { current: 100, max: 100 },
         currentMass: { current: 20, max: 100 },
-        stress: { current: 90, max: 100 },
+        stress: { current: 0, max: 100 },
       },
       revealed: { shape: true, consistency: true, appendages: true },
       measured: {},
@@ -880,7 +890,7 @@ test('released slime movement stops if an open route closes ahead of it', async 
       jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: storageKey, genome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 1);

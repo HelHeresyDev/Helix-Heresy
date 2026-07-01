@@ -5738,6 +5738,7 @@
       }
 
       const nonBlockingBlocked = new Set(occupied);
+      nonBlockingBlocked.delete(mapCellKey(state.scientist.mapCell));
       for (const slime of state.slimes) {
         if (slime?.status === "released") {
           slime.containerId = null;
@@ -7729,6 +7730,7 @@
       sourceLabel: String(candidate.sourceLabel || "").trim(),
       targetLabel: String(candidate.targetLabel || "").trim(),
       involvesScientist: Boolean(candidate.involvesScientist),
+      combatIntent: cleanSlimeCombatIntent(candidate.combatIntent),
       interval: Math.max(1, Number(candidate.interval) || COMBAT_ATTACK_INTERVAL),
       createdAt,
       updatedAt: finiteTime(candidate.updatedAt, createdAt)
@@ -7774,7 +7776,8 @@
       cell: record.cell ? mapCellKey(record.cell) : "",
       sourceIds: record.sourceIds,
       targetIds: record.targetIds,
-      involvesScientist: record.involvesScientist
+      involvesScientist: record.involvesScientist,
+      combatIntent: record.combatIntent
     })));
   }
 
@@ -7847,8 +7850,8 @@
         if (slimeElementsClash(a, b)) {
           records.push(slimeClashCombatRecord(a, b, contact));
         }
-        const aIntent = slimeCombatAggressionInfo(a, b);
-        const bIntent = slimeCombatAggressionInfo(b, a);
+        const aIntent = slimeCombatAggressionInfo(a, b, contact);
+        const bIntent = slimeCombatAggressionInfo(b, a, contact);
         if (aIntent.aggressive) {
           records.push(slimeAttackCombatRecord(a, b, contact, aIntent));
         }
@@ -7863,7 +7866,7 @@
       if (!contact) {
         continue;
       }
-      const intent = slimeCombatAggressionInfo(slime, { id: "scientist", name: "the scientist" });
+      const intent = slimeCombatAggressionInfo(slime, { id: "scientist", name: "the scientist" }, contact);
       if (intent.aggressive) {
         records.push(slimeScientistAttackRecord(slime, contact, intent));
       }
@@ -7939,47 +7942,193 @@
     return ELEMENT_CLASH_PAIRS.some(([left, right]) => elementPairKey(left, right) === pair);
   }
 
-  function slimeCombatAggressionInfo(slime, target = null) {
-    if (!slime || slime.status === "dead") {
-      return { aggressive: false, score: 0, reason: "" };
+  function combatTargetRecord(target) {
+    if (!target) {
+      return null;
     }
-    const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
+    const isScientist = target.id === "scientist";
+    return cleanSlimeAiTarget({
+      kind: isScientist ? "scientist" : "creature",
+      id: target.id || "",
+      label: isScientist ? "Scientist" : (target.name || target.label || "target"),
+      roomId: isScientist ? scientistRoomId() : slimeEffectiveRoomId(target),
+      cell: isScientist ? scientistMapCell() : objectMapCell(target)
+    });
+  }
+
+  function slimeCombatDecisionForScores(scores, context = {}) {
+    const attack = clamp(scores.attack, 0, 100);
+    const feed = clamp(scores.feed, 0, 100);
+    const flee = clamp(scores.flee, 0, 100);
+    const freeze = clamp(scores.freeze, 0, 100);
+    const panic = clamp(scores.panic, 0, 100);
+    const defend = clamp(scores.defend, 0, 100);
+    const threaten = clamp(scores.threaten, 0, 100);
+    if (feed >= 55 && context.contact) return "feedAttack";
+    if (attack >= 55 && attack >= flee + 8) return "attack";
+    if (flee >= 50) return "flee";
+    if (freeze >= 45) return "freeze";
+    if (panic >= 55) return "panic";
+    if (threaten >= 40) return "threaten";
+    if (defend >= 25 || context.contact) return "defend";
+    return context.target ? "avoid" : "none";
+  }
+
+  function slimeCombatDecisionInfo(slime, target = null, contact = null) {
+    if (!slime || slime.status === "dead") {
+      return normalizeSlimeCombatDecisionRecord();
+    }
+    const response = evaluateSlimeThreatResponse(slime);
     const traitProfile = slimeThreatTraitProfile(slime);
     const behavior = String(traitProfile.behavior || "").toLowerCase();
     const stability = String(traitProfile.stability || "").toLowerCase();
-    let score = 0;
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const bodyIntegrity = slimeStatPercent(slime, "bodyIntegrity");
+    const stress = slimeStatPercent(slime, "stress");
+    const recentPain = recentPainForSlime(slime);
+    const painMemory = Math.max(creatureMemoryValue(slime, "combatHurt"), creatureMemoryValue(slime, "scientistPain"));
+    const attackMemory = creatureMemoryValue(slime, "attackWorked");
+    const targetIsScientist = target?.id === "scientist";
+    const targetIsLiving = Boolean(targetIsScientist || (target && target.status !== "dead"));
+    const scores = {
+      attack: 0,
+      feed: 0,
+      flee: 0,
+      freeze: 0,
+      panic: 0,
+      defend: contact ? 15 : 0,
+      threaten: 0
+    };
     const reasons = [];
-    const add = (amount, reason) => {
-      score += Math.max(0, Number(amount) || 0);
+    const add = (key, amount, reason) => {
+      if (!Object.prototype.hasOwnProperty.call(scores, key)) {
+        return;
+      }
+      scores[key] += Math.max(0, Number(amount) || 0);
       if (reason) {
         reasons.push(reason);
       }
     };
-    if (response.intent === "lashOut") add(48, "lashing out");
-    if (["panicked", "pained"].includes(response.state)) add(14, response.label.toLowerCase());
-    if (response.state === "desperate") add(18, "desperate");
-    if (response.intensity === "critical") add(16, "critical intensity");
-    else if (response.intensity === "high") add(10, "high intensity");
-    if (slimeHuntingInclination(slime)) add(20, "hunting behavior");
-    if (/guarding|swarming|still ambush|vibration hunting/.test(behavior)) add(12, behavior);
-    if (/predatory|territorial|volatile|fractious|hungry|erratic/.test(stability)) add(14, stability);
-    const attackMemory = creatureMemoryValue(slime, "attackWorked");
+    const addMany = (keys, amount, reason) => {
+      for (const key of keys) {
+        add(key, amount, reason);
+      }
+    };
+
+    if (nutrition <= 8 && targetIsLiving) {
+      add("feed", 58, "critical hunger");
+      add("attack", 18, "critical hunger");
+    } else if (nutrition <= 25 && targetIsLiving) {
+      add("feed", 34, "hunger pressure");
+      add("attack", 8, "hunger pressure");
+    }
+    if (bodyIntegrity <= 15) {
+      add("flee", 46, "body integrity is failing");
+      add("freeze", 25, "body integrity is failing");
+    } else if (bodyIntegrity <= 35) {
+      add("flee", 28, "body integrity is damaged");
+      add("freeze", 12, "body integrity is damaged");
+    } else if (bodyIntegrity <= 60) {
+      add("defend", 10, "body integrity is weakened");
+    }
+    if (stress >= 90) {
+      add("panic", 48, "extreme stress");
+      add("flee", 16, "extreme stress");
+    } else if (stress >= 70) {
+      add("panic", 28, "high stress");
+      add("threaten", 10, "high stress");
+    } else if (stress >= 45) {
+      add("threaten", 12, "rising stress");
+    }
+    if (recentPain) {
+      const amount = clamp(8 + recentPain.amount * 1.2, 8, 24);
+      if (target?.id && slime.lastCombatAttackerId === target.id) {
+        add("attack", amount + 12, targetIsScientist ? "retaliating against scientist" : "retaliating");
+      } else {
+        add("flee", amount, "recent injury");
+      }
+    }
+    if (response.intent === "lashOut") add("attack", 40, "lashing out");
+    if (response.intent === "feedDesperate") add("feed", 24, "desperate for food");
+    if (response.intent === "flee") add("flee", 25, response.reasons?.[0] || "threat response");
+    if (response.intent === "freeze") add("freeze", 20, response.reasons?.[0] || "threat response");
+    if (response.state === "panicked") add("panic", 20, response.label.toLowerCase());
+    if (slimeHuntingInclination(slime)) addMany(["attack", "threaten"], 16, "hunting behavior");
+    if (/vibration hunting|still ambush/.test(behavior)) add("attack", 18, behavior);
+    if (/guarding|swarming/.test(behavior)) addMany(["defend", "threaten"], 14, behavior);
+    if (/hiding|light avoiding|burrowing/.test(behavior)) addMany(["flee", "freeze"], 18, behavior);
+    if (/predatory|hungry/.test(stability)) addMany(["attack", "feed"], 18, stability);
+    if (/territorial/.test(stability)) addMany(["defend", "attack", "threaten"], 12, stability);
+    if (/volatile|erratic|fractious/.test(stability)) addMany(["panic", "threaten"], 16, stability);
+    if (/nervous|fragile/.test(stability)) addMany(["flee", "freeze"], 10, stability);
+    if (/placid|docile|steady|obedient|dormant/.test(stability)) {
+      scores.attack -= 14;
+      scores.panic -= 6;
+      reasons.push(`${stability} stability dampens aggression`);
+    }
     if (attackMemory >= 60) {
-      add(10, "remembered successful attacks");
+      add("attack", 14, "remembered successful attacks");
     } else if (attackMemory >= 25) {
-      add(5, "remembered successful attacks");
+      add("attack", 7, "remembered successful attacks");
     }
-    if (target?.id === "scientist" && creatureMemoryValue(slime, "scientistPain") >= 35) {
-      add(12, "remembers scientist injury");
+    if (targetIsScientist && creatureMemoryValue(slime, "scientistPain") >= 35) {
+      if (/predatory|territorial|volatile|erratic|fractious/.test(stability) || /guarding|vibration hunting|still ambush/.test(behavior)) {
+        add("attack", 18, "remembers scientist injury");
+      } else {
+        add("flee", 18, "remembers scientist injury");
+      }
     }
-    if (target?.id && slime.lastCombatAttackerId === target.id && state.clock - finiteTime(slime.lastCombatAttackedAt, 0) <= minutesToSeconds(10)) {
-      add(35, target.id === "scientist" ? "retaliating against scientist" : "retaliating");
+    if (painMemory >= 60) {
+      add("flee", 16, "remembered combat pain");
+    } else if (painMemory >= 35) {
+      add("flee", 9, "remembered combat pain");
     }
+    if (!contact) {
+      scores.attack *= 0.5;
+      scores.feed *= 0.5;
+      scores.defend *= 0.6;
+    }
+
+    const intent = slimeCombatDecisionForScores(scores, { contact, target });
+    const score = Math.max(
+      scores.attack,
+      scores.feed,
+      scores.flee,
+      scores.freeze,
+      scores.panic,
+      scores.defend,
+      scores.threaten
+    );
+    const uniqueReasons = [...new Set(reasons.map((reason) => String(reason || "").trim()).filter(Boolean))].slice(0, 6);
+    return normalizeSlimeCombatDecisionRecord({
+      intent,
+      label: SLIME_COMBAT_INTENT_LABELS[intent],
+      score,
+      attackScore: Math.max(scores.attack, scores.feed),
+      fleeScore: scores.flee,
+      target: combatTargetRecord(target),
+      contact: contact?.label || contact?.kind || "",
+      reasons: uniqueReasons,
+      unknownFactors: traitProfile.unknownFactors || [],
+      automaticAction: SLIME_COMBAT_ACTION_INTENTS.has(intent)
+        ? "attack"
+        : intent === "flee"
+          ? "move away if possible"
+          : ["freeze", "panic", "defend", "threaten"].includes(intent)
+            ? "hold position"
+            : ""
+    });
+  }
+
+  function slimeCombatAggressionInfo(slime, target = null, contact = null) {
+    const decision = slimeCombatDecisionInfo(slime, target, contact);
     return {
-      aggressive: score >= 55,
-      score: clamp(score, 0, 100),
-      reason: reasons[0] || "aggressive instinct",
-      reasons: [...new Set(reasons)].slice(0, 4)
+      aggressive: SLIME_COMBAT_ACTION_INTENTS.has(decision.intent),
+      score: decision.attackScore || decision.score,
+      reason: decision.reasons[0] || decision.label.toLowerCase(),
+      reasons: decision.reasons,
+      intent: decision.intent,
+      decision
     };
   }
 
@@ -8022,6 +8171,7 @@
       targetIds: [target.id],
       sourceLabel: attacker.name,
       targetLabel: target.name,
+      combatIntent: intent.intent || intent.decision?.intent || "attack",
       interval: COMBAT_ATTACK_INTERVAL
     };
   }
@@ -8040,6 +8190,7 @@
       sourceLabel: slime.name,
       targetLabel: "Scientist",
       involvesScientist: true,
+      combatIntent: intent.intent || intent.decision?.intent || "attack",
       interval: COMBAT_ATTACK_INTERVAL
     };
   }
@@ -8084,6 +8235,18 @@
     }
     const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
     const damage = slimeCombatDamageAmount(attacker, 4) * cycleCount;
+    const combatIntent = cleanSlimeCombatIntent(record.combatIntent || "attack");
+    const targetLabel = record.targetLabel || (targetId === "scientist" ? "Scientist" : targetId);
+    attacker.roomActivity = {
+      type: "combatAttack",
+      combatIntent,
+      label: combatIntent === "feedAttack" ? `trying to feed on ${targetLabel}` : `attacking ${targetLabel}`,
+      roomId: slimeEffectiveRoomId(attacker),
+      targetKind: targetId === "scientist" ? "scientist" : "creature",
+      targetId,
+      targetLabel,
+      updatedAt: state.clock
+    };
     awardCreatureSkillXp(attacker, "striking", CREATURE_PRACTICE_XP.strikingPerCycle * cycleCount, "combat attack");
     awardCreatureDamageSkillXp(attacker, slimeCombatDamageTypes(attacker), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "combat attack", { outcome: "partial" });
     if (targetId === "scientist") {
@@ -8103,7 +8266,9 @@
     attacker.lastCombatTargetId = target.id;
     attacker.lastCombatActionAt = state.clock;
     rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, `attacked ${target.name}`);
-    addEvent(`${attacker.name} struck ${target.name}.`);
+    addEvent(combatIntent === "feedAttack"
+      ? `${attacker.name} tried to feed on ${target.name}.`
+      : `${attacker.name} struck ${target.name}.`);
     expireSlimes();
     return 1;
   }
@@ -9122,6 +9287,7 @@
     feeding: "Feeding",
     working: "Working",
     blocked: "Blocked",
+    combat: "Combat",
     stressed: "Stressed",
     dead: "Dead"
   };
@@ -9139,6 +9305,13 @@
     "endureContainment",
     "endureHabitat",
     "hunt",
+    "fight",
+    "feedAttack",
+    "flee",
+    "freeze",
+    "defend",
+    "threaten",
+    "panic",
     "move",
     "wait",
     "blocked"
@@ -9167,6 +9340,19 @@
   const SLIME_RESPONSE_INTENTS = new Set(Object.keys(SLIME_RESPONSE_INTENT_LABELS));
   const SLIME_RESPONSE_INTENSITIES = ["none", "low", "moderate", "high", "critical"];
   const SLIME_RECENT_PAIN_WINDOW = minutesToSeconds(60);
+  const SLIME_COMBAT_INTENT_LABELS = {
+    none: "No combat pressure",
+    avoid: "Avoid",
+    defend: "Defend",
+    threaten: "Threaten",
+    attack: "Attack",
+    feedAttack: "Feed-attack",
+    panic: "Panic",
+    flee: "Flee",
+    freeze: "Freeze"
+  };
+  const SLIME_COMBAT_INTENTS = new Set(Object.keys(SLIME_COMBAT_INTENT_LABELS));
+  const SLIME_COMBAT_ACTION_INTENTS = new Set(["attack", "feedAttack"]);
   const SLIME_DRIVE_KEYS = ["hunger", "regrowth", "injury", "stress", "containment", "work", "reproduction"];
   const SLIME_DRIVE_LABELS = {
     hunger: "Hunger",
@@ -9234,6 +9420,11 @@
   function cleanSlimeResponseIntensity(value) {
     const intensity = String(value || "none");
     return SLIME_RESPONSE_INTENSITIES.includes(intensity) ? intensity : "none";
+  }
+
+  function cleanSlimeCombatIntent(value) {
+    const intent = String(value || "none");
+    return SLIME_COMBAT_INTENTS.has(intent) ? intent : "none";
   }
 
   function cleanSlimeDriveBand(value) {
@@ -9376,6 +9567,45 @@
     };
   }
 
+  function defaultSlimeCombatDecisionRecord() {
+    return {
+      intent: "none",
+      label: SLIME_COMBAT_INTENT_LABELS.none,
+      score: 0,
+      attackScore: 0,
+      fleeScore: 0,
+      target: null,
+      contact: "",
+      reasons: [],
+      unknownFactors: [],
+      automaticAction: ""
+    };
+  }
+
+  function normalizeSlimeCombatDecisionRecord(candidate = {}) {
+    const intent = cleanSlimeCombatIntent(candidate?.intent);
+    const reasons = (Array.isArray(candidate?.reasons) ? candidate.reasons : [])
+      .map((reason) => String(reason || "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const unknownFactors = (Array.isArray(candidate?.unknownFactors) ? candidate.unknownFactors : [])
+      .map((factor) => String(factor || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    return {
+      intent,
+      label: String(candidate?.label || SLIME_COMBAT_INTENT_LABELS[intent] || titleCase(intent)),
+      score: clamp(Number(candidate?.score) || 0, 0, 100),
+      attackScore: clamp(Number(candidate?.attackScore) || 0, 0, 100),
+      fleeScore: clamp(Number(candidate?.fleeScore) || 0, 0, 100),
+      target: cleanSlimeAiTarget(candidate?.target),
+      contact: String(candidate?.contact || "").trim(),
+      reasons,
+      unknownFactors,
+      automaticAction: String(candidate?.automaticAction || "").trim()
+    };
+  }
+
   function cleanSlimeAiTarget(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -9401,6 +9631,7 @@
     const drives = normalizeSlimeDriveRecord(candidate.drives);
     const perception = normalizeSlimePerceptionRecord(candidate.perception);
     const response = normalizeSlimeResponseRecord(candidate.response);
+    const combatDecision = normalizeSlimeCombatDecisionRecord(candidate.combatDecision);
     return {
       state: cleanSlimeAiState(candidate.state),
       intent: cleanSlimeAiIntent(candidate.intent),
@@ -9411,6 +9642,7 @@
       dominantDrive: cleanSlimeDriveKey(candidate.dominantDrive),
       perception,
       response,
+      combatDecision,
       path,
       nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
         ? null
@@ -10346,8 +10578,82 @@
     return next;
   }
 
+  function slimeCombatDecisionRank(decision) {
+    const intentRank = {
+      feedAttack: 90,
+      attack: 85,
+      panic: 70,
+      flee: 65,
+      freeze: 55,
+      threaten: 45,
+      defend: 30,
+      avoid: 10,
+      none: 0
+    };
+    return (intentRank[decision?.intent] || 0) * 1000 + (Number(decision?.score) || 0);
+  }
+
+  function currentSlimeCombatDecision(slime) {
+    if (!slime || slime.status === "dead") {
+      return defaultSlimeCombatDecisionRecord();
+    }
+    const decisions = [];
+    const scientistContact = scientistSlimeContactContext(slime);
+    if (scientistContact) {
+      decisions.push(slimeCombatDecisionInfo(slime, { id: "scientist", name: "the scientist" }, scientistContact));
+    }
+    for (const other of state.slimes || []) {
+      if (!other || other.id === slime.id || other.status === "dead") {
+        continue;
+      }
+      const contact = slimeContactContext(slime, other);
+      if (contact) {
+        decisions.push(slimeCombatDecisionInfo(slime, other, contact));
+      }
+    }
+    return decisions
+      .map(normalizeSlimeCombatDecisionRecord)
+      .sort((a, b) => slimeCombatDecisionRank(b) - slimeCombatDecisionRank(a))[0]
+      || defaultSlimeCombatDecisionRecord();
+  }
+
+  function applySlimeCombatDecision(slime, ai) {
+    const combatDecision = currentSlimeCombatDecision(slime);
+    const next = {
+      ...ai,
+      combatDecision
+    };
+    if (combatDecision.intent === "none" || combatDecision.intent === "avoid") {
+      return next;
+    }
+    if (SLIME_COMBAT_ACTION_INTENTS.has(combatDecision.intent)) {
+      next.state = "combat";
+      next.intent = combatDecision.intent === "feedAttack" ? "feedAttack" : "fight";
+      next.target = combatDecision.target || next.target;
+      next.reason = combatDecision.reasons[0] || combatDecision.label.toLowerCase();
+      next.urgency = maxAiUrgency(next.urgency, combatDecision.score >= 80 ? "critical" : "high");
+      return next;
+    }
+    if (["flee", "freeze", "panic"].includes(combatDecision.intent) && combatDecision.score >= 45) {
+      next.state = "stressed";
+      next.intent = combatDecision.intent;
+      next.target = combatDecision.target || next.target;
+      next.reason = combatDecision.reasons[0] || combatDecision.label.toLowerCase();
+      next.urgency = maxAiUrgency(next.urgency, combatDecision.score >= 70 ? "critical" : "high");
+      return next;
+    }
+    if (combatDecision.intent === "threaten" && combatDecision.score >= 40) {
+      next.state = "combat";
+      next.intent = "threaten";
+      next.target = combatDecision.target || next.target;
+      next.reason = combatDecision.reasons[0] || "threatening nearby target";
+      next.urgency = maxAiUrgency(next.urgency, "medium");
+    }
+    return next;
+  }
+
   function finalizeSlimeAi(slime, ai) {
-    return applySlimeThreatResponse(slime, applySlimeDriveInfluence(slime, applySlimePerception(slime, ai)));
+    return applySlimeCombatDecision(slime, applySlimeThreatResponse(slime, applySlimeDriveInfluence(slime, applySlimePerception(slime, ai))));
   }
 
   function slimeAiTargetFromActivity(activity) {
@@ -10473,7 +10779,7 @@
   }
 
   function slimeAiFromMovement(slime, movement) {
-    const intent = movement.intent || (movement.targetKind === "habitat" ? "seekHabitat" : movement.targetKind === "wander" ? "wander" : "seekFood");
+    const intent = movement.intent || (movement.targetKind === "habitat" ? "seekHabitat" : movement.targetKind === "threat" ? "flee" : movement.targetKind === "wander" ? "wander" : "seekFood");
     const target = cleanSlimeAiTarget({
       kind: movement.targetKind || (intent === "wander" ? "room" : "target"),
       id: movement.targetId || "",
@@ -10519,9 +10825,17 @@
       stateId = "seeking";
       intent = "hunt";
       reason = "hunting sensed prey";
+    } else if (type === "combatAttack") {
+      stateId = "combat";
+      intent = activity.combatIntent === "feedAttack" ? "feedAttack" : "fight";
+      reason = label || "attacking nearby target";
+    } else if (type === "fleeingThreat") {
+      stateId = "stressed";
+      intent = "flee";
+      reason = label || "fleeing a nearby threat";
     } else if (type === "threatResponse") {
       stateId = "stressed";
-      intent = "wait";
+      intent = activity.combatIntent && SLIME_COMBAT_INTENTS.has(activity.combatIntent) ? activity.combatIntent : "wait";
       reason = label || "reacting to threat";
     } else if (type === "leavingResidue") {
       stateId = "idle";
@@ -10593,6 +10907,7 @@
       dominantDrive: ai.dominantDrive,
       perception: ai.perception,
       response: ai.response,
+      combatDecision: ai.combatDecision,
       path: ai.path,
       nextThinkAt: ai.nextThinkAt
     });
@@ -10676,6 +10991,34 @@
       `Intensity: ${response.intensity}`,
       response.reasons?.length ? `Observed factors: ${response.reasons.join("; ")}` : "",
       response.unknownFactors?.length ? `Unknown factors may affect this: ${response.unknownFactors.join(", ")}` : ""
+    ].filter(Boolean).join("\n");
+    return element;
+  }
+
+  function slimeCombatDecisionLabel(slime) {
+    const decision = slimeAiRecord(slime).combatDecision || defaultSlimeCombatDecisionRecord();
+    return `Combat intent: ${decision.label}`;
+  }
+
+  function slimeCombatDecisionChip(slime) {
+    if (!slime || slime.status === "dead") {
+      return null;
+    }
+    const decision = slimeAiRecord(slime).combatDecision || defaultSlimeCombatDecisionRecord();
+    if (decision.intent === "none" || (decision.intent === "avoid" && decision.score < 30)) {
+      return null;
+    }
+    const element = chip(slimeCombatDecisionLabel(slime));
+    element.dataset.slimeCombatIntent = slime.id;
+    if (SLIME_COMBAT_ACTION_INTENTS.has(decision.intent) || ["panic", "flee"].includes(decision.intent)) {
+      element.classList.add("danger-chip");
+    }
+    element.title = [
+      decision.target?.label ? `Target: ${decision.target.label}` : "",
+      decision.contact ? `Contact: ${decision.contact}` : "",
+      decision.automaticAction ? `Action: ${decision.automaticAction}` : "",
+      decision.reasons?.length ? `Reasons: ${decision.reasons.join("; ")}` : "",
+      decision.unknownFactors?.length ? `Unknown factors may affect this: ${decision.unknownFactors.join(", ")}` : ""
     ].filter(Boolean).join("\n");
     return element;
   }
@@ -14368,6 +14711,10 @@
       if (responseChip) {
         meta.append(responseChip);
       }
+      const combatDecisionChip = slimeCombatDecisionChip(slime);
+      if (combatDecisionChip) {
+        meta.append(combatDecisionChip);
+      }
       const combatChip = slimeCombatChip(slime);
       if (combatChip) {
         meta.append(combatChip);
@@ -17785,9 +18132,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? `moving toward contamination in ${roomName(target.roomId)}`
         : target.kind === "habitat"
           ? `moving toward better habitat in ${roomName(target.roomId)}`
-          : `seeking ${target.label}`;
+          : target.kind === "threat"
+            ? `fleeing from ${target.label || "threat"}`
+            : `seeking ${target.label}`;
     slime.autonomousMovement = {
-      intent: target.kind === "wander" ? "wander" : target.kind === "habitat" ? "seekHabitat" : "seekFood",
+      intent: target.kind === "wander" ? "wander" : target.kind === "habitat" ? "seekHabitat" : target.kind === "threat" ? "flee" : "seekFood",
       label,
       targetKind: target.kind,
       targetId: target.id || "",
@@ -17807,7 +18156,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       updatedAt: state.clock
     };
     slime.roomActivity = {
-      type: target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : "seekingFood",
+      type: target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : target.kind === "threat" ? "fleeingThreat" : "seekingFood",
       label,
       roomId: slime.roomId || MAIN_ROOM_ID,
       targetRoomId: target.roomId,
@@ -17836,12 +18185,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? "seekingContamination"
       : target.kind === "habitat"
         ? "seekingHabitat"
+      : target.kind === "threat"
+        ? "threatResponse"
       : target.kind === "wander"
         ? "exploring"
         : "seekingFood";
     slime.roomActivity = {
       type: activityType,
-      label: target.kind === "wander" ? "exploring" : target.kind === "contamination" ? "seeking contamination" : target.kind === "habitat" ? "settling into better habitat" : `seeking ${target.label || "food"}`,
+      label: target.kind === "wander" ? "exploring" : target.kind === "contamination" ? "seeking contamination" : target.kind === "habitat" ? "settling into better habitat" : target.kind === "threat" ? `recoiling from ${target.label || "threat"}` : `seeking ${target.label || "food"}`,
       roomId,
       targetRoomId: movement.targetRoomId,
       targetKind: target.kind,
@@ -18062,7 +18413,111 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+  function fleeTargetForCombatDecision(slime, decision) {
+    if (!slimeIsUncontained(slime)) {
+      return null;
+    }
+    const current = objectMapCell(slime);
+    const threat = cleanMapCell(decision?.target?.cell);
+    if (!current || !threat) {
+      return null;
+    }
+    const currentDistance = mapCellDistance(current, threat);
+    const candidates = labMapNeighborCells(current, {
+      ignoreDoors: false,
+      ignoreDoorSecurity: false,
+      requireReachable: true
+    })
+      .map((cell) => ({
+        cell,
+        distance: mapCellDistance(cell, threat)
+      }))
+      .filter((entry) => entry.distance > currentDistance)
+      .sort((a, b) => b.distance - a.distance || a.cell.y - b.cell.y || a.cell.x - b.cell.x);
+    const best = candidates[0]?.cell;
+    if (!best) {
+      return null;
+    }
+    const roomId = labMapCellRoomId(best) || slimeEffectiveRoomId(slime);
+    return {
+      kind: "threat",
+      id: decision?.target?.id || "",
+      label: decision?.target?.label || "threat",
+      roomId,
+      cell: best
+    };
+  }
+
+  function applyLooseCombatDecisionActivity(slime) {
+    if (!slimeIsUncontained(slime) || slimeAutonomousMovementActive(slime)) {
+      return false;
+    }
+    const decision = currentSlimeCombatDecision(slime);
+    if (!decision || ["none", "avoid"].includes(decision.intent)) {
+      return false;
+    }
+    const targetLabel = decision.target?.label || "nearby target";
+    if (SLIME_COMBAT_ACTION_INTENTS.has(decision.intent)) {
+      slime.roomActivity = {
+        type: "combatAttack",
+        combatIntent: decision.intent,
+        label: decision.intent === "feedAttack" ? `trying to feed on ${targetLabel}` : `attacking ${targetLabel}`,
+        roomId: slimeEffectiveRoomId(slime),
+        targetKind: decision.target?.kind || "target",
+        targetId: decision.target?.id || "",
+        targetLabel,
+        updatedAt: state.clock
+      };
+      return true;
+    }
+    if (decision.intent === "flee") {
+      const target = fleeTargetForCombatDecision(slime, decision);
+      if (target) {
+        const path = [objectMapCell(slime), target.cell].filter(Boolean);
+        if (startSlimeAutonomousMovement(slime, target, path)) {
+          awardCreatureSkillXp(slime, "evasion", CREATURE_PRACTICE_XP.evasion, "fleeing combat", { outcome: "partial" });
+          rememberCreatureExperience(slime, "fledThreat", 3, decision.reasons?.[0] || "combat threat");
+          return true;
+        }
+      }
+      slime.roomActivity = {
+        type: "threatResponse",
+        combatIntent: "freeze",
+        label: `cornered by ${targetLabel}`,
+        roomId: slimeEffectiveRoomId(slime),
+        targetKind: decision.target?.kind || "target",
+        targetId: decision.target?.id || "",
+        targetLabel,
+        updatedAt: state.clock
+      };
+      return true;
+    }
+    if (["freeze", "panic", "threaten"].includes(decision.intent) || (decision.intent === "defend" && decision.score >= 40)) {
+      const labels = {
+        freeze: `freezing near ${targetLabel}`,
+        panic: `panicking near ${targetLabel}`,
+        threaten: `threatening ${targetLabel}`,
+        defend: `defending against ${targetLabel}`
+      };
+      slime.roomActivity = {
+        type: "threatResponse",
+        combatIntent: decision.intent,
+        label: labels[decision.intent] || `watching ${targetLabel}`,
+        roomId: slimeEffectiveRoomId(slime),
+        targetKind: decision.target?.kind || "target",
+        targetId: decision.target?.id || "",
+        targetLabel,
+        updatedAt: state.clock
+      };
+      return true;
+    }
+    return false;
+  }
+
   function chooseAutonomousSlimeActivity(slime) {
+    if (applyLooseCombatDecisionActivity(slime)) {
+      return true;
+    }
     const food = chooseAutonomousFoodTarget(slime);
     if (food?.block) {
       setSlimeBlockedDoorActivity(slime, food.block, food.target);
@@ -18144,6 +18599,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           }
           continue;
         }
+      }
+
+      if (applyLooseCombatDecisionActivity(slime)) {
+        slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
+        changes += 1;
+        continue;
       }
 
       changes += updateAccessibleSlimeFeeding(slime, elapsed);
@@ -20103,6 +20564,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderSlimeCombatControls(slime) {
     const record = combatRecordForSlime(slime);
+    const decision = slimeAiRecord(slime).combatDecision || defaultSlimeCombatDecisionRecord();
     const section = document.createElement("div");
     section.className = "slime-combat-controls subpanel";
     section.dataset.slimeCombatPanel = slime.id;
@@ -20127,6 +20589,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     addRow("State", record ? record.label : "No active combat", record ? record.severity : "clear", record?.summary || "This specimen is not currently in an active combat record.");
     if (record) {
       addRow("Cause", record.summary || record.type, record.type === "clash" ? "contact" : "attack");
+    }
+    addRow(
+      "Intent",
+      decision.label,
+      decision.intent === "none" ? "quiet" : "inferred",
+      "Combat intent is derived from current contact, condition, hunger, pain memory, broad behavior, and stability."
+    );
+    addRow("Target", decision.target?.label || "None", decision.contact || "none");
+    addRow("Automatic action", decision.automaticAction || "None", decision.score ? `${formatNumber(decision.score)} pressure` : "calm");
+    addRow(
+      "Intent factors",
+      decision.reasons?.length ? decision.reasons.join("; ") : "None clear",
+      decision.reasons?.length ? "current" : "quiet"
+    );
+    if (decision.unknownFactors?.length) {
+      addRow("Unknown factors", decision.unknownFactors.join(", "), "could matter");
     }
 
     const actions = document.createElement("div");
