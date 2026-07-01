@@ -1826,7 +1826,8 @@ h2 {
   gap: 0.5rem;
 }
 
-.harvest-controls {
+.harvest-controls,
+.slime-combat-controls {
   display: grid;
   gap: 0.45rem;
 }
@@ -1838,6 +1839,12 @@ h2 {
 }
 
 .harvest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.combat-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;

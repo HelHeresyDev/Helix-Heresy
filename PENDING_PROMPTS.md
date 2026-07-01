@@ -12,47 +12,22 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Combat Foundation System
-2. XP Curve and Breakthrough-Gated Skill Progression
-3. Slime Skill Practice, Ability Use, and Behavior Learning System
-4. Analyze Ability & Creature Skill Evolution Follow-Up
-5. Slime Combat Behavior System
-6. Slime Containment Testing and Escape Behavior System
-7. Slime Container Interaction and Breach Behavior System
-8. Tool Durability and Damage Resistance System
-9. Slime Social, Territorial, and Group Behavior System
-10. Slime Job Autonomy and Work Behavior System
-11. Map-Based Slime Incident and Emergency Response System
-12. Slime AI Debugging and Behavior Readout System
-13. Black Market Byproduct Economy System
+1. XP Curve and Breakthrough-Gated Skill Progression
+2. Slime Skill Practice, Ability Use, and Behavior Learning System
+3. Analyze Ability & Creature Skill Evolution Follow-Up
+4. Slime Combat Behavior System
+5. Slime Containment Testing and Escape Behavior System
+6. Slime Container Interaction and Breach Behavior System
+7. Tool Durability and Damage Resistance System
+8. Slime Social, Territorial, and Group Behavior System
+9. Slime Job Autonomy and Work Behavior System
+10. Map-Based Slime Incident and Emergency Response System
+11. Slime AI Debugging and Behavior Readout System
+12. Black Market Byproduct Economy System
 
 ---
 
-## 1. Combat Foundation System
-
-Create the foundation for combat as a map-aware simulation system.
-
-Combat should not be limited to future story battles. It should support lab accidents, escaped slimes, scientist self-defense, creature attacks, containment failures, intruders, future raids, and eventually outdoor or conquest-layer conflict. The first foundation should define how actors threaten each other, target each other, use abilities, take damage, flee, become incapacitated, and interact with map position.
-
-The system should answer questions like:
-- Is combat real-time, queued, tick-based, turn-like, or a hybrid?
-- How does map distance, adjacency, line of sight, and room layout matter?
-- What counts as an attack, contact hazard, ability, shove, grapple, or escape action?
-- How does damage apply to Body Integrity, health, stamina, stress, tools, containers, or room objects?
-- How do elemental damage types integrate?
-- How do actors choose targets?
-- How do fleeing, incapacitation, death, surrender, or loss of control work?
-- How should the UI show combat without overwhelming the lab management interface?
-
-The first implementation should be a foundation, not a complete tactical game. It should create shared rules and data shapes that slime combat behavior, scientist response, intruders, emergency incidents, and future creature abilities can reuse.
-
-The desired result is a combat framework that makes danger spatial and systemic: actors occupy the map, use abilities or contact actions, take consequences, and generate events that other AI systems can respond to.
-
-Before coding, discuss combat timing, target selection, range, damage application, ability hooks, map interaction, UI presentation, and what the smallest useful combat pass should include.
-
----
-
-## 2. XP Curve and Breakthrough-Gated Skill Progression
+## 1. XP Curve and Breakthrough-Gated Skill Progression
 
 Rework skill XP so progression supports long-term skill tiers, difficult breakthroughs, and meaningful dedicated practice.
 
@@ -117,7 +92,7 @@ Before coding, discuss the XP curve, breakthrough storage, decay rules, tier tra
 
 ---
 
-## 3. Slime Skill Practice, Ability Use, and Behavior Learning System
+## 2. Slime Skill Practice, Ability Use, and Behavior Learning System
 
 Create a system for slime skill practice, ability use, and learned behavior.
 
@@ -141,7 +116,7 @@ Before coding, discuss practice sources, ability hooks, skill categories, XP int
 
 ---
 
-## 4. Analyze Ability & Creature Skill Evolution Follow-Up
+## 3. Analyze Ability & Creature Skill Evolution Follow-Up
 
 Build on the first-pass adaptive skill foundation by adding the actual Analyze ability, creature-visible skill sheets, and skill evolution behavior.
 
@@ -161,7 +136,7 @@ Before coding, discuss the Analyze workflow, creature skill visibility, evolutio
 
 ---
 
-## 5. Slime Combat Behavior System
+## 4. Slime Combat Behavior System
 
 Create slime-specific combat behavior on top of the combat foundation.
 
@@ -186,7 +161,7 @@ Before coding, discuss behavior categories, target selection, ability choice, fl
 
 ---
 
-## 6. Slime Containment Testing and Escape Behavior System
+## 5. Slime Containment Testing and Escape Behavior System
 
 Create a system for slimes to test containment and attempt escape.
 
@@ -210,7 +185,7 @@ Before coding, discuss escape triggers, containment testing actions, progress, f
 
 ---
 
-## 7. Slime Container Interaction and Breach Behavior System
+## 6. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -234,7 +209,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 8. Tool Durability and Damage Resistance System
+## 7. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -263,7 +238,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 9. Slime Social, Territorial, and Group Behavior System
+## 8. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -287,7 +262,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 10. Slime Job Autonomy and Work Behavior System
+## 9. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -311,7 +286,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 11. Map-Based Slime Incident and Emergency Response System
+## 10. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -335,7 +310,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 12. Slime AI Debugging and Behavior Readout System
+## 11. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -359,7 +334,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 13. Black Market Byproduct Economy System
+## 12. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

@@ -447,6 +447,39 @@
     ether: ["arcane"],
     null: ["arcane", "force"]
   };
+  const COMBAT_STRIKE_STAMINA = 6;
+  const COMBAT_SCIENTIST_STRIKE_DAMAGE = 18;
+  const COMBAT_SCIENTIST_STRIKE_STRESS = 8;
+  const COMBAT_ATTACK_INTERVAL = 30;
+  const COMBAT_CLASH_INTERVAL = 20;
+  const COMBAT_AWARE_PAUSE_COOLDOWN = minutesToSeconds(10);
+  const COMBAT_ACTIVE_RECORD_LIMIT = 24;
+  const COMBAT_MAX_CYCLES_PER_UPDATE = 20;
+  const COMBAT_DAMAGE_BY_TYPE = {
+    physical: 4,
+    corrosive: 7,
+    toxic: 5,
+    heat: 6,
+    cold: 5,
+    electrical: 6,
+    moisture: 3,
+    pressure: 4,
+    radiant: 5,
+    shadow: 5,
+    arcane: 6,
+    force: 6
+  };
+  const ELEMENT_CLASH_PAIRS = [
+    ["flame", "frost"],
+    ["flame", "water"],
+    ["light", "shadow"],
+    ["storm", "water"],
+    ["acid", "metal"],
+    ["acid", "stone"],
+    ["gravity", "wind"],
+    ["null", "ether"],
+    ["null", "dream"]
+  ];
   const HANDLING_METHOD_DAMAGE_RESISTANCES = {
     bareHands: {},
     thickGloves: { physical: 35, toxic: 35, cold: 25, corrosive: 18, heat: 18, moisture: 15, electrical: 5 },
@@ -1587,7 +1620,8 @@
     residueSpill: { label: "Feeding Residue Spill" },
     exposedRemains: { label: "Exposed Remains" },
     corpseOverflow: { label: "Corpse Overflow" },
-    breachedDoor: { label: "Door Breach" }
+    breachedDoor: { label: "Door Breach" },
+    combat: { label: "Combat" }
   };
   const SPECIMEN_HARVEST_PROCEDURE_DEFS = [
     {
@@ -1957,6 +1991,7 @@
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
+      combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
       currentGenome: "",
@@ -2011,6 +2046,15 @@
     return {
       nextRoomNumber: 1,
       lastDigRect: null
+    };
+  }
+
+  function defaultCombatState() {
+    return {
+      active: [],
+      cooldowns: {},
+      lastAwareCombatAt: null,
+      lastAwareCombatKey: ""
     };
   }
 
@@ -2976,6 +3020,7 @@
       collectionChanged: updateCollectionBayAccumulation(elapsed),
       compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
       containmentIncidentChanges: updateContainmentIncidents(elapsed),
+      combatChanged: updateCombat(elapsed),
       incidentAlertChanged: refreshIncidentAlerts(),
       jobExpired: 0,
       completed: 0,
@@ -3006,6 +3051,7 @@
       + changes.collectionChanged
       + changes.compatibilityChanged
       + changes.containmentIncidentChanges
+      + changes.combatChanged
       + changes.incidentAlertChanged
       + changes.completed
       + changes.aiChanged
@@ -3814,7 +3860,7 @@
   function createCorpseFromSlime(slime, deathReason) {
     state.corpses ||= [];
     const location = initialCorpseLocationForSlime(slime);
-    const diedAt = Number.isFinite(Number(slime.deathAt)) ? Number(slime.deathAt) : state.clock;
+    const diedAt = deathReason === "lifespan" && Number.isFinite(Number(slime.deathAt)) ? Number(slime.deathAt) : state.clock;
     const corpse = {
       id: `corpse-${state.nextCorpseNumber++}`,
       specimenId: slime.id,
@@ -3863,7 +3909,8 @@
         const causeText = {
           "waste exposure": "succumbed to waste exposure",
           "body integrity failure": "collapsed from body integrity failure",
-          "harvesting trauma": "collapsed from harvesting trauma"
+          "harvesting trauma": "collapsed from harvesting trauma",
+          "combat trauma": "collapsed from combat trauma"
         }[deathReason] || "reached the end of its lifespan";
         addEvent(`${slime.name} ${causeText}; remains are now in ${corpseLocationLabel(corpse)}.`);
         expired += 1;
@@ -6552,6 +6599,23 @@
       }
     }
 
+    for (const combat of activeCombatRecords()) {
+      if (!scientistObservesRoom(combat.roomId) && !combat.involvesScientist) {
+        continue;
+      }
+      addDesiredIncident(desired, {
+        type: "combat",
+        label: combat.label,
+        summary: combat.summary,
+        severity: combat.severity,
+        roomId: combat.roomId,
+        cell: combat.cell,
+        sourceKind: "combat",
+        sourceId: combat.key,
+        sourceLabel: combat.label
+      });
+    }
+
     for (const room of state.rooms || []) {
       if (!scientistObservesRoom(room.id)) {
         continue;
@@ -6901,6 +6965,586 @@
       lines.push(`${type.label}: ${type.description}`);
     }
     return lines.join("\n");
+  }
+
+  function normalizeCombatRecord(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const type = String(candidate.type || "combat").trim() || "combat";
+    const key = String(candidate.key || `${type}:${candidate.sourceId || ""}:${candidate.targetId || ""}`).trim();
+    if (!key) {
+      return null;
+    }
+    const sourceIds = (Array.isArray(candidate.sourceIds) ? candidate.sourceIds : [candidate.sourceId])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
+    const targetIds = (Array.isArray(candidate.targetIds) ? candidate.targetIds : [candidate.targetId])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
+    const roomId = cleanIncidentRoomId(candidate.roomId || MAIN_ROOM_ID);
+    const createdAt = finiteTime(candidate.createdAt, state?.clock || 0);
+    return {
+      key,
+      type,
+      label: String(candidate.label || "Combat").trim(),
+      summary: String(candidate.summary || "").trim(),
+      severity: cleanIncidentSeverity(candidate.severity || "serious"),
+      roomId,
+      cell: cleanMapCell(candidate.cell) || (state ? labMapRoomAnchor(roomId) : null),
+      sourceIds,
+      targetIds,
+      sourceLabel: String(candidate.sourceLabel || "").trim(),
+      targetLabel: String(candidate.targetLabel || "").trim(),
+      involvesScientist: Boolean(candidate.involvesScientist),
+      interval: Math.max(1, Number(candidate.interval) || COMBAT_ATTACK_INTERVAL),
+      createdAt,
+      updatedAt: finiteTime(candidate.updatedAt, createdAt)
+    };
+  }
+
+  function normalizeCombatState(candidate = {}) {
+    const active = (Array.isArray(candidate?.active) ? candidate.active : [])
+      .map(normalizeCombatRecord)
+      .filter(Boolean)
+      .slice(0, COMBAT_ACTIVE_RECORD_LIMIT);
+    const cooldowns = {};
+    if (candidate?.cooldowns && typeof candidate.cooldowns === "object") {
+      for (const [key, value] of Object.entries(candidate.cooldowns)) {
+        const time = Number(value);
+        if (key && Number.isFinite(time)) {
+          cooldowns[key] = time;
+        }
+      }
+    }
+    const lastAware = Number(candidate?.lastAwareCombatAt);
+    return {
+      active,
+      cooldowns,
+      lastAwareCombatAt: Number.isFinite(lastAware) ? lastAware : null,
+      lastAwareCombatKey: String(candidate?.lastAwareCombatKey || "")
+    };
+  }
+
+  function activeCombatRecords() {
+    state.combat = normalizeCombatState(state.combat);
+    return state.combat.active || [];
+  }
+
+  function combatRecordComparable(records) {
+    return JSON.stringify((records || []).map((record) => ({
+      key: record.key,
+      type: record.type,
+      label: record.label,
+      summary: record.summary,
+      severity: record.severity,
+      roomId: record.roomId,
+      cell: record.cell ? mapCellKey(record.cell) : "",
+      sourceIds: record.sourceIds,
+      targetIds: record.targetIds,
+      involvesScientist: record.involvesScientist
+    })));
+  }
+
+  function combatCooldownKey(record) {
+    return `${record.type}:${record.key}`;
+  }
+
+  function combatActionCycles(record, elapsed = 0) {
+    const key = combatCooldownKey(record);
+    const interval = Math.max(1, Number(record.interval) || COMBAT_ATTACK_INTERVAL);
+    const fallbackNextAt = Math.max(0, state.clock - Math.max(0, Number(elapsed) || 0));
+    const nextAt = Number(state.combat.cooldowns[key]) || fallbackNextAt;
+    if (state.clock < nextAt) {
+      return 0;
+    }
+    const rawCycles = Math.max(1, Math.floor((state.clock - nextAt) / interval) + 1);
+    state.combat.cooldowns[key] = nextAt + rawCycles * interval;
+    return Math.min(rawCycles, COMBAT_MAX_CYCLES_PER_UPDATE);
+  }
+
+  function pruneCombatCooldowns(activeKeys) {
+    const keep = new Set([...activeKeys].map((key) => String(key || "")));
+    for (const key of Object.keys(state.combat.cooldowns || {})) {
+      const recordKey = key.split(":").slice(1).join(":");
+      if (!keep.has(recordKey)) {
+        delete state.combat.cooldowns[key];
+      }
+    }
+  }
+
+  function updateCombat(elapsed = 0) {
+    if (!state) {
+      return 0;
+    }
+    state.combat = normalizeCombatState(state.combat);
+    const before = combatRecordComparable(state.combat.active);
+    const records = collectCombatRecords();
+    let changes = 0;
+
+    for (const record of records) {
+      if (scientistAwareOfCombat(record)) {
+        changes += triggerAwareCombatPause(record) ? 1 : 0;
+      }
+      const cycles = elapsed > 0 ? combatActionCycles(record, elapsed) : 0;
+      if (cycles > 0) {
+        changes += resolveCombatRecord(record, cycles);
+      }
+    }
+
+    state.combat.active = records
+      .map((record) => normalizeCombatRecord({ ...record, updatedAt: state.clock }))
+      .filter(Boolean)
+      .slice(0, COMBAT_ACTIVE_RECORD_LIMIT);
+    pruneCombatCooldowns(new Set(state.combat.active.map((record) => record.key)));
+    const after = combatRecordComparable(state.combat.active);
+    return changes + (before !== after ? 1 : 0);
+  }
+
+  function collectCombatRecords() {
+    const records = [];
+    const living = (state.slimes || []).filter((slime) => slime && slime.status !== "dead" && slimeStat(slime, "bodyIntegrity").current > 0);
+    for (let i = 0; i < living.length; i += 1) {
+      for (let j = i + 1; j < living.length; j += 1) {
+        const a = living[i];
+        const b = living[j];
+        const contact = slimeContactContext(a, b);
+        if (!contact) {
+          continue;
+        }
+        if (slimeElementsClash(a, b)) {
+          records.push(slimeClashCombatRecord(a, b, contact));
+        }
+        const aIntent = slimeCombatAggressionInfo(a, b);
+        const bIntent = slimeCombatAggressionInfo(b, a);
+        if (aIntent.aggressive) {
+          records.push(slimeAttackCombatRecord(a, b, contact, aIntent));
+        }
+        if (bIntent.aggressive) {
+          records.push(slimeAttackCombatRecord(b, a, contact, bIntent));
+        }
+      }
+    }
+
+    for (const slime of living) {
+      const contact = scientistSlimeContactContext(slime);
+      if (!contact) {
+        continue;
+      }
+      const intent = slimeCombatAggressionInfo(slime, { id: "scientist", name: "the scientist" });
+      if (intent.aggressive) {
+        records.push(slimeScientistAttackRecord(slime, contact, intent));
+      }
+    }
+
+    return records.filter(Boolean);
+  }
+
+  function slimeContactContext(a, b) {
+    if (!a || !b || a.status === "dead" || b.status === "dead") {
+      return null;
+    }
+    if (!slimeIsUncontained(a) && !slimeIsUncontained(b) && a.containerId && a.containerId === b.containerId) {
+      const container = containerById(a.containerId);
+      const roomId = container?.roomId || a.roomId || b.roomId || MAIN_ROOM_ID;
+      return {
+        kind: "container",
+        roomId,
+        cell: objectMapCell(container) || labMapRoomAnchor(roomId),
+        label: container?.name || "shared containment"
+      };
+    }
+    if (slimeIsUncontained(a) && slimeIsUncontained(b) && slimeEffectiveRoomId(a) === slimeEffectiveRoomId(b)) {
+      const cellA = objectMapCell(a);
+      const cellB = objectMapCell(b);
+      if (cellA && cellB && mapCellKey(cellA) === mapCellKey(cellB)) {
+        return {
+          kind: "tile",
+          roomId: slimeEffectiveRoomId(a),
+          cell: cellA,
+          label: "same tile"
+        };
+      }
+    }
+    return null;
+  }
+
+  function scientistSlimeContactContext(slime) {
+    if (!slimeIsUncontained(slime) || scientistIsDead()) {
+      return null;
+    }
+    const roomId = slimeEffectiveRoomId(slime);
+    if (scientistRoomId() !== roomId) {
+      return null;
+    }
+    const slimeCell = objectMapCell(slime);
+    const scientistCell = scientistMapCell();
+    if (slimeCell && scientistCell && mapCellKey(slimeCell) === mapCellKey(scientistCell)) {
+      return { kind: "tile", roomId, cell: slimeCell, label: "same tile" };
+    }
+    return null;
+  }
+
+  function slimeCombatElementLabel(slime) {
+    return baseOutcomeLabel(evaluateGenome(slime?.genome || "").traits.element) || "none";
+  }
+
+  function slimeCombatDamageTypes(slime) {
+    return damageTypesForElementLabel(slimeCombatElementLabel(slime));
+  }
+
+  function slimeCombatDamageAmount(slime, base = 3) {
+    const values = slimeCombatDamageTypes(slime).map((type) => COMBAT_DAMAGE_BY_TYPE[type.id] || base);
+    return Math.max(base, ...values);
+  }
+
+  function elementPairKey(a, b) {
+    return [String(a || "none"), String(b || "none")].sort().join("/");
+  }
+
+  function slimeElementsClash(a, b) {
+    const pair = elementPairKey(slimeCombatElementLabel(a), slimeCombatElementLabel(b));
+    return ELEMENT_CLASH_PAIRS.some(([left, right]) => elementPairKey(left, right) === pair);
+  }
+
+  function slimeCombatAggressionInfo(slime, target = null) {
+    if (!slime || slime.status === "dead") {
+      return { aggressive: false, score: 0, reason: "" };
+    }
+    const response = slimeAiRecord(slime).response || defaultSlimeResponseRecord();
+    const traitProfile = slimeThreatTraitProfile(slime);
+    const behavior = String(traitProfile.behavior || "").toLowerCase();
+    const stability = String(traitProfile.stability || "").toLowerCase();
+    let score = 0;
+    const reasons = [];
+    const add = (amount, reason) => {
+      score += Math.max(0, Number(amount) || 0);
+      if (reason) {
+        reasons.push(reason);
+      }
+    };
+    if (response.intent === "lashOut") add(48, "lashing out");
+    if (["panicked", "pained"].includes(response.state)) add(14, response.label.toLowerCase());
+    if (response.state === "desperate") add(18, "desperate");
+    if (response.intensity === "critical") add(16, "critical intensity");
+    else if (response.intensity === "high") add(10, "high intensity");
+    if (slimeHuntingInclination(slime)) add(20, "hunting behavior");
+    if (/guarding|swarming|still ambush|vibration hunting/.test(behavior)) add(12, behavior);
+    if (/predatory|territorial|volatile|fractious|hungry|erratic/.test(stability)) add(14, stability);
+    if (target?.id && slime.lastCombatAttackerId === target.id && state.clock - finiteTime(slime.lastCombatAttackedAt, 0) <= minutesToSeconds(10)) {
+      add(35, target.id === "scientist" ? "retaliating against scientist" : "retaliating");
+    }
+    return {
+      aggressive: score >= 55,
+      score: clamp(score, 0, 100),
+      reason: reasons[0] || "aggressive instinct",
+      reasons: [...new Set(reasons)].slice(0, 4)
+    };
+  }
+
+  function slimeClashCombatRecord(a, b, contact) {
+    return {
+      key: `clash:${[a.id, b.id].sort().join(":")}`,
+      type: "clash",
+      label: `${a.name} and ${b.name} are clashing`,
+      summary: slimeClashSummary(a, b),
+      severity: "serious",
+      roomId: contact.roomId,
+      cell: contact.cell,
+      sourceIds: [a.id, b.id],
+      targetIds: [a.id, b.id],
+      sourceLabel: a.name,
+      targetLabel: b.name,
+      interval: COMBAT_CLASH_INTERVAL
+    };
+  }
+
+  function slimeClashSummary(a, b) {
+    const aKnown = slimeTraitKnown(a, "element");
+    const bKnown = slimeTraitKnown(b, "element");
+    if (aKnown && bKnown) {
+      return `${a.name}'s ${slimeCombatElementLabel(a)} element is reacting against ${b.name}'s ${slimeCombatElementLabel(b)} element.`;
+    }
+    return "Opposing elemental contact is injuring both specimens.";
+  }
+
+  function slimeAttackCombatRecord(attacker, target, contact, intent) {
+    return {
+      key: `attack:${attacker.id}:${target.id}`,
+      type: "attack",
+      label: `${attacker.name} attacking ${target.name}`,
+      summary: `${attacker.name} is attacking ${target.name}${intent.reason ? ` (${intent.reason})` : ""}.`,
+      severity: intent.score >= 80 ? "critical" : "serious",
+      roomId: contact.roomId,
+      cell: contact.cell,
+      sourceIds: [attacker.id],
+      targetIds: [target.id],
+      sourceLabel: attacker.name,
+      targetLabel: target.name,
+      interval: COMBAT_ATTACK_INTERVAL
+    };
+  }
+
+  function slimeScientistAttackRecord(slime, contact, intent) {
+    return {
+      key: `attack:${slime.id}:scientist`,
+      type: "attack",
+      label: `${slime.name} attacking the scientist`,
+      summary: `${slime.name} is attacking the scientist${intent.reason ? ` (${intent.reason})` : ""}.`,
+      severity: intent.score >= 80 ? "critical" : "serious",
+      roomId: contact.roomId,
+      cell: contact.cell,
+      sourceIds: [slime.id],
+      targetIds: ["scientist"],
+      sourceLabel: slime.name,
+      targetLabel: "Scientist",
+      involvesScientist: true,
+      interval: COMBAT_ATTACK_INTERVAL
+    };
+  }
+
+  function resolveCombatRecord(record, cycles = 1) {
+    if (!record) {
+      return 0;
+    }
+    if (record.type === "clash") {
+      return resolveElementalClash(record, cycles);
+    }
+    if (record.type === "attack") {
+      return resolveCombatAttack(record, cycles);
+    }
+    return 0;
+  }
+
+  function resolveElementalClash(record, cycles = 1) {
+    const [leftId, rightId] = record.sourceIds || [];
+    const left = findSlime(leftId);
+    const right = findSlime(rightId);
+    if (!left || !right || left.status === "dead" || right.status === "dead") {
+      return 0;
+    }
+    const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
+    const leftDamage = Math.ceil(slimeCombatDamageAmount(right, 3) * 0.75) * cycleCount;
+    const rightDamage = Math.ceil(slimeCombatDamageAmount(left, 3) * 0.75) * cycleCount;
+    applySlimeCombatDamage(left, leftDamage, right.id, `${right.name}'s elemental clash`);
+    applySlimeCombatDamage(right, rightDamage, left.id, `${left.name}'s elemental clash`);
+    addEvent(`Elemental clash injured ${left.name} and ${right.name}.`);
+    expireSlimes();
+    return 1;
+  }
+
+  function resolveCombatAttack(record, cycles = 1) {
+    const attacker = findSlime(record.sourceIds?.[0]);
+    const targetId = record.targetIds?.[0] || "";
+    if (!attacker || attacker.status === "dead") {
+      return 0;
+    }
+    const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
+    const damage = slimeCombatDamageAmount(attacker, 4) * cycleCount;
+    if (targetId === "scientist") {
+      const changed = damageScientistCombat(damage, `${attacker.name} attack (${damageTypeListText(slimeCombatDamageTypes(attacker))})`);
+      if (changed) {
+        attacker.lastCombatTargetId = "scientist";
+        attacker.lastCombatActionAt = state.clock;
+      }
+      return changed ? 1 : 0;
+    }
+    const target = findSlime(targetId);
+    if (!target || target.status === "dead") {
+      return 0;
+    }
+    applySlimeCombatDamage(target, damage, attacker.id, `${attacker.name} attack`);
+    attacker.lastCombatTargetId = target.id;
+    attacker.lastCombatActionAt = state.clock;
+    addEvent(`${attacker.name} struck ${target.name}.`);
+    expireSlimes();
+    return 1;
+  }
+
+  function applySlimeCombatDamage(slime, amount, attackerId, reason) {
+    const damage = Math.max(0, Math.round(Number(amount) || 0));
+    if (!slime || slime.status === "dead" || damage <= 0) {
+      return false;
+    }
+    if (slimeStat(slime, "bodyIntegrity").current - damage <= 0) {
+      slime.deathCause = "combat trauma";
+    }
+    adjustSlimeStat(slime, "bodyIntegrity", -damage);
+    adjustSlimeStat(slime, "stress", Math.max(1, Math.round(damage * 0.45)));
+    slime.lastPainAt = state.clock;
+    slime.lastPainAmount = damage;
+    slime.lastCombatAttackerId = String(attackerId || "");
+    slime.lastCombatAttackedAt = state.clock;
+    slime.lastCombatReason = String(reason || "combat injury");
+    syncSlimeAi(slime);
+    return true;
+  }
+
+  function damageScientistCombat(amount, reason = "combat injury") {
+    const damage = Math.max(0, Math.round(Number(amount) || 0));
+    if (!damage || scientistIsDead()) {
+      return false;
+    }
+    const health = scientistVital("health");
+    const before = health.current;
+    health.current = clamp(before - damage, 0, health.max);
+    addEvent(`Scientist hurt in combat: ${reason}.`);
+    if (health.current <= 0 && before > 0) {
+      state.runEnded = true;
+      state.paused = true;
+      addEvent("The scientist died. Run ended.");
+    }
+    return true;
+  }
+
+  function scientistAwareOfCombat(record) {
+    if (!record) {
+      return false;
+    }
+    return Boolean(record.involvesScientist || scientistObservesRoom(record.roomId));
+  }
+
+  function triggerAwareCombatPause(record) {
+    if (!record || !scientistAwareOfCombat(record)) {
+      return false;
+    }
+    const lastAt = Number(state.combat.lastAwareCombatAt);
+    const sameRecent = state.combat.lastAwareCombatKey === record.key
+      && Number.isFinite(lastAt)
+      && state.clock - lastAt < COMBAT_AWARE_PAUSE_COOLDOWN;
+    if (sameRecent) {
+      return false;
+    }
+    state.combat.lastAwareCombatKey = record.key;
+    state.combat.lastAwareCombatAt = state.clock;
+    const changed = !state.paused || state.timeSpeed !== "realtime";
+    state.timeSpeed = "realtime";
+    state.paused = true;
+    addEvent(`Combat spotted: ${record.summary || record.label}. Time paused at 1x.`);
+    return changed;
+  }
+
+  function combatRecordForSlime(slime) {
+    if (!slime) {
+      return null;
+    }
+    return activeCombatRecords().find((record) =>
+      record.sourceIds?.includes(slime.id) || record.targetIds?.includes(slime.id)
+    ) || null;
+  }
+
+  function slimeCombatChip(slime) {
+    const record = combatRecordForSlime(slime);
+    if (!record) {
+      return null;
+    }
+    const element = chip(`Combat: ${record.type === "clash" ? "clashing" : "fighting"}`);
+    element.classList.add("danger-chip");
+    element.dataset.slimeCombat = slime.id;
+    element.title = record.summary || record.label;
+    return element;
+  }
+
+  function mapCellDistance(a, b) {
+    const left = cleanMapCell(a);
+    const right = cleanMapCell(b);
+    if (!left || !right) {
+      return Infinity;
+    }
+    return Math.abs(left.x - right.x) + Math.abs(left.y - right.y);
+  }
+
+  function distanceToFootprint(cell, origin, footprint) {
+    const clean = cleanMapCell(cell);
+    const cells = objectFootprintCells(origin, footprint);
+    if (!clean || !cells.length) {
+      return Infinity;
+    }
+    return Math.min(...cells.map((candidate) => mapCellDistance(clean, candidate)));
+  }
+
+  function scientistStrikeRangeInfo(slime) {
+    if (!slime || slime.status === "dead") {
+      return { inRange: false, reason: "No living slime selected." };
+    }
+    const roomId = slimeEffectiveRoomId(slime);
+    if (scientistRoomId() !== roomId) {
+      return { inRange: false, reason: `${slime.name} is in ${roomName(roomId)}. Move the scientist into the same room first.` };
+    }
+    const scientistCell = scientistMapCell();
+    if (slimeIsUncontained(slime)) {
+      const distance = mapCellDistance(scientistCell, objectMapCell(slime));
+      return distance <= 1
+        ? { inRange: true, reason: "" }
+        : { inRange: false, reason: `${slime.name} is not adjacent to the scientist.` };
+    }
+    const container = containerById(slime.containerId);
+    if (!container) {
+      return { inRange: false, reason: `${slime.name} has no accessible container record.` };
+    }
+    if (!containerAccessOpen(container)) {
+      return { inRange: false, reason: `${container.name} is closed. Open it before striking the contained slime.` };
+    }
+    const containerCell = objectMapCell(container);
+    const distance = distanceToFootprint(scientistCell, containerCell, containerFootprintDimensions(container));
+    return distance <= 1
+      ? { inRange: true, reason: "" }
+      : { inRange: false, reason: `Move next to ${container.name} before striking ${slime.name}.` };
+  }
+
+  function scientistStrikeBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    const range = scientistStrikeRangeInfo(slime);
+    if (!range.inRange) {
+      return range.reason;
+    }
+    return physicalStateRiskBlockReason(`striking ${slime.name}`)
+      || staminaBlockReason(adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]));
+  }
+
+  function startScientistStrike(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = scientistStrikeBlockReason(slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!confirmPhysicalStateRiskIfNeeded(`striking ${slime.name}`)) {
+      return false;
+    }
+    const cost = adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    if (slimeStat(slime, "bodyIntegrity").current - COMBAT_SCIENTIST_STRIKE_DAMAGE <= 0) {
+      slime.deathCause = "combat trauma";
+    }
+    adjustSlimeStat(slime, "bodyIntegrity", -COMBAT_SCIENTIST_STRIKE_DAMAGE);
+    adjustSlimeStat(slime, "stress", COMBAT_SCIENTIST_STRIKE_STRESS);
+    slime.lastPainAt = state.clock;
+    slime.lastPainAmount = COMBAT_SCIENTIST_STRIKE_DAMAGE;
+    slime.lastCombatAttackerId = "scientist";
+    slime.lastCombatAttackedAt = state.clock;
+    slime.lastCombatReason = "scientist strike";
+    awardXp("creatureHandling", 6, "Strike");
+    addEvent(`Scientist struck ${slime.name} for ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage.`);
+    expireSlimes();
+    syncAllSlimeAi();
+    updateCombat(0);
+    refreshIncidentAlerts();
+    persist();
+    render();
+    return true;
   }
 
   function elementContainerHazards(element) {
@@ -12958,6 +13602,10 @@
       if (responseChip) {
         meta.append(responseChip);
       }
+      const combatChip = slimeCombatChip(slime);
+      if (combatChip) {
+        meta.append(combatChip);
+      }
       const driveChip = slimeDriveChip(slime);
       if (driveChip) {
         meta.append(driveChip);
@@ -12987,6 +13635,7 @@
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
         card.append(renderSlimeResponse(slime));
+        card.append(renderSlimeCombatControls(slime));
         const elementalHazards = renderSlimeElementalHazards(slime, evaluated);
         if (elementalHazards) {
           card.append(elementalHazards);
@@ -18599,6 +19248,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       response.unknownFactors?.length ? "could matter" : "all response traits visible"
     );
     section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimeCombatControls(slime) {
+    const record = combatRecordForSlime(slime);
+    const section = document.createElement("div");
+    section.className = "slime-combat-controls subpanel";
+    section.dataset.slimeCombatPanel = slime.id;
+    section.addEventListener("click", (event) => event.stopPropagation());
+
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Combat";
+    title.title = "First-pass combat uses map contact, elemental clashes, simple attacks, Body Integrity damage, and scientist Health damage.";
+
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("State", record ? record.label : "No active combat", record ? record.severity : "clear", record?.summary || "This specimen is not currently in an active combat record.");
+    if (record) {
+      addRow("Cause", record.summary || record.type, record.type === "clash" ? "contact" : "attack");
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "combat-actions";
+    const strike = document.createElement("button");
+    strike.type = "button";
+    strike.dataset.strikeSlimeId = slime.id;
+    const cost = setButtonStaminaLabel(strike, "Strike", COMBAT_STRIKE_STAMINA, ["creatureHandling"], { suffix: `${COMBAT_SCIENTIST_STRIKE_DAMAGE} BI` });
+    const reason = scientistStrikeBlockReason(slime) || staminaBlockReason(cost);
+    setActionButtonState(strike, Boolean(reason), reason);
+    strike.title = reason || `Strike ${slime.name}. Deals ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage and raises Stress.\n${adjustedStaminaCostBreakdown(COMBAT_STRIKE_STAMINA, ["creatureHandling"]).title}`;
+    strike.addEventListener("click", () => startScientistStrike(slime.id));
+    actions.append(strike);
+
+    section.append(title, grid, actions);
     return section;
   }
 
@@ -25354,6 +26047,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
+    next.combat = normalizeCombatState(next.combat);
     next.policies = normalizePolicies(next.policies);
     next.queueDrawerOpen = next.queueDrawerOpen !== false;
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
