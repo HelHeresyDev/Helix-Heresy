@@ -13,14 +13,13 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Analyze Variants & Creature Skill Evolution Follow-Up
-2. Slime Containment Testing and Escape Behavior System
-3. Slime Container Interaction and Breach Behavior System
-4. Tool Durability and Damage Resistance System
-5. Slime Social, Territorial, and Group Behavior System
-6. Slime Job Autonomy and Work Behavior System
-7. Map-Based Slime Incident and Emergency Response System
-8. Slime AI Debugging and Behavior Readout System
-9. Black Market Byproduct Economy System
+2. Slime Container Interaction and Breach Behavior System
+3. Tool Durability and Damage Resistance System
+4. Slime Social, Territorial, and Group Behavior System
+5. Slime Job Autonomy and Work Behavior System
+6. Map-Based Slime Incident and Emergency Response System
+7. Slime AI Debugging and Behavior Readout System
+8. Black Market Byproduct Economy System
 
 ---
 
@@ -45,31 +44,7 @@ This system should answer questions like:
 
 Before coding, discuss future Analyze targets, combat reads, forensic reads, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
 
-## 2. Slime Containment Testing and Escape Behavior System
-
-Create a system for slimes to test containment and attempt escape.
-
-Containment should not be a purely passive risk number. A stressed, hungry, injured, uncomfortable, curious, aggressive, or intelligent slime may probe its container or room boundaries. This can mean pressing against walls, searching for gaps, squeezing through openings, corroding weak material, shocking locks, pushing lids, waiting for handling mistakes, or repeatedly trying routes that once worked.
-
-The system should answer questions like:
-- What makes a slime test containment?
-- How do hunger, stress, habitat mismatch, crowding, pain, intelligence, and temperament influence escape attempts?
-- What container properties can be tested?
-- How do elemental damage types and body consistency affect escape methods?
-- Can slimes learn from failed or successful escape attempts?
-- How do doors and room barriers matter after escape?
-- How should escape progress be shown without exact formulas?
-- What counts as a minor incident versus an actual breach?
-
-This should connect to container compatibility, active containment risk, map pathing, doors, movement, and future emergency response. A slime that cannot escape its container may still raise stress, damage equipment, foul the interior, or create warning signs.
-
-The desired result is containment behavior that feels active and biological: slimes can pressure the lab in ways that match their needs and bodies, while the player gets readable warning signs and meaningful prevention tools.
-
-Before coding, discuss escape triggers, containment testing actions, progress, failure effects, successful breach behavior, learning, and UI warnings.
-
----
-
-## 3. Slime Container Interaction and Breach Behavior System
+## 2. Slime Container Interaction and Breach Behavior System
 
 Create detailed behavior for how slimes interact with containers during and after containment failures.
 
@@ -93,7 +68,7 @@ Before coding, discuss daily container interaction, partial damage, breach types
 
 ---
 
-## 4. Tool Durability and Damage Resistance System
+## 3. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -122,7 +97,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 5. Slime Social, Territorial, and Group Behavior System
+## 4. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -146,7 +121,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 6. Slime Job Autonomy and Work Behavior System
+## 5. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -170,7 +145,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 7. Map-Based Slime Incident and Emergency Response System
+## 6. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -194,7 +169,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 8. Slime AI Debugging and Behavior Readout System
+## 7. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -218,7 +193,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 9. Black Market Byproduct Economy System
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

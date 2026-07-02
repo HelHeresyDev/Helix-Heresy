@@ -38,6 +38,29 @@
   const CONTAINMENT_INCIDENT_THRESHOLD = 240;
   const CONTAINMENT_INCIDENT_COOLDOWN = minutesToSeconds(360);
   const CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR = 20;
+  const CONTAINMENT_TEST_PROGRESS_THRESHOLD = 220;
+  const CONTAINMENT_TEST_EVENT_COOLDOWN = minutesToSeconds(180);
+  const CONTAINMENT_TEST_PROGRESS_DECAY_PER_HOUR = 18;
+  const CONTAINMENT_TEST_BANDS = [
+    { id: "quiet", label: "Quiet", min: 0 },
+    { id: "low", label: "Low", min: 12 },
+    { id: "moderate", label: "Moderate", min: 35 },
+    { id: "high", label: "High", min: 60 },
+    { id: "critical", label: "Critical", min: 85 }
+  ];
+  const CONTAINMENT_TEST_METHOD_DEFS = [
+    { id: "none", label: "Contained", activity: "contained", damageTypes: [], progressRate: 0, conditionPerDay: 0, contaminationPerDay: 0, stressPerDay: 0 },
+    { id: "wait", label: "Waiting for a handling mistake", activity: "waiting for a handling mistake", damageTypes: [], progressRate: 0.25, conditionPerDay: 0.05, contaminationPerDay: 0, stressPerDay: 0.4 },
+    { id: "press", label: "Pressing against containment", activity: "pressing against containment", damageTypes: ["physical", "force"], progressRate: 0.8, conditionPerDay: 0.7, contaminationPerDay: 0.2, stressPerDay: 0.9 },
+    { id: "attack", label: "Attacking containment", activity: "attacking containment", damageTypes: ["physical"], progressRate: 1.15, conditionPerDay: 1.35, contaminationPerDay: 0.5, stressPerDay: 1.5 },
+    { id: "seep", label: "Seeping along seals", activity: "seeping along seals", damageTypes: ["moisture", "pressure"], progressRate: 1, conditionPerDay: 0.45, contaminationPerDay: 2.2, stressPerDay: 0.8 },
+    { id: "corrode", label: "Corroding weak material", activity: "corroding weak material", damageTypes: ["corrosive"], progressRate: 1.2, conditionPerDay: 1.65, contaminationPerDay: 1.4, stressPerDay: 1.1 },
+    { id: "shock", label: "Shocking fittings", activity: "shocking fittings", damageTypes: ["electrical", "arcane"], progressRate: 1.05, conditionPerDay: 1.1, contaminationPerDay: 0.4, stressPerDay: 1.3 },
+    { id: "climb", label: "Climbing and gripping seams", activity: "climbing and gripping seams", damageTypes: ["physical", "pressure"], progressRate: 0.85, conditionPerDay: 0.75, contaminationPerDay: 0.35, stressPerDay: 0.8 },
+    { id: "foul", label: "Fouling the interior", activity: "fouling the interior", damageTypes: ["toxic", "corrosive"], progressRate: 0.75, conditionPerDay: 0.25, contaminationPerDay: 3.2, stressPerDay: 0.9 },
+    { id: "ability", label: "Using unstable elemental force", activity: "using unstable elemental force against containment", damageTypes: [], progressRate: 1.25, conditionPerDay: 1.45, contaminationPerDay: 0.9, stressPerDay: 1.6 }
+  ];
+  const CONTAINMENT_TEST_METHOD_BY_ID = Object.fromEntries(CONTAINMENT_TEST_METHOD_DEFS.map((method) => [method.id, method]));
   const CONTAINER_CONDITION_DEFAULT = 100;
   const MAIN_ROOM_ID = "mainLab";
   const MENAGERIE_ROOM_ID = "menagerie";
@@ -1959,6 +1982,9 @@
     "combatWon",
     "fledThreat",
     "blockedDoor",
+    "containmentTested",
+    "containmentDamage",
+    "containmentEscaped",
     "hazardHurt"
   ]);
   const CREATURE_BEHAVIOR_MEMORY_RECENT_LIMIT = 12;
@@ -3097,6 +3123,7 @@
       metabolismChanged: updateSlimeMetabolism(elapsed),
       collectionChanged: updateCollectionBayAccumulation(elapsed),
       compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
+      containmentTestingChanged: updateContainmentTesting(elapsed),
       containmentIncidentChanges: updateContainmentIncidents(elapsed),
       combatChanged: updateCombat(elapsed),
       creatureSkillPracticeChanged: updateCreatureSkillPractice(elapsed),
@@ -3131,6 +3158,7 @@
       + changes.metabolismChanged
       + changes.collectionChanged
       + changes.compatibilityChanged
+      + changes.containmentTestingChanged
       + changes.containmentIncidentChanges
       + changes.combatChanged
       + changes.creatureSkillPracticeChanged
@@ -3591,6 +3619,7 @@
       skills: normalizeCreatureSkills(options.skills || {}),
       behaviorMemory: normalizeCreatureBehaviorMemory(options.behaviorMemory),
       analyzedCapabilities: normalizeAnalyzedCapabilities(options.analyzedCapabilities),
+      containmentTest: normalizeContainmentTestRecord(options.containmentTest),
       nextPerceptionPracticeAt: finiteTime(options.nextPerceptionPracticeAt, 0),
       ai: null,
       byproductExpression: null,
@@ -9203,6 +9232,7 @@
     slime.autonomousMovement = null;
     slime.nextAutonomousDecisionAt = null;
     slime.accessibleFeedingProgress = 0;
+    slime.containmentTest = normalizeContainmentTestRecord({ active: false });
     if (container.type === "synthesis") {
       slime.job = "idle";
       slime.jobProgress = 0;
@@ -9239,6 +9269,7 @@
     slime.autonomousMovement = null;
     slime.nextAutonomousDecisionAt = state.clock;
     slime.accessibleFeedingProgress = 0;
+    slime.containmentTest = normalizeContainmentTestRecord({ active: false });
     slime.roomActivity = { type: "emerging", label: "adjusting to the room", roomId: slime.roomId, updatedAt: state.clock };
     syncSlimeAi(slime);
     return true;
@@ -9427,6 +9458,16 @@
     return SLIME_COMBAT_INTENTS.has(intent) ? intent : "none";
   }
 
+  function cleanContainmentTestMethod(value) {
+    const method = String(value || "none");
+    return CONTAINMENT_TEST_METHOD_BY_ID[method] ? method : "none";
+  }
+
+  function cleanContainmentTestBand(value) {
+    const band = String(value || "quiet");
+    return CONTAINMENT_TEST_BANDS.some((candidate) => candidate.id === band) ? band : "quiet";
+  }
+
   function cleanSlimeDriveBand(value) {
     const band = String(value || "none");
     return SLIME_DRIVE_BANDS.includes(band) ? band : "none";
@@ -9603,6 +9644,65 @@
       reasons,
       unknownFactors,
       automaticAction: String(candidate?.automaticAction || "").trim()
+    };
+  }
+
+  function defaultContainmentTestRecord() {
+    const method = CONTAINMENT_TEST_METHOD_BY_ID.none;
+    return {
+      active: false,
+      method: method.id,
+      methodLabel: method.label,
+      activity: method.activity,
+      pressure: 0,
+      pressureBand: "quiet",
+      pressureLabel: "Quiet",
+      progress: 0,
+      reasons: [],
+      effects: [],
+      lastResult: "",
+      lastEvaluatedAt: null,
+      lastActedAt: null,
+      lastEventAt: null
+    };
+  }
+
+  function containmentTestBandForPressure(score) {
+    const pressure = Math.max(0, Number(score) || 0);
+    return [...CONTAINMENT_TEST_BANDS]
+      .reverse()
+      .find((band) => pressure >= band.min) || CONTAINMENT_TEST_BANDS[0];
+  }
+
+  function normalizeContainmentTestRecord(candidate = {}) {
+    const methodId = cleanContainmentTestMethod(candidate?.method);
+    const method = CONTAINMENT_TEST_METHOD_BY_ID[methodId] || CONTAINMENT_TEST_METHOD_BY_ID.none;
+    const pressure = clamp(Number(candidate?.pressure) || 0, 0, 120);
+    const band = cleanContainmentTestBand(candidate?.pressureBand || containmentTestBandForPressure(pressure).id);
+    const bandDef = CONTAINMENT_TEST_BANDS.find((item) => item.id === band) || containmentTestBandForPressure(pressure);
+    const reasons = (Array.isArray(candidate?.reasons) ? candidate.reasons : [])
+      .map((reason) => String(reason || "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const effects = (Array.isArray(candidate?.effects) ? candidate.effects : [])
+      .map((effect) => String(effect || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    return {
+      active: Boolean(candidate?.active) && methodId !== "none" && band !== "quiet",
+      method: method.id,
+      methodLabel: String(candidate?.methodLabel || method.label),
+      activity: String(candidate?.activity || method.activity),
+      pressure,
+      pressureBand: band,
+      pressureLabel: String(candidate?.pressureLabel || bandDef.label),
+      progress: clamp(Number(candidate?.progress) || 0, 0, CONTAINMENT_TEST_PROGRESS_THRESHOLD * 1.5),
+      reasons,
+      effects,
+      lastResult: String(candidate?.lastResult || "").trim(),
+      lastEvaluatedAt: candidate?.lastEvaluatedAt == null ? null : finiteTime(candidate.lastEvaluatedAt, 0),
+      lastActedAt: candidate?.lastActedAt == null ? null : finiteTime(candidate.lastActedAt, 0),
+      lastEventAt: candidate?.lastEventAt == null ? null : finiteTime(candidate.lastEventAt, 0)
     };
   }
 
@@ -10731,6 +10831,18 @@
       };
     }
     if (container) {
+      const testing = containmentTestRecordForSlime(slime);
+      if (testing.active) {
+        return {
+          state: "stressed",
+          intent: "endureContainment",
+          target: cleanSlimeAiTarget({ kind: "container", id: container.id, label: container.name, roomId: container.roomId }),
+          reason: testing.activity || "testing containment",
+          urgency: testing.pressureBand === "critical" ? "critical" : testing.pressureBand === "high" ? "high" : "medium",
+          path: [],
+          nextThinkAt: null
+        };
+      }
       const risk = activeContainmentRisk(slime, container);
       if (/Dangerous|Failing/i.test(risk.label)) {
         return {
@@ -11141,6 +11253,10 @@
         return "Activity: in transit";
       }
       if (container) {
+        const testing = containmentTestRecordForSlime(slime);
+        if (testing.active) {
+          return `Activity: ${testing.activity}`;
+        }
         const risk = activeContainmentRisk(slime, container);
         if (/Dangerous|Failing/i.test(risk.label)) {
           return "Activity: straining containment";
@@ -14661,6 +14777,8 @@
       );
       const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
       if (selectedContainer && selected.status !== "dead") {
+        const testing = containmentTestRecordForSlime(selected);
+        dom.selectedSlimeSummary.append(document.createTextNode(` - Escape pressure: ${testing.pressureLabel}`));
         const risk = activeContainmentRisk(selected, selectedContainer);
         const prediction = activeContainmentRiskPrediction(risk, selected, selectedContainer);
         dom.selectedSlimeSummary.append(document.createTextNode(` - Active containment risk: ${predictionRangeText(prediction.range)}`));
@@ -14731,6 +14849,10 @@
       if (habitatChip) {
         meta.append(habitatChip);
       }
+      const containmentTestChip = slimeContainmentTestChip(slime);
+      if (containmentTestChip) {
+        meta.append(containmentTestChip);
+      }
       const elementalHazardChip = slimeElementalHazardChip(slime, evaluated);
       if (elementalHazardChip) {
         meta.append(elementalHazardChip);
@@ -14749,6 +14871,10 @@
         card.append(renderSlimeStats(slime));
         card.append(renderSlimeAnalyzePanel(slime));
         card.append(renderSlimeResponse(slime));
+        const containmentTesting = renderSlimeContainmentTesting(slime);
+        if (containmentTesting) {
+          card.append(containmentTesting);
+        }
         card.append(renderSlimeCombatControls(slime));
         const elementalHazards = renderSlimeElementalHazards(slime, evaluated);
         if (elementalHazards) {
@@ -15407,6 +15533,466 @@
     return true;
   }
 
+  function containmentTestMethodDef(methodId) {
+    return CONTAINMENT_TEST_METHOD_BY_ID[cleanContainmentTestMethod(methodId)] || CONTAINMENT_TEST_METHOD_BY_ID.none;
+  }
+
+  function containmentTestRecordForSlime(slime) {
+    if (!slime) {
+      return defaultContainmentTestRecord();
+    }
+    slime.containmentTest = normalizeContainmentTestRecord(slime.containmentTest);
+    return slime.containmentTest;
+  }
+
+  function containmentTestPressureClassName(record) {
+    const band = cleanContainmentTestBand(record?.pressureBand);
+    if (band === "critical") return "container-band-unsuitable";
+    if (band === "high") return "container-band-poor";
+    if (band === "moderate" || band === "low") return "container-band-questionable";
+    return "container-band-good";
+  }
+
+  function containmentTestDamageTypes(slime, methodId) {
+    const method = containmentTestMethodDef(methodId);
+    const baseTypes = method.id === "ability"
+      ? slimeCombatDamageTypes(slime)
+      : method.damageTypes.map(damageTypeDef).filter(Boolean);
+    const seen = new Set();
+    return baseTypes
+      .filter(Boolean)
+      .filter((type) => {
+        if (seen.has(type.id)) return false;
+        seen.add(type.id);
+        return true;
+      });
+  }
+
+  function containmentTestingVisibleReason(slime, traitKey, knownText, hiddenText = "unidentified biology is affecting containment behavior") {
+    return traitKey && !slimeTraitKnown(slime, traitKey) ? hiddenText : knownText;
+  }
+
+  function containmentTestingBehaviorPressure(behavior) {
+    return {
+      "vibration hunting": 22,
+      guarding: 17,
+      swarming: 16,
+      burrowing: 18,
+      "still ambush": 12,
+      circling: 8,
+      "edge following": 10,
+      "tool orbiting": 10,
+      "sound following": 8,
+      hiding: 5
+    }[behavior] || 0;
+  }
+
+  function containmentTestingStabilityPressure(stability, risk) {
+    if (risk >= 8 || /predatory/.test(stability)) return 28;
+    if (risk >= 7 || /volatile|erratic/.test(stability)) return 22;
+    if (risk >= 6 || /fractious|territorial/.test(stability)) return 16;
+    if (/hungry|nervous|fragile/.test(stability)) return 10;
+    if (/placid|docile|steady|obedient|dormant/.test(stability)) return -8;
+    return 0;
+  }
+
+  function containmentTestingPressureInfo(slime, container, evaluated, profile) {
+    const reasons = [];
+    let score = 0;
+    const add = (points, reason) => {
+      score += Number(points) || 0;
+      if (reason) reasons.push(reason);
+    };
+
+    const stress = slimeStatPercent(slime, "stress");
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const integrity = slimeStatPercent(slime, "bodyIntegrity");
+    const mass = slimeStatPercent(slime, "currentMass");
+    const division = slimeStatPercent(slime, "divisionPressure");
+    const condition = containerCondition(container);
+    const compatibility = containerCompatibilityAssessment(slime, container, { knownOnly: false });
+    const habitat = slimeHabitatFit(slime, { knownOnly: false });
+    const type = containerTypeDef(container.typeId);
+    const revealed = slime.revealed || {};
+    const recentPain = recentPainForSlime(slime);
+
+    if (stress >= 85) add(32, "high Stress is driving active testing");
+    else if (stress >= 65) add(22, "Stress is high enough to make the slime restless");
+    else if (stress >= 40) add(10, "rising Stress may lead to probing");
+
+    if (nutrition <= 8) add(34, "critical hunger is pushing the slime to search for escape routes");
+    else if (nutrition <= 20) add(24, "hunger is pushing the slime to test containment");
+    else if (nutrition <= 35) add(12, "low nutrition is increasing escape pressure");
+
+    if (integrity <= 18) add(18, "failing Body Integrity is making behavior desperate");
+    else if (integrity <= 35) add(10, "damaged Body Integrity is making behavior less stable");
+
+    if (recentPain) {
+      add(clamp(8 + recentPain.amount, 8, 26), "recent pain is provoking containment testing");
+    }
+
+    if (habitat.band.id === "hostile") add(26, "hostile habitat is provoking containment testing");
+    else if (habitat.band.id === "poor") add(14, "poor habitat fit is making containment uncomfortable");
+
+    if (compatibility.score >= 90) add(28, containmentTestingVisibleReason(slime, "", "container compatibility is dangerously poor"));
+    else if (compatibility.score >= 60) add(18, "container compatibility is poor");
+    else if (compatibility.score >= 35) add(8, "container compatibility is questionable");
+
+    if (condition < 15) add(24, "damaged containment gives the slime something to exploit");
+    else if (condition < 35) add(15, "worn containment gives the slime weak points");
+    else if (condition < 60) add(6, "container wear is becoming noticeable");
+
+    if (containerAccessOpen(container)) add(22, "open handling access creates an obvious route");
+    if (isContainerInTransit(container.id)) add(12, "being hauled is disturbing the slime");
+    if (type.gap >= 60 || containerEffectiveSeal(container) < 35) add(12, "gaps or weak sealing invite probing");
+    if (mass >= 95 && division >= 65) add(10, "full body mass and division pressure are crowding containment");
+
+    const behavior = baseOutcomeLabel(evaluated.traits.behavior);
+    const behaviorPoints = containmentTestingBehaviorPressure(behavior);
+    if (behaviorPoints) {
+      add(behaviorPoints, containmentTestingVisibleReason(slime, "behavior", `${behavior} behavior may test boundaries`, "unidentified behavior is testing boundaries"));
+    }
+
+    const stability = baseOutcomeLabel(evaluated.traits.stability);
+    const stabilityRisk = Number(evaluated.traits.stability.meta?.risk) || 0;
+    const stabilityPoints = containmentTestingStabilityPressure(stability, stabilityRisk);
+    if (stabilityPoints > 0) {
+      add(stabilityPoints, containmentTestingVisibleReason(slime, "stability", `${stability} stability raises escape pressure`, "unidentified temperament is raising escape pressure"));
+    } else if (stabilityPoints < 0) {
+      score += stabilityPoints;
+      if (revealed.stability) reasons.push(`${stability} stability dampens testing`);
+    }
+
+    return {
+      score: clamp(score, 0, 120),
+      reasons: [...new Set(reasons)].filter(Boolean).slice(0, 6),
+      compatibility,
+      habitat,
+      profile
+    };
+  }
+
+  function scoreContainmentTestMethods(slime, container, evaluated, profile, pressureInfo) {
+    const type = containerTypeDef(container.typeId);
+    const methodScores = {
+      wait: 8,
+      press: 12,
+      attack: 0,
+      seep: 0,
+      corrode: 0,
+      shock: 0,
+      climb: 0,
+      foul: 0,
+      ability: 0
+    };
+    const reasons = {};
+    const add = (methodId, points, reason) => {
+      methodScores[methodId] = (methodScores[methodId] || 0) + Math.max(0, Number(points) || 0);
+      if (reason) {
+        reasons[methodId] ||= [];
+        reasons[methodId].push(reason);
+      }
+    };
+
+    const consistency = profile?.consistency || "";
+    const appendages = profile?.appendages || "none";
+    const behavior = baseOutcomeLabel(evaluated.traits.behavior);
+    const stability = baseOutcomeLabel(evaluated.traits.stability);
+    const byproduct = baseOutcomeLabel(evaluated.traits.byproduct);
+    const damageIds = new Set(slimeCombatDamageTypes(slime).map((typeDef) => typeDef.id));
+    const weakestResistance = (damageId) => containerDamageResistanceScore(container, damageId);
+
+    if (["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(consistency)) {
+      add("seep", 32, containmentTestingVisibleReason(slime, "consistency", `${consistency} body can search along seals`, "fluid body behavior is visible at the seal"));
+    }
+    if (["mucous", "tar-like", "waxen", "syrupy"].includes(consistency)) {
+      add("foul", 18, containmentTestingVisibleReason(slime, "consistency", `${consistency} body can foul the interior`, "sticky body behavior is fouling the interior"));
+      add("climb", 8, containmentTestingVisibleReason(slime, "consistency", `${consistency} body can cling to surfaces`, "clingy body behavior is testing surfaces"));
+    }
+    if (["rubbery", "clay-like", "crystalline gel"].includes(consistency)) {
+      add("press", 12, containmentTestingVisibleReason(slime, "consistency", `${consistency} body can apply pressure`, "solid body pressure is visible"));
+    }
+
+    if (appendages && appendages !== "none") {
+      add("climb", 26, containmentTestingVisibleReason(slime, "appendages", `${appendages} can grip or probe seams`, "appendages are probing seams"));
+      if (["spines", "hook claws", "limb-like arms", "grasping pseudopods"].includes(appendages)) {
+        add("attack", 16, containmentTestingVisibleReason(slime, "appendages", `${appendages} can strike or pry at weak points`, "appendages are striking weak points"));
+      }
+    }
+
+    if (damageIds.has("corrosive")) add("corrode", 34 + Math.max(0, 45 - weakestResistance("corrosive")) * 0.2, "corrosive force is suited to weak material");
+    if (damageIds.has("electrical")) add("shock", 32 + Math.max(0, 45 - weakestResistance("electrical")) * 0.2, "electrical force is testing fittings");
+    if (damageIds.has("moisture")) add("seep", 18 + Math.max(0, 45 - weakestResistance("moisture")) * 0.15, "moisture force supports seepage");
+    const abilityDamageIds = [...damageIds].filter((id) => !["physical", "corrosive", "electrical", "moisture"].includes(id));
+    if (abilityDamageIds.length) {
+      const weakestAbilityResistance = Math.min(...abilityDamageIds.map((id) => weakestResistance(id)));
+      add("ability", 55 + Math.max(0, 50 - weakestAbilityResistance) * 0.25, "unstable elemental force is pushing against containment");
+    }
+    if (damageIds.has("force")) add("press", 18, "force-aspected pressure stresses the container");
+    if (damageIds.has("physical")) add("press", 8, "physical body pressure stresses the container");
+
+    if (/acid|solvent|corrosive|dissolved/.test(byproduct)) {
+      add("corrode", 18, containmentTestingVisibleReason(slime, "byproduct", `${byproduct} can attack weak materials`, "produced residue is attacking weak material"));
+      add("foul", 10, containmentTestingVisibleReason(slime, "byproduct", `${byproduct} can foul the interior`, "produced residue is fouling the interior"));
+    }
+    if (/smoke|contaminated|irritant|bitter|numbing|mucus|resin|tar|wax|grease/.test(byproduct)) {
+      add("foul", 18, containmentTestingVisibleReason(slime, "byproduct", `${byproduct} can foul containment`, "produced residue is fouling containment"));
+    }
+
+    if (/vibration hunting|guarding|still ambush|swarming/.test(behavior)) add("attack", 24, containmentTestingVisibleReason(slime, "behavior", `${behavior} behavior favors direct attacks`, "observed behavior favors direct attacks"));
+    if (/burrowing/.test(behavior)) add("press", 20, containmentTestingVisibleReason(slime, "behavior", "burrowing behavior favors pressure", "observed behavior favors pressure"));
+    if (/edge following|tool orbiting|circling|sound following/.test(behavior)) add("wait", 16, containmentTestingVisibleReason(slime, "behavior", `${behavior} behavior may watch for routines`, "observed behavior is tracking routines"));
+    if (/predatory|territorial|volatile|erratic|fractious|hungry/.test(stability)) add("attack", 18, containmentTestingVisibleReason(slime, "stability", `${stability} stability favors direct testing`, "temperament favors direct testing"));
+    if (/nervous|fragile|dormant|apathetic/.test(stability)) add("wait", 12, containmentTestingVisibleReason(slime, "stability", `${stability} stability favors waiting`, "temperament favors waiting"));
+
+    if (type.gap >= 60 || containerEffectiveSeal(container) < 45) {
+      add("seep", 18, "gaps and weak sealing give seepage a route");
+      add("climb", 10, "gaps give appendages places to probe");
+      add("wait", 6, "weak access rewards waiting");
+    }
+    if (type.durability < 45 || containerCondition(container) < 35) {
+      add("attack", 16, "weak condition rewards direct attacks");
+      add("press", 12, "weak condition rewards pressure");
+    }
+    if (!type.drainage) {
+      add("foul", 8, "lack of drainage makes fouling easier");
+    }
+    if (pressureInfo.pressure >= 85) {
+      add("attack", 10, "critical pressure makes direct action more likely");
+      add("ability", 8, "critical pressure makes unstable force more likely");
+    }
+
+    const best = Object.entries(methodScores)
+      .filter(([methodId]) => methodId !== "none")
+      .sort((a, b) => b[1] - a[1])[0] || ["press", 0];
+    const methodId = best[1] > 0 ? best[0] : "press";
+    return {
+      methodId,
+      methodScore: best[1],
+      reasons: [...new Set(reasons[methodId] || [])].filter(Boolean).slice(0, 3)
+    };
+  }
+
+  function evaluateContainmentTesting(slime, container) {
+    const previous = containmentTestRecordForSlime(slime);
+    if (!slime || !container || slime.status !== "contained" || slime.status === "dead" || container.type === "synthesis") {
+      return normalizeContainmentTestRecord({ active: false, progress: 0 });
+    }
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const pressureInfo = containmentTestingPressureInfo(slime, container, evaluated, profile);
+    const band = containmentTestBandForPressure(pressureInfo.score);
+    if (band.id === "quiet" || band.id === "low") {
+      return normalizeContainmentTestRecord({
+        ...previous,
+        active: false,
+        method: "none",
+        methodLabel: CONTAINMENT_TEST_METHOD_BY_ID.none.label,
+        activity: CONTAINMENT_TEST_METHOD_BY_ID.none.activity,
+        pressure: pressureInfo.score,
+        pressureBand: band.id,
+        pressureLabel: band.label,
+        reasons: pressureInfo.reasons,
+        effects: [],
+        lastEvaluatedAt: state.clock,
+        lastResult: band.id === "low" ? "Minor warning signs only." : "No active containment testing."
+      });
+    }
+    const methodInfo = scoreContainmentTestMethods(slime, container, evaluated, profile, { ...pressureInfo, pressure: pressureInfo.score });
+    const method = containmentTestMethodDef(methodInfo.methodId);
+    return normalizeContainmentTestRecord({
+      ...previous,
+      active: true,
+      method: method.id,
+      methodLabel: method.label,
+      activity: method.activity,
+      pressure: pressureInfo.score,
+      pressureBand: band.id,
+      pressureLabel: band.label,
+      reasons: [...methodInfo.reasons, ...pressureInfo.reasons].slice(0, 6),
+      effects: previous.effects,
+      lastEvaluatedAt: state.clock,
+      lastResult: `${method.label}; ${band.label.toLowerCase()} escape pressure.`
+    });
+  }
+
+  function containmentTestPressureScale(record) {
+    const band = cleanContainmentTestBand(record?.pressureBand);
+    return {
+      quiet: 0,
+      low: 0.35,
+      moderate: 0.75,
+      high: 1.15,
+      critical: 1.6
+    }[band] || 0;
+  }
+
+  function containmentTestResistanceFactor(container, damageTypes) {
+    const types = damageTypes?.length ? damageTypes : [DAMAGE_TYPE_BY_ID.physical];
+    const weakest = Math.min(...types.map((type) => containerDamageResistanceScore(container, type.id)));
+    return clamp((105 - weakest) / 70, 0.18, 1.45);
+  }
+
+  function applyContainmentTestPractice(slime, record, damageTypes, scale, hours) {
+    const practice = clamp(hours * scale, 0, 8);
+    if (practice <= 0) {
+      return 0;
+    }
+    let changes = 0;
+    if (record.method === "attack") {
+      changes += awardCreatureSkillXp(slime, "striking", CREATURE_PRACTICE_XP.strikingPerCycle * practice, "attacking containment", { outcome: "partial" }) > 0 ? 1 : 0;
+    }
+    if (["ability", "corrode", "shock"].includes(record.method)) {
+      changes += awardCreatureDamageSkillXp(slime, damageTypes, CREATURE_PRACTICE_XP.elementalPerCycle * practice, "testing containment", { outcome: "partial" }) > 0 ? 1 : 0;
+    }
+    if (["press", "climb"].includes(record.method)) {
+      changes += awardCreatureSkillXp(slime, "toughness", Math.max(0.2, practice * 0.4), "straining containment", { outcome: "failure" }) > 0 ? 1 : 0;
+    }
+    if (rememberCreatureExperience(slime, "containmentTested", Math.max(0.2, practice * 0.4), record.activity)) {
+      changes += 1;
+    }
+    return changes;
+  }
+
+  function applyContainmentTestEffects(slime, container, record, elapsed) {
+    if (!record.active || !elapsed) {
+      return 0;
+    }
+    const method = containmentTestMethodDef(record.method);
+    const days = secondsToDays(elapsed);
+    const hours = secondsToHours(elapsed);
+    const minutes = secondsToMinutes(elapsed);
+    const scale = containmentTestPressureScale(record);
+    const damageTypes = containmentTestDamageTypes(slime, method.id);
+    const resistanceFactor = containmentTestResistanceFactor(container, damageTypes);
+    let changes = 0;
+    const effects = [];
+
+    const progressBefore = record.progress;
+    record.progress = clamp(
+      record.progress + minutes * method.progressRate * scale * resistanceFactor,
+      0,
+      CONTAINMENT_TEST_PROGRESS_THRESHOLD * 1.5
+    );
+    if (Math.abs(record.progress - progressBefore) >= 0.01) {
+      changes += 1;
+    }
+
+    const conditionDelta = -method.conditionPerDay * days * scale * resistanceFactor;
+    if (Math.abs(conditionDelta) >= 0.01 && adjustContainerCondition(container, conditionDelta)) {
+      changes += 1;
+      effects.push("container wear");
+      if (Math.abs(conditionDelta) >= 0.5) {
+        rememberCreatureExperience(slime, "containmentDamage", Math.min(10, Math.abs(conditionDelta) * 2), method.activity);
+      }
+    }
+
+    const contaminationDelta = method.contaminationPerDay * days * scale * resistanceFactor;
+    if (contaminationDelta >= 0.01 && adjustContainerEnvironment(container, "contamination", contaminationDelta)) {
+      changes += 1;
+      effects.push("interior contamination");
+    }
+
+    if (["seep", "foul", "corrode"].includes(method.id) && (containerCondition(container) < 25 || record.pressureBand === "critical")) {
+      const roomDelta = contaminationDelta * 0.2;
+      if (roomDelta >= 0.02 && adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", roomDelta)) {
+        changes += 1;
+        effects.push("room trace");
+      }
+    }
+
+    const stressDelta = method.stressPerDay * days * scale;
+    if (stressDelta >= 0.01) {
+      const beforeStress = slimeStat(slime, "stress").current;
+      adjustSlimeStat(slime, "stress", stressDelta);
+      if (Math.abs(slimeStat(slime, "stress").current - beforeStress) >= 0.01) {
+        changes += 1;
+        effects.push("stress");
+      }
+    }
+
+    changes += applyContainmentTestPractice(slime, record, damageTypes, scale, hours);
+    record.effects = [...new Set(effects)].slice(0, 5);
+    record.lastActedAt = state.clock;
+    record.lastResult = effects.length
+      ? `${method.label}; warning signs: ${record.effects.join(", ")}.`
+      : `${method.label}; no obvious effect yet.`;
+    return changes;
+  }
+
+  function maybeReportContainmentTesting(slime, container, record, previous) {
+    if (!record.active) {
+      return 0;
+    }
+    const methodChanged = previous?.method && previous.method !== record.method;
+    const becameActive = !previous?.active;
+    const highPressure = ["high", "critical"].includes(record.pressureBand);
+    const cooldownReady = record.lastEventAt == null || state.clock - record.lastEventAt >= CONTAINMENT_TEST_EVENT_COOLDOWN;
+    if (!cooldownReady && !methodChanged) {
+      return 0;
+    }
+    if (!becameActive && !methodChanged && !highPressure && record.progress < CONTAINMENT_TEST_PROGRESS_THRESHOLD) {
+      return 0;
+    }
+
+    const warning = `${slime.name} is ${record.activity} in ${container.name}. Escape pressure: ${record.pressureLabel}.`;
+    addEvent(warning);
+    record.lastEventAt = state.clock;
+    return 1;
+  }
+
+  function maybeResolveContainmentBreach(slime, container, record) {
+    if (!record.active || record.pressureBand !== "critical") {
+      return 0;
+    }
+    const weakEnough = containerCondition(container) <= 8;
+    const progressedEnough = record.progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD;
+    if (!weakEnough || !progressedEnough) {
+      return 0;
+    }
+    const method = containmentTestMethodDef(record.method);
+    container.condition = 0;
+    rememberCreatureExperience(slime, "containmentEscaped", 18, method.activity);
+    releaseSlime(slime);
+    addEvent(`${slime.name} breached ${container.name} after ${method.activity}.`);
+    return 1;
+  }
+
+  function updateContainmentTesting(elapsed) {
+    const seconds = Math.max(0, Number(elapsed) || 0);
+    if (!seconds || !state?.started) {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status !== "contained" || slime.status === "dead" || !slime.containerId) {
+        continue;
+      }
+      const container = containerById(slime.containerId);
+      if (!container || container.type === "synthesis") {
+        slime.containmentTest = normalizeContainmentTestRecord({ active: false });
+        continue;
+      }
+      const previous = normalizeContainmentTestRecord(slime.containmentTest);
+      const next = evaluateContainmentTesting(slime, container);
+      if (!next.active) {
+        const beforeProgress = next.progress;
+        next.progress = Math.max(0, previous.progress - CONTAINMENT_TEST_PROGRESS_DECAY_PER_HOUR * secondsToHours(seconds));
+        if (Math.abs(next.progress - beforeProgress) >= 0.01) {
+          changes += 1;
+        }
+        slime.containmentTest = next;
+        continue;
+      }
+
+      slime.containmentTest = next;
+      changes += applyContainmentTestEffects(slime, container, next, seconds);
+      changes += maybeReportContainmentTesting(slime, container, next, previous);
+      changes += maybeResolveContainmentBreach(slime, container, next);
+    }
+    return changes;
+  }
+
   function adjustContainerEnvironment(container, attributeKey, amount) {
     if (!container) return false;
     container.environment = normalizeContainerEnvironment(container.environment);
@@ -15647,6 +16233,18 @@
       } else if (risk <= 2 && pressure > 0) {
         pressure = Math.max(0, pressure - 6);
         addNeutral("Pressure: stable temperament slightly reduces active pressure.");
+      }
+    }
+
+    const testing = normalizeContainmentTestRecord(slime.containmentTest);
+    if (testing.active) {
+      const testingPoints = testing.pressureBand === "critical" ? 26
+        : testing.pressureBand === "high" ? 18
+          : testing.pressureBand === "moderate" ? 10
+            : 4;
+      addPressure(testingPoints, `${testing.methodLabel.toLowerCase()} is creating active escape pressure.`);
+      if (testing.progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD * 0.75) {
+        addPressure(8, "repeated containment testing has built up warning signs.");
       }
     }
 
@@ -15991,7 +16589,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const riskLabel = textEl("span", `active risk ${predictionRangeText(riskPrediction.range)}`);
         riskLabel.className = risk.className;
         riskLabel.title = activeContainmentRiskRangeTooltip(riskPrediction, risk);
-        row.append(slimeNameLink(slime), statusLabel, fitLabel, compatibilityLabel, riskLabel);
+        const testing = containmentTestRecordForSlime(slime);
+        const testingLabel = textEl("span", testing.active ? `testing ${testing.methodLabel.toLowerCase()}` : `escape ${testing.pressureLabel.toLowerCase()}`);
+        testingLabel.className = containmentTestPressureClassName(testing);
+        testingLabel.title = [
+          `Escape pressure: ${testing.pressureLabel}.`,
+          testing.active ? `Observed behavior: ${testing.activity}.` : "No active testing observed.",
+          testing.reasons?.length ? `Factors: ${testing.reasons.join(" | ")}.` : ""
+        ].filter(Boolean).join("\n");
+        testingLabel.dataset.containerTesting = slime.id;
+        row.append(slimeNameLink(slime), statusLabel, fitLabel, compatibilityLabel, riskLabel, testingLabel);
         const warnings = document.createElement("div");
         warnings.className = "container-warning-list";
         warnings.append(physicalContainerFitPredictionEl(slime, container));
@@ -20558,6 +21165,73 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       response.unknownFactors?.length ? response.unknownFactors.join(", ") : "None",
       response.unknownFactors?.length ? "could matter" : "all response traits visible"
     );
+    section.append(title, grid);
+    return section;
+  }
+
+  function containmentTestProgressLabel(record) {
+    const progress = Number(record?.progress) || 0;
+    if (progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD) return "breach-ready";
+    if (progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD * 0.75) return "repeated warning signs";
+    if (progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD * 0.35) return "building";
+    if (record?.active) return "early";
+    return "none";
+  }
+
+  function slimeContainmentTestChip(slime) {
+    if (!slime || slime.status === "dead" || slimeIsUncontained(slime)) {
+      return null;
+    }
+    const container = containerById(slime.containerId);
+    if (!container || container.type === "synthesis") {
+      return null;
+    }
+    const record = containmentTestRecordForSlime(slime);
+    const element = chip(record.active ? `Testing: ${record.methodLabel}` : `Escape pressure: ${record.pressureLabel}`);
+    element.dataset.slimeContainmentTest = slime.id;
+    element.classList.add(containmentTestPressureClassName(record));
+    element.title = [
+      `Escape pressure: ${record.pressureLabel}.`,
+      record.active ? `Observed behavior: ${record.activity}.` : "No active containment testing observed.",
+      `Warning signs: ${containmentTestProgressLabel(record)}.`,
+      record.reasons?.length ? `Factors: ${record.reasons.join(" | ")}.` : "",
+      record.effects?.length ? `Recent effects: ${record.effects.join(", ")}.` : ""
+    ].filter(Boolean).join("\n");
+    return element;
+  }
+
+  function renderSlimeContainmentTesting(slime) {
+    if (!slime || slime.status === "dead" || slimeIsUncontained(slime)) {
+      return null;
+    }
+    const container = containerById(slime.containerId);
+    if (!container || container.type === "synthesis") {
+      return null;
+    }
+    const record = containmentTestRecordForSlime(slime);
+    const section = document.createElement("div");
+    section.className = "slime-containment-testing subpanel";
+    section.dataset.slimeContainmentTestingPanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Containment Testing";
+    title.title = "Active biological escape pressure. This is derived from condition, habitat, pain, hunger, temperament, body, element, and the current container.";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("Escape pressure", record.pressureLabel, record.active ? "active" : "quiet", "Qualitative band only; exact pressure is hidden.");
+    addRow("Observed behavior", record.active ? record.methodLabel : "No active testing", record.active ? record.activity : "contained");
+    addRow("Warning signs", containmentTestProgressLabel(record), record.effects?.length ? record.effects.join(", ") : "no recent effect");
+    addRow("Likely factors", record.reasons?.length ? record.reasons.join("; ") : "None clear", record.reasons?.length ? "current" : "quiet");
+    addRow("Container", `${container.name}; ${containerConditionLabel(container)}`, roomName(container.roomId));
     section.append(title, grid);
     return section;
   }
@@ -27458,10 +28132,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (slime.status === "dead") {
         slime.containerId = null;
         slime.autonomousMovement = null;
+        slime.containmentTest = normalizeContainmentTestRecord({ active: false });
       } else if (slime.status === "released") {
         slime.containerId = null;
         slime.autonomousMovement = normalizeSlimeAutonomousMovement(slime.autonomousMovement, next.clock);
         slime.nextAutonomousDecisionAt = finiteTime(slime.nextAutonomousDecisionAt, next.clock);
+        slime.containmentTest = normalizeContainmentTestRecord(slime.containmentTest);
+        slime.containmentTest.active = false;
+        slime.containmentTest.method = "none";
+        slime.containmentTest.methodLabel = CONTAINMENT_TEST_METHOD_BY_ID.none.label;
+        slime.containmentTest.activity = CONTAINMENT_TEST_METHOD_BY_ID.none.activity;
       } else {
         slime.status = "contained";
         slime.autonomousMovement = null;
@@ -27484,6 +28164,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.skills = normalizeCreatureSkills(slime.skills);
       slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
       slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
+      slime.containmentTest = normalizeContainmentTestRecord(slime.containmentTest);
       slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
