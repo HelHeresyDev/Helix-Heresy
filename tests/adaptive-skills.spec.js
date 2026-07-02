@@ -347,8 +347,9 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
     state.scientist.vitals.mana = { current: 100, max: 100 };
     state.scientist.skills.analysis = {
       xp: analysisXp,
-      practiceTags: { fixture: analysisXp },
+      practiceTags: { analyze: analysisXp },
       evolvedLabel: '',
+      evolvedTierId: '',
       lastPracticedAt: 0,
       lastBreakthroughDecayAt: 0,
     };
@@ -380,6 +381,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
           xp: toughnessXp,
           practiceTags: { fixture: toughnessXp },
           evolvedLabel: '',
+          evolvedTierId: '',
           lastPracticedAt: 0,
           lastBreakthroughDecayAt: 0,
         },
@@ -387,6 +389,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
           xp: hiddenThermalXp,
           practiceTags: { fixture: hiddenThermalXp },
           evolvedLabel: '',
+          evolvedTierId: '',
           lastPracticedAt: 0,
           lastBreakthroughDecayAt: 0,
         },
@@ -423,12 +426,13 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
   }, {
     key: storageKey,
     genome,
-    analysisXp: totalXpForLevel(21),
+    analysisXp: totalXpForLevel(51),
     toughnessXp: totalXpForLevel(3),
     hiddenThermalXp: totalXpForLevel(2),
   });
   await loadSavedRun(page);
 
+  await expect(page.locator('#skillList')).toContainText('Creature Analysis');
   const panel = page.locator('[data-slime-analyze-panel="advanced-analyze-target"]');
   await expect(panel).toContainText('Toughness [Initiate]');
   await expect(panel).not.toContainText('level 3');
@@ -457,11 +461,247 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
   }, { key: storageKey });
 
   expect(result.mana).toBe(84);
-  expect(result.analysisXp).toBe(totalXpForLevel(21) + 6);
+  expect(result.analysisXp).toBe(totalXpForLevel(51) + 6);
   expect(result.knownSkills).toEqual(['toughness']);
   expect(result.toughnessExactLevel).toBe(3);
   expect(result.thermalKnown).toBe(false);
   expect(result.advancedAttempts).toBe(1);
+});
+
+test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'vibration hunting', stability: 'predatory' } });
+
+  await page.evaluate(({ key, genome, analysisXp }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.scientist.vitals.mana = { current: 100, max: 100 };
+    state.scientist.skills.analysis = {
+      xp: analysisXp,
+      practiceTags: { combatattack: analysisXp },
+      evolvedLabel: '',
+      evolvedTierId: '',
+      lastPracticedAt: 0,
+      lastBreakthroughDecayAt: 0,
+    };
+    state.selectedSlimeId = 'combat-analyze-target';
+    state.slimes = [{
+      id: 'combat-analyze-target',
+      name: 'COMBAT-ANALYZE',
+      genome,
+      source: 'Combat Analyze fixture',
+      createdAt: 0,
+      deathAt: 1000000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: state.scientist.roomId,
+      mapCell: state.scientist.mapCell,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: { element: 'flame', behavior: 'vibration hunting', stability: 'predatory' },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {},
+      behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      analyzedCapabilities: {},
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 5, max: 100 },
+        currentMass: { current: 80, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 90, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
+  await loadSavedRun(page);
+
+  await expect(page.locator('#skillList')).toContainText('Combat Analysis');
+  const panel = page.locator('[data-slime-analyze-panel="combat-analyze-target"]');
+  await page.locator('[data-combat-analyze-slime-id="combat-analyze-target"]').click();
+
+  await expect(panel).toContainText('Combat read');
+  await expect(panel).toContainText('Damage tags');
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = state.slimes.find((entry) => entry.id === 'combat-analyze-target');
+    return {
+      mana: state.scientist.vitals.mana.current,
+      analysisXp: state.scientist.skills.analysis.xp,
+      evolvedLabel: state.scientist.skills.analysis.evolvedLabel,
+      combatAttempts: slime?.analyzedCapabilities?.combatAttempts || 0,
+      combatThreat: slime?.analyzedCapabilities?.combat?.threat || '',
+      damageTags: slime?.analyzedCapabilities?.combat?.damageTags || '',
+    };
+  }, { key: storageKey });
+
+  expect(result.mana).toBe(86);
+  expect(result.analysisXp).toBe(totalXpForLevel(51) + 7);
+  expect(result.evolvedLabel).toBe('Combat Analysis');
+  expect(result.combatAttempts).toBe(1);
+  expect(result.combatThreat).not.toBe('');
+  expect(result.damageTags).toContain('Heat');
+});
+
+test('Analysis evolves into Forensic Analysis and reads corpse evidence', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'frost', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, genome, analysisXp }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.scientist.vitals.mana = { current: 100, max: 100 };
+    state.scientist.skills.analysis = {
+      xp: analysisXp,
+      practiceTags: { necropsy: analysisXp },
+      evolvedLabel: '',
+      evolvedTierId: '',
+      lastPracticedAt: 0,
+      lastBreakthroughDecayAt: 0,
+    };
+    state.slimes = [];
+    state.corpses = [{
+      id: 'corpse-forensic',
+      specimenId: 'forensic-dead',
+      name: 'FORENSIC-CORPSE',
+      genome,
+      source: 'Forensic Analyze fixture',
+      deathReason: 'combat trauma',
+      diedAt: 0,
+      roomId: 'mainLab',
+      containerId: null,
+      storage: 'drum',
+      mapCell: null,
+      consumedProgress: 0,
+      ruined: false,
+      revealed: { element: 'frost' },
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      harvestedProcedures: {},
+      nextOverflowEventAt: null,
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
+  await loadSavedRun(page);
+
+  await expect(page.locator('#skillList')).toContainText('Forensic Analysis');
+  await page.locator('[data-forensic-analyze-corpse-id="corpse-forensic"]').click();
+  await expect(page.locator('[data-forensic-report="corpse-forensic"]')).toContainText('Cause: combat trauma');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const corpse = state.corpses.find((entry) => entry.id === 'corpse-forensic');
+    return {
+      mana: state.scientist.vitals.mana.current,
+      analysisXp: state.scientist.skills.analysis.xp,
+      evolvedLabel: state.scientist.skills.analysis.evolvedLabel,
+      forensicSummary: corpse?.forensicReport?.summary || '',
+    };
+  }, { key: storageKey });
+
+  expect(result.mana).toBe(88);
+  expect(result.analysisXp).toBe(totalXpForLevel(51) + 7);
+  expect(result.evolvedLabel).toBe('Forensic Analysis');
+  expect(result.forensicSummary).toContain('combat trauma');
+  expect(result.forensicSummary).toContain('contained evidence');
+});
+
+test('Analyze displays evolved creature skill labels after breakthrough', async ({ page }) => {
+  await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
+
+  await page.evaluate(({ key, genome, strikingXp }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.scientist.vitals.mana = { current: 100, max: 100 };
+    state.selectedSlimeId = 'evolved-skill-target';
+    state.slimes = [{
+      id: 'evolved-skill-target',
+      name: 'EVOLVED-SKILL',
+      genome,
+      source: 'Creature skill evolution fixture',
+      createdAt: 0,
+      deathAt: 1000000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      automationExcluded: false,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      skills: {
+        striking: {
+          xp: strikingXp,
+          practiceTags: { combatattack: strikingXp },
+          evolvedLabel: '',
+          evolvedTierId: '',
+          lastPracticedAt: 0,
+          lastBreakthroughDecayAt: 0,
+        },
+      },
+      behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      analyzedCapabilities: {},
+      nextPerceptionPracticeAt: 999999,
+      stats: {
+        bodyIntegrity: { current: 100, max: 100 },
+        nutrition: { current: 80, max: 100 },
+        currentMass: { current: 80, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, genome, strikingXp: totalXpForLevel(51) });
+  await loadSavedRun(page);
+
+  await page.locator('[data-analyze-slime-id="evolved-skill-target"]').click();
+  await expect(page.locator('[data-slime-analyze-panel="evolved-skill-target"]')).toContainText('Lashing Strikes [Novice]');
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = state.slimes.find((entry) => entry.id === 'evolved-skill-target');
+    return {
+      evolvedLabel: slime?.skills?.striking?.evolvedLabel || '',
+      analyzedLabel: slime?.analyzedCapabilities?.skills?.striking?.label || '',
+    };
+  }, { key: storageKey });
+
+  expect(result.evolvedLabel).toBe('Lashing Strikes');
+  expect(result.analyzedLabel).toBe('Lashing Strikes');
 });
 
 test('slime breakthrough progress decays at the same threshold as scientist skills', async ({ page }) => {

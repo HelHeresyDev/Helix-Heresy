@@ -358,7 +358,11 @@ Analysis is the parent skill for interpreting practiced capability. Analyze is t
 
 The scientist starts with Analysis [Initiate], level 1, which grants base Analyze. Base Analyze can be used on a living specimen in the lab UI. It costs Mana immediately and reveals only practiced creature capabilities that already exist at level 1 or above, plus broad learned behavior memories. Base Analyze shows skill name and tier, such as Toughness [Initiate], but not exact levels. It does not reveal level 0 practice, raw XP, stats, genes, hidden biological traits, exact formulas, hidden output values, weaknesses, or compatibility formulas.
 
-Analyze output is ability-defined, not continuously determined by the current level of Analysis. Advanced Analyze unlocks at Analysis [Novice], level 21. It costs Mana and reveals exact levels only for skills that base Analyze has already identified; it does not discover new hidden skills by itself. When Analysis advances to later stages, it should grant additional abilities such as Combat Analyze, Deep Analyze, or Forensic Analyze. Those abilities can reveal stronger or different information. Base Analyze should remain a stable, simple read.
+Analyze output is ability-defined, not continuously determined by the current level of Analysis. At the Novice breakthrough, level 51, Analysis evolves based on how its XP was earned during the previous tier. Creature-focused practice evolves it into Creature Analysis, which grants Advanced Analyze. Combat-shaped practice evolves it into Combat Analysis, which grants Combat Analyze. Necropsy, diagnostic, corpse, tissue, and evidence work evolves it into Forensic Analysis, which grants Forensic Analyze. Material and tool-heavy practice can evolve it into Material Analysis as a future path. The evolved name is displayed as the skill name, while the broad parent remains Analysis internally.
+
+Advanced Analyze costs Mana and reveals exact levels only for skills that base Analyze has already identified; it does not discover new hidden skills by itself. Combat Analyze costs Mana and reads a living target's broad combat intent, threat band, target/action, and observed or obvious damage tags without revealing genes, hidden stats, formulas, or exact weaknesses. Forensic Analyze costs Mana and reads corpse evidence: broad cause, tissue state, harvest/evidence usefulness, and storage risk. Later Analysis evolutions can add Deep Analyze, material reads, ability hints, or evolution-path reads. Base Analyze should remain a stable, simple read.
+
+Creature skill evolution now happens immediately at tier breakthrough. The game chooses an evolved display label from the skill's practice tags, such as Lashing Strikes for combat-shaped Striking, Prying Strikes for containment-shaped Striking, Scarred Toughness for injury-shaped Toughness, or Dissolving Touch for containment-shaped Corrosive practice. The parent skill ID remains broad internally, so systems can still reason about Striking, Toughness, Corrosive, and similar domains without treating passive biology as fake skills.
 
 The player may eventually see information like:
 
@@ -482,6 +486,8 @@ Open design questions:
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and learned skills only; level 0 practice stays off the sheet until a skill reaches Initiate.
 - First-pass adaptive skill foundation with world-scale domains such as Analysis, Creature Handling, Fabrication, Husbandry, Alchemy, Materials Science, Creature Lore, and Medicine.
+- Analysis specialization at Novice based on dominant practice history, currently supporting Creature Analysis with Advanced Analyze, Combat Analysis with Combat Analyze, and Forensic Analysis with corpse evidence reads.
+- Creature skill evolution labels at breakthrough based on practiced use, while parent skill IDs remain broad internally.
 - Stamina costs, passive regeneration, and queued rest actions.
 - XP, resource, room, and inventory cheat commands for testing skill progression, resource-gated systems, room conditions, and inventory state.
 - Storage Room ledger with Materials and Tools & Supplies categories.

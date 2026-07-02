@@ -1198,9 +1198,13 @@
   const ANALYZE_MANA_COST = 8;
   const ANALYZE_XP = 4;
   const ANALYZE_MEMORY_REVEAL_THRESHOLD = 10;
-  const ADVANCED_ANALYZE_UNLOCK_LEVEL = 21;
+  const ADVANCED_ANALYZE_UNLOCK_LEVEL = 51;
   const ADVANCED_ANALYZE_MANA_COST = 16;
   const ADVANCED_ANALYZE_XP = 6;
+  const COMBAT_ANALYZE_MANA_COST = 14;
+  const COMBAT_ANALYZE_XP = 7;
+  const FORENSIC_ANALYZE_MANA_COST = 12;
+  const FORENSIC_ANALYZE_XP = 7;
   const XP_OUTCOME_MULTIPLIERS = {
     success: 1,
     partial: 0.5,
@@ -1917,7 +1921,7 @@
     reproductiveBiology: "husbandry"
   };
   const SKILL_DEFS = [
-    { id: "analysis", label: "Analysis", aliases: ["observation"], futureEvolutions: ["Combat Analysis", "Surgical Analysis", "Creature Analysis"] },
+    { id: "analysis", label: "Analysis", aliases: ["observation"], futureEvolutions: ["Creature Analysis", "Combat Analysis", "Forensic Analysis", "Material Analysis"] },
     { id: "perception", label: "Perception", aliases: ["awareness", "senses", "detection"], futureEvolutions: ["Threat Perception", "Arcane Sense", "Tracking"] },
     { id: "creatureHandling", label: "Creature Handling", aliases: ["slime handling", "specimen handling"], futureEvolutions: ["Containment Handling", "Predator Handling", "Slime Handling"] },
     { id: "fabrication", label: "Fabrication", aliases: ["biofabrication"], futureEvolutions: ["Biofabrication", "Container Fabrication", "Warded Fabrication"] },
@@ -1928,6 +1932,14 @@
     { id: "medicine", label: "Medicine", aliases: ["physiology", "anatomy"], futureEvolutions: ["Anatomy", "Pathology", "Surgery"] }
   ];
   const SKILL_BY_ID = Object.fromEntries(SKILL_DEFS.map((skill) => [skill.id, skill]));
+  const ANALYSIS_SPECIALIZATION_DEFS = [
+    { id: "creature", label: "Creature Analysis", ability: "Advanced Analyze" },
+    { id: "combat", label: "Combat Analysis", ability: "Combat Analyze" },
+    { id: "forensic", label: "Forensic Analysis", ability: "Forensic Analyze" },
+    { id: "material", label: "Material Analysis", ability: "Material Analyze" }
+  ];
+  const ANALYSIS_SPECIALIZATION_BY_ID = Object.fromEntries(ANALYSIS_SPECIALIZATION_DEFS.map((def) => [def.id, def]));
+  const ANALYSIS_SPECIALIZATION_BY_LABEL = Object.fromEntries(ANALYSIS_SPECIALIZATION_DEFS.map((def) => [normalizeCommandName(def.label), def]));
   const SKILL_ALIASES = Object.fromEntries([
     ...Object.entries(LEGACY_SKILL_ID_MAP).map(([alias, id]) => [normalizeCommandName(alias), id]),
     ...SKILL_DEFS.flatMap((skill) => [
@@ -3868,6 +3880,7 @@
     skill.lastBreakthroughDecayAt = state.clock;
     recordSkillPractice(skill, reason, award.applied);
     const after = skillLevel(resolvedSkillId);
+    evolveSkillAfterXp(resolvedSkillId, skill, SKILL_BY_ID, before, after, { announce: true });
     const label = skillDisplayName(resolvedSkillId, after);
     const discardedText = award.discarded > 0 ? `; ${formatXp(award.discarded)} overflow lost at breakthrough` : "";
     addEvent(`${label} gained ${formatXp(award.applied)} XP${reason ? ` from ${reason}` : ""}${discardedText}.`);
@@ -4046,7 +4059,7 @@
   }
 
   function defaultSkillEntry() {
-    return { xp: 0, practiceTags: {}, evolvedLabel: "", lastPracticedAt: null, lastBreakthroughDecayAt: null };
+    return { xp: 0, practiceTags: {}, evolvedLabel: "", evolvedTierId: "", lastPracticedAt: null, lastBreakthroughDecayAt: null };
   }
 
   function starterAnalysisSkillEntry() {
@@ -4086,6 +4099,7 @@
       const existing = normalized[skillId] || defaultSkillEntry();
       existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
       existing.evolvedLabel = String(source.evolvedLabel || existing.evolvedLabel || "");
+      existing.evolvedTierId = String(source.evolvedTierId || existing.evolvedTierId || "");
       const lastPracticedAt = finiteTime(source.lastPracticedAt, fallbackTime);
       const lastDecayAt = finiteTime(source.lastBreakthroughDecayAt, lastPracticedAt);
       existing.lastPracticedAt = Math.max(finiteTime(existing.lastPracticedAt, lastPracticedAt), lastPracticedAt);
@@ -4099,12 +4113,134 @@
     return normalized;
   }
 
+  function analysisSpecializationDefFromLabel(label) {
+    return ANALYSIS_SPECIALIZATION_BY_LABEL[normalizeCommandName(label)] || null;
+  }
+
+  function analysisPracticePathForTag(tag) {
+    const key = normalizeCommandName(tag);
+    if (!key) return "";
+    if (/analyze|visual|survey|feed|sustenance|element|byproduct|behavior|stress|breeding|lifespan|containment|recombination|synthesis|genome/.test(key)) {
+      return "creature";
+    }
+    if (/combat|strike|attack|threat|fight|flee|clash|pain|wound|injury|hostile/.test(key)) {
+      return "combat";
+    }
+    if (/necropsy|corpse|tissue|selfcheck|basicassay|diagnostic|assay|forensic|pathology|medicine|harvest|residue|spoil|decay|ruined|exposure/.test(key)) {
+      return "forensic";
+    }
+    if (/material|container|resistance|durability|tool|fabrication|ward|handlingrisk/.test(key)) {
+      return "material";
+    }
+    return "";
+  }
+
+  function dominantAnalysisSpecializationId(skill) {
+    const totals = { creature: 0, combat: 0, forensic: 0, material: 0 };
+    for (const [tag, amount] of Object.entries(skill?.practiceTags || {})) {
+      const path = analysisPracticePathForTag(tag);
+      if (path && Object.prototype.hasOwnProperty.call(totals, path)) {
+        totals[path] += Math.max(0, Number(amount) || 0);
+      }
+    }
+    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    return sorted[0]?.[1] > 0 ? sorted[0][0] : "creature";
+  }
+
+  function creatureSkillEvolutionLabel(skillId, skill) {
+    const id = normalizeCreatureSkillId(skillId);
+    const tags = Object.keys(skill?.practiceTags || {}).map(normalizeCommandName);
+    const has = (pattern) => tags.some((tag) => pattern.test(tag));
+    const base = CREATURE_SKILL_BY_ID[id]?.label || titleCase(id);
+    if (id === "striking") {
+      if (has(/containment|container/)) return "Prying Strikes";
+      if (has(/combat|attack|strike/)) return "Lashing Strikes";
+      return "Practiced Striking";
+    }
+    if (id === "toughness") {
+      if (has(/hazard|waste|exposure/)) return "Hazard-Hardened Toughness";
+      if (has(/containment|strain/)) return "Braced Toughness";
+      if (has(/combat|injury|hurt|pain/)) return "Scarred Toughness";
+      return "Enduring Toughness";
+    }
+    if (id === "evasion") {
+      if (has(/flee|threat|panic/)) return "Skittering Evasion";
+      return "Combat Evasion";
+    }
+    if (id === "perception") {
+      if (has(/combat|threat/)) return "Threat Perception";
+      return "Trace Perception";
+    }
+    if (id === "corrosive") return has(/containment|container/) ? "Dissolving Touch" : "Corrosive Acid";
+    if (id === "thermal") return "Smoldering Heat";
+    if (id === "cold") return "Chilling Cold";
+    if (id === "electrical") return "Arcing Current";
+    if (id === "fluid") return "Flowing Fluid";
+    if (id === "pressure") return "Focused Pressure";
+    if (id === "radiant") return "Focused Radiance";
+    if (id === "umbral") return "Deepening Umbral";
+    if (id === "arcane") return "Shaped Arcane";
+    if (id === "force") return "Focused Force";
+    if (id === "grappling") return "Locking Grapple";
+    if (id === "guarding") return "Guarding Instinct";
+    return `${base} Specialty`;
+  }
+
+  function skillEvolutionLabel(skillId, skill, skillDefsById) {
+    if (skillDefsById === SKILL_BY_ID && skillId === "analysis") {
+      const pathId = dominantAnalysisSpecializationId(skill);
+      return ANALYSIS_SPECIALIZATION_BY_ID[pathId]?.label || ANALYSIS_SPECIALIZATION_BY_ID.creature.label;
+    }
+    if (skillDefsById === CREATURE_SKILL_BY_ID) {
+      return creatureSkillEvolutionLabel(skillId, skill);
+    }
+    return "";
+  }
+
+  function evolveSkillForCurrentTier(skillId, skill, skillDefsById, options = {}) {
+    if (!skill || !skillDefsById?.[skillId]) {
+      return null;
+    }
+    const progress = skillProgressForXp(skill.xp);
+    const tier = skillTierForLevel(progress.level);
+    if (!tier || tier.min <= 1 || skill.evolvedTierId === tier.id) {
+      return null;
+    }
+    const label = skillEvolutionLabel(skillId, skill, skillDefsById);
+    if (!label) {
+      return null;
+    }
+    const previousLabel = skill.evolvedLabel;
+    skill.evolvedLabel = label;
+    skill.evolvedTierId = tier.id;
+    if (options.announce && label !== previousLabel) {
+      addEvent(`${SKILL_BY_ID[skillId]?.label || CREATURE_SKILL_BY_ID[skillId]?.label || titleCase(skillId)} evolved into ${label} based on practiced experience.`);
+    }
+    return { label, tier };
+  }
+
+  function evolveSkillAfterXp(skillId, skill, skillDefsById, beforeLevel, afterLevel, options = {}) {
+    if (afterLevel <= beforeLevel) {
+      return null;
+    }
+    const beforeTier = skillTierForLevel(beforeLevel);
+    const afterTier = skillTierForLevel(afterLevel);
+    if (!afterTier || afterTier.id === beforeTier?.id) {
+      return null;
+    }
+    return evolveSkillForCurrentTier(skillId, skill, skillDefsById, options);
+  }
+
   function normalizeCreatureSkillId(skillId) {
     return normalizeActorSkillId(skillId, CREATURE_SKILL_BY_ID, CREATURE_SKILL_ALIASES);
   }
 
   function normalizeCreatureSkills(candidate) {
-    return normalizeActorSkillMap(candidate, CREATURE_SKILL_BY_ID, CREATURE_SKILL_ALIASES);
+    const skills = normalizeActorSkillMap(candidate, CREATURE_SKILL_BY_ID, CREATURE_SKILL_ALIASES);
+    for (const [skillId, skill] of Object.entries(skills)) {
+      evolveSkillForCurrentTier(skillId, skill, CREATURE_SKILL_BY_ID);
+    }
+    return skills;
   }
 
   function defaultCreatureBehaviorMemory() {
@@ -4221,7 +4357,9 @@
     skill.lastPracticedAt = state.clock;
     skill.lastBreakthroughDecayAt = state.clock;
     recordSkillPractice(skill, reason, award.applied);
-    if (skillProgressForXp(skill.xp).level > before) {
+    const after = skillProgressForXp(skill.xp).level;
+    evolveSkillAfterXp(resolvedSkillId, skill, CREATURE_SKILL_BY_ID, before, after);
+    if (after > before) {
       rememberCreatureExperience(slime, "perceivedStimuli", 1, `${CREATURE_SKILL_BY_ID[resolvedSkillId].label} improved`);
     }
     return award.applied;
@@ -4280,12 +4418,16 @@
     return {
       skills: {},
       behaviors: {},
+      combat: null,
       attempts: 0,
       advancedAttempts: 0,
+      combatAttempts: 0,
       lastAnalyzedAt: null,
       lastAdvancedAnalyzedAt: null,
+      lastCombatAnalyzedAt: null,
       lastResult: "",
-      lastAdvancedResult: ""
+      lastAdvancedResult: "",
+      lastCombatResult: ""
     };
   }
 
@@ -4331,15 +4473,34 @@
         };
       }
     }
+    const combat = candidate?.combat && typeof candidate.combat === "object"
+      ? {
+        observedAt: finiteTime(candidate.combat.observedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+        intent: cleanSlimeCombatIntent(candidate.combat.intent),
+        intentLabel: String(candidate.combat.intentLabel || SLIME_COMBAT_INTENT_LABELS[cleanSlimeCombatIntent(candidate.combat.intent)] || "None"),
+        threat: String(candidate.combat.threat || "Unclear"),
+        target: String(candidate.combat.target || "None"),
+        action: String(candidate.combat.action || "None"),
+        damageTags: String(candidate.combat.damageTags || "Unclear"),
+        reasons: Array.isArray(candidate.combat.reasons)
+          ? candidate.combat.reasons.map((reason) => String(reason || "").trim()).filter(Boolean).slice(0, 6)
+          : [],
+        note: String(candidate.combat.note || "")
+      }
+      : null;
     return {
       skills,
       behaviors,
+      combat,
       attempts: Math.max(0, Math.floor(Number(candidate?.attempts) || 0)),
       advancedAttempts: Math.max(0, Math.floor(Number(candidate?.advancedAttempts) || 0)),
+      combatAttempts: Math.max(0, Math.floor(Number(candidate?.combatAttempts) || 0)),
       lastAnalyzedAt: candidate?.lastAnalyzedAt == null ? fallback.lastAnalyzedAt : finiteTime(candidate.lastAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
       lastAdvancedAnalyzedAt: candidate?.lastAdvancedAnalyzedAt == null ? fallback.lastAdvancedAnalyzedAt : finiteTime(candidate.lastAdvancedAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+      lastCombatAnalyzedAt: candidate?.lastCombatAnalyzedAt == null ? fallback.lastCombatAnalyzedAt : finiteTime(candidate.lastCombatAnalyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
       lastResult: String(candidate?.lastResult || fallback.lastResult),
-      lastAdvancedResult: String(candidate?.lastAdvancedResult || fallback.lastAdvancedResult)
+      lastAdvancedResult: String(candidate?.lastAdvancedResult || fallback.lastAdvancedResult),
+      lastCombatResult: String(candidate?.lastCombatResult || fallback.lastCombatResult)
     };
   }
 
@@ -4369,7 +4530,7 @@
         const tier = skillTierForLevel(progress.level) || SKILL_TIER_DEFS[0];
         return {
           skillId: def.id,
-          label: def.label,
+          label: creatureSkillDisplayName(slime, def.id),
           tierId: tier.id,
           tierLabel: tier.label,
           observedAt: state.clock
@@ -4441,7 +4602,7 @@
       const finding = {
         ...slime.analyzedCapabilities.skills[skillId],
         skillId,
-        label: String(slime.analyzedCapabilities.skills[skillId]?.label || def.label),
+        label: String(slime.analyzedCapabilities.skills[skillId]?.label || creatureSkillDisplayName(slime, skillId)),
         tierId: tier.id,
         tierLabel: tier.label,
         exactLevel: progress.level,
@@ -4458,6 +4619,40 @@
     return { skills: updated, found: updated.length };
   }
 
+  function combatAnalyzeThreatBand(score) {
+    const value = Math.max(0, Number(score) || 0);
+    if (value >= 85) return "Extreme";
+    if (value >= 60) return "High";
+    if (value >= 35) return "Moderate";
+    if (value >= 15) return "Low";
+    return "Quiet";
+  }
+
+  function combatAnalyzeSlime(slime) {
+    slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
+    const decision = slimeAiRecord(slime).combatDecision || defaultSlimeCombatDecisionRecord();
+    const record = combatRecordForSlime(slime);
+    const damageTags = slime.revealed?.element || record
+      ? damageTypeListText(slimeCombatDamageTypes(slime))
+      : "Unclear";
+    const finding = {
+      observedAt: state.clock,
+      intent: decision.intent,
+      intentLabel: decision.label,
+      threat: combatAnalyzeThreatBand(Math.max(decision.score || 0, decision.attackScore || 0)),
+      target: decision.target?.label || "None",
+      action: decision.automaticAction || "None",
+      damageTags,
+      reasons: [...new Set(decision.reasons || [])].slice(0, 6),
+      note: record?.summary || "No active combat record; this is a readiness read."
+    };
+    slime.analyzedCapabilities.combat = finding;
+    slime.analyzedCapabilities.combatAttempts += 1;
+    slime.analyzedCapabilities.lastCombatAnalyzedAt = state.clock;
+    slime.analyzedCapabilities.lastCombatResult = `${finding.threat} threat; ${finding.intentLabel.toLowerCase()} intent`;
+    return finding;
+  }
+
   function analyzedSkillFindings(slime) {
     const knowledge = normalizeAnalyzedCapabilities(slime?.analyzedCapabilities);
     return CREATURE_SKILL_DEFS
@@ -4470,6 +4665,15 @@
     return [...CREATURE_BEHAVIOR_MEMORY_KEYS]
       .map((key) => knowledge.behaviors[key])
       .filter(Boolean);
+  }
+
+  function creatureSkillDisplayName(slime, skillId) {
+    const id = normalizeCreatureSkillId(skillId);
+    if (!id) {
+      return String(skillId || "");
+    }
+    const skill = creatureSkill(slime, id);
+    return skill.evolvedLabel || CREATURE_SKILL_BY_ID[id]?.label || String(skillId || "");
   }
 
   function analyzeSlimeBlockReason(slime) {
@@ -4493,13 +4697,54 @@
       return "The scientist is dead.";
     }
     if (skillLevel("analysis") < ADVANCED_ANALYZE_UNLOCK_LEVEL) {
-      return `Advanced Analyze requires Analysis [Novice], level ${ADVANCED_ANALYZE_UNLOCK_LEVEL}.`;
+      return `Advanced Analyze requires Creature Analysis [Novice], level ${ADVANCED_ANALYZE_UNLOCK_LEVEL}.`;
+    }
+    const specialization = currentAnalysisSpecialization();
+    if (specialization?.id !== "creature") {
+      return `Advanced Analyze requires Creature Analysis [Novice]. Current specialization: ${specialization?.label || "none"}.`;
     }
     const knownSkills = analyzedSkillFindings(slime);
     if (!knownSkills.length) {
       return "Use Analyze to identify a practiced skill first.";
     }
     return manaBlockReason(ADVANCED_ANALYZE_MANA_COST);
+  }
+
+  function currentAnalysisSpecialization() {
+    const skill = scientistSkill("analysis", { create: true });
+    evolveSkillForCurrentTier("analysis", skill, SKILL_BY_ID);
+    if (skillLevel("analysis") < ADVANCED_ANALYZE_UNLOCK_LEVEL) {
+      return null;
+    }
+    return analysisSpecializationDefFromLabel(skill.evolvedLabel) || ANALYSIS_SPECIALIZATION_BY_ID[dominantAnalysisSpecializationId(skill)] || null;
+  }
+
+  function analysisSpecializationBlockReason(requiredId, abilityName) {
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (skillLevel("analysis") < ADVANCED_ANALYZE_UNLOCK_LEVEL) {
+      return `${abilityName} requires ${ANALYSIS_SPECIALIZATION_BY_ID[requiredId]?.label || "specialized Analysis"} [Novice], level ${ADVANCED_ANALYZE_UNLOCK_LEVEL}.`;
+    }
+    const specialization = currentAnalysisSpecialization();
+    if (specialization?.id !== requiredId) {
+      return `${abilityName} requires ${ANALYSIS_SPECIALIZATION_BY_ID[requiredId]?.label || "specialized Analysis"} [Novice]. Current specialization: ${specialization?.label || "none"}.`;
+    }
+    return "";
+  }
+
+  function combatAnalyzeSlimeBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    return analysisSpecializationBlockReason("combat", "Combat Analyze") || manaBlockReason(COMBAT_ANALYZE_MANA_COST);
+  }
+
+  function forensicAnalyzeCorpseBlockReason(corpse) {
+    if (!corpse) {
+      return "No corpse selected.";
+    }
+    return analysisSpecializationBlockReason("forensic", "Forensic Analyze") || manaBlockReason(FORENSIC_ANALYZE_MANA_COST);
   }
 
   function startAnalyzeSlime(slimeId) {
@@ -4564,6 +4809,91 @@
     } else {
       addEvent(`Advanced Analyze found no identified skills to read in ${slime.name}.`);
     }
+    persist();
+    render();
+    return true;
+  }
+
+  function startCombatAnalyzeSlime(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = combatAnalyzeSlimeBlockReason(slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!spendMana(COMBAT_ANALYZE_MANA_COST)) {
+      addEvent(`Not enough mana. ${COMBAT_ANALYZE_MANA_COST} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const finding = combatAnalyzeSlime(slime);
+    awardXp("analysis", COMBAT_ANALYZE_XP, "Combat Analyze");
+    addEvent(`Combat Analyze read ${slime.name}: ${finding.threat} threat; ${finding.intentLabel.toLowerCase()} intent.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function normalizeForensicReport(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    return {
+      analyzedAt: finiteTime(candidate.analyzedAt, Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0),
+      summary: String(candidate.summary || "").trim(),
+      cause: String(candidate.cause || "unclear").trim(),
+      tissueState: String(candidate.tissueState || "unknown").trim(),
+      evidence: String(candidate.evidence || "unknown").trim(),
+      material: String(candidate.material || "unknown").trim()
+    };
+  }
+
+  function forensicReportForCorpse(corpse) {
+    const freshness = corpseFreshness(corpse);
+    const cause = String(corpse.deathReason || "unknown").replace(/-/g, " ");
+    const element = corpse.revealed?.element || "unknown affinity";
+    const harvested = corpse.harvestBlocked ? "harvest value compromised" : "harvest value still possible";
+    const evidence = corpse.storage === "overflow"
+      ? "exposed evidence risk"
+      : corpse.storage === "drum"
+        ? "contained evidence"
+        : "local evidence";
+    const material = corpse.ruined
+      ? `ruined ${freshness} tissue; ${harvested}`
+      : `${freshness} tissue; ${harvested}; ${element}`;
+    const summary = `Cause: ${cause}. Tissue: ${material}. Evidence: ${evidence}.`;
+    return normalizeForensicReport({
+      analyzedAt: state.clock,
+      summary,
+      cause,
+      tissueState: freshness,
+      evidence,
+      material
+    });
+  }
+
+  function startForensicAnalyzeCorpse(corpseId) {
+    const corpse = findCorpse(corpseId);
+    const reason = forensicAnalyzeCorpseBlockReason(corpse);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!spendMana(FORENSIC_ANALYZE_MANA_COST)) {
+      addEvent(`Not enough mana. ${FORENSIC_ANALYZE_MANA_COST} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const report = forensicReportForCorpse(corpse);
+    corpse.forensicReport = report;
+    awardXp("analysis", FORENSIC_ANALYZE_XP, "Forensic Analyze");
+    addEvent(`Forensic Analyze read ${corpse.name}: ${report.summary}`);
     persist();
     render();
     return true;
@@ -15016,13 +15346,29 @@
       dump.addEventListener("click", () => {
         dumpCorpseOutside(corpse.id);
       });
-      actions.append(necropsy, ...corpseHarvestButtons(corpse), dump);
+      const forensic = document.createElement("button");
+      forensic.type = "button";
+      forensic.dataset.forensicAnalyzeCorpseId = corpse.id;
+      forensic.textContent = `Forensic Analyze (${FORENSIC_ANALYZE_MANA_COST} MANA)`;
+      const forensicReason = forensicAnalyzeCorpseBlockReason(corpse);
+      setActionButtonState(forensic, Boolean(forensicReason), forensicReason);
+      forensic.title = forensicReason || `Spend ${FORENSIC_ANALYZE_MANA_COST} Mana to read broad cause, tissue, and evidence state.`;
+      forensic.addEventListener("click", () => startForensicAnalyzeCorpse(corpse.id));
+      actions.append(necropsy, forensic, ...corpseHarvestButtons(corpse), dump);
 
       card.append(title, renderIdentityStrip(corpse, evaluated), meta, actions);
       if (corpse.necropsyReport) {
         const report = document.createElement("p");
         report.className = "corpse-report";
         report.textContent = corpse.necropsyReport;
+        card.append(report);
+      }
+      if (corpse.forensicReport) {
+        corpse.forensicReport = normalizeForensicReport(corpse.forensicReport);
+        const report = document.createElement("p");
+        report.className = "corpse-report";
+        report.dataset.forensicReport = corpse.id;
+        report.textContent = `Forensic Analyze: ${corpse.forensicReport.summary}`;
         card.append(report);
       }
       dom.corpseList.append(card);
@@ -21360,6 +21706,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     advancedAnalyze.addEventListener("click", () => startAdvancedAnalyzeSlime(slime.id));
     actions.append(advancedAnalyze);
 
+    const combatAnalyze = document.createElement("button");
+    combatAnalyze.type = "button";
+    combatAnalyze.dataset.combatAnalyzeSlimeId = slime.id;
+    combatAnalyze.textContent = `Combat Analyze (${COMBAT_ANALYZE_MANA_COST} MANA)`;
+    const combatReason = combatAnalyzeSlimeBlockReason(slime);
+    setActionButtonState(combatAnalyze, Boolean(combatReason), combatReason);
+    combatAnalyze.title = combatReason || `Spend ${COMBAT_ANALYZE_MANA_COST} Mana to read combat intent, threat band, and observed damage tags.`;
+    combatAnalyze.addEventListener("click", () => startCombatAnalyzeSlime(slime.id));
+    actions.append(combatAnalyze);
+
     const knowledge = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
     const grid = document.createElement("div");
     grid.className = "slime-stat-grid";
@@ -21374,16 +21730,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return row;
     };
 
-    if (knowledge.lastAnalyzedAt == null) {
+    if (knowledge.lastAnalyzedAt == null && knowledge.lastCombatAnalyzedAt == null) {
       addRow("Result", "Not analyzed", "unknown", "Use Analyze to read practiced capabilities. Level 0 practice is not visible.");
     } else {
-      addRow("Last read", formatClock(knowledge.lastAnalyzedAt), "Analyze", knowledge.lastResult || "");
+      if (knowledge.lastAnalyzedAt != null) {
+        addRow("Last read", formatClock(knowledge.lastAnalyzedAt), "Analyze", knowledge.lastResult || "");
+      }
       if (knowledge.lastAdvancedAnalyzedAt != null) {
         addRow("Last exact read", formatClock(knowledge.lastAdvancedAnalyzedAt), "Advanced Analyze", knowledge.lastAdvancedResult || "");
       }
+      if (knowledge.lastCombatAnalyzedAt != null && knowledge.combat) {
+        addRow("Combat read", `${knowledge.combat.threat} threat`, knowledge.combat.intentLabel, knowledge.combat.note || knowledge.lastCombatResult || "");
+        addRow("Combat action", knowledge.combat.action || "None", knowledge.combat.target || "None");
+        addRow("Damage tags", knowledge.combat.damageTags || "Unclear", knowledge.combat.reasons?.length ? knowledge.combat.reasons.join("; ") : "no clear factors");
+      }
       const skills = analyzedSkillFindings(slime);
       const behaviors = analyzedBehaviorFindings(slime);
-      if (!skills.length && !behaviors.length) {
+      if (knowledge.lastAnalyzedAt != null && !skills.length && !behaviors.length) {
         addRow("Result", "No practiced capabilities clearly perceived", "quiet");
       }
       for (const finding of skills) {
@@ -28489,6 +28852,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.ruined = Boolean(corpse.ruined);
       corpse.harvestBlocked = Boolean(corpse.harvestBlocked);
       corpse.harvestedProcedures = normalizeHarvestedProcedures(corpse.harvestedProcedures);
+      corpse.forensicReport = normalizeForensicReport(corpse.forensicReport);
       corpse.consumedProgress = clamp(Number(corpse.consumedProgress) || 0, 0, 100);
       corpse.feedingResidueProgress = Math.max(0, Number(corpse.feedingResidueProgress) || 0);
       corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
@@ -28683,6 +29047,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const existing = normalizedSkills[skillId] || defaultSkillEntry();
       existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
       existing.evolvedLabel = String(rawSkill?.evolvedLabel || existing.evolvedLabel || "");
+      existing.evolvedTierId = String(rawSkill?.evolvedTierId || existing.evolvedTierId || "");
       const fallbackTime = Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0;
       const lastPracticedAt = finiteTime(rawSkill?.lastPracticedAt, fallbackTime);
       const lastDecayAt = finiteTime(rawSkill?.lastBreakthroughDecayAt, lastPracticedAt);
@@ -28707,6 +29072,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         lastPracticedAt: finiteTime(normalizedSkills.analysis?.lastPracticedAt, starter.lastPracticedAt),
         lastBreakthroughDecayAt: finiteTime(normalizedSkills.analysis?.lastBreakthroughDecayAt, starter.lastBreakthroughDecayAt)
       };
+    }
+    for (const [skillId, skill] of Object.entries(normalizedSkills)) {
+      evolveSkillForCurrentTier(skillId, skill, SKILL_BY_ID);
     }
     scientist.skills = normalizedSkills;
     return scientist;

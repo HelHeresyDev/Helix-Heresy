@@ -12,38 +12,16 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Analyze Variants & Creature Skill Evolution Follow-Up
-2. Tool Durability and Damage Resistance System
-3. Slime Social, Territorial, and Group Behavior System
-4. Slime Job Autonomy and Work Behavior System
-5. Map-Based Slime Incident and Emergency Response System
-6. Slime AI Debugging and Behavior Readout System
-7. Black Market Byproduct Economy System
+1. Tool Durability and Damage Resistance System
+2. Slime Social, Territorial, and Group Behavior System
+3. Slime Job Autonomy and Work Behavior System
+4. Map-Based Slime Incident and Emergency Response System
+5. Slime AI Debugging and Behavior Readout System
+6. Black Market Byproduct Economy System
 
 ---
 
-## 1. Analyze Variants & Creature Skill Evolution Follow-Up
-
-Build on the existing Analyze implementation by adding stronger Analysis-derived abilities, combat/forensic Analyze variants, and creature skill evolution behavior.
-
-The current foundation has broad world-scale skill domains, tier labels, hidden pre-level-1 practice, scientist skill display rules, hidden slime skill practice, base Analyze, and Advanced Analyze. Base Analyze is instant, costs Mana, is granted by Analysis [Initiate], and reveals only level-1+ creature skill names/tiers plus broad learned behavior memories. It does not reveal exact levels, raw XP, genes, hidden stats, biological traits, weaknesses, compatibility formulas, or level-0 practice. Advanced Analyze unlocks at Analysis [Novice], level 21, costs Mana, and reveals exact levels only for skills already identified by base Analyze.
-
-This follow-up should decide how later Analysis stages grant new abilities such as Combat Analyze, Deep Analyze, or Forensic Analyze, and how creature skills evolve into specialized names without turning passive biology into fake skills.
-
-This system should answer questions like:
-- Which Analysis stages unlock the next Analyze-derived abilities after Advanced Analyze?
-- What can advanced Analyze variants target: corpses, rooms, tools, materials, enemies, hazards, or combat opponents?
-- Which future ability should reveal approximate threat bands, ability hints, or skill evolution paths?
-- How should Combat Analyze differ from base lab Analyze?
-- How should Forensic Analyze work on corpses, residue, harvested material, or old evidence?
-- Which creature actions grant skill practice?
-- When does a skill evolve into a specialized name?
-- Is skill evolution automatic, player-guided, or automatic for creatures and guided for the scientist?
-- How do abilities attach to evolved skills without turning passive biology into fake skills?
-
-Before coding, discuss future Analyze targets, combat reads, forensic reads, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
-
-## 2. Tool Durability and Damage Resistance System
+## 1. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -72,7 +50,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 3. Slime Social, Territorial, and Group Behavior System
+## 2. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -96,7 +74,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 4. Slime Job Autonomy and Work Behavior System
+## 3. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -120,7 +98,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 5. Map-Based Slime Incident and Emergency Response System
+## 4. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -144,7 +122,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 6. Slime AI Debugging and Behavior Readout System
+## 5. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -168,7 +146,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 6. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
