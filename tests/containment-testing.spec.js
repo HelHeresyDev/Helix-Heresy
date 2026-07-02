@@ -52,6 +52,9 @@ async function stageContainmentSlime(page, options) {
     container.name = options.containerName || 'Test Containment';
     container.roomId = 'mainLab';
     container.condition = options.condition ?? 100;
+    container.isOpen = Boolean(options.isOpen);
+    container.breachState = 'intact';
+    container.lastBreach = null;
     container.environment ||= {};
     container.environment.contamination = { current: options.contamination ?? 0, baseline: 0, recoveryPerHour: 0 };
     state.started = true;
@@ -219,7 +222,7 @@ test('elemental containment testing can use unstable ability force and practice 
   expect(result.effects).toContain('container wear');
 });
 
-test('critical attack testing can breach a nearly ruined container', async ({ page }) => {
+test('critical attack testing cracks a fragile container and removes it from service', async ({ page }) => {
   await startRun(page);
   const context = await saveContext(page);
   const genome = genomeForTraits({
@@ -256,6 +259,9 @@ test('critical attack testing can breach a nearly ruined container', async ({ pa
       status: slime?.status,
       containerId: slime?.containerId,
       roomId: slime?.roomId,
+      breachState: container?.breachState,
+      lastBreachType: container?.lastBreach?.type,
+      reusable: container?.lastBreach?.reusable,
       condition: container?.condition,
       escapedMemory: slime?.behaviorMemory?.tags?.containmentEscaped || 0,
       events: state.events.slice(0, 5).map((event) => event.message || String(event)).join(' | '),
@@ -265,7 +271,69 @@ test('critical attack testing can breach a nearly ruined container', async ({ pa
   expect(result.status).toBe('released');
   expect(result.containerId).toBe(null);
   expect(result.roomId).toBe('mainLab');
-  expect(result.condition).toBeLessThan(8);
+  expect(result.breachState).toBe('breached');
+  expect(result.lastBreachType).toBe('crackedContainer');
+  expect(result.reusable).toBe(false);
+  expect(result.condition).toBe(0);
   expect(result.escapedMemory).toBeGreaterThan(0);
-  expect(result.events).toContain('breached Ruined Jar');
+  expect(result.events).toContain('cracked Ruined Jar');
+  await expect(page.locator('[data-container-breach="basic-1"]')).toContainText('breach breached');
+  await expect(page.locator('[data-container-breach-summary="basic-1"]')).toContainText('Cracked container');
+});
+
+test('seeped seal breach leaves a compromised container physically usable', async ({ page }) => {
+  await startRun(page);
+  const context = await saveContext(page);
+  const genome = genomeForTraits({
+    seed: context.seed,
+    complexity: context.complexity,
+    baseGenome: context.currentGenome,
+    traits: {
+      element: 'water',
+      consistency: 'watery',
+      behavior: 'edge following',
+      stability: 'nervous',
+    },
+  });
+  await stageContainmentSlime(page, {
+    slimeId: 'seep-breach-test',
+    slimeName: 'SEEP-BREACH',
+    genome,
+    containerTypeId: 'ironCage',
+    containerName: 'Gap Cage',
+    condition: 5,
+    nutrition: 4,
+    stress: 96,
+    revealed: { element: 'water', consistency: 'watery', behavior: 'edge following', stability: 'nervous' },
+  });
+
+  await skipSeconds(page, 7200);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = state.slimes.find((item) => item.id === 'seep-breach-test');
+    const container = state.containers.find((item) => item.id === 'basic-1');
+    return {
+      status: slime?.status,
+      breachState: container?.breachState,
+      lastBreachType: container?.lastBreach?.type,
+      reusable: container?.lastBreach?.reusable,
+      condition: container?.condition,
+      roomContamination: state.rooms.find((room) => room.id === 'mainLab')?.attributes?.contamination?.current,
+      containerContamination: container?.environment?.contamination?.current,
+      eventText: state.events.slice(0, 5).map((event) => event.message || String(event)).join(' | '),
+    };
+  }, { key: storageKey });
+
+  expect(result.status).toBe('released');
+  expect(result.breachState).toBe('compromised');
+  expect(result.lastBreachType).toBe('seepedSeal');
+  expect(result.reusable).toBe(true);
+  expect(result.condition).toBeGreaterThan(0);
+  expect(result.roomContamination).toBeGreaterThan(0);
+  expect(result.containerContamination).toBeGreaterThan(0);
+  expect(result.eventText).toContain('seeped through a weak seal or gap');
+  await expect(page.locator('[data-container-breach="basic-1"]')).toContainText('breach compromised');
+  await expect(page.locator('[data-container-breach-summary="basic-1"]')).toContainText('Seeped seal');
 });

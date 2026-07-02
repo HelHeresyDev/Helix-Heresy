@@ -61,6 +61,7 @@
     { id: "ability", label: "Using unstable elemental force", activity: "using unstable elemental force against containment", damageTypes: [], progressRate: 1.25, conditionPerDay: 1.45, contaminationPerDay: 0.9, stressPerDay: 1.6 }
   ];
   const CONTAINMENT_TEST_METHOD_BY_ID = Object.fromEntries(CONTAINMENT_TEST_METHOD_DEFS.map((method) => [method.id, method]));
+  const CONTAINER_BREACH_STATES = new Set(["intact", "compromised", "breached"]);
   const CONTAINER_CONDITION_DEFAULT = 100;
   const MAIN_ROOM_ID = "mainLab";
   const MENAGERIE_ROOM_ID = "menagerie";
@@ -9195,7 +9196,9 @@
   }
 
   function openPermanentContainers() {
-    return permanentContainers().filter((container) => !isContainerInTransit(container.id) && containerOccupants(container.id).length === 0 && containerCorpses(container.id).length === 0);
+    return permanentContainers()
+      .filter(containerUsableForContainment)
+      .filter((container) => !isContainerInTransit(container.id) && containerOccupants(container.id).length === 0 && containerCorpses(container.id).length === 0);
   }
 
   function firstOpenPermanentContainer() {
@@ -11650,6 +11653,64 @@
     return container?.typeId === "openDirtPit";
   }
 
+  function cleanContainerBreachState(value) {
+    const stateId = String(value || "intact");
+    return CONTAINER_BREACH_STATES.has(stateId) ? stateId : "intact";
+  }
+
+  function normalizeContainerLastBreach(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const type = String(candidate.type || "").trim();
+    const summary = String(candidate.summary || "").trim();
+    if (!type && !summary) {
+      return null;
+    }
+    return {
+      type,
+      label: String(candidate.label || titleCase(type || "breach")).trim(),
+      slimeId: String(candidate.slimeId || "").trim(),
+      slimeName: String(candidate.slimeName || "").trim(),
+      method: cleanContainmentTestMethod(candidate.method),
+      at: finiteTime(candidate.at, 0),
+      summary,
+      reusable: candidate.reusable !== false
+    };
+  }
+
+  function containerBreachState(container) {
+    if (!container || container.type === "synthesis") {
+      return "intact";
+    }
+    container.breachState = cleanContainerBreachState(container.breachState);
+    if (containerCondition(container) <= 0) {
+      container.breachState = "breached";
+    }
+    return container.breachState;
+  }
+
+  function containerUsableForContainment(container) {
+    return Boolean(container && container.type !== "synthesis" && containerBreachState(container) !== "breached" && containerCondition(container) > 0);
+  }
+
+  function containerBreachStateLabel(container) {
+    const stateId = containerBreachState(container);
+    if (stateId === "breached") return "breached";
+    if (stateId === "compromised") return "compromised";
+    return "intact";
+  }
+
+  function containerBreachSummary(container) {
+    const breach = normalizeContainerLastBreach(container?.lastBreach);
+    if (!breach) {
+      return "";
+    }
+    const time = Number.isFinite(Number(breach.at)) ? ` at ${formatClock(breach.at)}` : "";
+    const reusable = breach.reusable ? "Container may still be usable." : "Container is not usable until future repair or replacement.";
+    return `${breach.label}${time}: ${breach.summary} ${reusable}`;
+  }
+
   function containerAccessOpen(container) {
     if (!container || container.type === "synthesis") {
       return false;
@@ -11658,10 +11719,14 @@
   }
 
   function containerAccessLabel(container) {
+    if (containerBreachState(container) === "breached") {
+      return "breached";
+    }
     if (containerAlwaysOpen(container)) {
       return "open by design";
     }
-    return containerAccessOpen(container) ? "open" : "closed";
+    const base = containerAccessOpen(container) ? "open" : "closed";
+    return containerBreachState(container) === "compromised" ? `${base}, compromised` : base;
   }
 
   function containerInteractionTask(containerId) {
@@ -11951,6 +12016,9 @@
     if (container.type === "synthesis") {
       return "The synthesis tube cannot be opened by hand.";
     }
+    if (containerBreachState(container) === "breached") {
+      return `${container.name} is breached and cannot hold a specimen until future repair or replacement.`;
+    }
     if (isContainerInTransit(container.id)) {
       return `${container.name} is being hauled.`;
     }
@@ -12079,7 +12147,7 @@
   }
 
   function liveTransferDestinationAcceptsLiveSlime(container) {
-    if (!container || isContainerInTransit(container.id) || containerContentsCount(container) > 0) {
+    if (!container || !containerUsableForContainment(container) || isContainerInTransit(container.id) || containerContentsCount(container) > 0) {
       return false;
     }
     // Pit holes are handled as destination sites during the transfer action.
@@ -15018,6 +15086,12 @@
     if (!container.environment) return [];
 
     const warnings = [];
+    const breachState = containerBreachState(container);
+    if (breachState === "breached") {
+      warnings.push("Container breached");
+    } else if (breachState === "compromised") {
+      warnings.push("Container compromised");
+    }
     const condition = containerCondition(container);
     if (condition < 25) {
       warnings.push("Container condition critical");
@@ -15941,6 +16015,193 @@
     return 1;
   }
 
+  function containerBreachResult(type, overrides = {}) {
+    const defs = {
+      seepedSeal: {
+        label: "Seeped seal",
+        breachState: "compromised",
+        reusable: true,
+        setOpen: false,
+        conditionDamage: 3,
+        containerContamination: 6,
+        roomContamination: 5,
+        summary: "fluid body mass escaped through a weak seal or gap."
+      },
+      climbedOut: {
+        label: "Climbed out",
+        breachState: "compromised",
+        reusable: true,
+        setOpen: true,
+        conditionDamage: 1,
+        containerContamination: 2,
+        roomContamination: 2,
+        summary: "the slime used openings, gaps, or exposed edges to leave mostly intact containment."
+      },
+      forcedOpening: {
+        label: "Forced opening",
+        breachState: "compromised",
+        reusable: true,
+        setOpen: true,
+        conditionDamage: 6,
+        containerContamination: 3,
+        roomContamination: 3,
+        summary: "the slime forced a lid, latch, or weak access point open."
+      },
+      crackedContainer: {
+        label: "Cracked container",
+        breachState: "breached",
+        reusable: false,
+        setOpen: true,
+        conditionDamage: 100,
+        containerContamination: 8,
+        roomContamination: 6,
+        summary: "the container cracked open under direct pressure."
+      },
+      dissolvedWall: {
+        label: "Dissolved wall",
+        breachState: "breached",
+        reusable: false,
+        setOpen: true,
+        conditionDamage: 100,
+        containerContamination: 12,
+        roomContamination: 8,
+        summary: "corrosive force ate through the containment material."
+      },
+      overturnedSpill: {
+        label: "Overturned spill",
+        breachState: "compromised",
+        reusable: true,
+        setOpen: true,
+        conditionDamage: 5,
+        containerContamination: 5,
+        roomContamination: 7,
+        summary: "the container tipped or spilled enough for the slime to leave."
+      },
+      arcaneFittingFailure: {
+        label: "Arcane fitting failure",
+        breachState: "compromised",
+        reusable: true,
+        setOpen: true,
+        conditionDamage: 5,
+        containerContamination: 4,
+        roomContamination: 4,
+        summary: "unstable elemental force disrupted the container's fittings or seal."
+      }
+    };
+    return { type, ...(defs[type] || defs.forcedOpening), ...overrides };
+  }
+
+  function chooseContainerBreachResult(slime, container, record) {
+    const method = cleanContainmentTestMethod(record?.method);
+    const evaluated = evaluateGenome(slime.genome);
+    const profile = physicalProfile(slime.genome, evaluated);
+    const type = containerTypeDef(container.typeId);
+    const damageTypes = containmentTestDamageTypes(slime, method);
+    const damageIds = new Set(damageTypes.map((damageType) => damageType.id));
+    const runny = ["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy", "grainy slurry"].includes(profile?.consistency);
+    const hasAppendages = profile?.appendages && profile.appendages !== "none";
+    const openOrGapped = type.geometry?.openTop || type.gap >= 60 || containerAccessOpen(container);
+    const weakSeal = containerEffectiveSeal(container) < 45 || type.gap >= 45;
+    const fragile = type.durability < 45 || /glass|jar|tray/i.test(type.label);
+    const currentMass = clamp(slimeStat(slime, "currentMass").current, 1, 100) / 100;
+    const effectiveWeight = (profile?.weightKg || 0) * currentMass;
+
+    if (method === "corrode" || damageIds.has("corrosive")) {
+      return containerBreachResult("dissolvedWall", {
+        summary: `${slime.name}'s corrosive pressure ate through ${container.name}.`
+      });
+    }
+
+    if (method === "seep" || (runny && weakSeal)) {
+      return containerBreachResult("seepedSeal", {
+        summary: `${slime.name} seeped through a weak seal or gap in ${container.name}.`
+      });
+    }
+
+    if (method === "shock" || method === "ability" || damageIds.has("electrical") || damageIds.has("arcane") || damageIds.has("force")) {
+      return containerBreachResult("arcaneFittingFailure", {
+        summary: `${slime.name}'s ${damageTypeListText(damageTypes).toLowerCase()} force disrupted ${container.name}'s fittings.`
+      });
+    }
+
+    if ((method === "climb" || hasAppendages) && openOrGapped) {
+      return containerBreachResult("climbedOut", {
+        summary: `${slime.name} climbed or gripped through an available opening in ${container.name}.`
+      });
+    }
+
+    if ((method === "attack" || method === "press") && fragile && !type.geometry?.openTop && container.typeId !== "openTray") {
+      return containerBreachResult("crackedContainer", {
+        summary: `${slime.name} cracked ${container.name} open with direct pressure.`
+      });
+    }
+
+    if ((method === "press" || method === "attack") && (type.geometry?.openTop || container.typeId === "openTray" || effectiveWeight > Math.max(4, type.maxWeightKg * 0.35))) {
+      return containerBreachResult("overturnedSpill", {
+        summary: `${slime.name} tipped or spilled ${container.name} enough to escape.`
+      });
+    }
+
+    if ((method === "attack" || method === "press") && fragile) {
+      return containerBreachResult("crackedContainer", {
+        summary: `${slime.name} cracked ${container.name} open with direct pressure.`
+      });
+    }
+
+    return containerBreachResult("forcedOpening", {
+      summary: `${slime.name} forced an access point open on ${container.name}.`
+    });
+  }
+
+  function applyContainerBreachResult(slime, container, record, result) {
+    if (!slime || !container || !result) {
+      return 0;
+    }
+    const containerId = container.id;
+    const containerName = container.name;
+    const roomId = container.roomId || slime.roomId || MAIN_ROOM_ID;
+    const reusable = result.reusable !== false && result.breachState !== "breached";
+    let finalReusable = reusable;
+    const lastBreach = normalizeContainerLastBreach({
+      type: result.type,
+      label: result.label,
+      slimeId: slime.id,
+      slimeName: slime.name,
+      method: record.method,
+      at: state.clock,
+      summary: result.summary,
+      reusable
+    });
+    rememberCreatureExperience(slime, "containmentEscaped", reusable ? 12 : 18, result.label);
+    releaseSlime(slime);
+    const targetContainer = containerById(containerId) || container;
+    targetContainer.breachState = reusable ? "compromised" : "breached";
+    targetContainer.lastBreach = lastBreach;
+    if (result.setOpen) {
+      targetContainer.isOpen = true;
+    }
+    if (result.conditionDamage >= 100 || !reusable) {
+      targetContainer.condition = 0;
+    } else if (Number(result.conditionDamage) > 0) {
+      adjustContainerCondition(targetContainer, -result.conditionDamage);
+    }
+    if (Number(result.containerContamination) > 0) {
+      adjustContainerEnvironment(targetContainer, "contamination", result.containerContamination);
+    }
+    if (containerCondition(targetContainer) <= 0) {
+      finalReusable = false;
+      targetContainer.breachState = "breached";
+      if (targetContainer.lastBreach) {
+        targetContainer.lastBreach.reusable = false;
+      }
+    }
+    if (Number(result.roomContamination) > 0) {
+      adjustRoomAttribute(roomId, "contamination", result.roomContamination);
+    }
+    addEvent(`${slime.name} escaped ${containerName}: ${result.summary} ${finalReusable ? "The container is compromised but still physically usable." : "The container is breached and cannot hold specimens until future repair or replacement."}`);
+    return 1;
+  }
+
   function maybeResolveContainmentBreach(slime, container, record) {
     if (!record.active || record.pressureBand !== "critical") {
       return 0;
@@ -15950,12 +16211,8 @@
     if (!weakEnough || !progressedEnough) {
       return 0;
     }
-    const method = containmentTestMethodDef(record.method);
-    container.condition = 0;
-    rememberCreatureExperience(slime, "containmentEscaped", 18, method.activity);
-    releaseSlime(slime);
-    addEvent(`${slime.name} breached ${container.name} after ${method.activity}.`);
-    return 1;
+    const result = chooseContainerBreachResult(slime, container, record);
+    return applyContainerBreachResult(slime, container, record, result);
   }
 
   function updateContainmentTesting(elapsed) {
@@ -16464,6 +16721,13 @@
       const cell = objectMapCell(container);
       const cellText = cell ? `cell ${cell.x},${cell.y}` : "cell unplaced";
       meta.append(chip(`${roomRoleLabel(container.roomId)} room`), chip(`access ${containerAccessLabel(container)}`), chip(`footprint ${footprint.width}x${footprint.height} m; ${cellText}`));
+      const breachState = containerBreachState(container);
+      if (breachState !== "intact") {
+        const breachChip = chip(`breach ${containerBreachStateLabel(container)}`);
+        breachChip.dataset.containerBreach = container.id;
+        breachChip.title = containerBreachSummary(container) || `${container.name} is ${breachState}.`;
+        meta.append(breachChip);
+      }
       if (isPitHoleContainer(container)) {
         meta.append(chip(`pit corpses ${pitHoleCorpseCount(container)}/${pitHoleCorpseCapacity(container)}`));
       }
@@ -16557,6 +16821,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handling.dataset.handlingProtocol = handlingMethodProtocolSummary(handlingRisk.method.id);
       handling.dataset.handlingRequirement = handlingMethodRequirementSummary(handlingRisk.method.id);
       card.append(handling);
+    }
+
+    if (container.type !== "synthesis" && container.lastBreach) {
+      const breach = document.createElement("div");
+      breach.className = "container-breach-summary";
+      breach.dataset.containerBreachSummary = container.id;
+      breach.textContent = `Last breach: ${containerBreachSummary(container)}`;
+      card.append(breach);
     }
 
     const occupantList = document.createElement("div");
@@ -26825,6 +27097,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       condition: normalizeContainerCondition(candidate.condition),
       isOpen: normalizeContainerOpenState(candidate),
       environment: normalizeContainerEnvironment(candidate.environment),
+      breachState: type === "synthesis" ? "intact" : cleanContainerBreachState(candidate.breachState),
+      lastBreach: type === "synthesis" ? null : normalizeContainerLastBreach(candidate.lastBreach),
       mapCell: objectMapCell(candidate)
     };
   }

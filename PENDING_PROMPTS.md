@@ -13,13 +13,12 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 ## Current Priority Order
 
 1. Analyze Variants & Creature Skill Evolution Follow-Up
-2. Slime Container Interaction and Breach Behavior System
-3. Tool Durability and Damage Resistance System
-4. Slime Social, Territorial, and Group Behavior System
-5. Slime Job Autonomy and Work Behavior System
-6. Map-Based Slime Incident and Emergency Response System
-7. Slime AI Debugging and Behavior Readout System
-8. Black Market Byproduct Economy System
+2. Tool Durability and Damage Resistance System
+3. Slime Social, Territorial, and Group Behavior System
+4. Slime Job Autonomy and Work Behavior System
+5. Map-Based Slime Incident and Emergency Response System
+6. Slime AI Debugging and Behavior Readout System
+7. Black Market Byproduct Economy System
 
 ---
 
@@ -44,31 +43,7 @@ This system should answer questions like:
 
 Before coding, discuss future Analyze targets, combat reads, forensic reads, evolution triggers, specialization naming rules, and the smallest implementation that makes adaptive skills feel alive without overbuilding combat too early.
 
-## 2. Slime Container Interaction and Breach Behavior System
-
-Create detailed behavior for how slimes interact with containers during and after containment failures.
-
-Containers are physical objects with fit, compatibility, material resistance, drainage, seal, openings, comfort, durability, and location. Slimes inside them should interact with those properties. When containment degrades or fails, the result should depend on the slime and container rather than always producing the same generic escape.
-
-The system should answer questions like:
-- How does a slime behave inside a container?
-- What container properties matter to daily behavior?
-- How do poor fit, poor compatibility, discomfort, drainage problems, sealing problems, damage, or contamination affect the slime?
-- What happens when a container is partially damaged but not breached?
-- How does a slime exit a broken, open, tipped, cracked, dissolved, or unsealed container?
-- Where is the slime placed on the map after a breach?
-- What happens to the container, its contents, residue, byproducts, corpses, or tools?
-- How should breach results be shown in the event log, map, room readout, and specimen readout?
-
-This system should make containment failures physically grounded. A watery slime leaking through a crack, an acid slime dissolving a weak tray, a heavy slime tipping a vessel, and a vapor slime escaping through a poor seal should feel like different failures.
-
-The desired result is a container-interaction foundation that makes containment risk, material resistance, slime behavior, map placement, and emergency response work together.
-
-Before coding, discuss daily container interaction, partial damage, breach types, post-breach placement, container state changes, and UI reporting.
-
----
-
-## 3. Tool Durability and Damage Resistance System
+## 2. Tool Durability and Damage Resistance System
 
 Create a durability and resistance system for lab tools and handling equipment.
 
@@ -97,7 +72,7 @@ Before coding, discuss the durability model, resistance categories, starting dur
 
 ---
 
-## 4. Slime Social, Territorial, and Group Behavior System
+## 3. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -121,7 +96,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 5. Slime Job Autonomy and Work Behavior System
+## 4. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -145,7 +120,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 6. Map-Based Slime Incident and Emergency Response System
+## 5. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -169,7 +144,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 7. Slime AI Debugging and Behavior Readout System
+## 6. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -193,7 +168,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 8. Black Market Byproduct Economy System
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

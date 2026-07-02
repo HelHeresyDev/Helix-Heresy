@@ -173,7 +173,9 @@ Poor compatibility has light first-pass consequences rather than catastrophic co
 
 Contained slimes now have an active containment-testing behavior layer. A slime can begin probing containment because of hunger, high Stress, hostile habitat, recent pain, poor compatibility, dangerous temperament, crowding, weak seals, bad condition, or similar pressure. The UI shows qualitative escape pressure bands, such as Quiet, Low, Moderate, High, and Critical, plus the observed method when active. Methods include pressing, attacking, seeping, corroding, shocking fittings, climbing or gripping, fouling the interior, waiting for a handling mistake, and using unstable elemental force. This behavior is visible without exposing exact hidden formulas or undiscovered trait names.
 
-Containment testing has gradual consequences. Active testing can build warning signs, increase Stress, foul the interior, damage container condition through the existing damage-type and resistance vocabulary, leak trace contamination into the room in severe cases, and give creatures behavior memory or relevant practice such as Striking or elemental damage-skill practice. A full breach is intentionally rare in this first pass: it requires critical escape pressure, enough repeated progress, and a container that is already nearly ruined. When it happens, the existing loose-slime release path places the slime in the room. Detailed physical breach results, such as a cracked jar, dissolved wall, tipped tray, or seeped trail, are reserved for the later container-interaction and breach behavior pass.
+Containment testing has gradual consequences. Active testing can build warning signs, increase Stress, foul the interior, damage container condition through the existing damage-type and resistance vocabulary, leak trace contamination into the room in severe cases, and give creatures behavior memory or relevant practice such as Striking or elemental damage-skill practice. A full breach is intentionally rare: it requires critical escape pressure, enough repeated progress, and a container that is already nearly ruined.
+
+Full breaches now resolve through physical outcomes instead of a generic escape. Possible results include a slime seeping through a weak seal, climbing out through openings, forcing a latch, cracking a fragile container, dissolving a wall, tipping or spilling an open vessel, or disrupting fittings with unstable elemental force. Containers record `intact`, `compromised`, or `breached` state plus the last breach summary. A compromised container may remain physically usable when that makes sense, while a breached container is excluded from containment until future repair or replacement. The event log and container card report the breach result, and the loose-slime release path places the escapee near the container on the map.
 
 ## Design Vision
 
@@ -463,6 +465,8 @@ Open design questions:
 - Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.
 - Forced Recombination as the current two-parent lab intervention, with parent and offspring mass shared instead of free full-sized copies.
 - Lifespan, maturity, living sample storage, release, and containment states.
+- Active containment testing that can produce physical breach outcomes such as seeped seals, forced openings, cracked containers, dissolved walls, overturned spills, and fitting failures.
+- Container breach states that distinguish compromised-but-usable containers from breached containers that cannot hold specimens until future repair or replacement.
 - Deceased specimens move out of living storage and into waste drums.
 - Corpse states include fresh, decaying, spoiled, ruined, and overflow pressure.
 - Fresh corpse necropsy reveals remaining unknown genetic traits for that specimen.
