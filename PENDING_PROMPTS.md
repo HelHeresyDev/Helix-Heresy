@@ -12,45 +12,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Tool Durability and Damage Resistance System
-2. Slime Social, Territorial, and Group Behavior System
-3. Slime Job Autonomy and Work Behavior System
-4. Map-Based Slime Incident and Emergency Response System
-5. Slime AI Debugging and Behavior Readout System
-6. Black Market Byproduct Economy System
+1. Slime Social, Territorial, and Group Behavior System
+2. Slime Job Autonomy and Work Behavior System
+3. Map-Based Slime Incident and Emergency Response System
+4. Slime AI Debugging and Behavior Readout System
+5. Black Market Byproduct Economy System
 
 ---
 
-## 1. Tool Durability and Damage Resistance System
-
-Create a durability and resistance system for lab tools and handling equipment.
-
-Tools should be physical objects that can wear down, get damaged, and eventually become unreliable or unusable. Thick gloves, long tongs, hook poles, scrapers, and future equipment should not be abstract permanent toggles. They should have durability, such as `10 / 10`, and that durability should change based on what kind of hazard they are exposed to.
-
-The key idea is that tools have material properties and resistances. Thick gloves might be rubberized and resist electrical damage well, but perform worse against acid, cutting, heat, or puncture depending on their construction. Metal tongs might resist heat and physical abrasion better than gloves, but conduct electricity and may corrode under acid. A scraper might tolerate physical residue but suffer from corrosion or heat. A hook pole might be useful at distance but have its own weaknesses.
-
-This system should answer questions like:
-- What durability value should each tool start with?
-- What happens when durability reaches zero?
-- Does low durability reduce effectiveness before total failure?
-- Which damage types can affect each tool?
-- What resistance profile does each tool have?
-- How does tool damage happen during handling, corpse work, cleanup, Collection Bay staging, or future procedures?
-- How should the player inspect tool condition?
-- How should warnings appear when a selected tool is damaged or poorly matched?
-- Can tools be repaired, replaced, or discarded now, or should that wait for a future system?
-
-Durability should make tool choice meaningful. The player should eventually care that rubber gloves are safer against electricity, metal tongs are safer against heat or distance, and the wrong tool for the hazard may get ruined quickly or put the scientist at risk.
-
-The UI should communicate condition clearly without becoming spreadsheet-heavy. A tool might show `Durability: 8 / 10`, plus broad resistance notes like `strong electrical resistance`, `poor acid resistance`, or `conductive`. Tooltips can carry more detail than the main UI.
-
-The desired result is a foundation where tools are reusable but not indestructible. Handling choices should start to matter materially, and future systems like container movement, slime handling, Collection Bay work, cleanup, harvesting, and accidents can wear down equipment in consistent ways.
-
-Before coding, discuss the durability model, resistance categories, starting durability values, how tool wear should be triggered, and how much repair/replacement gameplay belongs in the first implementation.
-
----
-
-## 2. Slime Social, Territorial, and Group Behavior System
+## 1. Slime Social, Territorial, and Group Behavior System
 
 Create social, territorial, and group behavior for slimes.
 
@@ -74,7 +44,7 @@ Before coding, discuss which social interactions belong to simple slimes, how gr
 
 ---
 
-## 3. Slime Job Autonomy and Work Behavior System
+## 2. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -98,7 +68,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 4. Map-Based Slime Incident and Emergency Response System
+## 3. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -122,7 +92,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 5. Slime AI Debugging and Behavior Readout System
+## 4. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -146,7 +116,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

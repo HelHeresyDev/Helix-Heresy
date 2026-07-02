@@ -511,6 +511,35 @@
     hookPole: { physical: 30, force: 25, pressure: 25, corrosive: 15, toxic: 15, electrical: 15 },
     scraper: { physical: 35, toxic: 30, corrosive: 25, heat: 15, cold: 15, moisture: 20 }
   };
+  const TOOL_DURABILITY_DEFS = {
+    thickGloves: {
+      max: 10,
+      material: "rubberized protective gloves",
+      notes: ["insulating", "direct-contact tool", "poor corrosion and heat endurance"]
+    },
+    longTongs: {
+      max: 12,
+      material: "metal reach tongs",
+      notes: ["reach tool", "heat-tolerant", "conductive", "moderate corrosion risk"]
+    },
+    hookPole: {
+      max: 12,
+      material: "reinforced reach pole",
+      notes: ["reach tool", "good leverage", "poor precision", "vulnerable to corrosion"]
+    },
+    scraper: {
+      max: 10,
+      material: "stiff scraping tool",
+      notes: ["cleanup tool", "handles residue", "poor thermal endurance"]
+    }
+  };
+  const TOOL_CONDITION_BANDS = [
+    { id: "pristine", label: "Pristine", minRatio: 0.85, resistancePenalty: 0, riskAdjustment: 0 },
+    { id: "worn", label: "Worn", minRatio: 0.6, resistancePenalty: 4, riskAdjustment: 1 },
+    { id: "damaged", label: "Damaged", minRatio: 0.35, resistancePenalty: 12, riskAdjustment: 4 },
+    { id: "failing", label: "Failing", minRatio: 0.01, resistancePenalty: 22, riskAdjustment: 8 },
+    { id: "broken", label: "Broken", minRatio: 0, resistancePenalty: 100, riskAdjustment: 18 }
+  ];
   const HANDLING_METHOD_DEFS = [
     {
       id: "bareHands",
@@ -1773,7 +1802,7 @@
     {
       id: "tools",
       label: "Tools & Supplies",
-      description: "Reusable lab tools and handling supplies already implied by current interaction methods. Matching handling procedures require the cataloged tool to be stocked; tools are reusable and not consumed."
+      description: "Reusable lab tools and handling supplies already implied by current interaction methods. Matching handling procedures require a usable cataloged tool; hazardous use can damage or break tools."
     }
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
@@ -1818,28 +1847,28 @@
       label: "Thick gloves",
       category: "tools",
       initial: 1,
-      description: "Reusable protective gloves required by the Thick gloves handling method. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
+      description: "Reusable protective gloves required by the Thick gloves handling method. Starter stock is cataloged in the Storage Room; hazardous use can wear them down."
     },
     {
       key: "longTongs",
       label: "Long tongs",
       category: "tools",
       initial: 1,
-      description: "Long handling tongs required by the Long tongs handling method. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
+      description: "Long handling tongs required by the Long tongs handling method. Starter stock is cataloged in the Storage Room; hazardous use can wear them down."
     },
     {
       key: "hookPole",
       label: "Hook pole",
       category: "tools",
       initial: 1,
-      description: "A reach tool required by the Hook pole handling method for pit covers, grates, and awkward handling. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
+      description: "A reach tool required by the Hook pole handling method for pit covers, grates, and awkward handling. Starter stock is cataloged in the Storage Room; hazardous use can wear it down."
     },
     {
       key: "scraper",
       label: "Scraper",
       category: "tools",
       initial: 1,
-      description: "A scraping tool required by the Scraper handling method for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; tools are reusable and are not consumed."
+      description: "A scraping tool required by the Scraper handling method for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; hazardous use can wear it down."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -2096,6 +2125,7 @@
       containers: defaultContainers(),
       resources: defaultResources(),
       inventory: defaultInventory(),
+      toolDurability: defaultToolDurability(),
       roomStockpiles: defaultRoomStockpiles(),
       inventoryHistory: defaultInventoryHistory(),
       collectedByproducts: defaultCollectedByproducts(),
@@ -2153,6 +2183,26 @@
 
   function defaultInventory() {
     return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item.initial]));
+  }
+
+  function defaultToolDurability() {
+    const inventory = defaultInventory();
+    const durability = {};
+    for (const itemKey of Object.keys(TOOL_DURABILITY_DEFS)) {
+      const count = Math.max(0, Math.floor(Number(inventory[itemKey]) || 0));
+      durability[itemKey] = Array.from({ length: count }, (_entry, index) => defaultToolInstance(itemKey, index));
+    }
+    return durability;
+  }
+
+  function defaultToolInstance(itemKey, index = 0) {
+    const def = TOOL_DURABILITY_DEFS[itemKey];
+    const max = Math.max(1, Math.round(Number(def?.max) || 1));
+    return {
+      id: `${itemKey}-${index + 1}`,
+      current: max,
+      max
+    };
   }
 
   function defaultCollectionBayState() {
@@ -8897,9 +8947,8 @@
   }
 
   function damageResistanceEntriesForHandlingMethod(methodId) {
-    const resistances = HANDLING_METHOD_DAMAGE_RESISTANCES[methodId] || {};
     return DAMAGE_TYPE_DEFS.map((type) => {
-      const score = clamp(Number(resistances[type.id]) || 0, 0, 100);
+      const score = handlingMethodDamageResistanceScore(methodId, type.id);
       return {
         ...type,
         score,
@@ -11647,8 +11696,78 @@
     return HANDLING_METHOD_BY_ID[currentHandlingMethodId()] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
   }
 
+  function durableToolDef(itemKey) {
+    return TOOL_DURABILITY_DEFS[itemKey] || null;
+  }
+
+  function toolInstancesForItem(itemKey) {
+    if (!durableToolDef(itemKey)) {
+      return [];
+    }
+    return ensureToolDurability()[itemKey] || [];
+  }
+
+  function toolConditionBand(instance) {
+    if (!instance || Number(instance.current) <= 0) {
+      return TOOL_CONDITION_BANDS.find((band) => band.id === "broken") || TOOL_CONDITION_BANDS[TOOL_CONDITION_BANDS.length - 1];
+    }
+    const ratio = clamp((Number(instance.current) || 0) / Math.max(1, Number(instance.max) || 1), 0, 1);
+    return TOOL_CONDITION_BANDS.find((band) => ratio >= band.minRatio) || TOOL_CONDITION_BANDS[TOOL_CONDITION_BANDS.length - 1];
+  }
+
+  function bestToolInstance(itemKey, usableOnly = false) {
+    const instances = toolInstancesForItem(itemKey);
+    const candidates = usableOnly ? instances.filter((instance) => Number(instance.current) > 0) : instances;
+    return [...candidates].sort((a, b) => b.current - a.current || b.max - a.max)[0] || null;
+  }
+
+  function usableToolCount(itemKey) {
+    return toolInstancesForItem(itemKey).filter((instance) => Number(instance.current) > 0).length;
+  }
+
+  function toolDurabilitySummary(itemKey) {
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    const def = durableToolDef(itemKey);
+    if (!item || !def) {
+      return "";
+    }
+    const instances = toolInstancesForItem(itemKey);
+    if (!instances.length) {
+      return "Condition: not stocked";
+    }
+    const usable = instances.filter((instance) => Number(instance.current) > 0);
+    const best = bestToolInstance(itemKey, false);
+    const band = toolConditionBand(best);
+    return `Condition: ${band.label} (${formatNumber(best.current)}/${formatNumber(best.max)}); ${formatNumber(usable.length)}/${formatNumber(instances.length)} usable`;
+  }
+
+  function toolDurabilityTooltip(itemKey) {
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    const def = durableToolDef(itemKey);
+    if (!item || !def) {
+      return "";
+    }
+    const instances = toolInstancesForItem(itemKey);
+    const lines = [
+      `${item.label} condition.`,
+      `Material: ${def.material}.`,
+      `Notes: ${def.notes.join(", ")}.`,
+      toolDurabilitySummary(itemKey) + ".",
+      "Broken tools remain cataloged but cannot be used until future repair or replacement."
+    ];
+    for (const [index, instance] of instances.entries()) {
+      const band = toolConditionBand(instance);
+      lines.push(`#${index + 1}: ${formatNumber(instance.current)}/${formatNumber(instance.max)} ${band.label}.`);
+    }
+    return lines.join("\n");
+  }
+
+  function handlingMethodToolItemKey(methodId = currentHandlingMethodId()) {
+    return HANDLING_METHOD_INVENTORY_ITEM_KEYS[methodId] || "";
+  }
+
   function handlingMethodInventoryInfo(methodId = currentHandlingMethodId()) {
-    const itemKey = HANDLING_METHOD_INVENTORY_ITEM_KEYS[methodId];
+    const itemKey = handlingMethodToolItemKey(methodId);
     if (!itemKey) {
       return null;
     }
@@ -11656,10 +11775,18 @@
     if (!item) {
       return null;
     }
+    const amount = inventoryAmount(itemKey);
+    const best = bestToolInstance(itemKey, false);
+    const bestUsable = bestToolInstance(itemKey, true);
+    const usableAmount = usableToolCount(itemKey);
     return {
       itemKey,
       item,
-      amount: inventoryAmount(itemKey)
+      amount,
+      usableAmount,
+      best,
+      bestUsable,
+      conditionBand: toolConditionBand(bestUsable || best)
     };
   }
 
@@ -11668,8 +11795,13 @@
     if (!info) {
       return "Tool preview: no tool expected";
     }
+    if (info.usableAmount > 0) {
+      const tool = info.bestUsable;
+      const band = toolConditionBand(tool);
+      return `Tool preview: ${info.item.label} usable (${band.label} ${formatNumber(tool.current)}/${formatNumber(tool.max)})`;
+    }
     return info.amount > 0
-      ? `Tool preview: ${info.item.label} available`
+      ? `Tool preview: ${info.item.label} stocked but broken`
       : `Tool preview: ${info.item.label} not stocked`;
   }
 
@@ -11678,7 +11810,7 @@
     if (!info) {
       return "Inventory: no cataloged tool";
     }
-    return `Inventory: ${formatNumber(info.amount)} ${info.item.label} cataloged in Storage Room`;
+    return `Inventory: ${formatNumber(info.amount)} ${info.item.label} cataloged; ${formatNumber(info.usableAmount)} usable`;
   }
 
   function handlingMethodRequirementSummary(methodId = currentHandlingMethodId()) {
@@ -11686,8 +11818,11 @@
     if (!info) {
       return "Requirement: none";
     }
+    if (info.usableAmount > 0) {
+      return "Requirement: usable tool";
+    }
     return info.amount > 0
-      ? "Requirement: stocked"
+      ? "Requirement: blocked until replaced or repaired"
       : "Requirement: blocked until stocked";
   }
 
@@ -11696,15 +11831,21 @@
     if (!info) {
       return "Protocol: no tool requirement";
     }
+    if (info.usableAmount > 0) {
+      return "Protocol: required tool usable";
+    }
     return info.amount > 0
-      ? "Protocol: required tool stocked"
+      ? "Protocol: procedure blocked; cataloged tool is broken"
       : "Protocol: procedure blocked until tool is stocked";
   }
 
   function handlingMethodMissingToolReason(methodId = currentHandlingMethodId()) {
     const info = handlingMethodInventoryInfo(methodId);
-    if (!info || info.amount > 0) {
+    if (!info || info.usableAmount > 0) {
       return "";
+    }
+    if (info.amount > 0) {
+      return `Procedure blocked: all cataloged ${info.item.label} tools are broken.`;
     }
     return `Procedure blocked: ${info.item.label} not stocked in Storage Room.`;
   }
@@ -11723,11 +11864,12 @@
     const lines = [
       `${handlingMethodToolPreviewSummary(method.id)}.`,
       `${info.item.label}: ${formatNumber(info.amount)} cataloged in the Storage Room.`,
+      `${toolDurabilitySummary(info.itemKey)}.`,
       `${handlingMethodDamageResistanceSummary(method.id)}.`,
       `${handlingMethodProtocolSummary(method.id)}.`,
       `${handlingMethodRequirementSummary(method.id)}.`,
       "Tool requirements are enforced for this handling method.",
-      "Tools are reusable and are not consumed."
+      "Tools are reusable, but hazardous use can damage them."
     ];
     const missing = handlingMethodMissingToolReason(method.id);
     if (missing) {
@@ -11903,6 +12045,15 @@
       notes.push("bare hands offer no protection");
     }
 
+    const info = handlingMethodInventoryInfo(method.id);
+    if (info?.bestUsable) {
+      const band = toolConditionBand(info.bestUsable);
+      if (band.riskAdjustment > 0) {
+        adjustment += band.riskAdjustment;
+        notes.push(`${info.item.label.toLowerCase()} are ${band.label.toLowerCase()} and less reliable`);
+      }
+    }
+
     return {
       adjustment,
       notes,
@@ -11912,7 +12063,10 @@
 
   function handlingMethodDamageResistanceScore(methodId, damageTypeId) {
     const method = HANDLING_METHOD_BY_ID[methodId] || HANDLING_METHOD_BY_ID[DEFAULT_HANDLING_METHOD];
-    return clamp(Number(HANDLING_METHOD_DAMAGE_RESISTANCES[method.id]?.[normalizeDamageTypeId(damageTypeId)]) || 0, 0, 100);
+    const itemKey = handlingMethodToolItemKey(method.id);
+    const band = itemKey ? handlingMethodInventoryInfo(method.id)?.conditionBand : null;
+    const conditionPenalty = Number(band?.resistancePenalty) || 0;
+    return clamp((Number(HANDLING_METHOD_DAMAGE_RESISTANCES[method.id]?.[normalizeDamageTypeId(damageTypeId)]) || 0) - conditionPenalty, 0, 100);
   }
 
   function handlingDamageRiskPoints(damageTypeId) {
@@ -11930,6 +12084,152 @@
       arcane: 13,
       force: 14
     }[normalizeDamageTypeId(damageTypeId)] || 8;
+  }
+
+  function handlingWearActionLabel(action) {
+    return {
+      open: "opening a container",
+      close: "closing a container",
+      transferLivingSlime: "transferring a living slime",
+      dumpRemains: "dumping remains",
+      scrapeRemains: "scraping remains"
+    }[action] || "handling";
+  }
+
+  function handlingExposureDamageTypes(container, action, options = {}) {
+    const ids = new Set();
+    const add = (damageTypeId) => {
+      const normalized = normalizeDamageTypeId(damageTypeId);
+      if (normalized) {
+        ids.add(normalized);
+      }
+    };
+    const slimes = Array.isArray(options.slimes)
+      ? options.slimes
+      : container?.id
+        ? containerOccupants(container.id)
+        : [];
+    const corpses = Array.isArray(options.corpses)
+      ? options.corpses
+      : container?.id
+        ? containerCorpses(container.id)
+        : [];
+
+    if (isPitHoleContainer(container)) {
+      add("physical");
+      add("pressure");
+    }
+    if (action === "transferLivingSlime") {
+      add("physical");
+    }
+    if (slimes.length) {
+      add("physical");
+    }
+    if (action === "scrapeRemains" || action === "dumpRemains") {
+      add("physical");
+      add("toxic");
+    }
+
+    for (const slime of slimes) {
+      const evaluated = evaluateGenome(slime.genome);
+      for (const damageType of damageTypesForElementOutcome(evaluated.traits.element)) {
+        add(damageType.id);
+      }
+      const appendages = evaluated.traits.appendages?.id || "";
+      if (appendages && appendages !== "none") {
+        add("physical");
+      }
+    }
+
+    for (const corpse of corpses) {
+      const evaluated = evaluateGenome(corpse.genome);
+      for (const damageType of damageTypesForElementOutcome(evaluated.traits.element)) {
+        add(damageType.id);
+      }
+      const freshness = corpseFreshness(corpse);
+      if (["decaying", "spoiled", "ruined"].includes(freshness)) {
+        add("toxic");
+      }
+      if (freshness === "ruined") {
+        add("corrosive");
+      }
+    }
+
+    return [...ids];
+  }
+
+  function handlingToolWearAmount(methodId, damageTypeIds, risk = {}, action = "handling", extraRisk = 0) {
+    if (!handlingMethodToolItemKey(methodId)) {
+      return 0;
+    }
+    const exposureIds = [...new Set((damageTypeIds || []).map(normalizeDamageTypeId).filter(Boolean))];
+    let wear = 0;
+    for (const damageTypeId of exposureIds) {
+      const pressure = handlingDamageRiskPoints(damageTypeId);
+      const resistance = handlingMethodDamageResistanceScore(methodId, damageTypeId);
+      const unblocked = Math.max(0, pressure - Math.floor(resistance / 10));
+      if (unblocked > 0) {
+        wear += Math.max(1, Math.ceil(unblocked / 8));
+      }
+    }
+    const score = Math.max(0, Number(risk?.score) || 0) + Math.max(0, Number(extraRisk) || 0);
+    if (score >= 55) {
+      wear += 2;
+    } else if (score >= 35) {
+      wear += 1;
+    }
+    if (action === "scrapeRemains" || action === "transferLivingSlime") {
+      wear += 1;
+    }
+    return clamp(Math.round(wear), 0, 8);
+  }
+
+  function applyToolDurabilityDamage(itemKey, amount, reason = "hazardous handling") {
+    const damage = Math.max(0, Math.round(Number(amount) || 0));
+    if (!damage || !durableToolDef(itemKey)) {
+      return null;
+    }
+    const instances = toolInstancesForItem(itemKey);
+    const tool = [...instances]
+      .filter((instance) => Number(instance.current) > 0)
+      .sort((a, b) => b.current - a.current || b.max - a.max)[0] || null;
+    if (!tool) {
+      return null;
+    }
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    const before = Number(tool.current) || 0;
+    const beforeBand = toolConditionBand(tool);
+    tool.current = clamp(before - damage, 0, Math.max(1, Number(tool.max) || 1));
+    const afterBand = toolConditionBand(tool);
+    state.toolDurability[itemKey] = instances;
+    if (afterBand.id === "broken" && beforeBand.id !== "broken") {
+      addEvent(`${item.label} broke during ${reason}.`);
+    } else if (afterBand.id !== beforeBand.id) {
+      addEvent(`${item.label} worn to ${afterBand.label} (${formatNumber(tool.current)}/${formatNumber(tool.max)}) during ${reason}.`);
+    }
+    return {
+      itemKey,
+      label: item.label,
+      amount: before - tool.current,
+      current: tool.current,
+      max: tool.max,
+      beforeBand,
+      afterBand
+    };
+  }
+
+  function applyHandlingToolWear(methodId, container, action, risk = {}, options = {}) {
+    const itemKey = handlingMethodToolItemKey(methodId);
+    if (!itemKey) {
+      return null;
+    }
+    const exposureIds = handlingExposureDamageTypes(container, action, options);
+    if (!exposureIds.length && Number(risk?.score) >= 15) {
+      exposureIds.push("physical");
+    }
+    const amount = handlingToolWearAmount(methodId, exposureIds, risk, action, options.extraRisk);
+    const reason = options.reason || `${handlingWearActionLabel(action)}${container?.name ? ` at ${container.name}` : ""}`;
+    return applyToolDurabilityDamage(itemKey, amount, reason);
   }
 
   function qualitativeHarmEstimate(score, certainty) {
@@ -12426,6 +12726,11 @@
       addEvent("Handling could not complete; the container no longer exists.");
       return false;
     }
+    const toolReason = handlingMethodMissingToolReason(methodId);
+    if (toolReason) {
+      addEvent(`Handling could not complete: ${toolReason}`);
+      return false;
+    }
     if (action === "dumpRemains" || action === "scrapeRemains") {
       return completeRemainsHandling(task, container, action, methodId, method);
     }
@@ -12435,6 +12740,7 @@
     if (action === "open") {
       const risk = containerHandlingRisk(container, "open", methodId);
       container.isOpen = true;
+      applyHandlingToolWear(methodId, container, "open", risk);
       const occupants = containerOccupants(container.id);
       for (const slime of occupants) {
         adjustSlimeStat(slime, "stress", 6 + Math.min(14, Math.round(risk.score / 5)));
@@ -12451,6 +12757,7 @@
     if (action === "close") {
       const risk = containerHandlingRisk(container, "close", methodId);
       container.isOpen = false;
+      applyHandlingToolWear(methodId, container, "close", risk);
       const occupants = containerOccupants(container.id);
       for (const slime of occupants) {
         adjustSlimeStat(slime, "stress", 2);
@@ -12636,6 +12943,11 @@
     const risk = containerHandlingRisk(sourceContainer, "transferLivingSlime", methodId);
     const destinationRisk = isPitHoleContainer(destination) ? 6 : 0;
     const effectiveDamage = Math.max(1, risk.damage + Math.round(destinationRisk / 3));
+    applyHandlingToolWear(methodId, sourceContainer, "transferLivingSlime", risk, {
+      slimes: [slime],
+      extraRisk: destinationRisk,
+      reason: `transferring ${slime.name} from ${sourceContainer.name}`
+    });
     if (effectiveDamage > 0) {
       damageScientistHealth(effectiveDamage, `${risk.band.toLowerCase()} living transfer while moving ${slime.name} from ${sourceContainer.name} to ${destination.name} with ${method.label}`);
       slime.handlingInjuryExperience = Math.max(0, Number(slime.handlingInjuryExperience) || 0) + 1;
@@ -12836,6 +13148,11 @@
     const extraRisk = corpseHandlingRiskModifier(container, action, methodId);
     const minimumRemainsDamage = corpses.length ? 1 : 0;
     const effectiveDamage = Math.max(minimumRemainsDamage, risk.damage + Math.round(extraRisk / 4));
+    applyHandlingToolWear(methodId, container, action, risk, {
+      corpses,
+      extraRisk,
+      reason: `${action === "scrapeRemains" ? "scraping" : "dumping"} remains from ${container.name}`
+    });
     if (effectiveDamage > 0) {
       damageScientistHealth(effectiveDamage, `${risk.band.toLowerCase()} remains handling while ${action === "scrapeRemains" ? "scraping" : "dumping"} ${container.name} with ${method.label}`);
     }
@@ -17378,6 +17695,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       return;
     }
+    applyHandlingToolWear(currentHandlingMethodId(), null, "transferLivingSlime", { score: 12 }, {
+      slimes: [slime],
+      reason: `moving ${slime.name} from the synthesis tube`
+    });
     awardXp("creatureHandling", 5, "Creature handling");
     addEvent(`${slime.name} assigned to ${container.name}.`);
     persist();
@@ -22636,7 +22957,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.dataset.inventoryCategory = item.category;
         row.title = inventoryItemTooltip(item);
         const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
-        row.append(textEl("span", item.label), textEl("strong", `${formatNumber(inventoryAmount(item.key))} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`));
+        const toolCondition = durableToolDef(item.key) ? `; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}` : "";
+        row.append(textEl("span", item.label), textEl("strong", `${formatNumber(inventoryAmount(item.key))} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}`));
         section.append(row);
       }
       dom.inventoryList.append(section);
@@ -26412,6 +26734,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (actualDelta) {
       addRoomNumeric("inventory", key, actualDelta, roomId);
       state.inventory[key] = after;
+      if (TOOL_DURABILITY_DEFS[key]) {
+        state.toolDurability = normalizeToolDurability(state.toolDurability, state.inventory);
+      }
       recordInventoryChange(key, actualDelta, source);
     }
     return actualDelta;
@@ -26444,7 +26769,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     ];
     const methodId = handlingMethodIdForInventoryItem(item.key);
     if (methodId) {
-      lines.splice(2, 0, handlingMethodDamageResistanceSummary(methodId), handlingMethodDamageResistanceTitle(methodId));
+      lines.splice(
+        2,
+        0,
+        toolDurabilityTooltip(item.key),
+        handlingMethodDamageResistanceSummary(methodId),
+        handlingMethodDamageResistanceTitle(methodId)
+      );
     }
     const history = inventoryChangeHistory(item.key);
     if (!history.length) {
@@ -26733,6 +27064,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.inventory;
   }
 
+  function ensureToolDurability() {
+    state.inventory = normalizeInventory(state.inventory);
+    state.toolDurability = normalizeToolDurability(state.toolDurability, state.inventory);
+    return state.toolDurability;
+  }
+
   function ensureInventoryHistory() {
     state.inventoryHistory = normalizeInventoryHistory(state.inventoryHistory);
     return state.inventoryHistory;
@@ -26761,6 +27098,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       normalized[item.key] = Math.max(0, Math.floor(Number.isFinite(value) ? value : fallback[item.key]));
     }
     return normalized;
+  }
+
+  function normalizeToolDurability(candidate, inventory = null) {
+    const normalized = {};
+    const inventoryTotals = inventory || defaultInventory();
+    for (const itemKey of Object.keys(TOOL_DURABILITY_DEFS)) {
+      const desiredCount = Math.max(0, Math.floor(Number(inventoryTotals[itemKey]) || 0));
+      const raw = candidate?.[itemKey];
+      const rawEntries = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === "object"
+          ? [raw]
+          : [];
+      const entries = rawEntries
+        .map((entry, index) => normalizeToolInstance(itemKey, entry, index))
+        .filter(Boolean)
+        .sort((a, b) => b.current - a.current || b.max - a.max)
+        .slice(0, desiredCount);
+      while (entries.length < desiredCount) {
+        entries.push(defaultToolInstance(itemKey, entries.length));
+      }
+      normalized[itemKey] = entries;
+    }
+    return normalized;
+  }
+
+  function normalizeToolInstance(itemKey, candidate, index = 0) {
+    const def = TOOL_DURABILITY_DEFS[itemKey];
+    if (!def) {
+      return null;
+    }
+    const fallback = defaultToolInstance(itemKey, index);
+    const max = Math.max(1, Math.round(Number(candidate?.max) || fallback.max));
+    const current = clamp(Math.round(Number(candidate?.current ?? max) || 0), 0, max);
+    return {
+      id: String(candidate?.id || fallback.id),
+      current,
+      max
+    };
   }
 
   function normalizeInventoryHistory(candidate) {
@@ -28697,6 +29073,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
+    next.toolDurability = normalizeToolDurability(next.toolDurability, next.inventory);
     next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);

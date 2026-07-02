@@ -727,6 +727,7 @@ test('slime breakthrough progress decays at the same threshold as scientist skil
       lifecycleVersion: 1,
       matureAt: 0,
       mature: true,
+      splitBlocked: true,
       status: 'contained',
       containerId: jar.id,
       roomId: jar.roomId,
