@@ -1695,6 +1695,7 @@
     residueSpill: { label: "Feeding Residue Spill" },
     exposedRemains: { label: "Exposed Remains" },
     corpseOverflow: { label: "Corpse Overflow" },
+    containerBreach: { label: "Container Breach" },
     breachedDoor: { label: "Door Breach" },
     combat: { label: "Combat" }
   };
@@ -3192,6 +3193,7 @@
       combatChanged: updateCombat(elapsed),
       creatureSkillPracticeChanged: updateCreatureSkillPractice(elapsed),
       incidentAlertChanged: refreshIncidentAlerts(),
+      incidentUrgencyChanged: handleIncidentUrgency(),
       jobExpired: 0,
       completed: 0,
       skillDecayChanged: 0,
@@ -3228,6 +3230,7 @@
       + changes.combatChanged
       + changes.creatureSkillPracticeChanged
       + changes.incidentAlertChanged
+      + changes.incidentUrgencyChanged
       + changes.completed
       + changes.skillDecayChanged
       + changes.aiChanged
@@ -7585,6 +7588,14 @@
     return INCIDENT_SEVERITY_BY_ID[cleanIncidentSeverity(severity)]?.label || "Minor";
   }
 
+  function incidentTimestamp(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+    const time = Number(value);
+    return Number.isFinite(time) && time >= 0 ? time : null;
+  }
+
   function cleanIncidentStatus(value) {
     return value === "resolved" ? "resolved" : "active";
   }
@@ -7634,7 +7645,12 @@
       sourceLabel: String(candidate.sourceLabel || "").trim(),
       createdAt,
       updatedAt: finiteTime(candidate.updatedAt, createdAt),
-      resolvedAt: status === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null
+      resolvedAt: status === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null,
+      acknowledgedAt: incidentTimestamp(candidate.acknowledgedAt),
+      urgencyHandledAt: incidentTimestamp(candidate.urgencyHandledAt),
+      responseStartedAt: incidentTimestamp(candidate.responseStartedAt),
+      responseArrivedAt: incidentTimestamp(candidate.responseArrivedAt),
+      responseTaskId: String(candidate.responseTaskId || "").trim()
     };
   }
 
@@ -7698,6 +7714,14 @@
       return freshness === "spoiled" || freshness === "ruined" ? "critical" : "serious";
     }
     return freshness === "fresh" ? "minor" : "serious";
+  }
+
+  function containerBreachIncidentSeverity(container) {
+    const stateId = containerBreachState(container);
+    if (stateId === "breached") {
+      return "critical";
+    }
+    return "serious";
   }
 
   function addDesiredIncident(desired, data) {
@@ -7866,6 +7890,28 @@
       });
     }
 
+    state.containers = normalizeContainers(state.containers);
+    for (const container of state.containers || []) {
+      if (!container || container.type === "synthesis" || containerBreachState(container) === "intact") {
+        continue;
+      }
+      const roomId = roomById(container.roomId)?.id || MAIN_ROOM_ID;
+      if (!scientistObservesRoom(roomId)) {
+        continue;
+      }
+      addDesiredIncident(desired, {
+        type: "containerBreach",
+        label: `${container.name} ${containerBreachStateLabel(container)}`,
+        summary: containerBreachSummary(container) || `${container.name} containment is ${containerBreachStateLabel(container)}.`,
+        severity: containerBreachIncidentSeverity(container),
+        roomId,
+        cell: objectMapCell(container),
+        sourceKind: "container",
+        sourceId: container.id,
+        sourceLabel: container.name
+      });
+    }
+
     return desired;
   }
 
@@ -7902,15 +7948,23 @@
       const existing = existingByKey.get(key);
       if (existing) {
         if (incidentRecordNeedsUpdate(existing, entry)) {
-          Object.assign(existing, {
+          const returningFromResolved = existing.status === "resolved";
+          const severityIncreased = incidentSeverityRank(entry.severity) > incidentSeverityRank(existing.severity);
+          Object.assign(existing, normalizeIncident({
+            ...existing,
             ...entry,
             key,
             id: existing.id,
             status: "active",
-            createdAt: existing.status === "resolved" ? state.clock : existing.createdAt,
+            createdAt: returningFromResolved ? state.clock : existing.createdAt,
             updatedAt: state.clock,
-            resolvedAt: null
-          });
+            resolvedAt: null,
+            acknowledgedAt: returningFromResolved || severityIncreased ? null : existing.acknowledgedAt,
+            urgencyHandledAt: returningFromResolved || severityIncreased ? null : existing.urgencyHandledAt,
+            responseStartedAt: returningFromResolved ? null : existing.responseStartedAt,
+            responseArrivedAt: returningFromResolved ? null : existing.responseArrivedAt,
+            responseTaskId: returningFromResolved ? "" : existing.responseTaskId
+          }));
           changes += 1;
         }
       } else {
@@ -7942,6 +7996,35 @@
       .sort((a, b) => b.resolvedAt - a.resolvedAt)
       .slice(0, INCIDENT_RESOLVED_RETENTION);
     state.incidents = [...active, ...resolved];
+    return changes;
+  }
+
+  function handleIncidentUrgency() {
+    let changes = 0;
+    for (const incident of activeIncidentAlerts()) {
+      if (incident.type === "combat" || incident.urgencyHandledAt !== null) {
+        continue;
+      }
+      const severityRank = incidentSeverityRank(incident.severity);
+      if (severityRank < incidentSeverityRank("serious")) {
+        continue;
+      }
+      incident.urgencyHandledAt = state.clock;
+      incident.updatedAt = state.clock;
+      if (severityRank >= incidentSeverityRank("critical")) {
+        const changed = !state.paused || state.timeSpeed !== "realtime";
+        state.timeSpeed = "realtime";
+        state.paused = true;
+        addEvent(`Critical incident spotted: ${incident.label}. Time paused at 1x.`);
+        changes += changed ? 1 : 0;
+      } else {
+        const changed = state.timeSpeed !== "realtime";
+        state.timeSpeed = "realtime";
+        addEvent(`Serious incident spotted: ${incident.label}. Time reduced to 1x.`);
+        changes += changed ? 1 : 0;
+      }
+      changes += 1;
+    }
     return changes;
   }
 
@@ -18900,7 +18983,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return (state.tasks || []).find((task) => task.type === "scientistMove") || null;
   }
 
-  function scientistMoveBlockReason(toRoomId) {
+  function scientistMoveBlockReason(toRoomId, options = {}) {
     const target = roomById(toRoomId);
     if (!target) {
       return "No connected room selected.";
@@ -18912,22 +18995,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "The scientist is already moving.";
     }
     const fromRoomId = scientistRoomId();
-    if (fromRoomId === target.id) {
+    const fromCell = scientistMapCell();
+    const targetCell = options.toCell ? normalizeMapCellForRoom(options.toCell, target.id) : null;
+    if (fromRoomId === target.id && (!targetCell || mapCellKey(fromCell) === mapCellKey(targetCell))) {
       return "The scientist is already there.";
     }
-    if (!roomConnectedIds(fromRoomId).includes(target.id)) {
+    if (!options.allowMultiRoom && fromRoomId !== target.id && !roomConnectedIds(fromRoomId).includes(target.id)) {
       return "The scientist can only move to connected rooms.";
     }
     const securityRoute = roomRouteBetween(fromRoomId, target.id, {
       ignoreDoors: true,
       ignoreDoorSecurity: true,
-      requireReachable: true
+      requireReachable: true,
+      fromCell,
+      toCell: targetCell || undefined
     });
     const doorBlock = firstDoorSecurityBlockReason(securityRoute);
     if (doorBlock) {
       return doorBlock;
     }
-    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true }).length) {
+    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined }).length) {
       return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
     }
     return "";
@@ -18943,32 +19030,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + doorDelay), "analysis");
   }
 
-  function startScientistMove(toRoomId) {
+  function startScientistMove(toRoomId, options = {}) {
     const target = roomById(toRoomId);
-    const reason = scientistMoveBlockReason(toRoomId);
+    const reason = scientistMoveBlockReason(toRoomId, options);
     if (reason) {
       addEvent(reason);
-      persist();
-      render();
-      return false;
+      if (!options.deferRender) {
+        persist();
+        render();
+      }
+      return null;
     }
     const cost = adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
-      persist();
-      render();
-      return false;
+      if (!options.deferRender) {
+        persist();
+        render();
+      }
+      return null;
     }
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
-    const toCell = nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
+    const toCell = options.toCell
+      ? normalizeMapCellForRoom(options.toCell, target.id)
+      : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
     const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell });
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
     const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
-      label: `Move scientist to ${target.name}`,
+      label: String(options.label || `Move scientist to ${target.name}`).trim(),
       createdAt: state.clock,
       dueAt: state.clock + duration,
       data: {
@@ -18979,15 +19072,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         toCell,
         mapPath,
         doorTransit: doorTransitPlan(route),
-        staminaCost: cost
+        staminaCost: cost,
+        incidentId: String(options.incidentId || "").trim()
       }
     };
     state.tasks.push(task);
     const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
-    addEvent(`Scientist movement started: ${roomName(fromRoomId)} to ${target.name}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
-    persist();
-    render();
-    return true;
+    addEvent(`${options.eventLabel || "Scientist movement started"}: ${roomName(fromRoomId)} to ${target.name}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
+    if (!options.deferRender) {
+      persist();
+      render();
+    }
+    return task;
   }
 
   function completeScientistMove(task) {
@@ -19002,6 +19098,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.scientist.mapCell = normalizeMapCellForRoom(task.data?.toCell, target.id);
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     addEvent(`Arrived in ${target.name}.`);
+    const incident = incidentById(task.data?.incidentId);
+    if (incident && incident.status === "active") {
+      incident.responseTaskId = "";
+      incident.responseArrivedAt = state.clock;
+      incident.acknowledgedAt ??= task.createdAt;
+      incident.updatedAt = state.clock;
+      addEvent(`Incident response reached ${incident.label}.`);
+    }
     observeScientistRoom({ discoverChanges: true });
     return true;
   }
@@ -24320,6 +24424,108 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { kind: "room", roomId: incident.roomId || MAIN_ROOM_ID };
   }
 
+  function incidentById(incidentId) {
+    const id = String(incidentId || "").trim();
+    if (!id) {
+      return null;
+    }
+    state.incidents = normalizeIncidents(state.incidents);
+    return state.incidents.find((incident) => incident.id === id) || null;
+  }
+
+  function incidentResponseTask(incident) {
+    if (!incident) {
+      return null;
+    }
+    const explicitId = String(incident.responseTaskId || "").trim();
+    return (state.tasks || []).find((task) =>
+      (explicitId && task.id === explicitId)
+      || (task.type === "scientistMove" && task.data?.incidentId === incident.id)
+    ) || null;
+  }
+
+  function incidentResponseTargetCell(incident) {
+    if (!incident) {
+      return labMapRoomAnchor(MAIN_ROOM_ID);
+    }
+    const roomId = roomById(incident.roomId)?.id || MAIN_ROOM_ID;
+    if (incident.sourceKind === "container") {
+      const container = containerById(incident.sourceId);
+      if (container) {
+        const origin = objectMapCell(container);
+        if (origin) {
+          return nearestObjectAccessCell(origin, containerFootprintDimensions(container), container.roomId || roomId, {
+            preferredCell: scientistMapCell()
+          });
+        }
+      }
+    }
+    return nearestOpenMapCellInRoom(roomId, incident.cell || labMapRoomAnchor(roomId), {
+      preferredCell: incident.cell || labMapRoomAnchor(roomId),
+      ignoreObjects: incident.sourceKind !== "container"
+    });
+  }
+
+  function incidentResponseMoveBlockReason(incident) {
+    if (!incident || incident.status !== "active") {
+      return "This incident is no longer active.";
+    }
+    if (incidentResponseTask(incident)) {
+      return "A response movement is already queued for this incident.";
+    }
+    const targetCell = incidentResponseTargetCell(incident);
+    return scientistMoveBlockReason(incident.roomId, { toCell: targetCell, allowMultiRoom: true })
+      || staminaBlockReason(adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]));
+  }
+
+  function acknowledgeIncident(incidentId) {
+    const incident = incidentById(incidentId);
+    if (!incident || incident.status !== "active") {
+      addEvent("That incident is no longer active.");
+      persist();
+      render();
+      return false;
+    }
+    incident.acknowledgedAt = state.clock;
+    incident.updatedAt = state.clock;
+    addEvent(`Incident acknowledged: ${incident.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function startIncidentResponseMove(incidentId) {
+    const incident = incidentById(incidentId);
+    const reason = incidentResponseMoveBlockReason(incident);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const targetCell = incidentResponseTargetCell(incident);
+    const task = startScientistMove(incident.roomId, {
+      toCell: targetCell,
+      allowMultiRoom: true,
+      incidentId: incident.id,
+      label: `Respond to ${incident.label}`,
+      eventLabel: "Incident response started",
+      deferRender: true
+    });
+    if (!task) {
+      persist();
+      render();
+      return false;
+    }
+    incident.responseStartedAt = state.clock;
+    incident.responseTaskId = task.id;
+    incident.acknowledgedAt ??= state.clock;
+    incident.updatedAt = state.clock;
+    persist();
+    render();
+    return true;
+  }
+
   function incidentAlertPanelEl() {
     const panel = document.createElement("div");
     panel.className = "incident-alert-panel subpanel";
@@ -24350,13 +24556,47 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (incident.summary) {
         meta.append(chip(incident.summary));
       }
+      if (incident.acknowledgedAt !== null) {
+        meta.append(chip(`ack ${formatClock(incident.acknowledgedAt)}`));
+      }
+      const responseTask = incidentResponseTask(incident);
+      if (responseTask) {
+        meta.append(chip("response queued"));
+      } else if (incident.responseArrivedAt !== null) {
+        meta.append(chip(`response reached ${formatClock(incident.responseArrivedAt)}`));
+      }
       body.append(heading, meta);
+      const actions = document.createElement("div");
+      actions.className = "incident-alert-actions";
       const focus = document.createElement("button");
       focus.type = "button";
       focus.textContent = "Focus";
       focus.title = "Focus the map object or room connected to this alert.";
       focus.addEventListener("click", () => focusMapTarget(incidentFocusTarget(incident)));
-      row.append(body, focus);
+      const respond = document.createElement("button");
+      respond.type = "button";
+      respond.dataset.incidentRespond = incident.id;
+      const responseCell = incidentResponseTargetCell(incident);
+      const responseDuration = scientistMoveDuration(scientistRoomId(), incident.roomId, {
+        fromCell: scientistMapCell(),
+        toCell: responseCell
+      });
+      setButtonStaminaLabel(respond, "Respond", SCIENTIST_MOVE_BASE_STAMINA, ["analysis"], { duration: formatDuration(responseDuration) });
+      const responseReason = incidentResponseMoveBlockReason(incident);
+      setActionButtonState(respond, Boolean(responseReason), responseReason);
+      if (!responseReason) {
+        respond.title = `Queue a scientist movement task to the alert site.\nRoute: ${roomPathSummary(scientistRoomId(), incident.roomId, { fromCell: scientistMapCell(), toCell: responseCell, ignoreDoors: true })}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]).title}`;
+      }
+      respond.addEventListener("click", () => startIncidentResponseMove(incident.id));
+      const acknowledge = document.createElement("button");
+      acknowledge.type = "button";
+      acknowledge.dataset.incidentAcknowledge = incident.id;
+      acknowledge.textContent = incident.acknowledgedAt !== null ? "Acknowledged" : "Acknowledge";
+      const acknowledgeReason = incident.acknowledgedAt !== null ? "This incident has already been acknowledged." : "";
+      setActionButtonState(acknowledge, Boolean(acknowledgeReason), acknowledgeReason);
+      acknowledge.addEventListener("click", () => acknowledgeIncident(incident.id));
+      actions.append(focus, respond, acknowledge);
+      row.append(body, actions);
       list.append(row);
     }
     panel.append(list);

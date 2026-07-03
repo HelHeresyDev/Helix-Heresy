@@ -1040,7 +1040,7 @@ test('released slimes press blocked doors and expose possible intent instead of 
   expect(result.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 
-test('spatial incidents appear as map alerts without creating response tasks', async ({ page }) => {
+test('spatial incidents appear as map alerts with manual response controls', async ({ page }) => {
   await startRun(page);
 
   await page.evaluate(({ key }) => {
@@ -1079,6 +1079,20 @@ test('spatial incidents appear as map alerts without creating response tasks', a
       updatedAt: 0,
     }];
     state.nextResidueNumber = 2;
+    const alertContainer = (state.containers || []).find((container) => container.id === 'basic-1')
+      || (state.containers || []).find((container) => container.type !== 'synthesis');
+    if (alertContainer) {
+      alertContainer.roomId = 'mainLab';
+      alertContainer.breachState = 'compromised';
+      alertContainer.lastBreach = {
+        type: 'seepedSeal',
+        label: 'Seeped seal',
+        summary: 'A test seam is leaking containment residue.',
+        at: 0,
+        reusable: true,
+      };
+    }
+    const mainAnchor = state.labMap.rooms.mainLab.anchor;
     state.slimes = [{
       id: 'alert-slime',
       name: 'ALERT-001',
@@ -1092,7 +1106,7 @@ test('spatial incidents appear as map alerts without creating response tasks', a
       status: 'released',
       containerId: null,
       roomId: 'mainLab',
-      mapCell: state.labMap.rooms.mainLab.anchor,
+      mapCell: { x: mainAnchor.x + 2, y: mainAnchor.y },
       job: 'idle',
       jobProgress: 0,
       jobTargetCorpseId: null,
@@ -1126,15 +1140,16 @@ test('spatial incidents appear as map alerts without creating response tasks', a
 
   const panel = page.locator('[data-incident-panel="true"]');
   await expect(panel).toContainText('Incident Alerts');
-  await expect(panel).toContainText('3 active alerts');
+  await expect(panel).toContainText('4 active alerts');
   await expect(panel).toContainText('ALERT-001 pressing against a blocked door');
   await expect(panel).toContainText('Main Lab contamination is fouled');
   await expect(panel).toContainText('Hazardous sludge in Main Lab');
-  await expect(page.locator('[data-incident-alert]')).toHaveCount(3);
+  await expect(panel).toContainText('Seeped seal');
+  await expect(page.locator('[data-incident-alert]')).toHaveCount(4);
 
   const highlightedAlerts = await page.locator('.lab-map-cell.incident-alert-cell').count();
   expect(highlightedAlerts).toBeGreaterThan(0);
-  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('3 active alerts');
+  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('4 active alerts');
 
   const tasks = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1142,6 +1157,40 @@ test('spatial incidents appear as map alerts without creating response tasks', a
     return state.tasks || [];
   }, { key: storageKey });
   expect(tasks).toEqual([]);
+
+  const slimeAlert = page.locator('[data-incident-alert]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
+  await slimeAlert.getByRole('button', { name: /Acknowledge/ }).click();
+  await expect(slimeAlert).toContainText('ack Day 1');
+
+  const acknowledged = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const incident = (state.incidents || []).find((candidate) => candidate.sourceId === 'alert-slime');
+    return {
+      acknowledgedAt: incident?.acknowledgedAt,
+      responseTaskId: incident?.responseTaskId || '',
+      tasks: state.tasks || [],
+    };
+  }, { key: storageKey });
+  expect(acknowledged.acknowledgedAt).toBe(0);
+  expect(acknowledged.responseTaskId).toBe('');
+  expect(acknowledged.tasks).toEqual([]);
+
+  await slimeAlert.getByRole('button', { name: /Respond/ }).click();
+  const response = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const incident = (state.incidents || []).find((candidate) => candidate.sourceId === 'alert-slime');
+    const task = (state.tasks || []).find((candidate) => candidate.type === 'scientistMove' && candidate.data?.incidentId === incident?.id);
+    return { incident, task };
+  }, { key: storageKey });
+  expect(response.task).toBeTruthy();
+  expect(response.task.label).toContain('Respond to ALERT-001 pressing against a blocked door');
+  expect(response.task.data.toRoomId).toBe('mainLab');
+  expect(response.task.data.toCell).toEqual({ x: response.incident.cell.x, y: response.incident.cell.y });
+  expect(response.incident.responseTaskId).toBe(response.task.id);
+  await expect(slimeAlert).toContainText('response queued');
+  expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);
 });
 
 test('room contamination diffuses through connected doors according to seal quality', async ({ page }) => {

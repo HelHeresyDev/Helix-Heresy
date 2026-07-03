@@ -12,37 +12,12 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Map-Based Slime Incident and Emergency Response System
-2. Slime AI Debugging and Behavior Readout System
-3. Black Market Byproduct Economy System
+1. Slime AI Debugging and Behavior Readout System
+2. Black Market Byproduct Economy System
 
 ---
 
-## 1. Map-Based Slime Incident and Emergency Response System
-
-Create map-based slime incidents and emergency response behavior.
-
-Slime incidents should happen in space. Escapes, failed handling, container breaches, feeding accidents, stress events, combat, hazardous leakage, corpse disturbance, and byproduct spills should have locations on the map, affect nearby objects, and create response opportunities for the scientist.
-
-The system should answer questions like:
-- Which slime incidents become map-based first?
-- How is an incident location chosen?
-- How does the scientist respond using movement and queued tasks?
-- Can the player issue emergency commands such as seal door, move away, recapture, feed, calm, clean, repair, or fight?
-- How do doors, barriers, containers, tools, and room conditions affect response?
-- How do nearby slimes, corpses, containers, and tools react to incidents?
-- How should incident urgency and location be shown on the blueprint and in panels?
-- When does an incident end?
-
-The first pass should not implement every disaster. It should create a framework where slime-related incidents can be located, displayed, prioritized, and responded to using the physical map and existing task systems.
-
-The desired result is a spatial emergency foundation that makes slime AI, containment, combat, tools, and room conditions feel connected.
-
-Before coding, discuss incident types, location rules, response task flow, UI alerts, map highlights, and how to avoid overwhelming the player.
-
----
-
-## 2. Slime AI Debugging and Behavior Readout System
+## 1. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -66,7 +41,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
