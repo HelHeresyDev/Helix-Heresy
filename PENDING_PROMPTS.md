@@ -12,11 +12,368 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Black Market Byproduct Economy System
+1. Map-First Interface Shell & Layout Rework
+2. Selection, Focus, and Inspector System
+3. Contextual Command Menu System
+4. Keyboard Navigation and Command Mode System
+5. Map Overlay, Filter, and Highlight System
+6. Unified Room, Object, Creature, and Door Inspector System
+7. Task Queue, Path Preview, and Movement Visualization System
+8. Incident Alert and Map Notification System
+9. Inventory, Stockpile, and Room-Local Resource Map Workflow
+10. Container and Specimen Management Map Workflow
+11. Construction Designation and Room Assignment Map Workflow
+12. Combat and Emergency Response Map Workflow
+13. Journal, Log, and Message Feed Integration Pass
+14. Menu Hierarchy and Screen Manager System
+15. UI State Persistence and Player Preference System
+16. Map Renderer Boundary and Future Canvas/Sprite Preparation
+17. Black Market Byproduct Economy System
 
 ---
 
-## 1. Black Market Byproduct Economy System
+## 1. Map-First Interface Shell & Layout Rework
+
+Rework the main interface from a panel-first prototype layout into a map-first management shell.
+
+The long-term target is a Dwarf Fortress-style interface: the lab map is the central surface, while panels, menus, inspectors, logs, queues, and command lists support the selected map context. The current panel-heavy interface has been useful for prototyping, but future systems should be built around the physical lab blueprint instead of around disconnected cards.
+
+This system should answer questions like:
+- What should the default screen layout be?
+- Where should the lab map live?
+- Which panels remain visible at all times?
+- Which panels should become inspectors, menus, drawers, overlays, or modal screens?
+- How should the player move between map, selection, commands, queue, log, inventory, policies, journal, and specimen views?
+- How should the UI remain playable with mouse, keyboard, or both?
+- How can the old panels remain accessible during the transition without preserving the old layout forever?
+
+The desired result is a first-pass map-first shell that makes the blueprint feel like the main game view. Existing functionality should remain reachable, but the visual hierarchy should clearly shift toward map selection, contextual inspection, and command workflows.
+
+Before coding, discuss the target screen layout, which existing panels should move first, how to preserve usability during migration, and the smallest first pass that proves the map-first direction.
+
+---
+
+## 2. Selection, Focus, and Inspector System
+
+Create a consistent selection and focus model for the map-first interface.
+
+The player should be able to select a tile, room, door, container, slime, corpse, tool, incident, task, or other object and have the interface understand what is selected. Selection should drive inspectors, contextual commands, highlights, map focus, hotkeys, and relevant warnings.
+
+This system should answer questions like:
+- What is the difference between hover, focus, selection, pinned selection, and active command target?
+- Can the player select a tile with multiple stacked objects?
+- How does stacked selection priority work?
+- How does the UI show what is currently selected?
+- How does selection synchronize with existing room cards, specimen cards, container cards, incident alerts, and inventory entries?
+- How should selection behave when the selected object moves, dies, is hauled, is deleted, or becomes invalid?
+- How should the game remember or clear selection between screens?
+
+The desired result is a single reliable selection model that future UI passes can reuse. Selection should become the bridge between the map and every inspector or command menu.
+
+Before coding, discuss selection data shape, focus behavior, stacked objects, invalid selection handling, UI highlights, and how current card click/focus behavior should migrate.
+
+---
+
+## 3. Contextual Command Menu System
+
+Create a contextual command menu system driven by the current selection.
+
+Instead of every action living permanently in a panel, the map-first interface should show commands relevant to what the player has selected. Selecting a slime should surface specimen actions. Selecting a container should surface container actions. Selecting a room should surface room actions. Selecting an incident should surface response actions. Selecting an empty tile should eventually surface construction or movement commands.
+
+This system should answer questions like:
+- Where should contextual commands appear?
+- How are commands grouped and ordered?
+- How are disabled commands displayed?
+- How does the UI explain missing requirements, blocked routes, tool needs, material needs, stamina costs, risk, or skill requirements?
+- How do commands map to existing action functions?
+- How should command hotkeys work?
+- How should commands handle target selection, confirmation, cancellation, and multi-step workflows?
+- How should dangerous commands show warnings without becoming annoying?
+
+The desired result is a reusable command framework where existing actions can move out of always-visible panels and into selection-aware command menus. This should reduce UI clutter and make the map feel like the player's command surface.
+
+Before coding, discuss command data shape, command grouping, disabled reasons, hotkeys, confirmation behavior, and which existing actions should be converted first.
+
+---
+
+## 4. Keyboard Navigation and Command Mode System
+
+Create keyboard navigation and command modes for the map-first interface.
+
+A Dwarf Fortress-style interface should be comfortable to drive through hotkeys and structured command menus. Mouse support can remain, but the player should not need to hunt through many panels for every action. The game should support moving map focus, opening command menus, selecting targets, confirming/canceling actions, and switching major screens with keyboard controls.
+
+This system should answer questions like:
+- How does the player move map focus with the keyboard?
+- How does keyboard focus differ from selected object?
+- What are the core command modes?
+- Which keys open major screens, command menus, inspector tabs, queue, log, inventory, policies, journal, and construction tools?
+- How do keyboard commands avoid conflicting with time-speed hotkeys?
+- How should the UI show available hotkeys?
+- How do commands handle target selection and cancellation?
+- Should the game support a help overlay or command legend?
+
+The desired result is a first-pass keyboard control layer that makes the map-first UI feel intentional rather than merely clickable. It should be extensible enough for future construction, combat, emergency response, black market, and colony-style management.
+
+Before coding, discuss keybinding philosophy, command modes, focus behavior, conflict handling, help display, and the smallest useful set of keyboard controls.
+
+---
+
+## 5. Map Overlay, Filter, and Highlight System
+
+Create a map overlay and filter system for the lab blueprint.
+
+The map should eventually show more than walls and object glyphs. The player needs ways to understand rooms, paths, incidents, contamination, habitat fit, containment risk, stockpiles, jobs, construction, combat, and movement. Overlays should reveal the right information at the right time without making the map unreadable.
+
+This system should answer questions like:
+- What overlays should exist first?
+- How should overlays show rooms, doors, paths, incidents, contamination, habitat fit, containment risk, object occupancy, construction designations, and job targets?
+- Can overlays be toggled by hotkey?
+- Can overlays stack, or should only one be active?
+- How should hover/tooltips work while an overlay is active?
+- How should the map avoid visual clutter in crowded rooms?
+- How should hidden or undiscovered information remain hidden?
+
+The desired result is a reusable overlay framework that supports current map systems and future simulation layers. Overlays should be data-driven and should not hard-code every new visualization into the base map renderer.
+
+Before coding, discuss overlay types, display priority, toggle behavior, tooltip behavior, hidden-information rules, and which overlays belong in the first pass.
+
+---
+
+## 6. Unified Room, Object, Creature, and Door Inspector System
+
+Create unified inspectors for selected map entities.
+
+The old interface exposes many details through separate panels and cards. The map-first interface should use inspectors that change based on selection. A room inspector, slime inspector, container inspector, door inspector, corpse inspector, incident inspector, and task inspector can share layout patterns while showing different content.
+
+This system should answer questions like:
+- What common sections should every inspector have?
+- What information belongs in a compact inspector versus an expanded details view?
+- How do inspectors show status, warnings, actions, history, and relevant links?
+- How do inspectors avoid revealing hidden traits, formulas, or exact hidden values?
+- How should inspector tabs work?
+- How should related objects be linked, such as a slime inside a container, a container in a room, or an incident tied to a door?
+- How should the inspector preserve existing useful readouts while reducing panel clutter?
+
+The desired result is a unified inspector framework that lets the player understand the selected entity without needing every entity type to have a permanent standalone panel on the screen.
+
+Before coding, discuss inspector layout, shared sections, entity-specific sections, expansion behavior, hidden information rules, and which old panels should become inspectors first.
+
+---
+
+## 7. Task Queue, Path Preview, and Movement Visualization System
+
+Rework task queue and movement visualization for the map-first interface.
+
+The game now has physical paths, movement tasks, hauling routes, incident response movement, and time controls. The map-first UI should make these visible and understandable. The player should be able to see what the scientist or creatures are doing, where they are going, and why a task is delayed or blocked.
+
+This system should answer questions like:
+- How should queued tasks appear in the map-first layout?
+- Should the next task path be shown by default?
+- How should selected task paths, hauling paths, creature routes, incident response paths, and blocked routes be visualized?
+- How should the player inspect, cancel, reorder, or focus a queued task?
+- How should time controls integrate with task visibility?
+- How should path previews work before committing to a movement or hauling command?
+- How should the UI explain blocked movement, missing access cells, closed doors, or invalid targets?
+
+The desired result is a task and path UI that turns movement and queued work into visible map behavior rather than hidden timers.
+
+Before coding, discuss queue placement, path display rules, selected-task behavior, task controls, blocked route messaging, and how to keep visual clutter manageable.
+
+---
+
+## 8. Incident Alert and Map Notification System
+
+Rework incident alerts and notifications around the map-first interface.
+
+Incidents already have map locations and alerts. In a map-first UI, incidents should be immediately visible spatially and should connect directly to response commands. The player should be able to see where something is wrong, inspect it, and choose a response without digging through unrelated panels.
+
+This system should answer questions like:
+- How should active incidents be shown on the map?
+- How should alerts appear in the main shell?
+- What is the difference between message log entries, incident alerts, warnings, and critical interruptions?
+- How does the player focus, acknowledge, respond to, or dismiss an incident?
+- How should incident severity affect time speed or pause behavior?
+- How should multiple incidents be prioritized?
+- How should stale, resolved, or ignored incidents be handled?
+- How should incident response commands appear contextually?
+
+The desired result is a clear emergency UI loop: notice incident, focus location, inspect cause, choose response, track response, and resolve or escalate. The event log should not become the only way to understand urgent problems.
+
+Before coding, discuss alert placement, map markers, severity behavior, response workflow, log boundaries, and which existing incident UI should migrate first.
+
+---
+
+## 9. Inventory, Stockpile, and Room-Local Resource Map Workflow
+
+Rework inventory and room-local resources for the map-first interface.
+
+The game now has lab-wide totals backed by room-local stockpiles. A map-first UI should help the player understand where resources physically are, what room has access, what needs hauling, and what commands will consume or move supplies.
+
+This system should answer questions like:
+- How should the player view resources by room?
+- How should Storage Room stockpiles appear from the map?
+- How should room-local materials appear in inspectors?
+- How should hauling requirements appear before starting an action?
+- How should commands explain that resources exist elsewhere and will need hauling?
+- Should stockpile overlays or resource filters exist?
+- How should inventory item history remain accessible?
+- How should collected byproducts, harvested materials, tools, feedstocks, waste, and corpses differ in the UI?
+
+The desired result is a resource workflow where inventory remains readable as a ledger, but the player also understands physical availability and room-local logistics from the map.
+
+Before coding, discuss inventory screen placement, room resource inspectors, hauling previews, overlays, stockpile focus, and which resource types need map workflows first.
+
+---
+
+## 10. Container and Specimen Management Map Workflow
+
+Rework container and specimen management around map selection.
+
+Containers and specimens are central to the game. The player should be able to select a container or slime on the map, inspect it, move it, feed it, harvest it, stage it, release it, recapture it, assign it, Analyze it, or respond to problems through contextual workflows.
+
+This system should answer questions like:
+- How should contained slimes appear on the map if the container owns the footprint?
+- How should the player select a slime inside a container from the map?
+- How should container contents, compatibility, containment risk, residue, byproduct collection, and breach state appear in inspectors?
+- How should specimen actions move from old panels into context commands?
+- How should release, move, feed, harvest, assign job, Analyze, and containment actions work from selection?
+- How should warnings appear for dangerous or risky specimen commands?
+- How should multiple slimes in one container be handled?
+
+The desired result is a map-first specimen workflow where the player can manage creatures from their physical location instead of treating specimen management as a separate list game.
+
+Before coding, discuss container selection, contained-specimen selection, contextual actions, risk warnings, multi-occupant containers, and which specimen commands should move first.
+
+---
+
+## 11. Construction Designation and Room Assignment Map Workflow
+
+Rework construction and room assignment into a map-first workflow.
+
+Construction already begins from the physical blueprint: the player designates earth tiles to excavate, queues excavation, and assigns room purpose afterward. The UI should make that workflow feel like a natural map tool rather than a panel action.
+
+This system should answer questions like:
+- How does the player enter construction/designation mode?
+- How are dig tiles selected, painted, confirmed, cancelled, or cleared?
+- How are planned dig tiles, rough rooms, assigned rooms, door links, and invalid designations shown?
+- How does the player assign or change room purpose from the map?
+- How should construction costs, time, access, warnings, and future secrecy/noise concerns appear?
+- How should room expansion differ from creating a new room?
+- How should the UI avoid overbuilding a full base-builder too early?
+
+The desired result is a construction workflow that feels like the beginning of a Dwarf Fortress-style map interface while staying limited to the prototype's current excavation and room-purpose model.
+
+Before coding, discuss construction mode, designation tools, confirmation flow, map highlights, room assignment inspector, and the smallest pass that improves construction usability.
+
+---
+
+## 12. Combat and Emergency Response Map Workflow
+
+Create a map-first workflow for combat and emergency response.
+
+Combat and incidents are spatial. The player should be able to see danger on the map, select actors or incidents, inspect threat state, issue response commands, and understand paths, adjacency, and contact. The first-pass combat framework should become readable and actionable through the map-first UI.
+
+This system should answer questions like:
+- How should active combat be shown on the map?
+- How should target selection work for Strike or future combat abilities?
+- How should adjacency, contact, range, and accessible container targets be communicated?
+- How should emergency commands appear for incidents, escaped slimes, breached containers, hostile creatures, or dangerous rooms?
+- How should pause/time-speed behavior integrate with combat UI?
+- How should combat intent, threat band, actor health/condition, and available responses appear without exposing hidden values?
+- How should the UI distinguish combat, containment response, cleanup, repair, and evacuation?
+
+The desired result is a combat/emergency workflow where the player can respond spatially instead of hunting through panels while the lab is on fire or a slime is loose.
+
+Before coding, discuss combat map markers, target selection, response commands, time behavior, threat inspectors, and what current combat actions should be surfaced first.
+
+---
+
+## 13. Journal, Log, and Message Feed Integration Pass
+
+Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
+
+The current prototype has many systems that generate observations, inventory histories, incident alerts, discoveries, warnings, and event log entries. A map-first UI needs a cleaner message hierarchy so the player knows what is urgent, what is historical, what is discovery-related, and what is routine accounting.
+
+This system should answer questions like:
+- Where does the main event/message feed live?
+- What belongs in the event log versus incident alerts versus inventory history versus journal discoveries?
+- How does the player filter messages?
+- How do map locations link from log entries?
+- How should discoveries and scientific observations be surfaced without interrupting every task?
+- How should routine resource accounting avoid spamming the main feed?
+- How should the journal remain useful in a map-first interface?
+
+The desired result is a cleaner information flow where important events are visible, routine accounting stays in history/tooltips, and map-linked messages can focus the relevant room, object, specimen, or incident.
+
+Before coding, discuss message categories, filtering, map linking, journal placement, history boundaries, and which existing messages should be migrated or reclassified.
+
+---
+
+## 14. Menu Hierarchy and Screen Manager System
+
+Create a screen manager and menu hierarchy for the map-first interface.
+
+As the interface becomes more structured, the game needs a clear way to manage major screens, drawers, overlays, modal dialogs, command menus, inspectors, and debug tools. The player should understand where they are in the UI and how to return to the map.
+
+This system should answer questions like:
+- What are the major screens?
+- What remains part of the main map shell?
+- What opens as a side inspector, bottom drawer, command menu, modal, overlay, or full-screen management view?
+- How does the UI handle nested menus?
+- How does Escape/back behavior work?
+- How should debug/cheat tools fit without polluting normal gameplay UI?
+- How should screen state interact with hotkeys, selection, time controls, and autosave/import/export?
+
+The desired result is a menu hierarchy that can support growing complexity without turning the UI into a maze of panels.
+
+Before coding, discuss screen categories, navigation rules, Escape/back behavior, modal rules, debug placement, and how to migrate existing panels gradually.
+
+---
+
+## 15. UI State Persistence and Player Preference System
+
+Create a UI state and preference system for the map-first interface.
+
+As the interface gains inspectors, overlays, filters, command menus, split panes, hidden panels, hotkeys, and debug modes, the game should remember reasonable UI preferences without mixing them into simulation state.
+
+This system should answer questions like:
+- Which UI state should persist across saves?
+- Which UI state should reset each session?
+- Should map zoom, pan, selected overlay, pinned inspector, collapsed drawers, message filters, and panel widths be saved?
+- How should player preferences differ from run-specific UI state?
+- How should debug options be stored?
+- How should the game avoid corrupting saves with transient UI details?
+- How should import/export treat UI preferences?
+
+The desired result is a clean separation between game state and UI state. The simulation should remain the source of truth, while player interface preferences make the map-first UI comfortable to use.
+
+Before coding, discuss persistent versus transient UI state, storage location, defaults, reset behavior, save/import implications, and which preferences matter first.
+
+---
+
+## 16. Map Renderer Boundary and Future Canvas/Sprite Preparation
+
+Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
+
+The final version may be simulation-heavy, may need to display 2D sprites, and may need to handle hundreds of actors or more. The current DOM map is fine for the prototype, but simulation and UI logic should not depend on DOM tiles in a way that makes future rendering upgrades painful.
+
+This system should answer questions like:
+- What is the boundary between map state, map view model, and map renderer?
+- Which code currently assumes DOM tiles are the map?
+- What data should a renderer receive each frame or render pass?
+- How should click, hover, selection, overlays, highlights, and tooltips pass through the renderer boundary?
+- How can the current DOM renderer be preserved while preparing for Canvas?
+- What would trigger a future Canvas migration?
+- How should future 2D sprites, zoom/pan, animation, dense actor rendering, and combat overlays fit?
+- How should renderer tests avoid depending on one rendering technology forever?
+
+The desired result is not to implement Canvas immediately unless Codex strongly recommends it after discussion. The desired result is to prevent the current map UI from becoming so DOM-coupled that Canvas or sprites require a rewrite of simulation, pathfinding, object placement, and selection.
+
+Before coding, discuss renderer boundaries, current coupling, view model shape, event routing, Canvas migration triggers, and the smallest refactor that keeps the DOM map working while preparing for future rendering.
+
+---
+
+## 17. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
