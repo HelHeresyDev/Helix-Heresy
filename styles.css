@@ -772,6 +772,44 @@ h2 {
   text-transform: uppercase;
 }
 
+.selection-command-panel,
+.selection-command-group,
+.selection-command-entry {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.selection-command-panel {
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(56, 58, 50, 0.7);
+}
+
+.selection-command-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.45rem;
+}
+
+.selection-command-entry {
+  align-content: start;
+}
+
+.selection-command-entry em {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  line-height: 1.25;
+}
+
+.selection-command-entry button:disabled + em {
+  color: #d4aa8b;
+}
+
+.context-command {
+  width: 100%;
+  text-align: left;
+}
+
 .lab-map-header,
 .lab-map-legend {
   display: flex;

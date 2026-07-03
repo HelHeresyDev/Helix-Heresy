@@ -12,47 +12,24 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Contextual Command Menu System
-2. Keyboard Navigation and Command Mode System
-3. Map Overlay, Filter, and Highlight System
-4. Unified Room, Object, Creature, and Door Inspector System
-5. Task Queue, Path Preview, and Movement Visualization System
-6. Incident Alert and Map Notification System
-7. Inventory, Stockpile, and Room-Local Resource Map Workflow
-8. Container and Specimen Management Map Workflow
-9. Construction Designation and Room Assignment Map Workflow
-10. Combat and Emergency Response Map Workflow
-11. Journal, Log, and Message Feed Integration Pass
-12. Menu Hierarchy and Screen Manager System
-13. UI State Persistence and Player Preference System
-14. Map Renderer Boundary and Future Canvas/Sprite Preparation
-15. Black Market Byproduct Economy System
+1. Keyboard Navigation and Command Mode System
+2. Map Overlay, Filter, and Highlight System
+3. Unified Room, Object, Creature, and Door Inspector System
+4. Task Queue, Path Preview, and Movement Visualization System
+5. Incident Alert and Map Notification System
+6. Inventory, Stockpile, and Room-Local Resource Map Workflow
+7. Container and Specimen Management Map Workflow
+8. Construction Designation and Room Assignment Map Workflow
+9. Combat and Emergency Response Map Workflow
+10. Journal, Log, and Message Feed Integration Pass
+11. Menu Hierarchy and Screen Manager System
+12. UI State Persistence and Player Preference System
+13. Map Renderer Boundary and Future Canvas/Sprite Preparation
+14. Black Market Byproduct Economy System
 
 ---
 
-## 1. Contextual Command Menu System
-
-Create a contextual command menu system driven by the current selection.
-
-Instead of every action living permanently in a panel, the map-first interface should show commands relevant to what the player has selected. Selecting a slime should surface specimen actions. Selecting a container should surface container actions. Selecting a room should surface room actions. Selecting an incident should surface response actions. Selecting an empty tile should eventually surface construction or movement commands.
-
-This system should answer questions like:
-- Where should contextual commands appear?
-- How are commands grouped and ordered?
-- How are disabled commands displayed?
-- How does the UI explain missing requirements, blocked routes, tool needs, material needs, stamina costs, risk, or skill requirements?
-- How do commands map to existing action functions?
-- How should command hotkeys work?
-- How should commands handle target selection, confirmation, cancellation, and multi-step workflows?
-- How should dangerous commands show warnings without becoming annoying?
-
-The desired result is a reusable command framework where existing actions can move out of always-visible panels and into selection-aware command menus. This should reduce UI clutter and make the map feel like the player's command surface.
-
-Before coding, discuss command data shape, command grouping, disabled reasons, hotkeys, confirmation behavior, and which existing actions should be converted first.
-
----
-
-## 2. Keyboard Navigation and Command Mode System
+## 1. Keyboard Navigation and Command Mode System
 
 Create keyboard navigation and command modes for the map-first interface.
 
@@ -74,7 +51,7 @@ Before coding, discuss keybinding philosophy, command modes, focus behavior, con
 
 ---
 
-## 3. Map Overlay, Filter, and Highlight System
+## 2. Map Overlay, Filter, and Highlight System
 
 Create a map overlay and filter system for the lab blueprint.
 
@@ -95,7 +72,7 @@ Before coding, discuss overlay types, display priority, toggle behavior, tooltip
 
 ---
 
-## 4. Unified Room, Object, Creature, and Door Inspector System
+## 3. Unified Room, Object, Creature, and Door Inspector System
 
 Create unified inspectors for selected map entities.
 
@@ -116,7 +93,7 @@ Before coding, discuss inspector layout, shared sections, entity-specific sectio
 
 ---
 
-## 5. Task Queue, Path Preview, and Movement Visualization System
+## 4. Task Queue, Path Preview, and Movement Visualization System
 
 Rework task queue and movement visualization for the map-first interface.
 
@@ -137,7 +114,7 @@ Before coding, discuss queue placement, path display rules, selected-task behavi
 
 ---
 
-## 6. Incident Alert and Map Notification System
+## 5. Incident Alert and Map Notification System
 
 Rework incident alerts and notifications around the map-first interface.
 
@@ -159,7 +136,7 @@ Before coding, discuss alert placement, map markers, severity behavior, response
 
 ---
 
-## 7. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 6. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -181,7 +158,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 8. Container and Specimen Management Map Workflow
+## 7. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -202,7 +179,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 9. Construction Designation and Room Assignment Map Workflow
+## 8. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -223,7 +200,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 10. Combat and Emergency Response Map Workflow
+## 9. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -244,7 +221,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 11. Journal, Log, and Message Feed Integration Pass
+## 10. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -265,7 +242,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 12. Menu Hierarchy and Screen Manager System
+## 11. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -286,7 +263,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 13. UI State Persistence and Player Preference System
+## 12. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -307,7 +284,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 14. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 13. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -329,7 +306,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 15. Black Market Byproduct Economy System
+## 14. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

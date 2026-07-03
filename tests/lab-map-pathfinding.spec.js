@@ -1447,6 +1447,50 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
   expect(selected).toMatchObject({ kind: 'room', roomId: 'bedroom' });
 });
 
+test('contextual commands operate on selected doors and rooms', async ({ page }) => {
+  await startRun(page);
+
+  const initialDoor = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors['mainLab::storageRoom'];
+  }, { key: storageKey });
+
+  await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Door');
+  const doorCommandLabel = initialDoor.state === 'open' ? 'Close Door' : 'Open Door';
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: doorCommandLabel }).click();
+
+  const changedDoor = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.doors['mainLab::storageRoom'];
+  }, { key: storageKey });
+  expect(changedDoor.state).toBe(initialDoor.state === 'open' ? 'closed' : 'open');
+
+  const bedroomCell = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const bedroom = state.labMap.rooms.bedroom;
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
+      `${door.from.x},${door.from.y}`,
+      `${door.to.x},${door.to.y}`
+    ]));
+    return bedroom.cells.find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
+  }, { key: storageKey });
+
+  await page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`).click();
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' }).click();
+  const queued = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return (state.tasks || []).find((task) => task.type === 'scientistMove');
+  }, { key: storageKey });
+  expect(queued).toBeTruthy();
+  expect(queued.data.toRoomId).toBe('bedroom');
+});
+
 test('selection inspector links contained specimens from a selected container', async ({ page }) => {
   await startRun(page);
 
@@ -1575,6 +1619,23 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
   expect(result.selectedSlimeId).toBeNull();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'corpse');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', result.corpses[0].id);
+
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Dump Outside' }).click();
+  const dumped = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      corpses: state.corpses,
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+      suspicion: state.suspicion,
+    };
+  }, { key: storageKey });
+  expect(dumped.corpses).toHaveLength(0);
+  expect(dumped.selection).toBeNull();
+  expect(dumped.selectedMapTarget).toBeNull();
+  expect(dumped.suspicion).toBeGreaterThan(0);
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('No selection');
 });
 
 test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {

@@ -2788,46 +2788,7 @@
     });
 
     dom.releaseBtn.addEventListener("click", () => {
-      const slime = getSelectedSlime();
-      if (!slime || slime.status === "dead") {
-        return;
-      }
-      const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
-      if (scientistIsDead()) {
-      addEvent("The scientist is dead.");
-      persist();
-      render();
-      return;
-    }
-      if (slime.status !== "released" && !confirmReleaseSuitabilityIfNeeded(slime)) {
-        persist();
-        render();
-        return;
-      }
-    if (!spendStamina(cost)) {
-        addEvent(`Not enough stamina. ${cost} required.`);
-        persist();
-        render();
-        return;
-      }
-      if (slime.status === "released") {
-        const container = moveSlimeToOpenPermanentContainer(slime);
-        if (!container) {
-          restoreStamina(cost);
-          addEvent("No open permanent container is available.");
-          persist();
-          render();
-          return;
-        }
-        addEvent(`${slime.name} contained in ${container.name}.`);
-      } else {
-        const previousLocation = containerLabelForSlime(slime);
-        releaseSlime(slime);
-        addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
-      }
-      awardXp("creatureHandling", 5, "Creature handling");
-      persist();
-      render();
+      toggleSlimeContainment(getSelectedSlime()?.id);
     });
 
     dom.breedBtn.addEventListener("click", () => {
@@ -6661,7 +6622,7 @@
       return false;
     }
     state.doors = normalizeDoors(state.doors);
-    const door = state.doors[key];
+    let door = state.doors[key];
     if (!door) {
       return false;
     }
@@ -6680,6 +6641,7 @@
         }
         return false;
       }
+      door = state.doors[key];
     }
     if (door.state === nextState) {
       return false;
@@ -9950,6 +9912,65 @@
 
 
 
+
+  function slimeContainmentToggleLabel(slime) {
+    return slime?.status === "released" ? "Contain Creature" : "Release into Room";
+  }
+
+  function slimeContainmentToggleBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime selected.";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    if (slime.status === "released" && !firstOpenPermanentContainer()) {
+      return "No open permanent container is available.";
+    }
+    return staminaBlockReason(adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]));
+  }
+
+  function toggleSlimeContainment(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = slimeContainmentToggleBlockReason(slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
+    if (slime.status !== "released" && !confirmReleaseSuitabilityIfNeeded(slime)) {
+      persist();
+      render();
+      return false;
+    }
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    if (slime.status === "released") {
+      const container = moveSlimeToOpenPermanentContainer(slime);
+      if (!container) {
+        restoreStamina(cost);
+        addEvent("No open permanent container is available.");
+        persist();
+        render();
+        return false;
+      }
+      addEvent(`${slime.name} contained in ${container.name}.`);
+    } else {
+      const previousLocation = containerLabelForSlime(slime);
+      releaseSlime(slime);
+      addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
+    }
+    awardXp("creatureHandling", 5, "Creature handling");
+    persist();
+    render();
+    return true;
+  }
 
   function slimeStateLabel(slime) {
     if (!slime || slime.status === "dead") {
@@ -24962,6 +24983,455 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return row;
   }
 
+  function commandDef(options) {
+    return {
+      id: String(options.id || ""),
+      label: String(options.label || "Command"),
+      group: String(options.group || "Actions"),
+      description: String(options.description || ""),
+      disabledReason: String(options.disabledReason || ""),
+      danger: Boolean(options.danger),
+      run: typeof options.run === "function" ? options.run : () => false
+    };
+  }
+
+  function contextualCommandsForSelection(selection) {
+    if (!selection) {
+      return [];
+    }
+    if (selection.kind === "room") {
+      return roomContextCommands(roomById(selection.roomId));
+    }
+    if (selection.kind === "tile") {
+      return tileContextCommands(selection);
+    }
+    if (selection.kind === "door") {
+      return doorContextCommands(labMapDoor(selection.key), selection);
+    }
+    if (selection.kind === "incident") {
+      return incidentContextCommands(incidentById(selection.id));
+    }
+    if (selection.kind === "corpse") {
+      return corpseContextCommands(findCorpse(selection.id));
+    }
+    if (selection.kind === "slime") {
+      return slimeContextCommands(findSlime(selection.id));
+    }
+    if (selection.kind === "container") {
+      return containerContextCommands(containerById(selection.id));
+    }
+    return [];
+  }
+
+  function roomContextCommands(room) {
+    if (!room) {
+      return [];
+    }
+    const reason = scientistMoveBlockReason(room.id, { allowMultiRoom: true });
+    return [
+      commandDef({
+        id: `room.move.${room.id}`,
+        label: "Move Scientist Here",
+        group: "Movement",
+        disabledReason: reason,
+        description: `Queue movement to ${room.name}.`,
+        run: () => startScientistMove(room.id, { allowMultiRoom: true })
+      })
+    ];
+  }
+
+  function tileContextCommands(selection) {
+    const roomId = selection?.roomId || labMapCellRoomId(selection?.tile);
+    if (!roomId) {
+      return [];
+    }
+    const reason = scientistMoveBlockReason(roomId, { toCell: selection.tile, allowMultiRoom: true });
+    return [
+      commandDef({
+        id: `tile.move.${selection.tile.x}.${selection.tile.y}`,
+        label: "Move Scientist Here",
+        group: "Movement",
+        disabledReason: reason,
+        description: `Queue movement to tile ${selection.tile.x},${selection.tile.y}.`,
+        run: () => startScientistMove(roomId, {
+          toCell: selection.tile,
+          allowMultiRoom: true,
+          label: `Move scientist to tile ${selection.tile.x},${selection.tile.y}`
+        })
+      })
+    ];
+  }
+
+  function doorContextCommands(door, selection = {}) {
+    if (!door) {
+      return [];
+    }
+    const roomIds = Array.isArray(door.roomIds) && door.roomIds.length >= 2
+      ? door.roomIds
+      : Array.isArray(selection.roomIds) && selection.roomIds.length >= 2
+        ? selection.roomIds
+        : doorRoomIdsFromKey(selection.key || door.key);
+    const [roomAId, roomBId] = roomIds;
+    const liveDoor = doorForConnection(roomAId, roomBId) || door;
+    const key = selection.key || door.key || doorKey(roomAId, roomBId);
+    const breachedReason = doorIsBreached(liveDoor) ? `${roomIds.map(roomName).join(" to ")} door is breached.` : "";
+    const openAction = liveDoor.state === DOOR_STATE_OPEN ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
+    const lockAction = liveDoor.lockState === DOOR_LOCK_LOCKED ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED;
+    const sealAction = liveDoor.sealState === DOOR_SEAL_SEALED ? DOOR_SEAL_UNSEALED : DOOR_SEAL_SEALED;
+    return [
+      commandDef({
+        id: `door.position.${key}`,
+        label: openAction === DOOR_STATE_OPEN ? "Open Door" : "Close Door",
+        group: "Door",
+        disabledReason: breachedReason || (openAction === DOOR_STATE_OPEN ? doorSecurityBlockReason(roomAId, roomBId) : ""),
+        description: doorStateTooltipText(roomAId, roomBId),
+        run: () => {
+          const result = setDoorState(roomAId, roomBId, openAction);
+          persist();
+          render();
+          return result;
+        }
+      }),
+      commandDef({
+        id: `door.lock.${key}`,
+        label: lockAction === DOOR_LOCK_LOCKED ? "Lock Door" : "Unlock Door",
+        group: "Door",
+        disabledReason: breachedReason || (lockAction === DOOR_LOCK_LOCKED && liveDoor.sealState === DOOR_SEAL_SEALED ? "Sealed doors are already secured." : ""),
+        description: doorStateTooltipText(roomAId, roomBId),
+        run: () => {
+          const result = setDoorLockState(roomAId, roomBId, lockAction);
+          persist();
+          render();
+          return result;
+        }
+      }),
+      commandDef({
+        id: `door.seal.${key}`,
+        label: sealAction === DOOR_SEAL_SEALED ? "Seal Door" : "Unseal Door",
+        group: "Door",
+        disabledReason: breachedReason,
+        description: doorStateTooltipText(roomAId, roomBId),
+        run: () => {
+          const result = setDoorSealState(roomAId, roomBId, sealAction);
+          persist();
+          render();
+          return result;
+        }
+      })
+    ];
+  }
+
+  function incidentContextCommands(incident) {
+    if (!incident) {
+      return [];
+    }
+    const target = incidentFocusTarget(incident);
+    return [
+      commandDef({
+        id: `incident.focus.${incident.id}`,
+        label: "Focus Source",
+        group: "Incident",
+        disabledReason: target ? "" : "This incident has no focus target.",
+        description: "Select the map object or room connected to this alert.",
+        run: () => focusMapTarget(target)
+      }),
+      commandDef({
+        id: `incident.respond.${incident.id}`,
+        label: "Respond",
+        group: "Incident",
+        disabledReason: incidentResponseMoveBlockReason(incident),
+        description: "Queue scientist movement to the alert site.",
+        run: () => startIncidentResponseMove(incident.id)
+      }),
+      commandDef({
+        id: `incident.ack.${incident.id}`,
+        label: incident.acknowledgedAt !== null ? "Acknowledged" : "Acknowledge",
+        group: "Incident",
+        disabledReason: incident.acknowledgedAt !== null ? "This incident has already been acknowledged." : "",
+        description: "Mark this alert as seen.",
+        run: () => acknowledgeIncident(incident.id)
+      })
+    ];
+  }
+
+  function corpseContextCommands(corpse) {
+    if (!corpse) {
+      return [];
+    }
+    const commands = [];
+    const necropsyCost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
+    commands.push(commandDef({
+      id: `corpse.necropsy.${corpse.id}`,
+      label: "Necropsy",
+      group: "Corpse",
+      disabledReason: necropsyBlockReason(corpse, necropsyCost),
+      description: `Scientific examination; ${formatDuration(adjustedDuration(necropsyDuration(corpse), "medicine"))}.`,
+      run: () => startNecropsy(corpse)
+    }));
+    commands.push(commandDef({
+      id: `corpse.forensic.${corpse.id}`,
+      label: `Forensic Analyze (${FORENSIC_ANALYZE_MANA_COST} MANA)`,
+      group: "Corpse",
+      disabledReason: forensicAnalyzeCorpseBlockReason(corpse),
+      description: "Instant magical read of cause, tissue, and evidence state.",
+      run: () => startForensicAnalyzeCorpse(corpse.id)
+    }));
+    for (const procedure of SPECIMEN_HARVEST_PROCEDURE_DEFS) {
+      const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
+      commands.push(commandDef({
+        id: `corpse.harvest.${corpse.id}.${procedure.id}`,
+        label: procedure.corpseLabel,
+        group: "Harvest",
+        disabledReason: corpseHarvestBlockReason(corpse, procedure, cost),
+        description: corpseHarvestProcedureTitle(corpse, procedure),
+        danger: Boolean(procedure.corpseConsumes || procedure.corpseRuins),
+        run: () => startCorpseHarvest(corpse, procedure.id)
+      }));
+    }
+    commands.push(commandDef({
+      id: `corpse.dump.${corpse.id}`,
+      label: "Dump Outside",
+      group: "Disposal",
+      disabledReason: dumpCorpseBlockReason(corpse),
+      description: "Remove the corpse from lab storage and increase Suspicion.",
+      danger: true,
+      run: () => dumpCorpseOutside(corpse.id)
+    }));
+    return commands;
+  }
+
+  function slimeContextCommands(slime) {
+    if (!slime) {
+      return [];
+    }
+    const commands = [
+      commandDef({
+        id: `slime.analyze.${slime.id}`,
+        label: `Analyze (${ANALYZE_MANA_COST} MANA)`,
+        group: "Analyze",
+        disabledReason: analyzeSlimeBlockReason(slime),
+        description: "Read practiced skills and broad learned behavior.",
+        run: () => startAnalyzeSlime(slime.id)
+      }),
+      commandDef({
+        id: `slime.advancedAnalyze.${slime.id}`,
+        label: `Advanced Analyze (${ADVANCED_ANALYZE_MANA_COST} MANA)`,
+        group: "Analyze",
+        disabledReason: advancedAnalyzeSlimeBlockReason(slime),
+        description: "Read exact levels for skills already found by Analyze.",
+        run: () => startAdvancedAnalyzeSlime(slime.id)
+      }),
+      commandDef({
+        id: `slime.combatAnalyze.${slime.id}`,
+        label: `Combat Analyze (${COMBAT_ANALYZE_MANA_COST} MANA)`,
+        group: "Analyze",
+        disabledReason: combatAnalyzeSlimeBlockReason(slime),
+        description: "Read combat intent, threat band, and observed damage tags.",
+        run: () => startCombatAnalyzeSlime(slime.id)
+      }),
+      commandDef({
+        id: `slime.containment.${slime.id}`,
+        label: slimeContainmentToggleLabel(slime),
+        group: "Handling",
+        disabledReason: slimeContainmentToggleBlockReason(slime),
+        description: slime.status === "released" ? "Move the loose creature into an open container." : releaseSuitabilityTooltipText(slime),
+        danger: slime.status !== "released",
+        run: () => toggleSlimeContainment(slime.id)
+      }),
+      commandDef({
+        id: `slime.strike.${slime.id}`,
+        label: "Strike",
+        group: "Combat",
+        disabledReason: scientistStrikeBlockReason(slime),
+        description: `Deal ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage and raise Stress.`,
+        danger: true,
+        run: () => startScientistStrike(slime.id)
+      })
+    ];
+    if (isInSynthesisTube(slime)) {
+      commands.push(commandDef({
+        id: `slime.moveFromTube.${slime.id}`,
+        label: "Move to Open Container",
+        group: "Handling",
+        disabledReason: synthesisTubeMoveBlockReason(slime),
+        description: "Move the specimen from the synthesis tube to an open permanent container.",
+        run: () => moveTubeOccupantToOpenContainer(slime.id)
+      }));
+    }
+    for (const procedure of SPECIMEN_HARVEST_PROCEDURE_DEFS) {
+      const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
+      commands.push(commandDef({
+        id: `slime.harvest.${slime.id}.${procedure.id}`,
+        label: procedure.livingLabel,
+        group: "Harvest",
+        disabledReason: livingHarvestBlockReason(slime, procedure, cost),
+        description: livingHarvestProcedureTitle(slime, procedure),
+        danger: Boolean(procedure.terminal),
+        run: () => startLivingHarvest(slime, procedure.id)
+      }));
+    }
+    return commands;
+  }
+
+  function synthesisTubeMoveBlockReason(slime) {
+    if (!slime || !isInSynthesisTube(slime)) {
+      return "Specimen is not in the synthesis tube.";
+    }
+    if (!firstOpenPermanentContainer()) {
+      return "No open permanent container is available.";
+    }
+    const cost = adjustedStaminaCost(HANDLING_STAMINA, ["creatureHandling"]);
+    return physicalStateRiskBlockReason(`moving ${slime.name} from the synthesis tube`)
+      || handlingMethodMissingToolReason(currentHandlingMethodId())
+      || staminaBlockReason(cost);
+  }
+
+  function containerContextCommands(container) {
+    if (!container) {
+      return [];
+    }
+    const commands = [];
+    if (container.type !== "synthesis") {
+      const action = containerAccessOpen(container) ? "close" : "open";
+      const baseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
+      const actionLabel = action === "close" ? "Close Container" : "Open Container";
+      const physicalRiskLabel = `${action === "close" ? "closing" : "opening"} ${container.name}`;
+      commands.push(commandDef({
+        id: `container.access.${container.id}`,
+        label: actionLabel,
+        group: "Container",
+        disabledReason: containerInteractionBlockReason(container, action)
+          || physicalStateRiskBlockReason(physicalRiskLabel)
+          || handlingMethodMissingToolReason(currentHandlingMethodId())
+          || staminaBlockReason(adjustedStaminaCost(baseCost, ["creatureHandling"])),
+        description: handlingRiskTitle(container, action, currentHandlingMethodId()),
+        run: () => startContainerInteraction(container.id, action)
+      }));
+
+      const currentRoomId = scientistRoomId();
+      commands.push(commandDef({
+        id: `container.haulCurrent.${container.id}`,
+        label: `Haul to ${roomName(currentRoomId)}`,
+        group: "Movement",
+        disabledReason: containerHaulBlockReason(container, currentRoomId),
+        description: "Queue a container hauling task to the scientist's current room.",
+        run: () => moveContainerToRoom(container.id, currentRoomId)
+      }));
+
+      if (!isPitHoleContainer(container) && containerCorpses(container.id).length) {
+        for (const remainsAction of ["dumpRemains", "scrapeRemains"]) {
+          const base = remainsAction === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
+          const riskLabel = `${remainsHandlingActionLabel(remainsAction).toLowerCase()} from ${container.name}`;
+          commands.push(commandDef({
+            id: `container.remains.${container.id}.${remainsAction}`,
+            label: remainsHandlingActionLabel(remainsAction),
+            group: "Remains",
+            disabledReason: remainsHandlingBlockReason(container, remainsAction)
+              || physicalStateRiskBlockReason(riskLabel)
+              || handlingMethodMissingToolReason(currentHandlingMethodId())
+              || staminaBlockReason(adjustedStaminaCost(base, ["creatureHandling"])),
+            description: handlingRiskTitle(container, remainsAction, currentHandlingMethodId()),
+            danger: true,
+            run: () => startRemainsHandling(container.id, remainsAction)
+          }));
+        }
+      }
+
+      if (containerOccupants(container.id).length) {
+        const destination = liveTransferDestinationCandidates(container)[0] || null;
+        const riskLabel = "transferring a living slime";
+        commands.push(commandDef({
+          id: `container.transfer.${container.id}`,
+          label: destination ? `Transfer to ${destination.name}` : "Transfer Living Slime",
+          group: "Handling",
+          disabledReason: liveTransferBlockReason(container, destination?.id || "")
+            || physicalStateRiskBlockReason(riskLabel)
+            || handlingMethodMissingToolReason(currentHandlingMethodId())
+            || staminaBlockReason(adjustedStaminaCost(LIVE_TRANSFER_STAMINA, ["creatureHandling"])),
+          description: destination ? `Transfer one living occupant into ${destination.name}.` : "Move one living occupant to an open same-room container.",
+          run: () => startLiveSlimeTransfer(container.id, destination?.id || "")
+        }));
+      }
+    } else {
+      const occupant = containerOccupants(container.id)[0] || null;
+      if (occupant) {
+        commands.push(commandDef({
+          id: `container.tubeMove.${container.id}`,
+          label: "Move Occupant to Open Container",
+          group: "Container",
+          disabledReason: synthesisTubeMoveBlockReason(occupant),
+          description: "Move the synthesis tube occupant to an open permanent container.",
+          run: () => moveTubeOccupantToOpenContainer(occupant.id)
+        }));
+      }
+    }
+    return commands;
+  }
+
+  function renderContextualCommands(selection) {
+    const commands = contextualCommandsForSelection(selection);
+    const panel = document.createElement("div");
+    panel.className = "selection-command-panel";
+    panel.dataset.contextCommandPanel = "true";
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Commands";
+    panel.append(title);
+    if (!commands.length) {
+      panel.append(emptyText("No contextual commands for this selection yet."));
+      return panel;
+    }
+    const groups = new Map();
+    for (const command of commands) {
+      if (!groups.has(command.group)) {
+        groups.set(command.group, []);
+      }
+      groups.get(command.group).push(command);
+    }
+    for (const [group, groupCommands] of groups.entries()) {
+      const groupEl = document.createElement("div");
+      groupEl.className = "selection-command-group";
+      groupEl.append(textEl("strong", group));
+      const list = document.createElement("div");
+      list.className = "selection-command-list";
+      for (const command of groupCommands) {
+        const wrap = document.createElement("div");
+        wrap.className = "selection-command-entry";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `context-command${command.danger ? " danger-action" : ""}`;
+        button.dataset.contextCommand = command.id;
+        button.textContent = command.label;
+        button.title = command.disabledReason || command.description;
+        setActionButtonState(button, Boolean(command.disabledReason), command.disabledReason);
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          runContextCommand(command);
+        });
+        wrap.append(button);
+        if (command.disabledReason) {
+          wrap.append(textEl("em", command.disabledReason));
+        } else if (command.description) {
+          wrap.append(textEl("em", command.description));
+        }
+        list.append(wrap);
+      }
+      groupEl.append(list);
+      panel.append(groupEl);
+    }
+    return panel;
+  }
+
+  function runContextCommand(command) {
+    if (command.disabledReason) {
+      addEvent(command.disabledReason);
+      persist();
+      render();
+      return false;
+    }
+    return command.run();
+  }
+
   function selectionInspectorEl() {
     const panel = document.createElement("div");
     panel.className = "selection-inspector subpanel";
@@ -24996,6 +25466,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     location.className = "selection-inspector-row";
     location.append(textEl("span", "Location"), textEl("strong", selectionLocationLabel(selection)));
     panel.append(location);
+
+    panel.append(renderContextualCommands(selection));
 
     const related = selectionLinkRow("Related", selectionRelatedTargets(selection));
     if (related) {
