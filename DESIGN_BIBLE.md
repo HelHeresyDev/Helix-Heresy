@@ -156,6 +156,8 @@ The first contextual command pass adds a reusable command definition and renderi
 
 The first keyboard-control pass adds a map cursor and two explicit UI modes. Navigation mode lets the player move the cursor with arrow keys, select the top-priority target under it with Enter, open contextual commands with `A`, clear selection with Escape, and toggle a help legend with `?`. Command mode displays numbered hints on the selected target's contextual commands; `1` through `9` activate those visible commands and Escape returns to navigation. Time controls remain global outside command mode, so `1` through `5` still set time speed unless the player is actively choosing a command.
 
+The first map overlay pass adds a single active overlay selected from the blueprint or cycled with `O` and `Shift+O`. Current overlays are None, Contamination, Movement, Incidents, Construction, and Debug. Normal overlays must represent what the scientist or player already knows: contamination uses the current room observation or stale remembered observations, movement uses known queued paths, incidents use known active alerts, and construction uses player designations. The Debug overlay is explicitly omniscient for development and can show raw simulation details, including unobserved room conditions and actors. Future overlays should follow the same rule: no free information in normal play, but debug can expose the underlying simulation for testing.
+
 The current browser foundation is still worth keeping for now. HTML and CSS are strong fits for dense management screens, forms, logs, policy tabs, tooltips, inspectors, inventory ledgers, journals, and readable text-heavy UI. A full engine rewrite should not happen unless the project hits a clear technical limit that cannot be solved with better architecture.
 
 The likely long-term rendering model is hybrid. The current DOM tile map is acceptable while the lab is small and glyph-based. Canvas should be prepared for, but deferred until the map needs larger spaces, hundreds of actors, smooth animation, sprite rendering, zoom and pan, combat overlays, path previews, or dense environmental visualization. HTML should remain the layer for menus, panels, inspectors, policy screens, and most controls even if the map itself eventually moves to Canvas.
@@ -519,7 +521,7 @@ Open design questions:
 - Reusable handling tools including Thick gloves, Long tongs, Hook pole, and Scraper, with individual durability, condition bands, usable/broken gating, broad resistance readouts, and hazardous handling wear.
 - Paused start with selectable time speeds from real-time through accelerated waits.
 - Collapsible time queue drawer with manual skip, next-event skip, and next-queue skip controls.
-- Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, and Shift+. skips to the next queued task.
+- Keyboard shortcuts: Space pauses, 1-5 select speeds, [ and ] step speed, . skips to next event, Shift+. skips to the next queued task, O cycles map overlays, and Shift+O cycles overlays backward.
 - Automatic, manual, and disabled journal modes.
 - Local save, import, export, and save-to-folder support.
 

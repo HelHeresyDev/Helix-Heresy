@@ -1505,6 +1505,16 @@ test('keyboard cursor selects map targets and command mode activates contextual 
     };
   }, { key: storageKey });
   expect(initial.cursor).toEqual(initial.scientistCell);
+  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('none');
+  await page.keyboard.press('O');
+  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('contamination');
+  let overlayState = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).ui.mapOverlay;
+  }, { key: storageKey });
+  expect(overlayState).toBe('contamination');
+  await page.keyboard.press('Shift+O');
+  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('none');
   await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-x', String(initial.cursor.x));
   await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-y', String(initial.cursor.y));
 
@@ -1589,6 +1599,79 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);
+});
+
+test('map overlays avoid unobserved room information unless debug is active', async ({ page }) => {
+  await startRun(page);
+
+  const fixture = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
+      `${door.from.x},${door.from.y}`,
+      `${door.to.x},${door.to.y}`,
+    ]));
+    const pickRoomCell = (roomId) =>
+      (state.labMap.rooms[roomId]?.cells || []).find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
+    const mainCell = pickRoomCell('mainLab');
+    const storageCell = pickRoomCell('storageRoom');
+    const storageRoom = (state.rooms || []).find((room) => room.id === 'storageRoom');
+    const mainRoom = (state.rooms || []).find((room) => room.id === 'mainLab');
+    if (!mainCell || !storageCell || !storageRoom || !mainRoom) {
+      throw new Error('Map fixture rooms not found');
+    }
+    mainRoom.attributes.contamination.current = 10;
+    storageRoom.attributes.contamination.current = 92;
+    storageRoom.observation = null;
+    state.roomObservations ||= {};
+    delete state.roomObservations.storageRoom;
+    state.scientist.roomId = 'mainLab';
+    state.scientist.mapCell = state.labMap.rooms.mainLab.anchor;
+    state.slimes = [{
+      id: 'hidden-storage-slime',
+      name: 'HIDDEN-STORAGE',
+      genome: state.currentGenome,
+      source: 'Map knowledge fixture',
+      createdAt: 0,
+      deathAt: 100000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'released',
+      containerId: null,
+      roomId: 'storageRoom',
+      mapCell: storageCell,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+    return { mainCell, storageCell };
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
+  const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
+
+  await page.locator('[data-map-overlay-select="true"]').selectOption('contamination');
+  await expect(mainTile).toHaveAttribute('data-map-overlay', 'contamination');
+  await expect(mainTile).toHaveAttribute('data-map-overlay-label', /Main Lab: Low/);
+  await expect(storageTile).not.toHaveAttribute('data-map-overlay', /.+/);
+  await expect(storageTile).not.toHaveAttribute('data-map-target-id', 'hidden-storage-slime');
+  await expect(storageTile).not.toHaveClass(/living-object-cell/);
+
+  await page.locator('[data-map-overlay-select="true"]').selectOption('debug');
+  await expect(storageTile).toHaveAttribute('data-map-overlay', 'debug');
+  await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Hazardous/);
+  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '92.0');
+  await expect(storageTile).toHaveAttribute('data-map-target-id', 'hidden-storage-slime');
+  await expect(storageTile).toHaveClass(/living-object-cell/);
 });
 
 test('selection inspector links contained specimens from a selected container', async ({ page }) => {

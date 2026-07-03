@@ -12,44 +12,22 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Map Overlay, Filter, and Highlight System
-2. Unified Room, Object, Creature, and Door Inspector System
-3. Task Queue, Path Preview, and Movement Visualization System
-4. Incident Alert and Map Notification System
-5. Inventory, Stockpile, and Room-Local Resource Map Workflow
-6. Container and Specimen Management Map Workflow
-7. Construction Designation and Room Assignment Map Workflow
-8. Combat and Emergency Response Map Workflow
-9. Journal, Log, and Message Feed Integration Pass
-10. Menu Hierarchy and Screen Manager System
-11. UI State Persistence and Player Preference System
-12. Map Renderer Boundary and Future Canvas/Sprite Preparation
-13. Black Market Byproduct Economy System
+1. Unified Room, Object, Creature, and Door Inspector System
+2. Task Queue, Path Preview, and Movement Visualization System
+3. Incident Alert and Map Notification System
+4. Inventory, Stockpile, and Room-Local Resource Map Workflow
+5. Container and Specimen Management Map Workflow
+6. Construction Designation and Room Assignment Map Workflow
+7. Combat and Emergency Response Map Workflow
+8. Journal, Log, and Message Feed Integration Pass
+9. Menu Hierarchy and Screen Manager System
+10. UI State Persistence and Player Preference System
+11. Map Renderer Boundary and Future Canvas/Sprite Preparation
+12. Black Market Byproduct Economy System
 
 ---
 
-## 1. Map Overlay, Filter, and Highlight System
-
-Create a map overlay and filter system for the lab blueprint.
-
-The map should eventually show more than walls and object glyphs. The player needs ways to understand rooms, paths, incidents, contamination, habitat fit, containment risk, stockpiles, jobs, construction, combat, and movement. Overlays should reveal the right information at the right time without making the map unreadable.
-
-This system should answer questions like:
-- What overlays should exist first?
-- How should overlays show rooms, doors, paths, incidents, contamination, habitat fit, containment risk, object occupancy, construction designations, and job targets?
-- Can overlays be toggled by hotkey?
-- Can overlays stack, or should only one be active?
-- How should hover/tooltips work while an overlay is active?
-- How should the map avoid visual clutter in crowded rooms?
-- How should hidden or undiscovered information remain hidden?
-
-The desired result is a reusable overlay framework that supports current map systems and future simulation layers. Overlays should be data-driven and should not hard-code every new visualization into the base map renderer.
-
-Before coding, discuss overlay types, display priority, toggle behavior, tooltip behavior, hidden-information rules, and which overlays belong in the first pass.
-
----
-
-## 2. Unified Room, Object, Creature, and Door Inspector System
+## 1. Unified Room, Object, Creature, and Door Inspector System
 
 Create unified inspectors for selected map entities.
 
@@ -70,7 +48,7 @@ Before coding, discuss inspector layout, shared sections, entity-specific sectio
 
 ---
 
-## 3. Task Queue, Path Preview, and Movement Visualization System
+## 2. Task Queue, Path Preview, and Movement Visualization System
 
 Rework task queue and movement visualization for the map-first interface.
 
@@ -91,7 +69,7 @@ Before coding, discuss queue placement, path display rules, selected-task behavi
 
 ---
 
-## 4. Incident Alert and Map Notification System
+## 3. Incident Alert and Map Notification System
 
 Rework incident alerts and notifications around the map-first interface.
 
@@ -113,7 +91,7 @@ Before coding, discuss alert placement, map markers, severity behavior, response
 
 ---
 
-## 5. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 4. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -135,7 +113,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 6. Container and Specimen Management Map Workflow
+## 5. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -156,7 +134,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 7. Construction Designation and Room Assignment Map Workflow
+## 6. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -177,7 +155,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 8. Combat and Emergency Response Map Workflow
+## 7. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -198,7 +176,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 9. Journal, Log, and Message Feed Integration Pass
+## 8. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -219,7 +197,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 10. Menu Hierarchy and Screen Manager System
+## 9. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -240,7 +218,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 11. UI State Persistence and Player Preference System
+## 10. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -261,7 +239,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 12. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 11. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -283,7 +261,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 13. Black Market Byproduct Economy System
+## 12. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

@@ -2106,6 +2106,40 @@
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
   const UI_MODE_NAVIGATION = "navigation";
   const UI_MODE_COMMAND = "command";
+  const MAP_OVERLAY_DEFS = [
+    {
+      id: "none",
+      label: "None",
+      description: "Base blueprint only."
+    },
+    {
+      id: "contamination",
+      label: "Contamination",
+      description: "Observed contamination only. Unobserved rooms stay blank unless debug is active."
+    },
+    {
+      id: "movement",
+      label: "Movement",
+      description: "Known scientist position and the next queued movement path."
+    },
+    {
+      id: "incidents",
+      label: "Incidents",
+      description: "Known active incident locations."
+    },
+    {
+      id: "construction",
+      label: "Construction",
+      description: "Player-designated excavation work."
+    },
+    {
+      id: "debug",
+      label: "Debug",
+      description: "Developer overlay: ignores player knowledge and shows raw map diagnostics."
+    }
+  ];
+  const MAP_OVERLAY_BY_ID = Object.fromEntries(MAP_OVERLAY_DEFS.map((overlay) => [overlay.id, overlay]));
+  const DEFAULT_MAP_OVERLAY_ID = "none";
 
   function defaultState() {
     const seed = makeSeed();
@@ -2236,6 +2270,7 @@
     return {
       mode: UI_MODE_NAVIGATION,
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
+      mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       keyboardHelpOpen: false
     };
   }
@@ -3000,6 +3035,11 @@
       moveMapCursor(movement.dx, movement.dy);
       return true;
     }
+    if (key.toLowerCase() === "o" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      cycleMapOverlay(event.shiftKey ? -1 : 1);
+      return true;
+    }
     if (key === "Enter") {
       event.preventDefault();
       selectMapCursorTarget();
@@ -3070,6 +3110,31 @@
     return mode === UI_MODE_COMMAND ? UI_MODE_COMMAND : UI_MODE_NAVIGATION;
   }
 
+  function normalizeMapOverlayId(value) {
+    const id = String(value || DEFAULT_MAP_OVERLAY_ID).trim();
+    return MAP_OVERLAY_BY_ID[id] ? id : DEFAULT_MAP_OVERLAY_ID;
+  }
+
+  function currentMapOverlayDef() {
+    const overlayId = normalizeMapOverlayId(ensureUiState().mapOverlay);
+    return MAP_OVERLAY_BY_ID[overlayId] || MAP_OVERLAY_BY_ID[DEFAULT_MAP_OVERLAY_ID];
+  }
+
+  function setMapOverlay(overlayId) {
+    ensureUiState().mapOverlay = normalizeMapOverlayId(overlayId);
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+  }
+
+  function cycleMapOverlay(direction = 1) {
+    const currentId = normalizeMapOverlayId(ensureUiState().mapOverlay);
+    const currentIndex = MAP_OVERLAY_DEFS.findIndex((overlay) => overlay.id === currentId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (safeIndex + direction + MAP_OVERLAY_DEFS.length) % MAP_OVERLAY_DEFS.length;
+    setMapOverlay(MAP_OVERLAY_DEFS[nextIndex].id);
+  }
+
   function fallbackMapCursorCell(context = state) {
     return cleanMapCell(context?.scientist?.mapCell)
       || scientistDefaultMapCell(context?.scientist?.roomId || MAIN_ROOM_ID);
@@ -3085,6 +3150,7 @@
         x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
+      mapOverlay: normalizeMapOverlayId(candidate?.mapOverlay),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -24573,7 +24639,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, incidentEntry = null) {
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, incidentEntry = null, overlayEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
@@ -24605,6 +24671,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (incidentEntry?.alerts?.length) {
       parts.push(`alerts: ${incidentEntry.alerts.map((incident) => incident.label).join("; ")}`);
     }
+    if (overlayEntry?.title) {
+      parts.push(overlayEntry.title);
+    }
     return parts.join(" - ");
   }
 
@@ -24630,12 +24699,206 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function mapDebugOverlayActive() {
+    return normalizeMapOverlayId(state?.ui?.mapOverlay) === "debug";
+  }
+
+  function mapShowsRoomOccupants(roomId, options = {}) {
+    return Boolean(options.debug || mapDebugOverlayActive() || scientistObservesRoom(roomId));
+  }
+
+  function trackedMapSelection() {
+    return normalizeSelection(state?.selection)
+      || normalizeSelection(state?.selectedMapTarget)
+      || normalizeSelection(state?.selectedSlimeId ? { kind: "slime", id: state.selectedSlimeId, source: "legacy" } : null);
+  }
+
+  function mapShowsTrackedEntity(kind, id) {
+    const selection = trackedMapSelection();
+    return Boolean(selection && selection.kind === kind && selection.id === id);
+  }
+
+  function labMapRoomCells(roomId, map = ensureLabMap()) {
+    const room = labMapRoom(roomId, map);
+    if (!room) {
+      return [];
+    }
+    return Array.isArray(room.cells) && room.cells.length ? room.cells : rectangularRoomCells(room);
+  }
+
+  function overlayClassPart(value) {
+    return normalizeCommandName(value || "unknown") || "unknown";
+  }
+
+  function setLabMapOverlayEntry(assignments, cell, entry, map = ensureLabMap()) {
+    if (!cell || !mapCellInBounds(cell, map)) {
+      return;
+    }
+    assignments.set(mapCellKey(cell), entry);
+  }
+
+  function addRoomOverlayEntries(assignments, roomId, entry, map = ensureLabMap()) {
+    for (const cell of labMapRoomCells(roomId, map)) {
+      setLabMapOverlayEntry(assignments, cell, { ...entry }, map);
+    }
+  }
+
+  function roomContaminationOverlayReading(room, options = {}) {
+    if (!room) {
+      return null;
+    }
+    if (options.debug) {
+      const value = roomContaminationValue(room.id);
+      const band = roomAttributeBand("contamination", value);
+      return {
+        value,
+        bandLabel: band.label,
+        sourceLabel: "Debug",
+        title: `Debug contamination: ${formatDecimal(value, 1)} / 100 (${band.label}); ignores observation.`,
+        revealValue: true
+      };
+    }
+    if (scientistObservesRoom(room.id)) {
+      const observation = makeRoomObservation(room);
+      return {
+        value: observation.contaminationValue,
+        bandLabel: observation.contaminationBand,
+        sourceLabel: "Current observation",
+        title: `Overlay: Contamination - current observation: ${observation.contaminationBand}. Reliability: High.`
+      };
+    }
+    const observation = normalizeRoomObservation(room.observation || state.roomObservations?.[room.id]);
+    if (!observation || !Number.isFinite(Number(observation.contaminationValue))) {
+      return null;
+    }
+    const reliability = roomObservationReliabilityLabel(roomObservationReliabilityScore(room, observation));
+    return {
+      value: observation.contaminationValue,
+      bandLabel: observation.contaminationBand,
+      sourceLabel: "Previous observation",
+      title: `Overlay: Contamination - previous observation: ${observation.contaminationBand} at ${formatClock(observation.observedAt)}. Reliability: ${reliability}; current state may have changed.`
+    };
+  }
+
+  function contaminationOverlayAssignments(map, options = {}) {
+    const assignments = new Map();
+    for (const room of state.rooms || []) {
+      const reading = roomContaminationOverlayReading(room, options);
+      if (!reading) {
+        continue;
+      }
+      const bandClass = overlayClassPart(reading.bandLabel);
+      addRoomOverlayEntries(assignments, room.id, {
+        overlayId: options.debug ? "debug" : "contamination",
+        classNames: [
+          "map-overlay-contamination",
+          `map-overlay-contamination-${bandClass}`,
+          ...(options.debug ? ["map-overlay-debug-value"] : [])
+        ],
+        label: `${room.name}: ${reading.bandLabel}`,
+        source: reading.sourceLabel,
+        title: reading.title,
+        value: reading.revealValue ? formatDecimal(reading.value, 1) : null
+      }, map);
+    }
+    return assignments;
+  }
+
+  function movementOverlayAssignments(map, route) {
+    const assignments = new Map();
+    if (route?.task) {
+      for (const key of route.keys || []) {
+        const [x, y] = String(key).split(",").map(Number);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          continue;
+        }
+        setLabMapOverlayEntry(assignments, { x, y }, {
+          overlayId: "movement",
+          classNames: ["map-overlay-movement-route"],
+          label: route.label || "Queued movement",
+          source: "Queued task",
+          title: `Overlay: Movement - next queued route: ${route.label || "queued movement"}.`
+        }, map);
+      }
+    }
+    const scientistCell = scientistMapCell();
+    setLabMapOverlayEntry(assignments, scientistCell, {
+      overlayId: "movement",
+      classNames: ["map-overlay-movement-scientist"],
+      label: "Scientist position",
+      source: "Current position",
+      title: `Overlay: Movement - scientist in ${roomName(scientistRoomId())}.`
+    }, map);
+    return assignments;
+  }
+
+  function incidentOverlayAssignments(map, incidentAssignments) {
+    const assignments = new Map();
+    for (const [key, incidentEntry] of incidentAssignments.entries()) {
+      const label = incidentEntry.alerts?.[0]?.label || "Active incident";
+      const severity = incidentSeverityLabel(incidentEntry.highestSeverity);
+      const [x, y] = String(key).split(",").map(Number);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: "incidents",
+        classNames: ["map-overlay-incident", `map-overlay-incident-${cleanIncidentSeverity(incidentEntry.highestSeverity)}`],
+        label,
+        source: severity,
+        title: `Overlay: Incidents - ${severity}: ${label}.`
+      }, map);
+    }
+    return assignments;
+  }
+
+  function constructionOverlayAssignments(map, plannedExcavations) {
+    const assignments = new Map();
+    for (const [key, plannedEntry] of plannedExcavations.entries()) {
+      const [x, y] = String(key).split(",").map(Number);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: "construction",
+        classNames: ["map-overlay-construction"],
+        label: plannedEntry.label || "Planned dig",
+        source: "Designated",
+        title: `Overlay: Construction - ${plannedEntry.label || "planned excavation"}.`
+      }, map);
+    }
+    return assignments;
+  }
+
+  function labMapOverlayAssignments(overlayId, map, context = {}) {
+    const normalized = normalizeMapOverlayId(overlayId);
+    if (normalized === "none") {
+      return new Map();
+    }
+    if (normalized === "contamination") {
+      return contaminationOverlayAssignments(map);
+    }
+    if (normalized === "movement") {
+      return movementOverlayAssignments(map, context.route);
+    }
+    if (normalized === "incidents") {
+      return incidentOverlayAssignments(map, context.incidentAssignments || labMapIncidentAssignments(map));
+    }
+    if (normalized === "construction") {
+      return constructionOverlayAssignments(map, context.plannedExcavations || plannedExcavationAssignments());
+    }
+    if (normalized === "debug") {
+      return contaminationOverlayAssignments(map, { debug: true });
+    }
+    return new Map();
+  }
+
   function slimeMapObjectLabel(slime) {
     const activity = slimeActivityLabel(slime).replace(/^Activity:\s*/i, "");
     return `${slime.name} loose; ${activity}`;
   }
 
-  function labMapObjectAssignments(map) {
+  function labMapObjectAssignments(map, options = {}) {
     ensurePhysicalObjectPlacements();
     const assignments = new Map();
     const addCell = (cell, symbol, label, classNames = [], target = null) => {
@@ -24671,6 +24934,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "dead" && slimeIsUncontained(slime)) {
+        if (!mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options) && !mapShowsTrackedEntity("slime", slime.id)) {
+          continue;
+        }
         addCell(objectMapCell(slime), "L", slimeMapObjectLabel(slime), ["living-object-cell"], {
           kind: "slime",
           id: slime.id,
@@ -24680,6 +24946,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const corpse of state.corpses || []) {
       if (corpse.storage === "container") {
+        continue;
+      }
+      if (!mapShowsRoomOccupants(corpse.roomId || MAIN_ROOM_ID, options) && !mapShowsTrackedEntity("corpse", corpse.id)) {
         continue;
       }
       addCell(objectMapCell(corpse), "R", `${corpse.name} remains`, ["corpse-object-cell"], {
@@ -25754,6 +26023,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     incidentEntry,
     routeEntry,
     plannedEntry,
+    overlayEntry,
     selectedTarget,
     scientistCell,
     cursorCell
@@ -25768,7 +26038,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mapX: String(cell.x),
       mapY: String(cell.y)
     };
-    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry);
+    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry, overlayEntry);
     let text = "";
 
     if (roomId) {
@@ -25793,6 +26063,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       classNames.push("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
       dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
       dataset.mapIncidentCount = String(incidentEntry.alerts.length);
+    }
+    if (overlayEntry) {
+      classNames.push("map-overlay-cell", `map-overlay-${overlayEntry.overlayId}`, ...(overlayEntry.classNames || []));
+      dataset.mapOverlay = overlayEntry.overlayId;
+      if (overlayEntry.label) {
+        dataset.mapOverlayLabel = overlayEntry.label;
+      }
+      if (overlayEntry.source) {
+        dataset.mapOverlaySource = overlayEntry.source;
+      }
+      if (overlayEntry.value !== null && overlayEntry.value !== undefined) {
+        dataset.mapOverlayValue = String(overlayEntry.value);
+      }
     }
     if (selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere })) {
       classNames.push("selected-map-cell");
@@ -25848,11 +26131,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function buildLabMapView(map = ensureLabMap()) {
+    const overlay = currentMapOverlayDef();
     const scientistCell = scientistMapCell();
-    const objectAssignments = labMapObjectAssignments(map);
+    const objectAssignments = labMapObjectAssignments(map, { debug: overlay.id === "debug" });
     const incidentAssignments = labMapIncidentAssignments(map);
     const route = nextQueuedMovementPath(map);
     const plannedExcavations = plannedExcavationAssignments();
+    const overlayAssignments = labMapOverlayAssignments(overlay.id, map, {
+      incidentAssignments,
+      plannedExcavations,
+      route
+    });
     const selectedTarget = selectedMapTarget();
     const cursorCell = mapCursorCell(map);
     const anchors = labMapAnchorAssignments(map);
@@ -25871,6 +26160,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           incidentEntry: incidentAssignments.get(key),
           routeEntry,
           plannedEntry: plannedExcavations.get(key),
+          overlayEntry: overlayAssignments.get(key),
           selectedTarget,
           scientistCell,
           cursorCell
@@ -25886,6 +26176,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cursor: cursorCell,
       cursorTarget: mapCursorTarget(),
       mode: ensureUiState().mode,
+      overlay,
       keyboardHelpOpen: ensureUiState().keyboardHelpOpen,
       cells,
       legendItems: [
@@ -25982,8 +26273,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
-      textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : "Arrows move; Enter selects; A opens commands; ? help.")
+      textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : "Arrows move; Enter selects; A opens commands; O cycles overlay; ? help.")
     );
+    return row;
+  }
+
+  function mapOverlayControlsEl(mapView) {
+    const row = document.createElement("div");
+    row.className = "map-overlay-controls";
+    row.dataset.mapOverlayControls = "true";
+
+    const label = textEl("label", "Overlay");
+    label.setAttribute("for", "mapOverlaySelect");
+    const select = document.createElement("select");
+    select.id = "mapOverlaySelect";
+    select.dataset.mapOverlaySelect = "true";
+    for (const overlay of MAP_OVERLAY_DEFS) {
+      const option = document.createElement("option");
+      option.value = overlay.id;
+      option.textContent = overlay.label;
+      select.append(option);
+    }
+    select.value = normalizeMapOverlayId(mapView.overlay?.id);
+    select.addEventListener("change", () => setMapOverlay(select.value));
+
+    const description = textEl("span", mapView.overlay?.description || "");
+    description.className = "map-overlay-description";
+    row.append(label, select, description);
     return row;
   }
 
@@ -25998,6 +26314,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["Arrow keys", "Move the map cursor."],
       ["Enter", "Select the cursor target."],
       ["A", "Open contextual commands for the selection."],
+      ["O / Shift+O", "Cycle map overlays forward or backward."],
       ["1-9", "Choose visible commands while in command mode."],
       ["Esc", "Cancel command mode; press again to clear selection."],
       ["?", "Toggle this help."],
@@ -26028,6 +26345,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     header.append(title, meta);
     panel.append(header);
     panel.append(keyboardStatusEl(mapView));
+    panel.append(mapOverlayControlsEl(mapView));
     if (mapView.keyboardHelpOpen) {
       panel.append(keyboardHelpEl());
     }
