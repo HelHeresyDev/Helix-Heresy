@@ -1400,19 +1400,28 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
   await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
   await expect(page.locator('[data-container-card="basic-1"]')).toHaveClass(/selected-map-target/);
   await expect(page.locator('[data-workspace-tab="containers"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'container');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'basic-1');
 
   let selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return (payload.state || payload).selectedMapTarget;
+    const state = payload.state || payload;
+    return {
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+      selectedSlimeId: state.selectedSlimeId,
+    };
   }, { key: storageKey });
-  expect(selected).toEqual({ kind: 'container', id: 'basic-1' });
+  expect(selected.selection).toMatchObject({ kind: 'container', id: 'basic-1' });
+  expect(selected.selectedMapTarget).toMatchObject({ kind: 'container', id: 'basic-1' });
+  expect(selected.selectedSlimeId).toBeNull();
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
   await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toHaveClass(/selected-map-target/);
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return (payload.state || payload).selectedMapTarget;
+    return (payload.state || payload).selection;
   }, { key: storageKey });
   expect(selected.kind).toBe('door');
   expect(selected.key).toBe('mainLab::storageRoom');
@@ -1433,9 +1442,139 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return (payload.state || payload).selectedMapTarget;
+    return (payload.state || payload).selection;
   }, { key: storageKey });
-  expect(selected).toEqual({ kind: 'room', roomId: 'bedroom' });
+  expect(selected).toMatchObject({ kind: 'room', roomId: 'bedroom' });
+});
+
+test('selection inspector links contained specimens from a selected container', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.selection = null;
+    state.selectedMapTarget = null;
+    state.selectedSlimeId = null;
+    state.slimes = [{
+      id: 'contained-selection',
+      name: 'SEL-001',
+      genome: state.currentGenome,
+      source: 'Selection fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('SEL-001');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'SEL-001' }).click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'slime');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'contained-selection');
+
+  const selected = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+      selectedSlimeId: state.selectedSlimeId,
+    };
+  }, { key: storageKey });
+
+  expect(selected.selection).toMatchObject({ kind: 'slime', id: 'contained-selection' });
+  expect(selected.selectedMapTarget).toMatchObject({ kind: 'slime', id: 'contained-selection' });
+  expect(selected.selectedSlimeId).toBe('contained-selection');
+});
+
+test('selected slime death transfers selection to its corpse', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
+    state.slimes = [{
+      id: 'doomed-selection',
+      name: 'DOOM-001',
+      genome: state.currentGenome,
+      source: 'Selection death fixture',
+      createdAt: 0,
+      deathAt: 10000,
+      lifecycleVersion: 1,
+      matureAt: 0,
+      mature: true,
+      status: 'contained',
+      containerId: jar.id,
+      roomId: jar.roomId,
+      mapCell: null,
+      deathCause: 'body integrity failure',
+      job: 'idle',
+      jobProgress: 0,
+      jobTargetCorpseId: null,
+      jobNutritionGained: 0,
+      stats: {
+        bodyIntegrity: { current: 0, max: 100 },
+        nutrition: { current: 50, max: 100 },
+        currentMass: { current: 100, max: 100 },
+        divisionPressure: { current: 0, max: 100 },
+        stress: { current: 0, max: 100 },
+      },
+      revealed: {},
+      measured: {},
+      traitObservations: {},
+      testsRun: [],
+      jobKnowledge: {},
+    }];
+    state.corpses = [];
+    state.selection = { kind: 'slime', id: 'doomed-selection', source: 'panel', pinned: false };
+    state.selectedMapTarget = { kind: 'slime', id: 'doomed-selection' };
+    state.selectedSlimeId = 'doomed-selection';
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await skipSeconds(page, 1);
+
+  const result = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      slimes: state.slimes,
+      corpses: state.corpses,
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+      selectedSlimeId: state.selectedSlimeId,
+    };
+  }, { key: storageKey });
+
+  expect(result.slimes).toHaveLength(0);
+  expect(result.corpses).toHaveLength(1);
+  expect(result.corpses[0].specimenId).toBe('doomed-selection');
+  expect(result.selection).toMatchObject({ kind: 'corpse', id: result.corpses[0].id, source: 'auto' });
+  expect(result.selectedMapTarget).toMatchObject({ kind: 'corpse', id: result.corpses[0].id });
+  expect(result.selectedSlimeId).toBeNull();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'corpse');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', result.corpses[0].id);
 });
 
 test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {

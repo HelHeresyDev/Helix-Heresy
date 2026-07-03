@@ -688,7 +688,9 @@ h2 {
 
 .room-card.selected-map-target,
 .container-card.selected-map-target,
-.room-door-row.selected-map-target {
+.room-door-row.selected-map-target,
+.corpse-card.selected-map-target,
+.incident-alert-row.selected-map-target {
   border-color: var(--cyan);
   box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.45);
 }
@@ -731,6 +733,43 @@ h2 {
   background: #151610;
   border: 1px solid #303329;
   border-radius: 6px;
+}
+
+.selection-inspector {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  background: #171912;
+  border: 1px solid #303329;
+  border-radius: 6px;
+}
+
+.selection-inspector-heading,
+.selection-inspector-meta,
+.selection-link-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.selection-inspector-heading {
+  justify-content: space-between;
+}
+
+.selection-inspector-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.28fr) minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(56, 58, 50, 0.7);
+}
+
+.selection-inspector-row > span:first-child {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
 }
 
 .lab-map-header,
@@ -2193,6 +2232,7 @@ h2 {
   .feeding-row,
   .harvest-row,
   .job-row,
+  .selection-inspector-row,
   .journal-row,
   .event-row {
     grid-template-columns: 1fr;

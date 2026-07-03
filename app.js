@@ -2147,6 +2147,7 @@
       slimes: [],
       corpses: [],
       tasks: [],
+      selection: null,
       selectedSlimeId: null,
       selectedMapTarget: null,
       construction: defaultConstructionState(),
@@ -5125,6 +5126,8 @@
 
   function expireSlimes() {
     let expired = 0;
+    let selectedCorpseFallbackId = null;
+    const selectedAtStart = currentSelection();
     const survivors = [];
     for (const slime of state.slimes) {
       if (slime.status !== "dead" && (slime.deathAt <= state.clock || slimeStat(slime, "bodyIntegrity").current <= 0)) {
@@ -5132,6 +5135,9 @@
           ? slime.deathCause || "body integrity failure"
           : slime.deathCause || "lifespan";
         const corpse = createCorpseFromSlime(slime, deathReason);
+        if (selectedAtStart?.kind === "slime" && selectedAtStart.id === slime.id) {
+          selectedCorpseFallbackId = corpse.id;
+        }
         const causeText = {
           "waste exposure": "succumbed to waste exposure",
           "body integrity failure": "collapsed from body integrity failure",
@@ -5146,8 +5152,10 @@
     }
     if (expired) {
       state.slimes = survivors;
-      if (!findSlime(state.selectedSlimeId)) {
-        state.selectedSlimeId = state.slimes[0]?.id || null;
+      if (selectedCorpseFallbackId) {
+        setSelection({ kind: "corpse", id: selectedCorpseFallbackId, source: "auto" });
+      } else if (!normalizeSelection(state.selection)) {
+        setSelection(null);
       }
     }
     return expired;
@@ -7011,6 +7019,12 @@
       row.className = "room-door-row";
       row.dataset.doorConnection = key;
       row.classList.toggle("selected-map-target", selectedTargetMatchesCard("door", key));
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        focusMapTarget({ kind: "door", key });
+      });
       const info = document.createElement("div");
       info.className = "room-door-info";
       const stateText = textEl("span", `${roomName(connectedId)} door: ${titleCase(stateLabel)}`);
@@ -15942,6 +15956,7 @@
   }
 
   function render() {
+    syncSelectionState();
     renderLiveReadouts();
     dom.sequenceInput.value = state.currentGenome;
     dom.sequenceStatus.textContent = `${state.currentGenome.length}/${GENOME_LENGTH} base pairs`;
@@ -16300,8 +16315,11 @@
       const card = document.createElement("article");
       card.className = `slime-card${slime.id === state.selectedSlimeId ? " selected" : ""}${slime.status === "dead" ? " dead" : ""}`;
       card.dataset.slimeCard = slime.id;
-      card.addEventListener("click", () => {
-        state.selectedSlimeId = slime.id;
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        setSelection({ kind: "slime", id: slime.id, source: "panel" });
         persist();
         render();
       });
@@ -16422,6 +16440,15 @@
       const card = document.createElement("article");
       card.className = `corpse-card corpse-${corpseFreshness(corpse)}${corpse.storage === "overflow" ? " overflow" : ""}`;
       card.dataset.corpseCard = corpse.id;
+      card.classList.toggle("selected-map-target", selectedTargetMatchesCard("corpse", corpse.id));
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        setSelection({ kind: "corpse", id: corpse.id, source: "panel" });
+        persist();
+        render();
+      });
 
       const title = document.createElement("h3");
       const name = document.createElement("span");
@@ -18146,6 +18173,14 @@
     card.className = `container-card ${container.type}`;
     card.dataset.containerCard = container.id;
     card.classList.toggle("selected-map-target", selectedTargetMatchesCard("container", container.id));
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button, input, select, textarea")) {
+        return;
+      }
+      setSelection({ kind: "container", id: container.id, source: "panel" });
+      persist();
+      render();
+    });
     const occupants = containerOccupants(container.id);
     const corpses = containerCorpses(container.id);
     const title = document.createElement("div");
@@ -21852,13 +21887,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         slime.jobNutritionGained = 0;
       }
     }
+    if (currentSelection()?.kind === "corpse" && currentSelection().id === corpseId) {
+      setSelection(null);
+    }
   }
 
   function removeLivingSlimeRecord(slimeId) {
     state.slimes = (state.slimes || []).filter((slime) => slime.id !== slimeId);
     state.tasks = (state.tasks || []).filter((task) => !taskTargetsSlime(task, slimeId));
-    if (!findSlime(state.selectedSlimeId)) {
-      state.selectedSlimeId = state.slimes[0]?.id || null;
+    if (currentSelection()?.kind === "slime" && currentSelection().id === slimeId) {
+      setSelection(null);
     }
   }
 
@@ -24437,8 +24475,55 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectedMapTarget() {
-    state.selectedMapTarget = normalizeMapTarget(state.selectedMapTarget);
+    const selection = currentSelection();
+    state.selectedMapTarget = selectionToMapTarget(selection);
     return state.selectedMapTarget;
+  }
+
+  function currentSelection() {
+    const normalized = normalizeSelection(state.selection)
+      || normalizeSelection(state.selectedMapTarget)
+      || normalizeSelection(state.selectedSlimeId ? { kind: "slime", id: state.selectedSlimeId, source: "legacy" } : null);
+    state.selection = normalized;
+    syncLegacySelectionFields(normalized);
+    return normalized;
+  }
+
+  function setSelection(target, options = {}) {
+    const normalized = normalizeSelection({
+      ...(target || {}),
+      source: options.source || target?.source,
+      pinned: options.pinned ?? target?.pinned
+    });
+    state.selection = normalized;
+    syncLegacySelectionFields(normalized);
+    return normalized;
+  }
+
+  function syncSelectionState() {
+    currentSelection();
+  }
+
+  function syncLegacySelectionFields(selection) {
+    state.selectedMapTarget = selectionToMapTarget(selection);
+    state.selectedSlimeId = selection?.kind === "slime" ? selection.id : null;
+  }
+
+  function selectionSource(source) {
+    const clean = String(source || "panel");
+    return ["map", "panel", "log", "queue", "auto", "legacy", "inspector"].includes(clean) ? clean : "panel";
+  }
+
+  function normalizeSelection(candidate) {
+    const target = normalizeMapTarget(candidate);
+    if (!target) {
+      return null;
+    }
+    return {
+      ...target,
+      source: selectionSource(candidate?.source),
+      pinned: Boolean(candidate?.pinned)
+    };
   }
 
   function normalizeMapTarget(candidate) {
@@ -24447,7 +24532,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const kind = String(candidate.kind || "");
     if (kind === "scientist") {
-      return { kind };
+      return { kind, id: "scientist" };
+    }
+    if (kind === "tile") {
+      const map = ensureLabMap();
+      const cell = cleanMapCell(candidate.tile || candidate.cell || candidate);
+      if (!mapCellInBounds(cell, map)) {
+        return null;
+      }
+      return { kind, tile: cell, roomId: labMapCellRoomId(cell, map) || "" };
     }
     if (kind === "room") {
       const roomId = roomById(candidate.roomId || candidate.id)?.id || "";
@@ -24470,14 +24563,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const id = String(candidate.id || "");
       return id && findCorpse(id) ? { kind, id } : null;
     }
+    if (kind === "incident") {
+      const id = String(candidate.id || "");
+      const incident = id ? incidentById(id) : null;
+      return incident ? { kind, id: incident.id, roomId: incident.roomId, tile: cleanMapCell(incident.cell) } : null;
+    }
+    if (kind === "task") {
+      const id = String(candidate.id || "");
+      const task = id ? findTask(id) : null;
+      return task ? { kind, id: task.id } : null;
+    }
+    if (kind === "tool" || kind === "resource") {
+      const id = String(candidate.id || candidate.key || "");
+      return id ? { kind, id } : null;
+    }
+    return null;
+  }
+
+  function selectionToMapTarget(selection) {
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === "tile") {
+      return { kind: "tile", tile: { ...selection.tile }, roomId: selection.roomId || "" };
+    }
+    if (selection.kind === "scientist") {
+      return { kind: "scientist", id: "scientist" };
+    }
+    if (selection.kind === "room") {
+      return { kind: "room", roomId: selection.roomId };
+    }
+    if (selection.kind === "door") {
+      return { kind: "door", key: selection.key, roomIds: [...(selection.roomIds || [])] };
+    }
+    if (["container", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+      return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
+    }
     return null;
   }
 
   function setSelectedMapTarget(target) {
-    state.selectedMapTarget = normalizeMapTarget(target);
+    setSelection(target, { source: target?.source || "map" });
   }
 
-  function selectedTargetMatchesTile(target, { roomId, door, objectEntry, scientistHere }) {
+  function selectedTargetMatchesTile(target, { cell, roomId, door, objectEntry, incidentEntry, scientistHere }) {
     if (!target) {
       return false;
     }
@@ -24490,11 +24619,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (target.kind === "door") {
       return door?.key === target.key;
     }
+    if (target.kind === "tile") {
+      return Boolean(cell && target.tile && mapCellKey(cell) === mapCellKey(target.tile));
+    }
+    if (target.kind === "incident") {
+      return incidentEntry?.alerts?.some((incident) => incident.id === target.id) || false;
+    }
+    if (target.kind === "slime") {
+      const slime = findSlime(target.id);
+      if (slime?.containerId) {
+        return objectEntry?.targets?.some((candidate) => candidate.kind === "container" && candidate.id === slime.containerId) || false;
+      }
+    }
+    if (target.kind === "corpse") {
+      const corpse = findCorpse(target.id);
+      if (corpse?.containerId) {
+        return objectEntry?.targets?.some((candidate) => candidate.kind === "container" && candidate.id === corpse.containerId) || false;
+      }
+    }
     return objectEntry?.targets?.some((candidate) => candidate.kind === target.kind && candidate.id === target.id) || false;
   }
 
   function selectedTargetMatchesCard(kind, idOrKey) {
-    const target = selectedMapTarget();
+    const target = currentSelection();
     if (!target || target.kind !== kind) {
       return false;
     }
@@ -24510,7 +24657,369 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return target.id === idOrKey;
   }
 
-  function mapTileClickTarget({ roomId, door, objectEntry, scientistHere }) {
+  function selectionKey(selection) {
+    if (!selection) {
+      return "";
+    }
+    if (selection.kind === "room") {
+      return `room:${selection.roomId}`;
+    }
+    if (selection.kind === "door") {
+      return `door:${selection.key}`;
+    }
+    if (selection.kind === "tile") {
+      return `tile:${mapCellKey(selection.tile)}`;
+    }
+    return `${selection.kind}:${selection.id || ""}`;
+  }
+
+  function selectionLabel(selection) {
+    if (!selection) {
+      return "Nothing selected";
+    }
+    if (selection.kind === "scientist") {
+      return "Scientist";
+    }
+    if (selection.kind === "tile") {
+      return `Tile ${selection.tile.x},${selection.tile.y}`;
+    }
+    if (selection.kind === "room") {
+      return roomById(selection.roomId)?.name || roomName(selection.roomId);
+    }
+    if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      return door ? `${door.roomIds.map(roomName).join(" / ")} door` : "Door";
+    }
+    if (selection.kind === "container") {
+      return containerById(selection.id)?.name || "Container";
+    }
+    if (selection.kind === "slime") {
+      return findSlime(selection.id)?.name || "Slime";
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      return corpse ? `${corpse.name} remains` : "Corpse";
+    }
+    if (selection.kind === "incident") {
+      return incidentById(selection.id)?.label || "Incident";
+    }
+    if (selection.kind === "task") {
+      return findTask(selection.id)?.label || "Task";
+    }
+    if (selection.kind === "resource") {
+      return resourceLabel(selection.id);
+    }
+    if (selection.kind === "tool") {
+      return inventoryItemLabel(selection.id);
+    }
+    return titleCase(selection.kind || "selection");
+  }
+
+  function selectionKindLabel(selection) {
+    const labels = {
+      scientist: "Scientist",
+      tile: "Map Tile",
+      room: "Room",
+      door: "Door",
+      container: "Container",
+      slime: "Living Specimen",
+      corpse: "Deceased Specimen",
+      incident: "Incident",
+      task: "Task",
+      resource: "Resource",
+      tool: "Tool"
+    };
+    return labels[selection?.kind] || "Selection";
+  }
+
+  function selectionRoomId(selection) {
+    if (!selection) {
+      return "";
+    }
+    if (selection.kind === "scientist") {
+      return scientistRoomId();
+    }
+    if (selection.kind === "tile") {
+      return selection.roomId || labMapCellRoomId(selection.tile);
+    }
+    if (selection.kind === "room") {
+      return selection.roomId;
+    }
+    if (selection.kind === "door") {
+      return labMapDoor(selection.key)?.roomIds?.[0] || "";
+    }
+    if (selection.kind === "container") {
+      return containerById(selection.id)?.roomId || "";
+    }
+    if (selection.kind === "slime") {
+      return slimeEffectiveRoomId(findSlime(selection.id));
+    }
+    if (selection.kind === "corpse") {
+      return findCorpse(selection.id)?.roomId || "";
+    }
+    if (selection.kind === "incident") {
+      return incidentById(selection.id)?.roomId || "";
+    }
+    return "";
+  }
+
+  function selectionMapCell(selection) {
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === "scientist") {
+      return scientistMapCell();
+    }
+    if (selection.kind === "tile") {
+      return selection.tile;
+    }
+    if (selection.kind === "room") {
+      return labMapRoomAnchor(selection.roomId);
+    }
+    if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      return door?.from || door?.to || null;
+    }
+    if (selection.kind === "container") {
+      return objectMapCell(containerById(selection.id));
+    }
+    if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      return slime?.containerId ? objectMapCell(containerById(slime.containerId)) : objectMapCell(slime);
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      return corpse?.containerId ? objectMapCell(containerById(corpse.containerId)) : objectMapCell(corpse);
+    }
+    if (selection.kind === "incident") {
+      return cleanMapCell(incidentById(selection.id)?.cell);
+    }
+    return null;
+  }
+
+  function selectionLocationLabel(selection) {
+    const roomId = selectionRoomId(selection);
+    const cell = selectionMapCell(selection);
+    const roomText = roomId ? roomName(roomId) : "unknown room";
+    return cell ? `${roomText}; cell ${cell.x},${cell.y}` : roomText;
+  }
+
+  function selectionStatusChips(selection) {
+    if (!selection) {
+      return [];
+    }
+    if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      return slime ? [slimeStateLabel(slime), slimeLocationLabel(slime), slimeActivityLabel(slime)].map(chip) : [];
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      return corpse ? [corpseStateLabel(corpse), corpseLocationLabel(corpse), corpseDecayText(corpse)].map(chip) : [];
+    }
+    if (selection.kind === "container") {
+      const container = containerById(selection.id);
+      return container ? [containerTypeLabel(container.typeId), `condition ${containerConditionLabel(container)}`, roomName(container.roomId)].map(chip) : [];
+    }
+    if (selection.kind === "room") {
+      const room = roomById(selection.roomId);
+      return room ? [room.roleLabel || "Custom room", roomOccupancySummary(room.id)].map(chip) : [];
+    }
+    if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      return door ? [titleCase(doorStateLabel(door.roomIds[0], door.roomIds[1])), `condition ${doorConditionLabel(door)}`].map(chip) : [];
+    }
+    if (selection.kind === "incident") {
+      const incident = incidentById(selection.id);
+      return incident ? [incidentSeverityLabel(incident.severity), roomName(incident.roomId), incident.status || "active"].map(chip) : [];
+    }
+    if (selection.kind === "task") {
+      const task = findTask(selection.id);
+      return task ? [task.type, `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`].map(chip) : [];
+    }
+    if (selection.kind === "tile") {
+      return [chip(selectionLocationLabel(selection))];
+    }
+    return [];
+  }
+
+  function selectableTargetsAtCell(cell, map = ensureLabMap()) {
+    const clean = cleanMapCell(cell);
+    if (!mapCellInBounds(clean, map)) {
+      return [];
+    }
+    const key = mapCellKey(clean);
+    const targets = [];
+    const incidentEntry = labMapIncidentAssignments(map).get(key);
+    for (const incident of incidentEntry?.alerts || []) {
+      targets.push({ kind: "incident", id: incident.id });
+    }
+    const scientistCell = scientistMapCell();
+    if (scientistCell && mapCellKey(scientistCell) === key) {
+      targets.push({ kind: "scientist" });
+    }
+    const objectEntry = labMapObjectAssignments(map).get(key);
+    for (const target of objectEntry?.targets || []) {
+      targets.push(target);
+    }
+    const door = labMapDoorAtCell(clean, map);
+    if (door) {
+      targets.push({ kind: "door", key: door.key, roomIds: door.roomIds });
+    }
+    const roomId = labMapCellRoomId(clean, map);
+    if (roomId) {
+      targets.push({ kind: "room", roomId });
+    }
+    targets.push({ kind: "tile", tile: clean });
+    const seen = new Set();
+    return targets
+      .map((target) => normalizeSelection({ ...target, source: "inspector" }))
+      .filter(Boolean)
+      .filter((target) => {
+        const keyName = selectionKey(target);
+        if (seen.has(keyName)) {
+          return false;
+        }
+        seen.add(keyName);
+        return true;
+      });
+  }
+
+  function selectionRelatedTargets(selection) {
+    if (!selection) {
+      return [];
+    }
+    if (selection.kind === "container") {
+      const container = containerById(selection.id);
+      if (!container) {
+        return [];
+      }
+      return [
+        ...containerOccupants(container.id).map((slime) => ({ kind: "slime", id: slime.id })),
+        ...containerCorpses(container.id).map((corpse) => ({ kind: "corpse", id: corpse.id })),
+        { kind: "room", roomId: container.roomId }
+      ];
+    }
+    if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      return [
+        slime?.containerId ? { kind: "container", id: slime.containerId } : null,
+        slime?.roomId ? { kind: "room", roomId: slime.roomId } : null
+      ].filter(Boolean);
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      return [
+        corpse?.containerId ? { kind: "container", id: corpse.containerId } : null,
+        corpse?.roomId ? { kind: "room", roomId: corpse.roomId } : null
+      ].filter(Boolean);
+    }
+    if (selection.kind === "incident") {
+      const incident = incidentById(selection.id);
+      const target = incident ? incidentFocusTarget(incident) : null;
+      return target ? [target] : [];
+    }
+    if (selection.kind === "room") {
+      return activeIncidentAlerts()
+        .filter((incident) => incident.roomId === selection.roomId)
+        .map((incident) => ({ kind: "incident", id: incident.id }));
+    }
+    if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      return (door?.roomIds || []).map((roomId) => ({ kind: "room", roomId }));
+    }
+    return [];
+  }
+
+  function selectionLink(target) {
+    const normalized = normalizeSelection({ ...target, source: "inspector" });
+    if (!normalized) {
+      return null;
+    }
+    return entityLink(selectionLabel(normalized), `Select ${selectionLabel(normalized)}`, "entity-link-chip", () => {
+      focusMapTarget(normalized, { animate: false });
+    });
+  }
+
+  function selectionLinkRow(label, targets) {
+    const links = targets
+      .map(selectionLink)
+      .filter(Boolean);
+    if (!links.length) {
+      return null;
+    }
+    const row = document.createElement("div");
+    row.className = "selection-inspector-row";
+    row.append(textEl("span", label));
+    const body = document.createElement("div");
+    body.className = "selection-link-list";
+    links.forEach((link, index) => {
+      if (index > 0) {
+        body.append(document.createTextNode(" "));
+      }
+      body.append(link);
+    });
+    row.append(body);
+    return row;
+  }
+
+  function selectionInspectorEl() {
+    const panel = document.createElement("div");
+    panel.className = "selection-inspector subpanel";
+    panel.dataset.selectionInspector = "true";
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Selection";
+    panel.append(title);
+
+    const selection = currentSelection();
+    if (!selection) {
+      panel.append(emptyText("No selection. Click a map tile, room, door, container, specimen, corpse, incident, or task to inspect it."));
+      return panel;
+    }
+
+    panel.dataset.selectionKind = selection.kind;
+    if (selection.id) {
+      panel.dataset.selectionId = selection.id;
+    }
+
+    const heading = document.createElement("div");
+    heading.className = "selection-inspector-heading";
+    heading.append(textEl("strong", selectionLabel(selection)), chip(selectionKindLabel(selection)));
+    panel.append(heading);
+
+    const meta = document.createElement("div");
+    meta.className = "selection-inspector-meta";
+    meta.append(...selectionStatusChips(selection));
+    panel.append(meta);
+
+    const location = document.createElement("div");
+    location.className = "selection-inspector-row";
+    location.append(textEl("span", "Location"), textEl("strong", selectionLocationLabel(selection)));
+    panel.append(location);
+
+    const related = selectionLinkRow("Related", selectionRelatedTargets(selection));
+    if (related) {
+      panel.append(related);
+    }
+
+    const cell = selectionMapCell(selection);
+    const stack = cell
+      ? selectableTargetsAtCell(cell).filter((target) => selectionKey(target) !== selectionKey(selection))
+      : [];
+    const alsoHere = selectionLinkRow("Also here", stack);
+    if (alsoHere) {
+      panel.append(alsoHere);
+    }
+
+    return panel;
+  }
+
+  function mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, scientistHere, cell }) {
+    const incidents = incidentEntry?.alerts || [];
+    if (incidents.length) {
+      const incident = [...incidents].sort((a, b) => incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity) || a.createdAt - b.createdAt)[0];
+      return { kind: "incident", id: incident.id };
+    }
     if (scientistHere) {
       return { kind: "scientist" };
     }
@@ -24528,7 +25037,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (roomId) {
       return { kind: "room", roomId };
     }
-    return null;
+    return cell ? { kind: "tile", tile: cell } : null;
   }
 
   function labMapAnchorAssignments(map) {
@@ -24556,7 +25065,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const door = labMapDoorAtCell(cell, map);
     const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
     const scientistHere = scientistCell.x === cell.x && scientistCell.y === cell.y;
-    const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, scientistHere });
+    const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, scientistHere, cell });
     const classNames = ["lab-map-cell"];
     const dataset = {
       mapX: String(cell.x),
@@ -24588,7 +25097,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
       dataset.mapIncidentCount = String(incidentEntry.alerts.length);
     }
-    if (selectedTargetMatchesTile(selectedTarget, { roomId, door, objectEntry, scientistHere })) {
+    if (selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere })) {
       classNames.push("selected-map-cell");
     }
     if (clickTarget) {
@@ -24694,6 +25203,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     setSelectedMapTarget(normalized);
+    if (normalized.kind === "tile") {
+      setActiveWorkspaceTab("map");
+      persist();
+      render();
+      return true;
+    }
     if (normalized.kind === "scientist") {
       setActiveWorkspaceTab("map");
       persist();
@@ -24730,6 +25245,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized.kind === "corpse") {
       focusCorpse(normalized.id, options);
+      return true;
+    }
+    if (normalized.kind === "incident") {
+      setActiveWorkspaceTab("map");
+      persist();
+      render();
+      requestAnimationFrame(() => {
+        focusEntityCard(elementByDataset("incidentAlert", normalized.id), options);
+      });
       return true;
     }
     return false;
@@ -24918,6 +25442,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const row = document.createElement("div");
       row.className = `incident-alert-row ${incidentSeverityClass(incident.severity)}`;
       row.dataset.incidentAlert = incident.id;
+      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("incident", incident.id));
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        focusMapTarget({ kind: "incident", id: incident.id });
+      });
       const body = document.createElement("div");
       const heading = document.createElement("strong");
       heading.textContent = incident.label;
@@ -25130,7 +25661,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     observeScientistRoom();
     refreshIncidentAlerts();
     dom.roomList.textContent = "";
-    dom.roomList.append(labMapPanelEl(), incidentAlertPanelEl(), constructionPanelEl());
+    dom.roomList.append(labMapPanelEl(), selectionInspectorEl(), incidentAlertPanelEl(), constructionPanelEl());
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
@@ -25138,6 +25669,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       card.className = `room-card room-${room.role || "custom"}`;
       card.dataset.roomCard = room.id;
       card.classList.toggle("selected-map-target", selectedTargetMatchesCard("room", room.id));
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        setSelection({ kind: "room", roomId: room.id, source: "panel" });
+        persist();
+        render();
+      });
       const title = document.createElement("div");
       title.className = "room-title";
       title.append(textEl("strong", room.name), textEl("span", roomOccupancySummary(room.id)));
@@ -26925,6 +27464,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function findCorpse(id) {
     return (state.corpses || []).find((corpse) => corpse.id === id) || null;
+  }
+
+  function findTask(id) {
+    return (state.tasks || []).find((task) => task.id === id) || null;
   }
 
   function getSelectedSlime() {
@@ -30110,8 +30653,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!slime) {
       return;
     }
-    state.selectedSlimeId = slime.id;
-    setSelectedMapTarget({ kind: "slime", id: slime.id });
+    setSelection({ kind: "slime", id: slime.id, source: options.source || "panel" });
     setActiveWorkspaceTab("specimens");
     persist();
     render();
@@ -30126,7 +30668,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!corpse) {
       return;
     }
-    setSelectedMapTarget({ kind: "corpse", id: corpse.id });
+    setSelection({ kind: "corpse", id: corpse.id, source: options.source || "panel" });
     setActiveWorkspaceTab("specimens");
     persist();
     render();
@@ -30141,6 +30683,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!room) {
       return;
     }
+    setSelection({ kind: "room", roomId: room.id, source: options.source || "panel" });
     focusEntityCard(elementByDataset("roomCard", room.id), options);
   }
 
@@ -30149,6 +30692,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!door) {
       return;
     }
+    setSelection({ kind: "door", key: door.key, roomIds: door.roomIds, source: options.source || "panel" });
     const row = elementByDataset("doorConnection", door.key);
     focusEntityCard(row, options);
   }
@@ -30158,6 +30702,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!container) {
       return;
     }
+    setSelection({ kind: "container", id: container.id, source: options.source || "panel" });
     setActiveWorkspaceTab("containers");
     focusEntityCard(elementByDataset("containerCard", container.id), options);
   }
@@ -30433,7 +30978,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     try {
       state = next;
       ensurePhysicalObjectPlacements();
-      next.selectedMapTarget = normalizeMapTarget(next.selectedMapTarget);
+      next.selection = normalizeSelection(next.selection)
+        || normalizeSelection(next.selectedMapTarget)
+        || normalizeSelection(next.selectedSlimeId ? { kind: "slime", id: next.selectedSlimeId, source: "legacy" } : null);
+      next.selectedMapTarget = selectionToMapTarget(next.selection);
+      next.selectedSlimeId = next.selection?.kind === "slime" ? next.selection.id : null;
       syncAllSlimeAi();
     } finally {
       state = previousState;
@@ -30509,9 +31058,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function migrateDeadSlimesToCorpses() {
     const survivors = [];
     let moved = 0;
+    let selectedCorpseFallbackId = null;
+    const selectedAtStart = currentSelection();
     for (const slime of state.slimes || []) {
       if (slime.status === "dead") {
-        createCorpseFromSlime(slime, "lifespan");
+        const corpse = createCorpseFromSlime(slime, "lifespan");
+        if (selectedAtStart?.kind === "slime" && selectedAtStart.id === slime.id) {
+          selectedCorpseFallbackId = corpse.id;
+        }
         moved += 1;
       } else {
         survivors.push(slime);
@@ -30519,8 +31073,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (moved) {
       state.slimes = survivors;
-      if (!findSlime(state.selectedSlimeId)) {
-        state.selectedSlimeId = state.slimes[0]?.id || null;
+      if (selectedCorpseFallbackId) {
+        setSelection({ kind: "corpse", id: selectedCorpseFallbackId, source: "auto" });
+      } else if (!normalizeSelection(state.selection)) {
+        setSelection(null);
       }
     }
   }
