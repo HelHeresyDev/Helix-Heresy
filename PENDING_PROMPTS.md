@@ -12,43 +12,21 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Unified Room, Object, Creature, and Door Inspector System
-2. Task Queue, Path Preview, and Movement Visualization System
-3. Incident Alert and Map Notification System
-4. Inventory, Stockpile, and Room-Local Resource Map Workflow
-5. Container and Specimen Management Map Workflow
-6. Construction Designation and Room Assignment Map Workflow
-7. Combat and Emergency Response Map Workflow
-8. Journal, Log, and Message Feed Integration Pass
-9. Menu Hierarchy and Screen Manager System
-10. UI State Persistence and Player Preference System
-11. Map Renderer Boundary and Future Canvas/Sprite Preparation
-12. Black Market Byproduct Economy System
+1. Task Queue, Path Preview, and Movement Visualization System
+2. Incident Alert and Map Notification System
+3. Inventory, Stockpile, and Room-Local Resource Map Workflow
+4. Container and Specimen Management Map Workflow
+5. Construction Designation and Room Assignment Map Workflow
+6. Combat and Emergency Response Map Workflow
+7. Journal, Log, and Message Feed Integration Pass
+8. Menu Hierarchy and Screen Manager System
+9. UI State Persistence and Player Preference System
+10. Map Renderer Boundary and Future Canvas/Sprite Preparation
+11. Black Market Byproduct Economy System
 
 ---
 
-## 1. Unified Room, Object, Creature, and Door Inspector System
-
-Create unified inspectors for selected map entities.
-
-The old interface exposes many details through separate panels and cards. The map-first interface should use inspectors that change based on selection. A room inspector, slime inspector, container inspector, door inspector, corpse inspector, incident inspector, and task inspector can share layout patterns while showing different content.
-
-This system should answer questions like:
-- What common sections should every inspector have?
-- What information belongs in a compact inspector versus an expanded details view?
-- How do inspectors show status, warnings, actions, history, and relevant links?
-- How do inspectors avoid revealing hidden traits, formulas, or exact hidden values?
-- How should inspector tabs work?
-- How should related objects be linked, such as a slime inside a container, a container in a room, or an incident tied to a door?
-- How should the inspector preserve existing useful readouts while reducing panel clutter?
-
-The desired result is a unified inspector framework that lets the player understand the selected entity without needing every entity type to have a permanent standalone panel on the screen.
-
-Before coding, discuss inspector layout, shared sections, entity-specific sections, expansion behavior, hidden information rules, and which old panels should become inspectors first.
-
----
-
-## 2. Task Queue, Path Preview, and Movement Visualization System
+## 1. Task Queue, Path Preview, and Movement Visualization System
 
 Rework task queue and movement visualization for the map-first interface.
 
@@ -69,7 +47,7 @@ Before coding, discuss queue placement, path display rules, selected-task behavi
 
 ---
 
-## 3. Incident Alert and Map Notification System
+## 2. Incident Alert and Map Notification System
 
 Rework incident alerts and notifications around the map-first interface.
 
@@ -91,7 +69,7 @@ Before coding, discuss alert placement, map markers, severity behavior, response
 
 ---
 
-## 4. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 3. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -113,7 +91,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 5. Container and Specimen Management Map Workflow
+## 4. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -134,7 +112,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 6. Construction Designation and Room Assignment Map Workflow
+## 5. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -155,7 +133,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 7. Combat and Emergency Response Map Workflow
+## 6. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -176,7 +154,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 8. Journal, Log, and Message Feed Integration Pass
+## 7. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -197,7 +175,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 9. Menu Hierarchy and Screen Manager System
+## 8. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -218,7 +196,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 10. UI State Persistence and Player Preference System
+## 9. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -239,7 +217,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 11. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 10. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -261,7 +239,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 12. Black Market Byproduct Economy System
+## 11. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

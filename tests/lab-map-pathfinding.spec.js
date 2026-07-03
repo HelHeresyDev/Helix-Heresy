@@ -1457,6 +1457,8 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   }, { key: storageKey });
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-inspector-active-tab', 'actions');
   await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Door');
   const doorCommandLabel = initialDoor.state === 'open' ? 'Close Door' : 'Open Door';
@@ -1570,6 +1572,7 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
   await page.keyboard.press('A');
   await expect(page.locator('[data-keyboard-mode="command"]')).toContainText('Command mode');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-inspector-active-tab', 'actions');
   await expect(page.locator('[data-context-command-panel="true"]')).toHaveAttribute('data-command-mode', 'true');
   const doorCommandLabel = initial.door.state === 'open' ? 'Close Door' : 'Open Door';
   await expect(page.locator('[data-context-command-shortcut="1"]')).toContainText(doorCommandLabel);
@@ -1713,6 +1716,8 @@ test('selection inspector links contained specimens from a selected container', 
   await loadSavedRun(page);
 
   await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
+  await expect(page.locator('[data-selection-inspector-tabs="true"]')).toContainText('Summary');
+  await page.locator('[data-selection-inspector-tab="related"]').click();
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('SEL-001');
   await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'SEL-001' }).click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'slime');
@@ -1803,6 +1808,7 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'corpse');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', result.corpses[0].id);
 
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
   await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Dump Outside' }).click();
   const dumped = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

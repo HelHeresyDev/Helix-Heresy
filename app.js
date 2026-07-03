@@ -2106,6 +2106,15 @@
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
   const UI_MODE_NAVIGATION = "navigation";
   const UI_MODE_COMMAND = "command";
+  const SELECTION_INSPECTOR_TABS = [
+    { id: "summary", label: "Summary" },
+    { id: "details", label: "Details" },
+    { id: "actions", label: "Actions" },
+    { id: "related", label: "Related" },
+    { id: "history", label: "History" }
+  ];
+  const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
+  const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
   const MAP_OVERLAY_DEFS = [
     {
       id: "none",
@@ -2271,6 +2280,7 @@
       mode: UI_MODE_NAVIGATION,
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
+      selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       keyboardHelpOpen: false
     };
   }
@@ -3115,6 +3125,11 @@
     return MAP_OVERLAY_BY_ID[id] ? id : DEFAULT_MAP_OVERLAY_ID;
   }
 
+  function normalizeSelectionInspectorTab(value) {
+    const id = String(value || DEFAULT_SELECTION_INSPECTOR_TAB).trim();
+    return SELECTION_INSPECTOR_TAB_BY_ID[id] ? id : DEFAULT_SELECTION_INSPECTOR_TAB;
+  }
+
   function currentMapOverlayDef() {
     const overlayId = normalizeMapOverlayId(ensureUiState().mapOverlay);
     return MAP_OVERLAY_BY_ID[overlayId] || MAP_OVERLAY_BY_ID[DEFAULT_MAP_OVERLAY_ID];
@@ -3135,6 +3150,20 @@
     setMapOverlay(MAP_OVERLAY_DEFS[nextIndex].id);
   }
 
+  function currentSelectionInspectorTab() {
+    const tabId = normalizeSelectionInspectorTab(ensureUiState().selectionInspectorTab);
+    return SELECTION_INSPECTOR_TAB_BY_ID[tabId] || SELECTION_INSPECTOR_TAB_BY_ID[DEFAULT_SELECTION_INSPECTOR_TAB];
+  }
+
+  function setSelectionInspectorTab(tabId, options = {}) {
+    ensureUiState().selectionInspectorTab = normalizeSelectionInspectorTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
   function fallbackMapCursorCell(context = state) {
     return cleanMapCell(context?.scientist?.mapCell)
       || scientistDefaultMapCell(context?.scientist?.roomId || MAIN_ROOM_ID);
@@ -3151,6 +3180,7 @@
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
       mapOverlay: normalizeMapOverlayId(candidate?.mapOverlay),
+      selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -3237,6 +3267,7 @@
       selection = currentSelection();
     }
     setUiMode(UI_MODE_COMMAND);
+    setSelectionInspectorTab("actions", { render: false });
     setActiveWorkspaceTab("map");
     if (!contextualCommandsForSelection(selection).length) {
       addEvent("No contextual commands for the current selection.");
@@ -25925,6 +25956,364 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return command.run();
   }
 
+  function selectionInspectorTabsEl(activeTab) {
+    const tabs = document.createElement("div");
+    tabs.className = "selection-inspector-tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.dataset.selectionInspectorTabs = "true";
+    for (const tab of SELECTION_INSPECTOR_TABS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "selection-inspector-tab";
+      button.dataset.selectionInspectorTab = tab.id;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", tab.id === activeTab.id ? "true" : "false");
+      button.classList.toggle("active-selection-inspector-tab", tab.id === activeTab.id);
+      button.textContent = tab.label;
+      button.addEventListener("click", () => setSelectionInspectorTab(tab.id));
+      tabs.append(button);
+    }
+    return tabs;
+  }
+
+  function inspectorRow(label, content) {
+    const row = document.createElement("div");
+    row.className = "selection-inspector-row";
+    row.append(textEl("span", label));
+    const body = document.createElement("div");
+    body.className = "selection-inspector-row-body";
+    if (content instanceof Node) {
+      body.append(content);
+    } else if (Array.isArray(content)) {
+      for (const [index, item] of content.filter(Boolean).entries()) {
+        if (index > 0) {
+          body.append(document.createTextNode(" "));
+        }
+        body.append(item instanceof Node ? item : document.createTextNode(String(item)));
+      }
+    } else {
+      body.append(textEl("strong", String(content || "Unknown")));
+    }
+    row.append(body);
+    return row;
+  }
+
+  function inspectorRowsEl(rows, emptyMessage = "No details available yet.") {
+    const list = document.createElement("div");
+    list.className = "selection-inspector-section";
+    const cleanRows = rows.filter((row) => row && row[1] !== null && row[1] !== undefined && row[1] !== "");
+    if (!cleanRows.length) {
+      list.append(emptyText(emptyMessage));
+      return list;
+    }
+    for (const [label, content] of cleanRows) {
+      list.append(inspectorRow(label, content));
+    }
+    return list;
+  }
+
+  function knownTraitLabel(key) {
+    return REGION_BY_KEY[key]?.label || VIRTUAL_TRAIT_DEFS[key]?.label || titleCase(key);
+  }
+
+  function slimeKnownTraitSummary(slime) {
+    const known = Object.entries(slime?.revealed || {})
+      .filter(([_key, value]) => Boolean(value))
+      .map(([key]) => knownTraitLabel(key));
+    return known.length ? known.join(", ") : "No discovered traits";
+  }
+
+  function roomObservationInspectorSummary(room) {
+    if (!room) {
+      return "Unknown";
+    }
+    if (scientistObservesRoom(room.id)) {
+      const observation = makeRoomObservation(room);
+      return `Current observation: ${observation.exposureBand}; contamination ${observation.contaminationBand}; reliability High`;
+    }
+    const observation = normalizeRoomObservation(room.observation || state.roomObservations?.[room.id]);
+    if (!observation) {
+      return "No observation; current conditions unknown";
+    }
+    const reliability = roomObservationReliabilityLabel(roomObservationReliabilityScore(room, observation));
+    return `Previous observation at ${formatClock(observation.observedAt)}: ${observation.exposureBand}; contamination ${observation.contaminationBand}; reliability ${reliability}`;
+  }
+
+  function selectionSummaryRows(selection) {
+    const rows = [
+      ["Type", selectionKindLabel(selection)],
+      ["Location", selectionLocationLabel(selection)]
+    ];
+    if (selection?.source) {
+      rows.push(["Selected by", titleCase(selection.source)]);
+    }
+    if (selection.kind === "room") {
+      const room = roomById(selection.roomId);
+      rows.push(["Occupancy", roomOccupancySummary(room.id)]);
+      rows.push(["Observation", roomObservationInspectorSummary(room)]);
+    } else if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
+      if (door) {
+        rows.push(["Connects", door.roomIds.map(roomName).join(" / ")]);
+        rows.push(["State", doorStateLabel(door.roomIds[0], door.roomIds[1])]);
+        rows.push(["Condition", doorConditionLabel(stateDoor)]);
+      }
+    } else if (selection.kind === "container") {
+      const container = containerById(selection.id);
+      if (container) {
+        rows.push(["Access", containerAccessLabel(container)]);
+        rows.push(["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]);
+      }
+    } else if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      if (slime) {
+        rows.push(["State", slimeStateLabel(slime)]);
+        rows.push(["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")]);
+      }
+    } else if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      if (corpse) {
+        rows.push(["State", corpseStateLabel(corpse)]);
+        rows.push(["Decay", corpseDecayText(corpse)]);
+      }
+    } else if (selection.kind === "incident") {
+      const incident = incidentById(selection.id);
+      if (incident) {
+        rows.push(["Severity", incidentSeverityLabel(incident.severity)]);
+        rows.push(["Summary", incident.summary || incident.label]);
+      }
+    } else if (selection.kind === "task") {
+      const task = findTask(selection.id);
+      if (task) {
+        rows.push(["Task", taskCategory(task)]);
+        rows.push(["Due", formatClock(task.dueAt)]);
+      }
+    }
+    return rows;
+  }
+
+  function selectionDetailsRows(selection) {
+    if (selection.kind === "scientist") {
+      const vitals = state.scientist?.vitals || {};
+      return [
+        ["Room", roomName(scientistRoomId())],
+        ["Health", `${formatNumber(vitals.health?.current || 0)} / ${formatNumber(vitals.health?.max || DEFAULT_VITAL_MAX)}`],
+        ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
+        ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`]
+      ];
+    }
+    if (selection.kind === "tile") {
+      const roomId = selection.roomId || labMapCellRoomId(selection.tile);
+      const door = labMapDoorAtCell(selection.tile);
+      return [
+        ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
+        ["Room", roomId ? roomName(roomId) : "Solid earth"],
+        ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
+        ["Walkability", roomId ? "Walkable if not blocked" : "Solid"]
+      ];
+    }
+    if (selection.kind === "room") {
+      const room = roomById(selection.roomId);
+      const geometry = roomGeometry(room);
+      return [
+        ["Purpose", room.roleLabel || "Custom room"],
+        ["Shape", titleCase(geometry.shape)],
+        ["Size", `${formatDecimal(geometry.lengthM, 1)}m x ${formatDecimal(geometry.widthM, 1)}m x ${formatDecimal(geometry.heightM, 1)}m`],
+        ["Spatial feel", roomSpatialFeel(room)],
+        ["Crowding", roomCrowdingLabel(room)],
+        ["Connections", roomConnectionsLabel(room).replace(/^Connected to:\s*/i, "")],
+        ["Observation", roomObservationInspectorSummary(room)]
+      ];
+    }
+    if (selection.kind === "door") {
+      const door = labMapDoor(selection.key);
+      const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
+      if (!door || !stateDoor) {
+        return [];
+      }
+      return [
+        ["Type", doorTypeLabel(stateDoor.typeId)],
+        ["Connects", door.roomIds.map(roomName).join(" / ")],
+        ["State", doorStateLabel(door.roomIds[0], door.roomIds[1])],
+        ["Lock", titleCase(stateDoor.lockState || "unlocked")],
+        ["Seal", titleCase(stateDoor.sealState || "unsealed")],
+        ["Condition", doorConditionLabel(stateDoor)],
+        ["Wards", doorWardLabels(stateDoor.wardIds).join(", ") || "None"]
+      ];
+    }
+    if (selection.kind === "container") {
+      const container = containerById(selection.id);
+      if (!container) {
+        return [];
+      }
+      const footprint = containerFootprintDimensions(container);
+      return [
+        ["Type", containerTypeLabel(container.typeId)],
+        ["Room", roomName(container.roomId)],
+        ["Access", containerAccessLabel(container)],
+        ["Breach", containerBreachStateLabel(container)],
+        ["Condition", containerConditionLabel(container)],
+        ["Footprint", `${footprint.width} x ${footprint.height} tile${footprint.width * footprint.height === 1 ? "" : "s"}`],
+        ["Wards", containerWardLabels(container.wardIds).join(", ") || "None"],
+        ["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]
+      ];
+    }
+    if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      if (!slime) {
+        return [];
+      }
+      return [
+        ["State", slimeStateLabel(slime)],
+        ["Location", slimeLocationLabel(slime)],
+        ["Job", creatureJobLabel(slime.job || "idle")],
+        ["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")],
+        ["Known traits", slimeKnownTraitSummary(slime)],
+        ["Automation", slime.automationExcluded ? "Excluded from global automation" : "Follows global automation"]
+      ];
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      if (!corpse) {
+        return [];
+      }
+      return [
+        ["State", corpseStateLabel(corpse)],
+        ["Location", corpseLocationLabel(corpse)],
+        ["Decay", corpseDecayText(corpse)],
+        ["Harvesting", corpse.harvestBlocked || corpse.ruined ? "Ruined or blocked" : "Potentially harvestable"],
+        ["Necropsy", corpse.necropsied || corpse.forensicReport ? "Performed" : "Not performed"]
+      ];
+    }
+    if (selection.kind === "incident") {
+      const incident = incidentById(selection.id);
+      if (!incident) {
+        return [];
+      }
+      const response = incidentResponseTask(incident);
+      return [
+        ["Type", incidentTypeLabel(incident.type)],
+        ["Severity", incidentSeverityLabel(incident.severity)],
+        ["Status", titleCase(incident.status || "active")],
+        ["Room", roomName(incident.roomId)],
+        ["Summary", incident.summary || incident.label],
+        ["Response", response ? `${response.label}; due ${formatClock(response.dueAt)}` : "No response queued"]
+      ];
+    }
+    if (selection.kind === "task") {
+      const task = findTask(selection.id);
+      if (!task) {
+        return [];
+      }
+      return [
+        ["Type", task.type],
+        ["Category", taskCategory(task)],
+        ["Created", formatClock(task.createdAt || state.clock)],
+        ["Due", formatClock(task.dueAt)],
+        ["Remaining", formatDuration(task.dueAt - state.clock)]
+      ];
+    }
+    return [];
+  }
+
+  function selectionHistoryRows(selection) {
+    if (selection.kind === "room") {
+      const room = roomById(selection.roomId);
+      const observation = normalizeRoomObservation(room?.observation || state.roomObservations?.[room?.id]);
+      return observation ? [
+        ["Last observation", formatClock(observation.observedAt)],
+        ["Exposure then", observation.exposureBand],
+        ["Known factors", observation.knownFactors?.join(", ") || "None recorded"],
+        ["Uncertain factors", observation.unknownFactors?.join(", ") || "Current conditions may have changed"]
+      ] : [["Observation", "No observation recorded"]];
+    }
+    if (selection.kind === "container") {
+      const container = containerById(selection.id);
+      const summary = containerBreachSummary(container);
+      return summary ? [["Last breach", summary]] : [["History", "No notable container history recorded"]];
+    }
+    if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      if (!slime) return [];
+      return [
+        ["Created", formatClock(slime.createdAt || 0)],
+        ["Maturity", slime.mature ? "Mature" : `Matures in ${formatDuration(slime.matureAt - state.clock)}`],
+        ["Expected death", formatClock(slime.deathAt || state.clock)],
+        ["Tests run", `${(slime.testsRun || []).length}`]
+      ];
+    }
+    if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      if (!corpse) return [];
+      return [
+        ["Died", formatClock(corpse.diedAt || state.clock)],
+        ["Fresh until", formatClock(corpse.freshUntil || state.clock)],
+        ["Spoiled at", formatClock(corpse.spoiledAt || state.clock)],
+        ["Evidence", corpse.forensicReport ? "Forensic report recorded" : "No forensic report"]
+      ];
+    }
+    if (selection.kind === "incident") {
+      const incident = incidentById(selection.id);
+      if (!incident) return [];
+      return [
+        ["Created", formatClock(incident.createdAt || state.clock)],
+        ["Updated", formatClock(incident.updatedAt || incident.createdAt || state.clock)],
+        ["Acknowledged", incident.acknowledgedAt !== null && incident.acknowledgedAt !== undefined ? formatClock(incident.acknowledgedAt) : "No"],
+        ["Urgency handled", incident.urgencyHandledAt !== null && incident.urgencyHandledAt !== undefined ? formatClock(incident.urgencyHandledAt) : "No"]
+      ];
+    }
+    if (selection.kind === "task") {
+      const task = findTask(selection.id);
+      return task ? [
+        ["Created", formatClock(task.createdAt || state.clock)],
+        ["Due", formatClock(task.dueAt)],
+        ["Remaining", formatDuration(task.dueAt - state.clock)]
+      ] : [];
+    }
+    return [["History", "No notable history recorded"]];
+  }
+
+  function selectionRelatedPanelEl(selection) {
+    const panel = document.createElement("div");
+    panel.className = "selection-inspector-section";
+    const related = selectionLinkRow("Related", selectionRelatedTargets(selection));
+    if (related) {
+      panel.append(related);
+    }
+    const cell = selectionMapCell(selection);
+    const stack = cell
+      ? selectableTargetsAtCell(cell).filter((target) => selectionKey(target) !== selectionKey(selection))
+      : [];
+    const alsoHere = selectionLinkRow("Also here", stack);
+    if (alsoHere) {
+      panel.append(alsoHere);
+    }
+    if (!panel.childElementCount) {
+      panel.append(emptyText("No related selections visible from here."));
+    }
+    return panel;
+  }
+
+  function selectionInspectorTabPanelEl(selection, activeTab) {
+    const panel = document.createElement("div");
+    panel.className = "selection-inspector-panel";
+    panel.dataset.selectionInspectorPanel = activeTab.id;
+    panel.setAttribute("role", "tabpanel");
+    if (activeTab.id === "summary") {
+      panel.append(inspectorRowsEl(selectionSummaryRows(selection)));
+    } else if (activeTab.id === "details") {
+      panel.append(inspectorRowsEl(selectionDetailsRows(selection), "No detailed readout for this selection yet."));
+    } else if (activeTab.id === "actions") {
+      panel.append(renderContextualCommands(selection));
+    } else if (activeTab.id === "related") {
+      panel.append(selectionRelatedPanelEl(selection));
+    } else if (activeTab.id === "history") {
+      panel.append(inspectorRowsEl(selectionHistoryRows(selection), "No history recorded for this selection yet."));
+    }
+    return panel;
+  }
+
   function selectionInspectorEl() {
     const panel = document.createElement("div");
     panel.className = "selection-inspector subpanel";
@@ -25955,26 +26344,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     meta.append(...selectionStatusChips(selection));
     panel.append(meta);
 
-    const location = document.createElement("div");
-    location.className = "selection-inspector-row";
-    location.append(textEl("span", "Location"), textEl("strong", selectionLocationLabel(selection)));
-    panel.append(location);
-
-    panel.append(renderContextualCommands(selection));
-
-    const related = selectionLinkRow("Related", selectionRelatedTargets(selection));
-    if (related) {
-      panel.append(related);
-    }
-
-    const cell = selectionMapCell(selection);
-    const stack = cell
-      ? selectableTargetsAtCell(cell).filter((target) => selectionKey(target) !== selectionKey(selection))
-      : [];
-    const alsoHere = selectionLinkRow("Also here", stack);
-    if (alsoHere) {
-      panel.append(alsoHere);
-    }
+    const activeTab = currentSelectionInspectorTab();
+    panel.dataset.selectionInspectorActiveTab = activeTab.id;
+    panel.append(selectionInspectorTabsEl(activeTab));
+    panel.append(selectionInspectorTabPanelEl(selection, activeTab));
 
     return panel;
   }

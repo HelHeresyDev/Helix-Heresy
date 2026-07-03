@@ -757,6 +757,35 @@ h2 {
   justify-content: space-between;
 }
 
+.selection-inspector-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(56, 58, 50, 0.7);
+}
+
+.selection-inspector-tab {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(56, 58, 50, 0.8);
+  background: #11130e;
+  color: var(--muted);
+  border-radius: 4px 4px 0 0;
+  font-size: 0.78rem;
+}
+
+.selection-inspector-tab.active-selection-inspector-tab {
+  color: var(--text);
+  border-color: rgba(225, 183, 95, 0.7);
+  background: #202218;
+}
+
+.selection-inspector-panel,
+.selection-inspector-section {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .selection-inspector-row {
   display: grid;
   grid-template-columns: minmax(6rem, 0.28fr) minmax(0, 1fr);
@@ -770,6 +799,14 @@ h2 {
   color: var(--muted);
   font-size: 0.78rem;
   text-transform: uppercase;
+}
+
+.selection-inspector-row-body {
+  min-width: 0;
+}
+
+.selection-inspector-row-body strong {
+  overflow-wrap: anywhere;
 }
 
 .selection-command-panel,
