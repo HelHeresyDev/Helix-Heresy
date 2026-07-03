@@ -223,6 +223,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     }
     pit.name = 'Residue Pit';
     pit.roomId = 'pits';
+    pit.waste = { amount: 1, tags: { hazardous: 1, chemical: 1, waste: 1 } };
     state.started = true;
     state.paused = true;
     state.scientist ||= {};
@@ -230,7 +231,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     state.selectedSlimeId = 'residue-worker';
     state.resources = {
       ...(state.resources || {}),
-      waste: 1,
+      waste: 0,
       elementalResidue: 0,
     };
     state.feedingResidues = [];
@@ -253,12 +254,14 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     const state = payload.state || payload;
     return {
       waste: state.resources?.waste,
+      pitWaste: (state.containers || []).find((item) => item.id === 'basic-11')?.waste?.amount || 0,
       elementalResidue: state.resources?.elementalResidue,
       residues: state.feedingResidues || [],
     };
   }, { key: storageKey });
 
   expect(result.waste).toBe(0);
+  expect(result.pitWaste).toBe(0);
   expect(result.elementalResidue).toBe(0);
   expect(result.residues).toEqual(expect.arrayContaining([
     expect.objectContaining({

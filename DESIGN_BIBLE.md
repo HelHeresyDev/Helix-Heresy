@@ -495,8 +495,9 @@ Open design questions:
 - Dedicated Policies panel for automation rules, including Corpse Processing target states and configurable auto-feeding behavior.
 - Individual slimes can be excluded from global automation for testing or deliberate starvation/growth control.
 - Creature Jobs panel with idle assignment, Corpse Processing, and Waste Disposal.
-- Corpse Processing uses creature traits, sustenance categories, and policy-approved corpse states to turn waste-drum corpses into Biomass and tagged Waste while affecting slime condition.
-- Waste Disposal lets assigned creatures reduce accumulated Waste over time, with small Elemental Residue output, condition-stat effects, and suitability learned through observed speed, exposure, and contamination.
+- Pit holes behave as large dirt containment containers, not loose rooms; contained slimes and contained corpses can share the same pit interior.
+- Corpse Processing requires the worker slime and target corpse to be in the same pit container, then turns policy-approved remains into Biomass, Carrion Feedstock, and pit-local tagged Waste while affecting slime condition.
+- Waste Disposal requires an assigned slime in a pit container with pit-local Waste, then reduces that interior Waste over time with small Elemental Residue output, condition-stat effects, and suitability learned through observed speed, exposure, and contamination.
 - Visible job suitability stays unknown unless discovered traits provide an obvious positive or negative signal; hidden biology can still affect actual job performance.
 - Scientist stat sheet with health, stamina, mana, and learned skills only; level 0 practice stays off the sheet until a skill reaches Initiate.
 - First-pass adaptive skill foundation with world-scale domains such as Analysis, Creature Handling, Fabrication, Husbandry, Alchemy, Materials Science, Creature Lore, and Medicine.

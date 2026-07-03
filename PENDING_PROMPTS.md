@@ -12,38 +12,13 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Slime Job Autonomy and Work Behavior System
-2. Map-Based Slime Incident and Emergency Response System
-3. Slime AI Debugging and Behavior Readout System
-4. Black Market Byproduct Economy System
+1. Map-Based Slime Incident and Emergency Response System
+2. Slime AI Debugging and Behavior Readout System
+3. Black Market Byproduct Economy System
 
 ---
 
-## 1. Slime Job Autonomy and Work Behavior System
-
-Create autonomous work behavior for slimes assigned to jobs.
-
-Jobs should not feel like abstract timers detached from creature behavior. A slime assigned to Corpse Processing, Waste Disposal, collection support, cleanup, defense, or future work should behave like a creature performing an activity in a place. Its needs, stress, habitat, hunger, skills, condition, and local access should affect whether it works, pauses, fails, wanders, feeds, or creates incidents.
-
-The system should answer questions like:
-- How does a slime decide to continue assigned work versus satisfy a stronger drive?
-- How do job targets become local map or room targets?
-- How do work tasks interact with movement, feeding, residue, stress, and condition?
-- How do skills and practice affect work behavior?
-- How does a slime fail, refuse, abandon, or interrupt a job?
-- How do job assignments differ from autonomous opportunistic behavior?
-- How should the UI show why a slime is working or not working?
-- How should automation avoid silently overriding important creature needs?
-
-This system should make work assignments feel grounded. A corpse-processing slime should move to or act on a corpse target. A waste-disposal slime should interact with local waste. A defense slime should have patrol or response behavior later. Work should produce skill practice where appropriate.
-
-The desired result is a job AI layer where assigned work is integrated with the slime's behavior system instead of being only a hidden progress bar.
-
-Before coding, discuss job behavior states, target selection, interruption rules, movement integration, skill practice, failure modes, and UI explanations.
-
----
-
-## 2. Map-Based Slime Incident and Emergency Response System
+## 1. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -67,7 +42,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 3. Slime AI Debugging and Behavior Readout System
+## 2. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -91,7 +66,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
