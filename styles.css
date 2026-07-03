@@ -690,7 +690,8 @@ h2 {
 .container-card.selected-map-target,
 .room-door-row.selected-map-target,
 .corpse-card.selected-map-target,
-.incident-alert-row.selected-map-target {
+.incident-alert-row.selected-map-target,
+.task-row.selected-map-target {
   border-color: var(--cyan);
   box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.45);
 }
@@ -1153,6 +1154,12 @@ h2 {
   box-shadow: inset 0 0 0 1px rgba(104, 200, 216, 0.2);
 }
 
+.lab-map-cell.selected-task-path-cell,
+.lab-map-cell.map-overlay-movement-selected-route {
+  border-color: #f0d989;
+  box-shadow: 0 0 0 1px rgba(240, 217, 137, 0.7), inset 0 0 0 1px rgba(240, 217, 137, 0.28);
+}
+
 .lab-map-cell.map-overlay-movement-scientist {
   border-color: #bdefff;
   box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.75), 0 0 12px rgba(104, 200, 216, 0.26), inset 0 0 0 1px rgba(104, 200, 216, 0.28);
@@ -1179,6 +1186,11 @@ h2 {
 .lab-map-cell.object-cell.queued-path-cell {
   background: #26332d;
   border-color: rgba(117, 184, 107, 0.5);
+}
+
+.lab-map-cell.room-cell.selected-task-path-cell,
+.lab-map-cell.object-cell.selected-task-path-cell {
+  border-color: #f0d989;
 }
 
 .lab-map-cell.selected-map-cell {
@@ -2091,7 +2103,8 @@ h2 {
 .corpse-card.focus-pulse,
 .container-card.focus-pulse,
 .room-card.focus-pulse,
-.room-door-row.focus-pulse {
+.room-door-row.focus-pulse,
+.task-row.focus-pulse {
   animation: entity-focus-pulse 1.35s ease-out;
 }
 
@@ -2281,6 +2294,12 @@ h2 {
 
 .task-row {
   grid-template-columns: minmax(0, 1fr) auto;
+  cursor: pointer;
+}
+
+.task-row[data-task-status="blocked"] {
+  border-color: #7f4a3e;
+  background: #221914;
 }
 
 .task-meta {

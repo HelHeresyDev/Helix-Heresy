@@ -2115,6 +2115,22 @@
   ];
   const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
   const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
+  const SCIENTIST_QUEUE_TASK_TYPES = new Set([
+    "synthesize",
+    "test",
+    "breed",
+    "necropsy",
+    "harvestSlime",
+    "harvestCorpse",
+    "containerHaul",
+    "resourceHaul",
+    "scientistMove",
+    "containerInteraction",
+    "collectionBayTransfer",
+    "physicalDiagnostic",
+    "excavate",
+    "rest"
+  ]);
   const MAP_OVERLAY_DEFS = [
     {
       id: "none",
@@ -3368,10 +3384,23 @@
   }
 
   function nextQueueEvent() {
-    const task = [...state.tasks]
-      .sort((a, b) => a.dueAt - b.dueAt)
+    const task = scientistQueueTasks()
       .find((candidate) => candidate.dueAt >= state.clock);
     return task ? { time: task.dueAt, label: task.label, type: "queue" } : null;
+  }
+
+  function isScientistQueueTask(task) {
+    return Boolean(task && SCIENTIST_QUEUE_TASK_TYPES.has(task.type));
+  }
+
+  function scientistQueueTasks(tasks = state.tasks || []) {
+    return [...(tasks || [])]
+      .filter(isScientistQueueTask)
+      .sort((a, b) => a.dueAt - b.dueAt || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function firstScientistQueueTask() {
+    return scientistQueueTasks()[0] || null;
   }
 
   function nextMeaningfulEvent() {
@@ -3555,7 +3584,7 @@
   }
 
   function completeDueTasks() {
-    let completedCount = 0;
+    let changeCount = 0;
     let completedAny = true;
     while (completedAny) {
       completedAny = false;
@@ -3563,13 +3592,28 @@
         .filter((task) => task.dueAt <= state.clock)
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
+        const blockedReason = taskBlockReason(task);
+        if (blockedReason) {
+          task.data ||= {};
+          if (task.data.blockedReason !== blockedReason) {
+            task.data.blockedReason = blockedReason;
+            task.data.blockedAt = state.clock;
+            changeCount += 1;
+          }
+          continue;
+        }
+        if (task.data?.blockedReason) {
+          delete task.data.blockedReason;
+          delete task.data.blockedAt;
+          changeCount += 1;
+        }
         state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
         completeTask(task);
         completedAny = true;
-        completedCount += 1;
+        changeCount += 1;
       }
     }
-    return completedCount;
+    return changeCount;
   }
 
   function completeTask(task) {
@@ -24845,10 +24889,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         setLabMapOverlayEntry(assignments, { x, y }, {
           overlayId: "movement",
-          classNames: ["map-overlay-movement-route"],
+          classNames: ["map-overlay-movement-route", ...(route.selected ? ["map-overlay-movement-selected-route"] : [])],
           label: route.label || "Queued movement",
           source: "Queued task",
-          title: `Overlay: Movement - next queued route: ${route.label || "queued movement"}.`
+          title: `Overlay: Movement - ${route.selected ? "selected" : "next"} queued route: ${route.label || "queued movement"}.`
         }, map);
       }
     }
@@ -24991,22 +25035,255 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
-  function nextQueuedMovementPath(map = ensureLabMap()) {
-    const tasks = [...(state.tasks || [])]
-      .filter((task) => ["scientistMove", "containerHaul", "resourceHaul"].includes(task.type))
-      .sort((a, b) => a.dueAt - b.dueAt || a.createdAt - b.createdAt);
-    const task = tasks[0] || null;
+  function taskRouteList(task) {
+    if (!task) {
+      return [];
+    }
+    if (Array.isArray(task.data?.routes)) {
+      return task.data.routes.filter((route) => Array.isArray(route) && route.length);
+    }
+    return Array.isArray(task.data?.route) && task.data.route.length ? [task.data.route] : [];
+  }
+
+  function taskPathList(task) {
+    if (!task) {
+      return [];
+    }
+    if (Array.isArray(task.data?.mapPaths)) {
+      return task.data.mapPaths.filter((path) => Array.isArray(path) && path.length);
+    }
+    if (Array.isArray(task.data?.mapPath) && task.data.mapPath.length) {
+      return [task.data.mapPath];
+    }
+    return [];
+  }
+
+  function taskPathCells(task) {
+    return taskPathList(task).flat();
+  }
+
+  function taskPathSummary(task) {
+    const paths = taskPathList(task);
+    if (!paths.length) {
+      return "No map path recorded";
+    }
+    return paths.map((path) => mapPathSummary(path, ensureLabMap())).join("; ");
+  }
+
+  function taskMovementRoute(task, map = ensureLabMap(), options = {}) {
     if (!task) {
       return { task: null, keys: new Set(), label: "" };
     }
-    const path = task.type === "resourceHaul"
-      ? (task.data?.mapPaths || []).find((candidate) => Array.isArray(candidate) && candidate.length) || []
-      : task.data?.mapPath || [];
+    const path = taskPathCells(task);
     return {
       task,
-      keys: new Set((Array.isArray(path) ? path : []).map((cell) => mapCellKey(cell)).filter(Boolean)),
-      label: task.label || "queued movement"
+      keys: new Set(path.map((cell) => mapCellKey(cell)).filter(Boolean)),
+      label: task.label || "queued movement",
+      selected: Boolean(options.selected)
     };
+  }
+
+  function selectedOrNextScientistTaskRoute(map = ensureLabMap()) {
+    const selected = currentSelection();
+    const selectedTask = selected?.kind === "task" ? findTask(selected.id) : null;
+    if (selectedTask && isScientistQueueTask(selectedTask) && taskPathCells(selectedTask).length) {
+      return taskMovementRoute(selectedTask, map, { selected: true });
+    }
+    const task = scientistQueueTasks().find((candidate) => taskPathCells(candidate).length) || null;
+    return taskMovementRoute(task, map);
+  }
+
+  function taskTargetRoomId(task) {
+    if (!task) {
+      return "";
+    }
+    return roomById(task.data?.toRoomId)?.id
+      || roomById(task.data?.resourceRoomId)?.id
+      || roomById(task.data?.roomId)?.id
+      || roomById(task.data?.fromRoomId)?.id
+      || "";
+  }
+
+  function taskTargetCell(task) {
+    if (!task) {
+      return null;
+    }
+    return cleanMapCell(task.data?.toCell)
+      || cleanMapCell(task.data?.targetCell)
+      || cleanMapCell(task.data?.fromCell)
+      || (Array.isArray(task.data?.cells) ? cleanMapCell(task.data.cells[0]) : null)
+      || taskPathCells(task).at(-1)
+      || null;
+  }
+
+  function taskDoorBlockReason(task) {
+    for (const route of taskRouteList(task)) {
+      const reason = firstDoorSecurityBlockReason(route);
+      if (reason) {
+        return reason;
+      }
+    }
+    return "";
+  }
+
+  function synthesisTaskBlockReason() {
+    const tube = synthesisTube();
+    if (!tube) {
+      return "No synthesis tube exists.";
+    }
+    const occupants = synthesisTubeOccupants();
+    if (occupants.length) {
+      return `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+    }
+    const corpses = containerCorpses(tube.id);
+    if (corpses.length) {
+      return `Synthesis tube blocked by ${corpses.map((corpse) => `${corpse.name} remains`).join(", ")}.`;
+    }
+    return "";
+  }
+
+  function collectionBayTransferTaskBlockReason(task) {
+    if (scientistRoomId() !== COLLECTION_BAY_ROOM_ID) {
+      return "Scientist must be in the Collection Bay.";
+    }
+    const container = containerById(task.data?.containerId);
+    const info = collectionBayStationInfo(container);
+    if (!container || !info?.station || !info.station.material) {
+      return "No collection receptacle is assigned.";
+    }
+    if ((Number(info.station.receptacle?.amount) || 0) <= 0) {
+      return "Receptacle is empty.";
+    }
+    return "";
+  }
+
+  function resourceHaulTaskBlockReason(task) {
+    const transfers = Array.isArray(task.data?.transfers) ? task.data.transfers : [];
+    if (!transfers.length) {
+      return "No material transfer is recorded.";
+    }
+    for (const transfer of transfers) {
+      if (resourceAmountInRoom(transfer.key, transfer.fromRoomId) < transfer.amount) {
+        return `${roomName(transfer.fromRoomId)} no longer has ${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)}.`;
+      }
+    }
+    return "";
+  }
+
+  function taskBlockReason(task) {
+    if (!task || !isScientistQueueTask(task)) {
+      return "";
+    }
+    if (scientistIsDead()) {
+      return "The scientist is dead.";
+    }
+    const doorReason = taskDoorBlockReason(task);
+    if (doorReason) {
+      return doorReason;
+    }
+    if (task.type === "synthesize") {
+      return synthesisTaskBlockReason(task);
+    }
+    if (task.type === "test") {
+      return findSlime(task.data?.slimeId) ? "" : "The test specimen is no longer available.";
+    }
+    if (task.type === "breed") {
+      const parentA = findSlime(task.data?.parentAId);
+      const parentB = findSlime(task.data?.parentBId);
+      return parentA && parentB ? "" : "One of the recombination parents is no longer available.";
+    }
+    if (task.type === "necropsy" || task.type === "harvestCorpse") {
+      return findCorpse(task.data?.corpseId) ? "" : "The corpse is no longer available.";
+    }
+    if (task.type === "harvestSlime") {
+      const slime = findSlime(task.data?.slimeId);
+      return slime && slime.status !== "dead" ? "" : "The living specimen is no longer available.";
+    }
+    if (task.type === "containerHaul" || task.type === "containerInteraction" || task.type === "collectionBayTransfer") {
+      if (!containerById(task.data?.containerId)) {
+        return "The target container no longer exists.";
+      }
+    }
+    if (task.type === "containerHaul" && !roomById(task.data?.toRoomId)) {
+      return "The destination room no longer exists.";
+    }
+    if (task.type === "resourceHaul") {
+      return resourceHaulTaskBlockReason(task);
+    }
+    if (task.type === "collectionBayTransfer") {
+      return collectionBayTransferTaskBlockReason(task);
+    }
+    if (task.type === "scientistMove" && !roomById(task.data?.toRoomId)) {
+      return "The destination room no longer exists.";
+    }
+    return "";
+  }
+
+  function taskStatusInfo(task) {
+    const blockedReason = taskBlockReason(task) || task.data?.blockedReason || "";
+    if (blockedReason) {
+      return { id: "blocked", label: "Blocked", reason: blockedReason };
+    }
+    if (task.dueAt <= state.clock) {
+      return { id: "ready", label: "Ready", reason: "" };
+    }
+    if (firstScientistQueueTask()?.id === task.id) {
+      return { id: "active", label: "Active", reason: "" };
+    }
+    return { id: "queued", label: "Queued", reason: "" };
+  }
+
+  function cancelTaskBlockReason(task) {
+    if (!task) {
+      return "Task no longer exists.";
+    }
+    if (!isScientistQueueTask(task)) {
+      return "Only scientist queue tasks can be canceled here.";
+    }
+    return "";
+  }
+
+  function cleanupCancelledTask(task) {
+    if (!task) {
+      return;
+    }
+    if (task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
+      addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
+    }
+    const incidentId = String(task.data?.incidentId || "").trim();
+    if (incidentId) {
+      const incident = incidentById(incidentId);
+      if (incident && incident.responseTaskId === task.id) {
+        incident.responseTaskId = "";
+        incident.updatedAt = state.clock;
+      }
+    }
+    for (const incident of state.incidents || []) {
+      if (incident.responseTaskId === task.id) {
+        incident.responseTaskId = "";
+        incident.updatedAt = state.clock;
+      }
+    }
+  }
+
+  function cancelTask(taskId) {
+    const task = findTask(taskId);
+    const reason = cancelTaskBlockReason(task);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    cleanupCancelledTask(task);
+    state.tasks = (state.tasks || []).filter((candidate) => candidate.id !== task.id);
+    if (currentSelection()?.kind === "task" && currentSelection().id === task.id) {
+      setSelection(null);
+    }
+    addEvent(`Canceled task: ${task.label}.`);
+    persist();
+    render();
+    return true;
   }
 
   function selectedMapTarget() {
@@ -25295,6 +25572,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "incident") {
       return incidentById(selection.id)?.roomId || "";
     }
+    if (selection.kind === "task") {
+      return taskTargetRoomId(findTask(selection.id));
+    }
     return "";
   }
 
@@ -25328,6 +25608,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "incident") {
       return cleanMapCell(incidentById(selection.id)?.cell);
+    }
+    if (selection.kind === "task") {
+      return taskTargetCell(findTask(selection.id));
     }
     return null;
   }
@@ -25369,7 +25652,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "task") {
       const task = findTask(selection.id);
-      return task ? [task.type, `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`].map(chip) : [];
+      if (!task) {
+        return [];
+      }
+      const status = taskStatusInfo(task);
+      return [taskCategory(task), status.label, status.reason || `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`].map(chip);
     }
     if (selection.kind === "tile") {
       return [chip(selectionLocationLabel(selection))];
@@ -25462,6 +25749,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const door = labMapDoor(selection.key);
       return (door?.roomIds || []).map((roomId) => ({ kind: "room", roomId }));
     }
+    if (selection.kind === "task") {
+      const task = findTask(selection.id);
+      if (!task) {
+        return [];
+      }
+      const targets = [];
+      if (task.data?.slimeId) {
+        targets.push({ kind: "slime", id: task.data.slimeId });
+      }
+      if (task.data?.corpseId) {
+        targets.push({ kind: "corpse", id: task.data.corpseId });
+      }
+      if (task.data?.containerId) {
+        targets.push({ kind: "container", id: task.data.containerId });
+      }
+      if (task.data?.incidentId) {
+        targets.push({ kind: "incident", id: task.data.incidentId });
+      }
+      const roomId = taskTargetRoomId(task);
+      if (roomId) {
+        targets.push({ kind: "room", roomId });
+      }
+      const cell = taskTargetCell(task);
+      if (cell) {
+        targets.push({ kind: "tile", tile: cell });
+      }
+      return targets;
+    }
     return [];
   }
 
@@ -25534,7 +25849,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "container") {
       return containerContextCommands(containerById(selection.id));
     }
+    if (selection.kind === "task") {
+      return taskContextCommands(findTask(selection.id));
+    }
     return [];
+  }
+
+  function taskContextCommands(task) {
+    if (!task) {
+      return [];
+    }
+    return [
+      commandDef({
+        id: `task.cancel.${task.id}`,
+        label: "Cancel Task",
+        group: "Task",
+        disabledReason: cancelTaskBlockReason(task),
+        description: "Remove this scientist order from the queue. Spent time and stamina are not recovered; recorded unused materials are returned.",
+        danger: true,
+        run: () => cancelTask(task.id)
+      })
+    ];
   }
 
   function roomContextCommands(room) {
@@ -25542,13 +25877,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const reason = scientistMoveBlockReason(room.id, { allowMultiRoom: true });
+    const routeSummary = roomPathSummary(scientistRoomId(), room.id, {
+      ignoreDoors: true,
+      fromCell: scientistMapCell(),
+      toCell: nearestOpenMapCellInRoom(room.id, labMapRoomAnchor(room.id), { preferredCell: scientistMapCell() })
+    });
     return [
       commandDef({
         id: `room.move.${room.id}`,
         label: "Move Scientist Here",
         group: "Movement",
         disabledReason: reason,
-        description: `Queue movement to ${room.name}.`,
+        description: `Queue movement to ${room.name}. Route: ${routeSummary}.`,
         run: () => startScientistMove(room.id, { allowMultiRoom: true })
       })
     ];
@@ -25560,13 +25900,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const reason = scientistMoveBlockReason(roomId, { toCell: selection.tile, allowMultiRoom: true });
+    const routeSummary = roomPathSummary(scientistRoomId(), roomId, {
+      ignoreDoors: true,
+      fromCell: scientistMapCell(),
+      toCell: selection.tile
+    });
     return [
       commandDef({
         id: `tile.move.${selection.tile.x}.${selection.tile.y}`,
         label: "Move Scientist Here",
         group: "Movement",
         disabledReason: reason,
-        description: `Queue movement to tile ${selection.tile.x},${selection.tile.y}.`,
+        description: `Queue movement to tile ${selection.tile.x},${selection.tile.y}. Route: ${routeSummary}.`,
         run: () => startScientistMove(roomId, {
           toCell: selection.tile,
           allowMultiRoom: true,
@@ -26086,8 +26431,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (selection.kind === "task") {
       const task = findTask(selection.id);
       if (task) {
+        const status = taskStatusInfo(task);
         rows.push(["Task", taskCategory(task)]);
+        rows.push(["Status", status.reason ? `${status.label}: ${status.reason}` : status.label]);
         rows.push(["Due", formatClock(task.dueAt)]);
+        rows.push(["Route", taskPathSummary(task)]);
       }
     }
     return rows;
@@ -26206,12 +26554,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!task) {
         return [];
       }
+      const status = taskStatusInfo(task);
       return [
         ["Type", task.type],
         ["Category", taskCategory(task)],
+        ["Status", status.label],
+        ["Blocked reason", status.reason || "None"],
+        ["Worker", "Scientist"],
+        ["Route", taskPathSummary(task)],
+        ["Target", selectionLocationLabel(selection)],
+        ["Stamina spent", task.data?.staminaCost ? formatNumber(task.data.staminaCost) : "None recorded"],
         ["Created", formatClock(task.createdAt || state.clock)],
         ["Due", formatClock(task.dueAt)],
-        ["Remaining", formatDuration(task.dueAt - state.clock)]
+        ["Remaining", formatDuration(Math.max(0, task.dueAt - state.clock))]
       ];
     }
     return [];
@@ -26268,7 +26623,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return task ? [
         ["Created", formatClock(task.createdAt || state.clock)],
         ["Due", formatClock(task.dueAt)],
-        ["Remaining", formatDuration(task.dueAt - state.clock)]
+        ["Remaining", formatDuration(Math.max(0, task.dueAt - state.clock))]
       ] : [];
     }
     return [["History", "No notable history recorded"]];
@@ -26430,6 +26785,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (routeEntry) {
       classNames.push("queued-path-cell");
+      if (routeEntry.selected) {
+        classNames.push("selected-task-path-cell");
+      }
       dataset.mapQueuedPath = routeEntry.task?.id || "next";
     }
     if (incidentEntry) {
@@ -26508,7 +26866,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistCell = scientistMapCell();
     const objectAssignments = labMapObjectAssignments(map, { debug: overlay.id === "debug" });
     const incidentAssignments = labMapIncidentAssignments(map);
-    const route = nextQueuedMovementPath(map);
+    const route = selectedOrNextScientistTaskRoute(map);
+    const showMovementRoute = overlay.id === "movement";
     const plannedExcavations = plannedExcavationAssignments();
     const overlayAssignments = labMapOverlayAssignments(overlay.id, map, {
       incidentAssignments,
@@ -26524,7 +26883,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (let x = 0; x < map.width; x += 1) {
         const cell = { x, y };
         const key = mapCellKey(cell);
-        const routeEntry = route.keys.has(key) ? route : null;
+        const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
         cells.push(buildLabMapCellView({
           cell,
           map,
@@ -26559,7 +26918,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "C = blocking container footprint",
         "L = loose living",
         "R = remains",
-        "route = next queued movement",
+        "route = Movement overlay task path",
         "room letters = room anchor",
         "x = closed door",
         "l = locked",
@@ -26625,6 +26984,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       requestAnimationFrame(() => {
         focusEntityCard(elementByDataset("incidentAlert", normalized.id), options);
+      });
+      return true;
+    }
+    if (normalized.kind === "task") {
+      setActiveWorkspaceTab("map");
+      persist();
+      render();
+      requestAnimationFrame(() => {
+        focusEntityCard(elementByDataset("taskRow", normalized.id), options);
       });
       return true;
     }
@@ -27541,24 +27909,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderTasks() {
     dom.taskList.textContent = "";
     renderQueueShell();
-    if (state.tasks.length === 0) {
+    const queueTasks = scientistQueueTasks();
+    if (queueTasks.length === 0) {
       dom.taskList.append(emptyText("Queue is clear."));
       return;
     }
 
-    const sorted = [...state.tasks].sort((a, b) => a.dueAt - b.dueAt);
-    for (const task of sorted) {
+    for (const task of queueTasks) {
+      const status = taskStatusInfo(task);
       const row = document.createElement("div");
       row.className = "task-row";
+      row.dataset.taskRow = task.id;
+      row.dataset.taskStatus = status.id;
+      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("task", task.id));
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, select, textarea")) {
+          return;
+        }
+        focusMapTarget({ kind: "task", id: task.id, source: "queue" });
+      });
       const label = document.createElement("div");
       const title = document.createElement("strong");
       appendLinkedEntityText(title, task.label);
-      const remaining = textEl("span", `${formatDuration(task.dueAt - state.clock)} remaining`);
+      const remaining = textEl("span", `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`);
       remaining.dataset.taskRemaining = task.id;
       const meta = document.createElement("div");
       meta.className = "task-meta";
       remaining.className = "task-chip";
-      meta.append(taskChip(taskCategory(task)), taskChip(formatClock(task.dueAt)), remaining);
+      meta.append(taskChip(taskCategory(task)), taskChip(status.reason ? `${status.label}: ${status.reason}` : status.label), taskChip(formatClock(task.dueAt)), remaining);
       label.append(title, meta);
       const button = document.createElement("button");
       button.type = "button";
@@ -27576,17 +27954,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderQueueShell() {
-    const sorted = [...state.tasks].sort((a, b) => a.dueAt - b.dueAt);
+    const sorted = scientistQueueTasks();
     const next = sorted[0] || null;
     dom.queueDrawer.classList.toggle("collapsed", !state.queueDrawerOpen);
     document.querySelector(".app-shell")?.classList.toggle("queue-open", state.queueDrawerOpen);
     dom.queueToggleBtn.setAttribute("aria-expanded", String(state.queueDrawerOpen));
-    dom.queueBadge.textContent = String(state.tasks.length);
+    dom.queueBadge.textContent = String(sorted.length);
     dom.queueSummary.textContent = next
-      ? `${state.tasks.length} pending; next ${next.label} in ${formatDuration(next.dueAt - state.clock)}`
-      : "No pending work";
+      ? `${sorted.length} scientist task${sorted.length === 1 ? "" : "s"}; next ${next.label} in ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
+      : "No pending scientist work";
     dom.queueNextReadout.textContent = next
-      ? `Next ${formatDuration(next.dueAt - state.clock)}`
+      ? `Next ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
       : "Clear";
   }
 
@@ -32162,7 +32540,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!card) {
       return;
     }
-    const container = card.closest(".slime-list, .corpse-list, .container-list, .room-list");
+    const container = card.closest(".slime-list, .corpse-list, .container-list, .room-list, .task-list");
     const behavior = options.animate === false ? "auto" : "smooth";
     if (container) {
       scrollCardWithinContainer(container, card, behavior);

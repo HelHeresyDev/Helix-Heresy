@@ -12,42 +12,20 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Task Queue, Path Preview, and Movement Visualization System
-2. Incident Alert and Map Notification System
-3. Inventory, Stockpile, and Room-Local Resource Map Workflow
-4. Container and Specimen Management Map Workflow
-5. Construction Designation and Room Assignment Map Workflow
-6. Combat and Emergency Response Map Workflow
-7. Journal, Log, and Message Feed Integration Pass
-8. Menu Hierarchy and Screen Manager System
-9. UI State Persistence and Player Preference System
-10. Map Renderer Boundary and Future Canvas/Sprite Preparation
-11. Black Market Byproduct Economy System
+1. Incident Alert and Map Notification System
+2. Inventory, Stockpile, and Room-Local Resource Map Workflow
+3. Container and Specimen Management Map Workflow
+4. Construction Designation and Room Assignment Map Workflow
+5. Combat and Emergency Response Map Workflow
+6. Journal, Log, and Message Feed Integration Pass
+7. Menu Hierarchy and Screen Manager System
+8. UI State Persistence and Player Preference System
+9. Map Renderer Boundary and Future Canvas/Sprite Preparation
+10. Black Market Byproduct Economy System
 
 ---
 
-## 1. Task Queue, Path Preview, and Movement Visualization System
-
-Rework task queue and movement visualization for the map-first interface.
-
-The game now has physical paths, movement tasks, hauling routes, incident response movement, and time controls. The map-first UI should make these visible and understandable. The player should be able to see what the scientist or creatures are doing, where they are going, and why a task is delayed or blocked.
-
-This system should answer questions like:
-- How should queued tasks appear in the map-first layout?
-- Should the next task path be shown by default?
-- How should selected task paths, hauling paths, creature routes, incident response paths, and blocked routes be visualized?
-- How should the player inspect, cancel, reorder, or focus a queued task?
-- How should time controls integrate with task visibility?
-- How should path previews work before committing to a movement or hauling command?
-- How should the UI explain blocked movement, missing access cells, closed doors, or invalid targets?
-
-The desired result is a task and path UI that turns movement and queued work into visible map behavior rather than hidden timers.
-
-Before coding, discuss queue placement, path display rules, selected-task behavior, task controls, blocked route messaging, and how to keep visual clutter manageable.
-
----
-
-## 2. Incident Alert and Map Notification System
+## 1. Incident Alert and Map Notification System
 
 Rework incident alerts and notifications around the map-first interface.
 
@@ -69,7 +47,7 @@ Before coding, discuss alert placement, map markers, severity behavior, response
 
 ---
 
-## 3. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 2. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -91,7 +69,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 4. Container and Specimen Management Map Workflow
+## 3. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -112,7 +90,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 5. Construction Designation and Room Assignment Map Workflow
+## 4. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -133,7 +111,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 6. Combat and Emergency Response Map Workflow
+## 5. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -154,7 +132,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 7. Journal, Log, and Message Feed Integration Pass
+## 6. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -175,7 +153,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 8. Menu Hierarchy and Screen Manager System
+## 7. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -196,7 +174,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 9. UI State Persistence and Player Preference System
+## 8. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -217,7 +195,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 10. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 9. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -239,7 +217,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 11. Black Market Byproduct Economy System
+## 10. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

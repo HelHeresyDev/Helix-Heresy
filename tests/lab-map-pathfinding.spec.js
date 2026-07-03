@@ -687,6 +687,8 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(queued.task.data.toCell).toEqual(queued.storageAnchor);
   expect(queued.task.data.doorTransit.some((step) => step.fromRoomId === 'mainLab' && step.toRoomId === 'storageRoom')).toBe(true);
   expect(queued.task.dueAt - queued.task.createdAt).toBeLessThan(60);
+  await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
+  await page.locator('[data-map-overlay-select="true"]').selectOption('movement');
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(queued.task.data.mapPath.length);
 
   await page.locator('#queueToggleBtn').click();
@@ -1220,6 +1222,8 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(response.task.data.toCell).toEqual({ x: response.incident.cell.x, y: response.incident.cell.y });
   expect(response.incident.responseTaskId).toBe(response.task.id);
   await expect(slimeAlert).toContainText('response queued');
+  await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
+  await page.locator('[data-map-overlay-select="true"]').selectOption('movement');
   expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);
 });
 
@@ -1491,6 +1495,32 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   }, { key: storageKey });
   expect(queued).toBeTruthy();
   expect(queued.data.toRoomId).toBe('bedroom');
+
+  const moveTaskRow = page.locator('#taskList .task-row').filter({ hasText: 'Move scientist to Bedroom' });
+  if (await page.locator('#queueToggleBtn').getAttribute('aria-expanded') === 'false') {
+    await page.locator('#queueToggleBtn').click();
+  }
+  await expect(moveTaskRow).toBeVisible();
+  await moveTaskRow.click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'task');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', queued.id);
+  await page.locator('[data-selection-inspector-tab="summary"]').click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Scientist');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Route');
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Cancel Task' }).click();
+  const canceled = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      task: (state.tasks || []).find((task) => task.id === state.selection?.id),
+      scientistMoves: (state.tasks || []).filter((task) => task.type === 'scientistMove'),
+      selection: state.selection,
+    };
+  }, { key: storageKey });
+  expect(canceled.task).toBeFalsy();
+  expect(canceled.scientistMoves).toHaveLength(0);
+  expect(canceled.selection).toBeNull();
 });
 
 test('keyboard cursor selects map targets and command mode activates contextual commands', async ({ page }) => {
