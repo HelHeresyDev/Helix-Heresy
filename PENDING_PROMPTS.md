@@ -12,46 +12,23 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Keyboard Navigation and Command Mode System
-2. Map Overlay, Filter, and Highlight System
-3. Unified Room, Object, Creature, and Door Inspector System
-4. Task Queue, Path Preview, and Movement Visualization System
-5. Incident Alert and Map Notification System
-6. Inventory, Stockpile, and Room-Local Resource Map Workflow
-7. Container and Specimen Management Map Workflow
-8. Construction Designation and Room Assignment Map Workflow
-9. Combat and Emergency Response Map Workflow
-10. Journal, Log, and Message Feed Integration Pass
-11. Menu Hierarchy and Screen Manager System
-12. UI State Persistence and Player Preference System
-13. Map Renderer Boundary and Future Canvas/Sprite Preparation
-14. Black Market Byproduct Economy System
+1. Map Overlay, Filter, and Highlight System
+2. Unified Room, Object, Creature, and Door Inspector System
+3. Task Queue, Path Preview, and Movement Visualization System
+4. Incident Alert and Map Notification System
+5. Inventory, Stockpile, and Room-Local Resource Map Workflow
+6. Container and Specimen Management Map Workflow
+7. Construction Designation and Room Assignment Map Workflow
+8. Combat and Emergency Response Map Workflow
+9. Journal, Log, and Message Feed Integration Pass
+10. Menu Hierarchy and Screen Manager System
+11. UI State Persistence and Player Preference System
+12. Map Renderer Boundary and Future Canvas/Sprite Preparation
+13. Black Market Byproduct Economy System
 
 ---
 
-## 1. Keyboard Navigation and Command Mode System
-
-Create keyboard navigation and command modes for the map-first interface.
-
-A Dwarf Fortress-style interface should be comfortable to drive through hotkeys and structured command menus. Mouse support can remain, but the player should not need to hunt through many panels for every action. The game should support moving map focus, opening command menus, selecting targets, confirming/canceling actions, and switching major screens with keyboard controls.
-
-This system should answer questions like:
-- How does the player move map focus with the keyboard?
-- How does keyboard focus differ from selected object?
-- What are the core command modes?
-- Which keys open major screens, command menus, inspector tabs, queue, log, inventory, policies, journal, and construction tools?
-- How do keyboard commands avoid conflicting with time-speed hotkeys?
-- How should the UI show available hotkeys?
-- How do commands handle target selection and cancellation?
-- Should the game support a help overlay or command legend?
-
-The desired result is a first-pass keyboard control layer that makes the map-first UI feel intentional rather than merely clickable. It should be extensible enough for future construction, combat, emergency response, black market, and colony-style management.
-
-Before coding, discuss keybinding philosophy, command modes, focus behavior, conflict handling, help display, and the smallest useful set of keyboard controls.
-
----
-
-## 2. Map Overlay, Filter, and Highlight System
+## 1. Map Overlay, Filter, and Highlight System
 
 Create a map overlay and filter system for the lab blueprint.
 
@@ -72,7 +49,7 @@ Before coding, discuss overlay types, display priority, toggle behavior, tooltip
 
 ---
 
-## 3. Unified Room, Object, Creature, and Door Inspector System
+## 2. Unified Room, Object, Creature, and Door Inspector System
 
 Create unified inspectors for selected map entities.
 
@@ -93,7 +70,7 @@ Before coding, discuss inspector layout, shared sections, entity-specific sectio
 
 ---
 
-## 4. Task Queue, Path Preview, and Movement Visualization System
+## 3. Task Queue, Path Preview, and Movement Visualization System
 
 Rework task queue and movement visualization for the map-first interface.
 
@@ -114,7 +91,7 @@ Before coding, discuss queue placement, path display rules, selected-task behavi
 
 ---
 
-## 5. Incident Alert and Map Notification System
+## 4. Incident Alert and Map Notification System
 
 Rework incident alerts and notifications around the map-first interface.
 
@@ -136,7 +113,7 @@ Before coding, discuss alert placement, map markers, severity behavior, response
 
 ---
 
-## 6. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 5. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -158,7 +135,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 7. Container and Specimen Management Map Workflow
+## 6. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -179,7 +156,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 8. Construction Designation and Room Assignment Map Workflow
+## 7. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -200,7 +177,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 9. Combat and Emergency Response Map Workflow
+## 8. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -221,7 +198,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 10. Journal, Log, and Message Feed Integration Pass
+## 9. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -242,7 +219,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 11. Menu Hierarchy and Screen Manager System
+## 10. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -263,7 +240,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 12. UI State Persistence and Player Preference System
+## 11. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -284,7 +261,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 13. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 12. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -306,7 +283,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 14. Black Market Byproduct Economy System
+## 13. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

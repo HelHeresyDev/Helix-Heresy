@@ -2104,6 +2104,8 @@
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
+  const UI_MODE_NAVIGATION = "navigation";
+  const UI_MODE_COMMAND = "command";
 
   function defaultState() {
     const seed = makeSeed();
@@ -2150,6 +2152,7 @@
       selection: null,
       selectedSlimeId: null,
       selectedMapTarget: null,
+      ui: defaultUiState(),
       construction: defaultConstructionState(),
       nextSlimeNumber: 1,
       nextCorpseNumber: 1,
@@ -2226,6 +2229,14 @@
       cooldowns: {},
       lastAwareCombatAt: null,
       lastAwareCombatKey: ""
+    };
+  }
+
+  function defaultUiState() {
+    return {
+      mode: UI_MODE_NAVIGATION,
+      mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
+      keyboardHelpOpen: false
     };
   }
 
@@ -2926,7 +2937,7 @@
       skipToNextQueueCompletion();
     });
 
-    document.addEventListener("keydown", handleTimeShortcut);
+    document.addEventListener("keydown", handleKeyboardShortcut);
 
     dom.exportFileBtn.addEventListener("click", () => {
       downloadSave();
@@ -2937,6 +2948,80 @@
     });
 
     dom.importFileInput.addEventListener("change", importSave);
+  }
+
+  function handleKeyboardShortcut(event) {
+    if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
+      return;
+    }
+    if (handleMapKeyboardShortcut(event)) {
+      return;
+    }
+    handleTimeShortcut(event);
+  }
+
+  function handleMapKeyboardShortcut(event) {
+    const key = event.key;
+    const ui = ensureUiState();
+    if (key === "?" || (event.shiftKey && event.code === "Slash")) {
+      event.preventDefault();
+      toggleKeyboardHelp();
+      return true;
+    }
+    if (ui.keyboardHelpOpen && key === "Escape") {
+      event.preventDefault();
+      ui.keyboardHelpOpen = false;
+      persist();
+      render();
+      return true;
+    }
+    if (ui.mode === UI_MODE_COMMAND) {
+      if (key === "Escape") {
+        event.preventDefault();
+        setUiMode(UI_MODE_NAVIGATION);
+        persist();
+        render();
+        return true;
+      }
+      if (/^[1-9]$/.test(key)) {
+        event.preventDefault();
+        runContextCommandByShortcut(Number(key));
+        return true;
+      }
+      if (mapCursorMovementForKey(event)) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    }
+    const movement = mapCursorMovementForKey(event);
+    if (movement) {
+      event.preventDefault();
+      moveMapCursor(movement.dx, movement.dy);
+      return true;
+    }
+    if (key === "Enter") {
+      event.preventDefault();
+      selectMapCursorTarget();
+      return true;
+    }
+    if (key.toLowerCase() === "a" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      openCommandMode();
+      return true;
+    }
+    if (key === "Escape") {
+      const selection = currentSelection();
+      if (selection) {
+        event.preventDefault();
+        setSelection(null);
+        setUiMode(UI_MODE_NAVIGATION);
+        persist();
+        render();
+        return true;
+      }
+    }
+    return false;
   }
 
   function handleTimeShortcut(event) {
@@ -2979,6 +3064,135 @@
       return false;
     }
     return Boolean(element.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
+  function normalizeUiMode(mode) {
+    return mode === UI_MODE_COMMAND ? UI_MODE_COMMAND : UI_MODE_NAVIGATION;
+  }
+
+  function fallbackMapCursorCell(context = state) {
+    return cleanMapCell(context?.scientist?.mapCell)
+      || scientistDefaultMapCell(context?.scientist?.roomId || MAIN_ROOM_ID);
+  }
+
+  function normalizeUiState(candidate, context = state) {
+    const map = context?.labMap || defaultLabMap();
+    const fallback = fallbackMapCursorCell(context);
+    const cursor = cleanMapCell(candidate?.mapCursor) || fallback;
+    return {
+      mode: normalizeUiMode(candidate?.mode),
+      mapCursor: {
+        x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
+        y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
+      },
+      keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
+    };
+  }
+
+  function ensureUiState() {
+    state.ui = normalizeUiState(state.ui);
+    return state.ui;
+  }
+
+  function setUiMode(mode) {
+    ensureUiState().mode = normalizeUiMode(mode);
+  }
+
+  function toggleKeyboardHelp() {
+    const ui = ensureUiState();
+    ui.keyboardHelpOpen = !ui.keyboardHelpOpen;
+    persist();
+    render();
+  }
+
+  function mapCursorCell(map = ensureLabMap()) {
+    const ui = ensureUiState();
+    if (!mapCellInBounds(ui.mapCursor, map)) {
+      ui.mapCursor = fallbackMapCursorCell();
+    }
+    ui.mapCursor = {
+      x: clamp(ui.mapCursor.x, 0, Math.max(0, map.width - 1)),
+      y: clamp(ui.mapCursor.y, 0, Math.max(0, map.height - 1))
+    };
+    return ui.mapCursor;
+  }
+
+  function moveMapCursor(dx, dy) {
+    const map = ensureLabMap();
+    const cursor = mapCursorCell(map);
+    ensureUiState().mapCursor = {
+      x: clamp(cursor.x + dx, 0, Math.max(0, map.width - 1)),
+      y: clamp(cursor.y + dy, 0, Math.max(0, map.height - 1))
+    };
+    setUiMode(UI_MODE_NAVIGATION);
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+  }
+
+  function mapCursorMovementForKey(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      return null;
+    }
+    const deltas = {
+      ArrowUp: { dx: 0, dy: -1 },
+      ArrowDown: { dx: 0, dy: 1 },
+      ArrowLeft: { dx: -1, dy: 0 },
+      ArrowRight: { dx: 1, dy: 0 }
+    };
+    return deltas[event.key] || null;
+  }
+
+  function mapCursorTarget() {
+    const target = selectableTargetsAtCell(mapCursorCell())[0] || null;
+    return target ? { ...target, source: "keyboard" } : null;
+  }
+
+  function selectMapCursorTarget() {
+    const target = mapCursorTarget();
+    if (!target) {
+      addEvent("No map target under the cursor.");
+      persist();
+      render();
+      return false;
+    }
+    setSelection(target, { source: "keyboard" });
+    setUiMode(UI_MODE_NAVIGATION);
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+    return true;
+  }
+
+  function openCommandMode() {
+    let selection = currentSelection();
+    if (!selection) {
+      selectMapCursorTarget();
+      selection = currentSelection();
+    }
+    setUiMode(UI_MODE_COMMAND);
+    setActiveWorkspaceTab("map");
+    if (!contextualCommandsForSelection(selection).length) {
+      addEvent("No contextual commands for the current selection.");
+    }
+    persist();
+    render();
+    return true;
+  }
+
+  function runContextCommandByShortcut(index) {
+    const commands = contextualCommandsForSelection(currentSelection());
+    const command = commands[index - 1] || null;
+    if (!command) {
+      addEvent(`No command ${index} for the current selection.`);
+      persist();
+      render();
+      return false;
+    }
+    if (!command.disabledReason) {
+      setUiMode(UI_MODE_NAVIGATION);
+    }
+    return runContextCommand(command);
   }
 
   function tick() {
@@ -24532,7 +24746,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function selectionSource(source) {
     const clean = String(source || "panel");
-    return ["map", "panel", "log", "queue", "auto", "legacy", "inspector"].includes(clean) ? clean : "panel";
+    return ["map", "panel", "log", "queue", "auto", "legacy", "inspector", "keyboard"].includes(clean) ? clean : "panel";
   }
 
   function normalizeSelection(candidate) {
@@ -25370,9 +25584,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderContextualCommands(selection) {
     const commands = contextualCommandsForSelection(selection);
+    const commandMode = ensureUiState().mode === UI_MODE_COMMAND;
     const panel = document.createElement("div");
     panel.className = "selection-command-panel";
     panel.dataset.contextCommandPanel = "true";
+    panel.dataset.commandMode = commandMode ? "true" : "false";
     const title = document.createElement("div");
     title.className = "subpanel-title";
     title.textContent = "Commands";
@@ -25388,6 +25604,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       groups.get(command.group).push(command);
     }
+    let commandIndex = 0;
     for (const [group, groupCommands] of groups.entries()) {
       const groupEl = document.createElement("div");
       groupEl.className = "selection-command-group";
@@ -25395,13 +25612,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const list = document.createElement("div");
       list.className = "selection-command-list";
       for (const command of groupCommands) {
+        commandIndex += 1;
         const wrap = document.createElement("div");
         wrap.className = "selection-command-entry";
         const button = document.createElement("button");
         button.type = "button";
         button.className = `context-command${command.danger ? " danger-action" : ""}`;
         button.dataset.contextCommand = command.id;
-        button.textContent = command.label;
+        button.dataset.contextCommandIndex = String(commandIndex);
+        if (commandMode && commandIndex <= 9) {
+          button.dataset.contextCommandShortcut = String(commandIndex);
+          button.textContent = `${commandIndex}. ${command.label}`;
+        } else {
+          button.textContent = command.label;
+        }
         button.title = command.disabledReason || command.description;
         setActionButtonState(button, Boolean(command.disabledReason), command.disabledReason);
         button.addEventListener("click", (event) => {
@@ -25531,7 +25755,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     routeEntry,
     plannedEntry,
     selectedTarget,
-    scientistCell
+    scientistCell,
+    cursorCell
   }) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
@@ -25571,6 +25796,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere })) {
       classNames.push("selected-map-cell");
+    }
+    if (cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y) {
+      classNames.push("map-cursor-cell");
+      dataset.mapCursor = "true";
+      title += " - Keyboard cursor";
     }
     if (clickTarget) {
       classNames.push("map-clickable-cell");
@@ -25624,6 +25854,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const route = nextQueuedMovementPath(map);
     const plannedExcavations = plannedExcavationAssignments();
     const selectedTarget = selectedMapTarget();
+    const cursorCell = mapCursorCell(map);
     const anchors = labMapAnchorAssignments(map);
     const cells = [];
 
@@ -25641,7 +25872,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           routeEntry,
           plannedEntry: plannedExcavations.get(key),
           selectedTarget,
-          scientistCell
+          scientistCell,
+          cursorCell
         }));
       }
     }
@@ -25651,6 +25883,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       height: map.height,
       tileSizeM: map.tileSizeM,
       headerMeta: `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
+      cursor: cursorCell,
+      cursorTarget: mapCursorTarget(),
+      mode: ensureUiState().mode,
+      keyboardHelpOpen: ensureUiState().keyboardHelpOpen,
       cells,
       legendItems: [
         "S = scientist",
@@ -25731,6 +25967,54 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return false;
   }
 
+  function keyboardModeLabel(mode) {
+    return mode === UI_MODE_COMMAND ? "Command mode" : "Navigation mode";
+  }
+
+  function keyboardStatusEl(mapView) {
+    const row = document.createElement("div");
+    row.className = "keyboard-status-row";
+    row.dataset.keyboardMode = mapView.mode;
+    const cursorTarget = mapView.cursorTarget ? selectionLabel(mapView.cursorTarget) : "nothing";
+    const cursorText = mapView.cursor
+      ? `Cursor ${mapView.cursor.x},${mapView.cursor.y} - ${cursorTarget}`
+      : "Cursor unavailable";
+    row.append(
+      chip(keyboardModeLabel(mapView.mode)),
+      textEl("span", cursorText),
+      textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : "Arrows move; Enter selects; A opens commands; ? help.")
+    );
+    return row;
+  }
+
+  function keyboardHelpEl() {
+    const panel = document.createElement("div");
+    panel.className = "keyboard-help-panel";
+    panel.dataset.keyboardHelp = "true";
+    panel.append(textEl("strong", "Keyboard"));
+    const list = document.createElement("div");
+    list.className = "keyboard-help-list";
+    const entries = [
+      ["Arrow keys", "Move the map cursor."],
+      ["Enter", "Select the cursor target."],
+      ["A", "Open contextual commands for the selection."],
+      ["1-9", "Choose visible commands while in command mode."],
+      ["Esc", "Cancel command mode; press again to clear selection."],
+      ["?", "Toggle this help."],
+      ["Space", "Pause or resume time."],
+      ["1-5", "Set time speed outside command mode."],
+      ["[ / ]", "Step time speed down or up."],
+      [". / Shift+.", "Skip to next event or queued task."]
+    ];
+    for (const [key, description] of entries) {
+      const row = document.createElement("div");
+      row.append(textEl("kbd", key), textEl("span", description));
+      list.append(row);
+    }
+    panel.append(list);
+    return panel;
+  }
+
   function labMapPanelEl() {
     const mapView = buildLabMapView();
     const panel = document.createElement("div");
@@ -25743,6 +26027,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const meta = textEl("span", mapView.headerMeta);
     header.append(title, meta);
     panel.append(header);
+    panel.append(keyboardStatusEl(mapView));
+    if (mapView.keyboardHelpOpen) {
+      panel.append(keyboardHelpEl());
+    }
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
@@ -31455,6 +31743,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || normalizeSelection(next.selectedSlimeId ? { kind: "slime", id: next.selectedSlimeId, source: "legacy" } : null);
       next.selectedMapTarget = selectionToMapTarget(next.selection);
       next.selectedSlimeId = next.selection?.kind === "slime" ? next.selection.id : null;
+      next.ui = normalizeUiState(next.ui, next);
       syncAllSlimeAi();
     } finally {
       state = previousState;

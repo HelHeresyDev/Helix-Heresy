@@ -1491,6 +1491,106 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   expect(queued.data.toRoomId).toBe('bedroom');
 });
 
+test('keyboard cursor selects map targets and command mode activates contextual commands', async ({ page }) => {
+  await startRun(page);
+
+  const initial = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      cursor: state.ui.mapCursor,
+      scientistCell: state.scientist.mapCell,
+      timeSpeed: state.timeSpeed,
+      door: state.doors['mainLab::storageRoom'],
+    };
+  }, { key: storageKey });
+  expect(initial.cursor).toEqual(initial.scientistCell);
+  await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-x', String(initial.cursor.x));
+  await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-y', String(initial.cursor.y));
+
+  await page.keyboard.press('ArrowUp');
+  const moved = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.ui.mapCursor;
+  }, { key: storageKey });
+  expect(moved).toEqual({ x: initial.cursor.x, y: initial.cursor.y - 1 });
+  const movedTile = page.locator(`[data-map-x="${moved.x}"][data-map-y="${moved.y}"]`);
+  await expect(movedTile).toHaveClass(/map-cursor-cell/);
+  const cursorTarget = {
+    kind: await movedTile.getAttribute('data-map-target-kind'),
+    id: await movedTile.getAttribute('data-map-target-id'),
+    roomId: await movedTile.getAttribute('data-map-target-room'),
+    key: await movedTile.getAttribute('data-map-target-door'),
+  };
+
+  await page.keyboard.press('Enter');
+  let uiState = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+    };
+  }, { key: storageKey });
+  expect(uiState.selection.kind).toBe(cursorTarget.kind);
+  expect(uiState.selectedMapTarget.kind).toBe(cursorTarget.kind);
+  if (cursorTarget.id) {
+    expect(uiState.selection.id).toBe(cursorTarget.id);
+    expect(uiState.selectedMapTarget.id).toBe(cursorTarget.id);
+  }
+  if (cursorTarget.roomId) {
+    expect(uiState.selection.roomId).toBe(cursorTarget.roomId);
+    expect(uiState.selectedMapTarget.roomId).toBe(cursorTarget.roomId);
+  }
+  if (cursorTarget.key) {
+    expect(uiState.selection.key).toBe(cursorTarget.key);
+    expect(uiState.selectedMapTarget.key).toBe(cursorTarget.key);
+  }
+
+  await page.keyboard.press('Escape');
+  uiState = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { selection: state.selection, selectedMapTarget: state.selectedMapTarget };
+  }, { key: storageKey });
+  expect(uiState.selection).toBeNull();
+  expect(uiState.selectedMapTarget).toBeNull();
+
+  await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
+  await page.keyboard.press('A');
+  await expect(page.locator('[data-keyboard-mode="command"]')).toContainText('Command mode');
+  await expect(page.locator('[data-context-command-panel="true"]')).toHaveAttribute('data-command-mode', 'true');
+  const doorCommandLabel = initial.door.state === 'open' ? 'Close Door' : 'Open Door';
+  await expect(page.locator('[data-context-command-shortcut="1"]')).toContainText(doorCommandLabel);
+
+  await page.keyboard.press('1');
+  const commandResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      door: state.doors['mainLab::storageRoom'],
+      mode: state.ui.mode,
+      timeSpeed: state.timeSpeed,
+    };
+  }, { key: storageKey });
+  expect(commandResult.door.state).toBe(initial.door.state === 'open' ? 'closed' : 'open');
+  expect(commandResult.mode).toBe('navigation');
+  expect(commandResult.timeSpeed).toBe(initial.timeSpeed);
+
+  await page.keyboard.press('3');
+  const speedResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).timeSpeed;
+  }, { key: storageKey });
+  expect(speedResult).toBe('fast');
+
+  await page.keyboard.press('Shift+/');
+  await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);
+});
+
 test('selection inspector links contained specimens from a selected container', async ({ page }) => {
   await startRun(page);
 

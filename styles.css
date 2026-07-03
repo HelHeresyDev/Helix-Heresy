@@ -824,6 +824,64 @@ h2 {
   font-size: 0.78rem;
 }
 
+.keyboard-status-row,
+.keyboard-help-panel,
+.keyboard-help-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.keyboard-status-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0.35rem 0.45rem;
+  background: rgba(10, 12, 9, 0.74);
+  border: 1px solid rgba(56, 58, 50, 0.7);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.keyboard-status-row span:last-child {
+  grid-column: 1 / -1;
+}
+
+.keyboard-status-row[data-keyboard-mode="command"] {
+  border-color: rgba(225, 183, 95, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.14);
+}
+
+.keyboard-help-panel {
+  padding: 0.55rem;
+  background: #11130e;
+  border: 1px solid rgba(56, 58, 50, 0.86);
+  border-radius: 6px;
+}
+
+.keyboard-help-list {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.keyboard-help-list div {
+  display: grid;
+  grid-template-columns: minmax(4.8rem, auto) minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.keyboard-help-list kbd {
+  color: var(--text);
+  background: #070806;
+  border: 1px solid #393c32;
+  border-radius: 4px;
+  padding: 0.08rem 0.28rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
 .lab-map-grid {
   display: grid;
   gap: 1px;
@@ -875,6 +933,15 @@ h2 {
 .lab-map-cell.selected-map-cell {
   border-color: var(--cyan);
   box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.7), inset 0 0 0 1px rgba(104, 200, 216, 0.35);
+}
+
+.lab-map-cell.map-cursor-cell {
+  border-color: #f0d989;
+  box-shadow: 0 0 0 1px rgba(240, 217, 137, 0.78), inset 0 0 0 1px rgba(240, 217, 137, 0.38);
+}
+
+.lab-map-cell.selected-map-cell.map-cursor-cell {
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.72), 0 0 0 3px rgba(240, 217, 137, 0.48), inset 0 0 0 1px rgba(104, 200, 216, 0.35);
 }
 
 .lab-map-cell.room-cell {
