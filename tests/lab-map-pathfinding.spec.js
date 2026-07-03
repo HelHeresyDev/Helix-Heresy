@@ -618,6 +618,19 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   await startRun(page);
 
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveClass(/active-workspace-tab/);
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
+
+  await page.locator('[data-workspace-tab="specimens"]').click();
+  await expect(page.locator('[data-workspace-tab="specimens"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-workspace-panel="specimens"]')).toHaveClass(/active-workspace-panel/);
+  await expect(page.locator('[data-workspace-panel="map"]')).not.toHaveClass(/active-workspace-panel/);
+
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
+
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
   await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');
   await expect(page.locator('#roomSummary')).toContainText('Blueprint: 40 x 25 m; 6 mapped rooms');
@@ -1386,6 +1399,7 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
 
   await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
   await expect(page.locator('[data-container-card="basic-1"]')).toHaveClass(/selected-map-target/);
+  await expect(page.locator('[data-workspace-tab="containers"]')).toHaveAttribute('aria-current', 'page');
 
   let selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1395,6 +1409,7 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
   await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toHaveClass(/selected-map-target/);
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).selectedMapTarget;
@@ -1415,6 +1430,7 @@ test('lab blueprint clicks focus existing room door and object panels', async ({
 
   await page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`).click();
   await expect(page.locator('[data-room-card="bedroom"]')).toHaveClass(/selected-map-target/);
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).selectedMapTarget;
@@ -1452,6 +1468,7 @@ test('construction designations become unassigned rooms that can receive a purpo
 
   await page.locator('#queueToggleBtn').click();
   await page.locator('#taskList .task-row').filter({ hasText: 'Excavate 4 x 4 chamber' }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('#queueToggleBtn').click();
 
   const excavated = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

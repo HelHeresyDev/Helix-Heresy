@@ -2102,6 +2102,8 @@
   let geneMap;
   let lastTickAt = Date.now();
   let objectPlacementInProgress = false;
+  let activeWorkspaceTab = "map";
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
 
   function defaultState() {
     const seed = makeSeed();
@@ -2540,6 +2542,7 @@
       const panel = document.createElement("section");
       panel.className = "panel inventory-panel";
       panel.setAttribute("aria-labelledby", "inventoryTitle");
+      panel.dataset.workspacePanel = "resources";
       panel.innerHTML = `
         <div class="panel-heading">
           <div>
@@ -2549,9 +2552,9 @@
         </div>
         <div id="inventoryList" class="inventory-list"></div>
       `;
-      const roomPanel = document.querySelector(".room-panel");
-      if (roomPanel?.parentElement) {
-        roomPanel.parentElement.insertBefore(panel, roomPanel.nextSibling);
+      const scientistPanel = document.querySelector(".scientist-panel");
+      if (scientistPanel?.parentElement) {
+        scientistPanel.parentElement.insertBefore(panel, scientistPanel.nextSibling);
       } else {
         dom.labRoot?.append(panel);
       }
@@ -2609,6 +2612,8 @@
   }
 
   function bindEvents() {
+    bindWorkspaceTabs();
+
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
       const next = defaultState();
@@ -2624,6 +2629,7 @@
       syncRoomObservationMemory();
       observeScientistRoom();
       addEvent("Run initialized.");
+      activeWorkspaceTab = "map";
       persist();
       render();
     });
@@ -2641,6 +2647,7 @@
       syncRoomObservationMemory();
       observeScientistRoom();
       addEvent("Loaded local save.");
+      activeWorkspaceTab = "map";
       persist();
       render();
     });
@@ -2663,6 +2670,7 @@
       }
       state = defaultState();
       geneMap = buildGeneMap(state.seed, state.complexity);
+      activeWorkspaceTab = "map";
       syncSetupForm();
       render();
     });
@@ -3677,6 +3685,53 @@
         expectedEffect: quality.expectedEffect
       }
     });
+  }
+
+  function cleanWorkspaceTab(tabId) {
+    const id = String(tabId || "map").trim();
+    return WORKSPACE_TAB_IDS.has(id) ? id : "map";
+  }
+
+  function workspacePanelForTab(tabId) {
+    return document.querySelector(`[data-workspace-panel="${cleanWorkspaceTab(tabId)}"]`);
+  }
+
+  function bindWorkspaceTabs() {
+    for (const button of document.querySelectorAll("[data-workspace-tab]")) {
+      button.addEventListener("click", () => {
+        setActiveWorkspaceTab(button.dataset.workspaceTab, { scroll: true });
+      });
+    }
+  }
+
+  function setActiveWorkspaceTab(tabId, options = {}) {
+    activeWorkspaceTab = cleanWorkspaceTab(tabId);
+    syncWorkspaceShell();
+    if (options.scroll) {
+      requestAnimationFrame(() => {
+        workspacePanelForTab(activeWorkspaceTab)?.scrollIntoView({ block: "start", inline: "nearest", behavior: options.animate === false ? "auto" : "smooth" });
+      });
+    }
+  }
+
+  function syncWorkspaceShell() {
+    const tabId = cleanWorkspaceTab(activeWorkspaceTab);
+    activeWorkspaceTab = tabId;
+    if (dom.labRoot) {
+      dom.labRoot.dataset.activeWorkspaceTab = tabId;
+    }
+    for (const button of document.querySelectorAll("[data-workspace-tab]")) {
+      const active = cleanWorkspaceTab(button.dataset.workspaceTab) === tabId;
+      button.classList.toggle("active-workspace-tab", active);
+      if (active) {
+        button.setAttribute("aria-current", "page");
+      } else {
+        button.removeAttribute("aria-current");
+      }
+    }
+    for (const panel of document.querySelectorAll("[data-workspace-panel]")) {
+      panel.classList.toggle("active-workspace-panel", cleanWorkspaceTab(panel.dataset.workspacePanel) === tabId);
+    }
   }
 
   function createSlime(genome, source, options = {}) {
@@ -15909,6 +15964,7 @@
     renderEvents();
     renderKnownEditor();
     renderSlimeAiDebugPanel();
+    syncWorkspaceShell();
     refreshActionControls();
     syncSetupForm();
     explainDisabledButtons();
@@ -24639,6 +24695,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     setSelectedMapTarget(normalized);
     if (normalized.kind === "scientist") {
+      setActiveWorkspaceTab("map");
       persist();
       render();
       requestAnimationFrame(() => {
@@ -24647,18 +24704,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return true;
     }
     if (normalized.kind === "room") {
+      setActiveWorkspaceTab("map");
       persist();
       render();
       requestAnimationFrame(() => focusRoom(normalized.roomId, options));
       return true;
     }
     if (normalized.kind === "door") {
+      setActiveWorkspaceTab("map");
       persist();
       render();
       requestAnimationFrame(() => focusDoor(normalized.key, options));
       return true;
     }
     if (normalized.kind === "container") {
+      setActiveWorkspaceTab("containers");
       persist();
       render();
       requestAnimationFrame(() => focusContainer(normalized.id, options));
@@ -24690,7 +24750,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
-    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0, 1fr))`;
+    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0.85rem, 1.45rem))`;
     for (const cellView of mapView.cells) {
       const tile = document.createElement("div");
       tile.className = cellView.classNames.join(" ");
@@ -30052,6 +30112,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     state.selectedSlimeId = slime.id;
     setSelectedMapTarget({ kind: "slime", id: slime.id });
+    setActiveWorkspaceTab("specimens");
     persist();
     render();
     requestAnimationFrame(() => {
@@ -30066,6 +30127,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     setSelectedMapTarget({ kind: "corpse", id: corpse.id });
+    setActiveWorkspaceTab("specimens");
     persist();
     render();
     requestAnimationFrame(() => {
@@ -30096,6 +30158,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!container) {
       return;
     }
+    setActiveWorkspaceTab("containers");
     focusEntityCard(elementByDataset("containerCard", container.id), options);
   }
 
@@ -30704,6 +30767,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         geneMap = buildGeneMap(state.seed, state.complexity);
         prepareCorpseState();
         addEvent("Save imported.");
+        activeWorkspaceTab = "map";
         persist();
         render();
       } catch (error) {

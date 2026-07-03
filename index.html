@@ -57,8 +57,20 @@
         </div>
       </aside>
 
-      <main class="lab-grid" id="labRoot" aria-live="polite">
-        <section class="panel dna-panel" aria-labelledby="dnaTitle">
+      <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
+        <nav class="workspace-tabs" aria-label="Main workspace sections">
+          <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" data-workspace-tab="map">Map</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="foundry">Foundry</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="specimens">Specimens</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="containers">Containers</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="journal">Journal</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="log">Log</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="cheats">Cheats</button>
+        </nav>
+
+        <section class="panel dna-panel" aria-labelledby="dnaTitle" data-workspace-panel="foundry">
           <div class="panel-heading">
             <div>
               <h2 id="dnaTitle">Genome Foundry</h2>
@@ -109,7 +121,7 @@
           </div>
         </section>
 
-        <section class="panel lab-panel" aria-labelledby="labTitle">
+        <section class="panel lab-panel" aria-labelledby="labTitle" data-workspace-panel="specimens">
           <div class="panel-heading">
             <div>
               <h2 id="labTitle">Living Samples</h2>
@@ -147,7 +159,7 @@
           </div>
         </section>
 
-        <section class="panel container-panel" aria-labelledby="containerTitle">
+        <section class="panel container-panel" aria-labelledby="containerTitle" data-workspace-panel="containers">
           <div class="panel-heading">
             <div>
               <h2 id="containerTitle">Containers</h2>
@@ -158,7 +170,7 @@
           <div id="containerList" class="container-list"></div>
         </section>
 
-        <section class="panel journal-panel" aria-labelledby="journalTitle">
+        <section class="panel journal-panel" aria-labelledby="journalTitle" data-workspace-panel="journal">
           <div class="panel-heading">
             <div>
               <h2 id="journalTitle">Journal</h2>
@@ -168,7 +180,7 @@
           <div id="journalContent"></div>
         </section>
 
-        <section class="panel policy-panel" aria-labelledby="policyTitle">
+        <section class="panel policy-panel" aria-labelledby="policyTitle" data-workspace-panel="policies">
           <div class="panel-heading">
             <div>
               <h2 id="policyTitle">Policies</h2>
@@ -192,7 +204,7 @@
           </div>
         </section>
 
-        <section class="panel room-panel" aria-labelledby="roomTitle">
+        <section class="panel room-panel active-workspace-panel" aria-labelledby="roomTitle" data-workspace-panel="map">
           <div class="panel-heading">
             <div>
               <h2 id="roomTitle">Rooms</h2>
@@ -203,7 +215,7 @@
           <div id="roomList" class="room-list"></div>
         </section>
 
-        <section class="panel scientist-panel" aria-labelledby="scientistTitle">
+        <section class="panel scientist-panel" aria-labelledby="scientistTitle" data-workspace-panel="resources">
           <div class="panel-heading">
             <div>
               <h2 id="scientistTitle">Scientist</h2>
@@ -246,7 +258,7 @@
           </div>
         </section>
 
-        <section class="panel cheat-panel" aria-labelledby="cheatTitle">
+        <section class="panel cheat-panel" aria-labelledby="cheatTitle" data-workspace-panel="cheats">
           <div class="panel-heading">
             <div>
               <h2 id="cheatTitle">Cheats</h2>
@@ -293,7 +305,7 @@
           </div>
         </section>
 
-        <section class="panel log-panel" aria-labelledby="logTitle">
+        <section class="panel log-panel" aria-labelledby="logTitle" data-workspace-panel="log">
           <div class="panel-heading">
             <div>
               <h2 id="logTitle">Lab Log</h2>

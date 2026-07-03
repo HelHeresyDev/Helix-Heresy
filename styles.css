@@ -246,13 +246,39 @@ h2 {
 
 .lab-grid {
   display: grid;
-  grid-template-columns: minmax(22rem, 1.1fr) minmax(23rem, 1.2fr) minmax(20rem, 0.9fr);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: start;
   gap: 1rem;
   padding: 1rem;
   transition: padding-left 180ms ease;
 }
 
+.workspace-tabs {
+  grid-column: 1 / -1;
+  order: -20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  background: #151610;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 18px var(--shadow);
+}
+
+.workspace-tab {
+  padding: 0.42rem 0.65rem;
+  color: var(--muted);
+}
+
+.workspace-tab.active-workspace-tab {
+  border-color: var(--cyan);
+  background: #1c2a2c;
+  color: var(--text);
+}
+
 .panel {
+  grid-column: span 4;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -261,16 +287,43 @@ h2 {
   box-shadow: 0 8px 18px var(--shadow);
 }
 
-.log-panel {
+.active-workspace-panel {
+  border-color: rgba(104, 200, 216, 0.55);
+  box-shadow: 0 0 0 1px rgba(104, 200, 216, 0.22), 0 8px 18px var(--shadow);
+}
+
+.room-panel {
+  grid-column: 1 / -1;
+  order: -10;
+}
+
+.dna-panel {
+  grid-column: span 4;
+}
+
+.lab-panel {
+  grid-column: span 5;
+}
+
+.container-panel {
   grid-column: span 3;
+}
+
+.journal-panel,
+.log-panel {
+  grid-column: span 6;
+}
+
+.policy-panel {
+  grid-column: span 5;
 }
 
 .scientist-panel {
-  grid-column: span 3;
+  grid-column: span 5;
 }
 
 .inventory-panel {
-  grid-column: span 1;
+  grid-column: span 7;
 }
 
 .inventory-note {
@@ -287,11 +340,7 @@ h2 {
 }
 
 .cheat-panel {
-  grid-column: span 3;
-}
-
-.container-panel {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .panel-heading {
@@ -701,6 +750,8 @@ h2 {
 .lab-map-grid {
   display: grid;
   gap: 1px;
+  width: max-content;
+  max-width: 100%;
   padding: 0.35rem;
   background: #090a08;
   border: 1px solid #282a22;
@@ -2095,8 +2146,9 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .log-panel {
-    grid-column: auto;
+  .workspace-tabs,
+  .panel {
+    grid-column: 1 / -1;
   }
 
 }
