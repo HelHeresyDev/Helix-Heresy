@@ -2506,6 +2506,8 @@
       "inventoryCommandInput",
       "inventoryCommandBtn",
       "inventoryCommandStatus",
+      "aiDebugSummary",
+      "aiDebugReadout",
       "journalModeReadout",
       "journalContent",
       "queueDrawer",
@@ -2575,6 +2577,23 @@
         dom.inventoryCommandInput = document.getElementById("inventoryCommandInput");
         dom.inventoryCommandBtn = document.getElementById("inventoryCommandBtn");
         dom.inventoryCommandStatus = document.getElementById("inventoryCommandStatus");
+      }
+    }
+
+    if (!dom.aiDebugSummary || !dom.aiDebugReadout) {
+      const cheatGrid = document.querySelector(".cheat-grid");
+      if (cheatGrid) {
+        const subpanel = document.createElement("div");
+        subpanel.className = "subpanel";
+        subpanel.dataset.aiDebugPanel = "true";
+        subpanel.innerHTML = `
+          <div class="subpanel-title">Slime AI Debug</div>
+          <p id="aiDebugSummary" class="journal-meta">Select a living sample to inspect AI internals.</p>
+          <div id="aiDebugReadout" class="ai-debug-readout"></div>
+        `;
+        cheatGrid.append(subpanel);
+        dom.aiDebugSummary = document.getElementById("aiDebugSummary");
+        dom.aiDebugReadout = document.getElementById("aiDebugReadout");
       }
     }
   }
@@ -9930,6 +9949,29 @@
     "wait",
     "blocked"
   ]);
+  const SLIME_AI_INTENT_LABELS = {
+    none: "none",
+    rest: "rest",
+    acclimate: "acclimate",
+    wander: "wander",
+    seekFood: "seek food",
+    seekHabitat: "seek habitat",
+    feed: "feed",
+    continueJob: "continue assigned job",
+    endureContainment: "endure containment",
+    endureHabitat: "endure habitat",
+    hunt: "hunt",
+    fight: "fight",
+    feedAttack: "feed-attack",
+    flee: "flee",
+    freeze: "freeze",
+    defend: "defend",
+    threaten: "threaten",
+    panic: "panic",
+    move: "move",
+    wait: "wait",
+    blocked: "blocked"
+  };
   const SLIME_AI_URGENCY = new Set(["none", "low", "medium", "high", "critical"]);
   const SLIME_RESPONSE_STATE_LABELS = {
     calm: "Calm",
@@ -12003,6 +12045,106 @@
     const ai = slimeAiRecord(slime);
     const stateLabel = SLIME_AI_STATE_LABELS[ai.state] || titleCase(ai.state);
     return `AI: ${stateLabel}${ai.reason ? ` - ${ai.reason}` : ""}`;
+  }
+
+  function slimeAiStateLabel(aiOrState) {
+    const stateId = typeof aiOrState === "string" ? aiOrState : aiOrState?.state;
+    return SLIME_AI_STATE_LABELS[cleanSlimeAiState(stateId)] || titleCase(stateId || "idle");
+  }
+
+  function slimeAiIntentLabel(intent) {
+    return SLIME_AI_INTENT_LABELS[cleanSlimeAiIntent(intent)] || titleCase(intent || "rest");
+  }
+
+  function slimeAiTargetLabel(target) {
+    if (!target) {
+      return "None";
+    }
+    const parts = [];
+    if (target.label) {
+      parts.push(target.label);
+    }
+    if (target.kind) {
+      parts.push(target.kind);
+    }
+    if (target.id) {
+      parts.push(target.id);
+    }
+    if (target.roomId) {
+      parts.push(roomName(target.roomId));
+    }
+    if (target.cell) {
+      parts.push(`${target.cell.x},${target.cell.y}`);
+    }
+    return parts.length ? parts.join(" - ") : "Unknown target";
+  }
+
+  function uniqueReadableList(items, limit = 5) {
+    return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))].slice(0, limit);
+  }
+
+  function slimeAiVisiblePressures(slime, ai = slimeAiRecord(slime)) {
+    const pressures = [];
+    if (ai.reason) {
+      pressures.push(ai.reason);
+    }
+    if (ai.dominantDrive && ai.drives?.[ai.dominantDrive]?.reason) {
+      pressures.push(ai.drives[ai.dominantDrive].reason);
+    }
+    if (ai.response?.reasons?.length) {
+      pressures.push(...ai.response.reasons);
+    }
+    if (ai.combatDecision?.intent !== "none" && ai.combatDecision?.reasons?.length) {
+      pressures.push(...ai.combatDecision.reasons);
+    }
+    if (ai.social?.reasons?.length) {
+      pressures.push(...ai.social.reasons);
+    }
+    return uniqueReadableList(pressures, 6);
+  }
+
+  function slimeAiUnknownFactors(ai) {
+    return uniqueReadableList([
+      ...(ai.response?.unknownFactors || []),
+      ...(ai.combatDecision?.unknownFactors || []),
+      ...(ai.social?.unknownFactors || [])
+    ], 6);
+  }
+
+  function slimeAiPathLabel(ai) {
+    const path = Array.isArray(ai?.path) ? ai.path : [];
+    if (!path.length) {
+      return "No active path";
+    }
+    const start = path[0];
+    const end = path[path.length - 1];
+    return `${path.length} tile${path.length === 1 ? "" : "s"} (${start.x},${start.y} -> ${end.x},${end.y})`;
+  }
+
+  function slimeAiNextDecisionLabel(ai) {
+    if (ai.nextThinkAt == null) {
+      return "Not scheduled";
+    }
+    const remaining = Math.max(0, ai.nextThinkAt - state.clock);
+    return `${formatClock(ai.nextThinkAt)} (${formatDuration(remaining)})`;
+  }
+
+  function slimeActivityReadout(slime) {
+    const ai = slimeAiRecord(slime);
+    const pressures = slimeAiVisiblePressures(slime, ai);
+    const unknownFactors = slimeAiUnknownFactors(ai);
+    return {
+      ai,
+      stateLabel: slimeAiStateLabel(ai),
+      intentLabel: slimeAiIntentLabel(ai.intent),
+      targetLabel: slimeAiTargetLabel(ai.target),
+      reason: ai.reason || "No clear current reason",
+      urgency: titleCase(ai.urgency),
+      pressures,
+      unknownFactors,
+      nextDecision: slimeAiNextDecisionLabel(ai),
+      path: slimeAiPathLabel(ai)
+    };
   }
 
   function slimeDominantDriveLabel(slime) {
@@ -15766,6 +15908,7 @@
     renderJournal();
     renderEvents();
     renderKnownEditor();
+    renderSlimeAiDebugPanel();
     refreshActionControls();
     syncSetupForm();
     explainDisabledButtons();
@@ -16176,6 +16319,7 @@
       card.append(title, renderIdentityStrip(slime, evaluated), meta);
       if (slime.id === state.selectedSlimeId) {
         card.append(renderSlimeStats(slime));
+        card.append(renderSlimeActivity(slime));
         card.append(renderSlimeAnalyzePanel(slime));
         card.append(renderSlimeResponse(slime));
         card.append(renderSlimeSocialContext(slime));
@@ -22694,6 +22838,173 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     section.append(title, grid);
     return section;
+  }
+
+  function renderSlimeActivity(slime) {
+    const readout = slimeActivityReadout(slime);
+    const ai = readout.ai;
+    const section = document.createElement("div");
+    section.className = "slime-activity subpanel";
+    section.dataset.slimeActivityPanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Activity";
+    title.title = "Broad behavior readout derived from current AI state. Hidden biology can still affect what the slime actually does.";
+    const summary = document.createElement("div");
+    summary.className = "journal-meta";
+    summary.dataset.slimeActivitySummary = slime.id;
+    summary.textContent = `${readout.stateLabel} - ${readout.reason}`;
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      row.dataset.slimeActivityRow = normalizeCommandName(label);
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+      return row;
+    };
+    addRow("State", readout.stateLabel, readout.urgency, `Raw state: ${ai.state}; urgency: ${ai.urgency}`);
+    addRow("Intent", readout.intentLabel, "current", `Raw intent: ${ai.intent}`);
+    addRow("Target", readout.targetLabel, ai.target?.kind || "none");
+    addRow("Reason", readout.reason, "observed");
+    addRow("Path", readout.path, ai.path.length ? "active" : "none");
+    addRow("Next decision", readout.nextDecision, ai.nextThinkAt == null ? "passive" : "scheduled");
+    addRow(
+      "Observed pressures",
+      readout.pressures.length ? readout.pressures.join("; ") : "None clear",
+      readout.pressures.length ? "visible" : "quiet"
+    );
+    addRow(
+      "Unknown factors",
+      readout.unknownFactors.length ? readout.unknownFactors.join(", ") : "None flagged",
+      readout.unknownFactors.length ? "could matter" : "clear"
+    );
+    section.append(title, summary, grid);
+    return section;
+  }
+
+  function renderSlimeAiDebugPanel() {
+    if (!dom.aiDebugSummary || !dom.aiDebugReadout) {
+      return;
+    }
+    dom.aiDebugReadout.textContent = "";
+    const slime = getSelectedSlime();
+    if (!slime) {
+      dom.aiDebugSummary.textContent = "Select a living sample to inspect AI internals.";
+      return;
+    }
+    const readout = slimeActivityReadout(slime);
+    const ai = readout.ai;
+    dom.aiDebugSummary.textContent = `${slime.name} (${slime.id}) - ${readout.stateLabel}; ${readout.reason}`;
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid ai-debug-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row ai-debug-row";
+      row.dataset.aiDebugRow = normalizeCommandName(label);
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+      return row;
+    };
+    const nonQuietDrives = SLIME_DRIVE_KEYS
+      .map((key) => ({ key, drive: ai.drives[key] }))
+      .filter((entry) => entry.drive && entry.drive.band !== "none");
+    const perception = ai.perception || defaultSlimePerceptionRecord();
+    const response = ai.response || defaultSlimeResponseRecord();
+    const combatDecision = ai.combatDecision || defaultSlimeCombatDecisionRecord();
+    const social = ai.social || defaultSlimeSocialRecord();
+    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+    const testing = containmentTestRecordForSlime(slime);
+    addRow("Specimen", slime.name, slime.id);
+    addRow("Status", slime.status || "unknown", slimeLocationLabel(slime));
+    addRow("State", ai.state, readout.stateLabel);
+    addRow("Intent", ai.intent, readout.intentLabel);
+    addRow("Urgency", ai.urgency, "raw band");
+    addRow("Reason", ai.reason || "none", "current");
+    addRow("Target", slimeAiTargetLabel(ai.target), ai.target?.kind || "none");
+    addRow("Target raw", ai.target ? JSON.stringify(ai.target) : "null", "debug");
+    addRow("Path", readout.path, ai.path.length ? "active" : "none");
+    addRow("Next decision", readout.nextDecision, ai.nextThinkAt == null ? "not scheduled" : "scheduled");
+    addRow("Updated", formatClock(ai.updatedAt || 0), `${formatDuration(Math.max(0, state.clock - (ai.updatedAt || 0)))} ago`);
+    addRow(
+      "Dominant drive",
+      ai.dominantDrive ? SLIME_DRIVE_LABELS[ai.dominantDrive] || ai.dominantDrive : "none",
+      ai.dominantDrive ? ai.drives[ai.dominantDrive]?.band || "none" : "quiet"
+    );
+    addRow(
+      "Drive detail",
+      nonQuietDrives.length
+        ? nonQuietDrives.map(({ key, drive }) => `${SLIME_DRIVE_LABELS[key]} ${drive.band}${drive.reason ? ` (${drive.reason})` : ""}`).join("; ")
+        : "No active drives",
+      "debug"
+    );
+    addRow("Perception", perception.summary, `${perception.entries.length} entries`);
+    perception.entries.forEach((entry, index) => {
+      addRow(
+        `Perception ${index + 1}`,
+        `${entry.kind} ${entry.intensity}`,
+        `${entry.label}${entry.sourceLabel ? `; source ${entry.sourceLabel}` : ""}`,
+        JSON.stringify(entry)
+      );
+    });
+    addRow(
+      "Response",
+      `${response.state} / ${response.intent}`,
+      `score ${formatDecimal(response.score, 0)}; ${response.intensity}`
+    );
+    addRow(
+      "Response reasons",
+      response.reasons.length ? response.reasons.join("; ") : "none",
+      response.unknownFactors.length ? `unknown: ${response.unknownFactors.join(", ")}` : "no unknowns"
+    );
+    addRow(
+      "Combat decision",
+      `${combatDecision.intent} / ${combatDecision.label}`,
+      `score ${formatDecimal(combatDecision.score, 0)}; attack ${formatDecimal(combatDecision.attackScore, 0)}; flee ${formatDecimal(combatDecision.fleeScore, 0)}`
+    );
+    addRow(
+      "Combat detail",
+      [
+        combatDecision.target ? `target ${slimeAiTargetLabel(combatDecision.target)}` : "",
+        combatDecision.contact ? `contact ${combatDecision.contact}` : "",
+        combatDecision.automaticAction ? `action ${combatDecision.automaticAction}` : ""
+      ].filter(Boolean).join("; ") || "none",
+      combatDecision.reasons.length ? combatDecision.reasons.join("; ") : "no reasons"
+    );
+    addRow(
+      "Social",
+      `${social.stance} / ${social.label}`,
+      `pressure ${social.pressureBand}; score ${formatDecimal(social.score, 0)}; nearby ${social.nearbyCount}; contact ${social.contactCount}`
+    );
+    addRow(
+      "Social reasons",
+      social.reasons.length ? social.reasons.join("; ") : "none",
+      social.unknownFactors.length ? `unknown: ${social.unknownFactors.join(", ")}` : "no unknowns"
+    );
+    addRow(
+      "Room activity",
+      slime.roomActivity?.type || "none",
+      slime.roomActivity?.label || "no current room activity",
+      slime.roomActivity ? JSON.stringify(slime.roomActivity) : ""
+    );
+    addRow(
+      "Movement record",
+      movement && state.clock < movement.arriveAt ? movement.label || "active movement" : "none active",
+      movement ? `arrive ${formatClock(movement.arriveAt)}; ${movementRouteText(movement)}` : "no route"
+    );
+    addRow(
+      "Containment test",
+      testing.active ? testing.activity : "inactive",
+      testing.active ? `${testing.pressureLabel}; progress ${formatDecimal(testing.progress, 1)}` : "quiet"
+    );
+    dom.aiDebugReadout.append(grid);
   }
 
   function renderSlimeAnalyzePanel(slime) {

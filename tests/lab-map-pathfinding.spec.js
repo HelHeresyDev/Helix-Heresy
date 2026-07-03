@@ -64,6 +64,15 @@ test('slime ai record mirrors contained baseline behavior', async ({ page }) => 
   await loadSavedRun(page);
 
   await expect(page.locator('[data-slime-ai="contained-ai"]')).toContainText('AI: Contained');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Activity');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('State');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Contained');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Intent');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('rest');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('AI-001');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('State');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('contained');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Target raw');
   const result = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -761,6 +770,14 @@ test('released slimes move toward accessible residue without raiding packaged st
   await expect(page.locator('[data-slime-card="loose-seeker"]')).toContainText(/seeking|moving/i);
   await expect(page.locator('[data-slime-ai="loose-seeker"]')).toContainText(/AI: (Moving|Seeking)/);
   await expect(page.locator('[data-slime-movement="loose-seeker"]')).toContainText('Move:');
+  await expect(page.locator('[data-slime-activity-panel="loose-seeker"]')).toContainText('Activity');
+  await expect(page.locator('[data-slime-activity-panel="loose-seeker"]')).toContainText('seek food');
+  await expect(page.locator('[data-slime-activity-panel="loose-seeker"]')).toContainText('Path');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('LOOSE-001');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Intent');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('seekFood');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Perception 1');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Movement record');
 
   const earlyAi = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

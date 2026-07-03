@@ -623,6 +623,11 @@ h2 {
   font-size: 0.78rem;
 }
 
+.ai-debug-row strong,
+.ai-debug-row em {
+  overflow-wrap: anywhere;
+}
+
 .room-card {
   display: grid;
   gap: 0.5rem;
