@@ -945,8 +945,16 @@ test('released slime movement stops if an open route closes ahead of it', async 
 
 test('released slimes press blocked doors and expose possible intent instead of queueing movement', async ({ page }) => {
   await startRun(page);
+  const seed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).seed;
+  }, { key: storageKey });
+  const genome = genomeForTraits({
+    seed,
+    traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' },
+  });
 
-  await page.evaluate(({ key }) => {
+  await page.evaluate(({ key, genome }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     state.paused = true;
@@ -967,7 +975,7 @@ test('released slimes press blocked doors and expose possible intent instead of 
     state.slimes = [{
       id: 'door-seeker',
       name: 'DOOR-001',
-      genome: state.currentGenome,
+      genome,
       source: 'Blocked door fixture',
       createdAt: 0,
       deathAt: 10000,
@@ -995,7 +1003,7 @@ test('released slimes press blocked doors and expose possible intent instead of 
       jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: storageKey, genome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 1);

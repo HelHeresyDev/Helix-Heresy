@@ -3183,6 +3183,7 @@
       feedstockChanged: updateFeedstockIncome(elapsed),
       feedingChanged: updateAutoFeeding(),
       uncontainedBehaviorChanged: updateUncontainedSlimeBehavior(elapsed),
+      socialChanged: updateSlimeSocialEffects(elapsed),
       metabolismChanged: updateSlimeMetabolism(elapsed),
       collectionChanged: updateCollectionBayAccumulation(elapsed),
       compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
@@ -3218,6 +3219,7 @@
       + changes.feedstockChanged
       + changes.feedingChanged
       + changes.uncontainedBehaviorChanged
+      + changes.socialChanged
       + changes.metabolismChanged
       + changes.collectionChanged
       + changes.compatibilityChanged
@@ -3673,6 +3675,8 @@
       containerId: options.containerId ?? null,
       roomId: options.roomId || MAIN_ROOM_ID,
       mapCell: objectMapCell(options),
+      parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
+      broodId: cleanLineageId(options.broodId),
       automationExcluded: Boolean(options.automationExcluded),
       job: "idle",
       jobProgress: 0,
@@ -3738,6 +3742,7 @@
     const massShare = (slimeStat(parentA, "currentMass").current + slimeStat(parentB, "currentMass").current) / bodyCount;
     const nutritionShare = (slimeStat(parentA, "nutrition").current + slimeStat(parentB, "nutrition").current) / bodyCount;
     const created = [];
+    const broodId = cleanLineageId(`recombined-${task.id}-${parentA.id}-${parentB.id}`);
     const revealSummary = emptyRevealSummary();
     for (let i = 0; i < offspringCount; i += 1) {
       const childGenome = forcedRecombinationGenome(parentA.genome, parentB.genome, seedRng(`${state.seed}:child:${task.id}:${i}`), parentA, parentB);
@@ -3748,6 +3753,8 @@
         matureAt: state.clock + growthSeconds,
         containerId: openContainers[i]?.id || null,
         roomId: openContainers[i]?.roomId || MAIN_ROOM_ID,
+        parentIds: [parentA.id, parentB.id],
+        broodId,
         stats: {
           bodyIntegrity: { current: 90, max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
@@ -8400,6 +8407,7 @@
     const attackMemory = creatureMemoryValue(slime, "attackWorked");
     const targetIsScientist = target?.id === "scientist";
     const targetIsLiving = Boolean(targetIsScientist || (target && target.status !== "dead"));
+    const kinship = !targetIsScientist && target ? slimeKinship(slime, target) : { related: false, kind: "unrelated", label: "" };
     const scores = {
       attack: 0,
       feed: 0,
@@ -8497,6 +8505,15 @@
       scores.attack *= 0.5;
       scores.feed *= 0.5;
       scores.defend *= 0.6;
+    }
+    if (kinship.related) {
+      scores.attack = 0;
+      scores.feed = 0;
+      scores.threaten = Math.min(scores.threaten, 12);
+      if (contact) {
+        scores.defend = Math.max(scores.defend, 25);
+      }
+      reasons.push(`${kinship.kind} recognition inhibits fighting`);
     }
 
     const intent = slimeCombatDecisionForScores(scores, { contact, target });
@@ -8670,6 +8687,9 @@
     }
     const target = findSlime(targetId);
     if (!target || target.status === "dead") {
+      return 0;
+    }
+    if (slimesAreProtectedKin(attacker, target)) {
       return 0;
     }
     applySlimeCombatDamage(target, damage, attacker.id, `${attacker.name} attack`);
@@ -9766,6 +9786,19 @@
   };
   const SLIME_COMBAT_INTENTS = new Set(Object.keys(SLIME_COMBAT_INTENT_LABELS));
   const SLIME_COMBAT_ACTION_INTENTS = new Set(["attack", "feedAttack"]);
+  const SLIME_SOCIAL_STANCE_LABELS = {
+    isolated: "Isolated",
+    kin: "Brood Cohesion",
+    protective: "Protective",
+    tolerant: "Tolerant",
+    crowded: "Crowded",
+    competitive: "Competing",
+    avoidant: "Avoiding",
+    territorial: "Territorial",
+    hostile: "Hostile"
+  };
+  const SLIME_SOCIAL_STANCES = new Set(Object.keys(SLIME_SOCIAL_STANCE_LABELS));
+  const SLIME_SOCIAL_PRESSURE_BANDS = ["none", "low", "moderate", "high", "critical"];
   const SLIME_DRIVE_KEYS = ["hunger", "regrowth", "injury", "stress", "containment", "work", "reproduction"];
   const SLIME_DRIVE_LABELS = {
     hunger: "Hunger",
@@ -9838,6 +9871,16 @@
   function cleanSlimeCombatIntent(value) {
     const intent = String(value || "none");
     return SLIME_COMBAT_INTENTS.has(intent) ? intent : "none";
+  }
+
+  function cleanSlimeSocialStance(value) {
+    const stance = String(value || "isolated");
+    return SLIME_SOCIAL_STANCES.has(stance) ? stance : "isolated";
+  }
+
+  function cleanSlimeSocialPressureBand(value) {
+    const band = String(value || "none");
+    return SLIME_SOCIAL_PRESSURE_BANDS.includes(band) ? band : "none";
   }
 
   function cleanContainmentTestMethod(value) {
@@ -10029,6 +10072,57 @@
     };
   }
 
+  function defaultSlimeSocialRecord() {
+    return {
+      stance: "isolated",
+      label: SLIME_SOCIAL_STANCE_LABELS.isolated,
+      pressureBand: "none",
+      score: 0,
+      nearbyCount: 0,
+      contactCount: 0,
+      kinCount: 0,
+      nonKinCount: 0,
+      reasons: [],
+      unknownFactors: [],
+      kinLabels: [],
+      nonKinLabels: []
+    };
+  }
+
+  function normalizeSlimeSocialRecord(candidate = {}) {
+    const stance = cleanSlimeSocialStance(candidate?.stance);
+    const reasons = (Array.isArray(candidate?.reasons) ? candidate.reasons : [])
+      .map((reason) => String(reason || "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const unknownFactors = (Array.isArray(candidate?.unknownFactors) ? candidate.unknownFactors : [])
+      .map((factor) => String(factor || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    const kinLabels = (Array.isArray(candidate?.kinLabels) ? candidate.kinLabels : [])
+      .map((label) => String(label || "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const nonKinLabels = (Array.isArray(candidate?.nonKinLabels) ? candidate.nonKinLabels : [])
+      .map((label) => String(label || "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    return {
+      stance,
+      label: String(candidate?.label || SLIME_SOCIAL_STANCE_LABELS[stance] || titleCase(stance)),
+      pressureBand: cleanSlimeSocialPressureBand(candidate?.pressureBand),
+      score: clamp(Number(candidate?.score) || 0, 0, 100),
+      nearbyCount: Math.max(0, Math.floor(Number(candidate?.nearbyCount) || 0)),
+      contactCount: Math.max(0, Math.floor(Number(candidate?.contactCount) || 0)),
+      kinCount: Math.max(0, Math.floor(Number(candidate?.kinCount) || 0)),
+      nonKinCount: Math.max(0, Math.floor(Number(candidate?.nonKinCount) || 0)),
+      reasons,
+      unknownFactors,
+      kinLabels,
+      nonKinLabels
+    };
+  }
+
   function defaultContainmentTestRecord() {
     const method = CONTAINMENT_TEST_METHOD_BY_ID.none;
     return {
@@ -10114,6 +10208,7 @@
     const perception = normalizeSlimePerceptionRecord(candidate.perception);
     const response = normalizeSlimeResponseRecord(candidate.response);
     const combatDecision = normalizeSlimeCombatDecisionRecord(candidate.combatDecision);
+    const social = normalizeSlimeSocialRecord(candidate.social);
     return {
       state: cleanSlimeAiState(candidate.state),
       intent: cleanSlimeAiIntent(candidate.intent),
@@ -10125,6 +10220,7 @@
       perception,
       response,
       combatDecision,
+      social,
       path,
       nextThinkAt: rawNextThinkAt === null || rawNextThinkAt === undefined || rawNextThinkAt === ""
         ? null
@@ -10834,6 +10930,224 @@
     };
   }
 
+  function slimeParentIds(slime) {
+    return idList(slime?.parentIds).filter((id) => id && id !== slime?.id);
+  }
+
+  function slimeKinship(a, b) {
+    if (!a || !b || a.id === b.id) {
+      return { related: false, kind: "self", label: "same slime" };
+    }
+    const aParents = slimeParentIds(a);
+    const bParents = slimeParentIds(b);
+    if (aParents.includes(b.id)) {
+      return { related: true, kind: "parent", label: `${b.name || "other slime"} is a parent` };
+    }
+    if (bParents.includes(a.id)) {
+      return { related: true, kind: "offspring", label: `${b.name || "other slime"} is offspring` };
+    }
+    const sharedParent = aParents.some((id) => bParents.includes(id));
+    const sharedBrood = Boolean(a.broodId && b.broodId && a.broodId === b.broodId);
+    if (sharedParent || sharedBrood) {
+      return { related: true, kind: "sibling", label: `${b.name || "other slime"} is a brood sibling` };
+    }
+    return { related: false, kind: "unrelated", label: "unrelated slime" };
+  }
+
+  function slimesAreProtectedKin(a, b) {
+    const kinship = slimeKinship(a, b);
+    return kinship.related && ["parent", "offspring", "sibling"].includes(kinship.kind);
+  }
+
+  function slimeSocialPressureBand(score) {
+    if (score >= 80) return "critical";
+    if (score >= 55) return "high";
+    if (score >= 30) return "moderate";
+    if (score >= 12) return "low";
+    return "none";
+  }
+
+  function slimeSocialProximityEntries(slime) {
+    if (!slime || slime.status === "dead") {
+      return [];
+    }
+    const entries = [];
+    const roomId = slimeEffectiveRoomId(slime);
+    for (const other of state.slimes || []) {
+      if (!other || other.id === slime.id || other.status === "dead") {
+        continue;
+      }
+      const contact = slimeContactContext(slime, other);
+      const sameLooseRoom = !contact
+        && slimeIsUncontained(slime)
+        && slimeIsUncontained(other)
+        && slimeEffectiveRoomId(other) === roomId;
+      if (!contact && !sameLooseRoom) {
+        continue;
+      }
+      const kinship = slimeKinship(slime, other);
+      entries.push({
+        slime: other,
+        contact,
+        roomId,
+        proximity: contact?.kind || "room",
+        label: other.name || "other slime",
+        kinship,
+        related: kinship.related
+      });
+    }
+    return entries;
+  }
+
+  function addSocialTraitUnknown(unknownFactors, traitKey) {
+    if (traitKey && !unknownFactors.includes(traitKey)) {
+      unknownFactors.push(traitKey);
+    }
+  }
+
+  function socialTraitReason(slime, traitKey, text, unknownFactors) {
+    if (slimeTraitKnown(slime, traitKey)) {
+      return text;
+    }
+    addSocialTraitUnknown(unknownFactors, traitKey);
+    return "";
+  }
+
+  function evaluateSlimeSocialContext(slime) {
+    const entries = slimeSocialProximityEntries(slime);
+    if (!entries.length) {
+      return defaultSlimeSocialRecord();
+    }
+
+    const kinEntries = entries.filter((entry) => entry.related);
+    const nonKinEntries = entries.filter((entry) => !entry.related);
+    const contactEntries = entries.filter((entry) => entry.contact);
+    const nonKinContactEntries = nonKinEntries.filter((entry) => entry.contact);
+    const kinLabels = kinEntries.map((entry) => `${entry.label} (${entry.kinship.kind})`);
+    const nonKinLabels = nonKinEntries.map((entry) => entry.label);
+    const reasons = [];
+    const unknownFactors = [];
+    let score = contactEntries.length * 8 + nonKinContactEntries.length * 14 + Math.max(0, entries.length - 2) * 4;
+
+    if (!slimeIsUncontained(slime) && contactEntries.length) {
+      score += contactEntries.length * 8;
+      if (contactEntries.length >= 3) {
+        score += 12;
+        reasons.push("multiple bodies in one container");
+      }
+    }
+    if (nonKinEntries.length) {
+      score += nonKinEntries.filter((entry) => !entry.contact).length * 4;
+      reasons.push(`${nonKinEntries.length} unrelated slime${nonKinEntries.length === 1 ? "" : "s"} nearby`);
+    }
+    if (kinEntries.length && !nonKinEntries.length) {
+      score = Math.max(0, score - 16);
+      reasons.push("kin contact is tolerated");
+    } else if (kinEntries.length) {
+      reasons.push("kin nearby");
+    }
+
+    const traitProfile = slimeThreatTraitProfile(slime);
+    const behavior = String(traitProfile.behavior || "").toLowerCase();
+    const stability = String(traitProfile.stability || "").toLowerCase();
+    const nutrition = slimeStatPercent(slime, "nutrition");
+    const stress = slimeStatPercent(slime, "stress");
+    const hasOffspring = entries.some((entry) => entry.kinship.kind === "offspring");
+    const hasSibling = entries.some((entry) => entry.kinship.kind === "sibling");
+    const hasNonKinContact = nonKinContactEntries.length > 0;
+    const hunting = slimeHuntingInclination(slime);
+    const territorial = /territorial/.test(stability) || /guarding/.test(behavior);
+    const avoidant = /hiding|light avoiding|burrowing/.test(behavior) || /nervous|fragile/.test(stability);
+
+    if (nonKinEntries.length && nutrition <= 25) {
+      score += nutrition <= 8 ? 24 : 14;
+      reasons.push("hunger makes nearby bodies tempting");
+    }
+    if (nonKinEntries.length && stress >= 70) {
+      score += stress >= 90 ? 20 : 12;
+      reasons.push("stress makes group contact unstable");
+    }
+    if (nonKinEntries.length && hunting) {
+      score += hasNonKinContact ? 20 : 10;
+      const reason = socialTraitReason(slime, "behavior", "hunting behavior focuses on other slimes", unknownFactors);
+      if (reason) reasons.push(reason);
+    }
+    if (nonKinEntries.length && territorial) {
+      score += hasNonKinContact ? 18 : 10;
+      const behaviorReason = /guarding/.test(behavior)
+        ? socialTraitReason(slime, "behavior", "guarding behavior defends local space", unknownFactors)
+        : "";
+      const stabilityReason = /territorial/.test(stability)
+        ? socialTraitReason(slime, "stability", "territorial temperament defends local space", unknownFactors)
+        : "";
+      if (behaviorReason) reasons.push(behaviorReason);
+      if (stabilityReason) reasons.push(stabilityReason);
+    }
+    if (nonKinEntries.length && avoidant) {
+      score += 8;
+      const reason = /hiding|light avoiding|burrowing/.test(behavior)
+        ? socialTraitReason(slime, "behavior", "avoidant behavior dislikes crowded contact", unknownFactors)
+        : socialTraitReason(slime, "stability", "nervous temperament dislikes crowded contact", unknownFactors);
+      if (reason) reasons.push(reason);
+    }
+    if (hasOffspring) {
+      reasons.push("offspring nearby");
+    } else if (hasSibling && !nonKinEntries.length) {
+      reasons.push("brood siblings nearby");
+    }
+
+    score = clamp(score, 0, 100);
+    let stance = "tolerant";
+    if (!nonKinEntries.length) {
+      stance = hasOffspring ? "protective" : "kin";
+    } else if (hunting && hasNonKinContact && score >= 45) {
+      stance = "hostile";
+    } else if (territorial && score >= 35) {
+      stance = "territorial";
+    } else if (nutrition <= 25 && nonKinEntries.length) {
+      stance = "competitive";
+    } else if (avoidant && score >= 25) {
+      stance = "avoidant";
+    } else if (score >= 45) {
+      stance = "crowded";
+    }
+
+    return normalizeSlimeSocialRecord({
+      stance,
+      label: SLIME_SOCIAL_STANCE_LABELS[stance],
+      pressureBand: slimeSocialPressureBand(score),
+      score,
+      nearbyCount: entries.length,
+      contactCount: contactEntries.length,
+      kinCount: kinEntries.length,
+      nonKinCount: nonKinEntries.length,
+      reasons: [...new Set(reasons)].slice(0, 6),
+      unknownFactors: [...new Set(unknownFactors)].slice(0, 5),
+      kinLabels,
+      nonKinLabels
+    });
+  }
+
+  function applySlimeSocialContext(slime, ai) {
+    const social = evaluateSlimeSocialContext(slime);
+    const next = {
+      ...ai,
+      social
+    };
+    if (!social.nonKinCount || !["high", "critical"].includes(social.pressureBand) || !shouldDriveInfluenceState(next.state) || next.state === "working") {
+      return next;
+    }
+    next.state = "stressed";
+    next.intent = social.stance === "avoidant"
+      ? "flee"
+      : ["territorial", "protective"].includes(social.stance)
+        ? "defend"
+        : "wait";
+    next.reason = social.reasons[0] || `${social.label.toLowerCase()} group pressure`;
+    next.urgency = maxAiUrgency(next.urgency, social.pressureBand === "critical" ? "critical" : "high");
+    return next;
+  }
+
   function recentPainForSlime(slime) {
     const painAt = Number(slime?.lastPainAt) || 0;
     if (!painAt || state.clock - painAt > SLIME_RECENT_PAIN_WINDOW) {
@@ -11116,7 +11430,10 @@
       next.urgency = maxAiUrgency(next.urgency, combatDecision.score >= 80 ? "critical" : "high");
       return next;
     }
-    if (["flee", "freeze", "panic"].includes(combatDecision.intent) && combatDecision.score >= 45) {
+    const combatResponseOverridesActivity = combatDecision.intent === "panic"
+      || combatDecision.intent === "flee"
+      || (combatDecision.intent === "freeze" && combatDecision.score >= 55);
+    if (combatResponseOverridesActivity && combatDecision.score >= 45) {
       next.state = "stressed";
       next.intent = combatDecision.intent;
       next.target = combatDecision.target || next.target;
@@ -11135,7 +11452,7 @@
   }
 
   function finalizeSlimeAi(slime, ai) {
-    return applySlimeCombatDecision(slime, applySlimeThreatResponse(slime, applySlimeDriveInfluence(slime, applySlimePerception(slime, ai))));
+    return applySlimeCombatDecision(slime, applySlimeSocialContext(slime, applySlimeThreatResponse(slime, applySlimeDriveInfluence(slime, applySlimePerception(slime, ai)))));
   }
 
   function slimeAiTargetFromActivity(activity) {
@@ -11402,6 +11719,7 @@
       perception: ai.perception,
       response: ai.response,
       combatDecision: ai.combatDecision,
+      social: ai.social,
       path: ai.path,
       nextThinkAt: ai.nextThinkAt
     });
@@ -11541,6 +11859,30 @@
     element.title = perception.entries
       .map((entry) => `${SLIME_PERCEPTION_KIND_LABELS[entry.kind] || titleCase(entry.kind)}: ${entry.label}${entry.sourceLabel ? ` (${entry.sourceLabel})` : ""}`)
       .join("\n");
+    return element;
+  }
+
+  function slimeSocialChip(slime) {
+    if (!slime || slime.status === "dead") {
+      return null;
+    }
+    const social = slimeAiRecord(slime).social || defaultSlimeSocialRecord();
+    if (!social.nearbyCount) {
+      return null;
+    }
+    const element = chip(`Group: ${social.label}`);
+    element.dataset.slimeSocial = slime.id;
+    if (["high", "critical"].includes(social.pressureBand) && social.nonKinCount > 0) {
+      element.classList.add("danger-chip");
+    }
+    element.title = [
+      `Pressure: ${social.pressureBand}.`,
+      `Nearby: ${social.nearbyCount}; contact: ${social.contactCount}.`,
+      social.kinLabels.length ? `Kin: ${social.kinLabels.join(", ")}.` : "",
+      social.nonKinLabels.length ? `Non-kin: ${social.nonKinLabels.join(", ")}.` : "",
+      social.reasons.length ? `Factors: ${social.reasons.join("; ")}.` : "",
+      social.unknownFactors.length ? `Unknown factors may affect this: ${social.unknownFactors.join(", ")}.` : ""
+    ].filter(Boolean).join("\n");
     return element;
   }
 
@@ -15560,6 +15902,10 @@
       if (perceptionChip) {
         meta.append(perceptionChip);
       }
+      const socialChip = slimeSocialChip(slime);
+      if (socialChip) {
+        meta.append(socialChip);
+      }
       const habitatChip = slimeHabitatChip(slime);
       if (habitatChip) {
         meta.append(habitatChip);
@@ -15586,6 +15932,7 @@
         card.append(renderSlimeStats(slime));
         card.append(renderSlimeAnalyzePanel(slime));
         card.append(renderSlimeResponse(slime));
+        card.append(renderSlimeSocialContext(slime));
         const containmentTesting = renderSlimeContainmentTesting(slime);
         if (containmentTesting) {
           card.append(containmentTesting);
@@ -18654,6 +19001,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
   }
 
+  function cleanLineageId(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9:_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  }
+
   function idListsDiffer(a, b) {
     const left = [...new Set(idList(a))].sort();
     const right = [...new Set(idList(b))].sort();
@@ -20038,7 +20389,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       };
       return true;
     }
-    if (["freeze", "panic", "threaten"].includes(decision.intent) || (decision.intent === "defend" && decision.score >= 40)) {
+    const responseOverridesActivity = decision.intent === "panic"
+      || (decision.intent === "freeze" && decision.score >= 55)
+      || (decision.intent === "threaten" && decision.score >= 40)
+      || (decision.intent === "defend" && decision.score >= 40);
+    if (responseOverridesActivity) {
       const labels = {
         freeze: `freezing near ${targetLabel}`,
         panic: `panicking near ${targetLabel}`,
@@ -20248,6 +20603,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         roomId: slime.roomId,
         updatedAt: state.clock
       };
+    }
+    return changes;
+  }
+
+  function socialStressRatePerDay(social) {
+    if (!social?.nonKinCount) {
+      return 0;
+    }
+    if (social.pressureBand === "critical") return 4;
+    if (social.pressureBand === "high") return 2;
+    if (social.pressureBand === "moderate") return 0.75;
+    if (social.pressureBand === "low") return 0.2;
+    return 0;
+  }
+
+  function updateSlimeSocialEffects(elapsed) {
+    const seconds = Math.max(0, Number(elapsed) || 0);
+    if (!seconds) {
+      return 0;
+    }
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      const social = evaluateSlimeSocialContext(slime);
+      const stressRate = socialStressRatePerDay(social);
+      if (stressRate <= 0) {
+        continue;
+      }
+      const before = slimeStat(slime, "stress").current;
+      adjustSlimeStat(slime, "stress", stressRate * secondsToDays(seconds));
+      if (Math.abs(slimeStat(slime, "stress").current - before) >= 0.01) {
+        changes += 1;
+      }
     }
     return changes;
   }
@@ -20564,6 +20954,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const rng = seedRng(`${state.seed}:split:${slime.id}:${state.clock}:${state.nextSlimeNumber}`);
     const growthMinutes = Math.max(4, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
     const created = [];
+    const broodId = cleanLineageId(`split-${slime.id}-${state.clock}-${state.nextSlimeNumber}`);
     for (let i = 0; i < broodCount; i += 1) {
       const childGenome = naturalSplitGenome(slime, rng, i);
       const growthSeconds = Math.round(minutesToSeconds(growthMinutes * (0.75 + rng() * 0.5)));
@@ -20573,6 +20964,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         status: slime.status,
         containerId: slime.containerId,
         roomId: slime.roomId,
+        parentIds: [slime.id],
+        broodId,
         stats: {
           bodyIntegrity: { current: clamp(parentIntegrity - 5, 20, 100), max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
@@ -22121,6 +22514,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       response.unknownFactors?.length ? response.unknownFactors.join(", ") : "None",
       response.unknownFactors?.length ? "could matter" : "all response traits visible"
     );
+    section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimeSocialContext(slime) {
+    const social = slimeAiRecord(slime).social || defaultSlimeSocialRecord();
+    const section = document.createElement("div");
+    section.className = "slime-social subpanel";
+    section.dataset.slimeSocialPanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Group Behavior";
+    title.title = "Derived from current proximity, kinship, crowding, hunger, stress, and observed biology. It is not a separate genetic trait.";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    const addRow = (label, value, note = "", titleText = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      if (titleText) {
+        row.title = titleText;
+      }
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("Stance", social.label, social.pressureBand, "Broad observed group behavior. Exact formulas remain hidden.");
+    addRow("Nearby", `${social.nearbyCount} slime${social.nearbyCount === 1 ? "" : "s"}`, `${social.contactCount} in contact`);
+    addRow("Kin", social.kinLabels.length ? social.kinLabels.join("; ") : "None nearby", social.kinCount ? "recognized" : "none");
+    addRow("Non-kin", social.nonKinLabels.length ? social.nonKinLabels.join("; ") : "None nearby", social.nonKinCount ? "pressure" : "none");
+    addRow("Factors", social.reasons.length ? social.reasons.join("; ") : "None clear", social.reasons.length ? "current" : "quiet");
+    addRow("Unknown", social.unknownFactors.length ? social.unknownFactors.join(", ") : "None", social.unknownFactors.length ? "could matter" : "all social factors visible");
     section.append(title, grid);
     return section;
   }
@@ -29138,6 +29561,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (previousGenome && previousGenome !== slime.genome && next.genomeNotes?.[previousGenome] && !next.genomeNotes[slime.genome]) {
         next.genomeNotes[slime.genome] = next.genomeNotes[previousGenome];
       }
+      slime.parentIds = idList(slime.parentIds).filter((id) => id && id !== slime.id).slice(0, 4);
+      slime.broodId = cleanLineageId(slime.broodId);
       slime.revealed ||= {};
       slime.measured ||= {};
       slime.traitObservations ||= {};

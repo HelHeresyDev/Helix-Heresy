@@ -288,13 +288,13 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
     seed: context.seed,
     complexity: context.complexity,
     baseGenome: context.currentGenome,
-    traits: { sustenance: 'organic feeder', behavior: 'idle pooling' },
+    traits: { sustenance: 'organic feeder', behavior: 'idle pooling', stability: 'placid', element: 'none' },
   });
   const metalGenome = genomeForTraits({
     seed: context.seed,
     complexity: context.complexity,
     baseGenome: context.currentGenome,
-    traits: { sustenance: 'metal feeder', behavior: 'idle pooling' },
+    traits: { sustenance: 'metal feeder', behavior: 'idle pooling', stability: 'placid', element: 'none' },
   });
 
   await page.evaluate(({ key, genome }) => {

@@ -12,39 +12,14 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Slime Social, Territorial, and Group Behavior System
-2. Slime Job Autonomy and Work Behavior System
-3. Map-Based Slime Incident and Emergency Response System
-4. Slime AI Debugging and Behavior Readout System
-5. Black Market Byproduct Economy System
+1. Slime Job Autonomy and Work Behavior System
+2. Map-Based Slime Incident and Emergency Response System
+3. Slime AI Debugging and Behavior Readout System
+4. Black Market Byproduct Economy System
 
 ---
 
-## 1. Slime Social, Territorial, and Group Behavior System
-
-Create social, territorial, and group behavior for slimes.
-
-Not all slimes should be social, but groups of slimes should not always behave like unrelated isolated objects. Some may tolerate each other, avoid each other, compete for food, crowd each other, follow similar environmental preferences, swarm toward food, protect offspring, merge into piles, or become territorial.
-
-The system should answer questions like:
-- Which slimes care about nearby slimes?
-- How do brood, maturity, stress, hunger, size, species family, element, and temperament affect group behavior?
-- How do slimes compete for food, space, warmth, moisture, or safety?
-- Can slimes follow, avoid, crowd, swarm, or attack each other?
-- How does overcrowding affect stress and containment risk?
-- Can parent/offspring relationships matter after splitting?
-- How should group behavior affect combat, jobs, feeding, containment, and incidents?
-- How should the UI communicate group dynamics without overcomplicating specimen cards?
-
-This system should support the fantasy that the lab is filled with living organisms, not independent stat blocks. A crowded containment room, a pile of offspring, or a tank with multiple slimes should create different behavior pressures than isolated specimens.
-
-The desired result is a first-pass social and territorial model that makes groups meaningful while leaving complex society and intelligence for future creature families.
-
-Before coding, discuss which social interactions belong to simple slimes, how group pressure is calculated, how it affects behavior, and what should be visible to the player.
-
----
-
-## 2. Slime Job Autonomy and Work Behavior System
+## 1. Slime Job Autonomy and Work Behavior System
 
 Create autonomous work behavior for slimes assigned to jobs.
 
@@ -68,7 +43,7 @@ Before coding, discuss job behavior states, target selection, interruption rules
 
 ---
 
-## 3. Map-Based Slime Incident and Emergency Response System
+## 2. Map-Based Slime Incident and Emergency Response System
 
 Create map-based slime incidents and emergency response behavior.
 
@@ -92,7 +67,7 @@ Before coding, discuss incident types, location rules, response task flow, UI al
 
 ---
 
-## 4. Slime AI Debugging and Behavior Readout System
+## 3. Slime AI Debugging and Behavior Readout System
 
 Create debugging tools and player-facing readouts for slime AI behavior.
 
@@ -116,7 +91,7 @@ Before coding, discuss player-facing state labels, debug-only detail, test helpe
 
 ---
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
