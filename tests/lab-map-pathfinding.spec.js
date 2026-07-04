@@ -7,6 +7,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const storageKey = 'helix-heresy-v1-save';
+const preferencesKey = 'helix-heresy-v1-preferences';
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -15,9 +16,22 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
-async function loadSavedRun(page) {
+async function loadSavedRun(page, options = {}) {
+  const restoreSelectedSlime = options.restoreSelectedSlime !== false
+    ? await page.evaluate(({ key }) => {
+      const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+      const state = payload.state || payload;
+      if (state.selection?.kind === 'slime' && state.selection.id) {
+        return state.selection.id;
+      }
+      return state.selectedSlimeId || null;
+    }, { key: storageKey })
+    : null;
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
+  if (restoreSelectedSlime) {
+    await page.locator(`[data-slime-card="${restoreSelectedSlime}"]`).click();
+  }
 }
 
 async function skipSeconds(page, seconds) {
@@ -652,13 +666,24 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('[data-workspace-tab="cheats"]')).toBeHidden();
   await expect(page.locator('[data-workspace-category="debug"]')).toBeHidden();
   await expect(page.locator('#mapOverlaySelect option[value="debug"]')).toHaveCount(0);
-  const debugOffState = await page.evaluate(({ key }) => {
+  const debugOffState = await page.evaluate(({ key, prefsKey }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    return { debugEnabled: state.ui.debugEnabled, activeWorkspaceTab: state.ui.activeWorkspaceTab };
-  }, { key: storageKey });
-  expect(debugOffState).toEqual({ debugEnabled: false, activeWorkspaceTab: 'map' });
-  await page.locator('#debugToggleBtn').click();
+    const prefs = JSON.parse(window.localStorage.getItem(prefsKey) || '{}');
+    return {
+      hasSavedDebugFlag: Object.prototype.hasOwnProperty.call(state.ui || {}, 'debugEnabled'),
+      preferenceKeys: Object.keys(prefs),
+      activeWorkspaceTab: state.ui.activeWorkspaceTab,
+    };
+  }, { key: storageKey, prefsKey: preferencesKey });
+  expect(debugOffState).toEqual({
+    hasSavedDebugFlag: false,
+    preferenceKeys: ['version', 'compactFeedVisible', 'compactMessageLimit'],
+    activeWorkspaceTab: 'map',
+  });
+  await page.reload();
+  await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
+  await page.locator('#loadLastSaveBtn').click();
   await expect(page.locator('[data-workspace-tab="cheats"]')).toBeVisible();
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();

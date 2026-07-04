@@ -12,34 +12,12 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. UI State Persistence and Player Preference System
-2. Map Renderer Boundary and Future Canvas/Sprite Preparation
-3. Black Market Byproduct Economy System
+1. Map Renderer Boundary and Future Canvas/Sprite Preparation
+2. Black Market Byproduct Economy System
 
 ---
 
-## 1. UI State Persistence and Player Preference System
-
-Create a UI state and preference system for the map-first interface.
-
-As the interface gains inspectors, overlays, filters, command menus, split panes, hidden panels, hotkeys, and debug modes, the game should remember reasonable UI preferences without mixing them into simulation state.
-
-This system should answer questions like:
-- Which UI state should persist across saves?
-- Which UI state should reset each session?
-- Should map zoom, pan, selected overlay, pinned inspector, collapsed drawers, message filters, and panel widths be saved?
-- How should player preferences differ from run-specific UI state?
-- How should debug options be stored?
-- How should the game avoid corrupting saves with transient UI details?
-- How should import/export treat UI preferences?
-
-The desired result is a clean separation between game state and UI state. The simulation should remain the source of truth, while player interface preferences make the map-first UI comfortable to use.
-
-Before coding, discuss persistent versus transient UI state, storage location, defaults, reset behavior, save/import implications, and which preferences matter first.
-
----
-
-## 2. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 1. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -61,7 +39,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

@@ -2,6 +2,8 @@
   "use strict";
 
   const STORAGE_KEY = "helix-heresy-v1-save";
+  const PREFERENCES_STORAGE_KEY = "helix-heresy-v1-preferences";
+  const PREFERENCES_VERSION = 1;
   const SAVE_FILE_NAME = "helix-heresy-save.json";
   const SECONDS_PER_MINUTE = 60;
   const SECONDS_PER_HOUR = 3600;
@@ -2106,6 +2108,8 @@
   const dom = {};
   let state;
   let geneMap;
+  let uiPreferences = null;
+  let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
@@ -2133,6 +2137,7 @@
   ];
   const MESSAGE_SEVERITY_BY_ID = Object.fromEntries(MESSAGE_SEVERITY_DEFS.map((severity) => [severity.id, severity]));
   const DEFAULT_MESSAGE_FILTER = "all";
+  const DEBUG_TOOLS_DEFAULT_ENABLED = true;
   const UI_MODE_NAVIGATION = "navigation";
   const UI_MODE_COMMAND = "command";
   const SELECTION_INSPECTOR_TABS = [
@@ -2341,8 +2346,15 @@
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
-      debugEnabled: true,
       keyboardHelpOpen: false
+    };
+  }
+
+  function defaultUiPreferences() {
+    return {
+      version: PREFERENCES_VERSION,
+      compactFeedVisible: true,
+      compactMessageLimit: COMPACT_MESSAGE_LIMIT
     };
   }
 
@@ -2532,6 +2544,9 @@
   function init() {
     cacheDom();
     ensureInventoryPanel();
+    uiPreferences = loadUiPreferences();
+    debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
+    persistUiPreferences();
     populateTimeSpeedSelect();
     populateMessageFilterSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
@@ -2560,6 +2575,7 @@
       "pauseBtn",
       "timeSpeedSelect",
       "debugToggleBtn",
+      "resetUiPreferencesBtn",
       "newRunBtn",
       "exportFolderBtn",
       "exportFileBtn",
@@ -2805,6 +2821,13 @@
 
     dom.debugToggleBtn?.addEventListener("click", () => {
       setDebugToolsEnabled(!debugToolsEnabled());
+    });
+
+    dom.resetUiPreferencesBtn?.addEventListener("click", () => {
+      if (!window.confirm("Reset UI preferences and return the current view to the Map?")) {
+        return;
+      }
+      resetUiPreferences();
     });
 
     dom.messageFilterSelect?.addEventListener("change", () => {
@@ -3226,8 +3249,67 @@
     return WORKSPACE_TAB_IDS.has(id) ? id : "map";
   }
 
+  function normalizeUiPreferences(candidate = {}) {
+    const defaults = defaultUiPreferences();
+    return {
+      version: PREFERENCES_VERSION,
+      compactFeedVisible: candidate?.compactFeedVisible === undefined
+        ? defaults.compactFeedVisible
+        : Boolean(candidate.compactFeedVisible),
+      compactMessageLimit: clamp(
+        Math.round(Number(candidate?.compactMessageLimit) || defaults.compactMessageLimit),
+        1,
+        20
+      )
+    };
+  }
+
+  function loadUiPreferences() {
+    try {
+      const raw = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
+      return normalizeUiPreferences(raw ? JSON.parse(raw) : null);
+    } catch (error) {
+      console.warn("Preference load failed", error);
+      return defaultUiPreferences();
+    }
+  }
+
+  function persistUiPreferences() {
+    try {
+      uiPreferences = normalizeUiPreferences(uiPreferences);
+      window.localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(uiPreferences));
+    } catch (error) {
+      console.warn("Preference save failed", error);
+    }
+  }
+
+  function resetRunUiToMapDefaults(context = state) {
+    if (!context) {
+      return;
+    }
+    const ui = defaultUiState();
+    ui.mapCursor = fallbackMapCursorCell(context);
+    context.selection = null;
+    context.selectedMapTarget = null;
+    context.selectedSlimeId = null;
+    context.ui = normalizeUiState(ui, context);
+    activeWorkspaceTab = "map";
+  }
+
+  function resetUiPreferences() {
+    uiPreferences = defaultUiPreferences();
+    debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
+    persistUiPreferences();
+    resetRunUiToMapDefaults();
+    if (state?.started) {
+      addEvent("UI preferences reset.");
+      persist();
+    }
+    render();
+  }
+
   function debugToolsEnabled() {
-    return state?.ui?.debugEnabled !== false;
+    return debugToolsSessionEnabled !== false;
   }
 
   function workspaceTabVisible(tabId) {
@@ -3365,7 +3447,6 @@
     const map = context?.labMap || defaultLabMap();
     const fallback = fallbackMapCursorCell(context);
     const cursor = cleanMapCell(candidate?.mapCursor) || fallback;
-    const debugEnabled = candidate?.debugEnabled !== false;
     const activeTab = cleanWorkspaceTab(candidate?.activeWorkspaceTab);
     const overlayId = normalizeMapOverlayId(candidate?.mapOverlay);
     return {
@@ -3374,12 +3455,11 @@
         x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
-      activeWorkspaceTab: DEBUG_WORKSPACE_TAB_IDS.has(activeTab) && !debugEnabled ? "map" : activeTab,
-      mapOverlay: overlayId === "debug" && !debugEnabled ? DEFAULT_MAP_OVERLAY_ID : overlayId,
+      activeWorkspaceTab: visibleWorkspaceTabOrMap(activeTab),
+      mapOverlay: overlayId === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : overlayId,
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
-      debugEnabled,
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -4295,8 +4375,8 @@
 
   function setDebugToolsEnabled(enabled) {
     const ui = ensureUiState();
-    ui.debugEnabled = Boolean(enabled);
-    if (!ui.debugEnabled) {
+    debugToolsSessionEnabled = Boolean(enabled);
+    if (!debugToolsSessionEnabled) {
       if (DEBUG_WORKSPACE_TAB_IDS.has(cleanWorkspaceTab(ui.activeWorkspaceTab))) {
         ui.activeWorkspaceTab = "map";
       }
@@ -29526,9 +29606,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function compactFeedMessages() {
+    const prefs = normalizeUiPreferences(uiPreferences);
+    if (!prefs.compactFeedVisible) {
+      return [];
+    }
     return normalizeMessages(state.events)
       .filter((entry) => entry.feed)
-      .slice(-COMPACT_MESSAGE_LIMIT)
+      .slice(-prefs.compactMessageLimit)
       .reverse();
   }
 
@@ -34904,6 +34988,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       try {
         const payload = JSON.parse(String(reader.result));
         state = normalizeState(payload.state || payload);
+        resetRunUiToMapDefaults(state);
         geneMap = buildGeneMap(state.seed, state.complexity);
         prepareCorpseState();
         addEvent("Save imported.");
