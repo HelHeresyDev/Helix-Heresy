@@ -1915,10 +1915,14 @@ test('construction designations become unassigned rooms that can receive a purpo
   await startRun(page);
 
   await expect(page.locator('[data-construction-panel="true"]')).toBeVisible();
-  await page.locator('[data-dig-x="true"]').fill('25');
-  await page.locator('[data-dig-y="true"]').fill('6');
-  await page.locator('[data-dig-width="true"]').fill('4');
-  await page.locator('[data-dig-height="true"]').fill('4');
+  await page.locator('[data-construction-dig-mode="true"]').click();
+  for (let y = 6; y < 10; y += 1) {
+    for (let x = 25; x < 29; x += 1) {
+      await page.locator(`[data-map-x="${x}"][data-map-y="${y}"]`).click();
+    }
+  }
+  await expect(page.locator('.lab-map-cell.draft-excavation-cell')).toHaveCount(16);
+  await expect(page.locator('[data-dig-status="true"]')).toContainText('16 draft tiles ready');
   await page.locator('[data-designate-dig="true"]').click();
 
   const queued = await page.evaluate(({ key }) => {
@@ -1937,6 +1941,7 @@ test('construction designations become unassigned rooms that can receive a purpo
   expect(queued.task.data.cells).toHaveLength(16);
   expect(queued.map.width).toBeGreaterThanOrEqual(40);
   expect(queued.construction.lastDigRect).toEqual({ x: 25, y: 6, width: 4, height: 4 });
+  expect(queued.construction.draftCells).toHaveLength(0);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(16);
 
   await page.locator('#queueToggleBtn').click();
@@ -1965,10 +1970,13 @@ test('construction designations become unassigned rooms that can receive a purpo
   expect(excavated.doorKeys.length).toBeGreaterThan(0);
   expect(excavated.doorKeys.some((keyName) => excavated.doors[keyName].state === 'open')).toBe(true);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(0);
-  await expect(page.locator(`[data-room-purpose-control="${excavated.room.id}"]`)).toBeVisible();
+  await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Unassigned Excavation 1');
 
-  await page.locator(`[data-room-purpose-select="${excavated.room.id}"]`).selectOption('storage');
-  await page.locator(`[data-assign-room-purpose="${excavated.room.id}"]`).click();
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Assign Storage Room' }).click();
 
   const assigned = await page.evaluate(({ key, roomId }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

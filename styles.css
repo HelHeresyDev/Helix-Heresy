@@ -983,6 +983,20 @@ h2 {
   box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.22);
 }
 
+.lab-map-cell.draft-excavation-cell {
+  background: #242615;
+  border-color: rgba(154, 190, 96, 0.68);
+  color: var(--green);
+  box-shadow: inset 0 0 0 1px rgba(154, 190, 96, 0.24);
+}
+
+.lab-map-cell.invalid-draft-excavation-cell {
+  background: #332118;
+  border-color: rgba(201, 107, 79, 0.82);
+  color: #ffb8a8;
+  box-shadow: inset 0 0 0 1px rgba(201, 107, 79, 0.32);
+}
+
 .lab-map-cell.map-clickable-cell {
   cursor: pointer;
 }

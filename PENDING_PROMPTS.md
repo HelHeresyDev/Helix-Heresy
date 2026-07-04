@@ -12,38 +12,16 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Construction Designation and Room Assignment Map Workflow
-2. Combat and Emergency Response Map Workflow
-3. Journal, Log, and Message Feed Integration Pass
-4. Menu Hierarchy and Screen Manager System
-5. UI State Persistence and Player Preference System
-6. Map Renderer Boundary and Future Canvas/Sprite Preparation
-7. Black Market Byproduct Economy System
+1. Combat and Emergency Response Map Workflow
+2. Journal, Log, and Message Feed Integration Pass
+3. Menu Hierarchy and Screen Manager System
+4. UI State Persistence and Player Preference System
+5. Map Renderer Boundary and Future Canvas/Sprite Preparation
+6. Black Market Byproduct Economy System
 
 ---
 
-## 1. Construction Designation and Room Assignment Map Workflow
-
-Rework construction and room assignment into a map-first workflow.
-
-Construction already begins from the physical blueprint: the player designates earth tiles to excavate, queues excavation, and assigns room purpose afterward. The UI should make that workflow feel like a natural map tool rather than a panel action.
-
-This system should answer questions like:
-- How does the player enter construction/designation mode?
-- How are dig tiles selected, painted, confirmed, cancelled, or cleared?
-- How are planned dig tiles, rough rooms, assigned rooms, door links, and invalid designations shown?
-- How does the player assign or change room purpose from the map?
-- How should construction costs, time, access, warnings, and future secrecy/noise concerns appear?
-- How should room expansion differ from creating a new room?
-- How should the UI avoid overbuilding a full base-builder too early?
-
-The desired result is a construction workflow that feels like the beginning of a Dwarf Fortress-style map interface while staying limited to the prototype's current excavation and room-purpose model.
-
-Before coding, discuss construction mode, designation tools, confirmation flow, map highlights, room assignment inspector, and the smallest pass that improves construction usability.
-
----
-
-## 2. Combat and Emergency Response Map Workflow
+## 1. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -64,7 +42,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 3. Journal, Log, and Message Feed Integration Pass
+## 2. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -85,7 +63,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 4. Menu Hierarchy and Screen Manager System
+## 3. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -106,7 +84,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 5. UI State Persistence and Player Preference System
+## 4. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -127,7 +105,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 6. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 5. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -149,7 +127,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 6. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

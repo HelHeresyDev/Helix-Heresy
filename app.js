@@ -2290,7 +2290,9 @@
   function defaultConstructionState() {
     return {
       nextRoomNumber: 1,
-      lastDigRect: null
+      lastDigRect: null,
+      mode: "idle",
+      draftCells: []
     };
   }
 
@@ -3864,6 +3866,35 @@
     render();
   }
 
+  function startExcavationCellsDesignation(cells, options = {}) {
+    const cleanCells = normalizeDigCells(cells);
+    const reason = digCellsBlockReason(cleanCells);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const rect = normalizeDigRect(options.rect) || digCellsBoundingRect(cleanCells);
+    ensureLabMapCoversCells(cleanCells);
+    state.construction = normalizeConstructionState({
+      ...state.construction,
+      lastDigRect: rect,
+      draftCells: [],
+      mode: "idle"
+    }, state);
+    createTask({
+      type: "excavate",
+      label: options.label || excavationDesignationLabel(cleanCells, rect),
+      duration: constructionDraftDuration(cleanCells),
+      data: {
+        rect,
+        cells: cleanCells
+      }
+    });
+    return true;
+  }
+
   function startExcavationDesignation(rect) {
     const clean = normalizeDigRect(rect);
     const reason = digDesignationBlockReason(clean);
@@ -3874,21 +3905,14 @@
       return false;
     }
     const cells = digRectCells(clean);
-    ensureLabMapCoversRect(clean);
-    state.construction = normalizeConstructionState({
-      ...state.construction,
-      lastDigRect: clean
-    }, state);
-    createTask({
-      type: "excavate",
-      label: `Excavate ${clean.width} x ${clean.height} chamber`,
-      duration: minutesToSeconds(EXCAVATION_BASE_DURATION_MINUTES + cells.length * EXCAVATION_MINUTES_PER_TILE),
-      data: {
-        rect: clean,
-        cells
-      }
+    return startExcavationCellsDesignation(cells, {
+      rect: clean,
+      label: `Excavate ${clean.width} x ${clean.height} chamber`
     });
-    return true;
+  }
+
+  function startExcavationDraftDesignation() {
+    return startExcavationCellsDesignation(constructionDraftCells());
   }
 
   function nextExcavatedRoomIdentity() {
@@ -3905,8 +3929,8 @@
   }
 
   function completeExcavation(task) {
-    const rect = normalizeDigRect(task.data?.rect);
     const cells = excavationTaskCells(task);
+    const rect = normalizeDigRect(task.data?.rect) || digCellsBoundingRect(cells);
     if (!rect || !cells.length) {
       addEvent("Excavation could not complete; the designation was invalid.");
       return;
@@ -3917,7 +3941,7 @@
       addEvent(`Excavation could not complete; the area now overlaps ${roomName(blockingRoom)}.`);
       return;
     }
-    const openings = digRectAdjacentOpenings(rect, map);
+    const openings = digCellsAdjacentOpenings(cells, map);
     if (!openings.length) {
       addEvent("Excavation could not complete; the area no longer touches the laboratory.");
       return;
@@ -5974,6 +5998,71 @@
     return cells;
   }
 
+  function normalizeDigCells(candidate) {
+    const source = Array.isArray(candidate) ? candidate : [];
+    const seen = new Set();
+    const cells = [];
+    for (const rawCell of source) {
+      const cell = cleanMapCell(rawCell);
+      if (!cell) {
+        continue;
+      }
+      const key = mapCellKey(cell);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      cells.push(cell);
+    }
+    return cells.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  }
+
+  function digCellsBoundingRect(cells) {
+    const cleanCells = normalizeDigCells(cells);
+    if (!cleanCells.length) {
+      return null;
+    }
+    const xs = cleanCells.map((cell) => cell.x);
+    const ys = cleanCells.map((cell) => cell.y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1
+    };
+  }
+
+  function digCellsAreConnected(cells) {
+    const cleanCells = normalizeDigCells(cells);
+    if (cleanCells.length <= 1) {
+      return true;
+    }
+    const remaining = new Set(cleanCells.map(mapCellKey));
+    const stack = [cleanCells[0]];
+    remaining.delete(mapCellKey(cleanCells[0]));
+    while (stack.length) {
+      const cell = stack.pop();
+      for (const neighbor of [
+        { x: cell.x + 1, y: cell.y },
+        { x: cell.x - 1, y: cell.y },
+        { x: cell.x, y: cell.y + 1 },
+        { x: cell.x, y: cell.y - 1 }
+      ]) {
+        const key = mapCellKey(neighbor);
+        if (!remaining.has(key)) {
+          continue;
+        }
+        remaining.delete(key);
+        stack.push(neighbor);
+      }
+    }
+    return remaining.size === 0;
+  }
+
   function normalizeDigRect(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -6004,6 +6093,10 @@
   function digRectTileCount(rect) {
     const clean = normalizeDigRect(rect);
     return clean ? clean.width * clean.height : 0;
+  }
+
+  function digCellsTileCount(cells) {
+    return normalizeDigCells(cells).length;
   }
 
   function pendingExcavationTasks() {
@@ -6044,12 +6137,26 @@
     return assignments;
   }
 
-  function digRectAdjacentOpenings(rect, map = ensureLabMap()) {
-    const cells = digRectCells(rect);
-    const cellKeys = new Set(cells.map(mapCellKey));
+  function draftExcavationAssignments() {
+    const assignments = new Map();
+    const cells = constructionDraftCells();
+    const reason = cells.length ? constructionDraftBlockReason() : "";
+    for (const cell of cells) {
+      assignments.set(mapCellKey(cell), {
+        label: "Draft dig",
+        valid: !reason,
+        reason
+      });
+    }
+    return assignments;
+  }
+
+  function digCellsAdjacentOpenings(cells, map = ensureLabMap()) {
+    const cleanCells = normalizeDigCells(cells);
+    const cellKeys = new Set(cleanCells.map(mapCellKey));
     const openings = [];
     const roomSeen = new Set();
-    for (const cell of cells) {
+    for (const cell of cleanCells) {
       for (const neighbor of [
         { x: cell.x + 1, y: cell.y },
         { x: cell.x - 1, y: cell.y },
@@ -6070,6 +6177,41 @@
     return openings;
   }
 
+  function digRectAdjacentOpenings(rect, map = ensureLabMap()) {
+    return digCellsAdjacentOpenings(digRectCells(rect), map);
+  }
+
+  function digCellsBlockReason(cells, options = {}) {
+    const cleanCells = normalizeDigCells(cells);
+    if (!cleanCells.length) {
+      return "Select at least one solid-earth tile to dig.";
+    }
+    if (cleanCells.some((cell) => cell.x < 0 || cell.y < 0)) {
+      return "Dig designations cannot use negative map coordinates.";
+    }
+    if (cleanCells.length > EXCAVATION_MAX_TILES) {
+      return `Dig designations are capped at ${EXCAVATION_MAX_TILES} tiles for this prototype pass.`;
+    }
+    if (!digCellsAreConnected(cleanCells)) {
+      return "Dig designation tiles must connect orthogonally.";
+    }
+    const map = ensureLabMap();
+    const pendingKeys = pendingExcavationCellKeys(options.exceptTaskId || "");
+    for (const cell of cleanCells) {
+      const roomId = labMapCellRoomId(cell, map);
+      if (roomId) {
+        return `Dig area overlaps ${roomName(roomId)}.`;
+      }
+      if (pendingKeys.has(mapCellKey(cell))) {
+        return "Dig area overlaps an active excavation designation.";
+      }
+    }
+    if (!digCellsAdjacentOpenings(cleanCells, map).length) {
+      return "Dig area must touch an existing room.";
+    }
+    return "";
+  }
+
   function digDesignationBlockReason(rect, options = {}) {
     const clean = normalizeDigRect(rect);
     if (!clean) {
@@ -6085,21 +6227,7 @@
     if (tileCount > EXCAVATION_MAX_TILES) {
       return `Dig designations are capped at ${EXCAVATION_MAX_TILES} tiles for this prototype pass.`;
     }
-    const map = ensureLabMap();
-    const pendingKeys = pendingExcavationCellKeys(options.exceptTaskId || "");
-    for (const cell of digRectCells(clean)) {
-      const roomId = labMapCellRoomId(cell, map);
-      if (roomId) {
-        return `Dig area overlaps ${roomName(roomId)}.`;
-      }
-      if (pendingKeys.has(mapCellKey(cell))) {
-        return "Dig area overlaps an active excavation designation.";
-      }
-    }
-    if (!digRectAdjacentOpenings(clean, map).length) {
-      return "Dig area must touch an existing room.";
-    }
-    return "";
+    return digCellsBlockReason(digRectCells(clean), options);
   }
 
   function suggestDigRectangle() {
@@ -6135,10 +6263,153 @@
     if (!clean) {
       return ensureLabMap();
     }
+    return ensureLabMapCoversCells(digRectCells(clean));
+  }
+
+  function ensureLabMapCoversCells(cells) {
+    const cleanCells = normalizeDigCells(cells);
     const map = ensureLabMap();
-    state.labMap.width = Math.max(map.width, clean.x + clean.width + 1);
-    state.labMap.height = Math.max(map.height, clean.y + clean.height + 1);
+    if (!cleanCells.length) {
+      return map;
+    }
+    state.labMap.width = Math.max(map.width, ...cleanCells.map((cell) => cell.x + 1), 1);
+    state.labMap.height = Math.max(map.height, ...cleanCells.map((cell) => cell.y + 1), 1);
     return state.labMap;
+  }
+
+  function constructionDraftCells() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    return state.construction.draftCells;
+  }
+
+  function constructionDraftCellKeys() {
+    return new Set(constructionDraftCells().map(mapCellKey));
+  }
+
+  function constructionDigModeActive() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    return state.construction.mode === "dig";
+  }
+
+  function constructionDraftBlockReason() {
+    return digCellsBlockReason(constructionDraftCells());
+  }
+
+  function constructionDraftDuration(cells = constructionDraftCells()) {
+    return minutesToSeconds(EXCAVATION_BASE_DURATION_MINUTES + digCellsTileCount(cells) * EXCAVATION_MINUTES_PER_TILE);
+  }
+
+  function setConstructionDigMode(active) {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.mode = active ? "dig" : "idle";
+    if (active) {
+      ensureUiState().mapOverlay = "construction";
+      setActiveWorkspaceTab("map");
+    }
+    persist();
+    render();
+    return true;
+  }
+
+  function toggleConstructionDigMode() {
+    return setConstructionDigMode(!constructionDigModeActive());
+  }
+
+  function constructionDraftCellAddBlockReason(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) {
+      return "Select a valid map tile.";
+    }
+    if (clean.x < 0 || clean.y < 0) {
+      return "Dig designations cannot use negative map coordinates.";
+    }
+    const roomId = labMapCellRoomId(clean);
+    if (roomId) {
+      return `Dig area overlaps ${roomName(roomId)}.`;
+    }
+    if (pendingExcavationCellKeys().has(mapCellKey(clean))) {
+      return "Dig area overlaps an active excavation designation.";
+    }
+    return "";
+  }
+
+  function addConstructionDraftCells(cells) {
+    const additions = normalizeDigCells(cells);
+    if (!additions.length) {
+      addEvent("Select at least one solid-earth tile to add to the dig draft.");
+      persist();
+      render();
+      return false;
+    }
+    for (const cell of additions) {
+      const reason = constructionDraftCellAddBlockReason(cell);
+      if (reason) {
+        addEvent(reason);
+        persist();
+        render();
+        return false;
+      }
+    }
+    state.construction = normalizeConstructionState(state.construction, state);
+    const existing = constructionDraftCellKeys();
+    const combined = [...state.construction.draftCells];
+    for (const cell of additions) {
+      const key = mapCellKey(cell);
+      if (existing.has(key)) {
+        continue;
+      }
+      existing.add(key);
+      combined.push(cell);
+    }
+    state.construction.draftCells = normalizeDigCells(combined);
+    state.construction.mode = "dig";
+    ensureLabMapCoversCells(state.construction.draftCells);
+    ensureUiState().mapOverlay = "construction";
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+    return true;
+  }
+
+  function removeConstructionDraftCell(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) {
+      return false;
+    }
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.draftCells = state.construction.draftCells
+      .filter((draftCell) => mapCellKey(draftCell) !== mapCellKey(clean));
+    persist();
+    render();
+    return true;
+  }
+
+  function toggleConstructionDraftCell(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) {
+      return false;
+    }
+    if (constructionDraftCellKeys().has(mapCellKey(clean))) {
+      return removeConstructionDraftCell(clean);
+    }
+    return addConstructionDraftCells([clean]);
+  }
+
+  function clearConstructionDraft() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.draftCells = [];
+    persist();
+    render();
+    return true;
+  }
+
+  function excavationDesignationLabel(cells, rect) {
+    const cleanCells = normalizeDigCells(cells);
+    const cleanRect = normalizeDigRect(rect) || digCellsBoundingRect(cleanCells);
+    if (cleanRect && cleanCells.length === cleanRect.width * cleanRect.height) {
+      return `Excavate ${cleanRect.width} x ${cleanRect.height} chamber`;
+    }
+    return `Excavate ${cleanCells.length} tile rough chamber`;
   }
 
   function defaultLabMapRoomCells(roomId, rect) {
@@ -24827,12 +25098,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, incidentEntry = null, overlayEntry = null) {
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
     if (roomId) {
       parts.push(roomName(roomId));
+    } else if (draftEntry) {
+      parts.push(`draft dig: ${draftEntry.reason || "ready to confirm"}`);
     } else if (plannedEntry) {
       parts.push(`planned dig: ${plannedEntry.label}`);
     } else {
@@ -25167,6 +25440,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: plannedEntry.label || "Planned dig",
         source: "Designated",
         title: `Overlay: Construction - ${plannedEntry.label || "planned excavation"}.`
+      }, map);
+    }
+    for (const room of state.rooms || []) {
+      if (room?.role !== EXCAVATED_ROOM_ROLE) {
+        continue;
+      }
+      addRoomOverlayEntries(assignments, room.id, {
+        overlayId: "construction",
+        classNames: ["map-overlay-construction", "map-overlay-construction-rough"],
+        label: `${room.name}: unassigned rough room`,
+        source: "Needs purpose",
+        title: `Overlay: Construction - ${room.name} is excavated rough space awaiting room purpose.`
       }, map);
     }
     return assignments;
@@ -26161,7 +26446,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       fromCell: scientistMapCell(),
       toCell: nearestOpenMapCellInRoom(room.id, labMapRoomAnchor(room.id), { preferredCell: scientistMapCell() })
     });
-    return [
+    const commands = [
       commandDef({
         id: `room.move.${room.id}`,
         label: "Move Scientist Here",
@@ -26171,12 +26456,58 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => startScientistMove(room.id, { allowMultiRoom: true })
       })
     ];
+    if (roomCanAssignPurpose(room)) {
+      for (const purpose of ROOM_PURPOSE_DEFS) {
+        commands.push(commandDef({
+          id: `room.assignPurpose.${room.id}.${purpose.id}`,
+          label: `Assign ${purpose.label}`,
+          group: "Room Purpose",
+          description: purpose.description,
+          run: () => assignRoomPurpose(room.id, purpose.id)
+        }));
+      }
+    }
+    return commands;
   }
 
   function tileContextCommands(selection) {
     const roomId = selection?.roomId || labMapCellRoomId(selection?.tile);
     if (!roomId) {
-      return [];
+      const cell = cleanMapCell(selection?.tile);
+      if (!cell) {
+        return [];
+      }
+      const inDraft = constructionDraftCellKeys().has(mapCellKey(cell));
+      const draftCells = constructionDraftCells();
+      const draftReason = draftCells.length ? constructionDraftBlockReason() : "No dig draft has been selected.";
+      return [
+        commandDef({
+          id: `tile.digToggle.${cell.x}.${cell.y}`,
+          label: inDraft ? "Remove Dig Tile" : "Add Dig Tile",
+          group: "Construction",
+          disabledReason: inDraft ? "" : constructionDraftCellAddBlockReason(cell),
+          description: inDraft
+            ? "Remove this tile from the current dig draft."
+            : "Add this solid-earth tile to the current dig draft.",
+          run: () => toggleConstructionDraftCell(cell)
+        }),
+        commandDef({
+          id: "construction.confirmDraft",
+          label: "Confirm Dig Designation",
+          group: "Construction",
+          disabledReason: draftReason,
+          description: `Queue the current dig draft as excavation work. Duration: ${formatDuration(constructionDraftDuration(draftCells))}.`,
+          run: () => startExcavationDraftDesignation()
+        }),
+        commandDef({
+          id: "construction.clearDraft",
+          label: "Clear Dig Draft",
+          group: "Construction",
+          disabledReason: draftCells.length ? "" : "No dig draft has been selected.",
+          description: "Clear the current map dig draft without queuing work.",
+          run: () => clearConstructionDraft()
+        })
+      ];
     }
     const reason = scientistMoveBlockReason(roomId, { toCell: selection.tile, allowMultiRoom: true });
     const routeSummary = roomPathSummary(scientistRoomId(), roomId, {
@@ -27293,6 +27624,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     incidentEntry,
     routeEntry,
     plannedEntry,
+    draftEntry,
     overlayEntry,
     selectedTarget,
     scientistCell,
@@ -27308,12 +27640,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mapX: String(cell.x),
       mapY: String(cell.y)
     };
-    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, incidentEntry, overlayEntry);
+    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, draftEntry, incidentEntry, overlayEntry);
     let text = "";
 
     if (roomId) {
       classNames.push("room-cell", `room-${roomRole(roomId)}`);
       dataset.mapRoom = roomId;
+    } else if (draftEntry) {
+      classNames.push("draft-excavation-cell", draftEntry.valid ? "valid-draft-excavation-cell" : "invalid-draft-excavation-cell");
+      dataset.mapDraftExcavation = "true";
+      if (draftEntry.reason) {
+        dataset.mapDraftReason = draftEntry.reason;
+      }
     } else if (plannedEntry) {
       classNames.push("planned-excavation-cell");
       dataset.mapExcavation = plannedEntry.task?.id || "pending";
@@ -27396,6 +27734,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       text = doorMapGlyph(stateDoor);
     } else if (plannedEntry) {
       text = "D";
+    } else if (draftEntry) {
+      text = draftEntry.valid ? "d" : "?";
     } else if (incidentEntry) {
       text = incidentEntry.alerts.length > 1 ? `A${incidentEntry.alerts.length}` : "A";
     }
@@ -27420,6 +27760,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const route = selectedOrNextScientistTaskRoute(map);
     const showMovementRoute = overlay.id === "movement";
     const plannedExcavations = plannedExcavationAssignments();
+    const draftExcavations = draftExcavationAssignments();
     const selectedTarget = selectedMapTarget();
     const visibleIncidents = visibleIncidentAssignments(map, incidentAssignments, selectedTarget, overlay.id);
     const resourceFocus = currentResourceOverlayFocusDef();
@@ -27446,6 +27787,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           incidentEntry: visibleIncidents.get(key),
           routeEntry,
           plannedEntry: plannedExcavations.get(key),
+          draftEntry: draftExcavations.get(key),
           overlayEntry: overlayAssignments.get(key),
           selectedTarget,
           scientistCell,
@@ -27461,6 +27803,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       headerMeta: `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
       cursor: cursorCell,
       cursorTarget: mapCursorTarget(),
+      construction: normalizeConstructionState(state.construction, state),
       mode: ensureUiState().mode,
       overlay,
       resourceFocus,
@@ -27469,6 +27812,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       legendItems: [
         "S = scientist",
         "A = incident marker (Incident overlay)",
+        "d = draft dig",
         "D = planned dig",
         "C = blocking container footprint",
         "L = loose living",
@@ -27639,6 +27983,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["Arrow keys", "Move the map cursor."],
       ["Enter", "Select the cursor target."],
       ["A", "Open contextual commands for the selection."],
+      ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
       ["1-9", "Choose visible commands while in command mode."],
       ["Esc", "Cancel command mode; press again to clear selection."],
@@ -27655,6 +28000,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     panel.append(list);
     return panel;
+  }
+
+  function handleConstructionMapCellClick(cellView) {
+    if (!constructionDigModeActive()) {
+      return false;
+    }
+    const map = ensureLabMap();
+    const cell = cleanMapCell(cellView?.cell);
+    if (!cell) {
+      return false;
+    }
+    if (labMapCellRoomId(cell, map) || labMapDoorAtCell(cell, map) || cellView?.objectEntry) {
+      return false;
+    }
+    toggleConstructionDraftCell(cell);
+    return true;
   }
 
   function labMapPanelEl() {
@@ -27686,9 +28047,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const [key, value] of Object.entries(cellView.dataset)) {
         tile.dataset[key] = value;
       }
-      if (cellView.clickTarget) {
-        tile.addEventListener("click", () => focusMapTarget(cellView.clickTarget, { keepWorkspace: true, source: "map" }));
-      }
+      tile.addEventListener("click", () => {
+        if (handleConstructionMapCellClick(cellView)) {
+          return;
+        }
+        if (cellView.clickTarget) {
+          focusMapTarget(cellView.clickTarget, { keepWorkspace: true, source: "map" });
+        }
+      });
       grid.append(tile);
     }
     panel.append(grid);
@@ -27970,8 +28336,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     title.title = "Designate solid earth to dig. Completed excavations become unassigned rooms that can be given a purpose.";
     panel.append(title);
 
+    const draftCells = constructionDraftCells();
+    const draftReason = draftCells.length ? constructionDraftBlockReason() : "";
+    const status = emptyText("");
+    status.dataset.digStatus = "true";
+    const actions = document.createElement("div");
+    actions.className = "construction-actions";
+    const modeButton = document.createElement("button");
+    modeButton.type = "button";
+    modeButton.dataset.constructionDigMode = "true";
+    modeButton.textContent = constructionDigModeActive() ? "Exit Dig Mode" : "Enter Dig Mode";
+    modeButton.title = "Dig mode lets map clicks toggle solid-earth tiles into or out of the current draft.";
+    modeButton.addEventListener("click", toggleConstructionDigMode);
+    const confirmButton = document.createElement("button");
+    confirmButton.type = "button";
+    confirmButton.dataset.designateDig = "true";
+    confirmButton.textContent = draftCells.length ? `Confirm Dig (${draftCells.length} tiles)` : "Confirm Dig";
+    setActionButtonState(confirmButton, !draftCells.length || Boolean(draftReason), draftCells.length ? draftReason : "Select at least one solid-earth tile to dig.");
+    confirmButton.title = draftReason || `Queue excavation as rough floor. Duration: ${formatDuration(constructionDraftDuration(draftCells))}.`;
+    confirmButton.addEventListener("click", startExcavationDraftDesignation);
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.dataset.clearDigDraft = "true";
+    clearButton.textContent = "Clear Draft";
+    setActionButtonState(clearButton, !draftCells.length, "No dig draft has been selected.");
+    clearButton.title = "Clear the current map dig draft without queuing work.";
+    clearButton.addEventListener("click", clearConstructionDraft);
+    actions.append(modeButton, confirmButton, clearButton);
+    panel.append(actions);
+
+    if (!draftCells.length) {
+      status.textContent = constructionDigModeActive()
+        ? "Dig mode active. Click solid earth on the map to draft excavation tiles."
+        : "Enter Dig Mode, then click solid earth on the map to draft excavation tiles.";
+    } else if (draftReason) {
+      status.textContent = `${draftCells.length} draft tile${draftCells.length === 1 ? "" : "s"}; ${draftReason}`;
+    } else {
+      status.textContent = `${draftCells.length} draft tile${draftCells.length === 1 ? "" : "s"} ready. Duration: ${formatDuration(constructionDraftDuration(draftCells))}.`;
+    }
+    panel.append(status);
+
     const sourceRect = state.construction.lastDigRect || suggestDigRectangle();
     const rect = normalizeDigRect(sourceRect) || { x: 0, y: 0, width: 4, height: 4 };
+    const helperTitle = textEl("strong", "Coordinate Helper");
+    helperTitle.title = "Optional helper for adding a rectangular block to the current map draft.";
+    panel.append(helperTitle);
     const grid = document.createElement("div");
     grid.className = "construction-grid";
     const fields = [
@@ -27997,15 +28406,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     panel.append(grid);
 
-    const status = emptyText("");
-    status.dataset.digStatus = "true";
-    const actions = document.createElement("div");
-    actions.className = "construction-actions";
     const button = document.createElement("button");
     button.type = "button";
-    button.dataset.designateDig = "true";
-    actions.append(button);
-    panel.append(actions, status);
+    button.dataset.addDigRectToDraft = "true";
+    const helperActions = document.createElement("div");
+    helperActions.className = "construction-actions";
+    helperActions.append(button);
+    panel.append(helperActions);
 
     const readRect = () => normalizeDigRect({
       x: inputs.x.value,
@@ -28015,16 +28422,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     const syncButton = () => {
       const currentRect = readRect();
-      const reason = digDesignationBlockReason(currentRect);
+      const cells = digRectCells(currentRect);
+      const reason = currentRect ? cells.map(constructionDraftCellAddBlockReason).find(Boolean) || "" : "Enter a valid dig rectangle.";
       const tileCount = digRectTileCount(currentRect);
-      button.textContent = tileCount ? `Designate Dig (${tileCount} tiles)` : "Designate Dig";
-      status.textContent = reason || `Queues excavation as rough floor. Duration: ${formatDuration(minutesToSeconds(EXCAVATION_BASE_DURATION_MINUTES + tileCount * EXCAVATION_MINUTES_PER_TILE))}.`;
+      button.textContent = tileCount ? `Add Rectangle to Draft (${tileCount} tiles)` : "Add Rectangle to Draft";
+      button.title = reason || "Add these tiles to the current map dig draft. Confirm separately when the draft is ready.";
       setActionButtonState(button, Boolean(reason), reason);
     };
     for (const input of Object.values(inputs)) {
       input.addEventListener("input", syncButton);
     }
-    button.addEventListener("click", () => startExcavationDesignation(readRect()));
+    button.addEventListener("click", () => addConstructionDraftCells(digRectCells(readRect())));
     syncButton();
 
     const activeTasks = pendingExcavationTasks();
@@ -32320,7 +32728,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         existingMax + 1,
         pendingMax + 1
       ),
-      lastDigRect: normalizeDigRect(candidate?.lastDigRect)
+      lastDigRect: normalizeDigRect(candidate?.lastDigRect),
+      mode: candidate?.mode === "dig" ? "dig" : fallback.mode,
+      draftCells: normalizeDigCells(candidate?.draftCells)
     };
   }
 
