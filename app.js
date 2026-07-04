@@ -25212,8 +25212,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       const key = mapCellKey(cell);
       const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set(), targets: [] };
-      entry.symbols.push(symbol);
-      entry.labels.push(label);
+      if (symbol) {
+        entry.symbols.push(symbol);
+      }
+      if (label) {
+        entry.labels.push(label);
+      }
       if (target) {
         entry.targets.push(target);
       }
@@ -25229,12 +25233,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       const footprintDef = containerFootprintDimensions(container);
       const label = `${container.name || "container"} footprint ${footprintDef.width}x${footprintDef.height}`;
+      const interiorTargets = containerInteriorMapTargets(container);
       for (const cell of footprint) {
         addCell(cell, "C", label, ["container-object-cell", "blocking-object-cell"], {
           kind: "container",
           id: container.id,
           label: container.name || "container"
         });
+        for (const target of interiorTargets) {
+          addCell(cell, "", target.label, ["contained-object-cell"], target);
+        }
       }
     }
     for (const slime of state.slimes || []) {
@@ -25263,6 +25271,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       });
     }
     return assignments;
+  }
+
+  function containerInteriorMapTargets(container) {
+    if (!container?.id) {
+      return [];
+    }
+    const occupants = containerOccupants(container.id)
+      .sort((a, b) => containedSlimeInterestScore(b) - containedSlimeInterestScore(a) || a.name.localeCompare(b.name))
+      .map((slime) => ({
+        kind: "slime",
+        id: slime.id,
+        label: `${slime.name} contained in ${container.name || "container"}`
+      }));
+    const corpses = containerCorpses(container.id)
+      .sort((a, b) => corpseStateInterestScore(b) - corpseStateInterestScore(a) || a.name.localeCompare(b.name))
+      .map((corpse) => ({
+        kind: "corpse",
+        id: corpse.id,
+        label: `${corpse.name} remains in ${container.name || "container"}`
+      }));
+    return [...occupants, ...corpses];
+  }
+
+  function containedSlimeInterestScore(slime) {
+    if (!slime) {
+      return 0;
+    }
+    let score = 10;
+    if (slime.status === "released") score += 20;
+    if (!slime.mature) score += 2;
+    score += Math.round(clamp(slimeStat(slime, "stress").current, 0, 100) / 10);
+    score += Math.round(clamp(100 - slimeStat(slime, "bodyIntegrity").current, 0, 100) / 10);
+    if (slime.job && slime.job !== "idle") score += 5;
+    if (slime.containmentTest?.active) score += 8;
+    return score;
+  }
+
+  function corpseStateInterestScore(corpse) {
+    const freshness = corpseFreshness(corpse);
+    return { fresh: 8, decaying: 6, spoiled: 4, ruined: 2 }[freshness] || 1;
   }
 
   function taskRouteList(task) {
@@ -26017,7 +26065,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return null;
     }
     return entityLink(selectionLabel(normalized), `Select ${selectionLabel(normalized)}`, "entity-link-chip", () => {
-      focusMapTarget(normalized, { animate: false });
+      focusMapTarget(normalized, { animate: false, keepWorkspace: true, resetInspectorTab: true });
     });
   }
 
@@ -26306,6 +26354,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!slime) {
       return [];
     }
+    const organicFeedstock = FEEDSTOCK_BY_KEY.organicFeedstock;
+    const bestFeedstockKey = slime.revealed?.sustenance ? bestAvailableFeedstockKey(slime) : "";
+    const bestFeedstock = bestFeedstockKey ? FEEDSTOCK_BY_KEY[bestFeedstockKey] : null;
     const commands = [
       commandDef({
         id: `slime.analyze.${slime.id}`,
@@ -26332,6 +26383,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => startCombatAnalyzeSlime(slime.id)
       }),
       commandDef({
+        id: `slime.feed.${slime.id}.organicFeedstock`,
+        label: `Feed ${organicFeedstock.label}`,
+        group: "Feeding",
+        disabledReason: manualFeedBlockReason(slime, organicFeedstock.key),
+        description: resourceLogisticsHint({ [organicFeedstock.key]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`)
+          || `Feed one unit of ${organicFeedstock.label}.`,
+        run: () => {
+          const result = feedSlimeOrQueueDelivery(slime, organicFeedstock.key, { source: "manual" });
+          persist();
+          render();
+          return result;
+        }
+      }),
+      commandDef({
+        id: `slime.feedBest.${slime.id}`,
+        label: bestFeedstock ? `Feed Best Match (${bestFeedstock.label})` : "Feed Best Match",
+        group: "Feeding",
+        disabledReason: bestFeedBlockReason(slime),
+        description: bestFeedstock
+          ? resourceLogisticsHint({ [bestFeedstock.key]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`) || `Feed the best known available match: ${bestFeedstock.label}.`
+          : "Feed the best known available match once Sustenance is discovered.",
+        run: () => {
+          const feedstockKey = bestAvailableFeedstockKey(slime);
+          const result = feedstockKey ? feedSlimeOrQueueDelivery(slime, feedstockKey, { source: "manual" }) : false;
+          persist();
+          render();
+          return result;
+        }
+      }),
+      commandDef({
         id: `slime.containment.${slime.id}`,
         label: slimeContainmentToggleLabel(slime),
         group: "Handling",
@@ -26350,6 +26431,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => startScientistStrike(slime.id)
       })
     ];
+    const container = slime?.containerId ? containerById(slime.containerId) : null;
+    if (container && container.type !== "synthesis" && !isPitHoleContainer(container)) {
+      commands.push(commandDef({
+        id: `slime.stageCollection.${slime.id}`,
+        label: "Stage Container in Collection Bay",
+        group: "Movement",
+        disabledReason: containerHaulBlockReason(container, COLLECTION_BAY_ROOM_ID),
+        description: `Queue ${container.name} for Collection Bay staging. The contained specimen and interior contents move with it.`,
+        run: () => moveContainerToRoom(container.id, COLLECTION_BAY_ROOM_ID)
+      }));
+    }
+    for (const job of CREATURE_JOBS) {
+      commands.push(commandDef({
+        id: `slime.job.${slime.id}.${job.id}`,
+        label: job.id === "idle" ? "Set Idle" : `Assign ${job.label}`,
+        group: "Job",
+        disabledReason: slimeJobContextBlockReason(slime, job.id),
+        description: job.id === "idle"
+          ? "Clear this creature's intended job tag."
+          : `Set intended use to ${job.label}. Jobs are intent tags; the slime still acts according to its biology and situation.`,
+        run: () => assignCreatureJob(slime.id, job.id)
+      }));
+    }
     if (isInSynthesisTube(slime)) {
       commands.push(commandDef({
         id: `slime.moveFromTube.${slime.id}`,
@@ -26373,6 +26477,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }));
     }
     return commands;
+  }
+
+  function slimeJobContextBlockReason(slime, jobId) {
+    if (!slime || slime.status === "dead") {
+      return "No living slime available.";
+    }
+    const normalizedJobId = CREATURE_JOBS.some((job) => job.id === jobId) ? jobId : "idle";
+    normalizeSlimeJob(slime);
+    if (slime.job === normalizedJobId) {
+      return normalizedJobId === "idle"
+        ? `${slime.name} is already idle.`
+        : `${slime.name} is already assigned to ${creatureJobLabel(normalizedJobId)}.`;
+    }
+    if (normalizedJobId === "idle") {
+      return "";
+    }
+    return jobAssignmentBlockReason(slime) || slimeJobSpecificBlockReason(slime, normalizedJobId);
   }
 
   function synthesisTubeMoveBlockReason(slime) {
@@ -26418,6 +26539,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         disabledReason: containerHaulBlockReason(container, currentRoomId),
         description: "Queue a container hauling task to the scientist's current room.",
         run: () => moveContainerToRoom(container.id, currentRoomId)
+      }));
+      commands.push(commandDef({
+        id: `container.stageCollection.${container.id}`,
+        label: "Stage in Collection Bay",
+        group: "Movement",
+        disabledReason: containerHaulBlockReason(container, COLLECTION_BAY_ROOM_ID),
+        description: "Queue this container for Collection Bay staging. Contents and contained remains move with the container.",
+        run: () => moveContainerToRoom(container.id, COLLECTION_BAY_ROOM_ID)
       }));
 
       if (!isPitHoleContainer(container) && containerCorpses(container.id).length) {
@@ -26880,13 +27009,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectionRelatedPanelEl(selection) {
     const panel = document.createElement("div");
     panel.className = "selection-inspector-section";
-    const related = selectionLinkRow("Related", selectionRelatedTargets(selection));
+    const relatedTargets = selectionRelatedTargets(selection);
+    const relatedKeys = new Set(
+      relatedTargets
+        .map((target) => normalizeSelection({ ...target, source: "inspector" }))
+        .filter(Boolean)
+        .map(selectionKey)
+    );
+    const related = selectionLinkRow("Related", relatedTargets);
     if (related) {
       panel.append(related);
     }
     const cell = selectionMapCell(selection);
     const stack = cell
-      ? selectableTargetsAtCell(cell).filter((target) => selectionKey(target) !== selectionKey(selection))
+      ? selectableTargetsAtCell(cell).filter((target) => selectionKey(target) !== selectionKey(selection) && !relatedKeys.has(selectionKey(target)))
       : [];
     const alsoHere = selectionLinkRow("Also here", stack);
     if (alsoHere) {
@@ -26937,6 +27073,117 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function containerResidueSummary(container) {
+    const entries = feedingResiduesForLocation({ type: "container", containerId: container?.id });
+    if (!entries.length) {
+      return "None";
+    }
+    return entries
+      .map((residue) => `${feedingResidueLabel(residue.typeKey)} ${feedingResidueUnitText(residue.amount)}`)
+      .join("; ");
+  }
+
+  function collectionStationInspectorSummary(container) {
+    if (!container || container.type === "synthesis") {
+      return "";
+    }
+    const info = collectionBayStationInfo(container);
+    if (!info.station && container.roomId !== COLLECTION_BAY_ROOM_ID) {
+      return "";
+    }
+    const station = info.station;
+    const material = info.material || station?.material || "no assigned material";
+    if (!station) {
+      return `${info.status}; ${material}`;
+    }
+    return [
+      `${info.status}; ${material}`,
+      `receptacle ${formatCollectionAmount(station.receptacle?.amount || 0)} / ${formatCollectionAmount(station.receptacle?.capacity || 0)}`,
+      `overflow ${formatCollectionAmount(station.overflow?.amount || 0)} / ${formatCollectionAmount(station.overflow?.capacity || 0)}`
+    ].join("; ");
+  }
+
+  function containerOccupantRiskSummary(container) {
+    const occupants = containerOccupants(container?.id);
+    if (!occupants.length) {
+      return "No living specimens";
+    }
+    return occupants.map((slime) => {
+      const physicalFit = physicalContainerFitPrediction(slime, container);
+      const compatibility = containerCompatibilityAssessment(slime, container, { knownOnly: true });
+      const risk = activeContainmentRisk(slime, container);
+      const riskPrediction = activeContainmentRiskPrediction(risk, slime, container);
+      return `${slime.name}: physical ${predictionRangeText(physicalFit.range)}, compatibility ${predictionRangeText(compatibility.range)}, active risk ${predictionRangeText(riskPrediction.range)}`;
+    }).join("; ");
+  }
+
+  function selectionContainerContextPanelEl(selection) {
+    if (!selection || !["container", "slime", "corpse"].includes(selection.kind)) {
+      return null;
+    }
+    let container = null;
+    let titleText = "Container Context";
+    const rows = [];
+    if (selection.kind === "container") {
+      container = containerById(selection.id);
+      titleText = "Interior";
+    } else if (selection.kind === "slime") {
+      const slime = findSlime(selection.id);
+      container = slime?.containerId ? containerById(slime.containerId) : null;
+      if (!container) {
+        return null;
+      }
+      rows.push(["Container", selectionLink({ kind: "container", id: container.id })]);
+      rows.push(["Container state", `${containerAccessLabel(container)}; ${containerBreachStateLabel(container)}; condition ${containerConditionLabel(container)}`]);
+      rows.push(["Physical fit", predictionRangeText(physicalContainerFitPrediction(slime, container).range)]);
+      rows.push(["Compatibility", predictionRangeText(containerCompatibilityAssessment(slime, container, { knownOnly: true }).range)]);
+      rows.push(["Active risk", predictionRangeText(activeContainmentRiskPrediction(activeContainmentRisk(slime, container), slime, container).range)]);
+    } else if (selection.kind === "corpse") {
+      const corpse = findCorpse(selection.id);
+      container = corpse?.containerId ? containerById(corpse.containerId) : null;
+      if (!container) {
+        return null;
+      }
+      rows.push(["Container", selectionLink({ kind: "container", id: container.id })]);
+      rows.push(["Container state", `${containerAccessLabel(container)}; ${containerBreachStateLabel(container)}; condition ${containerConditionLabel(container)}`]);
+    }
+    if (!container) {
+      return null;
+    }
+    const occupants = containerOccupants(container.id);
+    const corpses = containerCorpses(container.id);
+    if (selection.kind === "container") {
+      rows.push(["Living", occupants.length ? occupants.map((slime) => selectionLink({ kind: "slime", id: slime.id })) : "None"]);
+      rows.push(["Remains", corpses.length ? corpses.map((corpse) => selectionLink({ kind: "corpse", id: corpse.id })) : "None"]);
+      rows.push(["Containment", containerOccupantRiskSummary(container)]);
+    } else {
+      const otherOccupants = occupants.filter((slime) => selection.kind !== "slime" || slime.id !== selection.id);
+      const otherCorpses = corpses.filter((corpse) => selection.kind !== "corpse" || corpse.id !== selection.id);
+      if (otherOccupants.length || otherCorpses.length) {
+        rows.push(["Also inside", [
+          ...otherOccupants.map((slime) => selectionLink({ kind: "slime", id: slime.id })),
+          ...otherCorpses.map((corpse) => selectionLink({ kind: "corpse", id: corpse.id }))
+        ]]);
+      }
+    }
+    rows.push(["Interior residue", containerResidueSummary(container)]);
+    if (isPitHoleContainer(container)) {
+      rows.push(["Pit contents", `${formatNumber(containerWasteAmount(container))} Waste; ${pitHoleCorpseCount(container)}/${pitHoleCorpseCapacity(container)} corpse capacity used`]);
+    }
+    const stationSummary = collectionStationInspectorSummary(container);
+    if (stationSummary) {
+      rows.push(["Collection station", stationSummary]);
+    }
+    const panel = inspectorRowsEl(rows);
+    panel.classList.add("selection-container-context");
+    panel.dataset.selectionContainerContext = container.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = titleText;
+    panel.prepend(title);
+    return panel;
+  }
+
   function selectionInspectorTabPanelEl(selection, activeTab) {
     const panel = document.createElement("div");
     panel.className = "selection-inspector-panel";
@@ -26944,10 +27191,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.setAttribute("role", "tabpanel");
     if (activeTab.id === "summary") {
       panel.append(inspectorRowsEl(selectionSummaryRows(selection)));
+      const context = selectionContainerContextPanelEl(selection);
+      if (context) panel.append(context);
       const supplies = selectionKnownSuppliesPanelEl(selection);
       if (supplies) panel.append(supplies);
     } else if (activeTab.id === "details") {
       panel.append(inspectorRowsEl(selectionDetailsRows(selection), "No detailed readout for this selection yet."));
+      const context = selectionContainerContextPanelEl(selection);
+      if (context) panel.append(context);
       const supplies = selectionKnownSuppliesPanelEl(selection);
       if (supplies) panel.append(supplies);
     } else if (activeTab.id === "actions") {
@@ -27238,6 +27489,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!normalized) {
       return false;
     }
+    if (options.keepWorkspace) {
+      setSelection(normalized, { source: options.source || target?.source || "map" });
+      if (options.resetInspectorTab) {
+        ensureUiState().selectionInspectorTab = DEFAULT_SELECTION_INSPECTOR_TAB;
+      }
+      setActiveWorkspaceTab("map");
+      persist();
+      render();
+      return true;
+    }
     setSelectedMapTarget(normalized);
     if (normalized.kind === "tile") {
       setActiveWorkspaceTab("map");
@@ -27426,7 +27687,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tile.dataset[key] = value;
       }
       if (cellView.clickTarget) {
-        tile.addEventListener("click", () => focusMapTarget(cellView.clickTarget));
+        tile.addEventListener("click", () => focusMapTarget(cellView.clickTarget, { keepWorkspace: true, source: "map" }));
       }
       grid.append(tile);
     }

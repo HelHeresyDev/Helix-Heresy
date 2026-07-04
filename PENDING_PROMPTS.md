@@ -12,39 +12,17 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Container and Specimen Management Map Workflow
-2. Construction Designation and Room Assignment Map Workflow
-3. Combat and Emergency Response Map Workflow
-4. Journal, Log, and Message Feed Integration Pass
-5. Menu Hierarchy and Screen Manager System
-6. UI State Persistence and Player Preference System
-7. Map Renderer Boundary and Future Canvas/Sprite Preparation
-8. Black Market Byproduct Economy System
+1. Construction Designation and Room Assignment Map Workflow
+2. Combat and Emergency Response Map Workflow
+3. Journal, Log, and Message Feed Integration Pass
+4. Menu Hierarchy and Screen Manager System
+5. UI State Persistence and Player Preference System
+6. Map Renderer Boundary and Future Canvas/Sprite Preparation
+7. Black Market Byproduct Economy System
 
 ---
 
-## 1. Container and Specimen Management Map Workflow
-
-Rework container and specimen management around map selection.
-
-Containers and specimens are central to the game. The player should be able to select a container or slime on the map, inspect it, move it, feed it, harvest it, stage it, release it, recapture it, assign it, Analyze it, or respond to problems through contextual workflows.
-
-This system should answer questions like:
-- How should contained slimes appear on the map if the container owns the footprint?
-- How should the player select a slime inside a container from the map?
-- How should container contents, compatibility, containment risk, residue, byproduct collection, and breach state appear in inspectors?
-- How should specimen actions move from old panels into context commands?
-- How should release, move, feed, harvest, assign job, Analyze, and containment actions work from selection?
-- How should warnings appear for dangerous or risky specimen commands?
-- How should multiple slimes in one container be handled?
-
-The desired result is a map-first specimen workflow where the player can manage creatures from their physical location instead of treating specimen management as a separate list game.
-
-Before coding, discuss container selection, contained-specimen selection, contextual actions, risk warnings, multi-occupant containers, and which specimen commands should move first.
-
----
-
-## 2. Construction Designation and Room Assignment Map Workflow
+## 1. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -65,7 +43,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 3. Combat and Emergency Response Map Workflow
+## 2. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -86,7 +64,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 4. Journal, Log, and Message Feed Integration Pass
+## 3. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -107,7 +85,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 5. Menu Hierarchy and Screen Manager System
+## 4. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -128,7 +106,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 6. UI State Persistence and Player Preference System
+## 5. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -149,7 +127,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 7. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 6. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -171,7 +149,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 8. Black Market Byproduct Economy System
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

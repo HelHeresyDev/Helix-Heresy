@@ -1439,12 +1439,11 @@ test('container hauling reserves a footprint and routes to adjacent access cells
   expect(arrived.container.mapCell).toEqual(queued.task.data.toCell);
 });
 
-test('lab blueprint clicks focus existing room door and object panels', async ({ page }) => {
+test('lab blueprint clicks focus existing room door and object selections', async ({ page }) => {
   await startRun(page);
 
   await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
-  await expect(page.locator('[data-container-card="basic-1"]')).toHaveClass(/selected-map-target/);
-  await expect(page.locator('[data-workspace-tab="containers"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'container');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'basic-1');
 
@@ -1786,13 +1785,27 @@ test('selection inspector links contained specimens from a selected container', 
   }, { key: storageKey });
   await loadSavedRun(page);
 
-  await page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first().click();
+  const occupiedTile = page.locator('[data-map-target-kind="slime"][data-map-target-id="contained-selection"]').first();
+  await expect(occupiedTile).toBeVisible();
+  await occupiedTile.click();
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-selection-inspector-tabs="true"]')).toContainText('Summary');
-  await page.locator('[data-selection-inspector-tab="related"]').click();
-  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('SEL-001');
-  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'SEL-001' }).click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'slime');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'contained-selection');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Container Context');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Basic Glass Jar 1');
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Feeding');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Feed Organic Feedstock');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Job');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Stage Container in Collection Bay');
+  await page.locator('[data-selection-inspector-tab="related"]').click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Basic Glass Jar 1');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Basic Glass Jar 1' }).first().click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'container');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'basic-1');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Interior');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('SEL-001');
 
   const selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1804,9 +1817,9 @@ test('selection inspector links contained specimens from a selected container', 
     };
   }, { key: storageKey });
 
-  expect(selected.selection).toMatchObject({ kind: 'slime', id: 'contained-selection' });
-  expect(selected.selectedMapTarget).toMatchObject({ kind: 'slime', id: 'contained-selection' });
-  expect(selected.selectedSlimeId).toBe('contained-selection');
+  expect(selected.selection).toMatchObject({ kind: 'container', id: 'basic-1' });
+  expect(selected.selectedMapTarget).toMatchObject({ kind: 'container', id: 'basic-1' });
+  expect(selected.selectedSlimeId).toBeNull();
 });
 
 test('selected slime death transfers selection to its corpse', async ({ page }) => {
