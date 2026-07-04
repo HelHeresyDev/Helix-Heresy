@@ -2154,9 +2154,14 @@
       description: "Known scientist position and the next queued movement path."
     },
     {
+      id: "resources",
+      label: "Resources",
+      description: "Known room stockpiles for one selected material or category."
+    },
+    {
       id: "incidents",
       label: "Incidents",
-      description: "Known active incident locations."
+      description: "Known unresolved incident locations."
     },
     {
       id: "construction",
@@ -2171,6 +2176,7 @@
   ];
   const MAP_OVERLAY_BY_ID = Object.fromEntries(MAP_OVERLAY_DEFS.map((overlay) => [overlay.id, overlay]));
   const DEFAULT_MAP_OVERLAY_ID = "none";
+  const DEFAULT_RESOURCE_OVERLAY_FOCUS_ID = "resource:biomass";
 
   function defaultState() {
     const seed = makeSeed();
@@ -2302,6 +2308,7 @@
       mode: UI_MODE_NAVIGATION,
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
+      resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       keyboardHelpOpen: false
     };
@@ -3147,6 +3154,46 @@
     return MAP_OVERLAY_BY_ID[id] ? id : DEFAULT_MAP_OVERLAY_ID;
   }
 
+  function resourceOverlayFocusDefs() {
+    return [
+      ...RESOURCE_DEFS.map((resource) => ({
+        id: `resource:${resource.key}`,
+        label: resource.label,
+        type: "resource",
+        key: resource.key
+      })),
+      {
+        id: "category:tools",
+        label: "Tools & Supplies",
+        type: "inventoryCategory",
+        key: "tools"
+      },
+      {
+        id: "category:materials",
+        label: "Stored Materials",
+        type: "inventoryCategory",
+        key: "materials"
+      },
+      {
+        id: "category:collectedByproducts",
+        label: "Collected Byproducts",
+        type: "collectedByproducts",
+        key: "collectedByproducts"
+      },
+      {
+        id: "category:specimenMaterials",
+        label: "Harvested Specimen Materials",
+        type: "specimenMaterials",
+        key: "specimenMaterials"
+      }
+    ];
+  }
+
+  function normalizeResourceOverlayFocusId(value) {
+    const id = String(value || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID).trim();
+    return resourceOverlayFocusDefs().some((focus) => focus.id === id) ? id : DEFAULT_RESOURCE_OVERLAY_FOCUS_ID;
+  }
+
   function normalizeSelectionInspectorTab(value) {
     const id = String(value || DEFAULT_SELECTION_INSPECTOR_TAB).trim();
     return SELECTION_INSPECTOR_TAB_BY_ID[id] ? id : DEFAULT_SELECTION_INSPECTOR_TAB;
@@ -3157,8 +3204,23 @@
     return MAP_OVERLAY_BY_ID[overlayId] || MAP_OVERLAY_BY_ID[DEFAULT_MAP_OVERLAY_ID];
   }
 
+  function currentResourceOverlayFocusDef() {
+    const focusId = normalizeResourceOverlayFocusId(ensureUiState().resourceOverlayFocus);
+    return resourceOverlayFocusDefs().find((focus) => focus.id === focusId)
+      || resourceOverlayFocusDefs()[0];
+  }
+
   function setMapOverlay(overlayId) {
     ensureUiState().mapOverlay = normalizeMapOverlayId(overlayId);
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+  }
+
+  function setResourceOverlayFocus(focusId) {
+    const ui = ensureUiState();
+    ui.resourceOverlayFocus = normalizeResourceOverlayFocusId(focusId);
+    ui.mapOverlay = "resources";
     setActiveWorkspaceTab("map");
     persist();
     render();
@@ -3202,6 +3264,7 @@
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
       mapOverlay: normalizeMapOverlayId(candidate?.mapOverlay),
+      resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
@@ -16624,9 +16687,7 @@
     setActionButtonState(dom.synthesizeBtn, Boolean(reason), reason);
     if (!reason) {
       const logisticsHint = resourceLogisticsHint(resourceCosts, resourceRoomId, "Synthesize slime");
-      if (logisticsHint) {
-        dom.synthesizeBtn.title = logisticsHint;
-      }
+      dom.synthesizeBtn.title = logisticsHint || "";
     }
   }
 
@@ -24069,14 +24130,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     setActionButtonState(feedButton, Boolean(feedReason), feedReason);
     if (!feedReason) {
       const hint = resourceLogisticsHint({ [select.value]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`);
-      if (hint) feedButton.title = hint;
+      feedButton.title = hint || "";
     }
     select.addEventListener("change", () => {
       const reason = manualFeedBlockReason(slime, select.value);
       setActionButtonState(feedButton, Boolean(reason), reason);
       if (!reason) {
         const hint = resourceLogisticsHint({ [select.value]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`);
-        if (hint) feedButton.title = hint;
+        feedButton.title = hint || "";
       }
     });
     feedButton.addEventListener("click", () => {
@@ -24094,7 +24155,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!bestReason) {
       const feedstockKey = bestAvailableFeedstockKey(slime);
       const hint = feedstockKey ? resourceLogisticsHint({ [feedstockKey]: 1 }, slimeEffectiveRoomId(slime), `feeding ${slime.name}`) : "";
-      if (hint) bestButton.title = hint;
+      bestButton.title = hint || "";
     }
     bestButton.addEventListener("click", () => {
       const feedstockKey = bestAvailableFeedstockKey(slime);
@@ -24705,22 +24766,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function roomStockpilePanelEl(room) {
-    const stockpile = roomStockpile(room.id);
-    const resourceRows = RESOURCE_DEFS
-      .map((resource) => ({ label: resource.label, amount: resourceAmountInRoom(resource.key, room.id), type: "resource" }))
-      .filter((entry) => entry.amount > 0);
-    const inventoryRows = INVENTORY_ITEM_DEFS
-      .map((item) => ({ label: item.label, amount: inventoryAmountInRoom(item.key, room.id), type: "inventory" }))
-      .filter((entry) => entry.amount > 0);
-    const byproductRows = Object.entries(stockpile.collectedByproducts || {})
-      .map(([label, amount]) => ({ label, amount: roundOutputValue(amount), type: "byproduct" }))
-      .filter((entry) => entry.amount > 0)
-      .sort((a, b) => a.label.localeCompare(b.label));
-    const specimenRows = Object.values(stockpile.specimenMaterials || {})
-      .map((entry) => ({ label: entry.tags?.length ? `${entry.label} (${entry.tags.join(", ")})` : entry.label, amount: Math.round(Number(entry.amount) || 0), type: "specimen" }))
-      .filter((entry) => entry.amount > 0)
-      .sort((a, b) => a.label.localeCompare(b.label));
-    const rows = [...resourceRows, ...inventoryRows, ...byproductRows, ...specimenRows];
+    const rows = knownSupplyEntriesForRoom(room.id);
     if (!rows.length) {
       return null;
     }
@@ -24729,8 +24775,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.dataset.roomStockpile = room.id;
     const title = document.createElement("div");
     title.className = "subpanel-title";
-    title.textContent = "Local Stockpile";
-    title.title = "Physical materials currently stored in this room. Capacity is infinite for this prototype pass.";
+    title.textContent = "Known Supplies";
+    title.title = "Last inventoried physical materials and tools known in this room. Prototype counts update exactly for now; future incidents can make this stale.";
     panel.append(title);
     const list = document.createElement("div");
     list.className = "inventory-list";
@@ -24738,8 +24784,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const row = document.createElement("div");
       row.className = "inventory-row";
       row.dataset.stockpileType = entry.type;
-      const amount = entry.type === "byproduct" ? formatCollectionAmount(entry.amount) : formatNumber(entry.amount);
-      row.append(textEl("span", entry.label), textEl("strong", amount));
+      row.append(textEl("span", entry.label), textEl("strong", entry.amountText));
       list.append(row);
     }
     if (rows.length > 16) {
@@ -25022,6 +25067,93 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function resourceOverlayBand(amount) {
+    const value = Number(amount) || 0;
+    if (value >= 25) return "high";
+    if (value >= 5) return "medium";
+    return "low";
+  }
+
+  function resourceOverlayReadingForRoom(roomId, focus = currentResourceOverlayFocusDef()) {
+    const entries = knownSupplyEntriesForRoom(roomId);
+    if (focus.type === "resource") {
+      const matching = entries.filter((entry) => entry.type === "resource" && entry.key === focus.key);
+      const pitWaste = focus.key === "waste"
+        ? entries.filter((entry) => entry.type === "pitContents" && entry.key === "waste")
+        : [];
+      const all = [...matching, ...pitWaste];
+      const amount = all.reduce((total, entry) => total + (Number(entry.amount) || 0), 0);
+      if (amount <= 0) return null;
+      const pitLabel = pitWaste.length && !matching.length ? "Pit contents: Waste" : resourceLabel(focus.key);
+      return {
+        amount,
+        label: pitLabel,
+        amountText: formatNumber(amount),
+        source: pitWaste.length ? "Last inventoried pit contents" : "Last inventoried stockpile"
+      };
+    }
+    if (focus.type === "inventoryCategory") {
+      const wantedType = focus.key === "tools" ? "tool" : "inventory";
+      const amount = entries
+        .filter((entry) => entry.type === wantedType)
+        .reduce((total, entry) => total + (Number(entry.amount) || 0), 0);
+      if (amount <= 0) return null;
+      return {
+        amount,
+        label: focus.label,
+        amountText: formatNumber(amount),
+        source: "Last inventoried inventory"
+      };
+    }
+    if (focus.type === "collectedByproducts") {
+      const amount = entries
+        .filter((entry) => entry.type === "byproduct")
+        .reduce((total, entry) => total + (Number(entry.amount) || 0), 0);
+      if (amount <= 0) return null;
+      return {
+        amount,
+        label: focus.label,
+        amountText: formatCollectionAmount(amount),
+        source: "Last inventoried byproducts"
+      };
+    }
+    if (focus.type === "specimenMaterials") {
+      const amount = entries
+        .filter((entry) => entry.type === "specimen")
+        .reduce((total, entry) => total + (Number(entry.amount) || 0), 0);
+      if (amount <= 0) return null;
+      return {
+        amount,
+        label: focus.label,
+        amountText: formatNumber(amount),
+        source: "Last inventoried harvested materials"
+      };
+    }
+    return null;
+  }
+
+  function resourcesOverlayAssignments(map, focus = currentResourceOverlayFocusDef()) {
+    const assignments = new Map();
+    for (const room of state.rooms || []) {
+      const reading = resourceOverlayReadingForRoom(room.id, focus);
+      if (!reading) {
+        continue;
+      }
+      addRoomOverlayEntries(assignments, room.id, {
+        overlayId: "resources",
+        classNames: [
+          "map-overlay-resources",
+          `map-overlay-resources-${resourceOverlayBand(reading.amount)}`
+        ],
+        label: `${room.name}: ${reading.label}`,
+        source: reading.source,
+        title: `Overlay: Resources - ${room.name} has ${reading.amountText} ${reading.label} known from the last inventory.`,
+        value: reading.amountText
+      }, map);
+    }
+    return assignments;
+  }
+
   function constructionOverlayAssignments(map, plannedExcavations) {
     const assignments = new Map();
     for (const [key, plannedEntry] of plannedExcavations.entries()) {
@@ -25050,6 +25182,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "movement") {
       return movementOverlayAssignments(map, context.route);
+    }
+    if (normalized === "resources") {
+      return resourcesOverlayAssignments(map, context.resourceFocus || currentResourceOverlayFocusDef());
     }
     if (normalized === "incidents") {
       return incidentOverlayAssignments(map, context.incidentAssignments || labMapIncidentAssignments(map));
@@ -26763,6 +26898,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function selectionKnownSuppliesPanelEl(selection) {
+    const roomId = selectionRoomId(selection);
+    if (!roomId || !["room", "tile"].includes(selection?.kind)) {
+      return null;
+    }
+    const entries = knownSupplyEntriesForRoom(roomId);
+    const panel = document.createElement("div");
+    panel.className = "selection-inspector-section selection-known-supplies";
+    panel.dataset.selectionKnownSupplies = roomId;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Known Supplies";
+    title.title = "Last inventoried physical supplies known in this room. Prototype values update exactly for now; future interference can make this stale.";
+    panel.append(title);
+    panel.append(emptyText(`Last inventoried: ${formatClock(state.clock)}. Storage capacity is unlimited for now.`));
+    if (!entries.length) {
+      panel.append(emptyText("No known supplies or pit contents in this room."));
+      return panel;
+    }
+    const list = document.createElement("div");
+    list.className = "inventory-list compact-inventory-list";
+    for (const entry of entries.slice(0, 10)) {
+      const row = document.createElement("div");
+      row.className = "inventory-row";
+      row.dataset.stockpileType = entry.type;
+      row.title = `${entry.source || "Known supply"} - ${entry.label}`;
+      row.append(textEl("span", entry.label), textEl("strong", entry.amountText));
+      list.append(row);
+    }
+    if (entries.length > 10) {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = `${entries.length - 10} additional known supplies hidden.`;
+      list.append(note);
+    }
+    panel.append(list);
+    return panel;
+  }
+
   function selectionInspectorTabPanelEl(selection, activeTab) {
     const panel = document.createElement("div");
     panel.className = "selection-inspector-panel";
@@ -26770,8 +26944,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.setAttribute("role", "tabpanel");
     if (activeTab.id === "summary") {
       panel.append(inspectorRowsEl(selectionSummaryRows(selection)));
+      const supplies = selectionKnownSuppliesPanelEl(selection);
+      if (supplies) panel.append(supplies);
     } else if (activeTab.id === "details") {
       panel.append(inspectorRowsEl(selectionDetailsRows(selection), "No detailed readout for this selection yet."));
+      const supplies = selectionKnownSuppliesPanelEl(selection);
+      if (supplies) panel.append(supplies);
     } else if (activeTab.id === "actions") {
       panel.append(renderContextualCommands(selection));
     } else if (activeTab.id === "related") {
@@ -26993,10 +27171,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const plannedExcavations = plannedExcavationAssignments();
     const selectedTarget = selectedMapTarget();
     const visibleIncidents = visibleIncidentAssignments(map, incidentAssignments, selectedTarget, overlay.id);
+    const resourceFocus = currentResourceOverlayFocusDef();
     const overlayAssignments = labMapOverlayAssignments(overlay.id, map, {
       incidentAssignments: visibleIncidents,
       plannedExcavations,
-      route
+      route,
+      resourceFocus
     });
     const cursorCell = mapCursorCell(map);
     const anchors = labMapAnchorAssignments(map);
@@ -27032,6 +27212,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cursorTarget: mapCursorTarget(),
       mode: ensureUiState().mode,
       overlay,
+      resourceFocus,
       keyboardHelpOpen: ensureUiState().keyboardHelpOpen,
       cells,
       legendItems: [
@@ -27042,6 +27223,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "L = loose living",
         "R = remains",
         "route = Movement overlay task path",
+        "resources = selected known supply overlay",
         "room letters = room anchor",
         "x = closed door",
         "l = locked",
@@ -27146,6 +27328,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const row = document.createElement("div");
     row.className = "map-overlay-controls";
     row.dataset.mapOverlayControls = "true";
+    row.classList.toggle("map-overlay-controls-with-focus", mapView.overlay?.id === "resources");
 
     const label = textEl("label", "Overlay");
     label.setAttribute("for", "mapOverlaySelect");
@@ -27164,6 +27347,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const description = textEl("span", mapView.overlay?.description || "");
     description.className = "map-overlay-description";
     row.append(label, select, description);
+    if (mapView.overlay?.id === "resources") {
+      const focusLabel = textEl("label", "Focus");
+      focusLabel.setAttribute("for", "resourceOverlayFocusSelect");
+      const focusSelect = document.createElement("select");
+      focusSelect.id = "resourceOverlayFocusSelect";
+      focusSelect.dataset.resourceOverlayFocusSelect = "true";
+      for (const focus of resourceOverlayFocusDefs()) {
+        const option = document.createElement("option");
+        option.value = focus.id;
+        option.textContent = focus.label;
+        focusSelect.append(option);
+      }
+      focusSelect.value = normalizeResourceOverlayFocusId(mapView.resourceFocus?.id);
+      focusSelect.title = "Choose one known stockpile resource or category to highlight on the map.";
+      focusSelect.addEventListener("change", () => setResourceOverlayFocus(focusSelect.value));
+      row.append(focusLabel, focusSelect);
+    }
     return row;
   }
 
@@ -30499,6 +30699,114 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .filter(Boolean);
   }
 
+  function roomPitWasteAmount(roomId) {
+    const resolvedRoomId = roomById(roomId)?.id || "";
+    if (!resolvedRoomId) {
+      return 0;
+    }
+    return (state.containers || [])
+      .filter((container) => isPitHoleContainer(container) && (container.roomId || PITS_ROOM_ID) === resolvedRoomId)
+      .reduce((total, container) => total + containerWasteAmount(container), 0);
+  }
+
+  function knownSupplyEntriesForRoom(roomId, options = {}) {
+    const resolvedRoomId = normalizeStockpileRoomId(roomId);
+    const stockpile = roomStockpile(resolvedRoomId);
+    const entries = [];
+    const includeEmpty = Boolean(options.includeEmpty);
+
+    const addEntry = (entry) => {
+      const amount = Number(entry.amount) || 0;
+      if (!includeEmpty && amount <= 0) {
+        return;
+      }
+      entries.push({
+        ...entry,
+        amount,
+        amountText: entry.amountText || (entry.allowFractional ? formatCollectionAmount(amount) : formatNumber(amount))
+      });
+    };
+
+    const pitWaste = roomPitWasteAmount(resolvedRoomId);
+    const stockpiledWaste = resourceAmountInRoom("waste", resolvedRoomId);
+
+    for (const resource of RESOURCE_DEFS) {
+      if (resource.key === "waste") {
+        continue;
+      }
+      addEntry({
+        type: "resource",
+        key: resource.key,
+        label: resource.label,
+        amount: resourceAmountInRoom(resource.key, resolvedRoomId),
+        source: "Known stockpile"
+      });
+    }
+
+    if (pitWaste > 0 || (resolvedRoomId === PITS_ROOM_ID && stockpiledWaste > 0)) {
+      addEntry({
+        type: "pitContents",
+        key: "waste",
+        label: "Pit contents: Waste",
+        amount: pitWaste + (resolvedRoomId === PITS_ROOM_ID ? stockpiledWaste : 0),
+        source: "Pit contents"
+      });
+    } else if (stockpiledWaste > 0) {
+      addEntry({
+        type: "resource",
+        key: "waste",
+        label: "Waste",
+        amount: stockpiledWaste,
+        source: "Known stockpile"
+      });
+    }
+
+    for (const item of INVENTORY_ITEM_DEFS) {
+      const amount = inventoryAmountInRoom(item.key, resolvedRoomId);
+      const toolText = amount > 0 && durableToolDef(item.key)
+        ? `${formatNumber(amount)}; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}`
+        : formatNumber(amount);
+      addEntry({
+        type: item.category === "tools" ? "tool" : "inventory",
+        key: item.key,
+        label: item.label,
+        amount,
+        amountText: toolText,
+        source: INVENTORY_CATEGORY_BY_ID[item.category]?.label || "Inventory"
+      });
+    }
+
+    for (const [label, rawAmount] of Object.entries(stockpile.collectedByproducts || {})) {
+      const amount = roundOutputValue(rawAmount);
+      addEntry({
+        type: "byproduct",
+        key: label,
+        label,
+        amount,
+        amountText: formatCollectionAmount(amount),
+        allowFractional: true,
+        source: "Collected Byproducts"
+      });
+    }
+
+    for (const entry of Object.values(stockpile.specimenMaterials || {})) {
+      const amount = Math.round(Number(entry.amount) || 0);
+      addEntry({
+        type: "specimen",
+        key: entry.key,
+        label: entry.tags?.length ? `${entry.label} (${entry.tags.join(", ")})` : entry.label,
+        amount,
+        source: "Harvested Specimen Materials"
+      });
+    }
+
+    return entries.sort((a, b) =>
+      (a.type === "pitContents" ? -1 : 0) - (b.type === "pitContents" ? -1 : 0)
+      || String(a.source || "").localeCompare(String(b.source || ""))
+      || String(a.label || "").localeCompare(String(b.label || ""))
+    );
+  }
+
   function inventoryAmount(key) {
     return ensureInventory()[key] || 0;
   }
@@ -31494,6 +31802,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
+  function resourceLocalitySummary(costs, roomId) {
+    const targetRoomId = normalizeStockpileRoomId(roomId);
+    return Object.entries(normalizeResourceCosts(costs))
+      .map(([key, amount]) => {
+        const local = resourceAmountInRoom(key, targetRoomId);
+        const total = resourceAmount(key);
+        return `${resourceLabel(key)}: need ${formatNumber(amount)} in ${roomName(targetRoomId)}; ${formatNumber(local)} here / ${formatNumber(total)} known total`;
+      })
+      .join(". ");
+  }
+
   function resourceLogisticsHint(costs, roomId, actionLabel = "action") {
     const targetRoomId = normalizeStockpileRoomId(roomId);
     if (!resourceBlockReasonForRoom(costs, targetRoomId, { allowHaul: false })) {
@@ -31506,7 +31825,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!plan.transfers.length) {
       return "";
     }
-    return `Click to queue material hauling before ${actionLabel}: ${resourceHaulTransferText(plan.transfers)} to ${roomArticleName(targetRoomId)}.`;
+    return `${resourceLocalitySummary(costs, targetRoomId)}. One click will queue material hauling before ${actionLabel}: ${resourceHaulTransferText(plan.transfers)} to ${roomArticleName(targetRoomId)}.`;
   }
 
   function resourceLabel(key) {

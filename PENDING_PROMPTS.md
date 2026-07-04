@@ -12,41 +12,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Inventory, Stockpile, and Room-Local Resource Map Workflow
-2. Container and Specimen Management Map Workflow
-3. Construction Designation and Room Assignment Map Workflow
-4. Combat and Emergency Response Map Workflow
-5. Journal, Log, and Message Feed Integration Pass
-6. Menu Hierarchy and Screen Manager System
-7. UI State Persistence and Player Preference System
-8. Map Renderer Boundary and Future Canvas/Sprite Preparation
-9. Black Market Byproduct Economy System
+1. Container and Specimen Management Map Workflow
+2. Construction Designation and Room Assignment Map Workflow
+3. Combat and Emergency Response Map Workflow
+4. Journal, Log, and Message Feed Integration Pass
+5. Menu Hierarchy and Screen Manager System
+6. UI State Persistence and Player Preference System
+7. Map Renderer Boundary and Future Canvas/Sprite Preparation
+8. Black Market Byproduct Economy System
 
 ---
 
-## 1. Inventory, Stockpile, and Room-Local Resource Map Workflow
-
-Rework inventory and room-local resources for the map-first interface.
-
-The game now has lab-wide totals backed by room-local stockpiles. A map-first UI should help the player understand where resources physically are, what room has access, what needs hauling, and what commands will consume or move supplies.
-
-This system should answer questions like:
-- How should the player view resources by room?
-- How should Storage Room stockpiles appear from the map?
-- How should room-local materials appear in inspectors?
-- How should hauling requirements appear before starting an action?
-- How should commands explain that resources exist elsewhere and will need hauling?
-- Should stockpile overlays or resource filters exist?
-- How should inventory item history remain accessible?
-- How should collected byproducts, harvested materials, tools, feedstocks, waste, and corpses differ in the UI?
-
-The desired result is a resource workflow where inventory remains readable as a ledger, but the player also understands physical availability and room-local logistics from the map.
-
-Before coding, discuss inventory screen placement, room resource inspectors, hauling previews, overlays, stockpile focus, and which resource types need map workflows first.
-
----
-
-## 2. Container and Specimen Management Map Workflow
+## 1. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -67,7 +44,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 3. Construction Designation and Room Assignment Map Workflow
+## 2. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -88,7 +65,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 4. Combat and Emergency Response Map Workflow
+## 3. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -109,7 +86,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 5. Journal, Log, and Message Feed Integration Pass
+## 4. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -130,7 +107,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 6. Menu Hierarchy and Screen Manager System
+## 5. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -151,7 +128,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 7. UI State Persistence and Player Preference System
+## 6. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -172,7 +149,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 8. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 7. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -194,7 +171,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 9. Black Market Byproduct Economy System
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

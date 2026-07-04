@@ -46,6 +46,8 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   await page.locator('#queueToggleBtn').click();
 
   await expect(page.locator('#inventorySummary')).toContainText('room-local stockpiles');
+  await expect(page.locator('#synthesizeBtn')).toHaveAttribute('title', /Biomass: need 10 in Main Lab; 0 here \/ 50 known total/);
+  await expect(page.locator('#synthesizeBtn')).toHaveAttribute('title', /One click will queue material hauling/);
   await page.locator('#synthesizeBtn').click();
 
   const haulTask = page.locator('#taskList .task-row').filter({ hasText: 'Haul materials for Synthesize slime' });
@@ -110,6 +112,65 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(finalState.taskCount).toBe(0);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('resource overlay and selection inspector show known room supplies', async ({ page }) => {
+  await startRun(page);
+
+  const fixture = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const pit = (state.containers || []).find((item) => item.id === 'basic-11')
+      || (state.containers || []).find((item) => String(item.typeId || '').includes('DirtPit'));
+    if (!pit) {
+      throw new Error('starter pit not found');
+    }
+    pit.name = 'Overlay Waste Pit';
+    pit.roomId = 'pits';
+    pit.waste = { amount: 3, tags: { waste: 3, hazardous: 3 } };
+    state.scientist ||= {};
+    state.scientist.roomId = 'mainLab';
+    state.scientist.mapCell = state.labMap.rooms.mainLab.anchor;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+    return {
+      mainCell: state.labMap.rooms.mainLab.anchor,
+      storageCell: state.labMap.rooms.storageRoom.anchor,
+      pitsCell: state.labMap.rooms.pits.anchor,
+    };
+  }, { key: storageKey });
+  await loadSavedRun(page);
+
+  await page.locator('[data-room-card="storageRoom"]').click();
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'room');
+  await expect(inspector).toContainText('Known Supplies');
+  await expect(inspector).toContainText('Last inventoried');
+  await expect(inspector).toContainText('Biomass');
+  await expect(inspector).toContainText('Hook pole');
+
+  const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
+  const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
+  const pitsTile = page.locator(`[data-map-x="${fixture.pitsCell.x}"][data-map-y="${fixture.pitsCell.y}"]`);
+
+  await page.locator('[data-map-overlay-select="true"]').selectOption('resources');
+  const focusSelect = page.locator('[data-resource-overlay-focus-select="true"]');
+  await expect(focusSelect).toHaveValue('resource:biomass');
+  await expect(storageTile).toHaveAttribute('data-map-overlay', 'resources');
+  await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Biomass/);
+  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '50');
+  await expect(mainTile).not.toHaveAttribute('data-map-overlay', /.+/);
+
+  await focusSelect.selectOption('category:tools');
+  await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Tools & Supplies/);
+  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '4');
+
+  await page.locator('[data-room-card="pits"]').click();
+  await expect(inspector).toContainText('Pit contents: Waste');
+  await expect(inspector).toContainText('3');
+
+  await focusSelect.selectOption('resource:waste');
+  await expect(pitsTile).toHaveAttribute('data-map-overlay-label', /Pits: Pit contents: Waste/);
+  await expect(pitsTile).toHaveAttribute('data-map-overlay-value', '3');
 });
 
 test('manual feeding queues feedstock delivery when the stockpile is in another room', async ({ page }) => {
