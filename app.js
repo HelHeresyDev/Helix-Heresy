@@ -2557,6 +2557,7 @@
     if (!state.currentGenome) {
       state.currentGenome = randomGenome(seedRng(`${state.seed}:starter`));
     }
+    installDebugHooks();
     syncSetupForm();
     dom.setupOverlay.classList.toggle("hidden", state.started);
     render();
@@ -2764,6 +2765,13 @@
       option.textContent = category.label;
       dom.messageFilterSelect.append(option);
     }
+  }
+
+  function installDebugHooks() {
+    window.helixHeresyDebug = {
+      mapViewSnapshot: () => buildLabMapView(),
+      mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel)
+    };
   }
 
   function bindEvents() {
@@ -25373,7 +25381,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null) {
+  function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
@@ -25410,7 +25418,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (overlayEntry?.title) {
       parts.push(overlayEntry.title);
     }
+    return parts;
+  }
+
+  function labMapCellTooltipText(parts) {
     return parts.join(" - ");
+  }
+
+  function labMapCellTitle(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null) {
+    return labMapCellTooltipText(labMapCellTooltipParts(cell, map, objectEntry, pathEntry, plannedEntry, draftEntry, incidentEntry, overlayEntry));
   }
 
   function incidentSeverityClass(severity) {
@@ -28047,6 +28063,91 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return anchors;
   }
 
+  function labMapCellBaseView(roomId, plannedEntry = null, draftEntry = null) {
+    if (roomId) {
+      return {
+        kind: "room",
+        roomId,
+        role: roomRole(roomId),
+        spriteKey: `tile.room.${roomRole(roomId)}`
+      };
+    }
+    if (draftEntry) {
+      return {
+        kind: "draftExcavation",
+        label: draftEntry.label || "Draft dig",
+        valid: Boolean(draftEntry.valid),
+        reason: draftEntry.reason || "",
+        spriteKey: draftEntry.valid ? "tile.draftExcavation.valid" : "tile.draftExcavation.invalid"
+      };
+    }
+    if (plannedEntry) {
+      return {
+        kind: "plannedExcavation",
+        label: plannedEntry.label || "Planned dig",
+        taskId: plannedEntry.task?.id || "",
+        spriteKey: "tile.plannedExcavation"
+      };
+    }
+    return {
+      kind: "solidEarth",
+      spriteKey: "tile.solidEarth"
+    };
+  }
+
+  function labMapObjectSpriteKey(objectEntry) {
+    const targets = objectEntry?.targets || [];
+    if (!objectEntry) {
+      return "";
+    }
+    if ((objectEntry.symbols || []).length > 1 || targets.length > 1) {
+      return "map.stack";
+    }
+    const target = targets[0];
+    if (target?.kind === "slime") return "actor.slime";
+    if (target?.kind === "corpse") return "corpse.remains";
+    if (target?.kind === "container") return "object.container";
+    return "object.unknown";
+  }
+
+  function labMapCellVisualView({ base, door, object, incident, anchor }) {
+    if (object) {
+      return {
+        glyph: object.symbols.length > 1 ? String(object.symbols.length) : object.symbols[0],
+        spriteKey: object.spriteKey,
+        layer: "object"
+      };
+    }
+    if (anchor) {
+      return {
+        glyph: anchor.abbreviation,
+        spriteKey: `room.anchor.${roomRole(anchor.roomId)}`,
+        layer: "roomAnchor"
+      };
+    }
+    if (door) {
+      return {
+        glyph: door.glyph,
+        spriteKey: door.spriteKey,
+        layer: "door"
+      };
+    }
+    if (base.kind === "plannedExcavation") {
+      return { glyph: "D", spriteKey: base.spriteKey, layer: "construction" };
+    }
+    if (base.kind === "draftExcavation") {
+      return { glyph: base.valid ? "d" : "?", spriteKey: base.spriteKey, layer: "construction" };
+    }
+    if (incident) {
+      return {
+        glyph: incident.count > 1 ? `A${incident.count}` : "A",
+        spriteKey: incident.count > 1 ? "marker.incident.stack" : "marker.incident",
+        layer: "incident"
+      };
+    }
+    return { glyph: "", spriteKey: base.spriteKey, layer: "base" };
+  }
+
   function buildLabMapCellView({
     cell,
     map,
@@ -28066,120 +28167,198 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
     const scientistHere = scientistCell.x === cell.x && scientistCell.y === cell.y;
     const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, scientistHere, cell });
-    const classNames = ["lab-map-cell"];
-    const dataset = {
-      mapX: String(cell.x),
-      mapY: String(cell.y)
-    };
-    let title = labMapCellTitle(cell, map, objectEntry, routeEntry, plannedEntry, draftEntry, incidentEntry, overlayEntry);
-    let text = "";
-
-    if (roomId) {
-      classNames.push("room-cell", `room-${roomRole(roomId)}`);
-      dataset.mapRoom = roomId;
-    } else if (draftEntry) {
-      classNames.push("draft-excavation-cell", draftEntry.valid ? "valid-draft-excavation-cell" : "invalid-draft-excavation-cell");
-      dataset.mapDraftExcavation = "true";
-      if (draftEntry.reason) {
-        dataset.mapDraftReason = draftEntry.reason;
-      }
-    } else if (plannedEntry) {
-      classNames.push("planned-excavation-cell");
-      dataset.mapExcavation = plannedEntry.task?.id || "pending";
-    } else {
-      classNames.push("solid-earth-cell");
+    const base = labMapCellBaseView(roomId, plannedEntry, draftEntry);
+    const semanticDoor = door ? {
+      key: door.key,
+      roomIds: [...door.roomIds],
+      stateClass: doorMapClassName(stateDoor),
+      glyph: doorMapGlyph(stateDoor),
+      spriteKey: `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}`
+    } : null;
+    const semanticObject = objectEntry ? {
+      symbols: [...(objectEntry.symbols || [])],
+      labels: [...(objectEntry.labels || [])],
+      styleTokens: [...(objectEntry.classNames || [])],
+      targets: [...(objectEntry.targets || [])],
+      blocking: Boolean(objectEntry.classNames?.has?.("blocking-object-cell")),
+      spriteKey: labMapObjectSpriteKey(objectEntry)
+    } : null;
+    const semanticIncident = incidentEntry ? {
+      ids: (incidentEntry.alerts || []).map((incident) => incident.id),
+      labels: (incidentEntry.alerts || []).map((incident) => incident.label),
+      count: incidentEntry.alerts?.length || 0,
+      highestSeverity: incidentEntry.highestSeverity,
+      hasStale: Boolean(incidentEntry.hasStale),
+      allAcknowledged: Boolean(incidentEntry.allAcknowledged)
+    } : null;
+    const semanticRoute = routeEntry ? {
+      taskId: routeEntry.task?.id || "next",
+      label: routeEntry.label || "",
+      selected: Boolean(routeEntry.selected)
+    } : null;
+    const semanticOverlay = overlayEntry ? {
+      id: overlayEntry.overlayId,
+      label: overlayEntry.label || "",
+      source: overlayEntry.source || "",
+      value: overlayEntry.value ?? null,
+      title: overlayEntry.title || "",
+      styleTokens: [...(overlayEntry.classNames || [])]
+    } : null;
+    const anchor = anchorRoom ? {
+      roomId: anchorRoom.roomId,
+      abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
+    } : null;
+    const selected = selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere });
+    const cursor = Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
+    const tooltipParts = labMapCellTooltipParts(cell, map, objectEntry, routeEntry, plannedEntry, draftEntry, incidentEntry, overlayEntry);
+    if (cursor) {
+      tooltipParts.push("Keyboard cursor");
     }
-
-    if (door) {
-      classNames.push("door-cell", doorMapClassName(stateDoor));
-      dataset.mapDoor = door.key;
-    }
-    if (routeEntry) {
-      classNames.push("queued-path-cell");
-      if (routeEntry.selected) {
-        classNames.push("selected-task-path-cell");
-      }
-      dataset.mapQueuedPath = routeEntry.task?.id || "next";
-    }
-    if (incidentEntry) {
-      classNames.push("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
-      if (incidentEntry.hasStale) {
-        classNames.push("incident-stale");
-      }
-      if (incidentEntry.allAcknowledged) {
-        classNames.push("incident-acknowledged");
-      }
-      if (incidentEntry.alerts.length > 1) {
-        classNames.push("incident-stack-cell");
-      }
-      dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
-      dataset.mapIncidentCount = String(incidentEntry.alerts.length);
-    }
-    if (overlayEntry) {
-      classNames.push("map-overlay-cell", `map-overlay-${overlayEntry.overlayId}`, ...(overlayEntry.classNames || []));
-      dataset.mapOverlay = overlayEntry.overlayId;
-      if (overlayEntry.label) {
-        dataset.mapOverlayLabel = overlayEntry.label;
-      }
-      if (overlayEntry.source) {
-        dataset.mapOverlaySource = overlayEntry.source;
-      }
-      if (overlayEntry.value !== null && overlayEntry.value !== undefined) {
-        dataset.mapOverlayValue = String(overlayEntry.value);
-      }
-    }
-    if (selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere })) {
-      classNames.push("selected-map-cell");
-    }
-    if (cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y) {
-      classNames.push("map-cursor-cell");
-      dataset.mapCursor = "true";
-      title += " - Keyboard cursor";
-    }
-    if (clickTarget) {
-      classNames.push("map-clickable-cell");
-      dataset.mapTargetKind = clickTarget.kind;
-      if (clickTarget.id) {
-        dataset.mapTargetId = clickTarget.id;
-      }
-      if (clickTarget.roomId) {
-        dataset.mapTargetRoom = clickTarget.roomId;
-      }
-      if (clickTarget.key) {
-        dataset.mapTargetDoor = clickTarget.key;
-      }
-    }
-
     if (scientistHere) {
-      classNames.push("scientist-cell");
-      text = "S";
-      title += " - Scientist";
-    } else if (objectEntry) {
-      classNames.push("object-cell", ...objectEntry.classNames);
-      text = objectEntry.symbols.length > 1 ? String(objectEntry.symbols.length) : objectEntry.symbols[0];
-      title += ` - ${objectEntry.labels.join("; ")}`;
-    } else if (anchorRoom) {
-      classNames.push("room-anchor");
-      text = labMapRoomAbbreviation(anchorRoom.roomId);
-    } else if (door) {
-      text = doorMapGlyph(stateDoor);
-    } else if (plannedEntry) {
-      text = "D";
-    } else if (draftEntry) {
-      text = draftEntry.valid ? "d" : "?";
-    } else if (incidentEntry) {
-      text = incidentEntry.alerts.length > 1 ? `A${incidentEntry.alerts.length}` : "A";
+      tooltipParts.push("Scientist");
+    } else if (semanticObject?.labels?.length) {
+      tooltipParts.push(semanticObject.labels.join("; "));
     }
+    const markers = [];
+    if (semanticDoor) markers.push("door");
+    if (semanticRoute) markers.push(semanticRoute.selected ? "selectedRoute" : "route");
+    if (semanticIncident) markers.push("incident");
+    if (semanticOverlay) markers.push("overlay");
+    if (selected) markers.push("selected");
+    if (cursor) markers.push("cursor");
+    if (scientistHere) markers.push("scientist");
+    if (semanticObject) markers.push(semanticObject.blocking ? "blockingObject" : "object");
+    const visual = scientistHere
+      ? { glyph: "S", spriteKey: "actor.scientist", layer: "actor" }
+      : labMapCellVisualView({
+        base,
+        door: semanticDoor,
+        object: semanticObject,
+        incident: semanticIncident,
+        anchor
+      });
 
     return {
       key: mapCellKey(cell),
       cell,
       roomId,
+      base,
+      door: semanticDoor,
+      object: semanticObject,
+      incident: semanticIncident,
+      route: semanticRoute,
+      planned: plannedEntry ? { taskId: plannedEntry.task?.id || "", label: plannedEntry.label || "Excavation" } : null,
+      draft: draftEntry ? { label: draftEntry.label || "Draft dig", valid: Boolean(draftEntry.valid), reason: draftEntry.reason || "" } : null,
+      overlay: semanticOverlay,
+      anchor,
+      scientist: scientistHere,
+      selected,
+      cursor,
+      markers,
+      visual,
+      spriteKey: visual.spriteKey,
+      spriteLayers: [base.spriteKey, semanticDoor?.spriteKey, semanticObject?.spriteKey, semanticOverlay ? `overlay.${semanticOverlay.id}` : "", visual.spriteKey]
+        .filter(Boolean),
+      tooltip: {
+        parts: tooltipParts,
+        text: labMapCellTooltipText(tooltipParts)
+      },
+      target: clickTarget
+    };
+  }
+
+  function labMapCellDomModel(cellView) {
+    const classNames = ["lab-map-cell"];
+    const dataset = {
+      mapX: String(cellView.cell.x),
+      mapY: String(cellView.cell.y)
+    };
+    if (cellView.base.kind === "room") {
+      classNames.push("room-cell", `room-${cellView.base.role}`);
+      dataset.mapRoom = cellView.base.roomId;
+    } else if (cellView.base.kind === "draftExcavation") {
+      classNames.push("draft-excavation-cell", cellView.base.valid ? "valid-draft-excavation-cell" : "invalid-draft-excavation-cell");
+      dataset.mapDraftExcavation = "true";
+      if (cellView.base.reason) {
+        dataset.mapDraftReason = cellView.base.reason;
+      }
+    } else if (cellView.base.kind === "plannedExcavation") {
+      classNames.push("planned-excavation-cell");
+      dataset.mapExcavation = cellView.base.taskId || "pending";
+    } else {
+      classNames.push("solid-earth-cell");
+    }
+    if (cellView.door) {
+      classNames.push("door-cell", cellView.door.stateClass);
+      dataset.mapDoor = cellView.door.key;
+    }
+    if (cellView.route) {
+      classNames.push("queued-path-cell");
+      if (cellView.route.selected) {
+        classNames.push("selected-task-path-cell");
+      }
+      dataset.mapQueuedPath = cellView.route.taskId || "next";
+    }
+    if (cellView.incident) {
+      classNames.push("incident-alert-cell", incidentSeverityClass(cellView.incident.highestSeverity));
+      if (cellView.incident.hasStale) {
+        classNames.push("incident-stale");
+      }
+      if (cellView.incident.allAcknowledged) {
+        classNames.push("incident-acknowledged");
+      }
+      if (cellView.incident.count > 1) {
+        classNames.push("incident-stack-cell");
+      }
+      dataset.mapIncident = cellView.incident.ids[0] || "active";
+      dataset.mapIncidentCount = String(cellView.incident.count);
+    }
+    if (cellView.overlay) {
+      classNames.push("map-overlay-cell", `map-overlay-${cellView.overlay.id}`, ...cellView.overlay.styleTokens);
+      dataset.mapOverlay = cellView.overlay.id;
+      if (cellView.overlay.label) {
+        dataset.mapOverlayLabel = cellView.overlay.label;
+      }
+      if (cellView.overlay.source) {
+        dataset.mapOverlaySource = cellView.overlay.source;
+      }
+      if (cellView.overlay.value !== null && cellView.overlay.value !== undefined) {
+        dataset.mapOverlayValue = String(cellView.overlay.value);
+      }
+    }
+    if (cellView.selected) {
+      classNames.push("selected-map-cell");
+    }
+    if (cellView.cursor) {
+      classNames.push("map-cursor-cell");
+      dataset.mapCursor = "true";
+    }
+    if (cellView.target) {
+      classNames.push("map-clickable-cell");
+      dataset.mapTargetKind = cellView.target.kind;
+      if (cellView.target.id) {
+        dataset.mapTargetId = cellView.target.id;
+      }
+      if (cellView.target.roomId) {
+        dataset.mapTargetRoom = cellView.target.roomId;
+      }
+      if (cellView.target.key) {
+        dataset.mapTargetDoor = cellView.target.key;
+      }
+    }
+    if (cellView.scientist) {
+      classNames.push("scientist-cell");
+    } else if (cellView.object) {
+      classNames.push("object-cell", ...cellView.object.styleTokens);
+    } else if (cellView.anchor) {
+      classNames.push("room-anchor");
+    }
+    return {
       classNames,
       dataset,
-      title,
-      text,
-      clickTarget
+      title: cellView.tooltip.text,
+      text: cellView.visual.glyph,
+      clickTarget: cellView.target
     };
   }
 
@@ -28443,7 +28622,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!cell) {
       return false;
     }
-    if (labMapCellRoomId(cell, map) || labMapDoorAtCell(cell, map) || cellView?.objectEntry) {
+    if (labMapCellRoomId(cell, map) || labMapDoorAtCell(cell, map) || cellView?.object) {
       return false;
     }
     toggleConstructionDraftCell(cell);
@@ -28472,19 +28651,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.className = "lab-map-grid";
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0.85rem, 1.45rem))`;
     for (const cellView of mapView.cells) {
+      const domCell = labMapCellDomModel(cellView);
       const tile = document.createElement("div");
-      tile.className = cellView.classNames.join(" ");
-      tile.title = cellView.title;
-      tile.textContent = cellView.text;
-      for (const [key, value] of Object.entries(cellView.dataset)) {
+      tile.className = domCell.classNames.join(" ");
+      tile.title = domCell.title;
+      tile.textContent = domCell.text;
+      for (const [key, value] of Object.entries(domCell.dataset)) {
         tile.dataset[key] = value;
       }
       tile.addEventListener("click", () => {
         if (handleConstructionMapCellClick(cellView)) {
           return;
         }
-        if (cellView.clickTarget) {
-          focusMapTarget(cellView.clickTarget, { keepWorkspace: true, source: "map" });
+        if (domCell.clickTarget) {
+          focusMapTarget(domCell.clickTarget, { keepWorkspace: true, source: "map" });
         }
       });
       grid.append(tile);

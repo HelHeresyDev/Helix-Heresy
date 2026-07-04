@@ -726,6 +726,36 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(initial.containers.find((container) => container.id === 'basic-11').mapCell).toBeTruthy();
   expect(await page.locator('.lab-map-cell.blocking-object-cell').count()).toBeGreaterThan(initial.containers.length);
 
+  const semanticMap = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
+  expect(semanticMap.cells).toHaveLength(initial.map.width * initial.map.height);
+  const scientistCell = semanticMap.cells.find((cell) => cell.scientist);
+  expect(scientistCell).toMatchObject({
+    base: { kind: 'room', roomId: 'mainLab' },
+    visual: { glyph: 'S', spriteKey: 'actor.scientist' },
+    target: { kind: 'scientist' },
+  });
+  expect(scientistCell.tooltip.parts).toContain('Scientist');
+  expect(scientistCell).not.toHaveProperty('classNames');
+  expect(scientistCell).not.toHaveProperty('dataset');
+  expect(scientistCell).not.toHaveProperty('title');
+
+  const objectCell = semanticMap.cells.find((cell) => cell.object?.blocking);
+  expect(objectCell).toBeTruthy();
+  expect(objectCell.object).toMatchObject({
+    symbols: expect.arrayContaining(['C']),
+    blocking: true,
+  });
+  expect(objectCell.spriteKey).toBeTruthy();
+  const objectDomSnapshot = await page.evaluate(({ x, y }) => {
+    return window.helixHeresyDebug
+      .mapDomSnapshot()
+      .find((cell) => cell.dataset.mapX === String(x) && cell.dataset.mapY === String(y));
+  }, objectCell.cell);
+  expect(objectDomSnapshot.classNames).toEqual(expect.arrayContaining(['lab-map-cell', 'object-cell', 'blocking-object-cell']));
+  const objectTile = page.locator(`[data-map-x="${objectCell.cell.x}"][data-map-y="${objectCell.cell.y}"]`);
+  await expect(objectTile).toHaveText(objectCell.visual.glyph);
+  await expect(objectTile).toHaveAttribute('title', objectCell.tooltip.text);
+
   await page.locator('[data-scientist-move-room-id="storageRoom"]').click();
 
   const queued = await page.evaluate(({ key }) => {

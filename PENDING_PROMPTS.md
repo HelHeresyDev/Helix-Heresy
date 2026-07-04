@@ -12,34 +12,11 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Map Renderer Boundary and Future Canvas/Sprite Preparation
-2. Black Market Byproduct Economy System
+1. Black Market Byproduct Economy System
 
 ---
 
-## 1. Map Renderer Boundary and Future Canvas/Sprite Preparation
-
-Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
-
-The final version may be simulation-heavy, may need to display 2D sprites, and may need to handle hundreds of actors or more. The current DOM map is fine for the prototype, but simulation and UI logic should not depend on DOM tiles in a way that makes future rendering upgrades painful.
-
-This system should answer questions like:
-- What is the boundary between map state, map view model, and map renderer?
-- Which code currently assumes DOM tiles are the map?
-- What data should a renderer receive each frame or render pass?
-- How should click, hover, selection, overlays, highlights, and tooltips pass through the renderer boundary?
-- How can the current DOM renderer be preserved while preparing for Canvas?
-- What would trigger a future Canvas migration?
-- How should future 2D sprites, zoom/pan, animation, dense actor rendering, and combat overlays fit?
-- How should renderer tests avoid depending on one rendering technology forever?
-
-The desired result is not to implement Canvas immediately unless Codex strongly recommends it after discussion. The desired result is to prevent the current map UI from becoming so DOM-coupled that Canvas or sprites require a rewrite of simulation, pathfinding, object placement, and selection.
-
-Before coding, discuss renderer boundaries, current coupling, view model shape, event routing, Canvas migration triggers, and the smallest refactor that keeps the DOM map working while preparing for future rendering.
-
----
-
-## 2. Black Market Byproduct Economy System
+## 1. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
