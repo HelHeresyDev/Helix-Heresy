@@ -258,7 +258,7 @@ h2 {
   order: -20;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.55rem;
   padding: 0.45rem;
   background: #151610;
   border: 1px solid var(--line);
@@ -266,9 +266,34 @@ h2 {
   box-shadow: 0 8px 18px var(--shadow);
 }
 
+.workspace-tab-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid #282a23;
+  border-radius: 8px;
+  background: #11120d;
+}
+
+.workspace-category-label {
+  padding: 0 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .workspace-tab {
   padding: 0.42rem 0.65rem;
   color: var(--muted);
+}
+
+.workspace-tab[hidden],
+.workspace-tab-group[hidden],
+.panel[hidden] {
+  display: none !important;
 }
 
 .workspace-tab.active-workspace-tab {
@@ -343,6 +368,10 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.task-panel {
+  grid-column: span 7;
+}
+
 .panel-heading {
   display: flex;
   align-items: flex-start;
@@ -351,44 +380,11 @@ h2 {
   margin-bottom: 0.9rem;
 }
 
-.queue-drawer {
-  position: fixed;
-  top: 5.15rem;
-  bottom: 1rem;
-  right: 0;
-  z-index: 15;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 0.55rem;
-  width: min(24rem, calc(100vw - 2rem));
-  max-width: calc(100vw - 2rem);
-  transform: translateX(0);
-  transition: transform 180ms ease;
-  pointer-events: none;
-}
-
-.queue-drawer.collapsed {
-  transform: translateX(calc(100% - 12rem));
-}
-
-.queue-toggle,
-.queue-drawer-body {
-  pointer-events: auto;
-}
-
-.queue-toggle {
-  justify-self: start;
+.task-workspace-tab {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  min-width: 11.5rem;
-  max-width: 12rem;
-  min-height: 0;
-  padding: 0.55rem 0.65rem;
-  border-radius: 8px 0 0 8px;
-  border-right: 0;
-  background: #20231b;
-  box-shadow: -8px 0 18px var(--shadow);
+  max-width: 16rem;
 }
 
 .queue-badge {
@@ -410,31 +406,6 @@ h2 {
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.queue-drawer-body {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 0.75rem;
-  min-width: 0;
-  padding: 1rem;
-  background: rgba(27, 28, 24, 0.98);
-  border: 1px solid var(--line);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  box-shadow: -12px 0 28px var(--shadow);
-  overflow: hidden;
-  transition: opacity 120ms ease, visibility 120ms ease;
-}
-
-.queue-drawer.collapsed .queue-drawer-body {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.queue-drawer-body .panel-heading {
-  margin-bottom: 0;
 }
 
 .panel-actions,

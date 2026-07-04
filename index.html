@@ -24,6 +24,7 @@
         <div class="top-actions">
           <button id="pauseBtn" type="button">Pause</button>
           <select id="timeSpeedSelect" aria-label="Time speed"></select>
+          <button id="debugToggleBtn" type="button" aria-pressed="true">Debug On</button>
           <button id="newRunBtn" type="button">New Run</button>
           <button id="exportFolderBtn" type="button">Export to Folder</button>
           <button id="exportFileBtn" type="button">Export File</button>
@@ -34,40 +35,37 @@
         </div>
       </header>
 
-      <aside id="queueDrawer" class="queue-drawer collapsed" aria-labelledby="queueTitle">
-        <button id="queueToggleBtn" class="queue-toggle" type="button" aria-expanded="false" aria-controls="queueDrawerBody">
-          <span id="queueBadge" class="queue-badge">0</span>
-          <span>Queue</span>
-          <span id="queueNextReadout" class="queue-next">Clear</span>
-        </button>
-        <div id="queueDrawerBody" class="queue-drawer-body">
-          <div class="panel-heading">
-            <div>
-              <h2 id="queueTitle">Time Queue</h2>
-              <p id="queueSummary">No pending work</p>
-            </div>
-          </div>
-          <div class="time-controls">
-            <input id="skipAmountInput" type="number" min="1" value="30" aria-label="Minutes to skip">
-            <button id="skipTimeBtn" type="button">Skip</button>
-            <button id="skipNextEventBtn" type="button">Next Event</button>
-            <button id="skipQueueBtn" type="button">Next Queue</button>
-          </div>
-          <div id="taskList" class="task-list"></div>
-        </div>
-      </aside>
-
       <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
         <nav class="workspace-tabs" aria-label="Main workspace sections">
-          <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" data-workspace-tab="map">Map</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="foundry">Foundry</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="specimens">Specimens</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="containers">Containers</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="journal">Journal</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="log">Messages</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="cheats">Cheats</button>
+          <div class="workspace-tab-group" data-workspace-category="lab">
+            <span class="workspace-category-label">Lab</span>
+            <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" data-workspace-tab="map">Map</button>
+            <button class="workspace-tab" type="button" data-workspace-tab="foundry">Foundry</button>
+            <button id="queueToggleBtn" class="workspace-tab task-workspace-tab" type="button" aria-expanded="false" data-workspace-tab="tasks">
+              <span>Tasks</span>
+              <span id="queueBadge" class="queue-badge">0</span>
+              <span id="queueNextReadout" class="queue-next">Clear</span>
+            </button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="creatures">
+            <span class="workspace-category-label">Creatures</span>
+            <button class="workspace-tab" type="button" data-workspace-tab="specimens">Creatures</button>
+            <button class="workspace-tab" type="button" data-workspace-tab="containers">Containers</button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="logistics">
+            <span class="workspace-category-label">Logistics</span>
+            <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
+            <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="records">
+            <span class="workspace-category-label">Records</span>
+            <button class="workspace-tab" type="button" data-workspace-tab="journal">Journal</button>
+            <button class="workspace-tab" type="button" data-workspace-tab="log">Messages</button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="debug" data-debug-only="true">
+            <span class="workspace-category-label">Debug</span>
+            <button class="workspace-tab" type="button" data-workspace-tab="cheats" data-debug-only="true">Cheats</button>
+          </div>
         </nav>
 
         <section class="panel dna-panel" aria-labelledby="dnaTitle" data-workspace-panel="foundry">
@@ -213,6 +211,22 @@
           </div>
 
           <div id="roomList" class="room-list"></div>
+        </section>
+
+        <section class="panel task-panel" aria-labelledby="queueTitle" data-workspace-panel="tasks">
+          <div class="panel-heading">
+            <div>
+              <h2 id="queueTitle">Tasks</h2>
+              <p id="queueSummary">No pending work</p>
+            </div>
+          </div>
+          <div class="time-controls">
+            <input id="skipAmountInput" type="number" min="1" value="30" aria-label="Minutes to skip">
+            <button id="skipTimeBtn" type="button">Skip</button>
+            <button id="skipNextEventBtn" type="button">Next Event</button>
+            <button id="skipQueueBtn" type="button">Next Queue</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
         </section>
 
         <section class="panel scientist-panel" aria-labelledby="scientistTitle" data-workspace-panel="resources">

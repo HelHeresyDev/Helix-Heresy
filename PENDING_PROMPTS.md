@@ -12,35 +12,13 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Menu Hierarchy and Screen Manager System
-2. UI State Persistence and Player Preference System
-3. Map Renderer Boundary and Future Canvas/Sprite Preparation
-4. Black Market Byproduct Economy System
+1. UI State Persistence and Player Preference System
+2. Map Renderer Boundary and Future Canvas/Sprite Preparation
+3. Black Market Byproduct Economy System
 
 ---
 
-## 1. Menu Hierarchy and Screen Manager System
-
-Create a screen manager and menu hierarchy for the map-first interface.
-
-As the interface becomes more structured, the game needs a clear way to manage major screens, drawers, overlays, modal dialogs, command menus, inspectors, and debug tools. The player should understand where they are in the UI and how to return to the map.
-
-This system should answer questions like:
-- What are the major screens?
-- What remains part of the main map shell?
-- What opens as a side inspector, bottom drawer, command menu, modal, overlay, or full-screen management view?
-- How does the UI handle nested menus?
-- How does Escape/back behavior work?
-- How should debug/cheat tools fit without polluting normal gameplay UI?
-- How should screen state interact with hotkeys, selection, time controls, and autosave/import/export?
-
-The desired result is a menu hierarchy that can support growing complexity without turning the UI into a maze of panels.
-
-Before coding, discuss screen categories, navigation rules, Escape/back behavior, modal rules, debug placement, and how to migrate existing panels gradually.
-
----
-
-## 2. UI State Persistence and Player Preference System
+## 1. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -61,7 +39,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 3. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 2. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -83,7 +61,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

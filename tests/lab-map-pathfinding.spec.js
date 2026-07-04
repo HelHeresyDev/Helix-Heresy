@@ -621,15 +621,45 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveClass(/active-workspace-tab/);
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
+  await expect(page.locator('[data-workspace-category="lab"]')).toContainText('Lab');
+  await expect(page.locator('[data-workspace-category="creatures"]')).toContainText('Creatures');
+  await expect(page.locator('[data-workspace-category="logistics"]')).toContainText('Logistics');
+  await expect(page.locator('[data-workspace-category="records"]')).toContainText('Records');
+  await expect(page.locator('[data-workspace-category="debug"]')).toContainText('Debug');
 
   await page.locator('[data-workspace-tab="specimens"]').click();
   await expect(page.locator('[data-workspace-tab="specimens"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="specimens"]')).toHaveClass(/active-workspace-panel/);
   await expect(page.locator('[data-workspace-panel="map"]')).not.toHaveClass(/active-workspace-panel/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
+
+  await page.locator('#queueToggleBtn').click();
+  await expect(page.locator('#queueToggleBtn')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('[data-workspace-panel="tasks"]')).toHaveClass(/active-workspace-panel/);
+  await expect(page.locator('#taskList')).toContainText('Queue is clear');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
 
   await page.locator('[data-workspace-tab="map"]').click();
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
+  await expect(page.locator('[data-workspace-tab="cheats"]')).toBeVisible();
+  await expect(page.locator('#mapOverlaySelect option[value="debug"]')).toHaveCount(1);
+  await page.locator('#debugToggleBtn').click();
+  await expect(page.locator('#debugToggleBtn')).toHaveText('Debug Off');
+  await expect(page.locator('[data-workspace-tab="cheats"]')).toBeHidden();
+  await expect(page.locator('[data-workspace-category="debug"]')).toBeHidden();
+  await expect(page.locator('#mapOverlaySelect option[value="debug"]')).toHaveCount(0);
+  const debugOffState = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { debugEnabled: state.ui.debugEnabled, activeWorkspaceTab: state.ui.activeWorkspaceTab };
+  }, { key: storageKey });
+  expect(debugOffState).toEqual({ debugEnabled: false, activeWorkspaceTab: 'map' });
+  await page.locator('#debugToggleBtn').click();
+  await expect(page.locator('[data-workspace-tab="cheats"]')).toBeVisible();
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
   await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');

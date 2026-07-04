@@ -2109,7 +2109,8 @@
   let lastTickAt = Date.now();
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
+  const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2243,7 +2244,6 @@
       incidents: [],
       policies: defaultPolicies(),
       currentGenome: "",
-      queueDrawerOpen: false,
       slimes: [],
       corpses: [],
       tasks: [],
@@ -2335,11 +2335,13 @@
   function defaultUiState() {
     return {
       mode: UI_MODE_NAVIGATION,
+      activeWorkspaceTab: "map",
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
+      debugEnabled: true,
       keyboardHelpOpen: false
     };
   }
@@ -2557,6 +2559,7 @@
       "suspicionReadout",
       "pauseBtn",
       "timeSpeedSelect",
+      "debugToggleBtn",
       "newRunBtn",
       "exportFolderBtn",
       "exportFileBtn",
@@ -2629,7 +2632,6 @@
       "aiDebugReadout",
       "journalModeReadout",
       "journalContent",
-      "queueDrawer",
       "queueToggleBtn",
       "queueBadge",
       "queueNextReadout",
@@ -2766,7 +2768,7 @@
       syncRoomObservationMemory();
       observeScientistRoom();
       addEvent("Run initialized.");
-      activeWorkspaceTab = "map";
+      setActiveWorkspaceTab("map", { scroll: false });
       persist();
       render();
     });
@@ -2784,7 +2786,7 @@
       syncRoomObservationMemory();
       observeScientistRoom();
       addEvent("Loaded local save.");
-      activeWorkspaceTab = "map";
+      setActiveWorkspaceTab("map", { scroll: false });
       persist();
       render();
     });
@@ -2801,6 +2803,10 @@
       setTimeSpeed(dom.timeSpeedSelect.value);
     });
 
+    dom.debugToggleBtn?.addEventListener("click", () => {
+      setDebugToolsEnabled(!debugToolsEnabled());
+    });
+
     dom.messageFilterSelect?.addEventListener("change", () => {
       ensureUiState().messageFilter = normalizeMessageFilter(dom.messageFilterSelect.value);
       persist();
@@ -2813,7 +2819,7 @@
       }
       state = defaultState();
       geneMap = buildGeneMap(state.seed, state.complexity);
-      activeWorkspaceTab = "map";
+      setActiveWorkspaceTab("map", { scroll: false });
       syncSetupForm();
       render();
     });
@@ -3047,12 +3053,6 @@
       }
     });
 
-    dom.queueToggleBtn.addEventListener("click", () => {
-      state.queueDrawerOpen = !state.queueDrawerOpen;
-      persist();
-      render();
-    });
-
     dom.skipTimeBtn.addEventListener("click", () => {
       const amount = Math.max(1, Math.floor(Number(dom.skipAmountInput.value) || 1));
       advanceTime(amount);
@@ -3099,21 +3099,10 @@
       toggleKeyboardHelp();
       return true;
     }
-    if (ui.keyboardHelpOpen && key === "Escape") {
-      event.preventDefault();
-      ui.keyboardHelpOpen = false;
-      persist();
-      render();
-      return true;
+    if (key === "Escape") {
+      return handleBackNavigation(event);
     }
     if (ui.mode === UI_MODE_COMMAND) {
-      if (key === "Escape") {
-        event.preventDefault();
-        setUiMode(UI_MODE_NAVIGATION);
-        persist();
-        render();
-        return true;
-      }
       if (/^[1-9]$/.test(key)) {
         event.preventDefault();
         runContextCommandByShortcut(Number(key));
@@ -3123,6 +3112,9 @@
         event.preventDefault();
         return true;
       }
+      return false;
+    }
+    if (currentWorkspaceTab() !== "map") {
       return false;
     }
     const movement = mapCursorMovementForKey(event);
@@ -3146,16 +3138,39 @@
       openCommandMode();
       return true;
     }
-    if (key === "Escape") {
-      const selection = currentSelection();
-      if (selection) {
-        event.preventDefault();
-        setSelection(null);
-        setUiMode(UI_MODE_NAVIGATION);
-        persist();
-        render();
-        return true;
-      }
+    return false;
+  }
+
+  function handleBackNavigation(event) {
+    const ui = ensureUiState();
+    if (ui.keyboardHelpOpen) {
+      event.preventDefault();
+      ui.keyboardHelpOpen = false;
+      persist();
+      render();
+      return true;
+    }
+    if (ui.mode === UI_MODE_COMMAND) {
+      event.preventDefault();
+      setUiMode(UI_MODE_NAVIGATION);
+      persist();
+      render();
+      return true;
+    }
+    if (currentWorkspaceTab() !== "map") {
+      event.preventDefault();
+      setActiveWorkspaceTab("map");
+      persist();
+      render();
+      return true;
+    }
+    const selection = currentSelection();
+    if (selection) {
+      event.preventDefault();
+      setSelection(null);
+      persist();
+      render();
+      return true;
     }
     return false;
   }
@@ -3204,6 +3219,25 @@
 
   function normalizeUiMode(mode) {
     return mode === UI_MODE_COMMAND ? UI_MODE_COMMAND : UI_MODE_NAVIGATION;
+  }
+
+  function cleanWorkspaceTab(tabId) {
+    const id = String(tabId || "map").trim();
+    return WORKSPACE_TAB_IDS.has(id) ? id : "map";
+  }
+
+  function debugToolsEnabled() {
+    return state?.ui?.debugEnabled !== false;
+  }
+
+  function workspaceTabVisible(tabId) {
+    const id = cleanWorkspaceTab(tabId);
+    return !DEBUG_WORKSPACE_TAB_IDS.has(id) || debugToolsEnabled();
+  }
+
+  function visibleWorkspaceTabOrMap(tabId) {
+    const id = cleanWorkspaceTab(tabId);
+    return workspaceTabVisible(id) ? id : "map";
   }
 
   function normalizeMapOverlayId(value) {
@@ -3263,6 +3297,10 @@
 
   function currentMapOverlayDef() {
     const overlayId = normalizeMapOverlayId(ensureUiState().mapOverlay);
+    if (overlayId === "debug" && !debugToolsEnabled()) {
+      ensureUiState().mapOverlay = DEFAULT_MAP_OVERLAY_ID;
+      return MAP_OVERLAY_BY_ID[DEFAULT_MAP_OVERLAY_ID];
+    }
     return MAP_OVERLAY_BY_ID[overlayId] || MAP_OVERLAY_BY_ID[DEFAULT_MAP_OVERLAY_ID];
   }
 
@@ -3272,8 +3310,15 @@
       || resourceOverlayFocusDefs()[0];
   }
 
+  function availableMapOverlayDefs() {
+    return debugToolsEnabled()
+      ? MAP_OVERLAY_DEFS
+      : MAP_OVERLAY_DEFS.filter((overlay) => overlay.id !== "debug");
+  }
+
   function setMapOverlay(overlayId) {
-    ensureUiState().mapOverlay = normalizeMapOverlayId(overlayId);
+    const normalized = normalizeMapOverlayId(overlayId);
+    ensureUiState().mapOverlay = normalized === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : normalized;
     setActiveWorkspaceTab("map");
     persist();
     render();
@@ -3290,10 +3335,11 @@
 
   function cycleMapOverlay(direction = 1) {
     const currentId = normalizeMapOverlayId(ensureUiState().mapOverlay);
-    const currentIndex = MAP_OVERLAY_DEFS.findIndex((overlay) => overlay.id === currentId);
+    const overlays = availableMapOverlayDefs();
+    const currentIndex = overlays.findIndex((overlay) => overlay.id === currentId);
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-    const nextIndex = (safeIndex + direction + MAP_OVERLAY_DEFS.length) % MAP_OVERLAY_DEFS.length;
-    setMapOverlay(MAP_OVERLAY_DEFS[nextIndex].id);
+    const nextIndex = (safeIndex + direction + overlays.length) % overlays.length;
+    setMapOverlay(overlays[nextIndex].id);
   }
 
   function currentSelectionInspectorTab() {
@@ -3319,16 +3365,21 @@
     const map = context?.labMap || defaultLabMap();
     const fallback = fallbackMapCursorCell(context);
     const cursor = cleanMapCell(candidate?.mapCursor) || fallback;
+    const debugEnabled = candidate?.debugEnabled !== false;
+    const activeTab = cleanWorkspaceTab(candidate?.activeWorkspaceTab);
+    const overlayId = normalizeMapOverlayId(candidate?.mapOverlay);
     return {
       mode: normalizeUiMode(candidate?.mode),
       mapCursor: {
         x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
-      mapOverlay: normalizeMapOverlayId(candidate?.mapOverlay),
+      activeWorkspaceTab: DEBUG_WORKSPACE_TAB_IDS.has(activeTab) && !debugEnabled ? "map" : activeTab,
+      mapOverlay: overlayId === "debug" && !debugEnabled ? DEFAULT_MAP_OVERLAY_ID : overlayId,
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
+      debugEnabled,
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -4158,11 +4209,6 @@
     });
   }
 
-  function cleanWorkspaceTab(tabId) {
-    const id = String(tabId || "map").trim();
-    return WORKSPACE_TAB_IDS.has(id) ? id : "map";
-  }
-
   function workspacePanelForTab(tabId) {
     return document.querySelector(`[data-workspace-panel="${cleanWorkspaceTab(tabId)}"]`);
   }
@@ -4176,33 +4222,90 @@
   }
 
   function setActiveWorkspaceTab(tabId, options = {}) {
-    activeWorkspaceTab = cleanWorkspaceTab(tabId);
+    const tab = visibleWorkspaceTabOrMap(tabId);
+    activeWorkspaceTab = tab;
+    if (state?.ui) {
+      state.ui.activeWorkspaceTab = tab;
+    }
     syncWorkspaceShell();
     if (options.scroll) {
       requestAnimationFrame(() => {
-        workspacePanelForTab(activeWorkspaceTab)?.scrollIntoView({ block: "start", inline: "nearest", behavior: options.animate === false ? "auto" : "smooth" });
+        workspacePanelForTab(tab)?.scrollIntoView({ block: "start", inline: "nearest", behavior: options.animate === false ? "auto" : "smooth" });
       });
     }
   }
 
+  function currentWorkspaceTab() {
+    if (!state?.ui) {
+      return cleanWorkspaceTab(activeWorkspaceTab);
+    }
+    const tab = visibleWorkspaceTabOrMap(state.ui.activeWorkspaceTab || activeWorkspaceTab);
+    state.ui.activeWorkspaceTab = tab;
+    activeWorkspaceTab = tab;
+    return tab;
+  }
+
   function syncWorkspaceShell() {
-    const tabId = cleanWorkspaceTab(activeWorkspaceTab);
+    const tabId = currentWorkspaceTab();
     activeWorkspaceTab = tabId;
     if (dom.labRoot) {
       dom.labRoot.dataset.activeWorkspaceTab = tabId;
+      dom.labRoot.dataset.debugEnabled = String(debugToolsEnabled());
     }
+    syncDebugToggle();
     for (const button of document.querySelectorAll("[data-workspace-tab]")) {
-      const active = cleanWorkspaceTab(button.dataset.workspaceTab) === tabId;
+      const buttonTab = cleanWorkspaceTab(button.dataset.workspaceTab);
+      const visible = workspaceTabVisible(buttonTab);
+      button.hidden = !visible;
+      const active = visible && buttonTab === tabId;
       button.classList.toggle("active-workspace-tab", active);
       if (active) {
         button.setAttribute("aria-current", "page");
       } else {
         button.removeAttribute("aria-current");
       }
+      if (button.id === "queueToggleBtn") {
+        button.setAttribute("aria-expanded", String(active));
+      }
+    }
+    for (const group of document.querySelectorAll("[data-workspace-category]")) {
+      const hasVisibleTab = [...group.querySelectorAll("[data-workspace-tab]")]
+        .some((button) => !button.hidden);
+      group.hidden = !hasVisibleTab;
     }
     for (const panel of document.querySelectorAll("[data-workspace-panel]")) {
-      panel.classList.toggle("active-workspace-panel", cleanWorkspaceTab(panel.dataset.workspacePanel) === tabId);
+      const panelTab = cleanWorkspaceTab(panel.dataset.workspacePanel);
+      const visible = workspaceTabVisible(panelTab);
+      panel.hidden = !visible;
+      panel.classList.toggle("active-workspace-panel", visible && panelTab === tabId);
     }
+  }
+
+  function syncDebugToggle() {
+    if (!dom.debugToggleBtn) {
+      return;
+    }
+    const enabled = debugToolsEnabled();
+    dom.debugToggleBtn.textContent = enabled ? "Debug On" : "Debug Off";
+    dom.debugToggleBtn.setAttribute("aria-pressed", String(enabled));
+    dom.debugToggleBtn.title = enabled
+      ? "Debug tools and free-information overlays are visible."
+      : "Debug tools are hidden from the normal laboratory interface.";
+  }
+
+  function setDebugToolsEnabled(enabled) {
+    const ui = ensureUiState();
+    ui.debugEnabled = Boolean(enabled);
+    if (!ui.debugEnabled) {
+      if (DEBUG_WORKSPACE_TAB_IDS.has(cleanWorkspaceTab(ui.activeWorkspaceTab))) {
+        ui.activeWorkspaceTab = "map";
+      }
+      if (normalizeMapOverlayId(ui.mapOverlay) === "debug") {
+        ui.mapOverlay = DEFAULT_MAP_OVERLAY_ID;
+      }
+    }
+    persist();
+    render();
   }
 
   function createSlime(genome, source, options = {}) {
@@ -25291,7 +25394,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function mapDebugOverlayActive() {
-    return normalizeMapOverlayId(state?.ui?.mapOverlay) === "debug";
+    return debugToolsEnabled() && normalizeMapOverlayId(state?.ui?.mapOverlay) === "debug";
   }
 
   function mapShowsRoomOccupants(roomId, options = {}) {
@@ -28189,13 +28292,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const select = document.createElement("select");
     select.id = "mapOverlaySelect";
     select.dataset.mapOverlaySelect = "true";
-    for (const overlay of MAP_OVERLAY_DEFS) {
+    for (const overlay of availableMapOverlayDefs()) {
       const option = document.createElement("option");
       option.value = overlay.id;
       option.textContent = overlay.label;
       select.append(option);
     }
-    select.value = normalizeMapOverlayId(mapView.overlay?.id);
+    select.value = currentMapOverlayDef().id;
     select.addEventListener("change", () => setMapOverlay(select.value));
 
     const description = textEl("span", mapView.overlay?.description || "");
@@ -29251,9 +29354,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderQueueShell() {
     const sorted = scientistQueueTasks();
     const next = sorted[0] || null;
-    dom.queueDrawer.classList.toggle("collapsed", !state.queueDrawerOpen);
-    document.querySelector(".app-shell")?.classList.toggle("queue-open", state.queueDrawerOpen);
-    dom.queueToggleBtn.setAttribute("aria-expanded", String(state.queueDrawerOpen));
+    const taskScreenActive = currentWorkspaceTab() === "tasks";
+    document.querySelector(".app-shell")?.classList.toggle("queue-open", false);
+    dom.queueToggleBtn.setAttribute("aria-expanded", String(taskScreenActive));
     dom.queueBadge.textContent = String(sorted.length);
     dom.queueSummary.textContent = next
       ? `${sorted.length} scientist task${sorted.length === 1 ? "" : "s"}; next ${next.label} in ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
@@ -34364,7 +34467,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
     next.combat = normalizeCombatState(next.combat);
     next.policies = normalizePolicies(next.policies);
-    next.queueDrawerOpen = next.queueDrawerOpen !== false;
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
     next.knownResultKeys ||= {};
     next.resultRepeats ||= {};
@@ -34805,7 +34907,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         geneMap = buildGeneMap(state.seed, state.complexity);
         prepareCorpseState();
         addEvent("Save imported.");
-        activeWorkspaceTab = "map";
+        setActiveWorkspaceTab("map", { scroll: false });
         persist();
         render();
       } catch (error) {
