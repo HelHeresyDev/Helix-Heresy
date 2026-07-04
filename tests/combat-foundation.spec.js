@@ -95,6 +95,28 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
   await skipSeconds(page, 90);
 
   await expect(page.locator('[data-slime-combat="flame-contact"]')).toContainText('Combat: clashing');
+  await page.locator('[data-map-overlay-select="true"]').selectOption('combat');
+  const combatCells = await page.locator('.lab-map-cell.map-overlay-combat').count();
+  expect(combatCells).toBeGreaterThan(0);
+  const combatIncidentCell = page.locator('.lab-map-cell.map-overlay-combat[data-map-incident]').first();
+  await expect(combatIncidentCell).toBeVisible();
+  await combatIncidentCell.click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'incident');
+  await expect(page.locator('[data-selection-combat-context]')).toContainText('Combat Situation');
+  await expect(page.locator('[data-selection-combat-context]')).toContainText('Currently known');
+  await expect(page.locator('[data-selection-combat-context]')).toContainText('FLAME-CONTACT');
+  await expect(page.locator('[data-selection-combat-context]')).toContainText('FROST-CONTACT');
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Respond');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Acknowledge');
+
+  await page.locator('[data-selection-inspector-tab="summary"]').click();
+  await page.locator('[data-selection-combat-context]').getByRole('button', { name: 'FLAME-CONTACT' }).click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'slime');
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command="slime.strike.flame-contact"]')).toBeVisible();
+  await expect(page.locator('[data-context-command="slime.strike.flame-contact"]')).toBeDisabled();
   const result = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;

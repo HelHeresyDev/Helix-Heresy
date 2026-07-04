@@ -2164,6 +2164,11 @@
       description: "Known unresolved incident locations."
     },
     {
+      id: "combat",
+      label: "Combat",
+      description: "Known active or last-known combat locations and involved combatants."
+    },
+    {
       id: "construction",
       label: "Construction",
       description: "Player-designated excavation work."
@@ -25170,6 +25175,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (overlayId === "incidents") {
       return incidentAssignments;
     }
+    if (overlayId === "combat") {
+      const combatAssignments = new Map();
+      for (const [key, entry] of incidentAssignments.entries()) {
+        const combatAlerts = (entry.alerts || []).filter((incident) => incident.type === "combat");
+        if (!combatAlerts.length) {
+          continue;
+        }
+        combatAssignments.set(key, {
+          alerts: combatAlerts,
+          highestSeverity: combatAlerts
+            .map((incident) => incident.severity)
+            .sort((a, b) => incidentSeverityRank(b) - incidentSeverityRank(a))[0] || "serious",
+          hasStale: combatAlerts.some((incident) => incident.status === "stale"),
+          allAcknowledged: combatAlerts.every((incident) => incident.acknowledgedAt !== null && incident.acknowledgedAt !== undefined)
+        });
+      }
+      return combatAssignments;
+    }
     if (selectedTarget?.kind !== "incident") {
       return new Map();
     }
@@ -25340,6 +25363,102 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function combatRecordForIncident(incident) {
+    if (!incident || incident.type !== "combat") {
+      return null;
+    }
+    return activeCombatRecords().find((record) => record.key === incident.sourceId) || null;
+  }
+
+  function combatRecordParticipantTargets(record) {
+    if (!record) {
+      return [];
+    }
+    const ids = [...(record.sourceIds || []), ...(record.targetIds || [])];
+    const seen = new Set();
+    const targets = [];
+    for (const id of ids) {
+      const cleanId = String(id || "").trim();
+      if (!cleanId || seen.has(cleanId)) {
+        continue;
+      }
+      seen.add(cleanId);
+      if (cleanId === "scientist") {
+        targets.push({ kind: "scientist" });
+        continue;
+      }
+      if (findSlime(cleanId)) {
+        targets.push({ kind: "slime", id: cleanId });
+      }
+    }
+    return targets;
+  }
+
+  function combatParticipantLabel(target) {
+    if (!target) {
+      return "Unknown combatant";
+    }
+    if (target.kind === "scientist") {
+      return "Scientist";
+    }
+    if (target.kind === "slime") {
+      return findSlime(target.id)?.name || "Unknown specimen";
+    }
+    return selectionLabel(target);
+  }
+
+  function combatParticipantCell(target) {
+    if (!target) {
+      return null;
+    }
+    if (target.kind === "scientist") {
+      return scientistMapCell();
+    }
+    if (target.kind === "slime") {
+      const slime = findSlime(target.id);
+      return slime?.containerId ? objectMapCell(containerById(slime.containerId)) : objectMapCell(slime);
+    }
+    return selectionMapCell(target);
+  }
+
+  function combatOverlayAssignments(map, combatIncidents) {
+    const assignments = new Map();
+    const incidents = [];
+    for (const entry of combatIncidents.values()) {
+      incidents.push(...(entry.alerts || []));
+    }
+    for (const incident of incidents) {
+      const record = combatRecordForIncident(incident);
+      for (const target of combatRecordParticipantTargets(record)) {
+        const cell = combatParticipantCell(target);
+        if (!cell || !mapCellInBounds(cell, map)) {
+          continue;
+        }
+        setLabMapOverlayEntry(assignments, cell, {
+          overlayId: "combat",
+          classNames: ["map-overlay-combat", "map-overlay-combat-participant"],
+          label: combatParticipantLabel(target),
+          source: "Known combatant",
+          title: `Overlay: Combat - ${combatParticipantLabel(target)} is known to be involved in ${incident.label}.`
+        }, map);
+      }
+      const cell = incident.cell || incidentCell(incident.roomId, null);
+      setLabMapOverlayEntry(assignments, cell, {
+        overlayId: "combat",
+        classNames: [
+          "map-overlay-combat",
+          `map-overlay-combat-${cleanIncidentSeverity(incident.severity)}`,
+          ...(incident.status === "stale" ? ["incident-stale", "map-overlay-combat-stale"] : []),
+          ...(record ? ["map-overlay-combat-active"] : ["map-overlay-combat-last-known"])
+        ],
+        label: incident.label,
+        source: record ? "Active known combat" : "Last-known combat",
+        title: `Overlay: Combat - ${incidentSeverityLabel(incident.severity)} ${incident.status === "stale" ? "last-known " : ""}combat: ${incident.summary || incident.label}.`
+      }, map);
+    }
+    return assignments;
+  }
+
   function resourceOverlayBand(amount) {
     const value = Number(amount) || 0;
     if (value >= 25) return "high";
@@ -25473,6 +25592,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "incidents") {
       return incidentOverlayAssignments(map, context.incidentAssignments || labMapIncidentAssignments(map));
+    }
+    if (normalized === "combat") {
+      return combatOverlayAssignments(map, context.incidentAssignments || labMapIncidentAssignments(map));
     }
     if (normalized === "construction") {
       return constructionOverlayAssignments(map, context.plannedExcavations || plannedExcavationAssignments());
@@ -27515,6 +27637,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function combatIncidentContextPanelEl(selection) {
+    if (!selection || selection.kind !== "incident") {
+      return null;
+    }
+    const incident = incidentById(selection.id);
+    if (!incident || incident.type !== "combat") {
+      return null;
+    }
+    const record = combatRecordForIncident(incident);
+    const participants = combatRecordParticipantTargets(record);
+    const responseTask = incidentResponseTask(incident);
+    const rows = [
+      ["State", `${incidentStatusLabel(incident.status)}; ${incidentSeverityLabel(incident.severity)}`],
+      ["Awareness", record
+        ? (scientistAwareOfCombat(record) ? "Currently known to the scientist" : "Known record; not currently observed")
+        : (incident.status === "stale" ? "Last-known combat; current state unknown" : "Combat incident record; active combat no longer confirmed")],
+      ["Last known tile", `${roomName(incident.roomId)}; cell ${incident.cell?.x ?? "?"},${incident.cell?.y ?? "?"}`],
+      ["Summary", incident.summary || incident.label],
+      ["Participants", participants.length
+        ? participants.map((target) => selectionLink(target))
+        : (record ? "No known participants" : (incident.sourceLabel || "Unknown combatants"))],
+      ["Combat type", record ? `${titleCase(record.type)}${record.combatIntent && record.combatIntent !== "none" ? `; ${SLIME_COMBAT_INTENT_LABELS[record.combatIntent] || titleCase(record.combatIntent)}` : ""}` : "Last-known only"],
+      ["Contact", record?.cell ? `${record.cell.x},${record.cell.y}` : "No current contact record"],
+      ["Response", responseTask ? `${responseTask.label}; due ${formatClock(responseTask.dueAt)}` : "No response queued"]
+    ];
+    const panel = inspectorRowsEl(rows);
+    panel.classList.add("selection-combat-context");
+    panel.dataset.selectionCombatContext = incident.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = "Combat Situation";
+    panel.prepend(title);
+    return panel;
+  }
+
   function selectionInspectorTabPanelEl(selection, activeTab) {
     const panel = document.createElement("div");
     panel.className = "selection-inspector-panel";
@@ -27522,12 +27679,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.setAttribute("role", "tabpanel");
     if (activeTab.id === "summary") {
       panel.append(inspectorRowsEl(selectionSummaryRows(selection)));
+      const combat = combatIncidentContextPanelEl(selection);
+      if (combat) panel.append(combat);
       const context = selectionContainerContextPanelEl(selection);
       if (context) panel.append(context);
       const supplies = selectionKnownSuppliesPanelEl(selection);
       if (supplies) panel.append(supplies);
     } else if (activeTab.id === "details") {
       panel.append(inspectorRowsEl(selectionDetailsRows(selection), "No detailed readout for this selection yet."));
+      const combat = combatIncidentContextPanelEl(selection);
+      if (combat) panel.append(combat);
       const context = selectionContainerContextPanelEl(selection);
       if (context) panel.append(context);
       const supplies = selectionKnownSuppliesPanelEl(selection);
@@ -27812,6 +27973,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       legendItems: [
         "S = scientist",
         "A = incident marker (Incident overlay)",
+        "Combat overlay = known fights and involved combatants",
         "d = draft dig",
         "D = planned dig",
         "C = blocking container footprint",
@@ -28113,6 +28275,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return labMapRoomAnchor(MAIN_ROOM_ID);
     }
     const roomId = roomById(incident.roomId)?.id || MAIN_ROOM_ID;
+    if (incident.type === "combat") {
+      return cleanMapCell(incident.cell) || labMapRoomAnchor(roomId);
+    }
     if (incident.sourceKind === "container") {
       const container = containerById(incident.sourceId);
       if (container) {

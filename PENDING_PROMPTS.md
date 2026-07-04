@@ -12,37 +12,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Combat and Emergency Response Map Workflow
-2. Journal, Log, and Message Feed Integration Pass
-3. Menu Hierarchy and Screen Manager System
-4. UI State Persistence and Player Preference System
-5. Map Renderer Boundary and Future Canvas/Sprite Preparation
-6. Black Market Byproduct Economy System
+1. Journal, Log, and Message Feed Integration Pass
+2. Menu Hierarchy and Screen Manager System
+3. UI State Persistence and Player Preference System
+4. Map Renderer Boundary and Future Canvas/Sprite Preparation
+5. Black Market Byproduct Economy System
 
 ---
 
-## 1. Combat and Emergency Response Map Workflow
-
-Create a map-first workflow for combat and emergency response.
-
-Combat and incidents are spatial. The player should be able to see danger on the map, select actors or incidents, inspect threat state, issue response commands, and understand paths, adjacency, and contact. The first-pass combat framework should become readable and actionable through the map-first UI.
-
-This system should answer questions like:
-- How should active combat be shown on the map?
-- How should target selection work for Strike or future combat abilities?
-- How should adjacency, contact, range, and accessible container targets be communicated?
-- How should emergency commands appear for incidents, escaped slimes, breached containers, hostile creatures, or dangerous rooms?
-- How should pause/time-speed behavior integrate with combat UI?
-- How should combat intent, threat band, actor health/condition, and available responses appear without exposing hidden values?
-- How should the UI distinguish combat, containment response, cleanup, repair, and evacuation?
-
-The desired result is a combat/emergency workflow where the player can respond spatially instead of hunting through panels while the lab is on fire or a slime is loose.
-
-Before coding, discuss combat map markers, target selection, response commands, time behavior, threat inspectors, and what current combat actions should be surfaced first.
-
----
-
-## 2. Journal, Log, and Message Feed Integration Pass
+## 1. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -63,7 +41,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 3. Menu Hierarchy and Screen Manager System
+## 2. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -84,7 +62,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 4. UI State Persistence and Player Preference System
+## 3. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -105,7 +83,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 5. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 4. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -127,7 +105,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
