@@ -1688,6 +1688,12 @@
     { id: "critical", label: "Critical", rank: 3 }
   ];
   const INCIDENT_SEVERITY_BY_ID = Object.fromEntries(INCIDENT_SEVERITIES.map((severity) => [severity.id, severity]));
+  const INCIDENT_STATUSES = [
+    { id: "active", label: "Active", rank: 2 },
+    { id: "stale", label: "Stale", rank: 1 },
+    { id: "resolved", label: "Resolved", rank: 0 }
+  ];
+  const INCIDENT_STATUS_BY_ID = Object.fromEntries(INCIDENT_STATUSES.map((status) => [status.id, status]));
   const INCIDENT_TYPE_DEFS = {
     looseCreature: { label: "Loose Creature" },
     blockedDoorPressure: { label: "Blocked Door Pressure" },
@@ -7993,16 +7999,30 @@
     return INCIDENT_SEVERITY_BY_ID[cleanIncidentSeverity(severity)]?.label || "Minor";
   }
 
+  function cleanIncidentStatus(value) {
+    const status = String(value || "").trim();
+    return INCIDENT_STATUS_BY_ID[status] ? status : "active";
+  }
+
+  function incidentStatusLabel(status) {
+    return INCIDENT_STATUS_BY_ID[cleanIncidentStatus(status)]?.label || "Active";
+  }
+
+  function incidentStatusRank(status) {
+    return INCIDENT_STATUS_BY_ID[cleanIncidentStatus(status)]?.rank || 0;
+  }
+
+  function incidentIsUnresolved(incident) {
+    const status = cleanIncidentStatus(incident?.status);
+    return status === "active" || status === "stale";
+  }
+
   function incidentTimestamp(value) {
     if (value === null || value === undefined || value === "") {
       return null;
     }
     const time = Number(value);
     return Number.isFinite(time) && time >= 0 ? time : null;
-  }
-
-  function cleanIncidentStatus(value) {
-    return value === "resolved" ? "resolved" : "active";
   }
 
   function cleanIncidentRoomId(roomId, context = state) {
@@ -8021,6 +8041,27 @@
     const sourceId = String(data?.sourceId || data?.roomId || "");
     const roomId = String(data?.roomId || "");
     return [type, sourceKind, sourceId || roomId].join("::");
+  }
+
+  function incidentObservationSignature(data) {
+    const cell = cleanMapCell(data?.cell);
+    return [
+      String(data?.type || "incident"),
+      cleanIncidentSeverity(data?.severity),
+      String(data?.roomId || ""),
+      cell ? mapCellKey(cell) : "",
+      String(data?.sourceKind || "room"),
+      String(data?.sourceId || data?.roomId || ""),
+      String(data?.label || ""),
+      String(data?.summary || "")
+    ].join("|");
+  }
+
+  function incidentManuallySuppresses(existing, desired) {
+    if (!existing || cleanIncidentStatus(existing.status) !== "resolved" || existing.manualResolvedAt === null) {
+      return false;
+    }
+    return String(existing.manualResolveSignature || "") === incidentObservationSignature(desired);
   }
 
   function normalizeIncident(candidate, context = state) {
@@ -8051,11 +8092,14 @@
       createdAt,
       updatedAt: finiteTime(candidate.updatedAt, createdAt),
       resolvedAt: status === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null,
+      staleAt: status === "stale" ? finiteTime(candidate.staleAt, candidate.updatedAt ?? createdAt) : incidentTimestamp(candidate.staleAt),
       acknowledgedAt: incidentTimestamp(candidate.acknowledgedAt),
       urgencyHandledAt: incidentTimestamp(candidate.urgencyHandledAt),
       responseStartedAt: incidentTimestamp(candidate.responseStartedAt),
       responseArrivedAt: incidentTimestamp(candidate.responseArrivedAt),
-      responseTaskId: String(candidate.responseTaskId || "").trim()
+      responseTaskId: String(candidate.responseTaskId || "").trim(),
+      manualResolvedAt: incidentTimestamp(candidate.manualResolvedAt),
+      manualResolveSignature: String(candidate.manualResolveSignature || "").trim()
     };
   }
 
@@ -8065,15 +8109,25 @@
       .filter(Boolean);
   }
 
+  function compareIncidentAlerts(a, b) {
+    return incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity)
+      || incidentStatusRank(b.status) - incidentStatusRank(a.status)
+      || b.createdAt - a.createdAt
+      || a.label.localeCompare(b.label);
+  }
+
   function activeIncidentAlerts() {
     state.incidents = normalizeIncidents(state.incidents);
     return state.incidents
       .filter((incident) => incident.status === "active")
-      .sort((a, b) =>
-        incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity)
-        || b.createdAt - a.createdAt
-        || a.label.localeCompare(b.label)
-      );
+      .sort(compareIncidentAlerts);
+  }
+
+  function unresolvedIncidentAlerts() {
+    state.incidents = normalizeIncidents(state.incidents);
+    return state.incidents
+      .filter(incidentIsUnresolved)
+      .sort(compareIncidentAlerts);
   }
 
   function incidentCell(roomId, preferredCell = null) {
@@ -8351,6 +8405,9 @@
       const key = entry.key || incidentKeyFor(entry);
       desiredKeys.add(key);
       const existing = existingByKey.get(key);
+      if (incidentManuallySuppresses(existing, entry)) {
+        continue;
+      }
       if (existing) {
         if (incidentRecordNeedsUpdate(existing, entry)) {
           const returningFromResolved = existing.status === "resolved";
@@ -8364,11 +8421,14 @@
             createdAt: returningFromResolved ? state.clock : existing.createdAt,
             updatedAt: state.clock,
             resolvedAt: null,
+            staleAt: null,
             acknowledgedAt: returningFromResolved || severityIncreased ? null : existing.acknowledgedAt,
             urgencyHandledAt: returningFromResolved || severityIncreased ? null : existing.urgencyHandledAt,
             responseStartedAt: returningFromResolved ? null : existing.responseStartedAt,
             responseArrivedAt: returningFromResolved ? null : existing.responseArrivedAt,
-            responseTaskId: returningFromResolved ? "" : existing.responseTaskId
+            responseTaskId: returningFromResolved ? "" : existing.responseTaskId,
+            manualResolvedAt: null,
+            manualResolveSignature: ""
           }));
           changes += 1;
         }
@@ -8380,27 +8440,35 @@
           status: "active",
           createdAt: state.clock,
           updatedAt: state.clock,
-          resolvedAt: null
+          resolvedAt: null,
+          staleAt: null,
+          manualResolvedAt: null,
+          manualResolveSignature: ""
         }));
         changes += 1;
       }
     }
 
     for (const incident of state.incidents) {
-      if (incident.status === "active" && !desiredKeys.has(incident.key)) {
-        incident.status = "resolved";
-        incident.resolvedAt = state.clock;
+      if (incidentIsUnresolved(incident) && !desiredKeys.has(incident.key)) {
+        if (incident.status === "stale") {
+          continue;
+        }
+        incident.status = "stale";
+        incident.staleAt = state.clock;
         incident.updatedAt = state.clock;
         changes += 1;
       }
     }
 
-    const active = state.incidents.filter((incident) => incident.status === "active");
+    const unresolved = state.incidents
+      .filter(incidentIsUnresolved)
+      .sort(compareIncidentAlerts);
     const resolved = state.incidents
       .filter((incident) => incident.status === "resolved")
       .sort((a, b) => b.resolvedAt - a.resolvedAt)
       .slice(0, INCIDENT_RESOLVED_RETENTION);
-    state.incidents = [...active, ...resolved];
+    state.incidents = [...unresolved, ...resolved];
     return changes;
   }
 
@@ -19710,7 +19778,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     addEvent(`Arrived in ${target.name}.`);
     const incident = incidentById(task.data?.incidentId);
-    if (incident && incident.status === "active") {
+    if (incident && incidentIsUnresolved(incident)) {
       incident.responseTaskId = "";
       incident.responseArrivedAt = state.clock;
       incident.acknowledgedAt ??= task.createdAt;
@@ -24758,20 +24826,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapIncidentAssignments(map) {
     const assignments = new Map();
-    for (const incident of activeIncidentAlerts()) {
+    for (const incident of unresolvedIncidentAlerts()) {
       const cell = incidentCell(incident.roomId, incident.cell);
       if (!cell || !mapCellInBounds(cell, map)) {
         continue;
       }
       const key = mapCellKey(cell);
-      const entry = assignments.get(key) || { alerts: [], highestSeverity: "trace" };
+      const entry = assignments.get(key) || { alerts: [], highestSeverity: "trace", hasStale: false, allAcknowledged: true };
       entry.alerts.push(incident);
       if (incidentSeverityRank(incident.severity) > incidentSeverityRank(entry.highestSeverity)) {
         entry.highestSeverity = incident.severity;
       }
+      if (incident.status === "stale") {
+        entry.hasStale = true;
+      }
+      if (incident.acknowledgedAt === null || incident.acknowledgedAt === undefined) {
+        entry.allAcknowledged = false;
+      }
       assignments.set(key, entry);
     }
     return assignments;
+  }
+
+  function visibleIncidentAssignments(map, incidentAssignments, selectedTarget, overlayId) {
+    if (overlayId === "incidents") {
+      return incidentAssignments;
+    }
+    if (selectedTarget?.kind !== "incident") {
+      return new Map();
+    }
+    const incident = incidentById(selectedTarget.id);
+    const cell = incident ? incidentCell(incident.roomId, incident.cell) : null;
+    const key = cell ? mapCellKey(cell) : "";
+    const entry = key ? incidentAssignments.get(key) : null;
+    return entry ? new Map([[key, entry]]) : new Map();
   }
 
   function mapDebugOverlayActive() {
@@ -24910,7 +24998,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function incidentOverlayAssignments(map, incidentAssignments) {
     const assignments = new Map();
     for (const [key, incidentEntry] of incidentAssignments.entries()) {
-      const label = incidentEntry.alerts?.[0]?.label || "Active incident";
+      const count = incidentEntry.alerts?.length || 0;
+      const label = incidentEntry.alerts?.[0]?.label || "Known incident";
       const severity = incidentSeverityLabel(incidentEntry.highestSeverity);
       const [x, y] = String(key).split(",").map(Number);
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
@@ -24918,10 +25007,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       setLabMapOverlayEntry(assignments, { x, y }, {
         overlayId: "incidents",
-        classNames: ["map-overlay-incident", `map-overlay-incident-${cleanIncidentSeverity(incidentEntry.highestSeverity)}`],
-        label,
-        source: severity,
-        title: `Overlay: Incidents - ${severity}: ${label}.`
+        classNames: [
+          "map-overlay-incident",
+          `map-overlay-incident-${cleanIncidentSeverity(incidentEntry.highestSeverity)}`,
+          ...(incidentEntry.hasStale ? ["incident-stale"] : []),
+          ...(incidentEntry.allAcknowledged ? ["incident-acknowledged"] : []),
+          ...(count > 1 ? ["incident-stack-cell"] : [])
+        ],
+        label: count > 1 ? `${count} incidents` : label,
+        source: incidentEntry.hasStale ? `${severity}; stale` : severity,
+        title: `Overlay: Incidents - ${severity}: ${count > 1 ? `${count} stacked alerts: ${incidentEntry.alerts.map((incident) => incident.label).join("; ")}` : label}.`
       }, map);
     }
     return assignments;
@@ -25648,7 +25743,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "incident") {
       const incident = incidentById(selection.id);
-      return incident ? [incidentSeverityLabel(incident.severity), roomName(incident.roomId), incident.status || "active"].map(chip) : [];
+      return incident ? [incidentSeverityLabel(incident.severity), roomName(incident.roomId), incidentStatusLabel(incident.status)].map(chip) : [];
     }
     if (selection.kind === "task") {
       const task = findTask(selection.id);
@@ -25671,7 +25766,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const key = mapCellKey(clean);
     const targets = [];
-    const incidentEntry = labMapIncidentAssignments(map).get(key);
+    const showIncidentTargets = currentMapOverlayDef().id === "incidents" || trackedMapSelection()?.kind === "incident";
+    const incidentEntry = showIncidentTargets ? labMapIncidentAssignments(map).get(key) : null;
     for (const incident of incidentEntry?.alerts || []) {
       targets.push({ kind: "incident", id: incident.id });
     }
@@ -25741,7 +25837,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return target ? [target] : [];
     }
     if (selection.kind === "room") {
-      return activeIncidentAlerts()
+      return unresolvedIncidentAlerts()
         .filter((incident) => incident.roomId === selection.roomId)
         .map((incident) => ({ kind: "incident", id: incident.id }));
     }
@@ -26006,9 +26102,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         id: `incident.ack.${incident.id}`,
         label: incident.acknowledgedAt !== null ? "Acknowledged" : "Acknowledge",
         group: "Incident",
-        disabledReason: incident.acknowledgedAt !== null ? "This incident has already been acknowledged." : "",
+        disabledReason: incident.status === "resolved"
+          ? "This incident is already resolved."
+          : incident.acknowledgedAt !== null
+            ? "This incident has already been acknowledged."
+            : "",
         description: "Mark this alert as seen.",
         run: () => acknowledgeIncident(incident.id)
+      }),
+      commandDef({
+        id: `incident.resolve.${incident.id}`,
+        label: "Mark Resolved",
+        group: "Incident",
+        disabledReason: incident.status === "resolved" ? "This incident is already resolved." : "",
+        description: "Clear this known alert. The same observation stays dismissed until it changes.",
+        run: () => resolveIncident(incident.id)
       })
     ];
   }
@@ -26426,6 +26534,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const incident = incidentById(selection.id);
       if (incident) {
         rows.push(["Severity", incidentSeverityLabel(incident.severity)]);
+        rows.push(["Status", incidentStatusLabel(incident.status)]);
         rows.push(["Summary", incident.summary || incident.label]);
       }
     } else if (selection.kind === "task") {
@@ -26543,7 +26652,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [
         ["Type", incidentTypeLabel(incident.type)],
         ["Severity", incidentSeverityLabel(incident.severity)],
-        ["Status", titleCase(incident.status || "active")],
+        ["Status", incidentStatusLabel(incident.status)],
         ["Room", roomName(incident.roomId)],
         ["Summary", incident.summary || incident.label],
         ["Response", response ? `${response.label}; due ${formatClock(response.dueAt)}` : "No response queued"]
@@ -26614,7 +26723,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [
         ["Created", formatClock(incident.createdAt || state.clock)],
         ["Updated", formatClock(incident.updatedAt || incident.createdAt || state.clock)],
+        ["Stale since", incident.staleAt !== null && incident.staleAt !== undefined ? formatClock(incident.staleAt) : "No"],
         ["Acknowledged", incident.acknowledgedAt !== null && incident.acknowledgedAt !== undefined ? formatClock(incident.acknowledgedAt) : "No"],
+        ["Response reached", incident.responseArrivedAt !== null && incident.responseArrivedAt !== undefined ? formatClock(incident.responseArrivedAt) : "No"],
+        ["Resolved", incident.resolvedAt !== null && incident.resolvedAt !== undefined ? formatClock(incident.resolvedAt) : "No"],
+        ["Manual clear", incident.manualResolvedAt !== null && incident.manualResolvedAt !== undefined ? formatClock(incident.manualResolvedAt) : "No"],
         ["Urgency handled", incident.urgencyHandledAt !== null && incident.urgencyHandledAt !== undefined ? formatClock(incident.urgencyHandledAt) : "No"]
       ];
     }
@@ -26792,6 +26905,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (incidentEntry) {
       classNames.push("incident-alert-cell", incidentSeverityClass(incidentEntry.highestSeverity));
+      if (incidentEntry.hasStale) {
+        classNames.push("incident-stale");
+      }
+      if (incidentEntry.allAcknowledged) {
+        classNames.push("incident-acknowledged");
+      }
+      if (incidentEntry.alerts.length > 1) {
+        classNames.push("incident-stack-cell");
+      }
       dataset.mapIncident = incidentEntry.alerts[0]?.id || "active";
       dataset.mapIncidentCount = String(incidentEntry.alerts.length);
     }
@@ -26846,7 +26968,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (plannedEntry) {
       text = "D";
     } else if (incidentEntry) {
-      text = "A";
+      text = incidentEntry.alerts.length > 1 ? `A${incidentEntry.alerts.length}` : "A";
     }
 
     return {
@@ -26869,12 +26991,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const route = selectedOrNextScientistTaskRoute(map);
     const showMovementRoute = overlay.id === "movement";
     const plannedExcavations = plannedExcavationAssignments();
+    const selectedTarget = selectedMapTarget();
+    const visibleIncidents = visibleIncidentAssignments(map, incidentAssignments, selectedTarget, overlay.id);
     const overlayAssignments = labMapOverlayAssignments(overlay.id, map, {
-      incidentAssignments,
+      incidentAssignments: visibleIncidents,
       plannedExcavations,
       route
     });
-    const selectedTarget = selectedMapTarget();
     const cursorCell = mapCursorCell(map);
     const anchors = labMapAnchorAssignments(map);
     const cells = [];
@@ -26889,7 +27012,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           map,
           anchorRoom: anchors.get(key),
           objectEntry: objectAssignments.get(key),
-          incidentEntry: incidentAssignments.get(key),
+          incidentEntry: visibleIncidents.get(key),
           routeEntry,
           plannedEntry: plannedExcavations.get(key),
           overlayEntry: overlayAssignments.get(key),
@@ -26913,7 +27036,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cells,
       legendItems: [
         "S = scientist",
-        "A = active alert",
+        "A = incident marker (Incident overlay)",
         "D = planned dig",
         "C = blocking container footprint",
         "L = loose living",
@@ -27181,8 +27304,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function incidentResponseMoveBlockReason(incident) {
-    if (!incident || incident.status !== "active") {
-      return "This incident is no longer active.";
+    if (!incident || !incidentIsUnresolved(incident)) {
+      return "This incident has been resolved.";
     }
     if (incidentResponseTask(incident)) {
       return "A response movement is already queued for this incident.";
@@ -27194,8 +27317,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function acknowledgeIncident(incidentId) {
     const incident = incidentById(incidentId);
-    if (!incident || incident.status !== "active") {
-      addEvent("That incident is no longer active.");
+    if (!incident || !incidentIsUnresolved(incident)) {
+      addEvent("That incident has already been resolved.");
       persist();
       render();
       return false;
@@ -27203,6 +27326,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     incident.acknowledgedAt = state.clock;
     incident.updatedAt = state.clock;
     addEvent(`Incident acknowledged: ${incident.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function resolveIncident(incidentId, options = {}) {
+    const incident = incidentById(incidentId);
+    if (!incident) {
+      addEvent("That incident no longer exists.");
+      persist();
+      render();
+      return false;
+    }
+    if (incident.status === "resolved") {
+      addEvent(`Incident already resolved: ${incident.label}.`);
+      persist();
+      render();
+      return false;
+    }
+    incident.status = "resolved";
+    incident.resolvedAt = state.clock;
+    incident.updatedAt = state.clock;
+    incident.responseTaskId = "";
+    if (options.manual !== false) {
+      incident.manualResolvedAt = state.clock;
+      incident.manualResolveSignature = incidentObservationSignature(incident);
+    }
+    addEvent(`Incident marked resolved: ${incident.label}.`);
     persist();
     render();
     return true;
@@ -27244,23 +27395,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement("div");
     panel.className = "incident-alert-panel subpanel";
     panel.dataset.incidentPanel = "true";
-    const alerts = activeIncidentAlerts();
+    const alerts = unresolvedIncidentAlerts();
     const title = document.createElement("div");
     title.className = "subpanel-title";
     title.textContent = "Incident Alerts";
     panel.append(title);
     if (!alerts.length) {
-      panel.append(emptyText("No active spatial alerts."));
+      panel.append(emptyText("No unresolved spatial alerts."));
       return panel;
     }
-    const summary = emptyText(`${alerts.length} active alert${alerts.length === 1 ? "" : "s"} on the lab map.`);
+    const activeCount = alerts.filter((incident) => incident.status === "active").length;
+    const staleCount = alerts.filter((incident) => incident.status === "stale").length;
+    const summary = emptyText(`${alerts.length} unresolved alert${alerts.length === 1 ? "" : "s"}; ${activeCount} active, ${staleCount} stale last-known.`);
     panel.append(summary);
     const list = document.createElement("div");
     list.className = "incident-alert-list";
+    let previousSeverity = "";
     for (const incident of alerts) {
+      const severityLabel = incidentSeverityLabel(incident.severity);
+      if (previousSeverity !== incident.severity) {
+        const group = document.createElement("div");
+        group.className = `incident-alert-group-title ${incidentSeverityClass(incident.severity)}`;
+        group.textContent = severityLabel;
+        list.append(group);
+        previousSeverity = incident.severity;
+      }
       const row = document.createElement("div");
       row.className = `incident-alert-row ${incidentSeverityClass(incident.severity)}`;
       row.dataset.incidentAlert = incident.id;
+      row.dataset.incidentStatus = incident.status;
+      row.classList.toggle("incident-acknowledged", incident.acknowledgedAt !== null);
+      row.classList.toggle("incident-stale", incident.status === "stale");
       row.classList.toggle("selected-map-target", selectedTargetMatchesCard("incident", incident.id));
       row.addEventListener("click", (event) => {
         if (event.target.closest("button, input, select, textarea")) {
@@ -27273,9 +27438,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       heading.textContent = incident.label;
       const meta = document.createElement("div");
       meta.className = "incident-alert-meta";
-      meta.append(chip(incidentSeverityLabel(incident.severity)), chip(roomName(incident.roomId)), chip(formatClock(incident.createdAt)));
+      meta.append(chip(incidentStatusLabel(incident.status)), chip(roomName(incident.roomId)), chip(formatClock(incident.createdAt)));
       if (incident.summary) {
         meta.append(chip(incident.summary));
+      }
+      if (incident.status === "stale" && incident.staleAt !== null) {
+        meta.append(chip(`last known ${formatClock(incident.staleAt)}`));
       }
       if (incident.acknowledgedAt !== null) {
         meta.append(chip(`ack ${formatClock(incident.acknowledgedAt)}`));
@@ -27316,7 +27484,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const acknowledgeReason = incident.acknowledgedAt !== null ? "This incident has already been acknowledged." : "";
       setActionButtonState(acknowledge, Boolean(acknowledgeReason), acknowledgeReason);
       acknowledge.addEventListener("click", () => acknowledgeIncident(incident.id));
-      actions.append(focus, respond, acknowledge);
+      const resolve = document.createElement("button");
+      resolve.type = "button";
+      resolve.dataset.incidentResolve = incident.id;
+      resolve.textContent = "Mark Resolved";
+      resolve.title = "Clear this known alert. If the same problem is still present, it stays dismissed until the observation changes.";
+      resolve.addEventListener("click", () => resolveIncident(incident.id));
+      actions.append(focus, respond, acknowledge, resolve);
       row.append(body, actions);
       list.append(row);
     }
@@ -27509,9 +27683,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (room.id === PITS_ROOM_ID) {
         metaChips.push(chip("corpse work"));
       }
-      const roomAlerts = activeIncidentAlerts().filter((incident) => incident.roomId === room.id);
+      const roomAlerts = unresolvedIncidentAlerts().filter((incident) => incident.roomId === room.id);
       if (roomAlerts.length) {
-        const alertChip = chip(`${roomAlerts.length} active alert${roomAlerts.length === 1 ? "" : "s"}`);
+        const alertChip = chip(`${roomAlerts.length} unresolved alert${roomAlerts.length === 1 ? "" : "s"}`);
         alertChip.classList.add("danger-chip");
         alertChip.title = roomAlerts.map((incident) => incident.label).join("\n");
         metaChips.push(alertChip);

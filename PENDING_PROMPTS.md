@@ -12,42 +12,19 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Incident Alert and Map Notification System
-2. Inventory, Stockpile, and Room-Local Resource Map Workflow
-3. Container and Specimen Management Map Workflow
-4. Construction Designation and Room Assignment Map Workflow
-5. Combat and Emergency Response Map Workflow
-6. Journal, Log, and Message Feed Integration Pass
-7. Menu Hierarchy and Screen Manager System
-8. UI State Persistence and Player Preference System
-9. Map Renderer Boundary and Future Canvas/Sprite Preparation
-10. Black Market Byproduct Economy System
+1. Inventory, Stockpile, and Room-Local Resource Map Workflow
+2. Container and Specimen Management Map Workflow
+3. Construction Designation and Room Assignment Map Workflow
+4. Combat and Emergency Response Map Workflow
+5. Journal, Log, and Message Feed Integration Pass
+6. Menu Hierarchy and Screen Manager System
+7. UI State Persistence and Player Preference System
+8. Map Renderer Boundary and Future Canvas/Sprite Preparation
+9. Black Market Byproduct Economy System
 
 ---
 
-## 1. Incident Alert and Map Notification System
-
-Rework incident alerts and notifications around the map-first interface.
-
-Incidents already have map locations and alerts. In a map-first UI, incidents should be immediately visible spatially and should connect directly to response commands. The player should be able to see where something is wrong, inspect it, and choose a response without digging through unrelated panels.
-
-This system should answer questions like:
-- How should active incidents be shown on the map?
-- How should alerts appear in the main shell?
-- What is the difference between message log entries, incident alerts, warnings, and critical interruptions?
-- How does the player focus, acknowledge, respond to, or dismiss an incident?
-- How should incident severity affect time speed or pause behavior?
-- How should multiple incidents be prioritized?
-- How should stale, resolved, or ignored incidents be handled?
-- How should incident response commands appear contextually?
-
-The desired result is a clear emergency UI loop: notice incident, focus location, inspect cause, choose response, track response, and resolve or escalate. The event log should not become the only way to understand urgent problems.
-
-Before coding, discuss alert placement, map markers, severity behavior, response workflow, log boundaries, and which existing incident UI should migrate first.
-
----
-
-## 2. Inventory, Stockpile, and Room-Local Resource Map Workflow
+## 1. Inventory, Stockpile, and Room-Local Resource Map Workflow
 
 Rework inventory and room-local resources for the map-first interface.
 
@@ -69,7 +46,7 @@ Before coding, discuss inventory screen placement, room resource inspectors, hau
 
 ---
 
-## 3. Container and Specimen Management Map Workflow
+## 2. Container and Specimen Management Map Workflow
 
 Rework container and specimen management around map selection.
 
@@ -90,7 +67,7 @@ Before coding, discuss container selection, contained-specimen selection, contex
 
 ---
 
-## 4. Construction Designation and Room Assignment Map Workflow
+## 3. Construction Designation and Room Assignment Map Workflow
 
 Rework construction and room assignment into a map-first workflow.
 
@@ -111,7 +88,7 @@ Before coding, discuss construction mode, designation tools, confirmation flow, 
 
 ---
 
-## 5. Combat and Emergency Response Map Workflow
+## 4. Combat and Emergency Response Map Workflow
 
 Create a map-first workflow for combat and emergency response.
 
@@ -132,7 +109,7 @@ Before coding, discuss combat map markers, target selection, response commands, 
 
 ---
 
-## 6. Journal, Log, and Message Feed Integration Pass
+## 5. Journal, Log, and Message Feed Integration Pass
 
 Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
 
@@ -153,7 +130,7 @@ Before coding, discuss message categories, filtering, map linking, journal place
 
 ---
 
-## 7. Menu Hierarchy and Screen Manager System
+## 6. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -174,7 +151,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 8. UI State Persistence and Player Preference System
+## 7. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -195,7 +172,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 9. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 8. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -217,7 +194,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 10. Black Market Byproduct Economy System
+## 9. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

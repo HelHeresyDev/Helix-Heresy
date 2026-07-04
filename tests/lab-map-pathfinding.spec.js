@@ -1172,16 +1172,20 @@ test('spatial incidents appear as map alerts with manual response controls', asy
 
   const panel = page.locator('[data-incident-panel="true"]');
   await expect(panel).toContainText('Incident Alerts');
-  await expect(panel).toContainText('4 active alerts');
+  await expect(panel).toContainText('4 unresolved alerts');
   await expect(panel).toContainText('ALERT-001 pressing against a blocked door');
   await expect(panel).toContainText('Main Lab contamination is fouled');
   await expect(panel).toContainText('Hazardous sludge in Main Lab');
   await expect(panel).toContainText('Seeped seal');
   await expect(page.locator('[data-incident-alert]')).toHaveCount(4);
 
+  await expect(page.locator('.lab-map-cell.incident-alert-cell')).toHaveCount(0);
+  await page.locator('[data-map-overlay-select="true"]').selectOption('incidents');
   const highlightedAlerts = await page.locator('.lab-map-cell.incident-alert-cell').count();
   expect(highlightedAlerts).toBeGreaterThan(0);
-  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('4 active alerts');
+  const stackedAlerts = await page.locator('.lab-map-cell.incident-stack-cell').count();
+  expect(stackedAlerts).toBeGreaterThan(0);
+  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('4 unresolved alerts');
 
   const tasks = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1193,6 +1197,7 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   const slimeAlert = page.locator('[data-incident-alert]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
   await slimeAlert.getByRole('button', { name: /Acknowledge/ }).click();
   await expect(slimeAlert).toContainText('ack Day 1');
+  await expect(slimeAlert).toHaveClass(/incident-acknowledged/);
 
   const acknowledged = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1225,6 +1230,42 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
   await page.locator('[data-map-overlay-select="true"]').selectOption('movement');
   expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);
+
+  const residueAlert = page.locator('[data-incident-alert]').filter({ hasText: 'Hazardous sludge in Main Lab' });
+  await residueAlert.getByRole('button', { name: 'Mark Resolved' }).click();
+  await expect(panel).toContainText('3 unresolved alerts');
+  await expect(residueAlert).toHaveCount(0);
+  const manuallyResolved = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const incident = (state.incidents || []).find((candidate) => candidate.sourceId === 'residue-alert');
+    return {
+      status: incident?.status,
+      manualResolvedAt: incident?.manualResolvedAt,
+      signature: incident?.manualResolveSignature || '',
+    };
+  }, { key: storageKey });
+  expect(manuallyResolved.status).toBe('resolved');
+  expect(manuallyResolved.manualResolvedAt).toBe(0);
+  expect(manuallyResolved.signature.length).toBeGreaterThan(0);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const slime = (state.slimes || []).find((candidate) => candidate.id === 'alert-slime');
+    if (slime) {
+      slime.status = 'contained';
+      slime.containerId = 'basic-1';
+      slime.roomActivity = { type: 'idle', label: 'contained', updatedAt: state.clock || 0 };
+    }
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  const staleAlert = page.locator('[data-incident-alert][data-incident-status="stale"]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
+  await expect(staleAlert).toContainText('Stale');
+  await expect(staleAlert).toContainText('last known Day 1');
+  await page.locator('[data-map-overlay-select="true"]').selectOption('incidents');
+  await expect(page.locator('.lab-map-cell.incident-stale')).not.toHaveCount(0);
 });
 
 test('room contamination diffuses through connected doors according to seal quality', async ({ page }) => {
