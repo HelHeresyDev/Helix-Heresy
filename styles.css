@@ -2449,6 +2449,119 @@ h2 {
   grid-template-columns: 6rem minmax(0, 1fr);
 }
 
+.message-history-controls {
+  display: flex;
+  align-items: end;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.message-history-controls .field-label {
+  margin: 0;
+}
+
+.message-row {
+  border-left: 3px solid #44473c;
+}
+
+.message-row.message-severity-warning {
+  border-left-color: var(--amber);
+}
+
+.message-row.message-severity-serious {
+  border-left-color: #d98d54;
+}
+
+.message-row.message-severity-critical {
+  border-left-color: #d65d5d;
+}
+
+.message-time {
+  color: var(--muted);
+}
+
+.message-body {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.message-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.3rem;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid #3b3e34;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
+.message-focus {
+  min-height: 1.3rem;
+  padding: 0.12rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+.message-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.message-feed {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 12;
+  display: grid;
+  gap: 0.35rem;
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: min(38vh, 22rem);
+  padding: 0.65rem;
+  border: 1px solid rgba(87, 92, 75, 0.82);
+  border-radius: 8px;
+  background: rgba(16, 17, 13, 0.74);
+  box-shadow: 0 12px 30px var(--shadow);
+  overflow: auto;
+  pointer-events: none;
+  transition: right 180ms ease, opacity 140ms ease;
+}
+
+.message-feed-empty {
+  display: none;
+}
+
+.message-feed-title {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.message-feed .message-row {
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  padding: 0.42rem;
+  background: rgba(34, 36, 31, 0.88);
+  pointer-events: auto;
+}
+
+.message-feed .message-row:hover {
+  border-color: var(--cyan);
+}
+
+@media (min-width: 900px) {
+  .app-shell.queue-open .message-feed {
+    right: 25.5rem;
+  }
+}
+
 @keyframes entity-focus-pulse {
   0% {
     border-color: var(--cyan);

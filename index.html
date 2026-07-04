@@ -66,7 +66,7 @@
           <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
           <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
           <button class="workspace-tab" type="button" data-workspace-tab="journal">Journal</button>
-          <button class="workspace-tab" type="button" data-workspace-tab="log">Log</button>
+          <button class="workspace-tab" type="button" data-workspace-tab="log">Messages</button>
           <button class="workspace-tab" type="button" data-workspace-tab="cheats">Cheats</button>
         </nav>
 
@@ -308,14 +308,19 @@
         <section class="panel log-panel" aria-labelledby="logTitle" data-workspace-panel="log">
           <div class="panel-heading">
             <div>
-              <h2 id="logTitle">Lab Log</h2>
-              <p>Recent operational events</p>
+              <h2 id="logTitle">Message History</h2>
+              <p id="messageHistorySummary">Observed laboratory record</p>
             </div>
+          </div>
+          <div class="message-history-controls">
+            <label class="field-label" for="messageFilterSelect">Filter</label>
+            <select id="messageFilterSelect"></select>
           </div>
           <div id="eventLog" class="event-log"></div>
         </section>
       </main>
 
+      <aside id="messageFeed" class="message-feed" aria-label="Recent important messages" aria-live="polite"></aside>
       <div id="seedReadout" class="seed-corner">Seed: none</div>
     </div>
 

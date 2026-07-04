@@ -2110,6 +2110,28 @@
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
+  const MESSAGE_HISTORY_LIMIT = 240;
+  const COMPACT_MESSAGE_LIMIT = 8;
+  const MESSAGE_CATEGORY_DEFS = [
+    { id: "incident", label: "Incidents" },
+    { id: "combat", label: "Combat" },
+    { id: "task", label: "Tasks" },
+    { id: "discovery", label: "Discoveries" },
+    { id: "resource", label: "Resources" },
+    { id: "specimen", label: "Specimens" },
+    { id: "facility", label: "Facility" },
+    { id: "system", label: "System" }
+  ];
+  const MESSAGE_CATEGORY_BY_ID = Object.fromEntries(MESSAGE_CATEGORY_DEFS.map((category) => [category.id, category]));
+  const MESSAGE_SEVERITY_DEFS = [
+    { id: "routine", label: "Routine", rank: 0 },
+    { id: "notice", label: "Notice", rank: 1 },
+    { id: "warning", label: "Warning", rank: 2 },
+    { id: "serious", label: "Serious", rank: 3 },
+    { id: "critical", label: "Critical", rank: 4 }
+  ];
+  const MESSAGE_SEVERITY_BY_ID = Object.fromEntries(MESSAGE_SEVERITY_DEFS.map((severity) => [severity.id, severity]));
+  const DEFAULT_MESSAGE_FILTER = "all";
   const UI_MODE_NAVIGATION = "navigation";
   const UI_MODE_COMMAND = "command";
   const SELECTION_INSPECTOR_TABS = [
@@ -2316,6 +2338,7 @@
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
+      messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       keyboardHelpOpen: false
     };
@@ -2508,6 +2531,7 @@
     cacheDom();
     ensureInventoryPanel();
     populateTimeSpeedSelect();
+    populateMessageFilterSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
     bindEvents();
     state = defaultState();
@@ -2615,6 +2639,9 @@
       "skipNextEventBtn",
       "skipQueueBtn",
       "taskList",
+      "messageFeed",
+      "messageHistorySummary",
+      "messageFilterSelect",
       "eventLog",
       "setupOverlay",
       "setupForm",
@@ -2704,6 +2731,23 @@
     }
   }
 
+  function populateMessageFilterSelect() {
+    if (!dom.messageFilterSelect) {
+      return;
+    }
+    dom.messageFilterSelect.textContent = "";
+    const allOption = document.createElement("option");
+    allOption.value = DEFAULT_MESSAGE_FILTER;
+    allOption.textContent = "All messages";
+    dom.messageFilterSelect.append(allOption);
+    for (const category of MESSAGE_CATEGORY_DEFS) {
+      const option = document.createElement("option");
+      option.value = category.id;
+      option.textContent = category.label;
+      dom.messageFilterSelect.append(option);
+    }
+  }
+
   function bindEvents() {
     bindWorkspaceTabs();
 
@@ -2755,6 +2799,12 @@
 
     dom.timeSpeedSelect.addEventListener("change", () => {
       setTimeSpeed(dom.timeSpeedSelect.value);
+    });
+
+    dom.messageFilterSelect?.addEventListener("change", () => {
+      ensureUiState().messageFilter = normalizeMessageFilter(dom.messageFilterSelect.value);
+      persist();
+      render();
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -3201,6 +3251,11 @@
     return resourceOverlayFocusDefs().some((focus) => focus.id === id) ? id : DEFAULT_RESOURCE_OVERLAY_FOCUS_ID;
   }
 
+  function normalizeMessageFilter(value) {
+    const id = String(value || DEFAULT_MESSAGE_FILTER).trim();
+    return id === DEFAULT_MESSAGE_FILTER || MESSAGE_CATEGORY_BY_ID[id] ? id : DEFAULT_MESSAGE_FILTER;
+  }
+
   function normalizeSelectionInspectorTab(value) {
     const id = String(value || DEFAULT_SELECTION_INSPECTOR_TAB).trim();
     return SELECTION_INSPECTOR_TAB_BY_ID[id] ? id : DEFAULT_SELECTION_INSPECTOR_TAB;
@@ -3272,6 +3327,7 @@
       },
       mapOverlay: normalizeMapOverlayId(candidate?.mapOverlay),
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
+      messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
@@ -8827,12 +8883,30 @@
         const changed = !state.paused || state.timeSpeed !== "realtime";
         state.timeSpeed = "realtime";
         state.paused = true;
-        addEvent(`Critical incident spotted: ${incident.label}. Time paused at 1x.`);
+        addEvent(`Critical incident spotted: ${incident.label}. Time paused at 1x.`, {
+          category: "incident",
+          severity: "critical",
+          feed: true,
+          incidentId: incident.id,
+          roomId: incident.roomId,
+          cell: incident.cell,
+          sourceKind: incident.sourceKind,
+          sourceId: incident.sourceId
+        });
         changes += changed ? 1 : 0;
       } else {
         const changed = state.timeSpeed !== "realtime";
         state.timeSpeed = "realtime";
-        addEvent(`Serious incident spotted: ${incident.label}. Time reduced to 1x.`);
+        addEvent(`Serious incident spotted: ${incident.label}. Time reduced to 1x.`, {
+          category: "incident",
+          severity: "serious",
+          feed: true,
+          incidentId: incident.id,
+          roomId: incident.roomId,
+          cell: incident.cell,
+          sourceKind: incident.sourceKind,
+          sourceId: incident.sourceId
+        });
         changes += changed ? 1 : 0;
       }
       changes += 1;
@@ -9765,7 +9839,20 @@
     const changed = !state.paused || state.timeSpeed !== "realtime";
     state.timeSpeed = "realtime";
     state.paused = true;
-    addEvent(`Combat spotted: ${record.summary || record.label}. Time paused at 1x.`);
+    addEvent(`Combat spotted: ${record.summary || record.label}. Time paused at 1x.`, {
+      category: "combat",
+      severity: "critical",
+      feed: true,
+      roomId: record.roomId,
+      cell: record.cell,
+      incidentId: activeIncidentAlerts().find((incident) =>
+        incident.type === "combat"
+        && incident.roomId === record.roomId
+        && cleanMapCell(incident.cell)
+        && cleanMapCell(record.cell)
+        && mapCellKey(incident.cell) === mapCellKey(record.cell)
+      )?.id || ""
+    });
     return changed;
   }
 
@@ -29314,20 +29401,146 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderEvents() {
+    state.events = normalizeMessages(state.events);
+    renderCompactMessageFeed();
+    renderMessageHistory();
+  }
+
+  function messageCategoryLabel(category) {
+    return MESSAGE_CATEGORY_BY_ID[cleanMessageCategory(category)]?.label || "System";
+  }
+
+  function messageSeverityLabel(severity) {
+    return MESSAGE_SEVERITY_BY_ID[cleanMessageSeverity(severity)]?.label || "Routine";
+  }
+
+  function currentMessageFilter() {
+    return normalizeMessageFilter(ensureUiState().messageFilter);
+  }
+
+  function messageMatchesFilter(entry, filterId) {
+    return filterId === DEFAULT_MESSAGE_FILTER || entry.category === filterId;
+  }
+
+  function compactFeedMessages() {
+    return normalizeMessages(state.events)
+      .filter((entry) => entry.feed)
+      .slice(-COMPACT_MESSAGE_LIMIT)
+      .reverse();
+  }
+
+  function filteredMessageHistory() {
+    const filterId = currentMessageFilter();
+    return normalizeMessages(state.events)
+      .filter((entry) => messageMatchesFilter(entry, filterId))
+      .reverse();
+  }
+
+  function renderCompactMessageFeed() {
+    if (!dom.messageFeed) {
+      return;
+    }
+    dom.messageFeed.textContent = "";
+    const messages = compactFeedMessages();
+    dom.messageFeed.classList.toggle("message-feed-empty", messages.length === 0);
+    if (!messages.length) {
+      return;
+    }
+    const title = document.createElement("div");
+    title.className = "message-feed-title";
+    title.textContent = "Recent";
+    dom.messageFeed.append(title);
+    for (const entry of messages) {
+      const row = messageRowEl(entry, { compact: true });
+      dom.messageFeed.append(row);
+    }
+  }
+
+  function renderMessageHistory() {
     dom.eventLog.textContent = "";
-    const events = state.events.slice(-8).reverse();
+    const filterId = currentMessageFilter();
+    if (dom.messageFilterSelect) {
+      dom.messageFilterSelect.value = filterId;
+    }
+    const events = filteredMessageHistory();
+    const total = normalizeMessages(state.events).length;
+    const filterLabel = filterId === DEFAULT_MESSAGE_FILTER ? "all categories" : messageCategoryLabel(filterId).toLowerCase();
+    if (dom.messageHistorySummary) {
+      dom.messageHistorySummary.textContent = `${events.length}/${total} observed messages shown; ${filterLabel}.`;
+    }
     if (events.length === 0) {
-      dom.eventLog.append(emptyText("No events."));
+      dom.eventLog.append(emptyText(filterId === DEFAULT_MESSAGE_FILTER ? "No messages." : "No messages match this filter."));
       return;
     }
     for (const event of events) {
-      const row = document.createElement("div");
-      row.className = "event-row";
-      const message = document.createElement("span");
-      appendLinkedEntityText(message, event.message);
-      row.append(textEl("span", formatClock(event.time)), message);
-      dom.eventLog.append(row);
+      dom.eventLog.append(messageRowEl(event));
     }
+  }
+
+  function messageRowEl(entry, options = {}) {
+    const row = document.createElement("div");
+    row.className = `event-row message-row message-category-${entry.category} message-severity-${entry.severity}`;
+    row.dataset.messageCategory = entry.category;
+    row.dataset.messageSeverity = entry.severity;
+    if (entry.feed) {
+      row.dataset.messageFeed = "true";
+    }
+
+    const time = textEl("span", formatClock(entry.time));
+    time.className = "message-time";
+
+    const body = document.createElement("div");
+    body.className = "message-body";
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.append(messageChip(messageCategoryLabel(entry.category)), messageChip(messageSeverityLabel(entry.severity)));
+    const focusTarget = messageFocusTarget(entry);
+    if (focusTarget) {
+      const focus = document.createElement("button");
+      focus.type = "button";
+      focus.className = "message-focus";
+      focus.textContent = focusTarget.kind === "incident" ? "Focus Incident" : "Focus Map";
+      focus.title = "Focus the known map target connected to this message.";
+      focus.addEventListener("click", (event) => {
+        event.stopPropagation();
+        focusMapTarget(focusTarget, { source: "log", resetInspectorTab: true });
+      });
+      meta.append(focus);
+    }
+    if (!options.compact) {
+      body.append(meta);
+    }
+    const text = document.createElement("div");
+    text.className = "message-text";
+    appendLinkedEntityText(text, entry.message);
+    body.append(text);
+    row.append(time, body);
+    if (options.compact && focusTarget) {
+      row.title = "Click to focus the known message target.";
+      row.addEventListener("click", () => focusMapTarget(focusTarget, { source: "log", resetInspectorTab: true }));
+    }
+    return row;
+  }
+
+  function messageChip(text) {
+    const element = document.createElement("span");
+    element.className = "message-chip";
+    element.textContent = text;
+    return element;
+  }
+
+  function messageFocusTarget(entry) {
+    if (entry.incidentId && incidentById(entry.incidentId)) {
+      return { kind: "incident", id: entry.incidentId, source: "log" };
+    }
+    const cell = cleanMapCell(entry.cell);
+    if (cell) {
+      return { kind: "tile", tile: cell, source: "log" };
+    }
+    if (entry.roomId && roomById(entry.roomId)) {
+      return { kind: "room", roomId: entry.roomId, source: "log" };
+    }
+    return null;
   }
 
   function renderKnownEditor() {
@@ -33406,12 +33619,122 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.tasks.some((task) => task.type === "rest");
   }
 
-  function addEvent(message) {
+  function cleanMessageCategory(value) {
+    const id = String(value || "").trim();
+    return MESSAGE_CATEGORY_BY_ID[id] ? id : "system";
+  }
+
+  function cleanMessageSeverity(value) {
+    const id = String(value || "").trim();
+    return MESSAGE_SEVERITY_BY_ID[id] ? id : "routine";
+  }
+
+  function messageSeverityRank(value) {
+    return MESSAGE_SEVERITY_BY_ID[cleanMessageSeverity(value)]?.rank || 0;
+  }
+
+  function inferMessageCategory(message) {
+    const text = String(message || "").toLowerCase();
+    if (/combat|clash|struck|strike|fighting|feed-attack|hurt in combat/.test(text)) {
+      return "combat";
+    }
+    if (/incident|breach|breached|escaped|overflow|contamination|contaminated|hazardous|seep|foul|exposure|physical state|air in /.test(text)) {
+      return "incident";
+    }
+    if (/suspicion|door|container|room|containment|handling|scientist hurt|collapsed|run ended/.test(text)) {
+      return "facility";
+    }
+    if (/resource|biomass|genetic material|elemental residue|waste|feedstock|collection bay|material hauling|transferred|inventory|byproduct/.test(text)) {
+      return "resource";
+    }
+    if (/analyze|analysis|xp|level|skill|evolved|test|survey|necropsy|harvest|trait|region|journal|observation/.test(text)) {
+      return "discovery";
+    }
+    if (/slime|corpse|remains|specimen|fed|feeding|maturity|split|mass|nutrition|integrity|stress/.test(text)) {
+      return "specimen";
+    }
+    if (/task|queued|started|complete|canceled|cancelled|could not|not enough|requires|blocked|arrived|movement|hauling/.test(text)) {
+      return "task";
+    }
+    return "system";
+  }
+
+  function inferMessageSeverity(message, category) {
+    const text = String(message || "").toLowerCase();
+    if (/critical|died|dead|run ended|collapsed|escaped|breached and cannot|hazardous|scientist hurt|corpse is leaking|overflow contamination/.test(text)) {
+      return "critical";
+    }
+    if (/serious|combat spotted|clash|hurt|damage|lost .*integrity|suspicion rose|breach|breached|contamination is fouled|physical state pressure|escape pressure: critical/.test(text)) {
+      return "serious";
+    }
+    if (/could not|cannot|can't|not enough|no open|no .*available|blocked|failed|cancelled|canceled|requires|warning|unsafe|leak|seep|fouling|overflow|risk|worn|broke|dropped to/.test(text)) {
+      return "warning";
+    }
+    if (category === "incident" || category === "combat") {
+      return "notice";
+    }
+    return "routine";
+  }
+
+  function inferMessageCompactFeed(message, category, severity) {
+    const text = String(message || "").toLowerCase();
+    const rank = messageSeverityRank(severity);
+    if ((category === "incident" || category === "combat") && rank >= messageSeverityRank("notice")) {
+      return true;
+    }
+    if (rank >= messageSeverityRank("serious")) {
+      return true;
+    }
+    if (rank >= messageSeverityRank("warning") && /could not|cannot|not enough|blocked|failed|cancelled|canceled|requires|warning|unsafe/.test(text)) {
+      return true;
+    }
+    return false;
+  }
+
+  function normalizeMessageRecord(candidate, fallbackIndex = 0) {
+    const source = candidate && typeof candidate === "object" ? candidate : { message: candidate };
+    const message = String(source.message ?? source.text ?? "").trim();
+    if (!message) {
+      return null;
+    }
+    const category = cleanMessageCategory(source.category || inferMessageCategory(message));
+    const severity = cleanMessageSeverity(source.severity || inferMessageSeverity(message, category));
+    return {
+      time: finiteTime(source.time, state?.clock || 0),
+      message,
+      category,
+      severity,
+      feed: source.feed === undefined ? inferMessageCompactFeed(message, category, severity) : Boolean(source.feed),
+      roomId: String(source.roomId || "").trim(),
+      cell: cleanMapCell(source.cell || source.tile),
+      incidentId: String(source.incidentId || "").trim(),
+      sourceKind: String(source.sourceKind || "").trim(),
+      sourceId: String(source.sourceId || "").trim(),
+      key: String(source.key || `message-${fallbackIndex}`).trim()
+    };
+  }
+
+  function normalizeMessages(candidate) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((entry, index) => normalizeMessageRecord(entry, index))
+      .filter(Boolean)
+      .slice(-MESSAGE_HISTORY_LIMIT);
+  }
+
+  function addEvent(message, options = {}) {
     if (!state) {
       return;
     }
-    state.events.push({ time: state.clock, message });
-    state.events = state.events.slice(-80);
+    const record = normalizeMessageRecord({
+      ...options,
+      time: options.time ?? state.clock,
+      message
+    }, state.events?.length || 0);
+    if (!record) {
+      return;
+    }
+    state.events.push(record);
+    state.events = normalizeMessages(state.events).slice(-MESSAGE_HISTORY_LIMIT);
   }
 
   function cleanGenome(value) {
@@ -34045,7 +34368,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
     next.knownResultKeys ||= {};
     next.resultRepeats ||= {};
-    next.events ||= [];
+    next.events = normalizeMessages(next.events);
     next.tasks ||= [];
     next.slimes ||= [];
     next.suspicion = clamp(Math.round(Number(next.suspicion) || 0), 0, SUSPICION_MAX);

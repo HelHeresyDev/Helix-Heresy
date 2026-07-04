@@ -12,36 +12,14 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Journal, Log, and Message Feed Integration Pass
-2. Menu Hierarchy and Screen Manager System
-3. UI State Persistence and Player Preference System
-4. Map Renderer Boundary and Future Canvas/Sprite Preparation
-5. Black Market Byproduct Economy System
+1. Menu Hierarchy and Screen Manager System
+2. UI State Persistence and Player Preference System
+3. Map Renderer Boundary and Future Canvas/Sprite Preparation
+4. Black Market Byproduct Economy System
 
 ---
 
-## 1. Journal, Log, and Message Feed Integration Pass
-
-Integrate the journal, event log, messages, discoveries, and notifications into the map-first interface.
-
-The current prototype has many systems that generate observations, inventory histories, incident alerts, discoveries, warnings, and event log entries. A map-first UI needs a cleaner message hierarchy so the player knows what is urgent, what is historical, what is discovery-related, and what is routine accounting.
-
-This system should answer questions like:
-- Where does the main event/message feed live?
-- What belongs in the event log versus incident alerts versus inventory history versus journal discoveries?
-- How does the player filter messages?
-- How do map locations link from log entries?
-- How should discoveries and scientific observations be surfaced without interrupting every task?
-- How should routine resource accounting avoid spamming the main feed?
-- How should the journal remain useful in a map-first interface?
-
-The desired result is a cleaner information flow where important events are visible, routine accounting stays in history/tooltips, and map-linked messages can focus the relevant room, object, specimen, or incident.
-
-Before coding, discuss message categories, filtering, map linking, journal placement, history boundaries, and which existing messages should be migrated or reclassified.
-
----
-
-## 2. Menu Hierarchy and Screen Manager System
+## 1. Menu Hierarchy and Screen Manager System
 
 Create a screen manager and menu hierarchy for the map-first interface.
 
@@ -62,7 +40,7 @@ Before coding, discuss screen categories, navigation rules, Escape/back behavior
 
 ---
 
-## 3. UI State Persistence and Player Preference System
+## 2. UI State Persistence and Player Preference System
 
 Create a UI state and preference system for the map-first interface.
 
@@ -83,7 +61,7 @@ Before coding, discuss persistent versus transient UI state, storage location, d
 
 ---
 
-## 4. Map Renderer Boundary and Future Canvas/Sprite Preparation
+## 3. Map Renderer Boundary and Future Canvas/Sprite Preparation
 
 Create a clean boundary around map rendering so the current DOM map can eventually be replaced or supplemented by Canvas and sprites.
 
@@ -105,7 +83,7 @@ Before coding, discuss renderer boundaries, current coupling, view model shape, 
 
 ---
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
