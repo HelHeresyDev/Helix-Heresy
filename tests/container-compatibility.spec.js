@@ -87,6 +87,7 @@ async function stageCompatibilitySlime(page, { genome, revealed = {} }) {
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, genome, revealed });
   await loadSavedRun(page);
+  await page.locator('[data-workspace-tab="containers"]').click();
 }
 
 test('known material and support problems appear in container compatibility readout', async ({ page }) => {
@@ -129,6 +130,7 @@ test('known material and support problems appear in container compatibility read
   expect(resistanceTitle).toContain('Corrosive');
   expect(resistanceTitle).toContain('Physical');
 
+  await page.locator('[data-workspace-tab="policies"]').click();
   await page.locator('[data-handling-method-select="true"]').selectOption('thickGloves');
   const handlingNote = page.locator('[data-handling-inventory-note="true"]');
   await expect(handlingNote).toContainText('Tool resistance:');

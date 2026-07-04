@@ -17,8 +17,6 @@
           <span id="clockReadout">Day 1 00:00</span>
           <span id="pauseReadout">Paused</span>
           <span id="speedReadout">Speed 60x</span>
-          <span id="storageReadout">Containers 0/12</span>
-          <span id="wasteReadout">Drums 0/8</span>
           <span id="suspicionReadout">Suspicion: Quiet</span>
         </div>
         <div class="top-actions">
@@ -35,6 +33,10 @@
           </label>
         </div>
       </header>
+      <div class="menu-only-readouts" hidden>
+        <span id="storageReadout">Containers 0/12</span>
+        <span id="wasteReadout">Drums 0/8</span>
+      </div>
 
       <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
         <nav class="workspace-tabs" aria-label="Main workspace sections">

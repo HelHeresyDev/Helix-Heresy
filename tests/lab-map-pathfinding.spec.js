@@ -30,7 +30,9 @@ async function loadSavedRun(page, options = {}) {
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
   if (restoreSelectedSlime) {
+    await page.locator('[data-workspace-tab="specimens"]').click();
     await page.locator(`[data-slime-card="${restoreSelectedSlime}"]`).click();
+    await page.locator('[data-workspace-tab="map"]').click();
   }
 }
 
@@ -1493,6 +1495,7 @@ test('container hauling reserves a footprint and routes to adjacent access cells
 
   expect(before.container.mapCell).toBeTruthy();
 
+  await page.locator('[data-workspace-tab="containers"]').click();
   await page.locator('[data-container-room-select="basic-1"]').selectOption('collectionBay');
 
   const queued = await page.evaluate(({ key }) => {

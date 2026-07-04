@@ -85,6 +85,7 @@ test('queued container hauling stages contained specimens by container location'
   await expect(page.locator('#selectedSlimeSummary')).toContainText('Room: Main Lab');
   await expect(page.locator('#roomList')).toContainText('Collection status: No staged containers');
 
+  await page.locator('[data-workspace-tab="containers"]').click();
   await page.locator('[data-container-room-select="basic-1"]').selectOption('collectionBay');
 
   await page.locator('#queueToggleBtn').click();

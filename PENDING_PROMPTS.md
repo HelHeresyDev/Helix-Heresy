@@ -12,43 +12,22 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Full-Screen Map Shell and Minimal HUD
-2. Map-Centered Selection Inspector
-3. Contextual Command Menu
-4. Management Menus and Top-Level Navigation
-5. Creature Records Menu
-6. Task and Queue Management Menu
-7. Inventory, Resources, and Room Stockpile Menus
-8. Policies, Automation, and Debug Menus
-9. Message History and Alert Feed
-10. Map Overlay and Legend Menu
-11. Remove Persistent Prototype Panels
-12. Keyboard Navigation and Menu Flow Polish
-13. Black Market Byproduct Economy System
+1. Map-Centered Selection Inspector
+2. Contextual Command Menu
+3. Management Menus and Top-Level Navigation
+4. Creature Records Menu
+5. Task and Queue Management Menu
+6. Inventory, Resources, and Room Stockpile Menus
+7. Policies, Automation, and Debug Menus
+8. Message History and Alert Feed
+9. Map Overlay and Legend Menu
+10. Remove Persistent Prototype Panels
+11. Keyboard Navigation and Menu Flow Polish
+12. Black Market Byproduct Economy System
 
 ---
 
-## 1. Full-Screen Map Shell and Minimal HUD
-
-Transition the main play surface into a full-screen, map-first interface.
-
-The map should occupy the whole screen by default. Persistent side panels and prototype columns should no longer define the main layout. Essential status such as time, pause/speed, selected overlay, current alert count, and maybe the scientist's immediate task can remain in a compact HUD, but the player's default view should be the physical lab map.
-
-This pass should preserve the current visual map style unless a specific change is agreed on. The goal is layout and interaction architecture, not a new art pass.
-
-The system should answer questions like:
-- What information belongs in the always-visible HUD?
-- What should move into menus?
-- Should the HUD sit at the top, bottom, corners, or be split?
-- How should pause/speed controls work in a map-first shell?
-- How should the current tab/category system be replaced or folded into menu launchers?
-- How should the full-screen map behave on smaller screens?
-
-The desired result is a main game screen that clearly says: this is a physical underground lab first, and all other information is opened from the map, hotkeys, or menu buttons.
-
-Before coding, discuss HUD content, map sizing, menu entry points, what should remain visible at all times, and how much old panel layout should survive temporarily during the transition.
-
-## 2. Map-Centered Selection Inspector
+## 1. Map-Centered Selection Inspector
 
 Convert inspection into a map-driven menu or overlay instead of a persistent side panel.
 
@@ -66,7 +45,7 @@ The desired result is that clicking the map is the primary way to ask "what is t
 
 Before coding, discuss inspector shape, selection priority, nested entities, back/close behavior, and how to avoid recreating the old side panel under a new name.
 
-## 3. Contextual Command Menu
+## 2. Contextual Command Menu
 
 Create a command menu driven by the current selection and game state.
 
@@ -84,7 +63,7 @@ The desired result is that map selection becomes the main command surface rather
 
 Before coding, discuss command grouping, disabled-reason visibility, confirmation rules, hotkeys, and which existing actions should be migrated first.
 
-## 4. Management Menus and Top-Level Navigation
+## 3. Management Menus and Top-Level Navigation
 
 Replace the old tab/panel mentality with top-level management menus suitable for a Dwarf Fortress or RimWorld style interface.
 
@@ -102,7 +81,7 @@ The desired result is a structured menu system that can scale to many future scr
 
 Before coding, discuss category names, menu behavior, whether menus pause time, and which existing tabs should be migrated first.
 
-## 5. Creature Records Menu
+## 4. Creature Records Menu
 
 Move creature lists, specimen sheets, discovered traits, skills, jobs, status, lineage, corpses, and released/contained state into a dedicated creature records menu.
 
@@ -120,7 +99,7 @@ The desired result is a clean creature-management screen that supports both map-
 
 Before coding, discuss list structure, filtering, unknown information, map focus behavior, and which existing creature panels should be retired.
 
-## 6. Task and Queue Management Menu
+## 5. Task and Queue Management Menu
 
 Move scientist queue, task details, blocked tasks, path preview, cancellation, priorities, and future work orders into a dedicated Tasks menu.
 
@@ -138,7 +117,7 @@ The desired result is a task management screen that supports direct scientist co
 
 Before coding, discuss task grouping, cancellation, reordering, path display, and how to remove the old queue drawer once obsolete.
 
-## 7. Inventory, Resources, and Room Stockpile Menus
+## 6. Inventory, Resources, and Room Stockpile Menus
 
 Move inventory, resources, tools, collected byproducts, harvested materials, local stockpiles, pit contents, and room supply knowledge into map-aware inventory menus.
 
@@ -156,7 +135,7 @@ The desired result is an inventory system that supports physical logistics witho
 
 Before coding, discuss grouping, map focus behavior, last-known inventory language, and how this menu should support future black market sales.
 
-## 8. Policies, Automation, and Debug Menus
+## 7. Policies, Automation, and Debug Menus
 
 Move automation policies and debug tools into dedicated menus behind the map shell.
 
@@ -174,7 +153,7 @@ The desired result is a scalable policy/debug structure that keeps testing tools
 
 Before coding, discuss policy categories, debug visibility, exception rules, and how to prevent the menu from becoming an unstructured settings pile.
 
-## 9. Message History and Alert Feed
+## 8. Message History and Alert Feed
 
 Create a proper message history menu and a small non-intrusive live alert feed.
 
@@ -192,7 +171,7 @@ The desired result is clear situational awareness without flooding the main map.
 
 Before coding, discuss feed placement, message categories, filters, pause/slow rules, and what counts as routine versus notable.
 
-## 10. Map Overlay and Legend Menu
+## 9. Map Overlay and Legend Menu
 
 Move overlay controls, legends, filters, and debug visibility into a menu that supports map-first play.
 
@@ -210,7 +189,7 @@ The desired result is an overlay system that helps players read the lab without 
 
 Before coding, discuss overlay access, legends, filtering, hotkeys, and debug separation.
 
-## 11. Remove Persistent Prototype Panels
+## 10. Remove Persistent Prototype Panels
 
 After the key map menus exist, remove or retire the old persistent prototype panels.
 
@@ -228,7 +207,7 @@ The desired result is a cleaner UI architecture where the map shell, menus, insp
 
 Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
 
-## 12. Keyboard Navigation and Menu Flow Polish
+## 11. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -246,7 +225,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 13. Black Market Byproduct Economy System
+## 12. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

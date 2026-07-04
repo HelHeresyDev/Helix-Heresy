@@ -43,13 +43,14 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await startRun(page);
-  await page.locator('#queueToggleBtn').click();
 
   await expect(page.locator('#inventorySummary')).toContainText('room-local stockpiles');
+  await page.locator('[data-workspace-tab="foundry"]').click();
   await expect(page.locator('#synthesizeBtn')).toHaveAttribute('title', /Biomass: need 10 in Main Lab; 0 here \/ 50 known total/);
   await expect(page.locator('#synthesizeBtn')).toHaveAttribute('title', /One click will queue material hauling/);
   await page.locator('#synthesizeBtn').click();
 
+  await page.locator('#queueToggleBtn').click();
   const haulTask = page.locator('#taskList .task-row').filter({ hasText: 'Haul materials for Synthesize slime' });
   await expect(haulTask).toBeVisible();
 
@@ -241,14 +242,15 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, genome: organicGenome });
   await loadSavedRun(page);
-  await page.locator('#queueToggleBtn').click();
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   const selectedCard = page.locator('[data-slime-card="feed-delivery"]');
   const feedstockSelect = selectedCard.getByLabel('Feedstock');
   await expect(feedstockSelect.locator('option[value="organicFeedstock"]')).toContainText('0 here / 1 total');
   await feedstockSelect.selectOption('organicFeedstock');
   await selectedCard.getByRole('button', { name: 'Feed', exact: true }).click();
 
+  await page.locator('#queueToggleBtn').click();
   const haulTask = page.locator('#taskList .task-row').filter({ hasText: 'Haul materials for feeding FEED-001' });
   await expect(haulTask).toBeVisible();
   await haulTask.getByRole('button', { name: 'Finish' }).click();

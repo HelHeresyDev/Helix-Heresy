@@ -201,6 +201,7 @@ test('scientist strike damages body integrity and can create a combat corpse', a
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   await expect(page.locator('[data-strike-slime-id="strike-target"]')).toBeEnabled();
   await page.locator('[data-strike-slime-id="strike-target"]').click();
 

@@ -26,6 +26,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -128,20 +129,25 @@ textarea {
 
 .app-shell {
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 10;
+  left: 0;
+  right: 0;
+  z-index: 30;
   display: grid;
-  grid-template-columns: minmax(14rem, 1fr) minmax(18rem, 2fr) auto;
+  grid-template-columns: minmax(12rem, 1fr) minmax(15rem, auto) auto;
   gap: 1rem;
   align-items: center;
-  padding: 0.85rem 1rem;
-  background: rgba(17, 17, 15, 0.96);
+  min-height: 4.2rem;
+  padding: 0.65rem 1rem;
+  background: rgba(17, 17, 15, 0.9);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 12px 28px var(--shadow);
+  backdrop-filter: blur(8px);
 }
 
 h1,
@@ -245,25 +251,27 @@ h2 {
 }
 
 .lab-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  align-items: start;
-  gap: 1rem;
-  padding: 1rem;
-  transition: padding-left 180ms ease;
+  display: block;
+  min-height: 100vh;
+  padding: 0;
+  transition: none;
 }
 
 .workspace-tabs {
-  grid-column: 1 / -1;
-  order: -20;
+  position: fixed;
+  top: 4.75rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 35;
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
   padding: 0.45rem;
-  background: #151610;
-  border: 1px solid var(--line);
+  background: rgba(21, 22, 16, 0.82);
+  border: 1px solid rgba(56, 58, 50, 0.88);
   border-radius: 8px;
   box-shadow: 0 8px 18px var(--shadow);
+  backdrop-filter: blur(8px);
 }
 
 .workspace-tab-group {
@@ -303,7 +311,6 @@ h2 {
 }
 
 .panel {
-  grid-column: span 4;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -318,8 +325,49 @@ h2 {
 }
 
 .room-panel {
-  grid-column: 1 / -1;
-  order: -10;
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  overflow: auto;
+  padding: 8.6rem 1rem 1rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.room-panel > .panel-heading {
+  display: none;
+}
+
+.management-workspace-panel {
+  position: fixed;
+  top: 8.6rem;
+  left: 50%;
+  z-index: 20;
+  width: min(76rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 9.6rem);
+  overflow: auto;
+  transform: translateX(-50%);
+  border-color: rgba(104, 200, 216, 0.45);
+  background: rgba(27, 28, 24, 0.96);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+.scientist-panel.management-workspace-panel,
+.inventory-panel.management-workspace-panel {
+  width: calc(50vw - 1.5rem);
+  max-width: 38rem;
+  transform: none;
+}
+
+.scientist-panel.management-workspace-panel {
+  left: max(1rem, calc(50vw - 39rem));
+}
+
+.inventory-panel.management-workspace-panel {
+  left: auto;
+  right: max(1rem, calc(50vw - 39rem));
 }
 
 .dna-panel {
@@ -702,9 +750,13 @@ h2 {
   gap: 0.55rem;
   padding: 0.55rem;
   margin-top: 0;
-  background: #151610;
+  min-height: calc(100vh - 10rem);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  background: rgba(21, 22, 16, 0.84);
   border: 1px solid #303329;
   border-radius: 6px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(4px);
 }
 
 .selection-inspector {
@@ -918,8 +970,9 @@ h2 {
 .lab-map-grid {
   display: grid;
   gap: 1px;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
+  align-self: stretch;
   padding: 0.35rem;
   background: #090a08;
   border: 1px solid #282a22;
@@ -2631,9 +2684,12 @@ h2 {
 }
 
 @media (max-width: 560px) {
-  .topbar,
-  .lab-grid {
+  .topbar {
     padding: 0.75rem;
+  }
+
+  .lab-grid {
+    padding: 0;
   }
 
   .panel {

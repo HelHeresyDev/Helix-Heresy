@@ -134,6 +134,7 @@ test('hazardous handling wears a usable tool and shows condition in inventory', 
 
   const handlingNote = page.locator('[data-handling-inventory-note="true"]');
   await expect(handlingNote).toContainText('Worn 6/10');
+  await page.locator('[data-workspace-tab="containers"]').click();
   await page.locator('[data-open-container-id="basic-1"]').click();
   await finishQueuedTask(page, 'Open Durability Jar');
   await expect(page.locator('[data-inventory-item-key="thickGloves"]')).toContainText('Damaged (5/10)');

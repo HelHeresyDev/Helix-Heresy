@@ -4363,9 +4363,10 @@
     }
     for (const panel of document.querySelectorAll("[data-workspace-panel]")) {
       const panelTab = cleanWorkspaceTab(panel.dataset.workspacePanel);
-      const visible = workspaceTabVisible(panelTab);
+      const visible = workspaceTabVisible(panelTab) && (panelTab === "map" || panelTab === tabId);
       panel.hidden = !visible;
       panel.classList.toggle("active-workspace-panel", visible && panelTab === tabId);
+      panel.classList.toggle("management-workspace-panel", visible && panelTab !== "map");
     }
   }
 
@@ -28649,7 +28650,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
-    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0.85rem, 1.45rem))`;
+    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0.85rem, 1fr))`;
     for (const cellView of mapView.cells) {
       const domCell = labMapCellDomModel(cellView);
       const tile = document.createElement("div");

@@ -45,6 +45,10 @@ async function loadSavedRun(page) {
   await page.locator('#loadLastSaveBtn').click();
 }
 
+async function openWorkspace(page, tabId) {
+  await page.locator(`[data-workspace-tab="${tabId}"]`).click();
+}
+
 test('skill sheet hides level-zero practice and reveals Initiate skills', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -67,6 +71,7 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
 
   const firstBreakthrough = xpToNextLevel(0);
 
+  await openWorkspace(page, 'cheats');
   await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Analysis');
@@ -100,6 +105,7 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   await startRun(page);
   const firstBreakthrough = xpToNextLevel(0);
 
+  await openWorkspace(page, 'resources');
   await page.locator('[data-physical-diagnostic-test-id="selfCheck"]').click();
   await page.locator('#skipAmountInput').evaluate((element) => {
     element.value = '300';
@@ -121,6 +127,7 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
   await startRun(page);
 
   const firstBreakthrough = xpToNextLevel(0);
+  await openWorkspace(page, 'cheats');
   await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
 
@@ -299,6 +306,7 @@ test('Analyze spends mana and reveals only level-one creature capabilities', asy
   }, { key: storageKey, genome, firstBreakthrough });
   await loadSavedRun(page);
 
+  await openWorkspace(page, 'specimens');
   const panel = page.locator('[data-slime-analyze-panel="analyze-target"]');
   await expect(panel).toContainText('Not analyzed');
   await expect(panel).not.toContainText('Toughness');
@@ -432,6 +440,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
   });
   await loadSavedRun(page);
 
+  await openWorkspace(page, 'specimens');
   await expect(page.locator('#skillList')).toContainText('Creature Analysis');
   const panel = page.locator('[data-slime-analyze-panel="advanced-analyze-target"]');
   await expect(panel).toContainText('Toughness [Initiate]');
@@ -528,6 +537,7 @@ test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async (
   }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
+  await openWorkspace(page, 'specimens');
   await expect(page.locator('#skillList')).toContainText('Combat Analysis');
   const panel = page.locator('[data-slime-analyze-panel="combat-analyze-target"]');
   await page.locator('[data-combat-analyze-slime-id="combat-analyze-target"]').click();
@@ -602,6 +612,7 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
   }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
+  await openWorkspace(page, 'specimens');
   await expect(page.locator('#skillList')).toContainText('Forensic Analysis');
   await page.locator('[data-forensic-analyze-corpse-id="corpse-forensic"]').click();
   await expect(page.locator('[data-forensic-report="corpse-forensic"]')).toContainText('Cause: combat trauma');
@@ -687,6 +698,7 @@ test('Analyze displays evolved creature skill labels after breakthrough', async 
   }, { key: storageKey, genome, strikingXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
+  await openWorkspace(page, 'specimens');
   await page.locator('[data-analyze-slime-id="evolved-skill-target"]').click();
   await expect(page.locator('[data-slime-analyze-panel="evolved-skill-target"]')).toContainText('Lashing Strikes [Novice]');
 

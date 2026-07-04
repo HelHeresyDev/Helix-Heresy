@@ -142,6 +142,7 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
   }, { key: storageKey, genome: organicGenome });
   await loadSavedRun(page);
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   const selectedCard = page.locator('[data-slime-card="residue-clean"]');
   const feedstockSelect = selectedCard.getByLabel('Feedstock');
   await feedstockSelect.selectOption('organicFeedstock');

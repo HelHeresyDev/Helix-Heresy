@@ -139,6 +139,7 @@ test('sampling a living specimen stores harvested material and worsens condition
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   const selectedCard = page.locator('[data-slime-card="harvest-live"]');
   await selectedCard.getByRole('button', { name: /Sample Living Tissue/ }).click();
   await finishQueuedTask(page, 'Sample Living Tissue');
@@ -218,6 +219,7 @@ test('breaking down a living specimen consumes it and stores specimen material',
   });
   await loadSavedRun(page);
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   await page.locator('[data-slime-card="harvest-terminal"]').getByRole('button', { name: /Break Down Specimen/ }).click();
   await finishQueuedTask(page, 'Break Down Specimen');
 
@@ -290,6 +292,7 @@ test('breaking down a corpse removes the corpse and stores harvested material', 
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
+  await page.locator('[data-workspace-tab="specimens"]').click();
   await page.locator('[data-corpse-card="corpse-harvest"]').getByRole('button', { name: /Break Down Corpse/ }).click();
   await finishQueuedTask(page, 'Break Down Corpse');
 
