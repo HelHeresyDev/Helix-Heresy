@@ -144,6 +144,7 @@ test('resource overlay and selection inspector show known room supplies', async 
   await page.locator('[data-room-card="storageRoom"]').click();
   const inspector = page.locator('[data-selection-inspector="true"]');
   await expect(inspector).toHaveAttribute('data-selection-kind', 'room');
+  await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(inspector).toContainText('Known Supplies');
   await expect(inspector).toContainText('Last inventoried');
   await expect(inspector).toContainText('Biomass');
@@ -165,7 +166,9 @@ test('resource overlay and selection inspector show known room supplies', async 
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Tools & Supplies/);
   await expect(storageTile).toHaveAttribute('data-map-overlay-value', '4');
 
+  await page.locator('[data-selection-inspector-expanded-panel="true"]').getByRole('button', { name: 'Collapse' }).click();
   await page.locator('[data-room-card="pits"]').click();
+  await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(inspector).toContainText('Pit contents: Waste');
   await expect(inspector).toContainText('3');
 

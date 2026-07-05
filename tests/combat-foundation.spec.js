@@ -102,6 +102,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
   await expect(combatIncidentCell).toBeVisible();
   await combatIncidentCell.click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'incident');
+  await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(page.locator('[data-selection-combat-context]')).toContainText('Combat Situation');
   await expect(page.locator('[data-selection-combat-context]')).toContainText('Currently known');
   await expect(page.locator('[data-selection-combat-context]')).toContainText('FLAME-CONTACT');

@@ -2346,6 +2346,7 @@
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
+      selectionInspectorExpanded: false,
       keyboardHelpOpen: false
     };
   }
@@ -3188,6 +3189,13 @@
       render();
       return true;
     }
+    if (ui.selectionInspectorExpanded) {
+      event.preventDefault();
+      ui.selectionInspectorExpanded = false;
+      persist();
+      render();
+      return true;
+    }
     if (currentWorkspaceTab() !== "map") {
       event.preventDefault();
       setActiveWorkspaceTab("map");
@@ -3446,6 +3454,27 @@
     render();
   }
 
+  function selectionInspectorExpanded() {
+    return Boolean(ensureUiState().selectionInspectorExpanded);
+  }
+
+  function setSelectionInspectorExpanded(expanded, options = {}) {
+    ensureUiState().selectionInspectorExpanded = Boolean(expanded);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
+  function openSelectionInspectorTab(tabId) {
+    const ui = ensureUiState();
+    ui.selectionInspectorTab = normalizeSelectionInspectorTab(tabId);
+    ui.selectionInspectorExpanded = true;
+    persist();
+    render();
+  }
+
   function fallbackMapCursorCell(context = state) {
     return cleanMapCell(context?.scientist?.mapCell)
       || scientistDefaultMapCell(context?.scientist?.roomId || MAIN_ROOM_ID);
@@ -3468,6 +3497,7 @@
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
+      selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -3555,6 +3585,7 @@
     }
     setUiMode(UI_MODE_COMMAND);
     setSelectionInspectorTab("actions", { render: false });
+    setSelectionInspectorExpanded(true, { render: false });
     setActiveWorkspaceTab("map");
     if (!contextualCommandsForSelection(selection).length) {
       addEvent("No contextual commands for the current selection.");
@@ -26280,6 +26311,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       pinned: options.pinned ?? target?.pinned
     });
     state.selection = normalized;
+    if (!normalized && state.ui) {
+      state.ui.selectionInspectorExpanded = false;
+    }
     syncLegacySelectionFields(normalized);
     return normalized;
   }
@@ -27990,17 +28024,130 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function selectionCompactRows(selection) {
+    return selectionSummaryRows(selection)
+      .filter(([label]) => !["Type", "Selected by"].includes(label))
+      .slice(0, 4);
+  }
+
+  function selectionCompactAlsoHereEl(selection) {
+    const cell = selectionMapCell(selection);
+    if (!cell) {
+      return null;
+    }
+    const currentKey = selectionKey(selection);
+    const seen = new Set([currentKey]);
+    const targets = [
+      ...selectionRelatedTargets(selection),
+      ...selectableTargetsAtCell(cell)
+    ]
+      .map((target) => normalizeSelection({ ...target, source: "inspector" }))
+      .filter(Boolean)
+      .filter((target) => {
+        const key = selectionKey(target);
+        if (!key || seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 5);
+    if (!targets.length) {
+      return null;
+    }
+    const row = document.createElement("div");
+    row.className = "selection-compact-related";
+    row.dataset.selectionCompactRelated = "true";
+    row.append(textEl("span", "Also here"));
+    const links = document.createElement("div");
+    links.className = "selection-link-list";
+    for (const target of targets) {
+      const link = selectionLink(target);
+      if (link) {
+        links.append(link);
+      }
+    }
+    if (!links.childElementCount) {
+      return null;
+    }
+    row.append(links);
+    return row;
+  }
+
+  function selectionInspectorCompactControlsEl(selection, expanded) {
+    const controls = document.createElement("div");
+    controls.className = "selection-inspector-controls";
+    if (expanded || !selection) {
+      return controls;
+    }
+    const detailTabs = [
+      ["details", "Details"],
+      ["actions", "Actions"],
+      ["related", "Related"],
+      ["history", "History"]
+    ];
+    for (const [tabId, label] of detailTabs) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.selectionInspectorTab = tabId;
+      button.textContent = label;
+      button.addEventListener("click", () => openSelectionInspectorTab(tabId));
+      controls.append(button);
+    }
+    return controls;
+  }
+
+  function selectionInspectorExpandedEl(selection) {
+    const activeTab = currentSelectionInspectorTab();
+    const expanded = document.createElement("div");
+    expanded.className = "selection-inspector-expanded";
+    expanded.dataset.selectionInspectorExpandedPanel = "true";
+    expanded.append(selectionInspectorExpandedHeaderEl(selection));
+    expanded.append(selectionInspectorTabsEl(activeTab));
+    expanded.append(selectionInspectorTabPanelEl(selection, activeTab));
+    return expanded;
+  }
+
+  function selectionInspectorExpandedHeaderEl(selection) {
+    const header = document.createElement("div");
+    header.className = "selection-inspector-expanded-header";
+    const title = document.createElement("div");
+    title.className = "selection-inspector-expanded-title";
+    title.append(textEl("strong", selectionLabel(selection)), chip(selectionKindLabel(selection)));
+    const controls = document.createElement("div");
+    controls.className = "selection-inspector-window-controls";
+    const collapse = document.createElement("button");
+    collapse.type = "button";
+    collapse.textContent = "Collapse";
+    collapse.title = "Return to the compact map inspector.";
+    collapse.addEventListener("click", () => setSelectionInspectorExpanded(false));
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.title = "Clear the current map selection.";
+    close.addEventListener("click", () => {
+      setSelection(null);
+      persist();
+      render();
+    });
+    controls.append(collapse, close);
+    header.append(title, controls);
+    return header;
+  }
+
   function selectionInspectorEl() {
     const panel = document.createElement("div");
-    panel.className = "selection-inspector subpanel";
+    panel.className = "selection-inspector selection-inspector-compact";
     panel.dataset.selectionInspector = "true";
-    const title = document.createElement("div");
-    title.className = "subpanel-title";
-    title.textContent = "Selection";
-    panel.append(title);
 
     const selection = currentSelection();
+    const expanded = selectionInspectorExpanded();
+    panel.dataset.selectionInspectorExpanded = String(expanded && Boolean(selection));
     if (!selection) {
+      const title = document.createElement("div");
+      title.className = "subpanel-title";
+      title.textContent = "Selection";
+      panel.append(title);
       panel.append(emptyText("No selection. Click a map tile, room, door, container, specimen, corpse, incident, or task to inspect it."));
       return panel;
     }
@@ -28012,7 +28159,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const heading = document.createElement("div");
     heading.className = "selection-inspector-heading";
-    heading.append(textEl("strong", selectionLabel(selection)), chip(selectionKindLabel(selection)));
+    const title = document.createElement("div");
+    title.className = "selection-inspector-title";
+    title.append(textEl("strong", selectionLabel(selection)), chip(selectionKindLabel(selection)));
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "selection-inspector-close";
+    close.textContent = "Close";
+    close.title = "Clear the current map selection.";
+    close.addEventListener("click", () => {
+      setSelection(null);
+      persist();
+      render();
+    });
+    heading.append(title, close);
     panel.append(heading);
 
     const meta = document.createElement("div");
@@ -28022,8 +28182,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const activeTab = currentSelectionInspectorTab();
     panel.dataset.selectionInspectorActiveTab = activeTab.id;
-    panel.append(selectionInspectorTabsEl(activeTab));
-    panel.append(selectionInspectorTabPanelEl(selection, activeTab));
+    panel.append(inspectorRowsEl(selectionCompactRows(selection), "No compact readout for this selection yet."));
+    const alsoHere = selectionCompactAlsoHereEl(selection);
+    if (alsoHere) {
+      panel.append(alsoHere);
+    }
+    panel.append(selectionInspectorCompactControlsEl(selection, expanded));
+    if (expanded) {
+      panel.append(selectionInspectorExpandedEl(selection));
+    }
 
     return panel;
   }
@@ -28450,6 +28617,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (options.resetInspectorTab) {
         ensureUiState().selectionInspectorTab = DEFAULT_SELECTION_INSPECTOR_TAB;
       }
+      if (options.resetInspectorExpanded) {
+        ensureUiState().selectionInspectorExpanded = false;
+      }
       setActiveWorkspaceTab("map");
       persist();
       render();
@@ -28665,7 +28835,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           return;
         }
         if (domCell.clickTarget) {
-          focusMapTarget(domCell.clickTarget, { keepWorkspace: true, source: "map" });
+          focusMapTarget(domCell.clickTarget, {
+            keepWorkspace: true,
+            source: "map",
+            resetInspectorTab: true,
+            resetInspectorExpanded: true
+          });
         }
       });
       grid.append(tile);

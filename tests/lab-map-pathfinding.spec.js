@@ -1615,6 +1615,7 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   }, { key: storageKey });
 
   await page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`).click();
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
   await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' }).click();
   const queued = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1632,7 +1633,7 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   await moveTaskRow.click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'task');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', queued.id);
-  await page.locator('[data-selection-inspector-tab="summary"]').click();
+  await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Scientist');
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Route');
   await page.locator('[data-selection-inspector-tab="actions"]').click();
@@ -1877,9 +1878,10 @@ test('selection inspector links contained specimens from a selected container', 
   await expect(occupiedTile).toBeVisible();
   await occupiedTile.click();
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('[data-selection-inspector-tabs="true"]')).toContainText('Summary');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'slime');
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'contained-selection');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-inspector-expanded', 'false');
+  await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Container Context');
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Basic Glass Jar 1');
   await page.locator('[data-selection-inspector-tab="actions"]').click();
