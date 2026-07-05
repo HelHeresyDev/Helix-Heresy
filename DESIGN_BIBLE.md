@@ -510,6 +510,7 @@ Open design questions:
 - Forced Recombination as the current two-parent lab intervention, with parent and offspring mass shared instead of free full-sized copies.
 - Parent IDs and brood IDs for new offspring, supporting protected parent/offspring and sibling recognition.
 - Lifespan, maturity, living sample storage, release, and containment states.
+- Creature Records menu with Living, Unknown, Deceased, Jobs, Lineage, and Testing tabs. Living includes confirmed contained and loose creatures, Unknown holds loose creatures whose last direct observation is stale enough that their current condition is uncertain, Deceased holds corpse records, and Lineage preserves parent/brood relationships across living and dead records.
 - Active containment testing that can produce physical breach outcomes such as seeped seals, forced openings, cracked containers, dissolved walls, overturned spills, and fitting failures.
 - Container breach states that distinguish compromised-but-usable containers from breached containers that cannot hold specimens until future repair or replacement.
 - Deceased specimens move out of living storage and into waste drums.

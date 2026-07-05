@@ -131,37 +131,58 @@
         <section class="panel lab-panel" aria-labelledby="labTitle" data-workspace-panel="specimens">
           <div class="panel-heading">
             <div>
-              <h2 id="labTitle">Living Samples</h2>
-              <p id="selectedSlimeSummary">No slime selected</p>
+              <h2 id="labTitle">Creature Records</h2>
+              <p id="selectedSlimeSummary">No creature selected</p>
             </div>
             <button id="releaseBtn" type="button" disabled>Release</button>
           </div>
 
-          <div id="slimeList" class="slime-list"></div>
+          <div id="creatureRecordTabs" class="record-tabs" role="tablist" aria-label="Creature record sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-creature-record-tab="living">Living <span id="livingRecordBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-creature-record-tab="unknown">Unknown <span id="unknownRecordBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-creature-record-tab="deceased">Deceased <span id="deceasedRecordBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-creature-record-tab="jobs">Jobs <span id="jobRecordBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-creature-record-tab="lineage">Lineage</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-creature-record-tab="testing">Testing</button>
+          </div>
 
-          <div class="deceased-bank">
-            <div class="subpanel-title">Waste Drums</div>
+          <div class="creature-record-panel" data-creature-record-panel="living" role="tabpanel">
+            <div id="slimeList" class="slime-list"></div>
+          </div>
+
+          <div class="creature-record-panel" data-creature-record-panel="unknown" role="tabpanel" hidden>
+            <div class="subpanel-title">Unknown Status</div>
+            <p class="journal-meta">Loose creatures that have not been observed recently remain in the records, but their current condition is uncertain.</p>
+            <div id="unknownCreatureList" class="unknown-creature-list"></div>
+          </div>
+
+          <div class="creature-record-panel deceased-bank" data-creature-record-panel="deceased" role="tabpanel" hidden>
+            <div class="subpanel-title">Deceased Specimens</div>
             <p id="wasteSummary" class="journal-meta">0/8 waste drums used</p>
             <div id="corpseList" class="corpse-list"></div>
           </div>
 
-          <div class="job-bank">
+          <div class="creature-record-panel job-bank" data-creature-record-panel="jobs" role="tabpanel" hidden>
             <div class="subpanel-title">Creature Jobs</div>
             <p id="jobSummary" class="journal-meta">No living creatures available for jobs.</p>
             <div id="jobList" class="job-list"></div>
           </div>
 
-          <div class="test-bank">
-            <div class="subpanel-title">Tests</div>
-            <div id="testButtons" class="test-buttons"></div>
+          <div class="creature-record-panel lineage-bank" data-creature-record-panel="lineage" role="tabpanel" hidden>
+            <div class="subpanel-title">Lineage</div>
+            <div id="lineageList" class="lineage-list"></div>
           </div>
 
-          <div class="breeding-bank">
-            <div class="subpanel-title">Reproduction</div>
-            <div class="breeding-row">
-              <select id="parentASelect"></select>
-              <select id="parentBSelect"></select>
-              <button id="breedBtn" type="button">Force Recombination</button>
+          <div class="creature-record-panel test-bank" data-creature-record-panel="testing" role="tabpanel" hidden>
+            <div class="subpanel-title">Tests</div>
+            <div id="testButtons" class="test-buttons"></div>
+            <div class="breeding-bank">
+              <div class="subpanel-title">Reproduction</div>
+              <div class="breeding-row">
+                <select id="parentASelect"></select>
+                <select id="parentBSelect"></select>
+                <button id="breedBtn" type="button">Force Recombination</button>
+              </div>
             </div>
           </div>
         </section>

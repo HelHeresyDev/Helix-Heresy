@@ -12,37 +12,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Creature Records Menu
-2. Task and Queue Management Menu
-3. Inventory, Resources, and Room Stockpile Menus
-4. Policies, Automation, and Debug Menus
-5. Message History and Alert Feed
-6. Map Overlay and Legend Menu
-7. Remove Persistent Prototype Panels
-8. Keyboard Navigation and Menu Flow Polish
-9. Black Market Byproduct Economy System
+1. Task and Queue Management Menu
+2. Inventory, Resources, and Room Stockpile Menus
+3. Policies, Automation, and Debug Menus
+4. Message History and Alert Feed
+5. Map Overlay and Legend Menu
+6. Remove Persistent Prototype Panels
+7. Keyboard Navigation and Menu Flow Polish
+8. Black Market Byproduct Economy System
 
 ---
 
-## 1. Creature Records Menu
-
-Move creature lists, specimen sheets, discovered traits, skills, jobs, status, lineage, corpses, and released/contained state into a dedicated creature records menu.
-
-Creatures still physically exist on the map, in containers, in pits, or as corpses, but the records menu should let the player review known biological information across the lab.
-
-The system should answer questions like:
-- How should living, deceased, released, contained, assigned, and missing creatures be grouped?
-- How should the creature record avoid revealing hidden information?
-- Should clicking a creature record focus the map location if known?
-- How should Analyze-discovered skill information appear?
-- How should job suitability, activity, condition, lineage, and inventory outputs be organized?
-- How should corpses and necropsy records relate to living creature records?
-
-The desired result is a clean creature-management screen that supports both map-first play and record-keeping.
-
-Before coding, discuss list structure, filtering, unknown information, map focus behavior, and which existing creature panels should be retired.
-
-## 2. Task and Queue Management Menu
+## 1. Task and Queue Management Menu
 
 Move scientist queue, task details, blocked tasks, path preview, cancellation, priorities, and future work orders into a dedicated Tasks menu.
 
@@ -60,7 +41,7 @@ The desired result is a task management screen that supports direct scientist co
 
 Before coding, discuss task grouping, cancellation, reordering, path display, and how to remove the old queue drawer once obsolete.
 
-## 3. Inventory, Resources, and Room Stockpile Menus
+## 2. Inventory, Resources, and Room Stockpile Menus
 
 Move inventory, resources, tools, collected byproducts, harvested materials, local stockpiles, pit contents, and room supply knowledge into map-aware inventory menus.
 
@@ -78,7 +59,7 @@ The desired result is an inventory system that supports physical logistics witho
 
 Before coding, discuss grouping, map focus behavior, last-known inventory language, and how this menu should support future black market sales.
 
-## 4. Policies, Automation, and Debug Menus
+## 3. Policies, Automation, and Debug Menus
 
 Move automation policies and debug tools into dedicated menus behind the map shell.
 
@@ -96,7 +77,7 @@ The desired result is a scalable policy/debug structure that keeps testing tools
 
 Before coding, discuss policy categories, debug visibility, exception rules, and how to prevent the menu from becoming an unstructured settings pile.
 
-## 5. Message History and Alert Feed
+## 4. Message History and Alert Feed
 
 Create a proper message history menu and a small non-intrusive live alert feed.
 
@@ -114,7 +95,7 @@ The desired result is clear situational awareness without flooding the main map.
 
 Before coding, discuss feed placement, message categories, filters, pause/slow rules, and what counts as routine versus notable.
 
-## 6. Map Overlay and Legend Menu
+## 5. Map Overlay and Legend Menu
 
 Move overlay controls, legends, filters, and debug visibility into a menu that supports map-first play.
 
@@ -132,7 +113,7 @@ The desired result is an overlay system that helps players read the lab without 
 
 Before coding, discuss overlay access, legends, filtering, hotkeys, and debug separation.
 
-## 7. Remove Persistent Prototype Panels
+## 6. Remove Persistent Prototype Panels
 
 After the key map menus exist, remove or retire the old persistent prototype panels.
 
@@ -150,7 +131,7 @@ The desired result is a cleaner UI architecture where the map shell, menus, insp
 
 Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
 
-## 8. Keyboard Navigation and Menu Flow Polish
+## 7. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -168,7 +149,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 9. Black Market Byproduct Economy System
+## 8. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

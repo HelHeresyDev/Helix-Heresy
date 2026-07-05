@@ -2115,6 +2115,17 @@
   let activeWorkspaceTab = "map";
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
+  const CREATURE_RECORD_TAB_DEFS = [
+    { id: "living", label: "Living" },
+    { id: "unknown", label: "Unknown" },
+    { id: "deceased", label: "Deceased" },
+    { id: "jobs", label: "Jobs" },
+    { id: "lineage", label: "Lineage" },
+    { id: "testing", label: "Testing" }
+  ];
+  const CREATURE_RECORD_TAB_BY_ID = Object.fromEntries(CREATURE_RECORD_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_CREATURE_RECORD_TAB = "living";
+  const CREATURE_UNKNOWN_STALE_SECONDS = 2 * 60 * 60;
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2247,6 +2258,7 @@
       combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
+      creatureRecords: {},
       currentGenome: "",
       slimes: [],
       corpses: [],
@@ -2343,6 +2355,7 @@
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
+      creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
@@ -2604,11 +2617,18 @@
       "predictionList",
       "selectedSlimeSummary",
       "releaseBtn",
+      "creatureRecordTabs",
+      "livingRecordBadge",
+      "unknownRecordBadge",
+      "deceasedRecordBadge",
+      "jobRecordBadge",
       "slimeList",
+      "unknownCreatureList",
       "wasteSummary",
       "corpseList",
       "jobSummary",
       "jobList",
+      "lineageList",
       "containerSummary",
       "containerList",
       "testButtons",
@@ -2843,6 +2863,16 @@
       ensureUiState().messageFilter = normalizeMessageFilter(dom.messageFilterSelect.value);
       persist();
       render();
+    });
+
+    dom.creatureRecordTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-creature-record-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setCreatureRecordTab(button.dataset.creatureRecordTab);
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -3389,6 +3419,50 @@
     return id === DEFAULT_MESSAGE_FILTER || MESSAGE_CATEGORY_BY_ID[id] ? id : DEFAULT_MESSAGE_FILTER;
   }
 
+  function normalizeCreatureRecordTab(value) {
+    const id = String(value || DEFAULT_CREATURE_RECORD_TAB).trim();
+    return CREATURE_RECORD_TAB_BY_ID[id] ? id : DEFAULT_CREATURE_RECORD_TAB;
+  }
+
+  function currentCreatureRecordTab() {
+    const ui = ensureUiState();
+    const requested = normalizeCreatureRecordTab(ui.creatureRecordTab);
+    const selection = currentSelection();
+    if (selection?.kind === "corpse") {
+      ui.creatureRecordTab = "deceased";
+      return "deceased";
+    }
+    if (selection?.kind === "slime") {
+      const slime = findSlime(selection.id);
+      if (slime && isUnknownCreatureRecord(slime)) {
+        ui.creatureRecordTab = "unknown";
+        return "unknown";
+      }
+    }
+    if (requested === "living" && livingCreatureRecords().length === 0) {
+      if (unknownCreatureRecords().length > 0) {
+        ui.creatureRecordTab = "unknown";
+        return "unknown";
+      }
+      if ((state.corpses || []).length > 0) {
+        ui.creatureRecordTab = "deceased";
+        return "deceased";
+      }
+    }
+    ui.creatureRecordTab = requested;
+    return requested;
+  }
+
+  function setCreatureRecordTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.creatureRecordTab = normalizeCreatureRecordTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
   function normalizeSelectionInspectorTab(value) {
     const id = String(value || DEFAULT_SELECTION_INSPECTOR_TAB).trim();
     return SELECTION_INSPECTOR_TAB_BY_ID[id] ? id : DEFAULT_SELECTION_INSPECTOR_TAB;
@@ -3548,6 +3622,7 @@
       activeWorkspaceTab: visibleWorkspaceTabOrMap(activeTab),
       mapOverlay: overlayId === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : overlayId,
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
+      creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
@@ -4525,6 +4600,7 @@
     syncSlimeAi(slime);
     state.nextSlimeNumber += 1;
     state.slimes.unshift(slime);
+    observeCreatureRecord(slime);
     return slime;
   }
 
@@ -5550,6 +5626,9 @@
     if (!slime || slime.status === "dead") {
       return "No living slime selected.";
     }
+    if (isUnknownCreatureRecord(slime)) {
+      return "This creature's current condition is uncertain; confirm its location first.";
+    }
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
@@ -5829,6 +5908,8 @@
       name: slime.name,
       genome: slime.genome,
       source: slime.source,
+      parentIds: idList(slime.parentIds),
+      broodId: cleanLineageId(slime.broodId),
       deathReason,
       diedAt,
       roomId: location.roomId,
@@ -10987,6 +11068,7 @@
       slime.jobNutritionGained = 0;
     }
     syncSlimeAi(slime);
+    observeCreatureRecord(slime);
     return true;
   }
 
@@ -11019,6 +11101,7 @@
     slime.containmentTest = normalizeContainmentTestRecord({ active: false });
     slime.roomActivity = { type: "emerging", label: "adjusting to the room", roomId: slime.roomId, updatedAt: state.clock };
     syncSlimeAi(slime);
+    observeCreatureRecord(slime);
     return true;
   }
 
@@ -17100,7 +17183,9 @@
     renderMutationBench();
     renderPredictions();
     renderSlimes();
+    renderUnknownCreatureRecords();
     renderCorpses();
+    renderLineageRecords();
     renderContainers();
     renderJobs();
     renderTests();
@@ -17360,6 +17445,8 @@
     setButtonStaminaLabel(dom.releaseBtn, releaseLabel, HANDLING_STAMINA, ["creatureHandling"]);
     const reason = !selected || selected.status === "dead"
       ? "No living slime selected."
+      : isUnknownCreatureRecord(selected)
+        ? "This creature's current condition is uncertain; confirm its location first."
       : selected.status === "released" && !firstOpenPermanentContainer()
         ? "No open permanent container is available."
       : staminaBlockReason(cost);
@@ -17416,18 +17503,53 @@
     }
   }
 
+  function renderCreatureRecordTabs() {
+    const activeTab = currentCreatureRecordTab();
+    const counts = {
+      living: livingCreatureRecords().length,
+      unknown: unknownCreatureRecords().length,
+      deceased: (state.corpses || []).length,
+      jobs: (state.slimes || []).filter((slime) => slime.status !== "dead").length
+    };
+    if (dom.livingRecordBadge) dom.livingRecordBadge.textContent = String(counts.living);
+    if (dom.unknownRecordBadge) dom.unknownRecordBadge.textContent = String(counts.unknown);
+    if (dom.deceasedRecordBadge) dom.deceasedRecordBadge.textContent = String(counts.deceased);
+    if (dom.jobRecordBadge) dom.jobRecordBadge.textContent = String(counts.jobs);
+
+    for (const button of document.querySelectorAll("[data-creature-record-tab]")) {
+      const tab = normalizeCreatureRecordTab(button.dataset.creatureRecordTab);
+      const active = tab === activeTab;
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-creature-record-panel]")) {
+      const tab = normalizeCreatureRecordTab(panel.dataset.creatureRecordPanel);
+      panel.hidden = tab !== activeTab;
+    }
+  }
+
   function renderSlimes() {
     dom.slimeList.textContent = "";
+    renderCreatureRecordTabs();
     const selected = getSelectedSlime();
     dom.selectedSlimeSummary.textContent = "";
     if (selected) {
-      const selectedRoomLabel = slimeRoomLabel(selected);
-      dom.selectedSlimeSummary.append(
-        slimeNameLink(selected),
-        document.createTextNode(` - ${slimeLocationLabel(selected)}${selectedRoomLabel ? ` - ${selectedRoomLabel}` : ""} - ${slimeActivityLabel(selected)}`)
-      );
+      if (isUnknownCreatureRecord(selected)) {
+        const record = creatureRecordForSlime(selected);
+        dom.selectedSlimeSummary.append(
+          textEl("strong", selected.name),
+          document.createTextNode(` - status uncertain - ${creatureRecordAgeText(record)} - last known in ${roomName(record?.lastKnownRoomId || MAIN_ROOM_ID)}`)
+        );
+      } else {
+        const selectedRoomLabel = slimeRoomLabel(selected);
+        dom.selectedSlimeSummary.append(
+          slimeNameLink(selected),
+          document.createTextNode(` - ${slimeLocationLabel(selected)}${selectedRoomLabel ? ` - ${selectedRoomLabel}` : ""} - ${slimeActivityLabel(selected)}`)
+        );
+      }
       const selectedContainer = selected.containerId ? containerById(selected.containerId) : null;
-      if (selectedContainer && selected.status !== "dead") {
+      if (selectedContainer && selected.status !== "dead" && !isUnknownCreatureRecord(selected)) {
         const testing = containmentTestRecordForSlime(selected);
         dom.selectedSlimeSummary.append(document.createTextNode(` - Escape pressure: ${testing.pressureLabel}`));
         const risk = activeContainmentRisk(selected, selectedContainer);
@@ -17440,12 +17562,13 @@
     }
     refreshReleaseButtonState();
 
-    if (state.slimes.length === 0) {
-      dom.slimeList.append(emptyText("No living samples."));
+    const livingSlimes = livingCreatureRecords();
+    if (livingSlimes.length === 0) {
+      dom.slimeList.append(emptyText("No confirmed living records. Loose creatures with stale observations appear under Unknown."));
       return;
     }
 
-    for (const slime of state.slimes) {
+    for (const slime of livingSlimes) {
       const card = document.createElement("article");
       card.className = `slime-card${slime.id === state.selectedSlimeId ? " selected" : ""}${slime.status === "dead" ? " dead" : ""}`;
       card.dataset.slimeCard = slime.id;
@@ -17552,6 +17675,59 @@
     }
   }
 
+  function renderUnknownCreatureRecords() {
+    if (!dom.unknownCreatureList) {
+      return;
+    }
+    dom.unknownCreatureList.textContent = "";
+    const unknown = unknownCreatureRecords();
+    if (!unknown.length) {
+      dom.unknownCreatureList.append(emptyText("No uncertain creature records."));
+      return;
+    }
+
+    for (const slime of unknown) {
+      const record = creatureRecordForSlime(slime);
+      const card = document.createElement("article");
+      card.className = "unknown-creature-card";
+      card.dataset.unknownCreatureCard = slime.id;
+
+      const title = document.createElement("h3");
+      title.append(textEl("strong", slime.name), textEl("span", "status uncertain"));
+
+      const meta = document.createElement("div");
+      meta.className = "slime-meta";
+      meta.append(
+        chip(creatureRecordAgeText(record)),
+        chip(`last known: ${roomName(record?.lastKnownRoomId || MAIN_ROOM_ID)}`),
+        chip(record?.lastKnownStatus === "released" ? "loose when last seen" : "contained when last seen")
+      );
+      if (record?.lastKnownActivity) {
+        meta.append(chip(record.lastKnownActivity.replace(/^Activity:\s*/i, "")));
+      }
+      if (Number.isFinite(Number(slime.deathAt))) {
+        meta.append(chip(`expected death ${formatClock(slime.deathAt)}`));
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "record-actions";
+      const focus = document.createElement("button");
+      focus.type = "button";
+      focus.textContent = "Focus Last Known";
+      focus.title = "Return to the map at the last room where this creature was directly observed.";
+      focus.addEventListener("click", () => {
+        setActiveWorkspaceTab("map");
+        focusRoom(record?.lastKnownRoomId || MAIN_ROOM_ID, { source: "panel" });
+        persist();
+        render();
+      });
+      actions.append(focus);
+
+      card.append(title, meta, actions);
+      dom.unknownCreatureList.append(card);
+    }
+  }
+
 
   function renderCorpses() {
     dom.corpseList.textContent = "";
@@ -17643,6 +17819,89 @@
         card.append(report);
       }
       dom.corpseList.append(card);
+    }
+  }
+
+  function creatureRecordEntityBySpecimenId(specimenId) {
+    const id = String(specimenId || "");
+    const slime = findSlime(id);
+    if (slime) {
+      return { kind: "slime", id: slime.id, name: slime.name, state: slimeStateLabel(slime), entity: slime };
+    }
+    const corpse = (state.corpses || []).find((entry) => entry.specimenId === id || entry.id === id);
+    if (corpse) {
+      return { kind: "corpse", id: corpse.id, specimenId: corpse.specimenId, name: corpse.name, state: corpseStateLabel(corpse), entity: corpse };
+    }
+    return null;
+  }
+
+  function creatureRecordEntityLink(entity) {
+    if (!entity) {
+      return textEl("span", "unknown record");
+    }
+    if (entity.kind === "slime") {
+      return slimeNameLink(entity.entity, "entity-link-chip");
+    }
+    return corpseNameLink(entity.entity, "entity-link-chip");
+  }
+
+  function lineageEntryForCreature(source, kind) {
+    const entity = kind === "corpse"
+      ? { kind, id: source.id, specimenId: source.specimenId, name: source.name, state: corpseStateLabel(source), entity: source }
+      : { kind, id: source.id, specimenId: source.id, name: source.name, state: slimeStateLabel(source), entity: source };
+    return {
+      entity,
+      parentIds: idList(source.parentIds),
+      broodId: cleanLineageId(source.broodId)
+    };
+  }
+
+  function renderLineageRecords() {
+    if (!dom.lineageList) {
+      return;
+    }
+    dom.lineageList.textContent = "";
+    const entries = [
+      ...(state.slimes || []).map((slime) => lineageEntryForCreature(slime, "slime")),
+      ...(state.corpses || []).map((corpse) => lineageEntryForCreature(corpse, "corpse"))
+    ].filter((entry) => entry.parentIds.length || entry.broodId);
+
+    if (!entries.length) {
+      dom.lineageList.append(emptyText("No lineage records yet. Natural splitting and forced recombination will populate this file."));
+      return;
+    }
+
+    for (const entry of entries) {
+      const row = document.createElement("article");
+      row.className = "lineage-card";
+      row.dataset.lineageRecord = entry.entity.specimenId || entry.entity.id;
+
+      const title = document.createElement("h3");
+      title.append(creatureRecordEntityLink(entry.entity), textEl("span", entry.entity.state));
+
+      const meta = document.createElement("div");
+      meta.className = "slime-meta";
+      if (entry.broodId) {
+        meta.append(chip(`brood ${entry.broodId}`));
+      }
+      if (entry.parentIds.length) {
+        const parentLine = document.createElement("div");
+        parentLine.className = "lineage-links";
+        parentLine.append(textEl("span", "Parents: "));
+        entry.parentIds.forEach((parentId, index) => {
+          const parent = creatureRecordEntityBySpecimenId(parentId);
+          if (index > 0) {
+            parentLine.append(document.createTextNode(", "));
+          }
+          parentLine.append(creatureRecordEntityLink(parent));
+        });
+        meta.append(parentLine);
+      } else {
+        meta.append(chip("parents unknown"));
+      }
+
+      row.append(title, meta);
+      dom.lineageList.append(row);
     }
   }
 
@@ -20639,6 +20898,122 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function slimeEffectiveRoomIdForContext(slime, context = state) {
+    if (!slime) {
+      return MAIN_ROOM_ID;
+    }
+    if (slime.status !== "released" && slime.containerId) {
+      const container = (context?.containers || []).find((candidate) => candidate.id === slime.containerId);
+      return container?.roomId || slime.roomId || MAIN_ROOM_ID;
+    }
+    return slime.roomId || MAIN_ROOM_ID;
+  }
+
+  function cleanCreatureRecord(candidate, slime, context = state) {
+    const clock = Number.isFinite(Number(context?.clock)) ? Number(context.clock) : 0;
+    const roomId = slimeEffectiveRoomIdForContext(slime, context);
+    const fallbackObservedAt = slime.status === "released"
+      ? finiteTime(slime.createdAt, clock)
+      : clock;
+    const lastObservedAt = finiteTime(candidate?.lastObservedAt ?? candidate?.observedAt, fallbackObservedAt);
+    return {
+      specimenId: slime.id,
+      name: String(candidate?.name || slime.name || slime.id).trim(),
+      lastObservedAt,
+      lastKnownRoomId: cleanRoomId(candidate?.lastKnownRoomId || candidate?.roomId) || roomId,
+      lastKnownContainerId: cleanContainerId(candidate?.lastKnownContainerId || candidate?.containerId) || (slime.containerId || ""),
+      lastKnownStatus: String(candidate?.lastKnownStatus || slime.status || "contained").trim(),
+      lastKnownMapCell: cleanMapCell(candidate?.lastKnownMapCell || candidate?.mapCell) || cleanMapCell(slime.mapCell),
+      lastKnownActivity: String(candidate?.lastKnownActivity || slime.roomActivity?.label || slime.status || "unknown").trim(),
+      updatedAt: finiteTime(candidate?.updatedAt, lastObservedAt)
+    };
+  }
+
+  function normalizeCreatureRecords(candidate = {}, context = state) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const records = {};
+    for (const slime of context?.slimes || []) {
+      if (!slime || slime.status === "dead") {
+        continue;
+      }
+      records[slime.id] = cleanCreatureRecord(source[slime.id], slime, context);
+    }
+    return records;
+  }
+
+  function ensureCreatureRecords() {
+    state.creatureRecords = normalizeCreatureRecords(state.creatureRecords, state);
+    return state.creatureRecords;
+  }
+
+  function creatureRecordForSlime(slime) {
+    if (!slime) {
+      return null;
+    }
+    const records = ensureCreatureRecords();
+    records[slime.id] ||= cleanCreatureRecord(null, slime, state);
+    return records[slime.id];
+  }
+
+  function observeCreatureRecord(slime, options = {}) {
+    if (!slime || slime.status === "dead") {
+      return null;
+    }
+    const record = creatureRecordForSlime(slime);
+    if (!record) {
+      return null;
+    }
+    record.name = slime.name || record.name || slime.id;
+    record.lastObservedAt = finiteTime(options.observedAt, state.clock);
+    record.lastKnownRoomId = slimeEffectiveRoomId(slime);
+    record.lastKnownContainerId = slime.containerId || "";
+    record.lastKnownStatus = slime.status || "contained";
+    record.lastKnownMapCell = cleanMapCell(slime.mapCell);
+    record.lastKnownActivity = slimeActivityLabel(slime);
+    record.updatedAt = state.clock;
+    return record;
+  }
+
+  function observeCreaturesInRoom(roomId) {
+    const resolvedRoomId = roomById(roomId)?.id || MAIN_ROOM_ID;
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "dead" && slimeEffectiveRoomId(slime) === resolvedRoomId) {
+        observeCreatureRecord(slime);
+      }
+    }
+  }
+
+  function creatureRecordAgeSeconds(record) {
+    return Math.max(0, state.clock - finiteTime(record?.lastObservedAt, state.clock));
+  }
+
+  function creatureRecordAgeText(record) {
+    const age = creatureRecordAgeSeconds(record);
+    return age <= 0 ? "current observation" : `last seen ${formatDuration(age)} ago`;
+  }
+
+  function isUnknownCreatureRecord(slime) {
+    if (!slime || slime.status !== "released") {
+      return false;
+    }
+    const roomId = slimeEffectiveRoomId(slime);
+    if (scientistObservesRoom(roomId)) {
+      return false;
+    }
+    const record = creatureRecordForSlime(slime);
+    return creatureRecordAgeSeconds(record) >= CREATURE_UNKNOWN_STALE_SECONDS;
+  }
+
+  function livingCreatureRecords() {
+    ensureCreatureRecords();
+    return (state.slimes || []).filter((slime) => slime.status !== "dead" && !isUnknownCreatureRecord(slime));
+  }
+
+  function unknownCreatureRecords() {
+    ensureCreatureRecords();
+    return (state.slimes || []).filter((slime) => slime.status !== "dead" && isUnknownCreatureRecord(slime));
+  }
+
   function idList(value) {
     return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
   }
@@ -20756,6 +21131,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     room.observation = observation;
     state.roomObservations ||= {};
     state.roomObservations[room.id] = observation;
+    observeCreaturesInRoom(room.id);
     return observation;
   }
 
@@ -23028,6 +23404,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function removeLivingSlimeRecord(slimeId) {
     state.slimes = (state.slimes || []).filter((slime) => slime.id !== slimeId);
+    if (state.creatureRecords) {
+      delete state.creatureRecords[slimeId];
+    }
     state.tasks = (state.tasks || []).filter((task) => !taskTargetsSlime(task, slimeId));
     if (currentSelection()?.kind === "slime" && currentSelection().id === slimeId) {
       setSelection(null);
@@ -34812,6 +35191,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     setSelection({ kind: "slime", id: slime.id, source: options.source || "panel" });
+    ensureUiState().creatureRecordTab = isUnknownCreatureRecord(slime) ? "unknown" : "living";
     setActiveWorkspaceTab("specimens");
     persist();
     render();
@@ -34827,6 +35207,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     setSelection({ kind: "corpse", id: corpse.id, source: options.source || "panel" });
+    ensureUiState().creatureRecordTab = "deceased";
     setActiveWorkspaceTab("specimens");
     persist();
     render();
@@ -35131,6 +35512,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       normalizeSlimeLifecycle(slime);
       normalizeSlimeJob(slime);
     }
+    next.creatureRecords = normalizeCreatureRecords(next.creatureRecords, next);
     const previousState = state;
     try {
       state = next;
@@ -35177,6 +35559,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.measured ||= {};
       corpse.traitObservations ||= {};
       corpse.testsRun ||= [];
+      corpse.parentIds = idList(corpse.parentIds).filter((id) => id && id !== corpse.specimenId).slice(0, 4);
+      corpse.broodId = cleanLineageId(corpse.broodId);
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
       corpse.harvestBlocked = Boolean(corpse.harvestBlocked);
