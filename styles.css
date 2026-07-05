@@ -785,7 +785,8 @@ h2 {
   box-shadow: 0 20px 52px rgba(0, 0, 0, 0.58);
 }
 
-.workspace-shell:not([data-active-workspace-tab="map"]) .selection-inspector {
+.workspace-shell:not([data-active-workspace-tab="map"]) .selection-inspector,
+.workspace-shell:not([data-active-workspace-tab="map"]) .context-command-menu {
   display: none;
 }
 
@@ -935,6 +936,10 @@ h2 {
   align-content: start;
 }
 
+.selection-command-entry.command-disabled {
+  opacity: 0.78;
+}
+
 .selection-command-entry em {
   color: var(--muted);
   font-size: 0.74rem;
@@ -949,6 +954,49 @@ h2 {
 .context-command {
   width: 100%;
   text-align: left;
+}
+
+.context-command-menu {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 19;
+  display: grid;
+  gap: 0.65rem;
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: min(78vh, calc(100vh - 7rem));
+  overflow: auto;
+  padding: 0.75rem;
+  background: rgba(23, 25, 18, 0.96);
+  border: 1px solid rgba(225, 183, 95, 0.56);
+  border-radius: 6px;
+  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.context-command-menu-header,
+.context-command-menu-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.context-command-menu-header {
+  justify-content: space-between;
+}
+
+.context-command-menu-title {
+  min-width: 0;
+}
+
+.context-command-menu-title strong {
+  overflow-wrap: anywhere;
+}
+
+.context-command-menu-header button {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.76rem;
 }
 
 .lab-map-header,
@@ -2759,6 +2807,14 @@ h2 {
   .workspace-tabs,
   .panel {
     grid-column: 1 / -1;
+  }
+
+  .context-command-menu {
+    left: 1rem;
+    right: auto;
+    bottom: min(13rem, 46vh);
+    width: min(42rem, calc(100vw - 2rem));
+    max-height: min(52vh, calc(100vh - 12rem));
   }
 
 }

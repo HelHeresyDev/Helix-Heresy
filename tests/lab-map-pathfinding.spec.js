@@ -1590,7 +1590,7 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
   await page.locator('[data-selection-inspector-tab="actions"]').click();
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-inspector-active-tab', 'actions');
+  await expect(page.locator('[data-context-command-menu="true"]')).toBeVisible();
   await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Door');
   const doorCommandLabel = initialDoor.state === 'open' ? 'Close Door' : 'Open Door';
@@ -1731,7 +1731,7 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
   await page.keyboard.press('A');
   await expect(page.locator('[data-keyboard-mode="command"]')).toContainText('Command mode');
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-inspector-active-tab', 'actions');
+  await expect(page.locator('[data-context-command-menu="true"]')).toBeVisible();
   await expect(page.locator('[data-context-command-panel="true"]')).toHaveAttribute('data-command-mode', 'true');
   const doorCommandLabel = initial.door.state === 'open' ? 'Close Door' : 'Open Door';
   await expect(page.locator('[data-context-command-shortcut="1"]')).toContainText(doorCommandLabel);

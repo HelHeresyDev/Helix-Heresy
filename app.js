@@ -2143,7 +2143,6 @@
   const SELECTION_INSPECTOR_TABS = [
     { id: "summary", label: "Summary" },
     { id: "details", label: "Details" },
-    { id: "actions", label: "Actions" },
     { id: "related", label: "Related" },
     { id: "history", label: "History" }
   ];
@@ -2347,6 +2346,7 @@
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
+      commandMenuOpen: false,
       keyboardHelpOpen: false
     };
   }
@@ -3182,8 +3182,9 @@
       render();
       return true;
     }
-    if (ui.mode === UI_MODE_COMMAND) {
+    if (ui.commandMenuOpen || ui.mode === UI_MODE_COMMAND) {
       event.preventDefault();
+      ui.commandMenuOpen = false;
       setUiMode(UI_MODE_NAVIGATION);
       persist();
       render();
@@ -3446,7 +3447,12 @@
   }
 
   function setSelectionInspectorTab(tabId, options = {}) {
-    ensureUiState().selectionInspectorTab = normalizeSelectionInspectorTab(tabId);
+    const ui = ensureUiState();
+    ui.selectionInspectorTab = normalizeSelectionInspectorTab(tabId);
+    ui.commandMenuOpen = false;
+    if (ui.mode === UI_MODE_COMMAND) {
+      ui.mode = UI_MODE_NAVIGATION;
+    }
     if (options.render === false) {
       return;
     }
@@ -3471,8 +3477,55 @@
     const ui = ensureUiState();
     ui.selectionInspectorTab = normalizeSelectionInspectorTab(tabId);
     ui.selectionInspectorExpanded = true;
+    ui.commandMenuOpen = false;
+    if (ui.mode === UI_MODE_COMMAND) {
+      ui.mode = UI_MODE_NAVIGATION;
+    }
     persist();
     render();
+  }
+
+  function contextCommandMenuOpen() {
+    return Boolean(ensureUiState().commandMenuOpen && currentSelection());
+  }
+
+  function closeContextCommandMenu(options = {}) {
+    const ui = ensureUiState();
+    ui.commandMenuOpen = false;
+    if (ui.mode === UI_MODE_COMMAND) {
+      ui.mode = UI_MODE_NAVIGATION;
+    }
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
+  function openContextCommandMenu(options = {}) {
+    let selection = currentSelection();
+    if (!selection && options.selectCursor !== false) {
+      selectMapCursorTarget();
+      selection = currentSelection();
+    }
+    const ui = ensureUiState();
+    if (!selection) {
+      ui.commandMenuOpen = false;
+      ui.mode = UI_MODE_NAVIGATION;
+      addEvent("Select something on the map before opening contextual commands.");
+      persist();
+      render();
+      return false;
+    }
+    ui.commandMenuOpen = true;
+    ui.mode = options.commandMode ? UI_MODE_COMMAND : UI_MODE_NAVIGATION;
+    setActiveWorkspaceTab("map");
+    if (!orderedContextualCommandsForSelection(selection).length) {
+      addEvent("No contextual commands for the current selection.");
+    }
+    persist();
+    render();
+    return true;
   }
 
   function fallbackMapCursorCell(context = state) {
@@ -3498,6 +3551,7 @@
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
+      commandMenuOpen: Boolean(candidate?.commandMenuOpen),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -3578,25 +3632,11 @@
   }
 
   function openCommandMode() {
-    let selection = currentSelection();
-    if (!selection) {
-      selectMapCursorTarget();
-      selection = currentSelection();
-    }
-    setUiMode(UI_MODE_COMMAND);
-    setSelectionInspectorTab("actions", { render: false });
-    setSelectionInspectorExpanded(true, { render: false });
-    setActiveWorkspaceTab("map");
-    if (!contextualCommandsForSelection(selection).length) {
-      addEvent("No contextual commands for the current selection.");
-    }
-    persist();
-    render();
-    return true;
+    return openContextCommandMenu({ commandMode: true, selectCursor: true });
   }
 
   function runContextCommandByShortcut(index) {
-    const commands = contextualCommandsForSelection(currentSelection());
+    const commands = orderedContextualCommandsForSelection(currentSelection());
     const command = commands[index - 1] || null;
     if (!command) {
       addEvent(`No command ${index} for the current selection.`);
@@ -17065,6 +17105,7 @@
     renderBreeding();
     renderPolicies();
     renderRooms();
+    renderContextCommandMenu();
     renderInventory();
     renderScientist();
     renderTasks();
@@ -26305,14 +26346,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function setSelection(target, options = {}) {
+    const previousKey = selectionKey(state.selection);
     const normalized = normalizeSelection({
       ...(target || {}),
       source: options.source || target?.source,
       pinned: options.pinned ?? target?.pinned
     });
     state.selection = normalized;
-    if (!normalized && state.ui) {
-      state.ui.selectionInspectorExpanded = false;
+    if (state.ui) {
+      const nextKey = selectionKey(normalized);
+      if (!normalized) {
+        state.ui.selectionInspectorExpanded = false;
+      }
+      if (!normalized || previousKey !== nextKey) {
+        state.ui.commandMenuOpen = false;
+        if (state.ui.mode === UI_MODE_COMMAND) {
+          state.ui.mode = UI_MODE_NAVIGATION;
+        }
+      }
     }
     syncLegacySelectionFields(normalized);
     return normalized;
@@ -27374,7 +27425,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderContextualCommands(selection) {
-    const commands = contextualCommandsForSelection(selection);
+    const groups = orderedContextualCommandGroupsForSelection(selection);
     const commandMode = ensureUiState().mode === UI_MODE_COMMAND;
     const panel = document.createElement("div");
     panel.className = "selection-command-panel";
@@ -27384,19 +27435,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     title.className = "subpanel-title";
     title.textContent = "Commands";
     panel.append(title);
-    if (!commands.length) {
+    if (!groups.length) {
       panel.append(emptyText("No contextual commands for this selection yet."));
       return panel;
     }
-    const groups = new Map();
-    for (const command of commands) {
-      if (!groups.has(command.group)) {
-        groups.set(command.group, []);
-      }
-      groups.get(command.group).push(command);
-    }
     let commandIndex = 0;
-    for (const [group, groupCommands] of groups.entries()) {
+    for (const [group, groupCommands] of groups) {
       const groupEl = document.createElement("div");
       groupEl.className = "selection-command-group";
       groupEl.append(textEl("strong", group));
@@ -27406,11 +27450,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         commandIndex += 1;
         const wrap = document.createElement("div");
         wrap.className = "selection-command-entry";
+        wrap.classList.toggle("command-disabled", Boolean(command.disabledReason));
         const button = document.createElement("button");
         button.type = "button";
         button.className = `context-command${command.danger ? " danger-action" : ""}`;
         button.dataset.contextCommand = command.id;
         button.dataset.contextCommandIndex = String(commandIndex);
+        button.dataset.contextCommandDisabled = command.disabledReason ? "true" : "false";
         if (commandMode && commandIndex <= 9) {
           button.dataset.contextCommandShortcut = String(commandIndex);
           button.textContent = `${commandIndex}. ${command.label}`;
@@ -27437,6 +27483,67 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function orderedContextualCommandGroupsForSelection(selection) {
+    const groups = new Map();
+    for (const command of contextualCommandsForSelection(selection)) {
+      if (!groups.has(command.group)) {
+        groups.set(command.group, []);
+      }
+      groups.get(command.group).push(command);
+    }
+    return [...groups.entries()].map(([group, commands]) => [
+      group,
+      [
+        ...commands.filter((command) => !command.disabledReason),
+        ...commands.filter((command) => command.disabledReason)
+      ]
+    ]);
+  }
+
+  function orderedContextualCommandsForSelection(selection) {
+    return orderedContextualCommandGroupsForSelection(selection)
+      .flatMap(([_group, commands]) => commands);
+  }
+
+  function contextCommandMenuEl() {
+    const selection = currentSelection();
+    if (!selection || !contextCommandMenuOpen() || currentWorkspaceTab() !== "map") {
+      return null;
+    }
+    const menu = document.createElement("div");
+    menu.className = "context-command-menu";
+    menu.dataset.contextCommandMenu = "true";
+    menu.dataset.selectionKind = selection.kind;
+    if (selection.id) {
+      menu.dataset.selectionId = selection.id;
+    }
+
+    const header = document.createElement("div");
+    header.className = "context-command-menu-header";
+    const title = document.createElement("div");
+    title.className = "context-command-menu-title";
+    title.append(textEl("strong", `Commands: ${selectionLabel(selection)}`), chip(selectionKindLabel(selection)));
+    if (ensureUiState().mode === UI_MODE_COMMAND) {
+      title.append(chip("1-9 shortcuts active"));
+    }
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.title = "Close contextual commands.";
+    close.addEventListener("click", () => closeContextCommandMenu());
+    header.append(title, close);
+    menu.append(header, renderContextualCommands(selection));
+    return menu;
+  }
+
+  function renderContextCommandMenu() {
+    document.querySelectorAll("[data-context-command-menu]").forEach((menu) => menu.remove());
+    const menu = contextCommandMenuEl();
+    if (menu) {
+      document.querySelector(".app-shell")?.append(menu);
+    }
+  }
+
   function runContextCommand(command) {
     if (command.disabledReason) {
       addEvent(command.disabledReason);
@@ -27444,7 +27551,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
       return false;
     }
-    return command.run();
+    const result = command.run();
+    if (result !== false) {
+      closeContextCommandMenu({ render: false });
+      persist();
+      render();
+    }
+    return result;
   }
 
   function selectionInspectorTabsEl(activeTab) {
@@ -28014,8 +28127,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (context) panel.append(context);
       const supplies = selectionKnownSuppliesPanelEl(selection);
       if (supplies) panel.append(supplies);
-    } else if (activeTab.id === "actions") {
-      panel.append(renderContextualCommands(selection));
     } else if (activeTab.id === "related") {
       panel.append(selectionRelatedPanelEl(selection));
     } else if (activeTab.id === "history") {
@@ -28091,7 +28202,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button.type = "button";
       button.dataset.selectionInspectorTab = tabId;
       button.textContent = label;
-      button.addEventListener("click", () => openSelectionInspectorTab(tabId));
+      if (tabId === "actions") {
+        button.dataset.commandMenuTrigger = "true";
+        button.addEventListener("click", () => openContextCommandMenu({ commandMode: false, selectCursor: false }));
+      } else {
+        button.addEventListener("click", () => openSelectionInspectorTab(tabId));
+      }
       controls.append(button);
     }
     return controls;
@@ -28116,6 +28232,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     title.append(textEl("strong", selectionLabel(selection)), chip(selectionKindLabel(selection)));
     const controls = document.createElement("div");
     controls.className = "selection-inspector-window-controls";
+    const actions = document.createElement("button");
+    actions.type = "button";
+    actions.dataset.selectionInspectorTab = "actions";
+    actions.dataset.commandMenuTrigger = "true";
+    actions.textContent = "Actions";
+    actions.title = "Open contextual commands for this selection.";
+    actions.addEventListener("click", () => openContextCommandMenu({ commandMode: false, selectCursor: false }));
     const collapse = document.createElement("button");
     collapse.type = "button";
     collapse.textContent = "Collapse";
@@ -28130,7 +28253,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       persist();
       render();
     });
-    controls.append(collapse, close);
+    controls.append(actions, collapse, close);
     header.append(title, controls);
     return header;
   }
@@ -28620,6 +28743,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (options.resetInspectorExpanded) {
         ensureUiState().selectionInspectorExpanded = false;
       }
+      if (options.resetCommandMenu) {
+        const ui = ensureUiState();
+        ui.commandMenuOpen = false;
+        if (ui.mode === UI_MODE_COMMAND) {
+          ui.mode = UI_MODE_NAVIGATION;
+        }
+      }
       setActiveWorkspaceTab("map");
       persist();
       render();
@@ -28839,7 +28969,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             keepWorkspace: true,
             source: "map",
             resetInspectorTab: true,
-            resetInspectorExpanded: true
+            resetInspectorExpanded: true,
+            resetCommandMenu: true
           });
         }
       });
@@ -29314,7 +29445,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     observeScientistRoom();
     refreshIncidentAlerts();
     dom.roomList.textContent = "";
-    dom.roomList.append(labMapPanelEl(), selectionInspectorEl(), incidentAlertPanelEl(), constructionPanelEl());
+    dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
+    dom.roomList.append(incidentAlertPanelEl(), constructionPanelEl());
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
     for (const room of state.rooms) {
