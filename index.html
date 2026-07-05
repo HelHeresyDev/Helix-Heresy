@@ -39,11 +39,14 @@
       </div>
 
       <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
-        <nav class="workspace-tabs" aria-label="Main workspace sections">
+        <nav class="workspace-tabs" aria-label="Bottom management menu">
           <div class="workspace-tab-group" data-workspace-category="lab">
             <span class="workspace-category-label">Lab</span>
             <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" data-workspace-tab="map">Map</button>
             <button class="workspace-tab" type="button" data-workspace-tab="foundry">Foundry</button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="work">
+            <span class="workspace-category-label">Work</span>
             <button id="queueToggleBtn" class="workspace-tab task-workspace-tab" type="button" aria-expanded="false" data-workspace-tab="tasks">
               <span>Tasks</span>
               <span id="queueBadge" class="queue-badge">0</span>
@@ -55,9 +58,12 @@
             <button class="workspace-tab" type="button" data-workspace-tab="specimens">Creatures</button>
             <button class="workspace-tab" type="button" data-workspace-tab="containers">Containers</button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="logistics">
-            <span class="workspace-category-label">Logistics</span>
+          <div class="workspace-tab-group" data-workspace-category="stores">
+            <span class="workspace-category-label">Stores</span>
             <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
+          </div>
+          <div class="workspace-tab-group" data-workspace-category="policy">
+            <span class="workspace-category-label">Policy</span>
             <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
           </div>
           <div class="workspace-tab-group" data-workspace-category="records">

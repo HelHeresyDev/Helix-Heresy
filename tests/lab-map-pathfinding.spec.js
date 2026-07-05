@@ -638,8 +638,10 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
   await expect(page.locator('[data-workspace-category="lab"]')).toContainText('Lab');
+  await expect(page.locator('[data-workspace-category="work"]')).toContainText('Work');
   await expect(page.locator('[data-workspace-category="creatures"]')).toContainText('Creatures');
-  await expect(page.locator('[data-workspace-category="logistics"]')).toContainText('Logistics');
+  await expect(page.locator('[data-workspace-category="stores"]')).toContainText('Stores');
+  await expect(page.locator('[data-workspace-category="policy"]')).toContainText('Policy');
   await expect(page.locator('[data-workspace-category="records"]')).toContainText('Records');
   await expect(page.locator('[data-workspace-category="debug"]')).toContainText('Debug');
 

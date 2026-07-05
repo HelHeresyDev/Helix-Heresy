@@ -4375,7 +4375,9 @@
   function bindWorkspaceTabs() {
     for (const button of document.querySelectorAll("[data-workspace-tab]")) {
       button.addEventListener("click", () => {
-        setActiveWorkspaceTab(button.dataset.workspaceTab, { scroll: true });
+        const tab = cleanWorkspaceTab(button.dataset.workspaceTab);
+        const nextTab = tab !== "map" && currentWorkspaceTab() === tab ? "map" : tab;
+        setActiveWorkspaceTab(nextTab, { scroll: true });
       });
     }
   }

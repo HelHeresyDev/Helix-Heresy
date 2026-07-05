@@ -211,7 +211,7 @@ h2 {
 .seed-corner {
   position: fixed;
   left: 0.75rem;
-  bottom: 0.55rem;
+  bottom: 5.25rem;
   z-index: 12;
   max-width: 34rem;
   overflow: hidden;
@@ -259,13 +259,15 @@ h2 {
 
 .workspace-tabs {
   position: fixed;
-  top: 4.75rem;
+  bottom: 0.75rem;
   left: 1rem;
   right: 1rem;
   z-index: 35;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.55rem;
+  align-items: stretch;
+  overflow-x: auto;
   padding: 0.45rem;
   background: rgba(21, 22, 16, 0.82);
   border: 1px solid rgba(56, 58, 50, 0.88);
@@ -279,6 +281,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+  flex: 0 0 auto;
   padding: 0.25rem;
   border: 1px solid #282a23;
   border-radius: 8px;
@@ -329,7 +332,7 @@ h2 {
   inset: 0;
   z-index: 1;
   overflow: auto;
-  padding: 8.6rem 1rem 1rem;
+  padding: 4.85rem 1rem 5.85rem;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -342,11 +345,11 @@ h2 {
 
 .management-workspace-panel {
   position: fixed;
-  top: 8.6rem;
+  top: 5rem;
+  bottom: 5.85rem;
   left: 50%;
   z-index: 20;
   width: min(76rem, calc(100vw - 2rem));
-  max-height: calc(100vh - 9.6rem);
   overflow: auto;
   transform: translateX(-50%);
   border-color: rgba(104, 200, 216, 0.45);
@@ -765,7 +768,7 @@ h2 {
   padding: 0.65rem;
   position: fixed;
   left: 1rem;
-  bottom: 1rem;
+  bottom: 5.85rem;
   z-index: 18;
   width: min(26rem, calc(100vw - 2rem));
   max-height: min(42vh, calc(100vh - 10rem));
@@ -959,7 +962,7 @@ h2 {
 .context-command-menu {
   position: fixed;
   right: 1rem;
-  bottom: 1rem;
+  bottom: 5.85rem;
   z-index: 19;
   display: grid;
   gap: 0.65rem;
@@ -2670,7 +2673,7 @@ h2 {
 .message-feed {
   position: fixed;
   right: 1rem;
-  bottom: 1rem;
+  bottom: 5.85rem;
   z-index: 12;
   display: grid;
   gap: 0.35rem;
