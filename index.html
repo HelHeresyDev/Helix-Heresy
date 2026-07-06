@@ -272,45 +272,85 @@
           </div>
         </section>
 
-        <section class="panel scientist-panel" aria-labelledby="scientistTitle" data-workspace-panel="resources">
+        <section class="panel stores-panel scientist-panel" aria-labelledby="storesTitle" data-workspace-panel="resources">
           <div class="panel-heading">
             <div>
-              <h2 id="scientistTitle">Scientist</h2>
-              <p>Vitals and skills</p>
+              <h2 id="storesTitle">Stores</h2>
+              <p id="inventorySummary">Storage Room ledger</p>
             </div>
           </div>
 
-          <div class="vital-grid">
-            <div class="vital-row">
-              <span>Health</span>
-              <strong id="healthReadout">100/100</strong>
-            </div>
-            <div class="vital-row">
-              <span>Stamina</span>
-              <strong id="staminaReadout">100/100</strong>
-            </div>
-            <div class="vital-row">
-              <span>Mana</span>
-              <strong id="manaReadout">100/100</strong>
-            </div>
+          <div id="storesMenuTabs" class="record-tabs stores-menu-tabs" role="tablist" aria-label="Stores sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-stores-menu-tab="overview">Overview <span id="storesOverviewBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="materials">Materials <span id="storesMaterialsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="byproducts">Byproducts <span id="storesByproductsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="specimens">Specimen Materials <span id="storesSpecimensBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="tools">Tools & Supplies <span id="storesToolsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="rooms">Room Stockpiles <span id="storesRoomsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="stations">Collection Stations <span id="storesStationsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-stores-menu-tab="scientist">Scientist</button>
           </div>
 
-          <div class="subpanel">
-            <div class="subpanel-title">Resources</div>
-            <div id="resourceList" class="resource-list"></div>
-          </div>
+          <div id="inventoryList" class="stores-menu-body inventory-list">
+            <div class="stores-menu-panel" data-stores-menu-panel="overview" role="tabpanel">
+              <div id="storesOverviewList" class="stores-overview-list"></div>
+              <div id="resourceList" class="resource-list"></div>
+            </div>
 
-          <div class="subpanel">
-            <div class="subpanel-title">Skills</div>
-            <div id="skillList" class="skill-list"></div>
-          </div>
+            <div class="stores-menu-panel" data-stores-menu-panel="materials" role="tabpanel" hidden>
+              <div id="storesMaterialsList" class="inventory-list"></div>
+            </div>
 
-          <div class="subpanel">
-            <div class="subpanel-title">Rest</div>
-            <div class="rest-actions">
-              <button id="restFullBtn" type="button">Rest Until Full</button>
-              <input id="restMinutesInput" type="number" min="1" value="30" aria-label="Rest minutes">
-              <button id="restCustomBtn" type="button">Rest</button>
+            <div class="stores-menu-panel" data-stores-menu-panel="byproducts" role="tabpanel" hidden>
+              <div id="storesByproductList" class="inventory-list"></div>
+            </div>
+
+            <div class="stores-menu-panel" data-stores-menu-panel="specimens" role="tabpanel" hidden>
+              <div id="storesSpecimenMaterialList" class="inventory-list"></div>
+            </div>
+
+            <div class="stores-menu-panel" data-stores-menu-panel="tools" role="tabpanel" hidden>
+              <div id="storesToolsList" class="inventory-list"></div>
+            </div>
+
+            <div class="stores-menu-panel" data-stores-menu-panel="rooms" role="tabpanel" hidden>
+              <div id="roomStockpileList" class="room-stockpile-list"></div>
+            </div>
+
+            <div class="stores-menu-panel" data-stores-menu-panel="stations" role="tabpanel" hidden>
+              <div id="collectionStationInventoryList" class="collection-station-inventory-list"></div>
+            </div>
+
+            <div class="stores-menu-panel" data-stores-menu-panel="scientist" role="tabpanel" hidden>
+              <div class="vital-grid">
+                <div class="vital-row">
+                  <span>Health</span>
+                  <strong id="healthReadout">100/100</strong>
+                </div>
+                <div class="vital-row">
+                  <span>Stamina</span>
+                  <strong id="staminaReadout">100/100</strong>
+                </div>
+                <div class="vital-row">
+                  <span>Mana</span>
+                  <strong id="manaReadout">100/100</strong>
+                </div>
+              </div>
+              <div id="scientistConditionList" class="scientist-condition-list"></div>
+
+              <div class="subpanel">
+                <div class="subpanel-title">Skills</div>
+                <div id="skillList" class="skill-list"></div>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-title">Rest</div>
+                <div class="rest-actions">
+                  <button id="restFullBtn" type="button">Rest Until Full</button>
+                  <input id="restMinutesInput" type="number" min="1" value="30" aria-label="Rest minutes">
+                  <button id="restCustomBtn" type="button">Rest</button>
+                </div>
+              </div>
             </div>
           </div>
         </section>

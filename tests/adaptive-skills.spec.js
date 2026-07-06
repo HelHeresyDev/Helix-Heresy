@@ -106,6 +106,7 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   const firstBreakthrough = xpToNextLevel(0);
 
   await openWorkspace(page, 'resources');
+  await page.locator('[data-stores-menu-tab="scientist"]').click();
   await page.locator('[data-physical-diagnostic-test-id="selfCheck"]').click();
   await page.locator('#skipAmountInput').evaluate((element) => {
     element.value = '300';

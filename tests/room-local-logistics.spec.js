@@ -126,6 +126,21 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
 test('resource overlay and selection inspector show known room supplies', async ({ page }) => {
   await startRun(page);
 
+  await page.locator('[data-workspace-tab="resources"]').click();
+  await expect(page.locator('#inventorySummary')).toContainText('Known room-local stockpiles');
+  await expect(page.locator('[data-stores-menu-tab="overview"]')).toHaveAttribute('aria-selected', 'true');
+  await page.locator('[data-stores-menu-tab="materials"]').click();
+  await expect(page.locator('#storesMaterialsList')).toContainText('Core Resources');
+  await expect(page.locator('#storesMaterialsList [data-resource-key="biomass"]')).toContainText('Biomass');
+  await page.locator('#storesMaterialsList [data-resource-key="biomass"]').getByRole('button', { name: 'Show on Map' }).click();
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('resources');
+  await expect(page.locator('[data-resource-overlay-focus-select="true"]')).toHaveValue('resource:biomass');
+  await page.locator('[data-workspace-tab="resources"]').click();
+  await page.locator('[data-stores-menu-tab="rooms"]').click();
+  await expect(page.locator('#roomStockpileList [data-room-stockpile="storageRoom"]')).toContainText('Biomass');
+  await expect(page.locator('#roomStockpileList [data-room-stockpile="storageRoom"]')).toContainText('Hook pole');
+
   const fixture = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;

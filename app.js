@@ -2134,6 +2134,18 @@
   const TASK_MENU_TAB_BY_ID = Object.fromEntries(TASK_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_TASK_MENU_TAB = "queue";
   const TASK_HISTORY_LIMIT = 80;
+  const STORE_MENU_TAB_DEFS = [
+    { id: "overview", label: "Overview" },
+    { id: "materials", label: "Materials" },
+    { id: "byproducts", label: "Byproducts" },
+    { id: "specimens", label: "Specimen Materials" },
+    { id: "tools", label: "Tools & Supplies" },
+    { id: "rooms", label: "Room Stockpiles" },
+    { id: "stations", label: "Collection Stations" },
+    { id: "scientist", label: "Scientist" }
+  ];
+  const STORE_MENU_TAB_BY_ID = Object.fromEntries(STORE_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_STORE_MENU_TAB = "overview";
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2366,6 +2378,7 @@
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
       taskMenuTab: DEFAULT_TASK_MENU_TAB,
+      storeMenuTab: DEFAULT_STORE_MENU_TAB,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
@@ -2661,6 +2674,22 @@
       "staminaReadout",
       "manaReadout",
       "resourceList",
+      "storesMenuTabs",
+      "storesOverviewBadge",
+      "storesMaterialsBadge",
+      "storesByproductsBadge",
+      "storesSpecimensBadge",
+      "storesToolsBadge",
+      "storesRoomsBadge",
+      "storesStationsBadge",
+      "storesOverviewList",
+      "storesMaterialsList",
+      "storesByproductList",
+      "storesSpecimenMaterialList",
+      "storesToolsList",
+      "roomStockpileList",
+      "collectionStationInventoryList",
+      "scientistConditionList",
       "skillList",
       "restFullBtn",
       "restMinutesInput",
@@ -2899,6 +2928,16 @@
         return;
       }
       setTaskMenuTab(button.dataset.taskMenuTab);
+    });
+
+    dom.storesMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-stores-menu-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setStoreMenuTab(button.dataset.storesMenuTab);
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -3471,6 +3510,27 @@
     render();
   }
 
+  function normalizeStoreMenuTab(value) {
+    const id = String(value || DEFAULT_STORE_MENU_TAB).trim();
+    return STORE_MENU_TAB_BY_ID[id] ? id : DEFAULT_STORE_MENU_TAB;
+  }
+
+  function currentStoreMenuTab() {
+    const ui = ensureUiState();
+    ui.storeMenuTab = normalizeStoreMenuTab(ui.storeMenuTab);
+    return ui.storeMenuTab;
+  }
+
+  function setStoreMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.storeMenuTab = normalizeStoreMenuTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
   function currentCreatureRecordTab() {
     const ui = ensureUiState();
     const requested = normalizeCreatureRecordTab(ui.creatureRecordTab);
@@ -3671,6 +3731,7 @@
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
       taskMenuTab: normalizeTaskMenuTab(candidate?.taskMenuTab),
+      storeMenuTab: normalizeStoreMenuTab(candidate?.storeMenuTab),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
@@ -25625,109 +25686,406 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderInventory() {
     state.inventory = normalizeInventory(state.inventory);
     state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
+    state.collectedByproducts = normalizeCollectedByproducts(state.collectedByproducts);
+    ensureRoomStockpiles();
     if (!dom.inventoryList) {
       return;
     }
     const items = INVENTORY_ITEM_DEFS;
     const byproductEntries = collectedByproductEntries();
     const specimenEntries = specimenMaterialEntries();
-    const nonzeroCount = items.filter((item) => inventoryAmount(item.key) > 0).length + byproductEntries.length + specimenEntries.length;
-    dom.inventorySummary.textContent = "Storage Room ledger - room-local stockpiles";
-    dom.inventorySummary.title = "Inventory shows lab-wide totals backed by room-local stockpiles. Storage Room capacity is infinite for now. Actions use materials in their room, or queue hauling when the needed material exists elsewhere.";
-    dom.inventoryList.textContent = "";
-    for (const category of INVENTORY_CATEGORY_DEFS) {
-      const categoryItems = items.filter((item) => item.category === category.id);
-      if (!categoryItems.length) continue;
-      const section = document.createElement("section");
-      section.className = "inventory-section";
-      section.dataset.inventoryCategory = category.id;
-      const heading = document.createElement("h3");
-      heading.className = "subpanel-title inventory-section-title";
-      heading.textContent = category.label;
-      heading.title = category.description;
-      section.append(heading);
-      for (const item of categoryItems) {
-        const row = document.createElement("div");
-        row.className = "inventory-row";
-        row.dataset.inventoryItemKey = item.key;
-        row.dataset.inventoryCategory = item.category;
-        row.title = inventoryItemTooltip(item);
-        const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
-        const toolCondition = durableToolDef(item.key) ? `; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}` : "";
-        row.append(textEl("span", item.label), textEl("strong", `${formatNumber(inventoryAmount(item.key))} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}`));
-        section.append(row);
-      }
-      dom.inventoryList.append(section);
+    const materialItems = items.filter((item) => item.category === "materials");
+    const toolItems = items.filter((item) => item.category === "tools");
+    const stockedRoomIds = roomStockpileIds().filter((roomId) => knownSupplyEntriesForRoom(roomId).length > 0);
+    const stationInfos = collectionBayActiveContainers().map((container) => collectionBayStationInfo(container));
+    const stockedInventoryCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
+    const nonzeroCount = stockedInventoryCount
+      + RESOURCE_DEFS.filter((resource) => resourceAmount(resource.key) > 0).length
+      + byproductEntries.length
+      + specimenEntries.length;
+
+    if (dom.inventorySummary) {
+      dom.inventorySummary.textContent = `Known room-local stockpiles: ${nonzeroCount} stocked ${nonzeroCount === 1 ? "entry" : "entries"} across ${stockedRoomIds.length} stocked ${stockedRoomIds.length === 1 ? "room" : "rooms"}`;
+      dom.inventorySummary.title = "Inventory shows lab-wide known totals backed by room-local stockpiles. Counts are framed as last-inventoried knowledge. Actions use materials in their room or queue hauling when the needed material exists elsewhere.";
     }
-    const byproductSection = document.createElement("section");
-    byproductSection.className = "inventory-section";
-    byproductSection.dataset.inventoryCategory = "collectedByproducts";
-    const byproductHeading = document.createElement("h3");
-    byproductHeading.className = "subpanel-title inventory-section-title";
-    byproductHeading.textContent = "Collected Byproducts";
-    byproductHeading.title = "Raw natural byproducts transferred from Collection Bay station receptacles. Names stay as observed until a later processing system changes them.";
-    byproductSection.append(byproductHeading);
+    clearStoresMenuLists();
+    renderStoreMenuTabs({
+      materials: RESOURCE_DEFS.length + materialItems.length,
+      byproducts: byproductEntries.length,
+      specimens: specimenEntries.length,
+      tools: toolItems.length,
+      rooms: stockedRoomIds.length,
+      stations: stationInfos.length,
+      overview: nonzeroCount
+    });
+    renderStoresOverview({ nonzeroCount, stockedRoomIds, stationInfos, byproductEntries, specimenEntries });
+    renderStoreMaterials(materialItems);
+    renderStoreByproducts(byproductEntries);
+    renderStoreSpecimenMaterials(specimenEntries);
+    renderStoreTools(toolItems);
+    renderStoreRoomStockpiles(stockedRoomIds);
+    renderStoreCollectionStations(stationInfos);
+  }
+
+  function clearStoresMenuLists() {
+    for (const element of [
+      dom.storesOverviewList,
+      dom.resourceList,
+      dom.storesMaterialsList,
+      dom.storesByproductList,
+      dom.storesSpecimenMaterialList,
+      dom.storesToolsList,
+      dom.roomStockpileList,
+      dom.collectionStationInventoryList
+    ]) {
+      if (element) {
+        element.textContent = "";
+      }
+    }
+  }
+
+  function renderStoreMenuTabs(counts = {}) {
+    const activeTab = currentStoreMenuTab();
+    const badgeMap = {
+      overview: dom.storesOverviewBadge,
+      materials: dom.storesMaterialsBadge,
+      byproducts: dom.storesByproductsBadge,
+      specimens: dom.storesSpecimensBadge,
+      tools: dom.storesToolsBadge,
+      rooms: dom.storesRoomsBadge,
+      stations: dom.storesStationsBadge
+    };
+    for (const [tab, badge] of Object.entries(badgeMap)) {
+      if (badge) {
+        badge.textContent = String(Math.max(0, Math.floor(Number(counts[tab]) || 0)));
+      }
+    }
+    for (const button of document.querySelectorAll("[data-stores-menu-tab]")) {
+      const tab = normalizeStoreMenuTab(button.dataset.storesMenuTab);
+      const active = tab === activeTab;
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-stores-menu-panel]")) {
+      const tab = normalizeStoreMenuTab(panel.dataset.storesMenuPanel);
+      panel.hidden = tab !== activeTab;
+    }
+  }
+
+  function storesActionButton(label, title, run) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      run?.();
+    });
+    return button;
+  }
+
+  function storesOverlayButton(focusId, label = "Show on Map") {
+    return storesActionButton(label, "Switch to the Resources overlay and highlight known locations for this store category.", () => {
+      setResourceOverlayFocus(focusId);
+    });
+  }
+
+  function storesFocusRoomButton(roomId, label = "Focus Room") {
+    return storesActionButton(label, `Focus ${roomName(roomId)} on the map.`, () => {
+      focusMapTarget({ kind: "room", roomId });
+    });
+  }
+
+  function storesSectionEl(title, description = "", dataset = {}) {
+    const section = document.createElement("section");
+    section.className = "inventory-section stores-section";
+    for (const [key, value] of Object.entries(dataset)) {
+      section.dataset[key] = value;
+    }
+    const heading = document.createElement("h3");
+    heading.className = "subpanel-title inventory-section-title";
+    heading.textContent = title;
+    if (description) {
+      heading.title = description;
+    }
+    section.append(heading);
+    if (description) {
+      const note = document.createElement("p");
+      note.className = "journal-meta inventory-note";
+      note.textContent = description;
+      section.append(note);
+    }
+    return section;
+  }
+
+  function storesRowEl(label, amountText, options = {}) {
+    const row = document.createElement("div");
+    row.className = `inventory-row stores-row${options.className ? ` ${options.className}` : ""}`;
+    if (options.title) {
+      row.title = options.title;
+    }
+    for (const [key, value] of Object.entries(options.dataset || {})) {
+      row.dataset[key] = value;
+    }
+    const main = document.createElement("div");
+    main.className = "stores-row-main";
+    main.append(textEl("span", label));
+    if (options.subtitle) {
+      const subtitle = document.createElement("small");
+      subtitle.textContent = options.subtitle;
+      main.append(subtitle);
+    }
+    const amount = textEl("strong", amountText);
+    const actions = document.createElement("div");
+    actions.className = "stores-row-actions";
+    for (const action of options.actions || []) {
+      actions.append(action);
+    }
+    row.append(main, amount, actions);
+    return row;
+  }
+
+  function storesResourceRow(resource) {
+    const breakdown = stockpileBreakdownLines("resources", resource.key);
+    const amount = resourceAmount(resource.key);
+    const storageAmount = resourceAmountInRoom(resource.key, STORAGE_ROOM_ID);
+    const subtitle = breakdown.length
+      ? `Last known: ${breakdown.join("; ")}`
+      : "Last known: none";
+    return storesRowEl(resource.label, `${formatNumber(amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`, {
+      title: breakdown.length
+        ? `${resource.label} stockpile: ${breakdown.join("; ")}.`
+        : `${resource.label} stockpile is empty.`,
+      subtitle,
+      dataset: { resourceKey: resource.key, inventoryCategory: "coreResources" },
+      actions: [storesOverlayButton(`resource:${resource.key}`)]
+    });
+  }
+
+  function storesInventoryItemRow(item) {
+    const amount = inventoryAmount(item.key);
+    const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
+    const toolCondition = durableToolDef(item.key)
+      ? `; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}`
+      : "";
+    const breakdown = stockpileBreakdownLines("inventory", item.key);
+    return storesRowEl(item.label, `${formatNumber(amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}`, {
+      title: inventoryItemTooltip(item),
+      subtitle: breakdown.length ? `Last known: ${breakdown.join("; ")}` : item.description,
+      dataset: { inventoryItemKey: item.key, inventoryCategory: item.category },
+      actions: [storesOverlayButton(`category:${item.category}`)]
+    });
+  }
+
+  function storesByproductRow(entry) {
+    const storageAmount = collectedByproductAmountInRoom(entry.label, STORAGE_ROOM_ID);
+    const breakdown = stockpileBreakdownLines("collectedByproducts", byproductInventoryKey(entry.label), { allowFractional: true });
+    return storesRowEl(entry.label, `${formatCollectionAmount(entry.amount)} total${storageAmount ? `; ${formatCollectionAmount(storageAmount)} storage` : ""}`, {
+      title: collectedByproductTooltip(entry),
+      subtitle: breakdown.length ? `Last known: ${breakdown.join("; ")}` : "Raw collected byproduct; not processed or refined.",
+      dataset: { inventoryCategory: "collectedByproducts", collectedByproduct: entry.label },
+      actions: [storesOverlayButton("category:collectedByproducts")]
+    });
+  }
+
+  function storesSpecimenMaterialRow(entry) {
+    const label = entry.tags.length
+      ? `${entry.label} (${entry.tags.join(", ")})`
+      : entry.label;
+    const storageAmount = specimenMaterialAmountInRoom(entry.key, STORAGE_ROOM_ID);
+    const breakdown = specimenMaterialBreakdownLines(entry.key);
+    return storesRowEl(label, `${formatNumber(entry.amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`, {
+      title: specimenMaterialTooltip(entry),
+      subtitle: breakdown.length ? `Last known: ${breakdown.join("; ")}` : "Harvested material extracted from specimen bodies.",
+      dataset: { inventoryCategory: "specimenMaterials", specimenMaterial: entry.key },
+      actions: [storesOverlayButton("category:specimenMaterials")]
+    });
+  }
+
+  function renderStoresOverview({ nonzeroCount, stockedRoomIds, stationInfos, byproductEntries, specimenEntries }) {
+    if (!dom.storesOverviewList) {
+      return;
+    }
+    const cards = [
+      {
+        label: "Known stocked entries",
+        value: formatNumber(nonzeroCount),
+        note: "Global known totals are summaries; physical actions still care where stock is stored.",
+        action: storesActionButton("View Materials", "Open the Materials tab.", () => setStoreMenuTab("materials"))
+      },
+      {
+        label: "Stocked rooms",
+        value: formatNumber(stockedRoomIds.length),
+        note: "Room stockpiles are last-inventoried knowledge. Prototype counts update exactly for now.",
+        action: storesActionButton("View Rooms", "Open the Room Stockpiles tab.", () => setStoreMenuTab("rooms"))
+      },
+      {
+        label: "Collected byproducts",
+        value: formatNumber(byproductEntries.length),
+        note: "Raw byproduct names are preserved until future processing changes them.",
+        action: storesActionButton("View Byproducts", "Open the Byproducts tab.", () => setStoreMenuTab("byproducts"))
+      },
+      {
+        label: "Specimen materials",
+        value: formatNumber(specimenEntries.length),
+        note: "Harvested materials are separate from natural byproducts and feeding residue.",
+        action: storesActionButton("View Specimens", "Open the Specimen Materials tab.", () => setStoreMenuTab("specimens"))
+      },
+      {
+        label: "Collection stations",
+        value: formatNumber(stationInfos.length),
+        note: "Each staged container has its own receptacle; apparatus overflow is not collected inventory.",
+        action: storesActionButton("View Stations", "Open the Collection Stations tab.", () => setStoreMenuTab("stations"))
+      }
+    ];
+    const grid = document.createElement("div");
+    grid.className = "stores-overview-grid";
+    for (const card of cards) {
+      const panel = document.createElement("div");
+      panel.className = "stores-overview-card";
+      panel.append(textEl("span", card.label), textEl("strong", card.value), textEl("small", card.note));
+      const actions = document.createElement("div");
+      actions.className = "stores-row-actions";
+      actions.append(card.action);
+      panel.append(actions);
+      grid.append(panel);
+    }
+    dom.storesOverviewList.append(grid);
+    renderResources();
+  }
+
+  function renderStoreMaterials(materialItems) {
+    if (!dom.storesMaterialsList) {
+      return;
+    }
+    const resources = storesSectionEl("Core Resources", "Resources used directly by systems such as synthesis, feeding, corpse work, and future facilities.", { inventoryCategory: "coreResources" });
+    for (const resource of RESOURCE_DEFS) {
+      resources.append(storesResourceRow(resource));
+    }
+    dom.storesMaterialsList.append(resources);
+
+    const materials = storesSectionEl("Stored Materials", INVENTORY_CATEGORY_BY_ID.materials?.description || "", { inventoryCategory: "materials" });
+    for (const item of materialItems) {
+      materials.append(storesInventoryItemRow(item));
+    }
+    if (!materialItems.length) {
+      materials.append(emptyText("No stored material item definitions yet."));
+    }
+    dom.storesMaterialsList.append(materials);
+  }
+
+  function renderStoreByproducts(byproductEntries) {
+    if (!dom.storesByproductList) {
+      return;
+    }
+    const section = storesSectionEl("Collected Byproducts", "Raw natural byproducts transferred from Collection Bay station receptacles. Smoke vapor stays smoke vapor until a later processing system changes it.", { inventoryCategory: "collectedByproducts" });
     if (byproductEntries.length) {
       for (const entry of byproductEntries) {
-        const row = document.createElement("div");
-        row.className = "inventory-row";
-        row.dataset.inventoryCategory = "collectedByproducts";
-        row.dataset.collectedByproduct = entry.label;
-        row.title = collectedByproductTooltip(entry);
-        const storageAmount = collectedByproductAmountInRoom(entry.label, STORAGE_ROOM_ID);
-        row.append(textEl("span", entry.label), textEl("strong", `${formatCollectionAmount(entry.amount)} total${storageAmount ? `; ${formatCollectionAmount(storageAmount)} storage` : ""}`));
-        byproductSection.append(row);
+        section.append(storesByproductRow(entry));
       }
     } else {
-      const note = document.createElement("p");
-      note.className = "journal-meta inventory-note";
-      note.textContent = "No collected byproducts yet.";
-      byproductSection.append(note);
+      section.append(emptyText("No collected byproducts yet."));
     }
-    dom.inventoryList.append(byproductSection);
-    const specimenSection = document.createElement("section");
-    specimenSection.className = "inventory-section";
-    specimenSection.dataset.inventoryCategory = "specimenMaterials";
-    const specimenHeading = document.createElement("h3");
-    specimenHeading.className = "subpanel-title inventory-section-title";
-    specimenHeading.textContent = "Harvested Specimen Materials";
-    specimenHeading.title = "Material physically extracted from specimen bodies by sampling, partial harvest, or breakdown. Separate from natural byproducts and feeding residue.";
-    specimenSection.append(specimenHeading);
+    dom.storesByproductList.append(section);
+  }
+
+  function renderStoreSpecimenMaterials(specimenEntries) {
+    if (!dom.storesSpecimenMaterialList) {
+      return;
+    }
+    const section = storesSectionEl("Harvested Specimen Materials", "Material physically extracted from living specimens or corpses. This is separate from natural byproducts and local feeding residue.", { inventoryCategory: "specimenMaterials" });
     if (specimenEntries.length) {
       for (const entry of specimenEntries) {
-        const row = document.createElement("div");
-        row.className = "inventory-row";
-        row.dataset.inventoryCategory = "specimenMaterials";
-        row.dataset.specimenMaterial = entry.key;
-        row.title = specimenMaterialTooltip(entry);
-        const label = entry.tags.length
-          ? `${entry.label} (${entry.tags.join(", ")})`
-          : entry.label;
-        const storageAmount = specimenMaterialAmountInRoom(entry.key, STORAGE_ROOM_ID);
-        row.append(textEl("span", label), textEl("strong", `${formatNumber(entry.amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}`));
-        specimenSection.append(row);
+        section.append(storesSpecimenMaterialRow(entry));
       }
     } else {
-      const note = document.createElement("p");
-      note.className = "journal-meta inventory-note";
-      note.textContent = "No harvested specimen materials yet.";
-      specimenSection.append(note);
+      section.append(emptyText("No harvested specimen materials yet."));
     }
-    dom.inventoryList.append(specimenSection);
-    if (!items.length) {
-      dom.inventoryList.append(emptyText("No inventory items defined."));
-    } else if (!nonzeroCount) {
-      const note = document.createElement("p");
-      note.className = "journal-meta inventory-note";
-      note.textContent = "No stored materials, tools, collected byproducts, or harvested specimen materials yet. Cheats can add any defined inventory item for testing.";
-      dom.inventoryList.append(note);
+    dom.storesSpecimenMaterialList.append(section);
+  }
+
+  function renderStoreTools(toolItems) {
+    if (!dom.storesToolsList) {
+      return;
     }
+    const section = storesSectionEl("Tools & Supplies", INVENTORY_CATEGORY_BY_ID.tools?.description || "", { inventoryCategory: "tools" });
+    if (toolItems.length) {
+      for (const item of toolItems) {
+        section.append(storesInventoryItemRow(item));
+      }
+    } else {
+      section.append(emptyText("No tools or supplies are defined yet."));
+    }
+    dom.storesToolsList.append(section);
+  }
+
+  function renderStoreRoomStockpiles(stockedRoomIds = []) {
+    if (!dom.roomStockpileList) {
+      return;
+    }
+    const stocked = new Set(stockedRoomIds);
+    for (const roomId of roomStockpileIds()) {
+      const room = roomById(roomId);
+      if (!room) {
+        continue;
+      }
+      const rows = knownSupplyEntriesForRoom(room.id);
+      const section = document.createElement("section");
+      section.className = "inventory-section stores-room-stockpile";
+      section.dataset.roomStockpile = room.id;
+      section.dataset.stocked = String(stocked.has(room.id));
+      const header = document.createElement("div");
+      header.className = "stores-section-header";
+      const title = document.createElement("div");
+      title.append(textEl("h3", room.name), textEl("small", `${room.roleLabel || "Custom room"} - Last inventoried stockpile`));
+      const actions = document.createElement("div");
+      actions.className = "stores-row-actions";
+      actions.append(storesFocusRoomButton(room.id));
+      header.append(title, actions);
+      section.append(header);
+      if (!rows.length) {
+        section.append(emptyText("No known supplies in this room."));
+      } else {
+        for (const entry of rows) {
+          section.append(storesRowEl(entry.label, entry.amountText, {
+            subtitle: entry.source || "Known stockpile",
+            dataset: { stockpileType: entry.type, stockpileKey: entry.key || "" }
+          }));
+        }
+      }
+      dom.roomStockpileList.append(section);
+    }
+  }
+
+  function renderStoreCollectionStations(stationInfos) {
+    if (!dom.collectionStationInventoryList) {
+      return;
+    }
+    const section = storesSectionEl("Collection Stations", "Each active station has one receptacle. Overflow is held in that station's apparatus buffer and is not collected inventory until it drains into a replacement receptacle.", { inventoryCategory: "collectionStations" });
+    if (!stationInfos.length) {
+      section.append(emptyText("No Collection Bay stations are currently accumulating material."));
+    } else {
+      for (const info of stationInfos) {
+        const station = collectionBayStationEl(info);
+        station.dataset.storesCollectionBayStation = info.container?.id || "";
+        delete station.dataset.collectionBayStation;
+        for (const button of station.querySelectorAll("[data-collection-bay-transfer]")) {
+          button.dataset.storesCollectionBayTransfer = button.dataset.collectionBayTransfer || "";
+          delete button.dataset.collectionBayTransfer;
+        }
+        section.append(station);
+      }
+    }
+    dom.collectionStationInventoryList.append(section);
   }
 
   function renderScientist() {
     renderVitalReadouts();
-    renderResources();
-    dom.resourceList.append(physicalStatePanelEl(), restQualityPanelEl());
+    if (dom.scientistConditionList) {
+      dom.scientistConditionList.textContent = "";
+      dom.scientistConditionList.append(physicalStatePanelEl(), restQualityPanelEl());
+    }
     dom.skillList.textContent = "";
     const learnedSkills = learnedScientistSkills();
     if (!learnedSkills.length) {
@@ -25807,16 +26165,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderResources() {
     dom.resourceList.textContent = "";
+    const section = storesSectionEl("Core Resources", "Lab-wide known totals. These rows can switch the map to the selected Resources overlay.", { inventoryCategory: "coreResources" });
     for (const resource of RESOURCE_DEFS) {
-      const row = document.createElement("div");
-      row.className = "resource-row";
-      const breakdown = stockpileBreakdownLines("resources", resource.key);
-      row.title = breakdown.length
-        ? `${resource.label} stockpile: ${breakdown.join("; ")}.`
-        : `${resource.label} stockpile is empty.`;
-      row.append(textEl("span", resource.label), textEl("strong", formatNumber(resourceAmount(resource.key))));
-      dom.resourceList.append(row);
+      section.append(storesResourceRow(resource));
     }
+    dom.resourceList.append(section);
   }
 
   function roomStockpilePanelEl(room) {

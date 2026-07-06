@@ -374,6 +374,14 @@ h2 {
   right: max(1rem, calc(50vw - 39rem));
 }
 
+.stores-panel.management-workspace-panel {
+  left: 50%;
+  right: auto;
+  width: min(76rem, calc(100vw - 2rem));
+  max-width: none;
+  transform: translateX(-50%);
+}
+
 .dna-panel {
   grid-column: span 4;
 }
@@ -414,6 +422,102 @@ h2 {
 
 .inventory-section-title {
   margin: 0.15rem 0 0;
+}
+
+.stores-menu-tabs {
+  margin-bottom: 0.8rem;
+}
+
+.stores-menu-panel[hidden] {
+  display: none;
+}
+
+.stores-menu-body {
+  display: block;
+}
+
+.stores-overview-list,
+.room-stockpile-list,
+.collection-station-inventory-list,
+.scientist-condition-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.stores-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+}
+
+.stores-overview-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.stores-overview-card strong {
+  font-size: 1.2rem;
+}
+
+.stores-overview-card small,
+.stores-row-main small,
+.stores-section-header small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.stores-section {
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+
+.stores-section + .stores-section {
+  margin-top: 0.75rem;
+}
+
+.stores-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.stores-row-main {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.stores-row-actions,
+.stores-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.stores-row-actions {
+  justify-content: flex-end;
+}
+
+.stores-section-header {
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: var(--panel-2);
+  border: 1px solid #313329;
+  border-radius: 6px;
+}
+
+.stores-section-header h3 {
+  margin: 0;
+}
+
+.stores-room-stockpile {
+  gap: 0.45rem;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .cheat-panel {
