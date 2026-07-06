@@ -1815,6 +1815,29 @@ h2 {
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
+.policy-overview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.policy-overview-row .stores-row-main {
+  min-width: 0;
+}
+
+.automation-policy-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.automation-policy-row {
+  display: block;
+}
+
+.automation-policy-row .policy-option {
+  width: 100%;
+}
+
 .policy-field {
   display: grid;
   gap: 0.3rem;

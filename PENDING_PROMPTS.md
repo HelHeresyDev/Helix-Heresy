@@ -12,34 +12,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Policies, Automation, and Debug Menus
-2. Message History and Alert Feed
-3. Map Overlay and Legend Menu
-4. Remove Persistent Prototype Panels
-5. Keyboard Navigation and Menu Flow Polish
-6. Black Market Byproduct Economy System
+1. Message History and Alert Feed
+2. Map Overlay and Legend Menu
+3. Remove Persistent Prototype Panels
+4. Keyboard Navigation and Menu Flow Polish
+5. Black Market Byproduct Economy System
 
 ---
 
-## 1. Policies, Automation, and Debug Menus
-
-Move automation policies and debug tools into dedicated menus behind the map shell.
-
-Policies should eventually cover feeding, corpse handling, offspring handling, collection transfers, job automation, room behavior, alerts, and many future systems. Debug tools should remain available during prototype testing but should not shape the normal player interface.
-
-The system should answer questions like:
-- How should policy categories be organized?
-- Should individual slime automation exclusions live in Policies, Creature Records, or both?
-- Which prototype cheats belong in Debug versus testing-only utilities?
-- Should Debug default on during prototype testing but remain visually separate?
-- How should policy effects explain themselves?
-- How should future per-room and per-creature exceptions fit?
-
-The desired result is a scalable policy/debug structure that keeps testing tools useful without contaminating the main play surface.
-
-Before coding, discuss policy categories, debug visibility, exception rules, and how to prevent the menu from becoming an unstructured settings pile.
-
-## 2. Message History and Alert Feed
+## 1. Message History and Alert Feed
 
 Create a proper message history menu and a small non-intrusive live alert feed.
 
@@ -57,7 +38,7 @@ The desired result is clear situational awareness without flooding the main map.
 
 Before coding, discuss feed placement, message categories, filters, pause/slow rules, and what counts as routine versus notable.
 
-## 3. Map Overlay and Legend Menu
+## 2. Map Overlay and Legend Menu
 
 Move overlay controls, legends, filters, and debug visibility into a menu that supports map-first play.
 
@@ -75,7 +56,7 @@ The desired result is an overlay system that helps players read the lab without 
 
 Before coding, discuss overlay access, legends, filtering, hotkeys, and debug separation.
 
-## 4. Remove Persistent Prototype Panels
+## 3. Remove Persistent Prototype Panels
 
 After the key map menus exist, remove or retire the old persistent prototype panels.
 
@@ -93,7 +74,7 @@ The desired result is a cleaner UI architecture where the map shell, menus, insp
 
 Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
 
-## 5. Keyboard Navigation and Menu Flow Polish
+## 4. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -111,7 +92,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

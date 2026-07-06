@@ -2146,6 +2146,22 @@
   ];
   const STORE_MENU_TAB_BY_ID = Object.fromEntries(STORE_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_STORE_MENU_TAB = "overview";
+  const POLICY_MENU_TAB_DEFS = [
+    { id: "overview", label: "Overview" },
+    { id: "handling", label: "Handling" },
+    { id: "corpses", label: "Corpses" },
+    { id: "doors", label: "Doors" },
+    { id: "feeding", label: "Feeding" },
+    { id: "automation", label: "Automation" }
+  ];
+  const POLICY_MENU_TAB_BY_ID = Object.fromEntries(POLICY_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_POLICY_MENU_TAB = "overview";
+  const DEBUG_MENU_TAB_DEFS = [
+    { id: "cheats", label: "Cheats" },
+    { id: "ai", label: "AI Debug" }
+  ];
+  const DEBUG_MENU_TAB_BY_ID = Object.fromEntries(DEBUG_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_DEBUG_MENU_TAB = "cheats";
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2379,6 +2395,8 @@
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
       taskMenuTab: DEFAULT_TASK_MENU_TAB,
       storeMenuTab: DEFAULT_STORE_MENU_TAB,
+      policyMenuTab: DEFAULT_POLICY_MENU_TAB,
+      debugMenuTab: DEFAULT_DEBUG_MENU_TAB,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
@@ -2658,10 +2676,14 @@
       "parentASelect",
       "parentBSelect",
       "breedBtn",
+      "policyMenuTabs",
       "policySummary",
+      "policyOverviewList",
+      "handlingPolicyList",
       "corpsePolicyList",
       "doorPolicyList",
       "feedingPolicyList",
+      "automationPolicyList",
       "roomSummary",
       "roomList",
       "roomCommandInput",
@@ -2705,6 +2727,7 @@
       "inventoryCommandInput",
       "inventoryCommandBtn",
       "inventoryCommandStatus",
+      "debugMenuTabs",
       "aiDebugSummary",
       "aiDebugReadout",
       "journalModeReadout",
@@ -2788,22 +2811,6 @@
       }
     }
 
-    if (!dom.aiDebugSummary || !dom.aiDebugReadout) {
-      const cheatGrid = document.querySelector(".cheat-grid");
-      if (cheatGrid) {
-        const subpanel = document.createElement("div");
-        subpanel.className = "subpanel";
-        subpanel.dataset.aiDebugPanel = "true";
-        subpanel.innerHTML = `
-          <div class="subpanel-title">Slime AI Debug</div>
-          <p id="aiDebugSummary" class="journal-meta">Select a living sample to inspect AI internals.</p>
-          <div id="aiDebugReadout" class="ai-debug-readout"></div>
-        `;
-        cheatGrid.append(subpanel);
-        dom.aiDebugSummary = document.getElementById("aiDebugSummary");
-        dom.aiDebugReadout = document.getElementById("aiDebugReadout");
-      }
-    }
   }
 
   function populateTimeSpeedSelect() {
@@ -2938,6 +2945,26 @@
         return;
       }
       setStoreMenuTab(button.dataset.storesMenuTab);
+    });
+
+    dom.policyMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-policy-menu-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setPolicyMenuTab(button.dataset.policyMenuTab);
+    });
+
+    dom.debugMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-debug-menu-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setDebugMenuTab(button.dataset.debugMenuTab);
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -3531,6 +3558,48 @@
     render();
   }
 
+  function normalizePolicyMenuTab(value) {
+    const id = String(value || DEFAULT_POLICY_MENU_TAB).trim();
+    return POLICY_MENU_TAB_BY_ID[id] ? id : DEFAULT_POLICY_MENU_TAB;
+  }
+
+  function currentPolicyMenuTab() {
+    const ui = ensureUiState();
+    ui.policyMenuTab = normalizePolicyMenuTab(ui.policyMenuTab);
+    return ui.policyMenuTab;
+  }
+
+  function setPolicyMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.policyMenuTab = normalizePolicyMenuTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
+  function normalizeDebugMenuTab(value) {
+    const id = String(value || DEFAULT_DEBUG_MENU_TAB).trim();
+    return DEBUG_MENU_TAB_BY_ID[id] ? id : DEFAULT_DEBUG_MENU_TAB;
+  }
+
+  function currentDebugMenuTab() {
+    const ui = ensureUiState();
+    ui.debugMenuTab = normalizeDebugMenuTab(ui.debugMenuTab);
+    return ui.debugMenuTab;
+  }
+
+  function setDebugMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.debugMenuTab = normalizeDebugMenuTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
   function currentCreatureRecordTab() {
     const ui = ensureUiState();
     const requested = normalizeCreatureRecordTab(ui.creatureRecordTab);
@@ -3732,6 +3801,8 @@
       creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
       taskMenuTab: normalizeTaskMenuTab(candidate?.taskMenuTab),
       storeMenuTab: normalizeStoreMenuTab(candidate?.storeMenuTab),
+      policyMenuTab: normalizePolicyMenuTab(candidate?.policyMenuTab),
+      debugMenuTab: normalizeDebugMenuTab(candidate?.debugMenuTab),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
@@ -24602,6 +24673,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSlimeAiDebugPanel() {
+    renderDebugMenuTabs();
     if (!dom.aiDebugSummary || !dom.aiDebugReadout) {
       return;
     }
@@ -24719,6 +24791,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       testing.active ? `${testing.pressureLabel}; progress ${formatDecimal(testing.progress, 1)}` : "quiet"
     );
     dom.aiDebugReadout.append(grid);
+  }
+
+  function renderDebugMenuTabs() {
+    const activeTab = currentDebugMenuTab();
+    for (const button of document.querySelectorAll("[data-debug-menu-tab]")) {
+      const tab = normalizeDebugMenuTab(button.dataset.debugMenuTab);
+      const active = tab === activeTab;
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-debug-menu-panel]")) {
+      const tab = normalizeDebugMenuTab(panel.dataset.debugMenuPanel);
+      panel.hidden = tab !== activeTab;
+    }
   }
 
   function renderSlimeAnalyzePanel(slime) {
@@ -25426,12 +25513,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderPolicies() {
     state.policies = normalizePolicies(state.policies);
+    renderPolicyMenuTabs();
+    if (dom.policyOverviewList) dom.policyOverviewList.textContent = "";
+    if (dom.handlingPolicyList) dom.handlingPolicyList.textContent = "";
     dom.corpsePolicyList.textContent = "";
     dom.doorPolicyList.textContent = "";
+    if (dom.automationPolicyList) dom.automationPolicyList.textContent = "";
 
-    const corpseControls = document.createElement("div");
-    corpseControls.className = "policy-control-list corpse-policy-controls";
-    corpseControls.dataset.corpsePolicyControls = "true";
+    const handlingControls = document.createElement("div");
+    handlingControls.className = "policy-control-list handling-policy-controls";
+    handlingControls.dataset.handlingPolicyControls = "true";
     const corpseTargets = document.createElement("div");
     corpseTargets.className = "policy-target-list";
     corpseTargets.dataset.corpsePolicyTargets = "true";
@@ -25451,14 +25542,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     methodSelect.title = handlingMethodActionTitle(currentHandlingMethodId());
     methodSelect.addEventListener("change", () => setHandlingMethod(methodSelect.value));
     methodLabel.append(methodSelect);
-    corpseControls.append(methodLabel);
+    handlingControls.append(methodLabel);
 
     const methodInventoryNote = document.createElement("div");
     methodInventoryNote.className = "policy-inventory-note";
     methodInventoryNote.dataset.handlingInventoryNote = "true";
     methodInventoryNote.textContent = `${handlingMethodToolPreviewSummary(currentHandlingMethodId())}. ${handlingMethodInventorySummary(currentHandlingMethodId())}. ${handlingMethodDamageResistanceSummary(currentHandlingMethodId())}. ${handlingMethodProtocolSummary(currentHandlingMethodId())}. ${handlingMethodRequirementSummary(currentHandlingMethodId())}.`;
     methodInventoryNote.title = `${handlingMethodInventoryTitle(currentHandlingMethodId())}\n${handlingMethodDamageResistanceTitle(currentHandlingMethodId())}`;
-    corpseControls.append(methodInventoryNote);
+    handlingControls.append(methodInventoryNote);
+    dom.handlingPolicyList?.append(handlingControls);
 
     const doorPolicyLabel = document.createElement("label");
     doorPolicyLabel.className = "policy-option";
@@ -25489,6 +25581,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
     dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}.`;
+    renderPolicyOverview({ corpseSummary, handlingSummary, feedingMode });
 
     const autoMoveLabel = document.createElement("label");
     autoMoveLabel.className = "policy-option";
@@ -25506,6 +25599,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
     });
     autoMoveLabel.append(autoMoveInput, textEl("span", "Auto-move local corpses"));
+
+    const corpseControls = document.createElement("div");
+    corpseControls.className = "policy-control-list corpse-policy-controls";
+    corpseControls.dataset.corpsePolicyControls = "true";
 
     const destinationLabel = document.createElement("label");
     destinationLabel.className = "policy-field policy-select-field";
@@ -25556,6 +25653,127 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     dom.corpsePolicyList.append(corpseTargets);
     renderFeedingPolicies();
+    renderAutomationPolicies();
+  }
+
+  function renderPolicyMenuTabs() {
+    const activeTab = currentPolicyMenuTab();
+    for (const button of document.querySelectorAll("[data-policy-menu-tab]")) {
+      const tab = normalizePolicyMenuTab(button.dataset.policyMenuTab);
+      const active = tab === activeTab;
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-policy-menu-panel]")) {
+      const tab = normalizePolicyMenuTab(panel.dataset.policyMenuPanel);
+      panel.hidden = tab !== activeTab;
+    }
+  }
+
+  function policyOverviewRow(title, value, note = "", action = null) {
+    const row = document.createElement("div");
+    row.className = "inventory-row policy-overview-row";
+    const main = document.createElement("div");
+    main.className = "stores-row-main";
+    main.append(textEl("span", title));
+    if (note) {
+      main.append(textEl("small", note));
+    }
+    const valueEl = textEl("strong", value);
+    row.append(main, valueEl);
+    if (action) {
+      const actions = document.createElement("div");
+      actions.className = "stores-row-actions";
+      actions.append(action);
+      row.append(actions);
+    }
+    return row;
+  }
+
+  function policyTabButton(tabId, label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => setPolicyMenuTab(tabId));
+    return button;
+  }
+
+  function renderPolicyOverview({ corpseSummary, handlingSummary, feedingMode }) {
+    if (!dom.policyOverviewList) {
+      return;
+    }
+    const excluded = (state.slimes || []).filter((slime) => slime.status !== "dead" && slime.automationExcluded);
+    dom.policyOverviewList.append(
+      policyOverviewRow(
+        "Handling",
+        HANDLING_METHOD_BY_ID[currentHandlingMethodId()]?.label || "Default",
+        handlingMethodToolPreviewSummary(currentHandlingMethodId()),
+        policyTabButton("handling", "Open Handling")
+      ),
+      policyOverviewRow(
+        "Corpse handling",
+        corpseHandlingPolicy().autoMoveToDrums ? "Auto-move enabled" : "Manual",
+        `${corpseSummary} ${handlingSummary}`,
+        policyTabButton("corpses", "Open Corpses")
+      ),
+      policyOverviewRow(
+        "Doors",
+        currentDoorPolicyDef().label,
+        currentDoorPolicyDef().description,
+        policyTabButton("doors", "Open Doors")
+      ),
+      policyOverviewRow(
+        "Auto-feeding",
+        feedingMode,
+        `${formatNumber(excluded.length)} living specimen${excluded.length === 1 ? "" : "s"} excluded from global automation.`,
+        policyTabButton("feeding", "Open Feeding")
+      ),
+      policyOverviewRow(
+        "Automation exclusions",
+        formatNumber(excluded.length),
+        excluded.length ? excluded.map((slime) => slime.name).join(", ") : "No living specimens are excluded.",
+        policyTabButton("automation", "Open Automation")
+      )
+    );
+  }
+
+  function renderAutomationPolicies() {
+    if (!dom.automationPolicyList) {
+      return;
+    }
+    const living = (state.slimes || [])
+      .filter((slime) => slime.status !== "dead")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!living.length) {
+      dom.automationPolicyList.append(emptyText("No living specimens exist yet."));
+      return;
+    }
+    const note = document.createElement("p");
+    note.className = "journal-meta inventory-note";
+    note.textContent = "Global automation exclusions currently affect auto-feeding and other broad automation checks that respect the specimen flag.";
+    dom.automationPolicyList.append(note);
+    for (const slime of living) {
+      const row = document.createElement("div");
+      row.className = "inventory-row automation-policy-row";
+      row.dataset.automationSlimeId = slime.id;
+      const label = document.createElement("label");
+      label.className = "policy-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = Boolean(slime.automationExcluded);
+      input.addEventListener("change", () => {
+        slime.automationExcluded = input.checked;
+        addEvent(`${slime.name} ${slime.automationExcluded ? "excluded from" : "returned to"} automation.`);
+        persist();
+        render();
+      });
+      const text = document.createElement("span");
+      text.append(slimeNameLink(slime), document.createTextNode(` - ${slime.automationExcluded ? "Excluded" : "Follows global automation"}`));
+      label.append(input, text);
+      row.append(label);
+      dom.automationPolicyList.append(row);
+    }
   }
 
 

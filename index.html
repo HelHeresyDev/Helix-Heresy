@@ -216,19 +216,42 @@
             </div>
           </div>
 
-          <div class="subpanel">
-            <div class="subpanel-title">Corpse Processing Targets</div>
+          <div id="policyMenuTabs" class="record-tabs policy-menu-tabs" role="tablist" aria-label="Policy sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-policy-menu-tab="overview">Overview</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="handling">Handling</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="corpses">Corpses</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="doors">Doors</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="feeding">Feeding</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="automation">Automation</button>
+          </div>
+
+          <div class="policy-menu-panel" data-policy-menu-panel="overview" role="tabpanel">
+            <div id="policyOverviewList" class="policy-list"></div>
+          </div>
+
+          <div class="policy-menu-panel" data-policy-menu-panel="handling" role="tabpanel" hidden>
+            <div class="subpanel-title">Handling Method</div>
+            <div id="handlingPolicyList" class="policy-list"></div>
+          </div>
+
+          <div class="policy-menu-panel" data-policy-menu-panel="corpses" role="tabpanel" hidden>
+            <div class="subpanel-title">Corpse Handling and Processing</div>
             <div id="corpsePolicyList" class="policy-list"></div>
           </div>
 
-          <div class="subpanel">
+          <div class="policy-menu-panel" data-policy-menu-panel="doors" role="tabpanel" hidden>
             <div class="subpanel-title">Doors</div>
             <div id="doorPolicyList" class="policy-list"></div>
           </div>
 
-          <div class="subpanel">
+          <div class="policy-menu-panel" data-policy-menu-panel="feeding" role="tabpanel" hidden>
             <div class="subpanel-title">Auto-Feeding</div>
             <div id="feedingPolicyList" class="policy-control-list"></div>
+          </div>
+
+          <div class="policy-menu-panel" data-policy-menu-panel="automation" role="tabpanel" hidden>
+            <div class="subpanel-title">Creature Automation</div>
+            <div id="automationPolicyList" class="policy-list automation-policy-list"></div>
           </div>
         </section>
 
@@ -358,46 +381,61 @@
         <section class="panel cheat-panel" aria-labelledby="cheatTitle" data-workspace-panel="cheats">
           <div class="panel-heading">
             <div>
-              <h2 id="cheatTitle">Cheats</h2>
+              <h2 id="cheatTitle">Debug</h2>
               <p>Prototype testing controls</p>
             </div>
           </div>
 
-          <div class="cheat-grid">
-            <div class="subpanel">
-              <div class="subpanel-title">XP Cheat</div>
-              <div class="cheat-row">
-                <input id="xpCommandInput" type="text" spellcheck="false" placeholder="analysis 5000">
-                <button id="xpCommandBtn" type="button">Add XP</button>
-              </div>
-              <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
-            </div>
+          <div id="debugMenuTabs" class="record-tabs debug-menu-tabs" role="tablist" aria-label="Debug sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-debug-menu-tab="cheats">Cheats</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-debug-menu-tab="ai">AI Debug</button>
+          </div>
 
-            <div class="subpanel">
-              <div class="subpanel-title">Resource Cheat</div>
-              <div class="cheat-row">
-                <input id="resourceCommandInput" type="text" spellcheck="false" placeholder="biomass 100 main">
-                <button id="resourceCommandBtn" type="button">Add Resource</button>
+          <div class="debug-menu-panel" data-debug-menu-panel="cheats" role="tabpanel">
+            <div class="cheat-grid">
+              <div class="subpanel">
+                <div class="subpanel-title">XP Cheat</div>
+                <div class="cheat-row">
+                  <input id="xpCommandInput" type="text" spellcheck="false" placeholder="analysis 5000">
+                  <button id="xpCommandBtn" type="button">Add XP</button>
+                </div>
+                <p id="xpCommandStatus" class="journal-meta">Use skill name plus XP amount.</p>
               </div>
-              <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount, with optional room.</p>
-            </div>
 
-            <div class="subpanel">
-              <div class="subpanel-title">Room Cheat</div>
-              <div class="cheat-row">
-                <input id="roomCommandInput" type="text" spellcheck="false" placeholder="temperature -10">
-                <button id="roomCommandBtn" type="button">Adjust Room</button>
+              <div class="subpanel">
+                <div class="subpanel-title">Resource Cheat</div>
+                <div class="cheat-row">
+                  <input id="resourceCommandInput" type="text" spellcheck="false" placeholder="biomass 100 main">
+                  <button id="resourceCommandBtn" type="button">Add Resource</button>
+                </div>
+                <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount, with optional room.</p>
               </div>
-              <p id="roomCommandStatus" class="journal-meta">Use attribute name plus amount.</p>
-            </div>
 
-            <div class="subpanel">
-              <div class="subpanel-title">Container Cheat</div>
-              <div class="cheat-row">
-                <input id="containerCommandInput" type="text" spellcheck="false" placeholder="basic-1 type iron cage">
-                <button id="containerCommandBtn" type="button">Edit Container</button>
+              <div class="subpanel">
+                <div class="subpanel-title">Room Cheat</div>
+                <div class="cheat-row">
+                  <input id="roomCommandInput" type="text" spellcheck="false" placeholder="temperature -10">
+                  <button id="roomCommandBtn" type="button">Adjust Room</button>
+                </div>
+                <p id="roomCommandStatus" class="journal-meta">Use attribute name plus amount.</p>
               </div>
-              <p id="containerCommandStatus" class="journal-meta">Use: basic-1 type/add/remove/clear.</p>
+
+              <div class="subpanel">
+                <div class="subpanel-title">Container Cheat</div>
+                <div class="cheat-row">
+                  <input id="containerCommandInput" type="text" spellcheck="false" placeholder="basic-1 type iron cage">
+                  <button id="containerCommandBtn" type="button">Edit Container</button>
+                </div>
+                <p id="containerCommandStatus" class="journal-meta">Use: basic-1 type/add/remove/clear.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="debug-menu-panel" data-debug-menu-panel="ai" role="tabpanel" hidden>
+            <div class="subpanel" data-ai-debug-panel="true">
+              <div class="subpanel-title">Slime AI Debug</div>
+              <p id="aiDebugSummary" class="journal-meta">Select a living sample to inspect AI internals.</p>
+              <div id="aiDebugReadout" class="ai-debug-readout"></div>
             </div>
           </div>
         </section>

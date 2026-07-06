@@ -689,6 +689,26 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
   await page.locator('#loadLastSaveBtn').click();
   await expect(page.locator('[data-workspace-tab="cheats"]')).toBeVisible();
+  await page.locator('[data-workspace-tab="policies"]').click();
+  await expect(page.locator('[data-policy-menu-tab="overview"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-policy-menu-panel="overview"]')).toBeVisible();
+  await page.locator('[data-policy-menu-tab="feeding"]').click();
+  await expect(page.locator('[data-policy-menu-panel="feeding"]')).toBeVisible();
+  await expect(page.locator('#feedingPolicyList')).toContainText('Feed below');
+  await page.locator('[data-policy-menu-tab="handling"]').click();
+  await expect(page.locator('[data-policy-menu-panel="handling"]')).toBeVisible();
+  await expect(page.locator('#handlingPolicyList')).toContainText('Handling method');
+  await page.locator('[data-policy-menu-tab="automation"]').click();
+  await expect(page.locator('[data-policy-menu-panel="automation"]')).toBeVisible();
+  await expect(page.locator('#automationPolicyList')).toContainText(/No living specimens|Global automation exclusions/);
+  await page.locator('[data-workspace-tab="cheats"]').click();
+  await expect(page.locator('[data-debug-menu-tab="cheats"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-debug-menu-panel="cheats"]')).toBeVisible();
+  await expect(page.locator('#xpCommandInput')).toBeVisible();
+  await page.locator('[data-debug-menu-tab="ai"]').click();
+  await expect(page.locator('[data-debug-menu-panel="ai"]')).toBeVisible();
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Slime AI Debug');
+  await page.locator('[data-workspace-tab="map"]').click();
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
   await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');
