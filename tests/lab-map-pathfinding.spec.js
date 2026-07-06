@@ -654,7 +654,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
 
   await page.locator('#queueToggleBtn').click();
-  await expect(page.locator('#queueToggleBtn')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#queueToggleBtn')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="tasks"]')).toHaveClass(/active-workspace-panel/);
   await expect(page.locator('#taskList')).toContainText('Queue is clear');
   await page.keyboard.press('Escape');
@@ -1628,7 +1628,7 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   expect(queued.data.toRoomId).toBe('bedroom');
 
   const moveTaskRow = page.locator('#taskList .task-row').filter({ hasText: 'Move scientist to Bedroom' });
-  if (await page.locator('#queueToggleBtn').getAttribute('aria-expanded') === 'false') {
+  if (await page.locator('#queueToggleBtn').getAttribute('aria-current') !== 'page') {
     await page.locator('#queueToggleBtn').click();
   }
   await expect(moveTaskRow).toBeVisible();

@@ -51,8 +51,12 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   await page.locator('#synthesizeBtn').click();
 
   await page.locator('#queueToggleBtn').click();
+  await expect(page.locator('[data-task-menu-tab="queue"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#queueTaskBadge')).toHaveText('1');
   const haulTask = page.locator('#taskList .task-row').filter({ hasText: 'Haul materials for Synthesize slime' });
   await expect(haulTask).toBeVisible();
+  await expect(haulTask).toContainText('Step 1: haul materials');
+  await expect(haulTask).toContainText('Step 2: Synthesize slime');
 
   let logisticsState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -92,6 +96,10 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.taskTypes).toEqual(['synthesize']);
 
   await synthTask.getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-task-menu-tab="completed"]').click();
+  await expect(page.locator('#completedTaskList')).toContainText('Completed');
+  await expect(page.locator('#completedTaskList')).toContainText('Synthesize slime');
+  await expect(page.locator('#completedTaskList')).toContainText('Haul materials for Synthesize slime');
 
   const finalState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

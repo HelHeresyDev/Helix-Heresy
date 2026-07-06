@@ -2627,6 +2627,14 @@ h2 {
   padding-right: 0.25rem;
 }
 
+.task-menu-tabs {
+  margin-top: 0.75rem;
+}
+
+.task-menu-panel[hidden] {
+  display: none;
+}
+
 .task-row {
   grid-template-columns: minmax(0, 1fr) auto;
   cursor: pointer;
@@ -2635,6 +2643,16 @@ h2 {
 .task-row[data-task-status="blocked"] {
   border-color: #7f4a3e;
   background: #221914;
+}
+
+.task-row[data-task-status="canceled"] {
+  border-color: #5a5030;
+  background: #1c1b13;
+}
+
+.task-history-row {
+  grid-template-columns: minmax(0, 1fr);
+  cursor: default;
 }
 
 .task-meta {
@@ -2654,6 +2672,13 @@ h2 {
 
 .task-row button {
   align-self: center;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 .task-row .entity-link {
@@ -2774,12 +2799,6 @@ h2 {
 
 .message-feed .message-row:hover {
   border-color: var(--cyan);
-}
-
-@media (min-width: 900px) {
-  .app-shell.queue-open .message-feed {
-    right: 25.5rem;
-  }
 }
 
 @keyframes entity-focus-pulse {

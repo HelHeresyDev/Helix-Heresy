@@ -2126,6 +2126,14 @@
   const CREATURE_RECORD_TAB_BY_ID = Object.fromEntries(CREATURE_RECORD_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_CREATURE_RECORD_TAB = "living";
   const CREATURE_UNKNOWN_STALE_SECONDS = 2 * 60 * 60;
+  const TASK_MENU_TAB_DEFS = [
+    { id: "queue", label: "Queue" },
+    { id: "blocked", label: "Blocked" },
+    { id: "completed", label: "Completed" }
+  ];
+  const TASK_MENU_TAB_BY_ID = Object.fromEntries(TASK_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_TASK_MENU_TAB = "queue";
+  const TASK_HISTORY_LIMIT = 80;
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2263,6 +2271,7 @@
       slimes: [],
       corpses: [],
       tasks: [],
+      taskHistory: [],
       selection: null,
       selectedSlimeId: null,
       selectedMapTarget: null,
@@ -2356,6 +2365,7 @@
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
+      taskMenuTab: DEFAULT_TASK_MENU_TAB,
       messageFilter: DEFAULT_MESSAGE_FILTER,
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
@@ -2678,7 +2688,13 @@
       "skipTimeBtn",
       "skipNextEventBtn",
       "skipQueueBtn",
+      "taskMenuTabs",
+      "queueTaskBadge",
+      "blockedTaskBadge",
+      "completedTaskBadge",
       "taskList",
+      "blockedTaskList",
+      "completedTaskList",
       "messageFeed",
       "messageHistorySummary",
       "messageFilterSelect",
@@ -2873,6 +2889,16 @@
         return;
       }
       setCreatureRecordTab(button.dataset.creatureRecordTab);
+    });
+
+    dom.taskMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-task-menu-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setTaskMenuTab(button.dataset.taskMenuTab);
     });
 
     dom.newRunBtn.addEventListener("click", () => {
@@ -3424,6 +3450,27 @@
     return CREATURE_RECORD_TAB_BY_ID[id] ? id : DEFAULT_CREATURE_RECORD_TAB;
   }
 
+  function normalizeTaskMenuTab(value) {
+    const id = String(value || DEFAULT_TASK_MENU_TAB).trim();
+    return TASK_MENU_TAB_BY_ID[id] ? id : DEFAULT_TASK_MENU_TAB;
+  }
+
+  function currentTaskMenuTab() {
+    const ui = ensureUiState();
+    ui.taskMenuTab = normalizeTaskMenuTab(ui.taskMenuTab);
+    return ui.taskMenuTab;
+  }
+
+  function setTaskMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.taskMenuTab = normalizeTaskMenuTab(tabId);
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
   function currentCreatureRecordTab() {
     const ui = ensureUiState();
     const requested = normalizeCreatureRecordTab(ui.creatureRecordTab);
@@ -3623,6 +3670,7 @@
       mapOverlay: overlayId === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : overlayId,
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
+      taskMenuTab: normalizeTaskMenuTab(candidate?.taskMenuTab),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
@@ -4026,6 +4074,7 @@
         }
         state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
         completeTask(task);
+        recordTaskHistory(task, "completed");
         completedAny = true;
         changeCount += 1;
       }
@@ -4499,9 +4548,6 @@
         button.setAttribute("aria-current", "page");
       } else {
         button.removeAttribute("aria-current");
-      }
-      if (button.id === "queueToggleBtn") {
-        button.setAttribute("aria-expanded", String(active));
       }
     }
     for (const group of document.querySelectorAll("[data-workspace-category]")) {
@@ -26658,6 +26704,59 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { id: "queued", label: "Queued", reason: "" };
   }
 
+  function cleanTaskHistoryStatus(value) {
+    const status = String(value || "completed").trim();
+    return ["completed", "canceled"].includes(status) ? status : "completed";
+  }
+
+  function taskHistoryEntry(task, status = "completed") {
+    const cleanStatus = cleanTaskHistoryStatus(status);
+    return {
+      id: `task-history-${task?.id || state.nextTaskNumber}-${cleanStatus}-${Math.round(state.clock)}`,
+      taskId: String(task?.id || ""),
+      type: String(task?.type || "task"),
+      label: String(task?.label || "Task"),
+      category: task ? taskCategory(task) : "Task",
+      status: cleanStatus,
+      createdAt: finiteTime(task?.createdAt, state.clock),
+      dueAt: finiteTime(task?.dueAt, state.clock),
+      completedAt: state.clock,
+      targetRoomId: taskTargetRoomId(task),
+      pathSummary: taskPathSummary(task),
+      details: cleanStatus === "canceled" ? "Canceled by player." : "Finished."
+    };
+  }
+
+  function normalizeTaskHistory(candidate = []) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((entry, index) => ({
+        id: String(entry?.id || `task-history-${index}`),
+        taskId: String(entry?.taskId || ""),
+        type: String(entry?.type || "task"),
+        label: String(entry?.label || "Task"),
+        category: String(entry?.category || "Task"),
+        status: cleanTaskHistoryStatus(entry?.status),
+        createdAt: finiteTime(entry?.createdAt, 0),
+        dueAt: finiteTime(entry?.dueAt, finiteTime(entry?.completedAt, 0)),
+        completedAt: finiteTime(entry?.completedAt, 0),
+        targetRoomId: cleanRoomId(entry?.targetRoomId),
+        pathSummary: String(entry?.pathSummary || "No map path recorded"),
+        details: String(entry?.details || "")
+      }))
+      .sort((a, b) => b.completedAt - a.completedAt || String(b.id).localeCompare(String(a.id)))
+      .slice(0, TASK_HISTORY_LIMIT);
+  }
+
+  function recordTaskHistory(task, status = "completed") {
+    if (!task || !isScientistQueueTask(task)) {
+      return;
+    }
+    state.taskHistory = normalizeTaskHistory([
+      taskHistoryEntry(task, status),
+      ...(state.taskHistory || [])
+    ]);
+  }
+
   function cancelTaskBlockReason(task) {
     if (!task) {
       return "Task no longer exists.";
@@ -26705,6 +26804,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (currentSelection()?.kind === "task" && currentSelection().id === task.id) {
       setSelection(null);
     }
+    recordTaskHistory(task, "canceled");
     addEvent(`Canceled task: ${task.label}.`);
     persist();
     render();
@@ -30255,64 +30355,215 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderTasks() {
     dom.taskList.textContent = "";
+    if (dom.blockedTaskList) dom.blockedTaskList.textContent = "";
+    if (dom.completedTaskList) dom.completedTaskList.textContent = "";
     renderQueueShell();
     const queueTasks = scientistQueueTasks();
-    if (queueTasks.length === 0) {
+    const blockedTasks = queueTasks.filter((task) => taskStatusInfo(task).id === "blocked");
+    const activeTasks = queueTasks.filter((task) => taskStatusInfo(task).id !== "blocked");
+
+    if (activeTasks.length === 0) {
       dom.taskList.append(emptyText("Queue is clear."));
-      return;
+    } else {
+      for (const task of activeTasks) {
+        dom.taskList.append(taskRowEl(task));
+      }
     }
 
-    for (const task of queueTasks) {
-      const status = taskStatusInfo(task);
-      const row = document.createElement("div");
-      row.className = "task-row";
-      row.dataset.taskRow = task.id;
-      row.dataset.taskStatus = status.id;
-      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("task", task.id));
-      row.addEventListener("click", (event) => {
-        if (event.target.closest("button, input, select, textarea")) {
-          return;
+    if (dom.blockedTaskList) {
+      if (blockedTasks.length === 0) {
+        dom.blockedTaskList.append(emptyText("No blocked scientist tasks."));
+      } else {
+        for (const task of blockedTasks) {
+          dom.blockedTaskList.append(taskRowEl(task));
         }
-        focusMapTarget({ kind: "task", id: task.id, source: "queue" });
-      });
-      const label = document.createElement("div");
-      const title = document.createElement("strong");
-      appendLinkedEntityText(title, task.label);
-      const remaining = textEl("span", `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`);
-      remaining.dataset.taskRemaining = task.id;
-      const meta = document.createElement("div");
-      meta.className = "task-meta";
-      remaining.className = "task-chip";
-      meta.append(taskChip(taskCategory(task)), taskChip(status.reason ? `${status.label}: ${status.reason}` : status.label), taskChip(formatClock(task.dueAt)), remaining);
-      label.append(title, meta);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = "Finish";
-      button.addEventListener("click", () => {
-        if (task.dueAt > state.clock) {
-          advanceTime(task.dueAt - state.clock);
+      }
+    }
+
+    if (dom.completedTaskList) {
+      state.taskHistory = normalizeTaskHistory(state.taskHistory);
+      if (!state.taskHistory.length) {
+        dom.completedTaskList.append(emptyText("No recent completed or canceled scientist tasks."));
+      } else {
+        for (const entry of state.taskHistory) {
+          dom.completedTaskList.append(taskHistoryRowEl(entry));
         }
-        persist();
-        render();
-      });
-      row.append(label, button);
-      dom.taskList.append(row);
+      }
     }
   }
 
   function renderQueueShell() {
     const sorted = scientistQueueTasks();
     const next = sorted[0] || null;
-    const taskScreenActive = currentWorkspaceTab() === "tasks";
-    document.querySelector(".app-shell")?.classList.toggle("queue-open", false);
-    dom.queueToggleBtn.setAttribute("aria-expanded", String(taskScreenActive));
+    const blocked = sorted.filter((task) => taskStatusInfo(task).id === "blocked");
+    const active = sorted.filter((task) => taskStatusInfo(task).id !== "blocked");
+    renderTaskMenuTabs(active, blocked);
     dom.queueBadge.textContent = String(sorted.length);
     dom.queueSummary.textContent = next
-      ? `${sorted.length} scientist task${sorted.length === 1 ? "" : "s"}; next ${next.label} in ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
+      ? `${sorted.length} scientist task${sorted.length === 1 ? "" : "s"}${blocked.length ? `; ${blocked.length} blocked` : ""}; next ${next.label} in ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
       : "No pending scientist work";
     dom.queueNextReadout.textContent = next
       ? `Next ${formatDuration(Math.max(0, next.dueAt - state.clock))}`
       : "Clear";
+  }
+
+  function renderTaskMenuTabs(activeTasks, blockedTasks) {
+    const activeTab = currentTaskMenuTab();
+    if (dom.queueTaskBadge) dom.queueTaskBadge.textContent = String(activeTasks.length);
+    if (dom.blockedTaskBadge) dom.blockedTaskBadge.textContent = String(blockedTasks.length);
+    if (dom.completedTaskBadge) dom.completedTaskBadge.textContent = String(normalizeTaskHistory(state.taskHistory).length);
+
+    for (const button of document.querySelectorAll("[data-task-menu-tab]")) {
+      const tab = normalizeTaskMenuTab(button.dataset.taskMenuTab);
+      const active = tab === activeTab;
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-task-menu-panel]")) {
+      const tab = normalizeTaskMenuTab(panel.dataset.taskMenuPanel);
+      panel.hidden = tab !== activeTab;
+    }
+  }
+
+  function taskRowEl(task) {
+    const status = taskStatusInfo(task);
+    const row = document.createElement("div");
+    row.className = "task-row";
+    row.dataset.taskRow = task.id;
+    row.dataset.taskStatus = status.id;
+    row.classList.toggle("selected-map-target", selectedTargetMatchesCard("task", task.id));
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("button, input, select, textarea")) {
+        return;
+      }
+      focusMapTarget({ kind: "task", id: task.id, source: "queue" });
+    });
+
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    appendLinkedEntityText(title, task.label);
+    const remaining = textEl("span", `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`);
+    remaining.dataset.taskRemaining = task.id;
+    remaining.className = "task-chip";
+
+    const meta = document.createElement("div");
+    meta.className = "task-meta";
+    meta.append(
+      taskChip(taskCategory(task)),
+      taskChip(status.reason ? `${status.label}: ${status.reason}` : status.label),
+      taskChip(formatClock(task.dueAt)),
+      remaining,
+      taskChip(taskTargetSummary(task))
+    );
+    for (const chipEl of taskStepChips(task)) {
+      meta.append(chipEl);
+    }
+    body.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    const focus = document.createElement("button");
+    focus.type = "button";
+    focus.textContent = "Focus";
+    focus.title = "Select this task on the map and show its inspector.";
+    focus.addEventListener("click", () => {
+      focusMapTarget({ kind: "task", id: task.id, source: "queue" });
+    });
+    const finish = document.createElement("button");
+    finish.type = "button";
+    finish.textContent = "Finish";
+    const finishReason = status.id === "blocked" ? status.reason : "";
+    setActionButtonState(finish, Boolean(finishReason), finishReason);
+    finish.addEventListener("click", () => {
+      if (task.dueAt > state.clock) {
+        advanceTime(task.dueAt - state.clock);
+      }
+      persist();
+      render();
+    });
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    const cancelReason = cancelTaskBlockReason(task);
+    setActionButtonState(cancel, Boolean(cancelReason), cancelReason);
+    cancel.addEventListener("click", () => {
+      cancelTask(task.id);
+    });
+    actions.append(focus, finish, cancel);
+    row.append(body, actions);
+    return row;
+  }
+
+  function taskHistoryRowEl(entry) {
+    const row = document.createElement("div");
+    row.className = "task-row task-history-row";
+    row.dataset.taskHistoryRow = entry.id;
+    row.dataset.taskStatus = entry.status;
+    const body = document.createElement("div");
+    const title = textEl("strong", entry.label);
+    const meta = document.createElement("div");
+    meta.className = "task-meta";
+    meta.append(
+      taskChip(entry.category),
+      taskChip(titleCase(entry.status)),
+      taskChip(`finished ${formatClock(entry.completedAt)}`),
+      taskChip(entry.targetRoomId ? roomName(entry.targetRoomId) : "No target room")
+    );
+    if (entry.details) {
+      meta.append(taskChip(entry.details));
+    }
+    body.append(title, meta);
+    row.append(body);
+    return row;
+  }
+
+  function taskTargetSummary(task) {
+    if (!task) {
+      return "No target";
+    }
+    const roomId = taskTargetRoomId(task);
+    if (roomId) {
+      return `Target: ${roomName(roomId)}`;
+    }
+    if (task.data?.slimeId) {
+      const slime = findSlime(task.data.slimeId);
+      return slime ? `Target: ${slime.name}` : "Target specimen missing";
+    }
+    if (task.data?.corpseId) {
+      const corpse = findCorpse(task.data.corpseId);
+      return corpse ? `Target: ${corpse.name} remains` : "Target corpse missing";
+    }
+    if (task.data?.containerId) {
+      const container = containerById(task.data.containerId);
+      return container ? `Target: ${container.name}` : "Target container missing";
+    }
+    return "No target room";
+  }
+
+  function continuationTaskLabel(continuation) {
+    if (!continuation?.kind) {
+      return "";
+    }
+    if (continuation.kind === "staminaTask") {
+      return continuation.task?.label || "queued action";
+    }
+    if (continuation.kind === "feedSlime") {
+      const slime = findSlime(continuation.slimeId);
+      const feedstock = FEEDSTOCK_BY_KEY[continuation.feedstockKey];
+      return `Feed ${slime?.name || "specimen"} ${feedstock?.label || "feedstock"}`;
+    }
+    return titleCase(continuation.kind);
+  }
+
+  function taskStepChips(task) {
+    if (!task || task.type !== "resourceHaul" || !task.data?.continuation) {
+      return [];
+    }
+    return [
+      taskChip("Step 1: haul materials"),
+      taskChip(`Step 2: ${continuationTaskLabel(task.data.continuation)}`)
+    ];
   }
 
   function taskCategory(task) {
@@ -35427,6 +35678,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resultRepeats ||= {};
     next.events = normalizeMessages(next.events);
     next.tasks ||= [];
+    next.taskHistory = normalizeTaskHistory(next.taskHistory);
     next.slimes ||= [];
     next.suspicion = clamp(Math.round(Number(next.suspicion) || 0), 0, SUSPICION_MAX);
     const currentSuspicionBand = suspicionBandForValue(next.suspicion);
