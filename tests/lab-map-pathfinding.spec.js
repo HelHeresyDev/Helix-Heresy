@@ -54,6 +54,73 @@ async function selectMapOverlay(page, overlayId) {
   await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
 }
 
+async function mapRoomCell(page, roomId) {
+  return page.evaluate(({ key, roomId }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.labMap.rooms[roomId].anchor;
+  }, { key: storageKey, roomId });
+}
+
+async function selectMapRoom(page, roomId) {
+  await page.locator('[data-workspace-tab="map"]').click();
+  const cell = await mapRoomCell(page, roomId);
+  await page.locator(`[data-map-x="${cell.x}"][data-map-y="${cell.y}"]`).click();
+  return cell;
+}
+
+async function openSelectionActions(page) {
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
+  return page.locator('[data-context-command-panel="true"]');
+}
+
+async function runSelectionCommand(page, name) {
+  const panel = await openSelectionActions(page);
+  await panel.getByRole('button', { name }).click();
+}
+
+async function ensureDigTileDrafted(page, x, y) {
+  await page.locator(`[data-map-x="${x}"][data-map-y="${y}"]`).click();
+  const panel = await openSelectionActions(page);
+  const add = panel.getByRole('button', { name: 'Add Dig Tile' });
+  if (await add.count()) {
+    await add.click();
+    return;
+  }
+  await expect(panel.getByRole('button', { name: 'Remove Dig Tile' })).toBeVisible();
+}
+
+async function selectDoorActions(page, key) {
+  await page.locator('[data-workspace-tab="map"]').click();
+  await page.locator(`[data-map-door="${key}"]`).first().click();
+  return openSelectionActions(page);
+}
+
+async function selectIncidentBySource(page, sourceId) {
+  await page.evaluate(({ key, sourceId }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const incident = (state.incidents || []).find((candidate) => candidate.sourceId === sourceId);
+    if (!incident) {
+      throw new Error(`incident not found for ${sourceId}`);
+    }
+    state.selection = { kind: 'incident', id: incident.id };
+    state.selectedMapTarget = { kind: 'incident', id: incident.id };
+    state.ui ||= {};
+    state.ui.activeWorkspaceTab = 'map';
+    state.ui.selectionInspectorExpanded = true;
+    state.ui.selectionInspectorTab = 'actions';
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, sourceId });
+  await loadSavedRun(page, { restoreSelectedSlime: false });
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'incident');
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const panel = page.locator('[data-context-command-panel="true"]');
+  await expect(panel).toContainText('Incident');
+  return panel;
+}
+
 test('slime ai record mirrors contained baseline behavior', async ({ page }) => {
   await startRun(page);
 
@@ -797,7 +864,8 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(objectTile).toHaveText(objectCell.visual.glyph);
   await expect(objectTile).toHaveAttribute('title', objectCell.tooltip.text);
 
-  await page.locator('[data-scientist-move-room-id="storageRoom"]').click();
+  await selectMapRoom(page, 'storageRoom');
+  await runSelectionCommand(page, 'Move Scientist Here');
 
   const queued = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1064,7 +1132,8 @@ test('released slime movement stops if an open route closes ahead of it', async 
   expect(started.movement).toBeTruthy();
   expect(started.ai.intent).toBe('seekFood');
 
-  await page.locator('[data-door-toggle="mainLab::menagerie"]').first().evaluate((element) => element.click());
+  const doorActions = await selectDoorActions(page, 'mainLab::menagerie');
+  await doorActions.getByRole('button', { name: 'Close Door' }).click();
   const doorAfterClose = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -1296,22 +1365,26 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   }, { key: storageKey });
   await loadSavedRun(page);
 
-  const panel = page.locator('[data-incident-panel="true"]');
-  await expect(panel).toContainText('Incident Alerts');
-  await expect(panel).toContainText('4 unresolved alerts');
-  await expect(panel).toContainText('ALERT-001 pressing against a blocked door');
-  await expect(panel).toContainText('Main Lab contamination is fouled');
-  await expect(panel).toContainText('Hazardous sludge in Main Lab');
-  await expect(panel).toContainText('Seeped seal');
-  await expect(page.locator('[data-incident-alert]')).toHaveCount(4);
-
   await expect(page.locator('.lab-map-cell.incident-alert-cell')).toHaveCount(0);
   await selectMapOverlay(page, 'incidents');
+  const incidentSummary = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return (state.incidents || [])
+      .filter((incident) => incident.status !== 'resolved')
+      .map((incident) => ({ label: incident.label, status: incident.status, sourceId: incident.sourceId }));
+  }, { key: storageKey });
+  expect(incidentSummary).toHaveLength(4);
+  expect(incidentSummary.map((incident) => incident.label)).toEqual(expect.arrayContaining([
+    'ALERT-001 pressing against a blocked door',
+    'Main Lab contamination is fouled',
+    'Hazardous sludge in Main Lab',
+    'Basic Glass Jar 1 compromised'
+  ]));
   const highlightedAlerts = await page.locator('.lab-map-cell.incident-alert-cell').count();
   expect(highlightedAlerts).toBeGreaterThan(0);
   const stackedAlerts = await page.locator('.lab-map-cell.incident-stack-cell').count();
   expect(stackedAlerts).toBeGreaterThan(0);
-  await expect(page.locator('[data-room-card="mainLab"]')).toContainText('4 unresolved alerts');
 
   const tasks = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1320,10 +1393,8 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   }, { key: storageKey });
   expect(tasks).toEqual([]);
 
-  const slimeAlert = page.locator('[data-incident-alert]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
-  await slimeAlert.getByRole('button', { name: /Acknowledge/ }).click();
-  await expect(slimeAlert).toContainText('ack Day 1');
-  await expect(slimeAlert).toHaveClass(/incident-acknowledged/);
+  let incidentActions = await selectIncidentBySource(page, 'alert-slime');
+  await incidentActions.getByRole('button', { name: /Acknowledge/ }).click();
 
   const acknowledged = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1339,7 +1410,9 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(acknowledged.responseTaskId).toBe('');
   expect(acknowledged.tasks).toEqual([]);
 
-  await slimeAlert.getByRole('button', { name: /Respond/ }).click();
+  incidentActions = await selectIncidentBySource(page, 'alert-slime');
+  await expect(incidentActions.getByRole('button', { name: /Acknowledged/ })).toBeDisabled();
+  await incidentActions.getByRole('button', { name: /Respond/ }).click();
   const response = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -1352,28 +1425,28 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(response.task.data.toRoomId).toBe('mainLab');
   expect(response.task.data.toCell).toEqual({ x: response.incident.cell.x, y: response.incident.cell.y });
   expect(response.incident.responseTaskId).toBe(response.task.id);
-  await expect(slimeAlert).toContainText('response queued');
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
   await selectMapOverlay(page, 'movement');
   expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);
 
-  const residueAlert = page.locator('[data-incident-alert]').filter({ hasText: 'Hazardous sludge in Main Lab' });
-  await residueAlert.getByRole('button', { name: 'Mark Resolved' }).click();
-  await expect(panel).toContainText('3 unresolved alerts');
-  await expect(residueAlert).toHaveCount(0);
+  incidentActions = await selectIncidentBySource(page, 'residue-alert');
+  await incidentActions.getByRole('button', { name: 'Mark Resolved' }).click();
   const manuallyResolved = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const incident = (state.incidents || []).find((candidate) => candidate.sourceId === 'residue-alert');
+    const unresolvedCount = (state.incidents || []).filter((candidate) => candidate.status !== 'resolved').length;
     return {
       status: incident?.status,
       manualResolvedAt: incident?.manualResolvedAt,
       signature: incident?.manualResolveSignature || '',
+      unresolvedCount,
     };
   }, { key: storageKey });
   expect(manuallyResolved.status).toBe('resolved');
   expect(manuallyResolved.manualResolvedAt).toBe(0);
   expect(manuallyResolved.signature.length).toBeGreaterThan(0);
+  expect(manuallyResolved.unresolvedCount).toBe(3);
 
   await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1387,9 +1460,9 @@ test('spatial incidents appear as map alerts with manual response controls', asy
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey });
   await loadSavedRun(page);
-  const staleAlert = page.locator('[data-incident-alert][data-incident-status="stale"]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
-  await expect(staleAlert).toContainText('Stale');
-  await expect(staleAlert).toContainText('last known Day 1');
+  await selectIncidentBySource(page, 'alert-slime');
+  await page.locator('[data-selection-inspector-tab="details"]').click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Stale');
   await selectMapOverlay(page, 'incidents');
   await expect(page.locator('.lab-map-cell.incident-stale')).not.toHaveCount(0);
 });
@@ -1463,9 +1536,6 @@ test('room contamination diffuses through connected doors according to seal qual
   expect(result.bedroom).toBeGreaterThan(1);
   expect(result.bedroom).toBeGreaterThan(result.storage + 1);
   expect(result.tasks).toEqual([]);
-  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toContainText('blocks contamination diffusion');
-  await expect(page.locator('[data-door-connection="bedroom::mainLab"]').first()).toContainText('sealed: about 78% leak potential');
-  await expect(page.locator('[data-room-card="bedroom"]')).toContainText('contamination drifting in');
 });
 
 test('door access states block routing and show physical door data', async ({ page }) => {
@@ -1486,11 +1556,14 @@ test('door access states block routing and show physical door data', async ({ pa
   });
   expect(initialDoors['collectionBay::mainLab'].typeId).toBe('glassObservationDoor');
   expect(initialDoors['mainLab::pits'].wardIds).toContain('sealTightening');
-  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toContainText('Reinforced Wood Door');
+  let doorActions = await selectDoorActions(page, 'mainLab::storageRoom');
+  await expect(doorActions.getByRole('button', { name: /Open Door|Close Door/ })).toHaveAttribute('title', /Reinforced Wood Door/);
 
-  await page.locator('[data-door-lock-toggle="mainLab::storageRoom"]').first().click();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeDisabled();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toHaveAttribute('title', /locked/i);
+  await doorActions.getByRole('button', { name: 'Lock Door' }).click();
+  await selectMapRoom(page, 'storageRoom');
+  let roomActions = await openSelectionActions(page);
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeDisabled();
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toHaveAttribute('title', /locked/i);
   await expect(page.locator('[data-map-door="mainLab::storageRoom"].door-locked').first()).toBeVisible();
 
   let door = await page.evaluate(({ key }) => {
@@ -1501,12 +1574,18 @@ test('door access states block routing and show physical door data', async ({ pa
   expect(door.state).toBe('closed');
   expect(door.lockState).toBe('locked');
 
-  await page.locator('[data-door-lock-toggle="mainLab::storageRoom"]').first().click();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeEnabled();
+  doorActions = await selectDoorActions(page, 'mainLab::storageRoom');
+  await doorActions.getByRole('button', { name: 'Unlock Door' }).click();
+  await selectMapRoom(page, 'storageRoom');
+  roomActions = await openSelectionActions(page);
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
 
-  await page.locator('[data-door-seal-toggle="mainLab::storageRoom"]').first().click();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeDisabled();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toHaveAttribute('title', /sealed/i);
+  doorActions = await selectDoorActions(page, 'mainLab::storageRoom');
+  await doorActions.getByRole('button', { name: 'Seal Door' }).click();
+  await selectMapRoom(page, 'storageRoom');
+  roomActions = await openSelectionActions(page);
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeDisabled();
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toHaveAttribute('title', /sealed/i);
   await expect(page.locator('[data-map-door="mainLab::storageRoom"].door-sealed').first()).toBeVisible();
 
   door = await page.evaluate(({ key }) => {
@@ -1518,8 +1597,11 @@ test('door access states block routing and show physical door data', async ({ pa
   expect(door.lockState).toBe('unlocked');
   expect(door.sealState).toBe('sealed');
 
-  await page.locator('[data-door-seal-toggle="mainLab::storageRoom"]').first().click();
-  await expect(page.locator('[data-scientist-move-room-id="storageRoom"]')).toBeEnabled();
+  doorActions = await selectDoorActions(page, 'mainLab::storageRoom');
+  await doorActions.getByRole('button', { name: 'Unseal Door' }).click();
+  await selectMapRoom(page, 'storageRoom');
+  roomActions = await openSelectionActions(page);
+  await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
 });
 
 test('container hauling reserves a footprint and routes to adjacent access cells', async ({ page }) => {
@@ -1588,7 +1670,7 @@ test('lab blueprint clicks focus existing room door and object selections', asyn
   expect(selected.selectedSlimeId).toBeNull();
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
-  await expect(page.locator('[data-door-connection="mainLab::storageRoom"]').first()).toHaveClass(/selected-map-target/);
+  await expect(page.locator('[data-map-door="mainLab::storageRoom"]').first()).toHaveClass(/selected-map-cell/);
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1608,8 +1690,9 @@ test('lab blueprint clicks focus existing room door and object selections', asyn
     return bedroom.cells.find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
   }, { key: storageKey });
 
-  await page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`).click();
-  await expect(page.locator('[data-room-card="bedroom"]')).toHaveClass(/selected-map-target/);
+  const bedroomTile = page.locator(`[data-map-x="${bedroomCell.x}"][data-map-y="${bedroomCell.y}"]`);
+  await bedroomTile.click();
+  await expect(bedroomTile).toHaveClass(/selected-map-cell/);
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   selected = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -2043,16 +2126,13 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
 test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {
   await startRun(page);
 
-  await expect(page.locator('[data-construction-panel="true"]')).toBeVisible();
-  await page.locator('[data-construction-dig-mode="true"]').click();
   for (let y = 6; y < 10; y += 1) {
     for (let x = 25; x < 29; x += 1) {
-      await page.locator(`[data-map-x="${x}"][data-map-y="${y}"]`).click();
+      await ensureDigTileDrafted(page, x, y);
     }
   }
   await expect(page.locator('.lab-map-cell.draft-excavation-cell')).toHaveCount(16);
-  await expect(page.locator('[data-dig-status="true"]')).toContainText('16 draft tiles ready');
-  await page.locator('[data-designate-dig="true"]').click();
+  await runSelectionCommand(page, 'Confirm Dig Designation');
 
   const queued = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -2116,5 +2196,7 @@ test('construction designations become unassigned rooms that can receive a purpo
 
   expect(assigned.room.role).toBe('materialStorage');
   expect(assigned.room.name).toBe('Storage Room 1');
-  await expect(page.locator(`[data-room-purpose-control="${excavated.room.id}"]`)).toHaveCount(0);
+  await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).not.toContainText('Room Purpose');
 });

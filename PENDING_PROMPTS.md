@@ -12,31 +12,12 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Remove Persistent Prototype Panels
-2. Keyboard Navigation and Menu Flow Polish
-3. Black Market Byproduct Economy System
+1. Keyboard Navigation and Menu Flow Polish
+2. Black Market Byproduct Economy System
 
 ---
 
-## 1. Remove Persistent Prototype Panels
-
-After the key map menus exist, remove or retire the old persistent prototype panels.
-
-This pass should clean up redundant UI surfaces, duplicate buttons, layout scaffolding, outdated tabs, and code paths that only existed to support the old panel-heavy layout.
-
-The system should answer questions like:
-- Which panels are fully obsolete after the menu migration?
-- Which components should be reused inside menus?
-- Which duplicated commands should be removed?
-- Which CSS layout rules can be simplified?
-- Which tests need to move from panel assumptions to map/menu assumptions?
-- What compatibility shims should be deleted because old saves are not a priority?
-
-The desired result is a cleaner UI architecture where the map shell, menus, inspectors, commands, and overlays are the real interface.
-
-Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
-
-## 2. Keyboard Navigation and Menu Flow Polish
+## 1. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -54,7 +35,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

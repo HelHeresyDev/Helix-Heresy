@@ -181,11 +181,27 @@ test('resource overlay and selection inspector show known room supplies', async 
       mainCell: state.labMap.rooms.mainLab.anchor,
       storageCell: state.labMap.rooms.storageRoom.anchor,
       pitsCell: state.labMap.rooms.pits.anchor,
+      openPitsCell: state.labMap.rooms.pits.cells.find((cell) => {
+        const keyName = `${cell.x},${cell.y}`;
+        const occupied = (state.containers || []).some((container) => {
+          const mapCell = container.mapCell;
+          return container.roomId === 'pits' && mapCell && `${mapCell.x},${mapCell.y}` === keyName;
+        });
+        const door = Object.values(state.labMap.doors || {}).some((candidate) => {
+          return `${candidate.from.x},${candidate.from.y}` === keyName || `${candidate.to.x},${candidate.to.y}` === keyName;
+        });
+        return !occupied && !door;
+      }),
     };
   }, { key: storageKey });
   await loadSavedRun(page);
 
-  await page.locator('[data-room-card="storageRoom"]').click();
+  const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
+  const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
+  const pitsTile = page.locator(`[data-map-x="${fixture.openPitsCell.x}"][data-map-y="${fixture.openPitsCell.y}"]`);
+
+  await page.locator('[data-workspace-tab="map"]').click();
+  await storageTile.click();
   const inspector = page.locator('[data-selection-inspector="true"]');
   await expect(inspector).toHaveAttribute('data-selection-kind', 'room');
   await page.locator('[data-selection-inspector-tab="details"]').click();
@@ -193,10 +209,6 @@ test('resource overlay and selection inspector show known room supplies', async 
   await expect(inspector).toContainText('Last inventoried');
   await expect(inspector).toContainText('Biomass');
   await expect(inspector).toContainText('Hook pole');
-
-  const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
-  const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
-  const pitsTile = page.locator(`[data-map-x="${fixture.pitsCell.x}"][data-map-y="${fixture.pitsCell.y}"]`);
 
   await selectMapOverlay(page, 'resources');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'resources');
@@ -209,7 +221,7 @@ test('resource overlay and selection inspector show known room supplies', async 
   await expect(storageTile).toHaveAttribute('data-map-overlay-value', '4');
 
   await page.locator('[data-selection-inspector-expanded-panel="true"]').getByRole('button', { name: 'Collapse' }).click();
-  await page.locator('[data-room-card="pits"]').click();
+  await pitsTile.click();
   await page.locator('[data-selection-inspector-tab="details"]').click();
   await expect(inspector).toContainText('Pit contents: Waste');
   await expect(inspector).toContainText('3');

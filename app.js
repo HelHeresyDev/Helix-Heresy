@@ -16973,18 +16973,6 @@
       overflow.textContent = `Overflow: apparatus buffer ${formatCollectionAmount(info.station.overflow.amount)} / ${formatCollectionAmount(info.station.overflow.capacity)}`;
       station.append(overflow);
 
-      const actions = document.createElement("div");
-      actions.className = "physical-state-actions collection-bay-station-actions";
-      const transferButton = document.createElement("button");
-      transferButton.type = "button";
-      setButtonStaminaLabel(transferButton, "Transfer Receptacle", RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"], { duration: formatDuration(adjustedDuration(6, "materialsScience")) });
-      transferButton.dataset.collectionBayTransfer = info.container?.id || "";
-      const transferReason = collectionBayTransferDisabledReason(info);
-      setActionButtonState(transferButton, Boolean(transferReason), transferReason);
-      transferButton.title = transferReason || "Queue a scientist task to move only the active receptacle contents into Collected Byproducts in Storage Room. Overflow remains in the apparatus and can refill the replacement receptacle.";
-      transferButton.addEventListener("click", () => transferCollectionBayReceptacle(info.container?.id));
-      actions.append(transferButton);
-      station.append(actions);
     }
 
     if (info.blockers.length) {
@@ -17003,52 +16991,15 @@
     return station;
   }
 
-  function collectionBayReadoutEl(room) {
-    if (room?.id !== COLLECTION_BAY_ROOM_ID) {
-      return null;
-    }
-    const panel = document.createElement("div");
-    panel.className = "collection-bay-readout subpanel";
-    panel.dataset.collectionBayReadout = "true";
-
-    const title = document.createElement("div");
-    title.className = "subpanel-title";
-    title.textContent = "Collection apparatus";
-    panel.append(title);
-
-    const apparatus = document.createElement("p");
-    apparatus.className = "journal-meta";
-    apparatus.textContent = `Apparatus: ${COLLECTION_BAY_APPARATUS.join(" · ")}.`;
-    apparatus.title = "Collection apparatus works with staged containers. Drip and sludge outputs need dedicated drainage or trough vessels; vapor, haze, fume, and mist outputs use existing sealed containers vented under fume hood and condenser control.";
-    panel.append(apparatus);
-
-    const staged = collectionBaySpecimens();
-    const stationInfos = collectionBayActiveContainers().map((container) => collectionBayStationInfo(container));
-    const status = document.createElement("p");
-    status.className = "journal-meta";
-    status.textContent = staged.length
+  function collectionBayStatusText(staged, stationInfos) {
+    return staged.length
       ? `Collection status: ${stationInfos.length} collection station${stationInfos.length === 1 ? "" : "s"}; ${staged.length} specimen${staged.length === 1 ? "" : "s"} ready for readout`
       : stationInfos.length
         ? `Collection status: ${stationInfos.length} collection station${stationInfos.length === 1 ? "" : "s"} awaiting transfer; no staged specimens`
-      : "Collection status: No staged containers";
-    panel.append(status);
-
-    if (stationInfos.length) {
-      const list = document.createElement("div");
-      list.className = "collection-bay-station-list";
-      for (const info of stationInfos) {
-        list.append(collectionBayStationEl(info));
-      }
-      panel.append(list);
-    }
-
-    const note = document.createElement("p");
-    note.className = "journal-meta";
-    note.textContent = "Transfer swaps only the active receptacle into Collected Byproducts; overflow remains in the station apparatus for later collection.";
-    note.title = "Natural byproduct accumulation is separate from feeding residue and harvested tissue. Routine transfer history is tracked on inventory tooltips instead of event-log accounting spam.";
-    panel.append(note);
-    return panel;
+        : "Collection status: No staged containers";
   }
+
+
 
   function makeOutcomes(key, rng) {
     if (key === "byproduct") {
@@ -26319,20 +26270,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     const section = storesSectionEl("Collection Stations", "Each active station has one receptacle. Overflow is held in that station's apparatus buffer and is not collected inventory until it drains into a replacement receptacle.", { inventoryCategory: "collectionStations" });
+    const apparatus = document.createElement("p");
+    apparatus.className = "journal-meta";
+    apparatus.textContent = `Apparatus: ${COLLECTION_BAY_APPARATUS.join(" - ")}.`;
+    apparatus.title = "Collection apparatus works with staged containers. Drip and sludge outputs need dedicated drainage or trough vessels; vapor, haze, fume, and mist outputs use existing sealed containers vented under fume hood and condenser control.";
+    section.append(apparatus);
+
+    const status = document.createElement("p");
+    status.className = "journal-meta";
+    status.textContent = collectionBayStatusText(collectionBaySpecimens(), stationInfos);
+    section.append(status);
+
     if (!stationInfos.length) {
       section.append(emptyText("No Collection Bay stations are currently accumulating material."));
     } else {
       for (const info of stationInfos) {
         const station = collectionBayStationEl(info);
         station.dataset.storesCollectionBayStation = info.container?.id || "";
-        delete station.dataset.collectionBayStation;
-        for (const button of station.querySelectorAll("[data-collection-bay-transfer]")) {
-          button.dataset.storesCollectionBayTransfer = button.dataset.collectionBayTransfer || "";
-          delete button.dataset.collectionBayTransfer;
-        }
         section.append(station);
       }
     }
+    const note = document.createElement("p");
+    note.className = "journal-meta";
+    note.textContent = "Transfer is a contextual command on the selected station container. This record view is intentionally read-only.";
+    section.append(note);
     dom.collectionStationInventoryList.append(section);
   }
 
@@ -28464,6 +28425,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => moveContainerToRoom(container.id, COLLECTION_BAY_ROOM_ID)
       }));
 
+      if (container.roomId === COLLECTION_BAY_ROOM_ID) {
+        const stationInfo = collectionBayStationInfo(container);
+        if (stationInfo?.station) {
+          commands.push(commandDef({
+            id: `container.collectionTransfer.${container.id}`,
+            label: "Transfer Receptacle",
+            group: "Collection",
+            disabledReason: collectionBayTransferDisabledReason(stationInfo)
+              || physicalStateRiskBlockReason(`transferring ${container.name} receptacle`)
+              || staminaBlockReason(adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"])),
+            description: "Queue a scientist task to move only the active receptacle contents into Collected Byproducts in Storage Room. Overflow remains in the apparatus and can refill the replacement receptacle.",
+            run: () => transferCollectionBayReceptacle(container.id)
+          }));
+        }
+      }
+
       if (!isPitHoleContainer(container) && containerCorpses(container.id).length) {
         for (const remainsAction of ["dumpRemains", "scrapeRemains"]) {
           const base = remainsAction === "scrapeRemains" ? REMAINS_SCRAPE_STAMINA : REMAINS_DUMP_STAMINA;
@@ -28553,8 +28530,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         } else {
           button.textContent = command.label;
         }
-        button.title = command.disabledReason || command.description;
         setActionButtonState(button, Boolean(command.disabledReason), command.disabledReason);
+        if (!command.disabledReason && command.description) {
+          button.title = command.description;
+        }
         button.addEventListener("click", (event) => {
           event.stopPropagation();
           runContextCommand(command);
@@ -30322,274 +30301,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
-  function incidentAlertPanelEl() {
-    const panel = document.createElement("div");
-    panel.className = "incident-alert-panel subpanel";
-    panel.dataset.incidentPanel = "true";
-    const alerts = unresolvedIncidentAlerts();
-    const title = document.createElement("div");
-    title.className = "subpanel-title";
-    title.textContent = "Incident Alerts";
-    panel.append(title);
-    if (!alerts.length) {
-      panel.append(emptyText("No unresolved spatial alerts."));
-      return panel;
-    }
-    const activeCount = alerts.filter((incident) => incident.status === "active").length;
-    const staleCount = alerts.filter((incident) => incident.status === "stale").length;
-    const summary = emptyText(`${alerts.length} unresolved alert${alerts.length === 1 ? "" : "s"}; ${activeCount} active, ${staleCount} stale last-known.`);
-    panel.append(summary);
-    const list = document.createElement("div");
-    list.className = "incident-alert-list";
-    let previousSeverity = "";
-    for (const incident of alerts) {
-      const severityLabel = incidentSeverityLabel(incident.severity);
-      if (previousSeverity !== incident.severity) {
-        const group = document.createElement("div");
-        group.className = `incident-alert-group-title ${incidentSeverityClass(incident.severity)}`;
-        group.textContent = severityLabel;
-        list.append(group);
-        previousSeverity = incident.severity;
-      }
-      const row = document.createElement("div");
-      row.className = `incident-alert-row ${incidentSeverityClass(incident.severity)}`;
-      row.dataset.incidentAlert = incident.id;
-      row.dataset.incidentStatus = incident.status;
-      row.classList.toggle("incident-acknowledged", incident.acknowledgedAt !== null);
-      row.classList.toggle("incident-stale", incident.status === "stale");
-      row.classList.toggle("selected-map-target", selectedTargetMatchesCard("incident", incident.id));
-      row.addEventListener("click", (event) => {
-        if (event.target.closest("button, input, select, textarea")) {
-          return;
-        }
-        focusMapTarget({ kind: "incident", id: incident.id });
-      });
-      const body = document.createElement("div");
-      const heading = document.createElement("strong");
-      heading.textContent = incident.label;
-      const meta = document.createElement("div");
-      meta.className = "incident-alert-meta";
-      meta.append(chip(incidentStatusLabel(incident.status)), chip(roomName(incident.roomId)), chip(formatClock(incident.createdAt)));
-      if (incident.summary) {
-        meta.append(chip(incident.summary));
-      }
-      if (incident.status === "stale" && incident.staleAt !== null) {
-        meta.append(chip(`last known ${formatClock(incident.staleAt)}`));
-      }
-      if (incident.acknowledgedAt !== null) {
-        meta.append(chip(`ack ${formatClock(incident.acknowledgedAt)}`));
-      }
-      const responseTask = incidentResponseTask(incident);
-      if (responseTask) {
-        meta.append(chip("response queued"));
-      } else if (incident.responseArrivedAt !== null) {
-        meta.append(chip(`response reached ${formatClock(incident.responseArrivedAt)}`));
-      }
-      body.append(heading, meta);
-      const actions = document.createElement("div");
-      actions.className = "incident-alert-actions";
-      const focus = document.createElement("button");
-      focus.type = "button";
-      focus.textContent = "Focus";
-      focus.title = "Focus the map object or room connected to this alert.";
-      focus.addEventListener("click", () => focusMapTarget(incidentFocusTarget(incident)));
-      const respond = document.createElement("button");
-      respond.type = "button";
-      respond.dataset.incidentRespond = incident.id;
-      const responseCell = incidentResponseTargetCell(incident);
-      const responseDuration = scientistMoveDuration(scientistRoomId(), incident.roomId, {
-        fromCell: scientistMapCell(),
-        toCell: responseCell
-      });
-      setButtonStaminaLabel(respond, "Respond", SCIENTIST_MOVE_BASE_STAMINA, ["analysis"], { duration: formatDuration(responseDuration) });
-      const responseReason = incidentResponseMoveBlockReason(incident);
-      setActionButtonState(respond, Boolean(responseReason), responseReason);
-      if (!responseReason) {
-        respond.title = `Queue a scientist movement task to the alert site.\nRoute: ${roomPathSummary(scientistRoomId(), incident.roomId, { fromCell: scientistMapCell(), toCell: responseCell, ignoreDoors: true })}\n${adjustedStaminaCostBreakdown(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]).title}`;
-      }
-      respond.addEventListener("click", () => startIncidentResponseMove(incident.id));
-      const acknowledge = document.createElement("button");
-      acknowledge.type = "button";
-      acknowledge.dataset.incidentAcknowledge = incident.id;
-      acknowledge.textContent = incident.acknowledgedAt !== null ? "Acknowledged" : "Acknowledge";
-      const acknowledgeReason = incident.acknowledgedAt !== null ? "This incident has already been acknowledged." : "";
-      setActionButtonState(acknowledge, Boolean(acknowledgeReason), acknowledgeReason);
-      acknowledge.addEventListener("click", () => acknowledgeIncident(incident.id));
-      const resolve = document.createElement("button");
-      resolve.type = "button";
-      resolve.dataset.incidentResolve = incident.id;
-      resolve.textContent = "Mark Resolved";
-      resolve.title = "Clear this known alert. If the same problem is still present, it stays dismissed until the observation changes.";
-      resolve.addEventListener("click", () => resolveIncident(incident.id));
-      actions.append(focus, respond, acknowledge, resolve);
-      row.append(body, actions);
-      list.append(row);
-    }
-    panel.append(list);
-    return panel;
-  }
 
-  function constructionPanelEl() {
-    state.construction = normalizeConstructionState(state.construction, state);
-    const panel = document.createElement("div");
-    panel.className = "construction-panel subpanel";
-    panel.dataset.constructionPanel = "true";
-    const title = document.createElement("div");
-    title.className = "subpanel-title";
-    title.textContent = "Construction";
-    title.title = "Designate solid earth to dig. Completed excavations become unassigned rooms that can be given a purpose.";
-    panel.append(title);
 
-    const draftCells = constructionDraftCells();
-    const draftReason = draftCells.length ? constructionDraftBlockReason() : "";
-    const status = emptyText("");
-    status.dataset.digStatus = "true";
-    const actions = document.createElement("div");
-    actions.className = "construction-actions";
-    const modeButton = document.createElement("button");
-    modeButton.type = "button";
-    modeButton.dataset.constructionDigMode = "true";
-    modeButton.textContent = constructionDigModeActive() ? "Exit Dig Mode" : "Enter Dig Mode";
-    modeButton.title = "Dig mode lets map clicks toggle solid-earth tiles into or out of the current draft.";
-    modeButton.addEventListener("click", toggleConstructionDigMode);
-    const confirmButton = document.createElement("button");
-    confirmButton.type = "button";
-    confirmButton.dataset.designateDig = "true";
-    confirmButton.textContent = draftCells.length ? `Confirm Dig (${draftCells.length} tiles)` : "Confirm Dig";
-    setActionButtonState(confirmButton, !draftCells.length || Boolean(draftReason), draftCells.length ? draftReason : "Select at least one solid-earth tile to dig.");
-    confirmButton.title = draftReason || `Queue excavation as rough floor. Duration: ${formatDuration(constructionDraftDuration(draftCells))}.`;
-    confirmButton.addEventListener("click", startExcavationDraftDesignation);
-    const clearButton = document.createElement("button");
-    clearButton.type = "button";
-    clearButton.dataset.clearDigDraft = "true";
-    clearButton.textContent = "Clear Draft";
-    setActionButtonState(clearButton, !draftCells.length, "No dig draft has been selected.");
-    clearButton.title = "Clear the current map dig draft without queuing work.";
-    clearButton.addEventListener("click", clearConstructionDraft);
-    actions.append(modeButton, confirmButton, clearButton);
-    panel.append(actions);
 
-    if (!draftCells.length) {
-      status.textContent = constructionDigModeActive()
-        ? "Dig mode active. Click solid earth on the map to draft excavation tiles."
-        : "Enter Dig Mode, then click solid earth on the map to draft excavation tiles.";
-    } else if (draftReason) {
-      status.textContent = `${draftCells.length} draft tile${draftCells.length === 1 ? "" : "s"}; ${draftReason}`;
-    } else {
-      status.textContent = `${draftCells.length} draft tile${draftCells.length === 1 ? "" : "s"} ready. Duration: ${formatDuration(constructionDraftDuration(draftCells))}.`;
-    }
-    panel.append(status);
-
-    const sourceRect = state.construction.lastDigRect || suggestDigRectangle();
-    const rect = normalizeDigRect(sourceRect) || { x: 0, y: 0, width: 4, height: 4 };
-    const helperTitle = textEl("strong", "Coordinate Helper");
-    helperTitle.title = "Optional helper for adding a rectangular block to the current map draft.";
-    panel.append(helperTitle);
-    const grid = document.createElement("div");
-    grid.className = "construction-grid";
-    const fields = [
-      ["x", "X"],
-      ["y", "Y"],
-      ["width", "Width"],
-      ["height", "Height"]
-    ];
-    const inputs = {};
-    for (const [key, label] of fields) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "construction-field";
-      wrapper.append(textEl("span", label));
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = key === "x" || key === "y" ? "0" : "1";
-      input.step = "1";
-      input.value = String(rect[key]);
-      input.dataset[`dig${titleCase(key)}`] = "true";
-      wrapper.append(input);
-      inputs[key] = input;
-      grid.append(wrapper);
-    }
-    panel.append(grid);
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.addDigRectToDraft = "true";
-    const helperActions = document.createElement("div");
-    helperActions.className = "construction-actions";
-    helperActions.append(button);
-    panel.append(helperActions);
-
-    const readRect = () => normalizeDigRect({
-      x: inputs.x.value,
-      y: inputs.y.value,
-      width: inputs.width.value,
-      height: inputs.height.value
-    });
-    const syncButton = () => {
-      const currentRect = readRect();
-      const cells = digRectCells(currentRect);
-      const reason = currentRect ? cells.map(constructionDraftCellAddBlockReason).find(Boolean) || "" : "Enter a valid dig rectangle.";
-      const tileCount = digRectTileCount(currentRect);
-      button.textContent = tileCount ? `Add Rectangle to Draft (${tileCount} tiles)` : "Add Rectangle to Draft";
-      button.title = reason || "Add these tiles to the current map dig draft. Confirm separately when the draft is ready.";
-      setActionButtonState(button, Boolean(reason), reason);
-    };
-    for (const input of Object.values(inputs)) {
-      input.addEventListener("input", syncButton);
-    }
-    button.addEventListener("click", () => addConstructionDraftCells(digRectCells(readRect())));
-    syncButton();
-
-    const activeTasks = pendingExcavationTasks();
-    if (activeTasks.length) {
-      const list = document.createElement("div");
-      list.className = "construction-task-list";
-      for (const task of activeTasks) {
-        const row = document.createElement("div");
-        row.className = "construction-task-row";
-        row.append(textEl("span", task.label), textEl("strong", `done ${formatClock(task.dueAt)}`));
-        list.append(row);
-      }
-      panel.append(list);
-    }
-    return panel;
-  }
 
   function roomCanAssignPurpose(room) {
     return Boolean(room && room.role === EXCAVATED_ROOM_ROLE);
   }
 
-  function roomPurposeControlEl(room) {
-    if (!roomCanAssignPurpose(room)) {
-      return null;
-    }
-    const panel = document.createElement("div");
-    panel.className = "room-purpose-control subpanel";
-    panel.dataset.roomPurposeControl = room.id;
-    const title = document.createElement("div");
-    title.className = "subpanel-title";
-    title.textContent = "Assign Purpose";
-    panel.append(title);
-    const row = document.createElement("div");
-    row.className = "room-purpose-row";
-    const select = document.createElement("select");
-    select.dataset.roomPurposeSelect = room.id;
-    for (const purpose of ROOM_PURPOSE_DEFS) {
-      const option = document.createElement("option");
-      option.value = purpose.id;
-      option.textContent = purpose.label;
-      select.append(option);
-    }
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "Assign";
-    button.dataset.assignRoomPurpose = room.id;
-    button.title = "Convert this rough excavation into the selected room purpose.";
-    button.addEventListener("click", () => assignRoomPurpose(room.id, select.value));
-    row.append(select, button);
-    const note = emptyText("Purpose can be changed later through future construction systems; for now this finalizes the room role.");
-    panel.append(row, note);
-    return panel;
-  }
+
 
   function assignRoomPurpose(roomId, purposeId) {
     const room = state.rooms.find((candidate) => candidate.id === roomId);
@@ -30628,122 +30348,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     refreshIncidentAlerts();
     dom.roomList.textContent = "";
     dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
-    dom.roomList.append(incidentAlertPanelEl(), constructionPanelEl());
     const mapSummary = roomMapSummary();
-    dom.roomSummary.textContent = `${state.rooms.length} room${state.rooms.length === 1 ? "" : "s"} active · Current location: ${roomName(scientistRoomId())}${mapSummary ? ` · ${mapSummary}` : ""}`;
-    for (const room of state.rooms) {
-      const card = document.createElement("div");
-      card.className = `room-card room-${room.role || "custom"}`;
-      card.dataset.roomCard = room.id;
-      card.classList.toggle("selected-map-target", selectedTargetMatchesCard("room", room.id));
-      card.addEventListener("click", (event) => {
-        if (event.target.closest("button, input, select, textarea")) {
-          return;
-        }
-        setSelection({ kind: "room", roomId: room.id, source: "panel" });
-        persist();
-        render();
-      });
-      const title = document.createElement("div");
-      title.className = "room-title";
-      title.append(textEl("strong", room.name), textEl("span", roomOccupancySummary(room.id)));
-
-      const meta = document.createElement("div");
-      meta.className = "room-meta";
-      const metaChips = [chip(room.roleLabel || "Custom room")];
-      if (roomBlocksJobs(room.id)) {
-        metaChips.push(chip("stored creatures cannot work"));
-      }
-      if (room.id === PITS_ROOM_ID) {
-        metaChips.push(chip("corpse work"));
-      }
-      const roomAlerts = unresolvedIncidentAlerts().filter((incident) => incident.roomId === room.id);
-      if (roomAlerts.length) {
-        const alertChip = chip(`${roomAlerts.length} unresolved alert${roomAlerts.length === 1 ? "" : "s"}`);
-        alertChip.classList.add("danger-chip");
-        alertChip.title = roomAlerts.map((incident) => incident.label).join("\n");
-        metaChips.push(alertChip);
-      }
-      for (const diffusionTag of roomContaminationDiffusionTags(room)) {
-        metaChips.push(diffusionTag);
-      }
-      for (const cleanupTag of roomBiologicalCleanupTags(room)) {
-        metaChips.push(cleanupTag);
-      }
-      metaChips.forEach((metaChip, index) => {
-        if (index > 0) {
-          meta.append(document.createTextNode(" · "));
-        }
-        meta.append(metaChip);
-      });
-
-      const description = document.createElement("p");
-      description.className = "room-description";
-      description.textContent = room.description || "";
-
-      const attributes = document.createElement("div");
-      attributes.className = "room-attribute-grid";
-      for (const def of ROOM_ATTRIBUTE_DEFS) {
-        const attribute = room.attributes[def.key];
-        const band = roomAttributeBand(def.key, attribute.current);
-        const row = document.createElement("div");
-        row.className = "room-attribute-row";
-        row.title = `${def.label}: ${formatDecimal(attribute.current, 1)} / baseline ${formatDecimal(attribute.baseline, 1)}`;
-        row.append(textEl("span", def.label), textEl("strong", band.label));
-        attributes.append(row);
-      }
-      card.append(title, meta, roomGeometrySummaryEl(room), roomDoorControlsEl(room), scientistLocationPanelEl(room), roomExposurePanelEl(room));
-      if (description.textContent) {
-        card.append(description);
-      }
-      const purposeControl = roomPurposeControlEl(room);
-      if (purposeControl) {
-        card.append(purposeControl);
-      }
-      const collectionReadout = collectionBayReadoutEl(room);
-      if (collectionReadout) {
-        card.append(collectionReadout);
-      }
-      const roomResiduePanel = feedingResiduePanelEl({ type: "room", roomId: room.id }, "Room feeding residue");
-      if (roomResiduePanel) {
-        card.append(roomResiduePanel);
-      }
-      const stockpilePanel = roomStockpilePanelEl(room);
-      if (stockpilePanel) {
-        card.append(stockpilePanel);
-      }
-      card.append(attributes);
-      card.append(freeCreaturePressureEl(room));
-      const freeCreatures = freeCreaturesInRoom(room.id);
-      if (freeCreatures.length) {
-        const freeList = document.createElement("div");
-        freeList.className = "room-free-creatures";
-        freeList.append(textEl("strong", "Creatures in room"));
-        if (scientistObservesRoom(room.id)) {
-          for (const slime of freeCreatures) {
-            const row = document.createElement("div");
-            row.className = "room-free-creature-row";
-            row.append(slimeNameLink(slime), document.createTextNode(" — "), textEl("span", slimeActivityLabel(slime)));
-            const extraTags = [...slimeDoorIntentChips(slime), ...slimeCleanupActivityPerformanceChips(slime)];
-            if (extraTags.length) {
-              row.append(document.createTextNode(" — "));
-              extraTags.forEach((tag, index) => {
-                if (index > 0) row.append(document.createTextNode(" "));
-                row.append(tag);
-              });
-            }
-            freeList.append(row);
-          }
-        } else {
-          freeList.append(textEl("div", "Unobserved from current location."));
-        }
-        card.append(freeList);
-      }
-      dom.roomList.append(card);
-    }
+    dom.roomSummary.textContent = `${state.rooms.length} mapped room${state.rooms.length === 1 ? "" : "s"}; current location: ${roomName(scientistRoomId())}${mapSummary ? `; ${mapSummary}` : ""}`;
   }
-
-
 
   function biologicalCleanupActiveInRoom(roomId) {
     if (!scientistObservesRoom(roomId)) {

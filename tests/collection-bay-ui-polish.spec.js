@@ -20,6 +20,20 @@ async function loadSavedRun(page) {
   await page.locator('#loadLastSaveBtn').click();
 }
 
+async function openCollectionStations(page) {
+  await page.locator('[data-workspace-tab="resources"]').click();
+  await page.locator('[data-stores-menu-tab="stations"]').click();
+  return page.locator('#collectionStationInventoryList');
+}
+
+async function openSelectedContainerActions(page, containerId) {
+  await page.locator('[data-workspace-tab="map"]').click();
+  await page.locator(`[data-map-target-kind="container"][data-map-target-id="${containerId}"]`).first().click();
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
+  return page.locator('[data-context-command-panel="true"]');
+}
+
 function stagedSlime({ id, name, genome, containerId, mature = true, matureAt = 0, stats = {} }) {
   return {
     id,
@@ -218,38 +232,38 @@ test('Collection Bay specimen readout uses compact facts and one support line', 
   await startRun(page);
   await stageCollectionBayReadoutSave(page);
 
-  const roomList = page.locator('#roomList');
-  await expect(roomList).toContainText('Collection status: 3 collection stations; 4 specimens ready for readout');
-  await expect(roomList).toContainText('DRIP-VES');
-  await expect(roomList).toContainText('in Specimen Drainage Tank 1');
-  await expect(roomList).toContainText('DRIP-JAR');
-  await expect(roomList).toContainText('in Plain Jar');
-  await expect(roomList).toContainText('VAPOR-SEALED');
-  await expect(roomList).toContainText('in Sealed Tank');
+  const stations = await openCollectionStations(page);
+  await expect(stations).toContainText('Collection status: 3 collection stations; 4 specimens ready for readout');
+  await expect(stations).toContainText('DRIP-VES');
+  await expect(stations).toContainText('in Specimen Drainage Tank 1');
+  await expect(stations).toContainText('DRIP-JAR');
+  await expect(stations).toContainText('in Plain Jar');
+  await expect(stations).toContainText('VAPOR-SEALED');
+  await expect(stations).toContainText('in Sealed Tank');
 
-  await expect(roomList).toContainText('Byproduct: acid droplets');
-  await expect(roomList).toContainText('Byproduct: smoke vapor');
-  await expect(roomList).toContainText('Output: Trace');
-  await expect(roomList).toContainText('Method: drip-channel capture');
-  await expect(roomList).toContainText('Method: hood venting');
-  await expect(roomList).toContainText('Need: dedicated drainage vessel');
-  await expect(roomList).toContainText('Need: existing sealed container can be vented under hood');
-  await expect(roomList).toContainText('Support: Specimen Drainage Tank fitted');
-  await expect(roomList).toContainText('Support: Specimen Drainage Tank recommended');
-  await expect(roomList).toContainText('Support: hood-compatible sealed container');
-  await expect(roomList).toContainText('Support: hood venting required; drainage tank does not solve vapor');
-  await expect(roomList).toContainText('Output: mixed collection residue');
-  await expect(roomList).toContainText('Support: improvised mixed collection');
-  await expect(roomList).toContainText('Collecting mixed output');
+  await expect(stations).toContainText('Byproduct: acid droplets');
+  await expect(stations).toContainText('Byproduct: smoke vapor');
+  await expect(stations).toContainText('Output: Trace');
+  await expect(stations).toContainText('Method: drip-channel capture');
+  await expect(stations).toContainText('Method: hood venting');
+  await expect(stations).toContainText('Need: dedicated drainage vessel');
+  await expect(stations).toContainText('Need: existing sealed container can be vented under hood');
+  await expect(stations).toContainText('Support: Specimen Drainage Tank fitted');
+  await expect(stations).toContainText('Support: Specimen Drainage Tank recommended');
+  await expect(stations).toContainText('Support: hood-compatible sealed container');
+  await expect(stations).toContainText('Support: hood venting required; drainage tank does not solve vapor');
+  await expect(stations).toContainText('Output: mixed collection residue');
+  await expect(stations).toContainText('Support: improvised mixed collection');
+  await expect(stations).toContainText('Collecting mixed output');
 
-  await expect(roomList).not.toContainText('Container support:');
-  await expect(roomList).not.toContainText('Hood support:');
-  await expect(roomList).not.toContainText('Collect byproduct');
-  await expect(roomList).not.toContainText('Byproduct inventory');
-  await expect(roomList).not.toContainText('Paused: mixed output');
-  await expect(roomList).not.toContainText('Separate specimens');
-  await expect(roomList).not.toContainText('output scalar');
-  await expect(roomList).not.toContainText('food modifier');
+  await expect(stations).not.toContainText('Container support:');
+  await expect(stations).not.toContainText('Hood support:');
+  await expect(stations).not.toContainText('Collect byproduct');
+  await expect(stations).not.toContainText('Byproduct inventory');
+  await expect(stations).not.toContainText('Paused: mixed output');
+  await expect(stations).not.toContainText('Separate specimens');
+  await expect(stations).not.toContainText('output scalar');
+  await expect(stations).not.toContainText('food modifier');
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
@@ -268,22 +282,23 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   await startRun(page);
   await stageCollectionBayAccumulationSave(page);
 
-  const roomList = page.locator('#roomList');
-  await expect(roomList).toContainText('Collection status: 3 collection stations; 4 specimens ready for readout');
-  await expect(roomList).toContainText('Single Drainage Tank station');
-  await expect(roomList).toContainText('Double Drainage Tank station');
-  await expect(roomList).toContainText('Immature Drainage Tank station');
-  await expect(roomList).toContainText('Expression: Steady');
-  await expect(roomList).toContainText('Expression: Trace');
-  await expect(roomList).toContainText('Receptacle: sealed collection jar 0 / 10');
-  await expect(roomList).toContainText('Overflow: apparatus buffer 0 / 3');
+  const stations = await openCollectionStations(page);
+  await expect(stations).toContainText('Collection status: 3 collection stations; 4 specimens ready for readout');
+  await expect(stations).toContainText('Single Drainage Tank station');
+  await expect(stations).toContainText('Double Drainage Tank station');
+  await expect(stations).toContainText('Immature Drainage Tank station');
+  await expect(stations).toContainText('Expression: Steady');
+  await expect(stations).toContainText('Expression: Trace');
+  await expect(stations).toContainText('Receptacle: sealed collection jar 0 / 10');
+  await expect(stations).toContainText('Overflow: apparatus buffer 0 / 3');
 
   await page.locator('#queueToggleBtn').click();
   await page.locator('#skipAmountInput').fill('60');
   await page.locator('#skipTimeBtn').click();
 
-  await expect(roomList).toContainText('Receptacle: sealed collection jar');
-  await expect(roomList).toContainText('Transfer swaps only the active receptacle into Collected Byproducts');
+  await openCollectionStations(page);
+  await expect(stations).toContainText('Receptacle: sealed collection jar');
+  await expect(stations).toContainText('Transfer is a contextual command on the selected station container');
 
   const stationAmounts = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -323,22 +338,27 @@ test('Collection Bay transfer moves active receptacle contents into Collected By
   await startRun(page);
   await stageCollectionBayTransferSave(page);
 
-  const station = page.locator('[data-collection-bay-station="basic-10"]');
+  const stations = await openCollectionStations(page);
+  const station = stations.locator('[data-collection-bay-station="basic-10"]');
   await expect(station).toContainText('Transfer Drainage Tank station');
   await expect(station).toContainText('Awaiting transfer');
   await expect(station).toContainText('Receptacle: sealed collection jar 4 / 10');
   await expect(station).toContainText('Overflow: apparatus buffer 3 / 3');
 
-  await station.getByRole('button', { name: 'Transfer Receptacle' }).click();
+  let actions = await openSelectedContainerActions(page, 'basic-10');
+  await actions.getByRole('button', { name: 'Transfer Receptacle' }).click();
   await page.locator('#queueToggleBtn').click();
 
   const transferTask = page.locator('#taskList .task-row').filter({ hasText: 'Transfer Transfer Drainage Tank receptacle' });
   await expect(transferTask).toBeVisible();
-  const transferButton = station.getByRole('button', { name: 'Transfer Receptacle' });
+  actions = await openSelectedContainerActions(page, 'basic-10');
+  const transferButton = actions.getByRole('button', { name: 'Transfer Receptacle' });
   await expect(transferButton).toBeDisabled();
   await expect(transferButton).toHaveAttribute('title', /Receptacle transfer already queued/);
+  await page.locator('#queueToggleBtn').click();
   await transferTask.getByRole('button', { name: 'Finish' }).click();
 
+  await openCollectionStations(page);
   const inventory = page.locator('#inventoryList');
   await expect(inventory).toContainText('Collected Byproducts');
   await expect(inventory).toContainText('acid droplets');
