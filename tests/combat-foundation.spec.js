@@ -27,6 +27,13 @@ async function skipSeconds(page, seconds) {
   await page.locator('#skipTimeBtn').evaluate((element) => element.click());
 }
 
+async function selectMapOverlay(page, overlayId) {
+  await page.locator('[data-overlay-menu-toggle="true"]').click();
+  await expect(page.locator('[data-overlay-menu="true"]')).toBeVisible();
+  await page.locator('[data-map-overlay-select="true"]').selectOption(overlayId);
+  await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
+}
+
 test('elemental contact clash creates observed combat and pauses to 1x', async ({ page }) => {
   await startRun(page);
   const seed = await page.evaluate(({ key }) => {
@@ -95,7 +102,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
   await skipSeconds(page, 90);
 
   await expect(page.locator('[data-slime-combat="flame-contact"]')).toContainText('Combat: clashing');
-  await page.locator('[data-map-overlay-select="true"]').selectOption('combat');
+  await selectMapOverlay(page, 'combat');
   const combatCells = await page.locator('.lab-map-cell.map-overlay-combat').count();
   expect(combatCells).toBeGreaterThan(0);
   const combatIncidentCell = page.locator('.lab-map-cell.map-overlay-combat[data-map-incident]').first();

@@ -854,12 +854,13 @@ h2 {
 }
 
 .lab-map-panel {
+  position: relative;
   display: grid;
   gap: 0.55rem;
   padding: 0.55rem;
   margin-top: 0;
   min-height: calc(100vh - 10rem);
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   background: rgba(21, 22, 16, 0.84);
   border: 1px solid #303329;
   border-radius: 6px;
@@ -1122,7 +1123,8 @@ h2 {
 }
 
 .keyboard-status-row,
-.map-overlay-controls,
+.map-overlay-menu-shell,
+.map-overlay-popover,
 .keyboard-help-panel,
 .keyboard-help-list {
   display: grid;
@@ -1149,27 +1151,71 @@ h2 {
   box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.14);
 }
 
-.map-overlay-controls {
-  grid-template-columns: auto minmax(8rem, 12rem) minmax(0, 1fr);
-  align-items: center;
-  padding: 0.35rem 0.45rem;
-  background: rgba(10, 12, 9, 0.58);
-  border: 1px solid rgba(56, 58, 50, 0.58);
-  border-radius: 6px;
+.map-overlay-hud {
+  position: fixed;
+  top: var(--management-top-offset);
+  left: 1rem;
+  z-index: 28;
+}
+
+.map-overlay-menu-shell {
+  position: relative;
+  justify-items: start;
+}
+
+.map-overlay-menu-toggle {
+  padding: 0.4rem 0.55rem;
+  background: rgba(10, 12, 9, 0.74);
+  border-color: rgba(87, 92, 75, 0.82);
+  color: #e9efe2;
+  font-size: 0.78rem;
+}
+
+.map-overlay-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 24;
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 0.65rem;
+  background: rgba(17, 18, 14, 0.96);
+  border: 1px solid rgba(87, 92, 75, 0.92);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.48);
   color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.map-overlay-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.map-overlay-popover-header button {
+  padding: 0.3rem 0.45rem;
   font-size: 0.76rem;
 }
 
-.map-overlay-controls.map-overlay-controls-with-focus {
-  grid-template-columns: auto minmax(8rem, 12rem) minmax(0, 1fr) auto minmax(8rem, 14rem);
+.map-overlay-field {
+  display: grid;
+  gap: 0.25rem;
 }
 
-.map-overlay-controls select {
+.map-overlay-field span,
+.map-overlay-description {
+  color: var(--muted);
+}
+
+.map-overlay-field select {
   width: 100%;
 }
 
-.map-overlay-description {
-  color: var(--muted);
+.map-overlay-popover-legend {
+  justify-content: flex-start;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(56, 58, 50, 0.7);
 }
 
 .keyboard-help-panel {

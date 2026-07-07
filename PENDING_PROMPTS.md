@@ -12,32 +12,13 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Map Overlay and Legend Menu
-2. Remove Persistent Prototype Panels
-3. Keyboard Navigation and Menu Flow Polish
-4. Black Market Byproduct Economy System
+1. Remove Persistent Prototype Panels
+2. Keyboard Navigation and Menu Flow Polish
+3. Black Market Byproduct Economy System
 
 ---
 
-## 1. Map Overlay and Legend Menu
-
-Move overlay controls, legends, filters, and debug visibility into a menu that supports map-first play.
-
-Existing overlays such as Incidents, Combat, Resources, Movement, Construction, and future AI/perception/debug overlays should be easy to toggle and understand without permanently occupying panel space.
-
-The system should answer questions like:
-- Should overlays be controlled from a radial menu, toolbar, command palette, or management menu?
-- Should overlay legends appear only when active?
-- Should overlay hotkeys exist now?
-- How should selected-resource overlays choose which resource/category to show?
-- How should debug-only overlays be separated from normal player knowledge?
-- How should known versus actual map information be represented?
-
-The desired result is an overlay system that helps players read the lab without giving free information or crowding the screen.
-
-Before coding, discuss overlay access, legends, filtering, hotkeys, and debug separation.
-
-## 2. Remove Persistent Prototype Panels
+## 1. Remove Persistent Prototype Panels
 
 After the key map menus exist, remove or retire the old persistent prototype panels.
 
@@ -55,7 +36,7 @@ The desired result is a cleaner UI architecture where the map shell, menus, insp
 
 Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
 
-## 3. Keyboard Navigation and Menu Flow Polish
+## 2. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -73,7 +54,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

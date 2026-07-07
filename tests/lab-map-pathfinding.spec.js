@@ -43,6 +43,17 @@ async function skipSeconds(page, seconds) {
   await page.locator('#skipTimeBtn').evaluate((element) => element.click());
 }
 
+async function openOverlayMenu(page) {
+  await page.locator('[data-overlay-menu-toggle="true"]').click();
+  await expect(page.locator('[data-overlay-menu="true"]')).toBeVisible();
+}
+
+async function selectMapOverlay(page, overlayId) {
+  await openOverlayMenu(page);
+  await page.locator('[data-map-overlay-select="true"]').selectOption(overlayId);
+  await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
+}
+
 test('slime ai record mirrors contained baseline behavior', async ({ page }) => {
   await startRun(page);
 
@@ -664,12 +675,18 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-workspace-panel="map"]')).toHaveClass(/active-workspace-panel/);
   await expect(page.locator('[data-workspace-tab="cheats"]')).toBeVisible();
+  await expect(page.locator('[data-lab-map-panel="true"] > .lab-map-legend')).toHaveCount(0);
+  await openOverlayMenu(page);
+  await expect(page.locator('[data-overlay-legend="none"]')).toContainText('Base blueprint only');
   await expect(page.locator('#mapOverlaySelect option[value="debug"]')).toHaveCount(1);
+  await page.locator('[data-overlay-menu="true"]').getByRole('button', { name: 'Close' }).click();
   await page.locator('#debugToggleBtn').click();
   await expect(page.locator('#debugToggleBtn')).toHaveText('Debug Off');
   await expect(page.locator('[data-workspace-tab="cheats"]')).toBeHidden();
   await expect(page.locator('[data-workspace-category="debug"]')).toBeHidden();
+  await openOverlayMenu(page);
   await expect(page.locator('#mapOverlaySelect option[value="debug"]')).toHaveCount(0);
+  await page.locator('[data-overlay-menu="true"]').getByRole('button', { name: 'Close' }).click();
   const debugOffState = await page.evaluate(({ key, prefsKey }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -797,7 +814,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(queued.task.data.doorTransit.some((step) => step.fromRoomId === 'mainLab' && step.toRoomId === 'storageRoom')).toBe(true);
   expect(queued.task.dueAt - queued.task.createdAt).toBeLessThan(60);
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
-  await page.locator('[data-map-overlay-select="true"]').selectOption('movement');
+  await selectMapOverlay(page, 'movement');
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(queued.task.data.mapPath.length);
 
   await page.locator('#queueToggleBtn').click();
@@ -1289,7 +1306,7 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   await expect(page.locator('[data-incident-alert]')).toHaveCount(4);
 
   await expect(page.locator('.lab-map-cell.incident-alert-cell')).toHaveCount(0);
-  await page.locator('[data-map-overlay-select="true"]').selectOption('incidents');
+  await selectMapOverlay(page, 'incidents');
   const highlightedAlerts = await page.locator('.lab-map-cell.incident-alert-cell').count();
   expect(highlightedAlerts).toBeGreaterThan(0);
   const stackedAlerts = await page.locator('.lab-map-cell.incident-stack-cell').count();
@@ -1337,7 +1354,7 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(response.incident.responseTaskId).toBe(response.task.id);
   await expect(slimeAlert).toContainText('response queued');
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
-  await page.locator('[data-map-overlay-select="true"]').selectOption('movement');
+  await selectMapOverlay(page, 'movement');
   expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);
 
   const residueAlert = page.locator('[data-incident-alert]').filter({ hasText: 'Hazardous sludge in Main Lab' });
@@ -1373,7 +1390,7 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   const staleAlert = page.locator('[data-incident-alert][data-incident-status="stale"]').filter({ hasText: 'ALERT-001 pressing against a blocked door' });
   await expect(staleAlert).toContainText('Stale');
   await expect(staleAlert).toContainText('last known Day 1');
-  await page.locator('[data-map-overlay-select="true"]').selectOption('incidents');
+  await selectMapOverlay(page, 'incidents');
   await expect(page.locator('.lab-map-cell.incident-stale')).not.toHaveCount(0);
 });
 
@@ -1688,16 +1705,16 @@ test('keyboard cursor selects map targets and command mode activates contextual 
     };
   }, { key: storageKey });
   expect(initial.cursor).toEqual(initial.scientistCell);
-  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('none');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
   await page.keyboard.press('O');
-  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('contamination');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('Contamination');
   let overlayState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).ui.mapOverlay;
   }, { key: storageKey });
   expect(overlayState).toBe('contamination');
   await page.keyboard.press('Shift+O');
-  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('none');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
   await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-x', String(initial.cursor.x));
   await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-y', String(initial.cursor.y));
 
@@ -1843,14 +1860,14 @@ test('map overlays avoid unobserved room information unless debug is active', as
   const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
   const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
 
-  await page.locator('[data-map-overlay-select="true"]').selectOption('contamination');
+  await selectMapOverlay(page, 'contamination');
   await expect(mainTile).toHaveAttribute('data-map-overlay', 'contamination');
   await expect(mainTile).toHaveAttribute('data-map-overlay-label', /Main Lab: Low/);
   await expect(storageTile).not.toHaveAttribute('data-map-overlay', /.+/);
   await expect(storageTile).not.toHaveAttribute('data-map-target-id', 'hidden-storage-slime');
   await expect(storageTile).not.toHaveClass(/living-object-cell/);
 
-  await page.locator('[data-map-overlay-select="true"]').selectOption('debug');
+  await selectMapOverlay(page, 'debug');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'debug');
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Hazardous/);
   await expect(storageTile).toHaveAttribute('data-map-overlay-value', '92.0');

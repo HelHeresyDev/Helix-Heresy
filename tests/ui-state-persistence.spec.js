@@ -16,6 +16,13 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
+async function selectMapOverlay(page, overlayId) {
+  await page.locator('[data-overlay-menu-toggle="true"]').click();
+  await expect(page.locator('[data-overlay-menu="true"]')).toBeVisible();
+  await page.locator('[data-map-overlay-select="true"]').selectOption(overlayId);
+  await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
+}
+
 test('importing a save resets transient UI to the map defaults', async ({ page }, testInfo) => {
   await startRun(page);
 
@@ -44,7 +51,7 @@ test('importing a save resets transient UI to the map defaults', async ({ page }
   await page.locator('#importFileInput').setInputFiles(importPath);
 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#mapOverlaySelect')).toHaveValue('none');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
 
   await page.locator('[data-workspace-tab="log"]').click();
   await expect(page.locator('#messageFilterSelect')).toHaveValue('all');
@@ -90,7 +97,7 @@ test('reset UI preferences restores defaults and current map view', async ({ pag
     }));
   }, { prefsKey: preferencesKey });
 
-  await page.locator('#mapOverlaySelect').selectOption('resources');
+  await selectMapOverlay(page, 'resources');
   await page.locator('[data-workspace-tab="log"]').click();
   await page.locator('#messageFilterSelect').selectOption('combat');
   await page.locator('#debugToggleBtn').click();
@@ -101,7 +108,7 @@ test('reset UI preferences restores defaults and current map view', async ({ pag
 
   await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#mapOverlaySelect')).toHaveValue('none');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
 
   const resetState = await page.evaluate(({ key, prefsKey }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');

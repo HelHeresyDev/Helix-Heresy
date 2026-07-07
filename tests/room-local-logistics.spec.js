@@ -32,6 +32,24 @@ async function saveContext(page) {
   }, { key: storageKey });
 }
 
+async function openOverlayMenu(page) {
+  await page.locator('[data-overlay-menu-toggle="true"]').click();
+  await expect(page.locator('[data-overlay-menu="true"]')).toBeVisible();
+}
+
+async function selectMapOverlay(page, overlayId) {
+  await openOverlayMenu(page);
+  await page.locator('[data-map-overlay-select="true"]').selectOption(overlayId);
+  await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
+}
+
+async function selectResourceOverlayFocus(page, focusId) {
+  await openOverlayMenu(page);
+  await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('resources');
+  await page.locator('[data-resource-overlay-focus-select="true"]').selectOption(focusId);
+  await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
+}
+
 test('synthesis queues Biomass hauling before starting the synthesis task', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
@@ -134,8 +152,11 @@ test('resource overlay and selection inspector show known room supplies', async 
   await expect(page.locator('#storesMaterialsList [data-resource-key="biomass"]')).toContainText('Biomass');
   await page.locator('#storesMaterialsList [data-resource-key="biomass"]').getByRole('button', { name: 'Show on Map' }).click();
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('Resources');
+  await openOverlayMenu(page);
   await expect(page.locator('[data-map-overlay-select="true"]')).toHaveValue('resources');
   await expect(page.locator('[data-resource-overlay-focus-select="true"]')).toHaveValue('resource:biomass');
+  await page.locator('[data-overlay-menu="true"]').getByRole('button', { name: 'Close' }).click();
   await page.locator('[data-workspace-tab="resources"]').click();
   await page.locator('[data-stores-menu-tab="rooms"]').click();
   await expect(page.locator('#roomStockpileList [data-room-stockpile="storageRoom"]')).toContainText('Biomass');
@@ -177,15 +198,13 @@ test('resource overlay and selection inspector show known room supplies', async 
   const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
   const pitsTile = page.locator(`[data-map-x="${fixture.pitsCell.x}"][data-map-y="${fixture.pitsCell.y}"]`);
 
-  await page.locator('[data-map-overlay-select="true"]').selectOption('resources');
-  const focusSelect = page.locator('[data-resource-overlay-focus-select="true"]');
-  await expect(focusSelect).toHaveValue('resource:biomass');
+  await selectMapOverlay(page, 'resources');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'resources');
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Biomass/);
   await expect(storageTile).toHaveAttribute('data-map-overlay-value', '50');
   await expect(mainTile).not.toHaveAttribute('data-map-overlay', /.+/);
 
-  await focusSelect.selectOption('category:tools');
+  await selectResourceOverlayFocus(page, 'category:tools');
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Tools & Supplies/);
   await expect(storageTile).toHaveAttribute('data-map-overlay-value', '4');
 
@@ -195,7 +214,7 @@ test('resource overlay and selection inspector show known room supplies', async 
   await expect(inspector).toContainText('Pit contents: Waste');
   await expect(inspector).toContainText('3');
 
-  await focusSelect.selectOption('resource:waste');
+  await selectResourceOverlayFocus(page, 'resource:waste');
   await expect(pitsTile).toHaveAttribute('data-map-overlay-label', /Pits: Pit contents: Waste/);
   await expect(pitsTile).toHaveAttribute('data-map-overlay-value', '3');
 });

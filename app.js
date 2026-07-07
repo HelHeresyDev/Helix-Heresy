@@ -2401,6 +2401,7 @@
       selectionInspectorTab: DEFAULT_SELECTION_INSPECTOR_TAB,
       selectionInspectorExpanded: false,
       commandMenuOpen: false,
+      overlayMenuOpen: false,
       keyboardHelpOpen: false
     };
   }
@@ -2748,6 +2749,7 @@
       "taskList",
       "blockedTaskList",
       "completedTaskList",
+      "mapOverlayHud",
       "messageFeed",
       "messageHistorySummary",
       "messageFilterSelect",
@@ -3320,6 +3322,13 @@
       render();
       return true;
     }
+    if (ui.overlayMenuOpen) {
+      event.preventDefault();
+      ui.overlayMenuOpen = false;
+      persist();
+      render();
+      return true;
+    }
     if (ui.selectionInspectorExpanded) {
       event.preventDefault();
       ui.selectionInspectorExpanded = false;
@@ -3678,7 +3687,9 @@
 
   function setMapOverlay(overlayId) {
     const normalized = normalizeMapOverlayId(overlayId);
-    ensureUiState().mapOverlay = normalized === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : normalized;
+    const ui = ensureUiState();
+    ui.mapOverlay = normalized === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : normalized;
+    ui.overlayMenuOpen = false;
     setActiveWorkspaceTab("map");
     persist();
     render();
@@ -3688,6 +3699,7 @@
     const ui = ensureUiState();
     ui.resourceOverlayFocus = normalizeResourceOverlayFocusId(focusId);
     ui.mapOverlay = "resources";
+    ui.overlayMenuOpen = false;
     setActiveWorkspaceTab("map");
     persist();
     render();
@@ -3700,6 +3712,16 @@
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
     const nextIndex = (safeIndex + direction + overlays.length) % overlays.length;
     setMapOverlay(overlays[nextIndex].id);
+  }
+
+  function toggleOverlayMenu(open = null) {
+    const ui = ensureUiState();
+    ui.overlayMenuOpen = open === null ? !ui.overlayMenuOpen : Boolean(open);
+    if (ui.overlayMenuOpen) {
+      setActiveWorkspaceTab("map");
+    }
+    persist();
+    render();
   }
 
   function currentSelectionInspectorTab() {
@@ -3818,6 +3840,7 @@
       selectionInspectorTab: normalizeSelectionInspectorTab(candidate?.selectionInspectorTab),
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
       commandMenuOpen: Boolean(candidate?.commandMenuOpen),
+      overlayMenuOpen: Boolean(candidate?.overlayMenuOpen),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -4654,6 +4677,9 @@
     activeWorkspaceTab = tab;
     if (state?.ui) {
       state.ui.activeWorkspaceTab = tab;
+      if (tab !== "map") {
+        state.ui.overlayMenuOpen = false;
+      }
     }
     syncWorkspaceShell();
     if (options.scroll) {
@@ -17387,6 +17413,7 @@
     renderTasks();
     renderJournal();
     renderEvents();
+    renderMapOverlayHud();
     renderKnownEditor();
     renderSlimeAiDebugPanel();
     syncWorkspaceShell();
@@ -29771,25 +29798,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mode: ensureUiState().mode,
       overlay,
       resourceFocus,
+      overlayMenuOpen: Boolean(ensureUiState().overlayMenuOpen),
       keyboardHelpOpen: ensureUiState().keyboardHelpOpen,
       cells,
-      legendItems: [
-        "S = scientist",
-        "A = incident marker (Incident overlay)",
-        "Combat overlay = known fights and involved combatants",
-        "d = draft dig",
-        "D = planned dig",
-        "C = blocking container footprint",
-        "L = loose living",
-        "R = remains",
-        "route = Movement overlay task path",
-        "resources = selected known supply overlay",
-        "room letters = room anchor",
-        "x = closed door",
-        "l = locked",
-        "s = sealed",
-        "! = breached"
-      ]
+      legendItems: mapOverlayLegendItems(overlay.id)
     };
   }
 
@@ -29904,14 +29916,95 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return row;
   }
 
-  function mapOverlayControlsEl(mapView) {
-    const row = document.createElement("div");
-    row.className = "map-overlay-controls";
-    row.dataset.mapOverlayControls = "true";
-    row.classList.toggle("map-overlay-controls-with-focus", mapView.overlay?.id === "resources");
+  function mapOverlayLegendItems(overlayId) {
+    const base = [
+      "S = scientist",
+      "C = blocking container footprint",
+      "L = loose living",
+      "R = remains",
+      "room letters = room anchor",
+      "x = closed door",
+      "l = locked",
+      "s = sealed",
+      "! = breached"
+    ];
+    const overlayLegends = {
+      none: ["Base blueprint only.", ...base],
+      contamination: [
+        "Known: observed and remembered room contamination only.",
+        "Clean, low, tainted, fouled, and hazardous bands use the latest available observation.",
+        "Unobserved rooms stay blank unless Debug is active."
+      ],
+      movement: [
+        "Player plan: next scientist movement or hauling route only.",
+        "Selected task routes take priority over generic queued movement.",
+        "S marks the scientist."
+      ],
+      resources: [
+        "Known: selected last-inventoried stockpile only.",
+        "Medium and high bands reflect known amount, not hidden actual certainty.",
+        "Pit contents are shown separately from clean inventory."
+      ],
+      incidents: [
+        "Known: unresolved and last-known spatial incidents.",
+        "Stacked markers show multiple alerts on one tile.",
+        "Acknowledged and stale incidents are quieter but remain visible."
+      ],
+      combat: [
+        "Known: active or last-known combat incidents.",
+        "Participant markers appear only when the combatants are known.",
+        "Stale combat markers are last-known locations."
+      ],
+      construction: [
+        "Player plan: draft, planned, and rough excavation spaces.",
+        "d = draft dig; D = planned dig.",
+        "Rough rooms await a room-purpose designation."
+      ],
+      debug: [
+        "Debug omniscient: ignores normal player knowledge.",
+        "Shows raw diagnostics, hidden room conditions, and unobserved actors.",
+        "Debug overlay is hidden when Debug tools are off."
+      ]
+    };
+    return overlayLegends[normalizeMapOverlayId(overlayId)] || overlayLegends.none;
+  }
 
-    const label = textEl("label", "Overlay");
-    label.setAttribute("for", "mapOverlaySelect");
+  function mapOverlayControlsEl(mapView) {
+    const shell = document.createElement("div");
+    shell.className = "map-overlay-menu-shell";
+    shell.dataset.mapOverlayControls = "true";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "map-overlay-menu-toggle";
+    button.dataset.overlayMenuToggle = "true";
+    button.setAttribute("aria-expanded", String(Boolean(mapView.overlayMenuOpen)));
+    button.textContent = `Overlays: ${mapView.overlay?.label || "None"}`;
+    button.title = "Open the temporary overlay menu. O and Shift+O still cycle overlays.";
+    button.addEventListener("click", () => toggleOverlayMenu());
+    shell.append(button);
+
+    if (!mapView.overlayMenuOpen) {
+      return shell;
+    }
+
+    const menu = document.createElement("div");
+    menu.className = "map-overlay-popover";
+    menu.dataset.overlayMenu = "true";
+
+    const header = document.createElement("div");
+    header.className = "map-overlay-popover-header";
+    header.append(textEl("strong", "Map Overlays"));
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.addEventListener("click", () => toggleOverlayMenu(false));
+    header.append(close);
+    menu.append(header);
+
+    const field = document.createElement("label");
+    field.className = "map-overlay-field";
+    field.append(textEl("span", "Overlay"));
     const select = document.createElement("select");
     select.id = "mapOverlaySelect";
     select.dataset.mapOverlaySelect = "true";
@@ -29923,13 +30016,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     select.value = currentMapOverlayDef().id;
     select.addEventListener("change", () => setMapOverlay(select.value));
+    field.append(select);
+    menu.append(field);
 
     const description = textEl("span", mapView.overlay?.description || "");
     description.className = "map-overlay-description";
-    row.append(label, select, description);
+    menu.append(description);
+
     if (mapView.overlay?.id === "resources") {
-      const focusLabel = textEl("label", "Focus");
-      focusLabel.setAttribute("for", "resourceOverlayFocusSelect");
+      const focusField = document.createElement("label");
+      focusField.className = "map-overlay-field";
+      focusField.append(textEl("span", "Resource Focus"));
       const focusSelect = document.createElement("select");
       focusSelect.id = "resourceOverlayFocusSelect";
       focusSelect.dataset.resourceOverlayFocusSelect = "true";
@@ -29942,9 +30039,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       focusSelect.value = normalizeResourceOverlayFocusId(mapView.resourceFocus?.id);
       focusSelect.title = "Choose one known stockpile resource or category to highlight on the map.";
       focusSelect.addEventListener("change", () => setResourceOverlayFocus(focusSelect.value));
-      row.append(focusLabel, focusSelect);
+      focusField.append(focusSelect);
+      menu.append(focusField);
     }
-    return row;
+
+    const legend = document.createElement("div");
+    legend.className = "lab-map-legend map-overlay-popover-legend";
+    legend.dataset.overlayLegend = mapView.overlay?.id || "none";
+    legend.append(...mapView.legendItems.map((item) => chip(item)));
+    menu.append(legend);
+    shell.append(menu);
+    return shell;
+  }
+
+  function renderMapOverlayHud() {
+    if (!dom.mapOverlayHud) {
+      return;
+    }
+    dom.mapOverlayHud.textContent = "";
+    const visible = Boolean(state?.started && currentWorkspaceTab() === "map");
+    dom.mapOverlayHud.hidden = !visible;
+    if (!visible) {
+      return;
+    }
+    const overlay = currentMapOverlayDef();
+    const view = {
+      overlay,
+      resourceFocus: currentResourceOverlayFocusDef(),
+      overlayMenuOpen: Boolean(ensureUiState().overlayMenuOpen),
+      legendItems: mapOverlayLegendItems(overlay.id)
+    };
+    dom.mapOverlayHud.append(mapOverlayControlsEl(view));
   }
 
   function keyboardHelpEl() {
@@ -30006,7 +30131,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     header.append(title, meta);
     panel.append(header);
     panel.append(keyboardStatusEl(mapView));
-    panel.append(mapOverlayControlsEl(mapView));
     if (mapView.keyboardHelpOpen) {
       panel.append(keyboardHelpEl());
     }
@@ -30040,11 +30164,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       grid.append(tile);
     }
     panel.append(grid);
-
-    const legend = document.createElement("div");
-    legend.className = "lab-map-legend";
-    legend.append(...mapView.legendItems.map((item) => chip(item)));
-    panel.append(legend);
     return panel;
   }
 
