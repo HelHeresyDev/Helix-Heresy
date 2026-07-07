@@ -2832,6 +2832,11 @@ h2 {
   margin: 0;
 }
 
+.message-feed-setting {
+  min-height: 2.25rem;
+  margin-left: auto;
+}
+
 .message-row {
   border-left: 3px solid #44473c;
 }
@@ -2906,6 +2911,16 @@ h2 {
   transition: right 180ms ease, opacity 140ms ease;
 }
 
+.message-feed[data-feed-fade="true"]:not(.message-feed-empty) {
+  animation: compact-message-feed-fade 14s ease forwards;
+}
+
+.message-feed[data-feed-fade="true"]:hover,
+.message-feed[data-feed-fade="true"]:focus-within {
+  animation: none;
+  opacity: 1;
+}
+
 .message-feed-empty {
   display: none;
 }
@@ -2926,6 +2941,24 @@ h2 {
 
 .message-feed .message-row:hover {
   border-color: var(--cyan);
+}
+
+@keyframes compact-message-feed-fade {
+  0%,
+  55% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-feed[data-feed-fade="true"]:not(.message-feed-empty) {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 @keyframes entity-focus-pulse {

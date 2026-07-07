@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const storageKey = 'helix-heresy-v1-save';
+const preferencesKey = 'helix-heresy-v1-preferences';
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -72,12 +73,20 @@ test('message history keeps routine records while compact feed shows urgent obse
   await loadSavedRun(page);
 
   await expect(page.locator('#messageFeed')).toContainText('Critical test leak');
+  await expect(page.locator('#messageFeed')).toHaveAttribute('data-feed-fade', 'true');
   await expect(page.locator('#messageFeed')).not.toContainText('Visual Survey complete');
   await expect(page.locator('#messageFeed')).not.toContainText('Discovery recorded');
   await expect(page.locator('#messageFeed [data-message-feed="true"]')).toHaveCount(1);
 
   await page.locator('[data-workspace-tab="log"]').click();
   await expect(page.locator('#logTitle')).toContainText('Message History');
+  await expect(page.locator('#messageFeedFadeCheckbox')).toBeChecked();
+  await page.locator('#messageFeedFadeCheckbox').uncheck();
+  await expect(page.locator('#messageFeed')).toHaveAttribute('data-feed-fade', 'false');
+  const fadePreference = await page.evaluate(({ prefsKey }) => {
+    return JSON.parse(window.localStorage.getItem(prefsKey) || '{}').compactFeedFades;
+  }, { prefsKey: preferencesKey });
+  expect(fadePreference).toBe(false);
   await expect(page.locator('#eventLog')).toContainText('Critical test leak');
   await expect(page.locator('#eventLog')).toContainText('Visual Survey complete');
   await expect(page.locator('#eventLog')).toContainText('Discovery recorded');

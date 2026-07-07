@@ -2409,6 +2409,7 @@
     return {
       version: PREFERENCES_VERSION,
       compactFeedVisible: true,
+      compactFeedFades: true,
       compactMessageLimit: COMPACT_MESSAGE_LIMIT
     };
   }
@@ -2750,6 +2751,7 @@
       "messageFeed",
       "messageHistorySummary",
       "messageFilterSelect",
+      "messageFeedFadeCheckbox",
       "eventLog",
       "setupOverlay",
       "setupForm",
@@ -2915,6 +2917,12 @@
       ensureUiState().messageFilter = normalizeMessageFilter(dom.messageFilterSelect.value);
       persist();
       render();
+    });
+
+    dom.messageFeedFadeCheckbox?.addEventListener("change", () => {
+      uiPreferences.compactFeedFades = Boolean(dom.messageFeedFadeCheckbox.checked);
+      persistUiPreferences();
+      renderEvents();
     });
 
     dom.creatureRecordTabs?.addEventListener("click", (event) => {
@@ -3395,6 +3403,9 @@
       compactFeedVisible: candidate?.compactFeedVisible === undefined
         ? defaults.compactFeedVisible
         : Boolean(candidate.compactFeedVisible),
+      compactFeedFades: candidate?.compactFeedFades === undefined
+        ? defaults.compactFeedFades
+        : Boolean(candidate.compactFeedFades),
       compactMessageLimit: clamp(
         Math.round(Number(candidate?.compactMessageLimit) || defaults.compactMessageLimit),
         1,
@@ -31320,7 +31331,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     dom.messageFeed.textContent = "";
     const messages = compactFeedMessages();
+    const prefs = normalizeUiPreferences(uiPreferences);
     dom.messageFeed.classList.toggle("message-feed-empty", messages.length === 0);
+    dom.messageFeed.dataset.feedFade = String(prefs.compactFeedFades);
     if (!messages.length) {
       return;
     }
@@ -31339,6 +31352,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const filterId = currentMessageFilter();
     if (dom.messageFilterSelect) {
       dom.messageFilterSelect.value = filterId;
+    }
+    if (dom.messageFeedFadeCheckbox) {
+      dom.messageFeedFadeCheckbox.checked = normalizeUiPreferences(uiPreferences).compactFeedFades;
     }
     const events = filteredMessageHistory();
     const total = normalizeMessages(state.events).length;

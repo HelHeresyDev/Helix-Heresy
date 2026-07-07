@@ -85,6 +85,7 @@ test('reset UI preferences restores defaults and current map view', async ({ pag
     window.localStorage.setItem(prefsKey, JSON.stringify({
       version: 1,
       compactFeedVisible: false,
+      compactFeedFades: false,
       compactMessageLimit: 1,
     }));
   }, { prefsKey: preferencesKey });
@@ -116,6 +117,7 @@ test('reset UI preferences restores defaults and current map view', async ({ pag
     prefs: {
       version: 1,
       compactFeedVisible: true,
+      compactFeedFades: true,
       compactMessageLimit: 8,
     },
     ui: {

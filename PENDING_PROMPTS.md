@@ -12,33 +12,14 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Message History and Alert Feed
-2. Map Overlay and Legend Menu
-3. Remove Persistent Prototype Panels
-4. Keyboard Navigation and Menu Flow Polish
-5. Black Market Byproduct Economy System
+1. Map Overlay and Legend Menu
+2. Remove Persistent Prototype Panels
+3. Keyboard Navigation and Menu Flow Polish
+4. Black Market Byproduct Economy System
 
 ---
 
-## 1. Message History and Alert Feed
-
-Create a proper message history menu and a small non-intrusive live alert feed.
-
-The map shell should show only recent important messages in a compact transparent feed. Full history should live in a dedicated menu with filters. Routine task accounting should stay out of the main feed but can remain in full history.
-
-The system should answer questions like:
-- Where should the compact feed live on the full-screen map?
-- How many recent messages should it show?
-- What events are important enough for the live feed?
-- How should message filters work in the full history menu?
-- How should acknowledged, stale, and manually resolved incidents appear?
-- Should critical non-combat incidents pause/slow time like combat?
-
-The desired result is clear situational awareness without flooding the main map.
-
-Before coding, discuss feed placement, message categories, filters, pause/slow rules, and what counts as routine versus notable.
-
-## 2. Map Overlay and Legend Menu
+## 1. Map Overlay and Legend Menu
 
 Move overlay controls, legends, filters, and debug visibility into a menu that supports map-first play.
 
@@ -56,7 +37,7 @@ The desired result is an overlay system that helps players read the lab without 
 
 Before coding, discuss overlay access, legends, filtering, hotkeys, and debug separation.
 
-## 3. Remove Persistent Prototype Panels
+## 2. Remove Persistent Prototype Panels
 
 After the key map menus exist, remove or retire the old persistent prototype panels.
 
@@ -74,7 +55,7 @@ The desired result is a cleaner UI architecture where the map shell, menus, insp
 
 Before coding, discuss removal scope, reusable components, test changes, and how to avoid deleting useful debugging surfaces too early.
 
-## 4. Keyboard Navigation and Menu Flow Polish
+## 3. Keyboard Navigation and Menu Flow Polish
 
 Polish keyboard navigation, command flow, and menu state for the map-first interface.
 
@@ -92,7 +73,7 @@ The desired result is an interface foundation that can eventually support dense 
 
 Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
