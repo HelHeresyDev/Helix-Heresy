@@ -12,35 +12,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Add Middle-Mouse Drag Panning
-2. Audit Map Hotkey Conflicts
-3. Add Synthesis Tube Contextual Actions
-4. Audit All Map Elements for Contextual Actions
-5. Add Map Navigation Smoke Tests
-6. Black Market Byproduct Economy System
+1. Audit Map Hotkey Conflicts
+2. Add Synthesis Tube Contextual Actions
+3. Audit All Map Elements for Contextual Actions
+4. Add Map Navigation Smoke Tests
+5. Black Market Byproduct Economy System
 
 ---
 
-## 1. Add Middle-Mouse Drag Panning
-
-Allow the player to pan the map by holding the middle mouse button and moving the mouse.
-
-Mouse panning should support quick visual navigation without requiring scrollbars or dragging unrelated UI elements. This should work alongside normal left-click selection and future right-click/context command behavior.
-
-This system should answer questions like:
-- Should middle-mouse drag pan the map exactly with cursor movement or use an accelerated drag?
-- Should panning start immediately on middle mouse down, or after a small movement threshold?
-- Should the browser's default middle-click behavior be suppressed only over the map?
-- Should touchpad/touch panning be considered now or later?
-- Should wheel scrolling pan, zoom, or remain unused for now?
-
-The desired result is a reliable drag-to-pan interaction that feels physical and does not interfere with selecting tiles or opening contextual actions.
-
-Before coding, discuss pointer behavior, browser-default suppression, cursor feedback, and whether drag panning should affect hover/tooltip state.
-
----
-
-## 2. Audit Map Hotkey Conflicts
+## 1. Audit Map Hotkey Conflicts
 
 Audit current and planned keyboard controls for conflicts before adding more map navigation shortcuts.
 
@@ -61,7 +41,7 @@ Before coding, discuss global versus contextual hotkeys, focus rules, command ch
 
 ---
 
-## 3. Add Synthesis Tube Contextual Actions
+## 2. Add Synthesis Tube Contextual Actions
 
 Add relevant contextual actions when the synthesis tube is selected from the map.
 
@@ -81,7 +61,7 @@ Before coding, discuss which synthesis commands belong in the contextual panel, 
 
 ---
 
-## 4. Audit All Map Elements for Contextual Actions
+## 3. Audit All Map Elements for Contextual Actions
 
 Audit every selectable map element and add all relevant contextual actions.
 
@@ -121,7 +101,7 @@ Before coding, discuss prioritization rules, action categories, disabled reasons
 
 ---
 
-## 5. Add Map Navigation Smoke Tests
+## 4. Add Map Navigation Smoke Tests
 
 Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
 
@@ -141,7 +121,7 @@ Before coding, discuss the most valuable smoke paths, test stability concerns, a
 
 ---
 
-## 6. Black Market Byproduct Economy System
+## 5. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

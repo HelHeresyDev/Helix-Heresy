@@ -1291,6 +1291,13 @@ h2 {
   border-radius: 6px;
   overflow: hidden;
   touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+body.map-dragging .lab-map-grid,
+body.map-dragging .lab-map-cell {
+  cursor: grabbing !important;
 }
 
 .lab-map-cell {

@@ -1911,6 +1911,41 @@ test('keyboard cursor selects map targets and WASD pans the camera', async ({ pa
   expect(afterHoldPan.camera.x).toBeGreaterThan(afterTapPan.camera.x);
   expect(afterHoldPan.cursor).toEqual(beforePan.cursor);
 
+  const mapGrid = page.locator('[data-map-viewport="true"]');
+  const gridBox = await mapGrid.boundingBox();
+  expect(gridBox).toBeTruthy();
+  const middleX = gridBox.x + gridBox.width / 2;
+  const middleY = gridBox.y + gridBox.height / 2;
+  const beforeMiddleDrag = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      camera: state.ui.mapCamera,
+      cursor: state.ui.mapCursor,
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+    };
+  }, { key: storageKey });
+  await page.mouse.move(middleX, middleY);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(middleX + 90, middleY, { steps: 6 });
+  await page.mouse.up({ button: 'middle' });
+  const afterMiddleDrag = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      camera: state.ui.mapCamera,
+      cursor: state.ui.mapCursor,
+      selection: state.selection,
+      selectedMapTarget: state.selectedMapTarget,
+    };
+  }, { key: storageKey });
+  expect(afterMiddleDrag.camera.x).toBeLessThan(beforeMiddleDrag.camera.x);
+  expect(afterMiddleDrag.camera.y).toBe(beforeMiddleDrag.camera.y);
+  expect(afterMiddleDrag.cursor).toEqual(beforeMiddleDrag.cursor);
+  expect(afterMiddleDrag.selection).toEqual(beforeMiddleDrag.selection);
+  expect(afterMiddleDrag.selectedMapTarget).toEqual(beforeMiddleDrag.selectedMapTarget);
+
   await page.keyboard.press('3');
   let speedResult = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1936,6 +1971,7 @@ test('keyboard cursor selects map targets and WASD pans the camera', async ({ pa
   await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
   await expect(page.locator('[data-keyboard-help="true"]')).toContainText('< / >');
   await expect(page.locator('[data-keyboard-help="true"]')).toContainText('WASD');
+  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('Middle drag');
   await expect(page.locator('[data-keyboard-help="true"]')).toContainText('T/I/C/P/R/G');
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);

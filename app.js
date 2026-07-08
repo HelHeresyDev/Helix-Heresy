@@ -92,6 +92,8 @@
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
   const LAB_MAP_PAN_PIXELS_PER_SECOND = 420;
   const LAB_MAP_FAST_PAN_PIXELS_PER_SECOND = 900;
+  const LAB_MAP_DRAG_THRESHOLD_PX = 4;
+  const LAB_MAP_GRID_GAP_PX = 1;
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
@@ -2126,6 +2128,7 @@
   let mapPanCarryX = 0;
   let mapPanCarryY = 0;
   let mapPanShiftHeld = false;
+  let mapDragState = null;
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
@@ -3375,7 +3378,7 @@
 
     document.addEventListener("keydown", handleKeyboardShortcut);
     document.addEventListener("keyup", handleKeyboardKeyup);
-    window.addEventListener("blur", clearHeldMapPanKeys);
+    window.addEventListener("blur", handleWindowBlur);
 
     dom.exportFileBtn.addEventListener("click", () => {
       downloadSave();
@@ -3386,6 +3389,11 @@
     });
 
     dom.importFileInput.addEventListener("change", importSave);
+  }
+
+  function handleWindowBlur() {
+    clearHeldMapPanKeys();
+    endMapDrag({ persist: true });
   }
 
   function handleKeyboardShortcut(event) {
@@ -3576,6 +3584,101 @@
       render();
     }
     return true;
+  }
+
+  function mapDragTileSpan(mapView = null) {
+    const tilePx = Number(mapView?.zoom?.tilePx) || mapViewportForUi(ensureLabMap()).tilePx;
+    return Math.max(1, tilePx + LAB_MAP_GRID_GAP_PX);
+  }
+
+  function setMapDragCursor(active) {
+    document.body?.classList.toggle("map-dragging", Boolean(active));
+  }
+
+  function suppressMapMiddleButtonDefault(event) {
+    if (event.button !== 1) {
+      return;
+    }
+    event.preventDefault();
+  }
+
+  function handleMapDragPointerDown(event, mapView) {
+    if (event.button !== 1 || !state?.started || currentWorkspaceTab() !== "map") {
+      return;
+    }
+    event.preventDefault();
+    endMapDrag({ persist: false });
+    mapDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      carryX: 0,
+      carryY: 0,
+      active: false,
+      tileSpan: mapDragTileSpan(mapView)
+    };
+    document.addEventListener("pointermove", handleMapDragPointerMove, { passive: false });
+    document.addEventListener("pointerup", handleMapDragPointerEnd, { passive: false });
+    document.addEventListener("pointercancel", handleMapDragPointerEnd, { passive: false });
+  }
+
+  function handleMapDragPointerMove(event) {
+    if (!mapDragState || event.pointerId !== mapDragState.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const totalX = event.clientX - mapDragState.startX;
+    const totalY = event.clientY - mapDragState.startY;
+    if (!mapDragState.active) {
+      if (Math.hypot(totalX, totalY) < LAB_MAP_DRAG_THRESHOLD_PX) {
+        return;
+      }
+      mapDragState.active = true;
+      setMapDragCursor(true);
+    }
+    const deltaX = event.clientX - mapDragState.lastX;
+    const deltaY = event.clientY - mapDragState.lastY;
+    mapDragState.lastX = event.clientX;
+    mapDragState.lastY = event.clientY;
+    mapDragState.carryX += -deltaX / mapDragState.tileSpan;
+    mapDragState.carryY += -deltaY / mapDragState.tileSpan;
+    const stepX = mapPanIntegerStep(mapDragState.carryX);
+    const stepY = mapPanIntegerStep(mapDragState.carryY);
+    if (!stepX && !stepY) {
+      return;
+    }
+    if (panMapCamera(stepX, stepY, { persist: false, render: true })) {
+      mapDragState.carryX -= stepX;
+      mapDragState.carryY -= stepY;
+    } else {
+      mapDragState.carryX = 0;
+      mapDragState.carryY = 0;
+    }
+  }
+
+  function handleMapDragPointerEnd(event) {
+    if (!mapDragState || event.pointerId !== mapDragState.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    endMapDrag({ persist: true });
+  }
+
+  function endMapDrag(options = {}) {
+    if (!mapDragState) {
+      setMapDragCursor(false);
+      return;
+    }
+    document.removeEventListener("pointermove", handleMapDragPointerMove);
+    document.removeEventListener("pointerup", handleMapDragPointerEnd);
+    document.removeEventListener("pointercancel", handleMapDragPointerEnd);
+    mapDragState = null;
+    setMapDragCursor(false);
+    if (options.persist !== false && state?.started) {
+      persist();
+    }
   }
 
   function cleanKeyboardKey(event) {
@@ -30636,7 +30739,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "WASD pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; T/I/C/P/R/G open menus; ? help.";
+      : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; T/I/C/P/R/G open menus; ? help.";
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
@@ -30857,6 +30960,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["Arrow keys", "Move the map cursor."],
       ["+ / -", "Zoom the map in or out."],
       ["Mouse wheel", "Zoom the map while the cursor is over the map."],
+      ["Middle drag", "Grab and pan the map."],
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
@@ -30924,6 +31028,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.dataset.mapViewportHeight = String(mapView.viewport.height);
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
+    grid.addEventListener("pointerdown", (event) => handleMapDragPointerDown(event, mapView));
+    grid.addEventListener("mousedown", suppressMapMiddleButtonDefault);
+    grid.addEventListener("auxclick", suppressMapMiddleButtonDefault);
     grid.addEventListener("wheel", (event) => {
       event.preventDefault();
       setMapZoom(event.deltaY < 0 ? 1 : -1, { anchorCell: mapWheelZoomAnchor(event, mapView) });
