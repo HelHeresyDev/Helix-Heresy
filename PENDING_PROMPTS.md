@@ -12,36 +12,14 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Audit Map Hotkey Conflicts
-2. Add Synthesis Tube Contextual Actions
-3. Audit All Map Elements for Contextual Actions
-4. Add Map Navigation Smoke Tests
-5. Black Market Byproduct Economy System
+1. Add Synthesis Tube Contextual Actions
+2. Audit All Map Elements for Contextual Actions
+3. Add Map Navigation Smoke Tests
+4. Black Market Byproduct Economy System
 
 ---
 
-## 1. Audit Map Hotkey Conflicts
-
-Audit current and planned keyboard controls for conflicts before adding more map navigation shortcuts.
-
-The game now has time controls, menu hotkeys, command chains, overlay toggles, contextual actions, and soon map movement. The hotkey model should remain legible before the interface accumulates contradictory shortcuts.
-
-This system should answer questions like:
-- Which keys are global?
-- Which keys only work on the map?
-- Which keys only work inside a menu?
-- Which keys are reserved for command chains?
-- Should WASD take priority over letter menu shortcuts while the map is focused?
-- How should the UI communicate available hotkeys without clutter?
-- Which browser-native keys should be left alone?
-
-The desired result is a documented hotkey policy that supports WASD panning, menu command chains, speed controls, overlays, and future combat/emergency controls without surprising the player.
-
-Before coding, discuss global versus contextual hotkeys, focus rules, command chain precedence, and how shortcut hints should appear in the UI.
-
----
-
-## 2. Add Synthesis Tube Contextual Actions
+## 1. Add Synthesis Tube Contextual Actions
 
 Add relevant contextual actions when the synthesis tube is selected from the map.
 
@@ -61,7 +39,7 @@ Before coding, discuss which synthesis commands belong in the contextual panel, 
 
 ---
 
-## 3. Audit All Map Elements for Contextual Actions
+## 2. Audit All Map Elements for Contextual Actions
 
 Audit every selectable map element and add all relevant contextual actions.
 
@@ -101,7 +79,7 @@ Before coding, discuss prioritization rules, action categories, disabled reasons
 
 ---
 
-## 4. Add Map Navigation Smoke Tests
+## 3. Add Map Navigation Smoke Tests
 
 Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
 
@@ -121,7 +99,7 @@ Before coding, discuss the most valuable smoke paths, test stability concerns, a
 
 ---
 
-## 5. Black Market Byproduct Economy System
+## 4. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

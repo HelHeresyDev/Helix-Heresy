@@ -2019,6 +2019,33 @@ test('letter key paths open management menus and nested tabs', async ({ page }) 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
 });
 
+test('declared hotkeys keep WASD reserved for map movement', async ({ page }) => {
+  await startRun(page);
+
+  const forbidden = new Set(['W', 'A', 'S', 'D']);
+  const checkHotkeys = async () => {
+    const hotkeys = await page.locator('[data-hotkey]').evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-hotkey')).filter(Boolean)
+    );
+    const conflicts = hotkeys.filter((hotkey) =>
+      String(hotkey).split(/\s+/).some((token) => forbidden.has(token))
+    );
+    expect(conflicts).toEqual([]);
+  };
+
+  await checkHotkeys();
+  for (const key of ['M', 'F', 'T', 'I', 'C', 'P', 'R', 'G']) {
+    await page.keyboard.press(key);
+    await checkHotkeys();
+  }
+
+  await page.keyboard.press('Shift+/');
+  const helpText = await page.locator('[data-keyboard-help="true"]').innerText();
+  expect(helpText).toContain('WASD');
+  expect(helpText).toContain('T/I/C/P/R/G');
+  expect(helpText).not.toContain('1-9');
+});
+
 test('map overlays avoid unobserved room information unless debug is active', async ({ page }) => {
   await startRun(page);
 
