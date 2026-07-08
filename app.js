@@ -3197,24 +3197,7 @@
     });
 
     dom.synthesizeBtn.addEventListener("click", () => {
-      const synthesisReason = synthesisTubeBlockReason();
-      if (synthesisReason) {
-        addEvent(synthesisReason);
-        persist();
-        render();
-        return;
-      }
-      startStaminaTask({
-        type: "synthesize",
-        label: "Synthesize slime",
-        baseDuration: 8,
-        skillId: "fabrication",
-        baseXp: 25,
-        baseCost: BASE_ACTION_STAMINA,
-        resourceCosts: { biomass: SYNTHESIS_BIOMASS_COST },
-        resourceRoomId: synthesisTube()?.roomId || MAIN_ROOM_ID,
-        data: { genome: state.currentGenome }
-      });
+      startSynthesisFromCurrentGenome();
     });
 
     dom.applyKnownBtn.addEventListener("click", () => {
@@ -11971,6 +11954,10 @@
     return containerById(SYNTHESIS_TUBE_ID) || normalizeContainers(state.containers).find((container) => container.type === "synthesis") || null;
   }
 
+  function isSynthesisTubeContainer(container) {
+    return Boolean(container && (container.id === SYNTHESIS_TUBE_ID || container.type === "synthesis" || container.typeId === "synthesisTube"));
+  }
+
   function permanentContainers() {
     state.containers = normalizeContainers(state.containers);
     return state.containers.filter((container) => container.type === "basic");
@@ -18312,15 +18299,12 @@
   }
 
   function renderFoundryActionState() {
-    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"]);
-    const duration = adjustedDuration(8, "fabrication");
-    const resourceCosts = { biomass: SYNTHESIS_BIOMASS_COST };
-    const resourceRoomId = synthesisTube()?.roomId || MAIN_ROOM_ID;
+    const duration = synthesisDurationSeconds();
+    const resourceCosts = synthesisResourceCosts();
+    const resourceRoomId = synthesisResourceRoomId();
     renderSynthesisTubeStatus();
     setButtonStaminaLabel(dom.synthesizeBtn, "Synthesize Slime", BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"], { duration: formatDuration(duration), suffix: `${formatResourceBundle(resourceCosts)} in ${roomName(resourceRoomId)}` });
-    const reason = synthesisTubeBlockReason()
-      || resourceBlockReason(resourceCosts)
-      || staminaBlockReason(cost);
+    const reason = synthesisActionBlockReason();
     setActionButtonState(dom.synthesizeBtn, Boolean(reason), reason);
     if (!reason) {
       const logisticsHint = resourceLogisticsHint(resourceCosts, resourceRoomId, "Synthesize slime");
@@ -18329,12 +18313,120 @@
   }
 
   function renderSynthesisTubeStatus() {
-    const occupants = synthesisTubeOccupants();
-    if (!occupants.length) {
-      dom.synthesisTubeStatus.textContent = pendingSynthesisCount() > 0 ? "Synthesis in progress." : "Synthesis tube empty.";
-      return;
+    dom.synthesisTubeStatus.textContent = synthesisTubeStatusText();
+  }
+
+  function synthesisResourceCosts() {
+    return { biomass: SYNTHESIS_BIOMASS_COST };
+  }
+
+  function synthesisResourceRoomId() {
+    return synthesisTube()?.roomId || MAIN_ROOM_ID;
+  }
+
+  function synthesisStaminaCost() {
+    return adjustedStaminaCost(BASE_ACTION_STAMINA, ["fabrication", "creatureHandling"]);
+  }
+
+  function synthesisDurationSeconds() {
+    return adjustedDuration(8, "fabrication");
+  }
+
+  function synthesisActionBlockReason() {
+    return synthesisTubeBlockReason()
+      || resourceBlockReason(synthesisResourceCosts())
+      || staminaBlockReason(synthesisStaminaCost());
+  }
+
+  function startSynthesisFromCurrentGenome() {
+    const synthesisReason = synthesisTubeBlockReason();
+    if (synthesisReason) {
+      addEvent(synthesisReason);
+      persist();
+      render();
+      return false;
     }
-    dom.synthesisTubeStatus.textContent = `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+    return startStaminaTask({
+      type: "synthesize",
+      label: "Synthesize slime",
+      baseDuration: 8,
+      skillId: "fabrication",
+      baseXp: 25,
+      baseCost: BASE_ACTION_STAMINA,
+      resourceCosts: synthesisResourceCosts(),
+      resourceRoomId: synthesisResourceRoomId(),
+      data: { genome: state.currentGenome }
+    });
+  }
+
+  function synthesisRelatedTasks() {
+    return (state.tasks || []).filter((task) =>
+      task.type === "synthesize"
+      || (task.type === "resourceHaul" && task.data?.continuation?.kind === "staminaTask" && task.data.continuation.task?.type === "synthesize")
+    );
+  }
+
+  function synthesisTubeStatusText() {
+    const tube = synthesisTube();
+    if (!tube) {
+      return "No synthesis tube exists.";
+    }
+    const occupants = synthesisTubeOccupants();
+    if (occupants.length) {
+      return `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
+    }
+    const corpses = containerCorpses(tube.id);
+    if (corpses.length) {
+      return `Synthesis tube blocked by ${corpses.map((corpse) => `${corpse.name} remains`).join(", ")}.`;
+    }
+    const relatedTask = synthesisRelatedTasks()[0] || null;
+    if (relatedTask?.type === "resourceHaul") {
+      return "Synthesis awaiting material hauling.";
+    }
+    if (relatedTask?.type === "synthesize") {
+      return "Synthesis in progress.";
+    }
+    return "Synthesis tube empty.";
+  }
+
+  function synthesisTubeTaskSummary() {
+    const tasks = synthesisRelatedTasks();
+    if (!tasks.length) {
+      return "No synthesis task queued.";
+    }
+    return tasks
+      .map((task) => `${task.label}; ${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`)
+      .join("; ");
+  }
+
+  function openFoundryWorkspace() {
+    setActiveWorkspaceTab("foundry", { scroll: true, animate: false });
+    return true;
+  }
+
+  function knownOutcomeEditorBlockReason() {
+    return state.journalMode === "auto" ? "" : "Known outcomes require Automatic journal mode.";
+  }
+
+  function openKnownOutcomeEditorFromContext() {
+    const reason = knownOutcomeEditorBlockReason();
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    setActiveWorkspaceTab("foundry", { scroll: true, animate: false });
+    dom.knownEditor.classList.remove("hidden");
+    renderKnownEditor();
+    return true;
+  }
+
+  function synthesisContextDescription() {
+    const resourceCosts = synthesisResourceCosts();
+    const resourceRoomId = synthesisResourceRoomId();
+    return resourceLogisticsHint(resourceCosts, resourceRoomId, "Synthesize slime")
+      || `Queue synthesis using ${formatResourceBundle(resourceCosts)}, ${formatNumber(synthesisStaminaCost())} STA, and ${formatDuration(synthesisDurationSeconds())}.`;
   }
 
   function synthesisTubeBlockReason() {
@@ -20524,7 +20616,7 @@
         meta.append(chip("no wards"));
       }
     }
-    if (container.type !== "synthesis") {
+    if (!isSynthesisTubeContainer(container)) {
       const footprint = containerFootprintDimensions(container);
       const cell = objectMapCell(container);
       const cellText = cell ? `cell ${cell.x},${cell.y}` : "cell unplaced";
@@ -29243,11 +29335,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     } else {
       const occupant = containerOccupants(container.id)[0] || null;
+      commands.push(commandDef({
+        id: `container.openFoundry.${container.id}`,
+        label: "Open Foundry",
+        group: "Synthesis",
+        description: "Open the Genome Foundry for editing the current genome and reviewing predictions.",
+        run: openFoundryWorkspace
+      }));
+      commands.push(commandDef({
+        id: `container.synthesize.${container.id}`,
+        label: "Synthesize Slime",
+        group: "Synthesis",
+        disabledReason: synthesisActionBlockReason(),
+        description: synthesisContextDescription(),
+        run: startSynthesisFromCurrentGenome
+      }));
+      commands.push(commandDef({
+        id: `container.knownOutcome.${container.id}`,
+        label: "Open Known Outcome Editor",
+        group: "Synthesis",
+        disabledReason: knownOutcomeEditorBlockReason(),
+        description: "Open the Foundry editor that applies discovered trait outcomes to the current genome.",
+        run: openKnownOutcomeEditorFromContext
+      }));
       if (occupant) {
+        commands.push(commandDef({
+          id: `container.focusOccupant.${container.id}`,
+          label: `Focus ${occupant.name}`,
+          group: "Handling",
+          description: "Select the stabilized specimen currently inside the synthesis tube.",
+          run: () => focusMapTarget({ kind: "slime", id: occupant.id }, { keepWorkspace: true, source: "map", resetInspectorTab: true, resetCommandMenu: true })
+        }));
         commands.push(commandDef({
           id: `container.tubeMove.${container.id}`,
           label: "Move Occupant to Open Container",
-          group: "Container",
+          group: "Handling",
           disabledReason: synthesisTubeMoveBlockReason(occupant),
           description: "Move the synthesis tube occupant to an open permanent container.",
           run: () => moveTubeOccupantToOpenContainer(occupant.id)
@@ -29501,8 +29623,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (selection.kind === "container") {
       const container = containerById(selection.id);
       if (container) {
-        rows.push(["Access", containerAccessLabel(container)]);
-        rows.push(["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]);
+        if (isSynthesisTubeContainer(container)) {
+          rows.push(["Tube state", synthesisTubeStatusText()]);
+          rows.push(["Current task", synthesisTubeTaskSummary()]);
+        } else {
+          rows.push(["Access", containerAccessLabel(container)]);
+          rows.push(["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]);
+        }
       }
     } else if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -29591,6 +29718,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return [];
       }
       const footprint = containerFootprintDimensions(container);
+      if (isSynthesisTubeContainer(container)) {
+        const resourceCosts = synthesisResourceCosts();
+        const resourceRoomId = synthesisResourceRoomId();
+        const occupants = containerOccupants(container.id);
+        const corpses = containerCorpses(container.id);
+        return [
+          ["Type", "Synthesis Tube"],
+          ["Room", roomName(container.roomId)],
+          ["State", synthesisTubeStatusText()],
+          ["Occupant", occupants.map((slime) => slime.name).join(", ") || "None"],
+          ["Blocked remains", corpses.map((corpse) => `${corpse.name} remains`).join(", ") || "None"],
+          ["Current task", synthesisTubeTaskSummary()],
+          ["Requirements", `${formatResourceBundle(resourceCosts)}, ${formatNumber(synthesisStaminaCost())} STA, ${formatDuration(synthesisDurationSeconds())}`],
+          ["Biomass locality", resourceLocalitySummary(resourceCosts, resourceRoomId)],
+          ["Condition", containerConditionLabel(container)],
+          ["Footprint", `${footprint.width} x ${footprint.height} tile${footprint.width * footprint.height === 1 ? "" : "s"}`]
+        ];
+      }
       return [
         ["Type", containerTypeLabel(container.typeId)],
         ["Room", roomName(container.roomId)],
@@ -30163,6 +30308,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { kind: "scientist" };
     }
     const targets = objectEntry?.targets || [];
+    const synthesisTubeTarget = targets.find((candidate) => candidate.kind === "container" && candidate.id === SYNTHESIS_TUBE_ID);
+    if (synthesisTubeTarget) {
+      return synthesisTubeTarget;
+    }
     const priority = ["slime", "corpse", "container"];
     for (const kind of priority) {
       const target = targets.find((candidate) => candidate.kind === kind);

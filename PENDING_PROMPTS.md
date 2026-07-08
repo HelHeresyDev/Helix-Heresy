@@ -12,34 +12,13 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Add Synthesis Tube Contextual Actions
-2. Audit All Map Elements for Contextual Actions
-3. Add Map Navigation Smoke Tests
-4. Black Market Byproduct Economy System
+1. Audit All Map Elements for Contextual Actions
+2. Add Map Navigation Smoke Tests
+3. Black Market Byproduct Economy System
 
 ---
 
-## 1. Add Synthesis Tube Contextual Actions
-
-Add relevant contextual actions when the synthesis tube is selected from the map.
-
-The synthesis tube is an important lab object, but selecting it currently does not surface useful commands. The map-based UI should make important objects actionable from selection rather than forcing the player to remember which management screen contains the relevant button.
-
-This system should answer questions like:
-- What actions should appear when the synthesis tube is selected?
-- Should synthesis actions open the synthesis menu, queue a synthesis task, or both?
-- Should disabled synthesis actions explain missing requirements?
-- Should the tube show occupancy, current specimen, active task, reserved materials, and contamination/condition state?
-- Should contextual actions differ between empty, occupied, active, blocked, or damaged tube states?
-- Should selecting a specimen inside the tube focus the specimen or the tube first?
-
-The desired result is that clicking the synthesis tube gives the player obvious, relevant actions and status without needing to hunt through old prototype panels.
-
-Before coding, discuss which synthesis commands belong in the contextual panel, how disabled reasons should be shown, and whether this should be a targeted fix or part of a broader object-action audit.
-
----
-
-## 2. Audit All Map Elements for Contextual Actions
+## 1. Audit All Map Elements for Contextual Actions
 
 Audit every selectable map element and add all relevant contextual actions.
 
@@ -79,7 +58,7 @@ Before coding, discuss prioritization rules, action categories, disabled reasons
 
 ---
 
-## 3. Add Map Navigation Smoke Tests
+## 2. Add Map Navigation Smoke Tests
 
 Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
 
@@ -99,7 +78,7 @@ Before coding, discuss the most valuable smoke paths, test stability concerns, a
 
 ---
 
-## 4. Black Market Byproduct Economy System
+## 3. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

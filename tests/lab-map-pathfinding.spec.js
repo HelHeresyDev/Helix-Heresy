@@ -1720,6 +1720,69 @@ test('lab blueprint clicks focus existing room door and object selections', asyn
   expect(selected).toMatchObject({ kind: 'room', roomId: 'bedroom' });
 });
 
+test('synthesis tube selection exposes status and contextual actions', async ({ page }) => {
+  await startRun(page);
+
+  const tubeTile = page.locator('[data-map-target-kind="container"][data-map-target-id="synthesisTube"]').first();
+  await expect(tubeTile).toBeVisible();
+  const tubeCell = {
+    x: await tubeTile.getAttribute('data-map-x'),
+    y: await tubeTile.getAttribute('data-map-y'),
+  };
+
+  await tubeTile.click();
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'container');
+  await expect(inspector).toHaveAttribute('data-selection-id', 'synthesisTube');
+  await expect(inspector).toContainText('Tube state');
+  await expect(inspector).toContainText('Synthesis tube empty');
+
+  await page.locator('[data-selection-inspector-tab="details"]').click();
+  await expect(inspector).toContainText('Synthesis Tube');
+  await expect(inspector).toContainText('Requirements');
+  await expect(inspector).toContainText('Biomass locality');
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const commandPanel = page.locator('[data-context-command-panel="true"]');
+  await expect(commandPanel).toContainText('Open Foundry');
+  await expect(commandPanel).toContainText('Synthesize Slime');
+  await expect(commandPanel).toContainText('Open Known Outcome Editor');
+  await commandPanel.getByRole('button', { name: 'Synthesize Slime' }).click();
+
+  const queued = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return (state.tasks || []).map((task) => ({
+      type: task.type,
+      label: task.label,
+      continuationType: task.data?.continuation?.task?.type || '',
+    }));
+  }, { key: storageKey });
+  expect(queued).toEqual([
+    { type: 'resourceHaul', label: 'Haul materials for Synthesize slime', continuationType: 'synthesize' },
+  ]);
+
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  const haulTask = page.locator('[data-task-row]').filter({ hasText: 'Haul materials for Synthesize slime' });
+  await expect(haulTask).toBeVisible();
+  await haulTask.getByRole('button', { name: 'Finish' }).click();
+  const synthTask = page.locator('[data-task-row]').filter({ hasText: 'Synthesize slime' });
+  await expect(synthTask).toBeVisible();
+  await synthTask.getByRole('button', { name: 'Finish' }).click();
+
+  await page.locator('[data-workspace-tab="map"]').click();
+  const occupiedTubeTile = page.locator(`[data-map-x="${tubeCell.x}"][data-map-y="${tubeCell.y}"]`);
+  await expect(occupiedTubeTile).toHaveAttribute('data-map-target-kind', 'container');
+  await expect(occupiedTubeTile).toHaveAttribute('data-map-target-id', 'synthesisTube');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'container');
+  await expect(inspector).toHaveAttribute('data-selection-id', 'synthesisTube');
+  await expect(inspector).toContainText('occupied by RG-001');
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(commandPanel).toContainText('Focus RG-001');
+  await expect(commandPanel).toContainText('Move Occupant to Open Container');
+});
+
 test('contextual commands operate on selected doors and rooms', async ({ page }) => {
   await startRun(page);
 
