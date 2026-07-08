@@ -82,23 +82,28 @@
   const DOOR_SEAL_UNSEALED = "unsealed";
   const DOOR_SEAL_SEALED = "sealed";
   const LAB_MAP_TILE_SIZE_M = 1;
-  const LAB_MAP_DEFAULT_WIDTH = 40;
-  const LAB_MAP_DEFAULT_HEIGHT = 25;
+  const LAB_MAP_DEFAULT_WIDTH = 100;
+  const LAB_MAP_DEFAULT_HEIGHT = 100;
   const LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS = 6;
+  const LAB_MAP_VIEWPORT_PIXEL_WIDTH = 840;
+  const LAB_MAP_VIEWPORT_PIXEL_HEIGHT = 520;
+  const LAB_MAP_VIEWPORT_PADDING_CELLS = 2;
+  const LAB_MAP_ZOOM_LEVELS = [8, 10, 12, 14, 16, 20, 24];
+  const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
   const LAB_MAP_ROOM_RECTS = {
-    [MAIN_ROOM_ID]: { x: 16, y: 10, width: 12, height: 10 },
-    [MENAGERIE_ROOM_ID]: { x: 2, y: 11, width: 14, height: 8 },
-    [PITS_ROOM_ID]: { x: 28, y: 16, width: 11, height: 8 },
-    [BEDROOM_ROOM_ID]: { x: 19, y: 20, width: 5, height: 4 },
-    [STORAGE_ROOM_ID]: { x: 18, y: 5, width: 7, height: 5 },
-    [COLLECTION_BAY_ROOM_ID]: { x: 28, y: 10, width: 9, height: 6 }
+    [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
+    [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
+    [PITS_ROOM_ID]: { x: 58, y: 51, width: 11, height: 8 },
+    [BEDROOM_ROOM_ID]: { x: 49, y: 55, width: 5, height: 4 },
+    [STORAGE_ROOM_ID]: { x: 48, y: 40, width: 7, height: 5 },
+    [COLLECTION_BAY_ROOM_ID]: { x: 58, y: 45, width: 9, height: 6 }
   };
   const LAB_MAP_DOOR_DEFS = [
-    { roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], from: { x: 15, y: 15 }, to: { x: 16, y: 15 } },
-    { roomIds: [STORAGE_ROOM_ID, MAIN_ROOM_ID], from: { x: 21, y: 9 }, to: { x: 21, y: 10 } },
-    { roomIds: [BEDROOM_ROOM_ID, MAIN_ROOM_ID], from: { x: 21, y: 20 }, to: { x: 21, y: 19 } },
-    { roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], from: { x: 28, y: 13 }, to: { x: 27, y: 13 } },
-    { roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], from: { x: 28, y: 18 }, to: { x: 27, y: 18 } }
+    { roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], from: { x: 45, y: 50 }, to: { x: 46, y: 50 } },
+    { roomIds: [STORAGE_ROOM_ID, MAIN_ROOM_ID], from: { x: 51, y: 44 }, to: { x: 51, y: 45 } },
+    { roomIds: [BEDROOM_ROOM_ID, MAIN_ROOM_ID], from: { x: 51, y: 55 }, to: { x: 51, y: 54 } },
+    { roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], from: { x: 58, y: 48 }, to: { x: 57, y: 48 } },
+    { roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], from: { x: 58, y: 53 }, to: { x: 57, y: 53 } }
   ];
   const LAB_MAP_ROOM_ABBREVIATIONS = {
     [MAIN_ROOM_ID]: "ML",
@@ -2515,6 +2520,8 @@
       mode: UI_MODE_NAVIGATION,
       activeWorkspaceTab: "map",
       mapCursor: scientistDefaultMapCell(MAIN_ROOM_ID),
+      mapCamera: defaultMapCameraCell(),
+      mapZoomIndex: LAB_MAP_DEFAULT_ZOOM_INDEX,
       mapOverlay: DEFAULT_MAP_OVERLAY_ID,
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
@@ -3378,6 +3385,9 @@
     if (handleTimeShortcut(event)) {
       return;
     }
+    if (handleMapZoomShortcut(event)) {
+      return;
+    }
     if (handleMenuKeyboardShortcut(event)) {
       return;
     }
@@ -3663,6 +3673,26 @@
       } else {
         skipToNextEvent();
       }
+      return true;
+    }
+    return false;
+  }
+
+  function handleMapZoomShortcut(event) {
+    if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started || currentWorkspaceTab() !== "map") {
+      return false;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return false;
+    }
+    if (event.key === "+" || event.code === "Equal" || event.code === "NumpadAdd") {
+      event.preventDefault();
+      setMapZoom(1);
+      return true;
+    }
+    if (event.key === "-" || event.code === "Minus" || event.code === "NumpadSubtract") {
+      event.preventDefault();
+      setMapZoom(-1);
       return true;
     }
     return false;
@@ -4111,18 +4141,156 @@
       || scientistDefaultMapCell(context?.scientist?.roomId || MAIN_ROOM_ID);
   }
 
+  function normalizeMapZoomIndex(value) {
+    const index = Math.round(Number(value));
+    return clamp(Number.isFinite(index) ? index : LAB_MAP_DEFAULT_ZOOM_INDEX, 0, LAB_MAP_ZOOM_LEVELS.length - 1);
+  }
+
+  function mapZoomTilePx(zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
+    return LAB_MAP_ZOOM_LEVELS[normalizeMapZoomIndex(zoomIndex)] || LAB_MAP_ZOOM_LEVELS[LAB_MAP_DEFAULT_ZOOM_INDEX];
+  }
+
+  function mapViewportSizeForZoom(map = ensureLabMap(), zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
+    const tilePx = mapZoomTilePx(zoomIndex);
+    return {
+      width: clamp(Math.floor(LAB_MAP_VIEWPORT_PIXEL_WIDTH / tilePx), 1, Math.max(1, map.width)),
+      height: clamp(Math.floor(LAB_MAP_VIEWPORT_PIXEL_HEIGHT / tilePx), 1, Math.max(1, map.height)),
+      tilePx
+    };
+  }
+
+  function defaultMapCameraCell(context = state, zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
+    const map = context?.labMap || defaultLabMap();
+    const center = fallbackMapCursorCell(context);
+    const viewport = mapViewportSizeForZoom(map, zoomIndex);
+    return {
+      x: clamp(Math.floor(center.x - viewport.width / 2), 0, Math.max(0, map.width - viewport.width)),
+      y: clamp(Math.floor(center.y - viewport.height / 2), 0, Math.max(0, map.height - viewport.height))
+    };
+  }
+
+  function normalizeMapCamera(candidate, map = ensureLabMap(), zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX, context = state) {
+    const viewport = mapViewportSizeForZoom(map, zoomIndex);
+    const fallback = defaultMapCameraCell(context, zoomIndex);
+    const source = candidate && typeof candidate === "object" ? candidate : fallback;
+    const x = Math.round(Number(source.x));
+    const y = Math.round(Number(source.y));
+    return {
+      x: clamp(Number.isFinite(x) ? x : fallback.x, 0, Math.max(0, map.width - viewport.width)),
+      y: clamp(Number.isFinite(y) ? y : fallback.y, 0, Math.max(0, map.height - viewport.height))
+    };
+  }
+
+  function mapViewportForUi(map = ensureLabMap(), ui = ensureUiState()) {
+    const zoomIndex = normalizeMapZoomIndex(ui.mapZoomIndex);
+    const size = mapViewportSizeForZoom(map, zoomIndex);
+    const camera = normalizeMapCamera(ui.mapCamera, map, zoomIndex);
+    ui.mapZoomIndex = zoomIndex;
+    ui.mapCamera = camera;
+    return {
+      x: camera.x,
+      y: camera.y,
+      width: size.width,
+      height: size.height,
+      maxX: Math.max(0, map.width - size.width),
+      maxY: Math.max(0, map.height - size.height),
+      zoomIndex,
+      tilePx: size.tilePx
+    };
+  }
+
+  function mapViewportContainsCell(viewport, cell, padding = 0) {
+    return Boolean(cell
+      && cell.x >= viewport.x + padding
+      && cell.y >= viewport.y + padding
+      && cell.x < viewport.x + viewport.width - padding
+      && cell.y < viewport.y + viewport.height - padding);
+  }
+
+  function ensureMapCameraIncludesCell(cell, options = {}) {
+    const clean = cleanMapCell(cell);
+    if (!clean) {
+      return false;
+    }
+    const map = ensureLabMap();
+    const ui = ensureUiState();
+    const viewport = mapViewportForUi(map, ui);
+    const padding = clamp(Math.round(Number(options.padding) || LAB_MAP_VIEWPORT_PADDING_CELLS), 0, Math.floor(Math.min(viewport.width, viewport.height) / 3));
+    if (mapViewportContainsCell(viewport, clean, padding)) {
+      return false;
+    }
+    const minVisibleX = viewport.x + padding;
+    const minVisibleY = viewport.y + padding;
+    const maxVisibleX = viewport.x + viewport.width - padding - 1;
+    const maxVisibleY = viewport.y + viewport.height - padding - 1;
+    let nextX = viewport.x;
+    let nextY = viewport.y;
+    if (clean.x < minVisibleX) {
+      nextX = clean.x - padding;
+    } else if (clean.x > maxVisibleX) {
+      nextX = clean.x - viewport.width + padding + 1;
+    }
+    if (clean.y < minVisibleY) {
+      nextY = clean.y - padding;
+    } else if (clean.y > maxVisibleY) {
+      nextY = clean.y - viewport.height + padding + 1;
+    }
+    ui.mapCamera = normalizeMapCamera({ x: nextX, y: nextY }, map, viewport.zoomIndex);
+    return true;
+  }
+
+  function centerMapCameraOnCell(cell, options = {}) {
+    const clean = cleanMapCell(cell);
+    if (!clean) {
+      return false;
+    }
+    const map = ensureLabMap();
+    const ui = ensureUiState();
+    const viewport = mapViewportForUi(map, ui);
+    ui.mapCamera = normalizeMapCamera({
+      x: clean.x - Math.floor(viewport.width / 2),
+      y: clean.y - Math.floor(viewport.height / 2)
+    }, map, viewport.zoomIndex);
+    if (options.persist !== false) {
+      persist();
+    }
+    return true;
+  }
+
+  function setMapZoom(delta, options = {}) {
+    const ui = ensureUiState();
+    const map = ensureLabMap();
+    const oldViewport = mapViewportForUi(map, ui);
+    const anchor = cleanMapCell(options.anchorCell) || {
+      x: oldViewport.x + Math.floor(oldViewport.width / 2),
+      y: oldViewport.y + Math.floor(oldViewport.height / 2)
+    };
+    ui.mapZoomIndex = normalizeMapZoomIndex(oldViewport.zoomIndex + delta);
+    const nextSize = mapViewportSizeForZoom(map, ui.mapZoomIndex);
+    ui.mapCamera = normalizeMapCamera({
+      x: anchor.x - Math.floor(nextSize.width / 2),
+      y: anchor.y - Math.floor(nextSize.height / 2)
+    }, map, ui.mapZoomIndex);
+    persist();
+    render();
+    return true;
+  }
+
   function normalizeUiState(candidate, context = state) {
     const map = context?.labMap || defaultLabMap();
     const fallback = fallbackMapCursorCell(context);
     const cursor = cleanMapCell(candidate?.mapCursor) || fallback;
     const activeTab = cleanWorkspaceTab(candidate?.activeWorkspaceTab);
     const overlayId = normalizeMapOverlayId(candidate?.mapOverlay);
+    const zoomIndex = normalizeMapZoomIndex(candidate?.mapZoomIndex);
     return {
       mode: normalizeUiMode(candidate?.mode),
       mapCursor: {
         x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
         y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
       },
+      mapCamera: normalizeMapCamera(candidate?.mapCamera, map, zoomIndex, context),
+      mapZoomIndex: zoomIndex,
       activeWorkspaceTab: visibleWorkspaceTabOrMap(activeTab),
       mapOverlay: overlayId === "debug" && !debugToolsEnabled() ? DEFAULT_MAP_OVERLAY_ID : overlayId,
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
@@ -4176,6 +4344,7 @@
       x: clamp(cursor.x + dx, 0, Math.max(0, map.width - 1)),
       y: clamp(cursor.y + dy, 0, Math.max(0, map.height - 1))
     };
+    ensureMapCameraIncludesCell(ensureUiState().mapCursor);
     setUiMode(UI_MODE_NAVIGATION);
     setActiveWorkspaceTab("map");
     persist();
@@ -27713,6 +27882,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       pinned: options.pinned ?? target?.pinned
     });
     state.selection = normalized;
+    if (normalized && options.centerMap !== false) {
+      const cell = selectionMapCell(normalized);
+      if (cell) {
+        ensureMapCameraIncludesCell(cell);
+      }
+    }
     if (state.ui) {
       const nextKey = selectionKey(normalized);
       if (!normalized) {
@@ -29732,7 +29907,59 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return anchors;
   }
 
-  function labMapCellBaseView(roomId, plannedEntry = null, draftEntry = null) {
+  function mapFullRevealActive() {
+    return debugToolsEnabled();
+  }
+
+  function labMapKnownCellKeys(map, context = {}) {
+    if (context.fullReveal || mapFullRevealActive()) {
+      return null;
+    }
+    const keys = new Set();
+    const addKnown = (cell) => {
+      if (mapCellInBounds(cell, map)) {
+        keys.add(mapCellKey(cell));
+      }
+    };
+    const addKnownWithWalls = (cell) => {
+      addKnown(cell);
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          addKnown({ x: cell.x + dx, y: cell.y + dy });
+        }
+      }
+    };
+    for (const roomId of Object.keys(map.rooms || {})) {
+      for (const cell of labMapRoomCells(roomId, map)) {
+        addKnownWithWalls(cell);
+      }
+    }
+    for (const door of Object.values(map.doors || {})) {
+      addKnownWithWalls(door.from);
+      addKnownWithWalls(door.to);
+    }
+    for (const [key] of plannedExcavationAssignments()) {
+      const [x, y] = key.split(",").map((part) => Number(part));
+      addKnownWithWalls({ x, y });
+    }
+    for (const [key] of draftExcavationAssignments()) {
+      const [x, y] = key.split(",").map((part) => Number(part));
+      addKnownWithWalls({ x, y });
+    }
+    return keys;
+  }
+
+  function labMapCellKnown(cell, map, knownCellKeys) {
+    return knownCellKeys === null || knownCellKeys?.has?.(mapCellKey(cell)) || Boolean(labMapCellRoomId(cell, map));
+  }
+
+  function labMapCellBaseView(roomId, plannedEntry = null, draftEntry = null, known = true) {
+    if (!known) {
+      return {
+        kind: "unknownDark",
+        spriteKey: "tile.unknownDark"
+      };
+    }
     if (roomId) {
       return {
         kind: "room",
@@ -29829,14 +30056,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     overlayEntry,
     selectedTarget,
     scientistCell,
-    cursorCell
+    cursorCell,
+    known
   }) {
-    const roomId = labMapCellRoomId(cell, map);
-    const door = labMapDoorAtCell(cell, map);
+    const visible = known !== false;
+    const roomId = visible ? labMapCellRoomId(cell, map) : "";
+    const door = visible ? labMapDoorAtCell(cell, map) : null;
     const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
-    const scientistHere = scientistCell.x === cell.x && scientistCell.y === cell.y;
-    const clickTarget = mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, scientistHere, cell });
-    const base = labMapCellBaseView(roomId, plannedEntry, draftEntry);
+    const scientistHere = visible && scientistCell.x === cell.x && scientistCell.y === cell.y;
+    const visibleObjectEntry = visible ? objectEntry : null;
+    const visibleIncidentEntry = visible ? incidentEntry : null;
+    const visibleRouteEntry = visible ? routeEntry : null;
+    const visiblePlannedEntry = visible ? plannedEntry : null;
+    const visibleDraftEntry = visible ? draftEntry : null;
+    const visibleOverlayEntry = visible ? overlayEntry : null;
+    const clickTarget = visible ? mapTileClickTarget({ roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, scientistHere, cell }) : null;
+    const base = labMapCellBaseView(roomId, visiblePlannedEntry, visibleDraftEntry, visible);
     const semanticDoor = door ? {
       key: door.key,
       roomIds: [...door.roomIds],
@@ -29844,42 +30079,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       glyph: doorMapGlyph(stateDoor),
       spriteKey: `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}`
     } : null;
-    const semanticObject = objectEntry ? {
-      symbols: [...(objectEntry.symbols || [])],
-      labels: [...(objectEntry.labels || [])],
-      styleTokens: [...(objectEntry.classNames || [])],
-      targets: [...(objectEntry.targets || [])],
-      blocking: Boolean(objectEntry.classNames?.has?.("blocking-object-cell")),
-      spriteKey: labMapObjectSpriteKey(objectEntry)
+    const semanticObject = visibleObjectEntry ? {
+      symbols: [...(visibleObjectEntry.symbols || [])],
+      labels: [...(visibleObjectEntry.labels || [])],
+      styleTokens: [...(visibleObjectEntry.classNames || [])],
+      targets: [...(visibleObjectEntry.targets || [])],
+      blocking: Boolean(visibleObjectEntry.classNames?.has?.("blocking-object-cell")),
+      spriteKey: labMapObjectSpriteKey(visibleObjectEntry)
     } : null;
-    const semanticIncident = incidentEntry ? {
-      ids: (incidentEntry.alerts || []).map((incident) => incident.id),
-      labels: (incidentEntry.alerts || []).map((incident) => incident.label),
-      count: incidentEntry.alerts?.length || 0,
-      highestSeverity: incidentEntry.highestSeverity,
-      hasStale: Boolean(incidentEntry.hasStale),
-      allAcknowledged: Boolean(incidentEntry.allAcknowledged)
+    const semanticIncident = visibleIncidentEntry ? {
+      ids: (visibleIncidentEntry.alerts || []).map((incident) => incident.id),
+      labels: (visibleIncidentEntry.alerts || []).map((incident) => incident.label),
+      count: visibleIncidentEntry.alerts?.length || 0,
+      highestSeverity: visibleIncidentEntry.highestSeverity,
+      hasStale: Boolean(visibleIncidentEntry.hasStale),
+      allAcknowledged: Boolean(visibleIncidentEntry.allAcknowledged)
     } : null;
-    const semanticRoute = routeEntry ? {
-      taskId: routeEntry.task?.id || "next",
-      label: routeEntry.label || "",
-      selected: Boolean(routeEntry.selected)
+    const semanticRoute = visibleRouteEntry ? {
+      taskId: visibleRouteEntry.task?.id || "next",
+      label: visibleRouteEntry.label || "",
+      selected: Boolean(visibleRouteEntry.selected)
     } : null;
-    const semanticOverlay = overlayEntry ? {
-      id: overlayEntry.overlayId,
-      label: overlayEntry.label || "",
-      source: overlayEntry.source || "",
-      value: overlayEntry.value ?? null,
-      title: overlayEntry.title || "",
-      styleTokens: [...(overlayEntry.classNames || [])]
+    const semanticOverlay = visibleOverlayEntry ? {
+      id: visibleOverlayEntry.overlayId,
+      label: visibleOverlayEntry.label || "",
+      source: visibleOverlayEntry.source || "",
+      value: visibleOverlayEntry.value ?? null,
+      title: visibleOverlayEntry.title || "",
+      styleTokens: [...(visibleOverlayEntry.classNames || [])]
     } : null;
     const anchor = anchorRoom ? {
       roomId: anchorRoom.roomId,
       abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
     } : null;
-    const selected = selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry, incidentEntry, scientistHere });
-    const cursor = Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
-    const tooltipParts = labMapCellTooltipParts(cell, map, objectEntry, routeEntry, plannedEntry, draftEntry, incidentEntry, overlayEntry);
+    const selected = visible && selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, scientistHere });
+    const cursor = visible && Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
+    const tooltipParts = visible
+      ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry)
+      : [`${cell.x}, ${cell.y}`, "unknown darkness"];
     if (cursor) {
       tooltipParts.push("Keyboard cursor");
     }
@@ -29910,14 +30147,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return {
       key: mapCellKey(cell),
       cell,
+      known: visible,
       roomId,
       base,
       door: semanticDoor,
       object: semanticObject,
       incident: semanticIncident,
       route: semanticRoute,
-      planned: plannedEntry ? { taskId: plannedEntry.task?.id || "", label: plannedEntry.label || "Excavation" } : null,
-      draft: draftEntry ? { label: draftEntry.label || "Draft dig", valid: Boolean(draftEntry.valid), reason: draftEntry.reason || "" } : null,
+      planned: visiblePlannedEntry ? { taskId: visiblePlannedEntry.task?.id || "", label: visiblePlannedEntry.label || "Excavation" } : null,
+      draft: visibleDraftEntry ? { label: visibleDraftEntry.label || "Draft dig", valid: Boolean(visibleDraftEntry.valid), reason: visibleDraftEntry.reason || "" } : null,
       overlay: semanticOverlay,
       anchor,
       scientist: scientistHere,
@@ -29945,6 +30183,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (cellView.base.kind === "room") {
       classNames.push("room-cell", `room-${cellView.base.role}`);
       dataset.mapRoom = cellView.base.roomId;
+    } else if (cellView.base.kind === "unknownDark") {
+      classNames.push("unknown-darkness-cell");
+      dataset.mapUnknown = "true";
     } else if (cellView.base.kind === "draftExcavation") {
       classNames.push("draft-excavation-cell", cellView.base.valid ? "valid-draft-excavation-cell" : "invalid-draft-excavation-cell");
       dataset.mapDraftExcavation = "true";
@@ -30034,7 +30275,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function buildLabMapView(map = ensureLabMap()) {
     const overlay = currentMapOverlayDef();
     const scientistCell = scientistMapCell();
-    const objectAssignments = labMapObjectAssignments(map, { debug: overlay.id === "debug" });
+    const fullReveal = mapFullRevealActive() || overlay.id === "debug";
+    const objectAssignments = labMapObjectAssignments(map, { debug: fullReveal });
     const incidentAssignments = labMapIncidentAssignments(map);
     const route = selectedOrNextScientistTaskRoute(map);
     const showMovementRoute = overlay.id === "movement";
@@ -30050,13 +30292,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       resourceFocus
     });
     const cursorCell = mapCursorCell(map);
+    ensureMapCameraIncludesCell(cursorCell);
+    const viewport = mapViewportForUi(map);
     const anchors = labMapAnchorAssignments(map);
+    const knownCellKeys = labMapKnownCellKeys(map, { fullReveal });
     const cells = [];
 
-    for (let y = 0; y < map.height; y += 1) {
-      for (let x = 0; x < map.width; x += 1) {
+    for (let y = viewport.y; y < viewport.y + viewport.height; y += 1) {
+      for (let x = viewport.x; x < viewport.x + viewport.width; x += 1) {
         const cell = { x, y };
         const key = mapCellKey(cell);
+        const known = labMapCellKnown(cell, map, knownCellKeys);
         const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
         cells.push(buildLabMapCellView({
           cell,
@@ -30070,16 +30316,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           overlayEntry: overlayAssignments.get(key),
           selectedTarget,
           scientistCell,
-          cursorCell
+          cursorCell,
+          known
         }));
       }
     }
 
     return {
-      width: map.width,
-      height: map.height,
+      width: viewport.width,
+      height: viewport.height,
+      mapWidth: map.width,
+      mapHeight: map.height,
       tileSizeM: map.tileSizeM,
-      headerMeta: `${map.width} x ${map.height} m grid; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
+      viewport,
+      zoom: {
+        index: viewport.zoomIndex,
+        tilePx: viewport.tilePx,
+        label: `${viewport.tilePx}px tiles`,
+        canZoomIn: viewport.zoomIndex < LAB_MAP_ZOOM_LEVELS.length - 1,
+        canZoomOut: viewport.zoomIndex > 0
+      },
+      fullReveal,
+      headerMeta: `${map.width} x ${map.height} m grid; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
       cursor: cursorCell,
       cursorTarget: mapCursorTarget(),
       construction: normalizeConstructionState(state.construction, state),
@@ -30199,13 +30457,56 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "Arrows move; Enter selects; A opens commands; O cycles overlay; T/S/C/P/R/D open menus; ? help.";
+      : "Arrows move cursor/camera; +/- zoom; Enter selects; A opens commands; O cycles overlay; T/S/C/P/R/D open menus; ? help.";
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
       textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : menuHint)
     );
     return row;
+  }
+
+  function mapZoomControlsEl(mapView) {
+    const controls = document.createElement("div");
+    controls.className = "map-zoom-controls";
+    controls.dataset.mapZoomControls = "true";
+
+    const zoomOut = document.createElement("button");
+    zoomOut.type = "button";
+    zoomOut.textContent = "-";
+    zoomOut.title = "Zoom out (-)";
+    zoomOut.disabled = !mapView.zoom.canZoomOut;
+    zoomOut.addEventListener("click", () => setMapZoom(-1));
+
+    const readout = document.createElement("span");
+    readout.textContent = `Zoom ${mapView.zoom.label}`;
+
+    const zoomIn = document.createElement("button");
+    zoomIn.type = "button";
+    zoomIn.textContent = "+";
+    zoomIn.title = "Zoom in (+)";
+    zoomIn.disabled = !mapView.zoom.canZoomIn;
+    zoomIn.addEventListener("click", () => setMapZoom(1));
+
+    controls.append(zoomOut, readout, zoomIn);
+    return controls;
+  }
+
+  function mapCellFromDomTile(tile) {
+    if (!tile?.dataset) {
+      return null;
+    }
+    const x = Number(tile.dataset.mapX);
+    const y = Number(tile.dataset.mapY);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+
+  function mapWheelZoomAnchor(event, mapView) {
+    const tile = event.target instanceof Element ? event.target.closest(".lab-map-cell") : null;
+    return mapCellFromDomTile(tile) || {
+      x: mapView.viewport.x + Math.floor(mapView.viewport.width / 2),
+      y: mapView.viewport.y + Math.floor(mapView.viewport.height / 2)
+    };
   }
 
   function mapOverlayLegendItems(overlayId) {
@@ -30373,6 +30674,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     list.className = "keyboard-help-list";
     const entries = [
       ["Arrow keys", "Move the map cursor."],
+      ["+ / -", "Zoom the map in or out."],
+      ["Mouse wheel", "Zoom the map while the cursor is over the map."],
       ["Enter", "Select the cursor target."],
       ["A", "Open contextual commands for the selection."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
@@ -30404,6 +30707,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!cell) {
       return false;
     }
+    if (cellView?.known === false) {
+      return false;
+    }
     if (labMapCellRoomId(cell, map) || labMapDoorAtCell(cell, map) || cellView?.object) {
       return false;
     }
@@ -30424,13 +30730,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     header.append(title, meta);
     panel.append(header);
     panel.append(keyboardStatusEl(mapView));
+    panel.append(mapZoomControlsEl(mapView));
     if (mapView.keyboardHelpOpen) {
       panel.append(keyboardHelpEl());
     }
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
-    grid.style.gridTemplateColumns = `repeat(${mapView.width}, minmax(0.85rem, 1fr))`;
+    grid.dataset.mapViewport = "true";
+    grid.dataset.mapViewportX = String(mapView.viewport.x);
+    grid.dataset.mapViewportY = String(mapView.viewport.y);
+    grid.dataset.mapViewportWidth = String(mapView.viewport.width);
+    grid.dataset.mapViewportHeight = String(mapView.viewport.height);
+    grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
+    grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
+    grid.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      setMapZoom(event.deltaY < 0 ? 1 : -1, { anchorCell: mapWheelZoomAnchor(event, mapView) });
+    }, { passive: false });
     for (const cellView of mapView.cells) {
       const domCell = labMapCellDomModel(cellView);
       const tile = document.createElement("div");

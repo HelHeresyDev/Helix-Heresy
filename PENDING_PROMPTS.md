@@ -12,11 +12,157 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Black Market Byproduct Economy System
+1. Add WASD Map Movement
+2. Add Middle-Mouse Drag Panning
+3. Audit Map Hotkey Conflicts
+4. Add Synthesis Tube Contextual Actions
+5. Audit All Map Elements for Contextual Actions
+6. Add Map Navigation Smoke Tests
+7. Black Market Byproduct Economy System
 
 ---
 
-## 1. Black Market Byproduct Economy System
+## 1. Add WASD Map Movement
+
+Allow the player to pan the map with WASD.
+
+The interface is moving toward a Dwarf Fortress / RimWorld style map-first control scheme. Keyboard map movement should feel natural, responsive, and avoid conflicting with existing menu hotkeys, time controls, command mode, and text input.
+
+This system should answer questions like:
+- Should WASD pan continuously while held or step one viewport chunk per keypress?
+- Should WASD work while management menus are open?
+- Should WASD be disabled while an input, dropdown, or text field is focused?
+- Should arrow keys also pan the map?
+- How fast should keyboard panning move relative to tile size?
+- Should Shift, Ctrl, or Alt modify pan speed?
+
+The desired result is comfortable keyboard map navigation that does not interfere with menu command chains or browser accessibility.
+
+Before coding, discuss key priority, focus rules, pan speed, and whether keyboard movement should be tile-based or smooth.
+
+---
+
+## 2. Add Middle-Mouse Drag Panning
+
+Allow the player to pan the map by holding the middle mouse button and moving the mouse.
+
+Mouse panning should support quick visual navigation without requiring scrollbars or dragging unrelated UI elements. This should work alongside normal left-click selection and future right-click/context command behavior.
+
+This system should answer questions like:
+- Should middle-mouse drag pan the map exactly with cursor movement or use an accelerated drag?
+- Should panning start immediately on middle mouse down, or after a small movement threshold?
+- Should the browser's default middle-click behavior be suppressed only over the map?
+- Should touchpad/touch panning be considered now or later?
+- Should wheel scrolling pan, zoom, or remain unused for now?
+
+The desired result is a reliable drag-to-pan interaction that feels physical and does not interfere with selecting tiles or opening contextual actions.
+
+Before coding, discuss pointer behavior, browser-default suppression, cursor feedback, and whether drag panning should affect hover/tooltip state.
+
+---
+
+## 3. Audit Map Hotkey Conflicts
+
+Audit current and planned keyboard controls for conflicts before adding more map navigation shortcuts.
+
+The game now has time controls, menu hotkeys, command chains, overlay toggles, contextual actions, and soon map movement. The hotkey model should remain legible before the interface accumulates contradictory shortcuts.
+
+This system should answer questions like:
+- Which keys are global?
+- Which keys only work on the map?
+- Which keys only work inside a menu?
+- Which keys are reserved for command chains?
+- Should WASD take priority over letter menu shortcuts while the map is focused?
+- How should the UI communicate available hotkeys without clutter?
+- Which browser-native keys should be left alone?
+
+The desired result is a documented hotkey policy that supports WASD panning, menu command chains, speed controls, overlays, and future combat/emergency controls without surprising the player.
+
+Before coding, discuss global versus contextual hotkeys, focus rules, command chain precedence, and how shortcut hints should appear in the UI.
+
+---
+
+## 4. Add Synthesis Tube Contextual Actions
+
+Add relevant contextual actions when the synthesis tube is selected from the map.
+
+The synthesis tube is an important lab object, but selecting it currently does not surface useful commands. The map-based UI should make important objects actionable from selection rather than forcing the player to remember which management screen contains the relevant button.
+
+This system should answer questions like:
+- What actions should appear when the synthesis tube is selected?
+- Should synthesis actions open the synthesis menu, queue a synthesis task, or both?
+- Should disabled synthesis actions explain missing requirements?
+- Should the tube show occupancy, current specimen, active task, reserved materials, and contamination/condition state?
+- Should contextual actions differ between empty, occupied, active, blocked, or damaged tube states?
+- Should selecting a specimen inside the tube focus the specimen or the tube first?
+
+The desired result is that clicking the synthesis tube gives the player obvious, relevant actions and status without needing to hunt through old prototype panels.
+
+Before coding, discuss which synthesis commands belong in the contextual panel, how disabled reasons should be shown, and whether this should be a targeted fix or part of a broader object-action audit.
+
+---
+
+## 5. Audit All Map Elements for Contextual Actions
+
+Audit every selectable map element and add all relevant contextual actions.
+
+The map is becoming the main interface surface. Anything the player can click should either expose useful commands, explain why no commands are available, or route the player to the correct menu. This audit should prevent important systems from becoming hidden behind old panel assumptions.
+
+This system should cover map elements such as:
+- doors
+- containers
+- pits
+- collection stations
+- synthesis tube
+- storage objects
+- loose creatures
+- contained creatures
+- corpses
+- incidents
+- construction and dig designations
+- byproduct receptacles
+- stockpiles
+- room tiles
+- tools and movable objects
+- any other selectable entity currently represented on the map
+
+This system should answer questions like:
+- What is the most likely entity of interest on crowded tiles?
+- Which actions belong directly in the contextual command panel?
+- Which actions should open a management menu instead?
+- How should disabled commands explain their requirements?
+- Which map elements should have inspect-only behavior?
+- Which actions should queue scientist tasks?
+- Which actions should be immediate UI actions?
+- Should debug-only actions appear when debug mode is enabled?
+
+The desired result is a consistent map interaction model where selectable things have meaningful contextual commands and status readouts.
+
+Before coding, discuss prioritization rules, action categories, disabled reasons, queueing behavior, and how much of the full audit should happen in one implementation pass.
+
+---
+
+## 6. Add Map Navigation Smoke Tests
+
+Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
+
+The map is becoming central enough that navigation regressions will make the whole game feel broken. Tests should verify that the map remains visible, selectable, pannable, and usable after the 100x100 expansion and contextual action updates.
+
+This system should answer questions like:
+- What should be tested through DOM/Playwright versus direct state/model tests?
+- How should tests confirm the camera moves without relying on fragile pixel-perfect assertions?
+- How should tests verify selection still works after panning?
+- How should tests verify synthesis tube contextual actions appear?
+- How should tests cover disabled command reasons?
+- Should tests include hotkey conflict checks?
+
+The desired result is a small but useful smoke suite that protects map navigation and contextual action basics.
+
+Before coding, discuss the most valuable smoke paths, test stability concerns, and whether this prompt should be implemented after all related map-navigation prompts or alongside them.
+
+---
+
+## 7. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

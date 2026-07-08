@@ -93,6 +93,10 @@ async function ensureDigTileDrafted(page, x, y) {
 
 async function selectDoorActions(page, key) {
   await page.locator('[data-workspace-tab="map"]').click();
+  const closeInspector = page.locator('.selection-inspector-close').first();
+  if (await closeInspector.isVisible()) {
+    await closeInspector.click();
+  }
   await page.locator(`[data-map-door="${key}"]`).first().click();
   return openSelectionActions(page);
 }
@@ -404,6 +408,7 @@ test('slime ai perception stays local and respects containment limits', async ({
       updatedAt: 0,
     }];
     const now = Number(state.clock) || 0;
+    const mainAnchor = state.labMap.rooms.mainLab.anchor;
     state.corpses = [{
       id: 'corpse-perception',
       specimenId: 'dead-perception',
@@ -415,7 +420,7 @@ test('slime ai perception stays local and respects containment limits', async ({
       roomId: 'mainLab',
       containerId: null,
       storage: 'room',
-      mapCell: { x: 20, y: 14 },
+      mapCell: { x: mainAnchor.x - 2, y: mainAnchor.y - 1 },
       consumedProgress: 0,
       ruined: false,
       revealed: {},
@@ -445,7 +450,7 @@ test('slime ai perception stays local and respects containment limits', async ({
       status: 'released',
       containerId: null,
       roomId: 'mainLab',
-      mapCell: { x: 20, y: 15 },
+      mapCell: { x: mainAnchor.x - 2, y: mainAnchor.y },
       job: 'idle',
       jobProgress: 0,
       jobTargetCorpseId: null,
@@ -796,7 +801,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
   await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');
-  await expect(page.locator('#roomSummary')).toContainText('Blueprint: 40 x 25 m; 6 mapped rooms');
+  await expect(page.locator('#roomSummary')).toContainText('Blueprint: 100 x 100 m; 6 mapped rooms');
   await expect(page.locator('.lab-map-cell.object-cell').first()).toBeVisible();
 
   const initial = await page.evaluate(({ key }) => {
@@ -819,13 +824,14 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
-  await expect(page.locator('.lab-map-cell')).toHaveCount(initial.map.width * initial.map.height);
-  expect(initial.map.rooms.mainLab).toMatchObject({ x: 16, y: 10, width: 12, height: 10 });
-  expect(initial.map.rooms.storageRoom).toMatchObject({ x: 18, y: 5, width: 7, height: 5 });
+  expect(initial.map.width).toBe(100);
+  expect(initial.map.height).toBe(100);
+  expect(initial.map.rooms.mainLab).toMatchObject({ x: 46, y: 45, width: 12, height: 10 });
+  expect(initial.map.rooms.storageRoom).toMatchObject({ x: 48, y: 40, width: 7, height: 5 });
   expect(initial.map.rooms.pits.cells.length).toBeLessThan(initial.map.rooms.pits.width * initial.map.rooms.pits.height);
   expect(initial.map.doors['mainLab::storageRoom']).toMatchObject({
-    from: { x: 21, y: 9 },
-    to: { x: 21, y: 10 }
+    from: { x: 51, y: 44 },
+    to: { x: 51, y: 45 }
   });
   expect(initial.scientist.roomId).toBe('mainLab');
   expect(initial.scientist.mapCell).toEqual(initial.map.rooms.mainLab.anchor);
@@ -835,7 +841,11 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(await page.locator('.lab-map-cell.blocking-object-cell').count()).toBeGreaterThan(initial.containers.length);
 
   const semanticMap = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
-  expect(semanticMap.cells).toHaveLength(initial.map.width * initial.map.height);
+  expect(semanticMap.mapWidth).toBe(initial.map.width);
+  expect(semanticMap.mapHeight).toBe(initial.map.height);
+  expect(semanticMap.viewport).toMatchObject({ x: expect.any(Number), y: expect.any(Number) });
+  expect(semanticMap.cells).toHaveLength(semanticMap.width * semanticMap.height);
+  await expect(page.locator('.lab-map-cell')).toHaveCount(semanticMap.width * semanticMap.height);
   const scientistCell = semanticMap.cells.find((cell) => cell.scientist);
   expect(scientistCell).toMatchObject({
     base: { kind: 'room', roomId: 'mainLab' },
@@ -863,6 +873,15 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   const objectTile = page.locator(`[data-map-x="${objectCell.cell.x}"][data-map-y="${objectCell.cell.y}"]`);
   await expect(objectTile).toHaveText(objectCell.visual.glyph);
   await expect(objectTile).toHaveAttribute('title', objectCell.tooltip.text);
+
+  const zoomBefore = semanticMap.zoom;
+  await page.keyboard.press('Equal');
+  const zoomedIn = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
+  expect(zoomedIn.zoom.tilePx).toBeGreaterThan(zoomBefore.tilePx);
+  expect(zoomedIn.cells.length).toBeLessThan(semanticMap.cells.length);
+  await page.keyboard.press('Minus');
+  const zoomedBack = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
+  expect(zoomedBack.zoom.tilePx).toBe(zoomBefore.tilePx);
 
   await selectMapRoom(page, 'storageRoom');
   await runSelectionCommand(page, 'Move Scientist Here');
@@ -1991,6 +2010,8 @@ test('map overlays avoid unobserved room information unless debug is active', as
     return { mainCell, storageCell };
   }, { key: storageKey });
   await loadSavedRun(page);
+  await page.locator('#debugToggleBtn').click();
+  await expect(page.locator('#debugToggleBtn')).toHaveText('Debug Off');
 
   const mainTile = page.locator(`[data-map-x="${fixture.mainCell.x}"][data-map-y="${fixture.mainCell.y}"]`);
   const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
@@ -2002,6 +2023,8 @@ test('map overlays avoid unobserved room information unless debug is active', as
   await expect(storageTile).not.toHaveAttribute('data-map-target-id', 'hidden-storage-slime');
   await expect(storageTile).not.toHaveClass(/living-object-cell/);
 
+  await page.locator('#debugToggleBtn').click();
+  await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
   await selectMapOverlay(page, 'debug');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'debug');
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Hazardous/);
@@ -2178,8 +2201,9 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
 test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {
   await startRun(page);
 
-  for (let y = 6; y < 10; y += 1) {
-    for (let x = 25; x < 29; x += 1) {
+  const digRect = { x: 55, y: 41, width: 4, height: 4 };
+  for (let y = digRect.y; y < digRect.y + digRect.height; y += 1) {
+    for (let x = digRect.x; x < digRect.x + digRect.width; x += 1) {
       await ensureDigTileDrafted(page, x, y);
     }
   }
@@ -2198,10 +2222,10 @@ test('construction designations become unassigned rooms that can receive a purpo
   }, { key: storageKey });
 
   expect(queued.task).toBeTruthy();
-  expect(queued.task.data.rect).toEqual({ x: 25, y: 6, width: 4, height: 4 });
+  expect(queued.task.data.rect).toEqual(digRect);
   expect(queued.task.data.cells).toHaveLength(16);
-  expect(queued.map.width).toBeGreaterThanOrEqual(40);
-  expect(queued.construction.lastDigRect).toEqual({ x: 25, y: 6, width: 4, height: 4 });
+  expect(queued.map.width).toBeGreaterThanOrEqual(100);
+  expect(queued.construction.lastDigRect).toEqual(digRect);
   expect(queued.construction.draftCells).toHaveLength(0);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(16);
 

@@ -1126,7 +1126,8 @@ h2 {
 }
 
 .lab-map-header,
-.lab-map-legend {
+.lab-map-legend,
+.map-zoom-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -1137,6 +1138,18 @@ h2 {
 .lab-map-header span {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.map-zoom-controls {
+  justify-content: flex-start;
+  padding: 0.25rem 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.map-zoom-controls button {
+  min-width: 2rem;
+  padding: 0.25rem 0.5rem;
 }
 
 .keyboard-status-row,
@@ -1269,19 +1282,21 @@ h2 {
 .lab-map-grid {
   display: grid;
   gap: 1px;
-  width: 100%;
+  width: max-content;
   max-width: 100%;
   align-self: stretch;
   padding: 0.35rem;
   background: #090a08;
   border: 1px solid #282a22;
   border-radius: 6px;
-  overflow: auto;
+  overflow: hidden;
+  touch-action: none;
 }
 
 .lab-map-cell {
   aspect-ratio: 1;
-  min-width: 0.55rem;
+  width: var(--map-tile-size, 14px);
+  min-width: var(--map-tile-size, 14px);
   position: relative;
   display: grid;
   place-items: center;
@@ -1292,6 +1307,12 @@ h2 {
   font-size: 0.48rem;
   line-height: 1;
   font-weight: 700;
+}
+
+.lab-map-cell.unknown-darkness-cell {
+  background: #030403;
+  border-color: #050605;
+  color: transparent;
 }
 
 .lab-map-cell.solid-earth-cell {
