@@ -1873,16 +1873,68 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   expect(commandResult.timeSpeed).toBe(initial.timeSpeed);
 
   await page.keyboard.press('3');
-  const speedResult = await page.evaluate(({ key }) => {
+  let speedResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).timeSpeed;
+  }, { key: storageKey });
+  expect(speedResult).toBe(initial.timeSpeed);
+
+  await page.keyboard.press('Shift+Period');
+  speedResult = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).timeSpeed;
   }, { key: storageKey });
   expect(speedResult).toBe('fast');
 
+  await page.keyboard.press('Shift+Comma');
+  speedResult = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).timeSpeed;
+  }, { key: storageKey });
+  expect(speedResult).toBe(initial.timeSpeed);
+
   await page.keyboard.press('Shift+/');
   await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
+  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('< / >');
+  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('T/S/C/P/R/D');
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);
+});
+
+test('letter key paths open management menus and nested tabs', async ({ page }) => {
+  await startRun(page);
+
+  await expect(page.locator('[data-workspace-tab="tasks"]')).toHaveAttribute('data-hotkey', 'T');
+  await page.keyboard.press('T');
+  await expect(page.locator('[data-workspace-tab="tasks"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-task-menu-tab="blocked"]')).toHaveAttribute('data-hotkey', 'T B');
+  await page.keyboard.press('B');
+  await expect(page.locator('[data-task-menu-tab="blocked"]')).toHaveAttribute('aria-selected', 'true');
+
+  await page.keyboard.press('S');
+  await expect(page.locator('[data-workspace-tab="resources"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-stores-menu-tab="stations"]')).toHaveAttribute('data-hotkey', 'S C');
+  await page.keyboard.press('C');
+  await expect(page.locator('[data-stores-menu-tab="stations"]')).toHaveAttribute('aria-selected', 'true');
+
+  await page.keyboard.press('P');
+  await expect(page.locator('[data-workspace-tab="policies"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-policy-menu-tab="feeding"]')).toHaveAttribute('data-hotkey', 'P F');
+  await page.keyboard.press('F');
+  await expect(page.locator('[data-policy-menu-tab="feeding"]')).toHaveAttribute('aria-selected', 'true');
+
+  await page.keyboard.press('C');
+  await expect(page.locator('[data-workspace-tab="specimens"]')).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('C');
+  await expect(page.locator('[data-workspace-tab="containers"]')).toHaveAttribute('aria-current', 'page');
+
+  await page.keyboard.press('R');
+  await expect(page.locator('[data-workspace-tab="journal"]')).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('M');
+  await expect(page.locator('[data-workspace-tab="log"]')).toHaveAttribute('aria-current', 'page');
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
 });
 
 test('map overlays avoid unobserved room information unless debug is active', async ({ page }) => {

@@ -2162,6 +2162,131 @@
   ];
   const DEBUG_MENU_TAB_BY_ID = Object.fromEntries(DEBUG_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_DEBUG_MENU_TAB = "cheats";
+  const WORKSPACE_KEY_DEFS = [
+    { key: "M", label: "Map", workspaceTab: "map" },
+    { key: "F", label: "Foundry", workspaceTab: "foundry" },
+    { key: "T", label: "Tasks", workspaceTab: "tasks", menuPath: "tasks" },
+    { key: "C", label: "Creatures", workspaceTab: "specimens", menuPath: "creatures" },
+    { key: "S", label: "Stores", workspaceTab: "resources", menuPath: "stores" },
+    { key: "P", label: "Policies", workspaceTab: "policies", menuPath: "policies" },
+    { key: "R", label: "Records", workspaceTab: "journal", menuPath: "records" },
+    { key: "D", label: "Debug", workspaceTab: "cheats", menuPath: "debug", debugOnly: true }
+  ];
+  const WORKSPACE_KEY_BY_KEY = Object.fromEntries(WORKSPACE_KEY_DEFS.map((entry) => [entry.key.toLowerCase(), entry]));
+  const KEYBOARD_MENU_DEFS = {
+    tasks: {
+      key: "T",
+      label: "Tasks",
+      items: [
+        { key: "Q", label: "Queue", workspaceTab: "tasks", tabKind: "tasks", tabId: "queue" },
+        { key: "B", label: "Blocked", workspaceTab: "tasks", tabKind: "tasks", tabId: "blocked" },
+        { key: "C", label: "Completed", workspaceTab: "tasks", tabKind: "tasks", tabId: "completed" }
+      ]
+    },
+    creatures: {
+      key: "C",
+      label: "Creatures",
+      items: [
+        { key: "L", label: "Living", workspaceTab: "specimens", tabKind: "creatures", tabId: "living" },
+        { key: "U", label: "Unknown", workspaceTab: "specimens", tabKind: "creatures", tabId: "unknown" },
+        { key: "D", label: "Deceased", workspaceTab: "specimens", tabKind: "creatures", tabId: "deceased" },
+        { key: "J", label: "Jobs", workspaceTab: "specimens", tabKind: "creatures", tabId: "jobs" },
+        { key: "G", label: "Lineage", workspaceTab: "specimens", tabKind: "creatures", tabId: "lineage" },
+        { key: "T", label: "Testing", workspaceTab: "specimens", tabKind: "creatures", tabId: "testing" },
+        { key: "C", label: "Containers", workspaceTab: "containers" }
+      ]
+    },
+    stores: {
+      key: "S",
+      label: "Stores",
+      items: [
+        { key: "O", label: "Overview", workspaceTab: "resources", tabKind: "stores", tabId: "overview" },
+        { key: "M", label: "Materials", workspaceTab: "resources", tabKind: "stores", tabId: "materials" },
+        { key: "B", label: "Byproducts", workspaceTab: "resources", tabKind: "stores", tabId: "byproducts" },
+        { key: "P", label: "Specimen Materials", workspaceTab: "resources", tabKind: "stores", tabId: "specimens" },
+        { key: "T", label: "Tools & Supplies", workspaceTab: "resources", tabKind: "stores", tabId: "tools" },
+        { key: "R", label: "Room Stockpiles", workspaceTab: "resources", tabKind: "stores", tabId: "rooms" },
+        { key: "C", label: "Collection Stations", workspaceTab: "resources", tabKind: "stores", tabId: "stations" },
+        { key: "S", label: "Scientist", workspaceTab: "resources", tabKind: "stores", tabId: "scientist" }
+      ]
+    },
+    policies: {
+      key: "P",
+      label: "Policies",
+      items: [
+        { key: "O", label: "Overview", workspaceTab: "policies", tabKind: "policies", tabId: "overview" },
+        { key: "H", label: "Handling", workspaceTab: "policies", tabKind: "policies", tabId: "handling" },
+        { key: "C", label: "Corpses", workspaceTab: "policies", tabKind: "policies", tabId: "corpses" },
+        { key: "D", label: "Doors", workspaceTab: "policies", tabKind: "policies", tabId: "doors" },
+        { key: "F", label: "Feeding", workspaceTab: "policies", tabKind: "policies", tabId: "feeding" },
+        { key: "A", label: "Automation", workspaceTab: "policies", tabKind: "policies", tabId: "automation" }
+      ]
+    },
+    records: {
+      key: "R",
+      label: "Records",
+      items: [
+        { key: "J", label: "Journal", workspaceTab: "journal" },
+        { key: "M", label: "Messages", workspaceTab: "log" }
+      ]
+    },
+    debug: {
+      key: "D",
+      label: "Debug",
+      debugOnly: true,
+      items: [
+        { key: "C", label: "Cheats", workspaceTab: "cheats", tabKind: "debug", tabId: "cheats" },
+        { key: "A", label: "AI Debug", workspaceTab: "cheats", tabKind: "debug", tabId: "ai" }
+      ]
+    }
+  };
+  const WORKSPACE_TAB_HOTKEYS = {
+    map: "M",
+    foundry: "F",
+    tasks: "T",
+    specimens: "C",
+    containers: "C C",
+    resources: "S",
+    policies: "P",
+    journal: "R J",
+    log: "R M",
+    cheats: "D"
+  };
+  const CREATURE_RECORD_TAB_HOTKEYS = {
+    living: "C L",
+    unknown: "C U",
+    deceased: "C D",
+    jobs: "C J",
+    lineage: "C G",
+    testing: "C T"
+  };
+  const TASK_MENU_TAB_HOTKEYS = {
+    queue: "T Q",
+    blocked: "T B",
+    completed: "T C"
+  };
+  const STORE_MENU_TAB_HOTKEYS = {
+    overview: "S O",
+    materials: "S M",
+    byproducts: "S B",
+    specimens: "S P",
+    tools: "S T",
+    rooms: "S R",
+    stations: "S C",
+    scientist: "S S"
+  };
+  const POLICY_MENU_TAB_HOTKEYS = {
+    overview: "P O",
+    handling: "P H",
+    corpses: "P C",
+    doors: "P D",
+    feeding: "P F",
+    automation: "P A"
+  };
+  const DEBUG_MENU_TAB_HOTKEYS = {
+    cheats: "D C",
+    ai: "D A"
+  };
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
   const MESSAGE_CATEGORY_DEFS = [
@@ -2402,6 +2527,7 @@
       selectionInspectorExpanded: false,
       commandMenuOpen: false,
       overlayMenuOpen: false,
+      keyboardMenuPath: "",
       keyboardHelpOpen: false
     };
   }
@@ -2819,10 +2945,10 @@
 
   function populateTimeSpeedSelect() {
     dom.timeSpeedSelect.textContent = "";
-    for (const [index, speed] of TIME_SPEEDS.entries()) {
+    for (const speed of TIME_SPEEDS) {
       const option = document.createElement("option");
       option.value = speed.id;
-      option.textContent = `${index + 1}: ${speed.label} (${speed.description})`;
+      option.textContent = `${speed.label} (${speed.description})`;
       dom.timeSpeedSelect.append(option);
     }
   }
@@ -3249,10 +3375,164 @@
     if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
       return;
     }
-    if (handleMapKeyboardShortcut(event)) {
+    if (handleTimeShortcut(event)) {
       return;
     }
-    handleTimeShortcut(event);
+    if (handleMenuKeyboardShortcut(event)) {
+      return;
+    }
+    handleMapKeyboardShortcut(event);
+  }
+
+  function cleanKeyboardKey(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return "";
+    }
+    const key = String(event.key || "").trim();
+    return /^[a-z]$/i.test(key) ? key.toLowerCase() : "";
+  }
+
+  function keyboardMenuDef(pathId) {
+    const id = String(pathId || "").trim();
+    const def = KEYBOARD_MENU_DEFS[id] || null;
+    if (def?.debugOnly && !debugToolsEnabled()) {
+      return null;
+    }
+    return def;
+  }
+
+  function normalizeKeyboardMenuPath(pathId) {
+    const id = String(pathId || "").trim();
+    return KEYBOARD_MENU_DEFS[id] ? id : "";
+  }
+
+  function keyboardMenuOptionsText(pathId) {
+    const def = keyboardMenuDef(pathId);
+    if (!def) {
+      return "";
+    }
+    return def.items
+      .filter((item) => workspaceTabVisible(item.workspaceTab))
+      .map((item) => `${item.key} ${item.label}`)
+      .join("; ");
+  }
+
+  function keyboardMenuPathForWorkspace(tabId = currentWorkspaceTab()) {
+    const tab = cleanWorkspaceTab(tabId);
+    if (tab === "tasks") {
+      return "tasks";
+    }
+    if (tab === "specimens" || tab === "containers") {
+      return "creatures";
+    }
+    if (tab === "resources") {
+      return "stores";
+    }
+    if (tab === "policies") {
+      return "policies";
+    }
+    if (tab === "journal" || tab === "log") {
+      return "records";
+    }
+    if (tab === "cheats") {
+      return "debug";
+    }
+    return "";
+  }
+
+  function workspaceHotkeyDefForKey(key) {
+    const def = WORKSPACE_KEY_BY_KEY[String(key || "").toLowerCase()] || null;
+    if (!def || (def.debugOnly && !debugToolsEnabled())) {
+      return null;
+    }
+    return workspaceTabVisible(def.workspaceTab) ? def : null;
+  }
+
+  function openWorkspaceByHotkey(def) {
+    setUiMode(UI_MODE_NAVIGATION);
+    const ui = ensureUiState();
+    ui.commandMenuOpen = false;
+    ui.overlayMenuOpen = false;
+    setActiveWorkspaceTab(def.workspaceTab, { scroll: true, animate: false });
+    ui.keyboardMenuPath = def.menuPath && keyboardMenuDef(def.menuPath) ? String(def.menuPath) : "";
+    persist();
+    render();
+    return true;
+  }
+
+  function applyKeyboardMenuItem(item) {
+    setUiMode(UI_MODE_NAVIGATION);
+    const ui = ensureUiState();
+    ui.commandMenuOpen = false;
+    ui.overlayMenuOpen = false;
+    setActiveWorkspaceTab(item.workspaceTab, { scroll: true, animate: false });
+    if (item.tabKind === "tasks") {
+      ui.taskMenuTab = normalizeTaskMenuTab(item.tabId);
+    } else if (item.tabKind === "creatures") {
+      ui.creatureRecordTab = normalizeCreatureRecordTab(item.tabId);
+    } else if (item.tabKind === "stores") {
+      ui.storeMenuTab = normalizeStoreMenuTab(item.tabId);
+    } else if (item.tabKind === "policies") {
+      ui.policyMenuTab = normalizePolicyMenuTab(item.tabId);
+    } else if (item.tabKind === "debug") {
+      ui.debugMenuTab = normalizeDebugMenuTab(item.tabId);
+    }
+    ui.keyboardMenuPath = item.nextPath && keyboardMenuDef(item.nextPath) ? String(item.nextPath) : "";
+    persist();
+    render();
+    return true;
+  }
+
+  function handleMenuKeyboardShortcut(event) {
+    const key = cleanKeyboardKey(event);
+    if (!key) {
+      return false;
+    }
+    const ui = ensureUiState();
+    if (ui.mode === UI_MODE_COMMAND || ui.commandMenuOpen) {
+      return false;
+    }
+    const explicitMenu = keyboardMenuDef(ui.keyboardMenuPath);
+    if (explicitMenu) {
+      const item = explicitMenu.items.find((candidate) =>
+        candidate.key.toLowerCase() === key && workspaceTabVisible(candidate.workspaceTab)
+      );
+      if (item) {
+        event.preventDefault();
+        applyKeyboardMenuItem(item);
+        return true;
+      }
+      const topLevel = workspaceHotkeyDefForKey(key);
+      if (topLevel) {
+        event.preventDefault();
+        openWorkspaceByHotkey(topLevel);
+        return true;
+      }
+      event.preventDefault();
+      ui.keyboardMenuPath = "";
+      addEvent(`No ${explicitMenu.label} shortcut for ${key.toUpperCase()}.`);
+      persist();
+      render();
+      return true;
+    }
+    const workspaceDef = workspaceHotkeyDefForKey(key);
+    if (workspaceDef) {
+      event.preventDefault();
+      openWorkspaceByHotkey(workspaceDef);
+      return true;
+    }
+    const localMenu = keyboardMenuDef(keyboardMenuPathForWorkspace());
+    if (localMenu) {
+      const item = localMenu.items.find((candidate) =>
+        candidate.key.toLowerCase() === key && workspaceTabVisible(candidate.workspaceTab)
+      );
+      if (item) {
+        event.preventDefault();
+        applyKeyboardMenuItem(item);
+        return true;
+      }
+    }
+    return false;
   }
 
   function handleMapKeyboardShortcut(event) {
@@ -3317,6 +3597,7 @@
     if (ui.commandMenuOpen || ui.mode === UI_MODE_COMMAND) {
       event.preventDefault();
       ui.commandMenuOpen = false;
+      ui.keyboardMenuPath = "";
       setUiMode(UI_MODE_NAVIGATION);
       persist();
       render();
@@ -3338,6 +3619,7 @@
     }
     if (currentWorkspaceTab() !== "map") {
       event.preventDefault();
+      ui.keyboardMenuPath = "";
       setActiveWorkspaceTab("map");
       persist();
       render();
@@ -3346,6 +3628,7 @@
     const selection = currentSelection();
     if (selection) {
       event.preventDefault();
+      ui.keyboardMenuPath = "";
       setSelection(null);
       persist();
       render();
@@ -3356,36 +3639,33 @@
 
   function handleTimeShortcut(event) {
     if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
-      return;
+      return false;
     }
     if (event.code === "Space") {
       event.preventDefault();
       togglePause();
-      return;
+      return true;
     }
-    if (event.key === "[") {
+    if ((event.key === "<" || (event.code === "Comma" && event.shiftKey)) && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       changeTimeSpeed(-1);
-      return;
+      return true;
     }
-    if (event.key === "]") {
+    if ((event.key === ">" || (event.code === "Period" && event.shiftKey)) && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       changeTimeSpeed(1);
-      return;
-    }
-    if (/^[1-5]$/.test(event.key)) {
-      event.preventDefault();
-      setTimeSpeedByIndex(Number(event.key));
-      return;
+      return true;
     }
     if (event.code === "Period") {
       event.preventDefault();
-      if (event.shiftKey) {
+      if (event.ctrlKey || event.metaKey) {
         skipToNextQueueCompletion();
       } else {
         skipToNextEvent();
       }
+      return true;
     }
+    return false;
   }
 
   function isTypingTarget(target) {
@@ -3550,6 +3830,9 @@
   function setTaskMenuTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.taskMenuTab = normalizeTaskMenuTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
     if (options.render === false) {
       return;
     }
@@ -3571,6 +3854,9 @@
   function setStoreMenuTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.storeMenuTab = normalizeStoreMenuTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
     if (options.render === false) {
       return;
     }
@@ -3592,6 +3878,9 @@
   function setPolicyMenuTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.policyMenuTab = normalizePolicyMenuTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
     if (options.render === false) {
       return;
     }
@@ -3613,6 +3902,9 @@
   function setDebugMenuTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.debugMenuTab = normalizeDebugMenuTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
     if (options.render === false) {
       return;
     }
@@ -3652,6 +3944,9 @@
   function setCreatureRecordTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.creatureRecordTab = normalizeCreatureRecordTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
     if (options.render === false) {
       return;
     }
@@ -3841,6 +4136,7 @@
       selectionInspectorExpanded: Boolean(candidate?.selectionInspectorExpanded),
       commandMenuOpen: Boolean(candidate?.commandMenuOpen),
       overlayMenuOpen: Boolean(candidate?.overlayMenuOpen),
+      keyboardMenuPath: normalizeKeyboardMenuPath(candidate?.keyboardMenuPath),
       keyboardHelpOpen: Boolean(candidate?.keyboardHelpOpen)
     };
   }
@@ -3981,13 +4277,6 @@
     const currentIndex = Math.max(0, TIME_SPEEDS.findIndex((speed) => speed.id === currentTimeSpeed().id));
     const nextIndex = clamp(currentIndex + step, 0, TIME_SPEEDS.length - 1);
     setTimeSpeed(TIME_SPEEDS[nextIndex].id);
-  }
-
-  function setTimeSpeedByIndex(index) {
-    const speed = TIME_SPEEDS[index - 1];
-    if (speed) {
-      setTimeSpeed(speed.id);
-    }
   }
 
   function skipToNextQueueCompletion() {
@@ -4662,11 +4951,26 @@
     return document.querySelector(`[data-workspace-panel="${cleanWorkspaceTab(tabId)}"]`);
   }
 
+  function setElementHotkeyHint(element, hotkey) {
+    if (!element) {
+      return;
+    }
+    const clean = String(hotkey || "").trim();
+    if (!clean) {
+      delete element.dataset.hotkey;
+      element.removeAttribute("aria-keyshortcuts");
+      return;
+    }
+    element.dataset.hotkey = clean;
+    element.setAttribute("aria-keyshortcuts", clean);
+  }
+
   function bindWorkspaceTabs() {
     for (const button of document.querySelectorAll("[data-workspace-tab]")) {
       button.addEventListener("click", () => {
         const tab = cleanWorkspaceTab(button.dataset.workspaceTab);
         const nextTab = tab !== "map" && currentWorkspaceTab() === tab ? "map" : tab;
+        ensureUiState().keyboardMenuPath = "";
         setActiveWorkspaceTab(nextTab, { scroll: true });
       });
     }
@@ -4711,6 +5015,7 @@
       const buttonTab = cleanWorkspaceTab(button.dataset.workspaceTab);
       const visible = workspaceTabVisible(buttonTab);
       button.hidden = !visible;
+      setElementHotkeyHint(button, visible ? WORKSPACE_TAB_HOTKEYS[buttonTab] : "");
       const active = visible && buttonTab === tabId;
       button.classList.toggle("active-workspace-tab", active);
       if (active) {
@@ -17686,6 +17991,7 @@
     for (const button of document.querySelectorAll("[data-creature-record-tab]")) {
       const tab = normalizeCreatureRecordTab(button.dataset.creatureRecordTab);
       const active = tab === activeTab;
+      setElementHotkeyHint(button, CREATURE_RECORD_TAB_HOTKEYS[tab]);
       button.classList.toggle("active-record-tab", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
@@ -24787,6 +25093,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const button of document.querySelectorAll("[data-debug-menu-tab]")) {
       const tab = normalizeDebugMenuTab(button.dataset.debugMenuTab);
       const active = tab === activeTab;
+      setElementHotkeyHint(button, DEBUG_MENU_TAB_HOTKEYS[tab]);
       button.classList.toggle("active-record-tab", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
@@ -25650,6 +25957,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const button of document.querySelectorAll("[data-policy-menu-tab]")) {
       const tab = normalizePolicyMenuTab(button.dataset.policyMenuTab);
       const active = tab === activeTab;
+      setElementHotkeyHint(button, POLICY_MENU_TAB_HOTKEYS[tab]);
       button.classList.toggle("active-record-tab", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
@@ -25970,6 +26278,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const button of document.querySelectorAll("[data-stores-menu-tab]")) {
       const tab = normalizeStoreMenuTab(button.dataset.storesMenuTab);
       const active = tab === activeTab;
+      setElementHotkeyHint(button, STORE_MENU_TAB_HOTKEYS[tab]);
       button.classList.toggle("active-record-tab", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
@@ -29887,10 +30196,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const cursorText = mapView.cursor
       ? `Cursor ${mapView.cursor.x},${mapView.cursor.y} - ${cursorTarget}`
       : "Cursor unavailable";
+    const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
+    const menuHint = menuPath
+      ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
+      : "Arrows move; Enter selects; A opens commands; O cycles overlay; T/S/C/P/R/D open menus; ? help.";
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
-      textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : "Arrows move; Enter selects; A opens commands; O cycles overlay; ? help.")
+      textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : menuHint)
     );
     return row;
   }
@@ -30064,13 +30377,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["A", "Open contextual commands for the selection."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
+      ["T/S/C/P/R/D", "Open Tasks, Stores, Creatures, Policies, Records, or Debug menus."],
+      ["Menu letters", "Choose visible submenu tabs such as T Q, S B, or P F."],
       ["1-9", "Choose visible commands while in command mode."],
       ["Esc", "Cancel command mode; press again to clear selection."],
       ["?", "Toggle this help."],
       ["Space", "Pause or resume time."],
-      ["1-5", "Set time speed outside command mode."],
-      ["[ / ]", "Step time speed down or up."],
-      [". / Shift+.", "Skip to next event or queued task."]
+      ["< / >", "Decrease or increase time speed."],
+      [". / Ctrl+.", "Skip to next event or next scientist task."]
     ];
     for (const [key, description] of entries) {
       const row = document.createElement("div");
@@ -30724,6 +31038,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const button of document.querySelectorAll("[data-task-menu-tab]")) {
       const tab = normalizeTaskMenuTab(button.dataset.taskMenuTab);
       const active = tab === activeTab;
+      setElementHotkeyHint(button, TASK_MENU_TAB_HOTKEYS[tab]);
       button.classList.toggle("active-record-tab", active);
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;

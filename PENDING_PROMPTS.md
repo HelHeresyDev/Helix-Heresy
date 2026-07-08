@@ -12,30 +12,11 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Keyboard Navigation and Menu Flow Polish
-2. Black Market Byproduct Economy System
+1. Black Market Byproduct Economy System
 
 ---
 
-## 1. Keyboard Navigation and Menu Flow Polish
-
-Polish keyboard navigation, command flow, and menu state for the map-first interface.
-
-The player should be able to pause, change speed, open common menus, move through command lists, inspect selected entities, close/back out of menus, and operate common map commands without relying only on mouse clicks.
-
-The system should answer questions like:
-- Which hotkeys should be reserved for core actions?
-- Should hotkeys be visible in menus?
-- How should keyboard focus work when menus open and close?
-- Should the map support keyboard cursor movement now?
-- How should Escape behave across map, menus, nested inspectors, and command prompts?
-- Should keybindings be remappable later?
-
-The desired result is an interface foundation that can eventually support dense Dwarf Fortress style command play without sacrificing mouse usability.
-
-Before coding, discuss hotkey set, focus behavior, Escape/back rules, accessibility concerns, and which keyboard affordances belong in the first pass.
-
-## 2. Black Market Byproduct Economy System
+## 1. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
