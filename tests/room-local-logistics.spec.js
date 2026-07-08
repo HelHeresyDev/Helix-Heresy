@@ -203,12 +203,12 @@ test('resource overlay and selection inspector show known room supplies', async 
   await page.locator('[data-workspace-tab="map"]').click();
   await storageTile.click();
   const inspector = page.locator('[data-selection-inspector="true"]');
-  await expect(inspector).toHaveAttribute('data-selection-kind', 'room');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'stockpile');
+  await expect(inspector).toHaveAttribute('data-selection-id', 'storageRoom:resource:biomass');
   await page.locator('[data-selection-inspector-tab="details"]').click();
-  await expect(inspector).toContainText('Known Supplies');
+  await expect(inspector).toContainText('Known supplies');
   await expect(inspector).toContainText('Last inventoried');
   await expect(inspector).toContainText('Biomass');
-  await expect(inspector).toContainText('Hook pole');
 
   await selectMapOverlay(page, 'resources');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'resources');

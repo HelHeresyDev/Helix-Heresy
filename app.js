@@ -4269,6 +4269,12 @@
       || resourceOverlayFocusDefs()[0];
   }
 
+  function stockpileSelectionFocusDef(selection) {
+    const focusId = normalizeResourceOverlayFocusId(selection?.focusId);
+    return resourceOverlayFocusDefs().find((focus) => focus.id === focusId)
+      || currentResourceOverlayFocusDef();
+  }
+
   function availableMapOverlayDefs() {
     return debugToolsEnabled()
       ? MAP_OVERLAY_DEFS
@@ -17215,6 +17221,30 @@
     return bay.stations[cleanId];
   }
 
+  function collectionBayStoredStationForContainer(containerId) {
+    const cleanId = String(containerId || "");
+    if (!cleanId) {
+      return null;
+    }
+    return ensureCollectionBayState().stations?.[cleanId] || null;
+  }
+
+  function collectionBayStationSelectable(container) {
+    if (!container?.id) {
+      return false;
+    }
+    const stored = collectionBayStoredStationForContainer(container.id);
+    const storedFill = stored ? collectionBayStationFill(stored) : 0;
+    const hasStoredMaterial = Boolean(stored?.material || storedFill > 0);
+    const hasStagedSpecimen = container.roomId === COLLECTION_BAY_ROOM_ID && containerOccupants(container.id).some((slime) => slime.status !== "dead" && slime.status !== "released");
+    return hasStagedSpecimen || hasStoredMaterial;
+  }
+
+  function collectionStationSelectionInfo(selection) {
+    const container = containerById(selection?.id);
+    return container && collectionBayStationSelectable(container) ? collectionBayStationInfo(container) : null;
+  }
+
   function cleanCollectionBaySourceList(items) {
     return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))];
   }
@@ -20697,7 +20727,7 @@
       card.append(interior);
     }
 
-    if (container.type !== "synthesis") {
+    if (!isSynthesisTubeContainer(container)) {
       const resistanceEntries = damageResistanceEntriesForContainer(container);
       const resistance = document.createElement("div");
       resistance.className = "container-damage-resistance";
@@ -27748,7 +27778,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: `${room.name}: ${reading.label}`,
         source: reading.source,
         title: `Overlay: Resources - ${room.name} has ${reading.amountText} ${reading.label} known from the last inventory.`,
-        value: reading.amountText
+        value: reading.amountText,
+        target: {
+          kind: "stockpile",
+          id: `${room.id}:${focus.id}`,
+          roomId: room.id,
+          focusId: focus.id
+        }
       }, map);
     }
     return assignments;
@@ -27849,12 +27885,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const footprintDef = containerFootprintDimensions(container);
       const label = `${container.name || "container"} footprint ${footprintDef.width}x${footprintDef.height}`;
       const interiorTargets = containerInteriorMapTargets(container);
+      const stationTarget = collectionBayStationSelectable(container)
+        ? {
+            kind: "collectionStation",
+            id: container.id,
+            label: `${container.name || "container"} collection station`
+          }
+        : null;
       for (const cell of footprint) {
         addCell(cell, "C", label, ["container-object-cell", "blocking-object-cell"], {
           kind: "container",
           id: container.id,
           label: container.name || "container"
         });
+        if (stationTarget) {
+          addCell(cell, "", stationTarget.label, ["collection-station-object-cell"], stationTarget);
+        }
         for (const target of interiorTargets) {
           addCell(cell, "", target.label, ["contained-object-cell"], target);
         }
@@ -28351,6 +28397,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const task = id ? findTask(id) : null;
       return task ? { kind, id: task.id } : null;
     }
+    if (kind === "collectionStation") {
+      const id = cleanContainerId(candidate.id || candidate.containerId);
+      const container = id ? containerById(id) : null;
+      return container && collectionBayStationSelectable(container) ? { kind, id: container.id, roomId: container.roomId } : null;
+    }
+    if (kind === "stockpile") {
+      const roomId = roomById(candidate.roomId)?.id || roomById(candidate.id)?.id || "";
+      const focusId = normalizeResourceOverlayFocusId(candidate.focusId || candidate.resourceFocusId || candidate.key);
+      return roomId ? { kind, id: `${roomId}:${focusId}`, roomId, focusId } : null;
+    }
     if (kind === "tool" || kind === "resource") {
       const id = String(candidate.id || candidate.key || "");
       return id ? { kind, id } : null;
@@ -28374,6 +28430,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "door") {
       return { kind: "door", key: selection.key, roomIds: [...(selection.roomIds || [])] };
     }
+    if (selection.kind === "collectionStation") {
+      return { kind: "collectionStation", id: selection.id, roomId: selection.roomId || "" };
+    }
+    if (selection.kind === "stockpile") {
+      return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
+    }
     if (["container", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
@@ -28384,7 +28446,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     setSelection(target, { source: target?.source || "map" });
   }
 
-  function selectedTargetMatchesTile(target, { cell, roomId, door, objectEntry, incidentEntry, scientistHere }) {
+  function selectedTargetMatchesTile(target, { cell, roomId, door, objectEntry, incidentEntry, overlayEntry, scientistHere }) {
     if (!target) {
       return false;
     }
@@ -28402,6 +28464,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (target.kind === "incident") {
       return incidentEntry?.alerts?.some((incident) => incident.id === target.id) || false;
+    }
+    if (target.kind === "collectionStation") {
+      return objectEntry?.targets?.some((candidate) => candidate.kind === "collectionStation" && candidate.id === target.id) || false;
+    }
+    if (target.kind === "stockpile") {
+      return Boolean(
+        overlayEntry?.target?.kind === "stockpile"
+        && overlayEntry.target.roomId === target.roomId
+        && normalizeResourceOverlayFocusId(overlayEntry.target.focusId) === normalizeResourceOverlayFocusId(target.focusId)
+      ) || roomId === target.roomId;
     }
     if (target.kind === "slime") {
       const slime = findSlime(target.id);
@@ -28448,6 +28520,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "tile") {
       return `tile:${mapCellKey(selection.tile)}`;
     }
+    if (selection.kind === "stockpile") {
+      return `stockpile:${selection.roomId || ""}:${normalizeResourceOverlayFocusId(selection.focusId)}`;
+    }
     return `${selection.kind}:${selection.id || ""}`;
   }
 
@@ -28484,6 +28559,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "task") {
       return findTask(selection.id)?.label || "Task";
     }
+    if (selection.kind === "collectionStation") {
+      const container = containerById(selection.id);
+      return container ? `${container.name} collection station` : "Collection Station";
+    }
+    if (selection.kind === "stockpile") {
+      const focus = stockpileSelectionFocusDef(selection);
+      return `${roomName(selection.roomId)} ${focus.label}`;
+    }
     if (selection.kind === "resource") {
       return resourceLabel(selection.id);
     }
@@ -28504,6 +28587,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse: "Deceased Specimen",
       incident: "Incident",
       task: "Task",
+      collectionStation: "Collection Station",
+      stockpile: "Known Stockpile",
       resource: "Resource",
       tool: "Tool"
     };
@@ -28541,6 +28626,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "task") {
       return taskTargetRoomId(findTask(selection.id));
     }
+    if (selection.kind === "collectionStation") {
+      return containerById(selection.id)?.roomId || selection.roomId || "";
+    }
+    if (selection.kind === "stockpile") {
+      return selection.roomId || "";
+    }
     return "";
   }
 
@@ -28577,6 +28668,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "task") {
       return taskTargetCell(findTask(selection.id));
+    }
+    if (selection.kind === "collectionStation") {
+      return objectMapCell(containerById(selection.id));
+    }
+    if (selection.kind === "stockpile") {
+      return labMapRoomAnchor(selection.roomId);
     }
     return null;
   }
@@ -28624,6 +28721,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const status = taskStatusInfo(task);
       return [taskCategory(task), status.label, status.reason || `${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining`].map(chip);
     }
+    if (selection.kind === "collectionStation") {
+      const info = collectionStationSelectionInfo(selection);
+      return info ? [info.status, info.material || "no output assigned", roomName(info.container?.roomId)].map(chip) : [];
+    }
+    if (selection.kind === "stockpile") {
+      const focus = stockpileSelectionFocusDef(selection);
+      return [roomName(selection.roomId), focus.label, "last inventoried"].map(chip);
+    }
     if (selection.kind === "tile") {
       return [chip(selectionLocationLabel(selection))];
     }
@@ -28650,11 +28755,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const target of objectEntry?.targets || []) {
       targets.push(target);
     }
+    const roomId = labMapCellRoomId(clean, map);
+    if (currentMapOverlayDef().id === "resources" && roomId && resourceOverlayReadingForRoom(roomId, currentResourceOverlayFocusDef())) {
+      const focus = currentResourceOverlayFocusDef();
+      targets.push({ kind: "stockpile", id: `${roomId}:${focus.id}`, roomId, focusId: focus.id });
+    }
     const door = labMapDoorAtCell(clean, map);
     if (door) {
       targets.push({ kind: "door", key: door.key, roomIds: door.roomIds });
     }
-    const roomId = labMapCellRoomId(clean, map);
     if (roomId) {
       targets.push({ kind: "room", roomId });
     }
@@ -28744,6 +28853,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return targets;
     }
+    if (selection.kind === "collectionStation") {
+      const container = containerById(selection.id);
+      if (!container) {
+        return [];
+      }
+      return [
+        { kind: "container", id: container.id },
+        ...containerOccupants(container.id).map((slime) => ({ kind: "slime", id: slime.id })),
+        { kind: "room", roomId: container.roomId }
+      ];
+    }
+    if (selection.kind === "stockpile") {
+      return selection.roomId ? [{ kind: "room", roomId: selection.roomId }] : [];
+    }
     return [];
   }
 
@@ -28791,6 +28914,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function openWorkspaceContext(options = {}) {
+    const workspaceTab = visibleWorkspaceTabOrMap(options.workspaceTab || "map");
+    setUiMode(UI_MODE_NAVIGATION);
+    const ui = ensureUiState();
+    ui.commandMenuOpen = false;
+    ui.overlayMenuOpen = false;
+    if (options.tabKind === "tasks") {
+      ui.taskMenuTab = normalizeTaskMenuTab(options.tabId);
+    } else if (options.tabKind === "creatures") {
+      ui.creatureRecordTab = normalizeCreatureRecordTab(options.tabId);
+    } else if (options.tabKind === "stores") {
+      ui.storeMenuTab = normalizeStoreMenuTab(options.tabId);
+    } else if (options.tabKind === "policies") {
+      ui.policyMenuTab = normalizePolicyMenuTab(options.tabId);
+    } else if (options.tabKind === "debug") {
+      ui.debugMenuTab = normalizeDebugMenuTab(options.tabId);
+    }
+    if (options.overlayId) {
+      ui.mapOverlay = normalizeMapOverlayId(options.overlayId);
+    }
+    if (options.resourceFocusId) {
+      ui.resourceOverlayFocus = normalizeResourceOverlayFocusId(options.resourceFocusId);
+      ui.mapOverlay = "resources";
+    }
+    ui.keyboardMenuPath = options.keyboardMenuPath || keyboardMenuPathForWorkspace(workspaceTab);
+    setActiveWorkspaceTab(workspaceTab, { scroll: true, animate: false });
+    return true;
+  }
+
+  function openWorkspaceCommand(options = {}) {
+    return commandDef({
+      id: options.id,
+      label: options.label,
+      group: options.group || "Open Menu",
+      disabledReason: options.workspaceTab && !workspaceTabVisible(options.workspaceTab) ? `${options.label || "Menu"} is not currently visible.` : "",
+      description: options.description || `Open ${options.label || "the relevant management screen"}.`,
+      run: () => openWorkspaceContext(options)
+    });
+  }
+
   function contextualCommandsForSelection(selection) {
     if (!selection) {
       return [];
@@ -28816,6 +28979,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "container") {
       return containerContextCommands(containerById(selection.id));
     }
+    if (selection.kind === "collectionStation") {
+      return collectionStationContextCommands(selection);
+    }
+    if (selection.kind === "stockpile") {
+      return stockpileContextCommands(selection);
+    }
     if (selection.kind === "task") {
       return taskContextCommands(findTask(selection.id));
     }
@@ -28835,8 +29004,62 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Remove this scientist order from the queue. Spent time and stamina are not recovered; recorded unused materials are returned.",
         danger: true,
         run: () => cancelTask(task.id)
+      }),
+      openWorkspaceCommand({
+        id: `task.openQueue.${task.id}`,
+        label: "Open Tasks",
+        group: "Open Menu",
+        workspaceTab: "tasks",
+        tabKind: "tasks",
+        tabId: taskStatusInfo(task).id === "blocked" ? "blocked" : "queue",
+        description: "Open the Tasks management screen."
       })
     ];
+  }
+
+  function roomMenuContextCommands(room) {
+    if (!room) {
+      return [];
+    }
+    const commands = [
+      openWorkspaceCommand({
+        id: `room.openStockpiles.${room.id}`,
+        label: "Open Room Stockpiles",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "rooms",
+        description: "Open known room stockpiles and local material inventories."
+      }),
+      commandDef({
+        id: `room.showResources.${room.id}`,
+        label: "Show Resource Overlay",
+        group: "Map",
+        description: "Switch the map to the resource overlay for this room.",
+        run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "resources", keyboardMenuPath: "" })
+      })
+    ];
+    if (room.role === "byproductCollection" || room.id === COLLECTION_BAY_ROOM_ID) {
+      commands.push(openWorkspaceCommand({
+        id: `room.openCollectionStations.${room.id}`,
+        label: "Open Collection Stations",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "stations",
+        description: "Open Collection Bay station readouts and receptacle status."
+      }));
+    }
+    if (room.role === EXCAVATED_ROOM_ROLE) {
+      commands.push(commandDef({
+        id: `room.showConstruction.${room.id}`,
+        label: "Show Construction Overlay",
+        group: "Map",
+        description: "Switch the map to construction designations and rough rooms.",
+        run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "construction", keyboardMenuPath: "" })
+      }));
+    }
+    return commands;
   }
 
   function roomContextCommands(room) {
@@ -28870,6 +29093,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
       }
     }
+    commands.push(...roomMenuContextCommands(room));
     return commands;
   }
 
@@ -28909,6 +29133,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           disabledReason: draftCells.length ? "" : "No dig draft has been selected.",
           description: "Clear the current map dig draft without queuing work.",
           run: () => clearConstructionDraft()
+        }),
+        commandDef({
+          id: `tile.showConstruction.${cell.x}.${cell.y}`,
+          label: "Show Construction Overlay",
+          group: "Map",
+          description: "Switch the map to construction designations and rough rooms.",
+          run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "construction", keyboardMenuPath: "" })
         })
       ];
     }
@@ -28930,6 +29161,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           allowMultiRoom: true,
           label: `Move scientist to tile ${selection.tile.x},${selection.tile.y}`
         })
+      }),
+      openWorkspaceCommand({
+        id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
+        label: "Open Room Stockpiles",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "rooms",
+        description: "Open known room stockpiles for this area."
+      }),
+      commandDef({
+        id: `tile.showResources.${selection.tile.x}.${selection.tile.y}`,
+        label: "Show Resource Overlay",
+        group: "Map",
+        description: "Switch the map to the resource overlay.",
+        run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "resources", keyboardMenuPath: "" })
       })
     ];
   }
@@ -28989,6 +29236,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           render();
           return result;
         }
+      }),
+      openWorkspaceCommand({
+        id: `door.openPolicies.${key}`,
+        label: "Door Policies",
+        group: "Open Menu",
+        workspaceTab: "policies",
+        tabKind: "policies",
+        tabId: "doors",
+        description: "Open laboratory door automation and security policy settings."
       })
     ];
   }
@@ -29034,6 +29290,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         disabledReason: incident.status === "resolved" ? "This incident is already resolved." : "",
         description: "Clear this known alert. The same observation stays dismissed until it changes.",
         run: () => resolveIncident(incident.id)
+      }),
+      openWorkspaceCommand({
+        id: `incident.openMessages.${incident.id}`,
+        label: "Open Message History",
+        group: "Open Menu",
+        workspaceTab: "log",
+        description: "Open the full message history for incident context."
+      }),
+      openWorkspaceCommand({
+        id: `incident.openTasks.${incident.id}`,
+        label: "Open Tasks",
+        group: "Open Menu",
+        workspaceTab: "tasks",
+        tabKind: "tasks",
+        tabId: incident.responseTaskId ? "queue" : "blocked",
+        description: "Open the scientist task management screen."
       })
     ];
   }
@@ -29080,6 +29352,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       description: "Remove the corpse from lab storage and increase Suspicion.",
       danger: true,
       run: () => dumpCorpseOutside(corpse.id)
+    }));
+    commands.push(openWorkspaceCommand({
+      id: `corpse.openRecord.${corpse.id}`,
+      label: "Open Deceased Records",
+      group: "Open Menu",
+      workspaceTab: "specimens",
+      tabKind: "creatures",
+      tabId: "deceased",
+      description: "Open deceased specimen records."
+    }));
+    commands.push(openWorkspaceCommand({
+      id: `corpse.openStockpiles.${corpse.id}`,
+      label: "Open Room Stockpiles",
+      group: "Open Menu",
+      workspaceTab: "resources",
+      tabKind: "stores",
+      tabId: "rooms",
+      description: "Open local storage and pit contents for this corpse location."
     }));
     return commands;
   }
@@ -29163,6 +29453,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: `Deal ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage and raise Stress.`,
         danger: true,
         run: () => startScientistStrike(slime.id)
+      }),
+      openWorkspaceCommand({
+        id: `slime.openRecord.${slime.id}`,
+        label: "Open Creature Record",
+        group: "Open Menu",
+        workspaceTab: "specimens",
+        tabKind: "creatures",
+        tabId: isUnknownCreatureRecord(slime) ? "unknown" : "living",
+        description: "Open creature records for this specimen."
+      }),
+      openWorkspaceCommand({
+        id: `slime.openJobs.${slime.id}`,
+        label: "Open Jobs",
+        group: "Open Menu",
+        workspaceTab: "specimens",
+        tabKind: "creatures",
+        tabId: "jobs",
+        description: "Open creature job assignments and progress."
+      }),
+      openWorkspaceCommand({
+        id: `slime.openTesting.${slime.id}`,
+        label: "Open Testing",
+        group: "Open Menu",
+        workspaceTab: "specimens",
+        tabKind: "creatures",
+        tabId: "testing",
+        description: "Open testing and research actions."
       })
     ];
     const container = slime?.containerId ? containerById(slime.containerId) : null;
@@ -29375,6 +29692,140 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           run: () => moveTubeOccupantToOpenContainer(occupant.id)
         }));
       }
+    }
+    commands.push(openWorkspaceCommand({
+      id: `container.openRecords.${container.id}`,
+      label: isPitHoleContainer(container) ? "Open Creature Jobs" : "Open Containers",
+      group: "Open Menu",
+      workspaceTab: isPitHoleContainer(container) ? "specimens" : "containers",
+      tabKind: isPitHoleContainer(container) ? "creatures" : "",
+      tabId: isPitHoleContainer(container) ? "jobs" : "",
+      description: isPitHoleContainer(container)
+        ? "Open creature job management for pit work."
+        : "Open the container management screen."
+    }));
+    commands.push(openWorkspaceCommand({
+      id: `container.openStockpiles.${container.id}`,
+      label: "Open Room Stockpiles",
+      group: "Open Menu",
+      workspaceTab: "resources",
+      tabKind: "stores",
+      tabId: "rooms",
+      description: "Open known stockpiles for this container's room."
+    }));
+    if (collectionBayStationSelectable(container)) {
+      commands.push(openWorkspaceCommand({
+        id: `container.openCollectionStations.${container.id}`,
+        label: "Open Collection Stations",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "stations",
+        description: "Open Collection Bay station readouts and receptacle status."
+      }));
+      commands.push(openWorkspaceCommand({
+        id: `container.openByproducts.${container.id}`,
+        label: "Open Collected Byproducts",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "byproducts",
+        description: "Open raw collected byproduct inventory."
+      }));
+    }
+    return commands;
+  }
+
+  function collectionStationContextCommands(selection) {
+    const info = collectionStationSelectionInfo(selection);
+    if (!info?.container) {
+      return [];
+    }
+    return [
+      commandDef({
+        id: `station.focusContainer.${info.container.id}`,
+        label: "Focus Source Container",
+        group: "Collection",
+        description: "Select the container feeding this collection station.",
+        run: () => focusMapTarget({ kind: "container", id: info.container.id }, { keepWorkspace: true, source: "map", resetInspectorTab: true, resetCommandMenu: true })
+      }),
+      commandDef({
+        id: `station.transfer.${info.container.id}`,
+        label: "Transfer Receptacle",
+        group: "Collection",
+        disabledReason: collectionBayTransferDisabledReason(info)
+          || physicalStateRiskBlockReason(`transferring ${info.container.name} receptacle`)
+          || staminaBlockReason(adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"])),
+        description: "Queue a scientist task to move the active receptacle contents into Collected Byproducts in Storage Room.",
+        run: () => transferCollectionBayReceptacle(info.container.id)
+      }),
+      openWorkspaceCommand({
+        id: `station.openStations.${info.container.id}`,
+        label: "Open Collection Stations",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "stations",
+        description: "Open Collection Bay station readouts and receptacle status."
+      }),
+      openWorkspaceCommand({
+        id: `station.openByproducts.${info.container.id}`,
+        label: "Open Collected Byproducts",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "byproducts",
+        description: "Open raw collected byproduct inventory."
+      })
+    ];
+  }
+
+  function stockpileContextCommands(selection) {
+    const focus = stockpileSelectionFocusDef(selection);
+    const roomId = selection?.roomId || "";
+    const storeTab = focus.type === "collectedByproducts"
+      ? "byproducts"
+      : focus.type === "specimenMaterials"
+        ? "specimens"
+        : focus.type === "inventoryCategory" && focus.key === "tools"
+          ? "tools"
+          : "materials";
+    const commands = [
+      openWorkspaceCommand({
+        id: `stockpile.openRooms.${selection.id}`,
+        label: "Open Room Stockpiles",
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: "rooms",
+        description: "Open all known room-local stockpiles."
+      }),
+      openWorkspaceCommand({
+        id: `stockpile.openFocusedStore.${selection.id}`,
+        label: `Open ${focus.label}`,
+        group: "Open Menu",
+        workspaceTab: "resources",
+        tabKind: "stores",
+        tabId: storeTab,
+        description: `Open the store tab for ${focus.label}.`
+      }),
+      commandDef({
+        id: `stockpile.showOverlay.${selection.id}`,
+        label: "Show This Resource Overlay",
+        group: "Map",
+        description: `Keep the map on the ${focus.label} resource overlay.`,
+        run: () => openWorkspaceContext({ workspaceTab: "map", resourceFocusId: focus.id, keyboardMenuPath: "" })
+      })
+    ];
+    if (roomId && roomId !== scientistRoomId()) {
+      commands.unshift(commandDef({
+        id: `stockpile.move.${selection.id}`,
+        label: "Move Scientist Here",
+        group: "Movement",
+        disabledReason: scientistMoveBlockReason(roomId, { allowMultiRoom: true }),
+        description: `Queue movement to ${roomName(roomId)} before working with these supplies.`,
+        run: () => startScientistMove(roomId, { allowMultiRoom: true })
+      }));
     }
     return commands;
   }
@@ -29600,6 +30051,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return `Previous observation at ${formatClock(observation.observedAt)}: ${observation.exposureBand}; contamination ${observation.contaminationBand}; reliability ${reliability}`;
   }
 
+  function stockpileSelectionEntries(selection) {
+    const roomId = selection?.roomId || "";
+    if (!roomId) {
+      return [];
+    }
+    const focus = stockpileSelectionFocusDef(selection);
+    const entries = knownSupplyEntriesForRoom(roomId);
+    if (focus.type === "resource") {
+      return entries.filter((entry) =>
+        (entry.type === "resource" && entry.key === focus.key)
+        || (focus.key === "waste" && entry.type === "pitContents")
+      );
+    }
+    if (focus.type === "inventoryCategory") {
+      const wantedType = focus.key === "tools" ? "tool" : "inventory";
+      return entries.filter((entry) => entry.type === wantedType);
+    }
+    if (focus.type === "collectedByproducts") {
+      return entries.filter((entry) => entry.type === "byproduct");
+    }
+    if (focus.type === "specimenMaterials") {
+      return entries.filter((entry) => entry.type === "specimen");
+    }
+    return entries;
+  }
+
+  function stockpileSelectionAmountText(selection) {
+    const entries = stockpileSelectionEntries(selection);
+    if (!entries.length) {
+      return "None known";
+    }
+    return entries
+      .map((entry) => `${entry.label}: ${entry.amountText}`)
+      .join("; ");
+  }
+
   function selectionSummaryRows(selection) {
     const rows = [
       ["Type", selectionKindLabel(selection)],
@@ -29659,6 +30146,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["Due", formatClock(task.dueAt)]);
         rows.push(["Route", taskPathSummary(task)]);
       }
+    } else if (selection.kind === "collectionStation") {
+      const info = collectionStationSelectionInfo(selection);
+      if (info) {
+        rows.push(["Status", info.status]);
+        rows.push(["Output", info.material || "Unresolved"]);
+        rows.push(["Receptacle", info.station ? `${formatCollectionAmount(info.station.receptacle.amount)} / ${formatCollectionAmount(info.station.receptacle.capacity)} ${info.station.receptacle.label}` : "No receptacle configured"]);
+      }
+    } else if (selection.kind === "stockpile") {
+      const focus = stockpileSelectionFocusDef(selection);
+      rows.push(["Focus", focus.label]);
+      rows.push(["Known supplies", stockpileSelectionAmountText(selection)]);
     }
     return rows;
   }
@@ -29809,6 +30307,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Remaining", formatDuration(Math.max(0, task.dueAt - state.clock))]
       ];
     }
+    if (selection.kind === "collectionStation") {
+      const info = collectionStationSelectionInfo(selection);
+      if (!info) {
+        return [];
+      }
+      return [
+        ["Container", info.container?.name || "Unknown container"],
+        ["Room", roomName(info.container?.roomId)],
+        ["Status", info.status],
+        ["Output", info.material || "Unresolved"],
+        ["Rate", info.outputLabel],
+        ["Method", info.method?.label || "Unclear"],
+        ["Support", info.support?.label || "Unclear"],
+        ["Receptacle", info.station ? `${formatCollectionAmount(info.station.receptacle.amount)} / ${formatCollectionAmount(info.station.receptacle.capacity)} ${info.station.receptacle.label}` : "No receptacle configured"],
+        ["Overflow", info.station ? `${formatCollectionAmount(info.station.overflow.amount)} / ${formatCollectionAmount(info.station.overflow.capacity)} apparatus buffer` : "No overflow buffer configured"],
+        ["Sources", info.sourceMaterials?.length ? info.sourceMaterials.join(", ") : "None"],
+        ["Specimens", info.occupants?.length ? info.occupants.map((slime) => slime.name).join(", ") : "No active specimen"]
+      ];
+    }
+    if (selection.kind === "stockpile") {
+      const focus = stockpileSelectionFocusDef(selection);
+      const entries = stockpileSelectionEntries(selection);
+      return [
+        ["Room", roomName(selection.roomId)],
+        ["Focus", focus.label],
+        ["Known supplies", entries.length ? entries.map((entry) => `${entry.label}: ${entry.amountText}`).join("; ") : "None known"],
+        ["Source", entries.length ? [...new Set(entries.map((entry) => entry.source || "Known inventory"))].join("; ") : "Last inventoried stockpile"],
+        ["Inventory state", "Prototype values update exactly; future interference may make this stale"]
+      ];
+    }
     return [];
   }
 
@@ -29903,10 +30431,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function selectionKnownSuppliesPanelEl(selection) {
     const roomId = selectionRoomId(selection);
-    if (!roomId || !["room", "tile"].includes(selection?.kind)) {
+    if (!roomId || !["room", "tile", "stockpile"].includes(selection?.kind)) {
       return null;
     }
-    const entries = knownSupplyEntriesForRoom(roomId);
+    const entries = selection?.kind === "stockpile"
+      ? stockpileSelectionEntries(selection)
+      : knownSupplyEntriesForRoom(roomId);
     const panel = document.createElement("div");
     panel.className = "selection-inspector-section selection-known-supplies";
     panel.dataset.selectionKnownSupplies = roomId;
@@ -30298,7 +30828,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
-  function mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, scientistHere, cell }) {
+  function mapTileClickTarget({ roomId, door, objectEntry, incidentEntry, overlayEntry, plannedEntry, scientistHere, cell }) {
     const incidents = incidentEntry?.alerts || [];
     if (incidents.length) {
       const incident = [...incidents].sort((a, b) => incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity) || a.createdAt - b.createdAt)[0];
@@ -30312,6 +30842,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (synthesisTubeTarget) {
       return synthesisTubeTarget;
     }
+    const collectionStationTarget = targets.find((candidate) => candidate.kind === "collectionStation");
+    if (collectionStationTarget) {
+      return collectionStationTarget;
+    }
     const priority = ["slime", "corpse", "container"];
     for (const kind of priority) {
       const target = targets.find((candidate) => candidate.kind === kind);
@@ -30321,6 +30855,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (door) {
       return { kind: "door", key: door.key, roomIds: door.roomIds };
+    }
+    if (overlayEntry?.target) {
+      return overlayEntry.target;
+    }
+    if (plannedEntry?.task?.id) {
+      return { kind: "task", id: plannedEntry.task.id };
     }
     if (roomId) {
       return { kind: "room", roomId };
@@ -30501,7 +31041,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const visiblePlannedEntry = visible ? plannedEntry : null;
     const visibleDraftEntry = visible ? draftEntry : null;
     const visibleOverlayEntry = visible ? overlayEntry : null;
-    const clickTarget = visible ? mapTileClickTarget({ roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, scientistHere, cell }) : null;
+    const clickTarget = visible ? mapTileClickTarget({ roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, overlayEntry: visibleOverlayEntry, plannedEntry: visiblePlannedEntry, scientistHere, cell }) : null;
     const base = labMapCellBaseView(roomId, visiblePlannedEntry, visibleDraftEntry, visible);
     const semanticDoor = door ? {
       key: door.key,
@@ -30537,13 +31077,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       source: visibleOverlayEntry.source || "",
       value: visibleOverlayEntry.value ?? null,
       title: visibleOverlayEntry.title || "",
-      styleTokens: [...(visibleOverlayEntry.classNames || [])]
+      styleTokens: [...(visibleOverlayEntry.classNames || [])],
+      target: visibleOverlayEntry.target || null
     } : null;
     const anchor = anchorRoom ? {
       roomId: anchorRoom.roomId,
       abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
     } : null;
-    const selected = visible && selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, scientistHere });
+    const selected = visible && selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, overlayEntry: visibleOverlayEntry, scientistHere });
     const cursor = visible && Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
     const tooltipParts = visible
       ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry)

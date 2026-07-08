@@ -12,53 +12,12 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Audit All Map Elements for Contextual Actions
-2. Add Map Navigation Smoke Tests
-3. Black Market Byproduct Economy System
+1. Add Map Navigation Smoke Tests
+2. Black Market Byproduct Economy System
 
 ---
 
-## 1. Audit All Map Elements for Contextual Actions
-
-Audit every selectable map element and add all relevant contextual actions.
-
-The map is becoming the main interface surface. Anything the player can click should either expose useful commands, explain why no commands are available, or route the player to the correct menu. This audit should prevent important systems from becoming hidden behind old panel assumptions.
-
-This system should cover map elements such as:
-- doors
-- containers
-- pits
-- collection stations
-- synthesis tube
-- storage objects
-- loose creatures
-- contained creatures
-- corpses
-- incidents
-- construction and dig designations
-- byproduct receptacles
-- stockpiles
-- room tiles
-- tools and movable objects
-- any other selectable entity currently represented on the map
-
-This system should answer questions like:
-- What is the most likely entity of interest on crowded tiles?
-- Which actions belong directly in the contextual command panel?
-- Which actions should open a management menu instead?
-- How should disabled commands explain their requirements?
-- Which map elements should have inspect-only behavior?
-- Which actions should queue scientist tasks?
-- Which actions should be immediate UI actions?
-- Should debug-only actions appear when debug mode is enabled?
-
-The desired result is a consistent map interaction model where selectable things have meaningful contextual commands and status readouts.
-
-Before coding, discuss prioritization rules, action categories, disabled reasons, queueing behavior, and how much of the full audit should happen in one implementation pass.
-
----
-
-## 2. Add Map Navigation Smoke Tests
+## 1. Add Map Navigation Smoke Tests
 
 Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
 
@@ -78,7 +37,7 @@ Before coding, discuss the most valuable smoke paths, test stability concerns, a
 
 ---
 
-## 3. Black Market Byproduct Economy System
+## 2. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

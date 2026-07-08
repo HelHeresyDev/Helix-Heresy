@@ -28,7 +28,7 @@ async function openCollectionStations(page) {
 
 async function openSelectedContainerActions(page, containerId) {
   await page.locator('[data-workspace-tab="map"]').click();
-  await page.locator(`[data-map-target-kind="container"][data-map-target-id="${containerId}"]`).first().click();
+  await page.locator(`[data-map-target-id="${containerId}"]`).first().click();
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
   return page.locator('[data-context-command-panel="true"]');

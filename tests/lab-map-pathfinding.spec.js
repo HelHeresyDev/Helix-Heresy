@@ -1783,6 +1783,90 @@ test('synthesis tube selection exposes status and contextual actions', async ({ 
   await expect(commandPanel).toContainText('Move Occupant to Open Container');
 });
 
+test('resource overlay stockpiles are selectable and route to stores', async ({ page }) => {
+  await startRun(page);
+
+  await selectMapOverlay(page, 'resources');
+  const stockpileTile = page.locator('[data-map-target-kind="stockpile"][data-map-target-id="storageRoom:resource:biomass"]').first();
+  await expect(stockpileTile).toBeVisible();
+  await stockpileTile.click();
+
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'stockpile');
+  await expect(inspector).toHaveAttribute('data-selection-id', 'storageRoom:resource:biomass');
+  await expect(inspector).toContainText('Known supplies');
+  await expect(inspector).toContainText('Biomass');
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const panel = page.locator('[data-context-command-panel="true"]');
+  await expect(panel).toContainText('Open Room Stockpiles');
+  await expect(panel).toContainText('Open Biomass');
+  await panel.getByRole('button', { name: 'Open Room Stockpiles' }).click();
+  await expect(page.locator('[data-workspace-tab="resources"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-stores-menu-tab="rooms"]')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('collection station map selection exposes station commands', async ({ page }) => {
+  await startRun(page);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const tank = (state.containers || []).find((container) => container.id === 'basic-10');
+    if (!tank) {
+      throw new Error('Expected starter specimen drainage tank was not found');
+    }
+    tank.name = 'Transfer Drainage Tank';
+    tank.typeId = 'specimenDrainageTank';
+    tank.roomId = 'collectionBay';
+    tank.mapCell = null;
+    state.scientist ||= {};
+    state.scientist.roomId = 'collectionBay';
+    state.scientist.mapCell = null;
+    state.slimes = [];
+    state.tasks = [];
+    state.collectionBay = {
+      stations: {
+        'basic-10': {
+          containerId: 'basic-10',
+          material: 'acid droplets',
+          methodType: 'drip',
+          receptacle: { label: 'sealed collection jar', amount: 4, capacity: 10 },
+          overflow: { amount: 3, capacity: 3 },
+          sourceMaterials: ['acid droplets'],
+          sourceSlimes: ['TRANSFER-ACID'],
+        },
+      },
+    };
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page, { restoreSelectedSlime: false });
+
+  const stationTile = page.locator('[data-map-target-kind="collectionStation"][data-map-target-id="basic-10"]').first();
+  await expect(stationTile).toBeVisible();
+  await stationTile.click();
+
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'collectionStation');
+  await expect(inspector).toHaveAttribute('data-selection-id', 'basic-10');
+  await expect(inspector).toContainText('acid droplets');
+  await expect(inspector).toContainText('Receptacle');
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const panel = page.locator('[data-context-command-panel="true"]');
+  await expect(panel).toContainText('Transfer Receptacle');
+  await expect(panel).toContainText('Open Collection Stations');
+  await panel.getByRole('button', { name: 'Transfer Receptacle' }).click();
+
+  const transferTask = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return (state.tasks || []).find((task) => task.type === 'collectionBayTransfer') || null;
+  }, { key: storageKey });
+  expect(transferTask).toBeTruthy();
+  expect(transferTask.label).toBe('Transfer Transfer Drainage Tank receptacle');
+});
+
 test('contextual commands operate on selected doors and rooms', async ({ page }) => {
   await startRun(page);
 
