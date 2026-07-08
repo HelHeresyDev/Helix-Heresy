@@ -90,6 +90,8 @@
   const LAB_MAP_VIEWPORT_PADDING_CELLS = 2;
   const LAB_MAP_ZOOM_LEVELS = [8, 10, 12, 14, 16, 20, 24];
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
+  const LAB_MAP_PAN_PIXELS_PER_SECOND = 420;
+  const LAB_MAP_FAST_PAN_PIXELS_PER_SECOND = 900;
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
@@ -2118,6 +2120,12 @@
   let lastTickAt = Date.now();
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
+  const heldMapPanKeys = new Set();
+  let mapPanAnimationFrame = 0;
+  let mapPanLastFrameAt = 0;
+  let mapPanCarryX = 0;
+  let mapPanCarryY = 0;
+  let mapPanShiftHeld = false;
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
@@ -2172,10 +2180,10 @@
     { key: "F", label: "Foundry", workspaceTab: "foundry" },
     { key: "T", label: "Tasks", workspaceTab: "tasks", menuPath: "tasks" },
     { key: "C", label: "Creatures", workspaceTab: "specimens", menuPath: "creatures" },
-    { key: "S", label: "Stores", workspaceTab: "resources", menuPath: "stores" },
+    { key: "I", label: "Stores", workspaceTab: "resources", menuPath: "stores" },
     { key: "P", label: "Policies", workspaceTab: "policies", menuPath: "policies" },
     { key: "R", label: "Records", workspaceTab: "journal", menuPath: "records" },
-    { key: "D", label: "Debug", workspaceTab: "cheats", menuPath: "debug", debugOnly: true }
+    { key: "G", label: "Debug", workspaceTab: "cheats", menuPath: "debug", debugOnly: true }
   ];
   const WORKSPACE_KEY_BY_KEY = Object.fromEntries(WORKSPACE_KEY_DEFS.map((entry) => [entry.key.toLowerCase(), entry]));
   const KEYBOARD_MENU_DEFS = {
@@ -2194,7 +2202,7 @@
       items: [
         { key: "L", label: "Living", workspaceTab: "specimens", tabKind: "creatures", tabId: "living" },
         { key: "U", label: "Unknown", workspaceTab: "specimens", tabKind: "creatures", tabId: "unknown" },
-        { key: "D", label: "Deceased", workspaceTab: "specimens", tabKind: "creatures", tabId: "deceased" },
+        { key: "E", label: "Deceased", workspaceTab: "specimens", tabKind: "creatures", tabId: "deceased" },
         { key: "J", label: "Jobs", workspaceTab: "specimens", tabKind: "creatures", tabId: "jobs" },
         { key: "G", label: "Lineage", workspaceTab: "specimens", tabKind: "creatures", tabId: "lineage" },
         { key: "T", label: "Testing", workspaceTab: "specimens", tabKind: "creatures", tabId: "testing" },
@@ -2202,7 +2210,7 @@
       ]
     },
     stores: {
-      key: "S",
+      key: "I",
       label: "Stores",
       items: [
         { key: "O", label: "Overview", workspaceTab: "resources", tabKind: "stores", tabId: "overview" },
@@ -2212,7 +2220,7 @@
         { key: "T", label: "Tools & Supplies", workspaceTab: "resources", tabKind: "stores", tabId: "tools" },
         { key: "R", label: "Room Stockpiles", workspaceTab: "resources", tabKind: "stores", tabId: "rooms" },
         { key: "C", label: "Collection Stations", workspaceTab: "resources", tabKind: "stores", tabId: "stations" },
-        { key: "S", label: "Scientist", workspaceTab: "resources", tabKind: "stores", tabId: "scientist" }
+        { key: "N", label: "Scientist", workspaceTab: "resources", tabKind: "stores", tabId: "scientist" }
       ]
     },
     policies: {
@@ -2222,9 +2230,9 @@
         { key: "O", label: "Overview", workspaceTab: "policies", tabKind: "policies", tabId: "overview" },
         { key: "H", label: "Handling", workspaceTab: "policies", tabKind: "policies", tabId: "handling" },
         { key: "C", label: "Corpses", workspaceTab: "policies", tabKind: "policies", tabId: "corpses" },
-        { key: "D", label: "Doors", workspaceTab: "policies", tabKind: "policies", tabId: "doors" },
+        { key: "R", label: "Doors", workspaceTab: "policies", tabKind: "policies", tabId: "doors" },
         { key: "F", label: "Feeding", workspaceTab: "policies", tabKind: "policies", tabId: "feeding" },
-        { key: "A", label: "Automation", workspaceTab: "policies", tabKind: "policies", tabId: "automation" }
+        { key: "U", label: "Automation", workspaceTab: "policies", tabKind: "policies", tabId: "automation" }
       ]
     },
     records: {
@@ -2236,12 +2244,12 @@
       ]
     },
     debug: {
-      key: "D",
+      key: "G",
       label: "Debug",
       debugOnly: true,
       items: [
         { key: "C", label: "Cheats", workspaceTab: "cheats", tabKind: "debug", tabId: "cheats" },
-        { key: "A", label: "AI Debug", workspaceTab: "cheats", tabKind: "debug", tabId: "ai" }
+        { key: "I", label: "AI Debug", workspaceTab: "cheats", tabKind: "debug", tabId: "ai" }
       ]
     }
   };
@@ -2251,16 +2259,16 @@
     tasks: "T",
     specimens: "C",
     containers: "C C",
-    resources: "S",
+    resources: "I",
     policies: "P",
     journal: "R J",
     log: "R M",
-    cheats: "D"
+    cheats: "G"
   };
   const CREATURE_RECORD_TAB_HOTKEYS = {
     living: "C L",
     unknown: "C U",
-    deceased: "C D",
+    deceased: "C E",
     jobs: "C J",
     lineage: "C G",
     testing: "C T"
@@ -2271,26 +2279,26 @@
     completed: "T C"
   };
   const STORE_MENU_TAB_HOTKEYS = {
-    overview: "S O",
-    materials: "S M",
-    byproducts: "S B",
-    specimens: "S P",
-    tools: "S T",
-    rooms: "S R",
-    stations: "S C",
-    scientist: "S S"
+    overview: "I O",
+    materials: "I M",
+    byproducts: "I B",
+    specimens: "I P",
+    tools: "I T",
+    rooms: "I R",
+    stations: "I C",
+    scientist: "I N"
   };
   const POLICY_MENU_TAB_HOTKEYS = {
     overview: "P O",
     handling: "P H",
     corpses: "P C",
-    doors: "P D",
+    doors: "P R",
     feeding: "P F",
-    automation: "P A"
+    automation: "P U"
   };
   const DEBUG_MENU_TAB_HOTKEYS = {
-    cheats: "D C",
-    ai: "D A"
+    cheats: "G C",
+    ai: "G I"
   };
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
@@ -3366,6 +3374,8 @@
     });
 
     document.addEventListener("keydown", handleKeyboardShortcut);
+    document.addEventListener("keyup", handleKeyboardKeyup);
+    window.addEventListener("blur", clearHeldMapPanKeys);
 
     dom.exportFileBtn.addEventListener("click", () => {
       downloadSave();
@@ -3388,10 +3398,184 @@
     if (handleMapZoomShortcut(event)) {
       return;
     }
+    if (handleMapPanKeydown(event)) {
+      return;
+    }
     if (handleMenuKeyboardShortcut(event)) {
       return;
     }
     handleMapKeyboardShortcut(event);
+  }
+
+  function handleKeyboardKeyup(event) {
+    if (event.key === "Shift") {
+      mapPanShiftHeld = false;
+    }
+    const panKey = mapPanKeyForEvent(event);
+    if (!panKey || !heldMapPanKeys.has(panKey)) {
+      return;
+    }
+    heldMapPanKeys.delete(panKey);
+    event.preventDefault();
+    if (!heldMapPanKeys.size) {
+      stopMapPanLoop();
+      persist();
+    }
+  }
+
+  function mapPanKeyForEvent(event) {
+    const key = String(event.key || "").toLowerCase();
+    return ["w", "a", "s", "d"].includes(key) ? key : "";
+  }
+
+  function mapPanDeltaForKey(key) {
+    const deltas = {
+      w: { dx: 0, dy: -1 },
+      a: { dx: -1, dy: 0 },
+      s: { dx: 0, dy: 1 },
+      d: { dx: 1, dy: 0 }
+    };
+    return deltas[key] || null;
+  }
+
+  function handleMapPanKeydown(event) {
+    if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started || currentWorkspaceTab() !== "map") {
+      return false;
+    }
+    const panKey = mapPanKeyForEvent(event);
+    if ((event.ctrlKey || event.metaKey || event.altKey) && panKey) {
+      return false;
+    }
+    if (!panKey) {
+      if (event.key === "Shift") {
+        mapPanShiftHeld = true;
+      }
+      return false;
+    }
+    event.preventDefault();
+    mapPanShiftHeld = Boolean(event.shiftKey);
+    const wasHeld = heldMapPanKeys.has(panKey);
+    heldMapPanKeys.add(panKey);
+    if (!wasHeld) {
+      const delta = mapPanDeltaForKey(panKey);
+      const step = mapPanShiftHeld ? 3 : 1;
+      panMapCamera(delta.dx * step, delta.dy * step, { persist: false, render: true });
+    }
+    startMapPanLoop();
+    return true;
+  }
+
+  function startMapPanLoop() {
+    if (mapPanAnimationFrame) {
+      return;
+    }
+    mapPanLastFrameAt = 0;
+    mapPanAnimationFrame = window.requestAnimationFrame(stepMapPanLoop);
+  }
+
+  function stopMapPanLoop() {
+    if (mapPanAnimationFrame) {
+      window.cancelAnimationFrame(mapPanAnimationFrame);
+    }
+    mapPanAnimationFrame = 0;
+    mapPanLastFrameAt = 0;
+    mapPanCarryX = 0;
+    mapPanCarryY = 0;
+  }
+
+  function clearHeldMapPanKeys() {
+    if (!heldMapPanKeys.size && !mapPanAnimationFrame) {
+      return;
+    }
+    heldMapPanKeys.clear();
+    mapPanShiftHeld = false;
+    stopMapPanLoop();
+    if (state?.started) {
+      persist();
+    }
+  }
+
+  function mapPanVectorFromHeldKeys() {
+    let dx = 0;
+    let dy = 0;
+    for (const key of heldMapPanKeys) {
+      const delta = mapPanDeltaForKey(key);
+      if (!delta) {
+        continue;
+      }
+      dx += delta.dx;
+      dy += delta.dy;
+    }
+    if (!dx && !dy) {
+      return null;
+    }
+    const magnitude = Math.hypot(dx, dy) || 1;
+    return {
+      dx: dx / magnitude,
+      dy: dy / magnitude
+    };
+  }
+
+  function mapPanCellsPerSecond() {
+    const viewport = mapViewportForUi(ensureLabMap());
+    const pixelsPerSecond = mapPanShiftHeld ? LAB_MAP_FAST_PAN_PIXELS_PER_SECOND : LAB_MAP_PAN_PIXELS_PER_SECOND;
+    return pixelsPerSecond / Math.max(1, viewport.tilePx);
+  }
+
+  function mapPanIntegerStep(value) {
+    return value < 0 ? Math.ceil(value) : Math.floor(value);
+  }
+
+  function stepMapPanLoop(now) {
+    if (!heldMapPanKeys.size || !state?.started || currentWorkspaceTab() !== "map") {
+      clearHeldMapPanKeys();
+      return;
+    }
+    if (!mapPanLastFrameAt) {
+      mapPanLastFrameAt = now;
+    }
+    const elapsedSeconds = clamp((now - mapPanLastFrameAt) / 1000, 0, 0.12);
+    mapPanLastFrameAt = now;
+    const vector = mapPanVectorFromHeldKeys();
+    if (vector) {
+      const cells = mapPanCellsPerSecond() * elapsedSeconds;
+      mapPanCarryX += vector.dx * cells;
+      mapPanCarryY += vector.dy * cells;
+      const stepX = mapPanIntegerStep(mapPanCarryX);
+      const stepY = mapPanIntegerStep(mapPanCarryY);
+      if (stepX || stepY) {
+        if (panMapCamera(stepX, stepY, { persist: false, render: true })) {
+          mapPanCarryX -= stepX;
+          mapPanCarryY -= stepY;
+        } else {
+          mapPanCarryX = 0;
+          mapPanCarryY = 0;
+        }
+      }
+    }
+    mapPanAnimationFrame = window.requestAnimationFrame(stepMapPanLoop);
+  }
+
+  function panMapCamera(dx, dy, options = {}) {
+    const map = ensureLabMap();
+    const ui = ensureUiState();
+    const viewport = mapViewportForUi(map, ui);
+    const next = normalizeMapCamera({
+      x: viewport.x + dx,
+      y: viewport.y + dy
+    }, map, viewport.zoomIndex);
+    if (next.x === viewport.x && next.y === viewport.y) {
+      return false;
+    }
+    ui.mapCamera = next;
+    setActiveWorkspaceTab("map", { scroll: false });
+    if (options.persist !== false) {
+      persist();
+    }
+    if (options.render !== false) {
+      render();
+    }
+    return true;
   }
 
   function cleanKeyboardKey(event) {
@@ -3585,11 +3769,6 @@
     if (key === "Enter") {
       event.preventDefault();
       selectMapCursorTarget();
-      return true;
-    }
-    if (key.toLowerCase() === "a" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      openCommandMode();
       return true;
     }
     return false;
@@ -30457,7 +30636,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "Arrows move cursor/camera; +/- zoom; Enter selects; A opens commands; O cycles overlay; T/S/C/P/R/D open menus; ? help.";
+      : "WASD pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; T/I/C/P/R/G open menus; ? help.";
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
@@ -30673,15 +30852,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const list = document.createElement("div");
     list.className = "keyboard-help-list";
     const entries = [
+      ["WASD", "Pan the map camera."],
+      ["Shift+WASD", "Pan the map camera faster."],
       ["Arrow keys", "Move the map cursor."],
       ["+ / -", "Zoom the map in or out."],
       ["Mouse wheel", "Zoom the map while the cursor is over the map."],
       ["Enter", "Select the cursor target."],
-      ["A", "Open contextual commands for the selection."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
-      ["T/S/C/P/R/D", "Open Tasks, Stores, Creatures, Policies, Records, or Debug menus."],
-      ["Menu letters", "Choose visible submenu tabs such as T Q, S B, or P F."],
+      ["T/I/C/P/R/G", "Open Tasks, Stores, Creatures, Policies, Records, or Debug menus."],
+      ["Menu letters", "Choose visible submenu tabs such as T Q, I B, or P F."],
       ["1-9", "Choose visible commands while in command mode."],
       ["Esc", "Cancel command mode; press again to clear selection."],
       ["?", "Toggle this help."],

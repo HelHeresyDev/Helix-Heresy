@@ -12,37 +12,16 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Add WASD Map Movement
-2. Add Middle-Mouse Drag Panning
-3. Audit Map Hotkey Conflicts
-4. Add Synthesis Tube Contextual Actions
-5. Audit All Map Elements for Contextual Actions
-6. Add Map Navigation Smoke Tests
-7. Black Market Byproduct Economy System
+1. Add Middle-Mouse Drag Panning
+2. Audit Map Hotkey Conflicts
+3. Add Synthesis Tube Contextual Actions
+4. Audit All Map Elements for Contextual Actions
+5. Add Map Navigation Smoke Tests
+6. Black Market Byproduct Economy System
 
 ---
 
-## 1. Add WASD Map Movement
-
-Allow the player to pan the map with WASD.
-
-The interface is moving toward a Dwarf Fortress / RimWorld style map-first control scheme. Keyboard map movement should feel natural, responsive, and avoid conflicting with existing menu hotkeys, time controls, command mode, and text input.
-
-This system should answer questions like:
-- Should WASD pan continuously while held or step one viewport chunk per keypress?
-- Should WASD work while management menus are open?
-- Should WASD be disabled while an input, dropdown, or text field is focused?
-- Should arrow keys also pan the map?
-- How fast should keyboard panning move relative to tile size?
-- Should Shift, Ctrl, or Alt modify pan speed?
-
-The desired result is comfortable keyboard map navigation that does not interfere with menu command chains or browser accessibility.
-
-Before coding, discuss key priority, focus rules, pan speed, and whether keyboard movement should be tile-based or smooth.
-
----
-
-## 2. Add Middle-Mouse Drag Panning
+## 1. Add Middle-Mouse Drag Panning
 
 Allow the player to pan the map by holding the middle mouse button and moving the mouse.
 
@@ -61,7 +40,7 @@ Before coding, discuss pointer behavior, browser-default suppression, cursor fee
 
 ---
 
-## 3. Audit Map Hotkey Conflicts
+## 2. Audit Map Hotkey Conflicts
 
 Audit current and planned keyboard controls for conflicts before adding more map navigation shortcuts.
 
@@ -82,7 +61,7 @@ Before coding, discuss global versus contextual hotkeys, focus rules, command ch
 
 ---
 
-## 4. Add Synthesis Tube Contextual Actions
+## 3. Add Synthesis Tube Contextual Actions
 
 Add relevant contextual actions when the synthesis tube is selected from the map.
 
@@ -102,7 +81,7 @@ Before coding, discuss which synthesis commands belong in the contextual panel, 
 
 ---
 
-## 5. Audit All Map Elements for Contextual Actions
+## 4. Audit All Map Elements for Contextual Actions
 
 Audit every selectable map element and add all relevant contextual actions.
 
@@ -142,7 +121,7 @@ Before coding, discuss prioritization rules, action categories, disabled reasons
 
 ---
 
-## 6. Add Map Navigation Smoke Tests
+## 5. Add Map Navigation Smoke Tests
 
 Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
 
@@ -162,7 +141,7 @@ Before coding, discuss the most valuable smoke paths, test stability concerns, a
 
 ---
 
-## 7. Black Market Byproduct Economy System
+## 6. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 

@@ -1793,7 +1793,7 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
   expect(canceled.selection).toBeNull();
 });
 
-test('keyboard cursor selects map targets and command mode activates contextual commands', async ({ page }) => {
+test('keyboard cursor selects map targets and WASD pans the camera', async ({ page }) => {
   await startRun(page);
 
   const initial = await page.evaluate(({ key }) => {
@@ -1803,7 +1803,6 @@ test('keyboard cursor selects map targets and command mode activates contextual 
       cursor: state.ui.mapCursor,
       scientistCell: state.scientist.mapCell,
       timeSpeed: state.timeSpeed,
-      door: state.doors['mainLab::storageRoom'],
     };
   }, { key: storageKey });
   expect(initial.cursor).toEqual(initial.scientistCell);
@@ -1870,26 +1869,47 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   expect(uiState.selectedMapTarget).toBeNull();
 
   await page.locator('[data-map-door="mainLab::storageRoom"]').first().click();
-  await page.keyboard.press('A');
-  await expect(page.locator('[data-keyboard-mode="command"]')).toContainText('Command mode');
-  await expect(page.locator('[data-context-command-menu="true"]')).toBeVisible();
-  await expect(page.locator('[data-context-command-panel="true"]')).toHaveAttribute('data-command-mode', 'true');
-  const doorCommandLabel = initial.door.state === 'open' ? 'Close Door' : 'Open Door';
-  await expect(page.locator('[data-context-command-shortcut="1"]')).toContainText(doorCommandLabel);
-
-  await page.keyboard.press('1');
-  const commandResult = await page.evaluate(({ key }) => {
+  const beforePan = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return {
-      door: state.doors['mainLab::storageRoom'],
+      camera: state.ui.mapCamera,
+      cursor: state.ui.mapCursor,
       mode: state.ui.mode,
-      timeSpeed: state.timeSpeed,
+      commandMenuOpen: state.ui.commandMenuOpen,
     };
   }, { key: storageKey });
-  expect(commandResult.door.state).toBe(initial.door.state === 'open' ? 'closed' : 'open');
-  expect(commandResult.mode).toBe('navigation');
-  expect(commandResult.timeSpeed).toBe(initial.timeSpeed);
+  await page.keyboard.press('A');
+  const afterTapPan = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      camera: state.ui.mapCamera,
+      cursor: state.ui.mapCursor,
+      mode: state.ui.mode,
+      commandMenuOpen: state.ui.commandMenuOpen,
+    };
+  }, { key: storageKey });
+  expect(afterTapPan.camera.x).toBeLessThan(beforePan.camera.x);
+  expect(afterTapPan.camera.y).toBe(beforePan.camera.y);
+  expect(afterTapPan.cursor).toEqual(beforePan.cursor);
+  expect(afterTapPan.mode).toBe('navigation');
+  expect(afterTapPan.commandMenuOpen).toBe(false);
+  await expect(page.locator('[data-keyboard-mode="navigation"]')).toContainText('Navigation mode');
+
+  await page.keyboard.down('d');
+  await page.waitForTimeout(180);
+  await page.keyboard.up('d');
+  const afterHoldPan = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      camera: state.ui.mapCamera,
+      cursor: state.ui.mapCursor,
+    };
+  }, { key: storageKey });
+  expect(afterHoldPan.camera.x).toBeGreaterThan(afterTapPan.camera.x);
+  expect(afterHoldPan.cursor).toEqual(beforePan.cursor);
 
   await page.keyboard.press('3');
   let speedResult = await page.evaluate(({ key }) => {
@@ -1915,7 +1935,8 @@ test('keyboard cursor selects map targets and command mode activates contextual 
   await page.keyboard.press('Shift+/');
   await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
   await expect(page.locator('[data-keyboard-help="true"]')).toContainText('< / >');
-  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('T/S/C/P/R/D');
+  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('WASD');
+  await expect(page.locator('[data-keyboard-help="true"]')).toContainText('T/I/C/P/R/G');
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);
 });
@@ -1930,9 +1951,9 @@ test('letter key paths open management menus and nested tabs', async ({ page }) 
   await page.keyboard.press('B');
   await expect(page.locator('[data-task-menu-tab="blocked"]')).toHaveAttribute('aria-selected', 'true');
 
-  await page.keyboard.press('S');
+  await page.keyboard.press('I');
   await expect(page.locator('[data-workspace-tab="resources"]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('[data-stores-menu-tab="stations"]')).toHaveAttribute('data-hotkey', 'S C');
+  await expect(page.locator('[data-stores-menu-tab="stations"]')).toHaveAttribute('data-hotkey', 'I C');
   await page.keyboard.press('C');
   await expect(page.locator('[data-stores-menu-tab="stations"]')).toHaveAttribute('aria-selected', 'true');
 
@@ -1951,6 +1972,12 @@ test('letter key paths open management menus and nested tabs', async ({ page }) 
   await expect(page.locator('[data-workspace-tab="journal"]')).toHaveAttribute('aria-current', 'page');
   await page.keyboard.press('M');
   await expect(page.locator('[data-workspace-tab="log"]')).toHaveAttribute('aria-current', 'page');
+
+  await page.keyboard.press('G');
+  await expect(page.locator('[data-workspace-tab="cheats"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-debug-menu-tab="ai"]')).toHaveAttribute('data-hotkey', 'G I');
+  await page.keyboard.press('I');
+  await expect(page.locator('[data-debug-menu-tab="ai"]')).toHaveAttribute('aria-selected', 'true');
 
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
