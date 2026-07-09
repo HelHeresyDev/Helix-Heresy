@@ -801,7 +801,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   await expect(page.locator('[data-lab-map-panel="true"]')).toBeVisible();
   await expect(page.locator('#clockReadout')).toContainText('Day 1 00:00:00');
-  await expect(page.locator('#roomSummary')).toContainText('Blueprint: 100 x 100 m; 6 mapped rooms');
+  await expect(page.locator('#roomSummary')).toContainText('Blueprint: 100 x 100 m; 7 mapped rooms');
   await expect(page.locator('.lab-map-cell.object-cell').first()).toBeVisible();
 
   const initial = await page.evaluate(({ key }) => {

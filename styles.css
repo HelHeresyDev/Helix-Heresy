@@ -441,19 +441,23 @@ h2 {
   margin: 0.15rem 0 0;
 }
 
-.stores-menu-tabs {
+.stores-menu-tabs,
+.economy-menu-tabs {
   margin-bottom: 0.8rem;
 }
 
-.stores-menu-panel[hidden] {
+.stores-menu-panel[hidden],
+.economy-menu-panel[hidden] {
   display: none;
 }
 
-.stores-menu-body {
+.stores-menu-body,
+.economy-menu-body {
   display: block;
 }
 
 .stores-overview-list,
+.economy-menu-body .stores-overview-list,
 .room-stockpile-list,
 .collection-station-inventory-list,
 .scientist-condition-list {

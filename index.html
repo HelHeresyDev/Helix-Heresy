@@ -62,6 +62,10 @@
             <span class="workspace-category-label">Stores</span>
             <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
           </div>
+          <div class="workspace-tab-group" data-workspace-category="economy">
+            <span class="workspace-category-label">Economy</span>
+            <button class="workspace-tab" type="button" data-workspace-tab="economy">Black Market</button>
+          </div>
           <div class="workspace-tab-group" data-workspace-category="policy">
             <span class="workspace-category-label">Policy</span>
             <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
@@ -378,6 +382,33 @@
           </div>
         </section>
 
+        <section class="panel economy-panel scientist-panel" aria-labelledby="economyTitle" data-workspace-panel="economy">
+          <div class="panel-heading">
+            <div>
+              <h2 id="economyTitle">Black Market</h2>
+              <p id="economySummary">Illicit contact network</p>
+            </div>
+          </div>
+
+          <div id="economyMenuTabs" class="record-tabs economy-menu-tabs" role="tablist" aria-label="Black market sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-economy-menu-tab="overview">Overview <span id="economyOverviewBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="contacts">Contacts <span id="economyContactsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="deals">Deals <span id="economyDealsBadge" class="record-tab-badge">0</span></button>
+          </div>
+
+          <div class="economy-menu-body inventory-list">
+            <div class="economy-menu-panel" data-economy-menu-panel="overview" role="tabpanel">
+              <div id="economyOverviewList" class="stores-overview-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="contacts" role="tabpanel" hidden>
+              <div id="economyContactsList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="deals" role="tabpanel" hidden>
+              <div id="economyDealsList" class="inventory-list"></div>
+            </div>
+          </div>
+        </section>
+
         <section class="panel cheat-panel" aria-labelledby="cheatTitle" data-workspace-panel="cheats">
           <div class="panel-heading">
             <div>
@@ -409,6 +440,15 @@
                   <button id="resourceCommandBtn" type="button">Add Resource</button>
                 </div>
                 <p id="resourceCommandStatus" class="journal-meta">Use resource name plus amount, with optional room.</p>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-title">Black Market Cheat</div>
+                <div class="cheat-row">
+                  <input id="marketCommandInput" type="text" spellcheck="false" placeholder="byproduct acid droplets 10">
+                  <button id="marketCommandBtn" type="button">Apply</button>
+                </div>
+                <p id="marketCommandStatus" class="journal-meta">Use: money 100, reputation 25, trust contact-1 10, or byproduct smoke vapor 5.</p>
               </div>
 
               <div class="subpanel">

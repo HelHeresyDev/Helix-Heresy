@@ -12,30 +12,4 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Black Market Byproduct Economy System
-
----
-
-## 1. Black Market Byproduct Economy System
-
-Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
-
-The black market should make the lab's strange outputs economically meaningful. Natural byproducts, harvested specimen materials, corpses, preserved tissues, commissioned creatures, and services can eventually become sources of money, reputation, suspicion, and risk.
-
-This system should begin with byproducts because Collection Bay and byproduct coherence create a natural production pipeline. The market should care about what the substance is, how rare or dangerous it is, how pure or fresh it is, how much the buyer wants it, and how risky it is to move.
-
-The system should answer questions like:
-- Who buys slime byproducts and why?
-- How are prices determined?
-- How do rarity, danger, purity, output quality, and demand affect value?
-- How does selling affect black market reputation?
-- How does selling affect Suspicion?
-- How are commissions different from freeform sales?
-- How does the market avoid becoming a simple "sell all" button?
-- How does the UI keep deals readable and flavorful?
-
-The black market should feel illegal, useful, and dangerous. Selling weird substances should help fund the lab, but also create evidence trails, relationships, expectations, and exposure.
-
-The desired result is an economy foundation where byproducts and biological materials are not just stockpiles, but part of a growing illicit network that can later support commissions, reputation tiers, rare buyers, scams, raids, and story escalation.
-
-Before coding, discuss the market model, the first sellable goods, pricing philosophy, reputation, suspicion, and how much economy depth belongs in the first implementation.
+No pending prompts.

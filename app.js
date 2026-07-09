@@ -71,6 +71,7 @@
   const BEDROOM_ROOM_ID = "bedroom";
   const STORAGE_ROOM_ID = "storageRoom";
   const COLLECTION_BAY_ROOM_ID = "collectionBay";
+  const CONCEALED_EXIT_ROOM_ID = "concealedExit";
   const EXCAVATED_ROOM_ROLE = "excavated";
   const EXCAVATION_BASE_DURATION_MINUTES = 4;
   const EXCAVATION_MINUTES_PER_TILE = 6;
@@ -100,14 +101,16 @@
     [PITS_ROOM_ID]: { x: 58, y: 51, width: 11, height: 8 },
     [BEDROOM_ROOM_ID]: { x: 49, y: 55, width: 5, height: 4 },
     [STORAGE_ROOM_ID]: { x: 48, y: 40, width: 7, height: 5 },
-    [COLLECTION_BAY_ROOM_ID]: { x: 58, y: 45, width: 9, height: 6 }
+    [COLLECTION_BAY_ROOM_ID]: { x: 58, y: 45, width: 9, height: 6 },
+    [CONCEALED_EXIT_ROOM_ID]: { x: 43, y: 41, width: 4, height: 4 }
   };
   const LAB_MAP_DOOR_DEFS = [
     { roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], from: { x: 45, y: 50 }, to: { x: 46, y: 50 } },
     { roomIds: [STORAGE_ROOM_ID, MAIN_ROOM_ID], from: { x: 51, y: 44 }, to: { x: 51, y: 45 } },
     { roomIds: [BEDROOM_ROOM_ID, MAIN_ROOM_ID], from: { x: 51, y: 55 }, to: { x: 51, y: 54 } },
     { roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], from: { x: 58, y: 48 }, to: { x: 57, y: 48 } },
-    { roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], from: { x: 58, y: 53 }, to: { x: 57, y: 53 } }
+    { roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], from: { x: 58, y: 53 }, to: { x: 57, y: 53 } },
+    { roomIds: [CONCEALED_EXIT_ROOM_ID, STORAGE_ROOM_ID], from: { x: 46, y: 43 }, to: { x: 47, y: 43 } }
   ];
   const LAB_MAP_ROOM_ABBREVIATIONS = {
     [MAIN_ROOM_ID]: "ML",
@@ -115,7 +118,8 @@
     [PITS_ROOM_ID]: "PT",
     [BEDROOM_ROOM_ID]: "BD",
     [STORAGE_ROOM_ID]: "ST",
-    [COLLECTION_BAY_ROOM_ID]: "CB"
+    [COLLECTION_BAY_ROOM_ID]: "CB",
+    [CONCEALED_EXIT_ROOM_ID]: "EX"
   };
   const DOOR_POLICY_DEFS = [
     { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
@@ -263,6 +267,32 @@
         moisture: { current: 62, baseline: 62 },
         contamination: { current: 12, baseline: 12, recoveryPerHour: 0.55 },
         electricalCharge: { current: 9, baseline: 9 }
+      }
+    },
+    {
+      id: CONCEALED_EXIT_ROOM_ID,
+      name: "Concealed Exit",
+      articleName: "the Concealed Exit",
+      role: "labExit",
+      roleLabel: "Hidden surface access",
+      description: "A disguised service passage used for leaving the underground lab without passing through obvious public routes.",
+      geometry: {
+        shape: "narrow access chamber",
+        lengthM: 4,
+        widthM: 4,
+        heightM: 2.4,
+        floorAreaM2: 16,
+        volumeM3: 38,
+        notes: "concealed hatch, crates, and cramped surface approach"
+      },
+      connections: [STORAGE_ROOM_ID],
+      attributes: {
+        temperature: { current: 44, baseline: 44 },
+        light: { current: 10, baseline: 10 },
+        ambientMana: { current: 22, baseline: 22 },
+        moisture: { current: 36, baseline: 36 },
+        contamination: { current: 5, baseline: 5, recoveryPerHour: 0.65 },
+        electricalCharge: { current: 3, baseline: 3 }
       }
     }
   ];
@@ -1543,6 +1573,41 @@
     "ether mist": "vapor",
     "warm tar": "sludge"
   };
+  const BLACK_MARKET_STARTING_CONTACTS = 3;
+  const BLACK_MARKET_DEALS_PER_CONTACT = 2;
+  const BLACK_MARKET_TRADE_STAMINA = 4;
+  const BLACK_MARKET_TRADE_BASE_SECONDS = minutesToSeconds(75);
+  const BLACK_MARKET_TRADE_AMOUNT_SECONDS = minutesToSeconds(4);
+  const BLACK_MARKET_REPUTATION_MAX = 1000;
+  const BLACK_MARKET_TRUST_MAX = 100;
+  const BLACK_MARKET_BYPRODUCT_LABELS = [...new Set(Object.values(BYPRODUCT_POOLS_BY_ELEMENT).flat())].sort();
+  const BLACK_MARKET_RISK_BANDS = [
+    { id: "low", label: "Low", maxChance: 0.08 },
+    { id: "moderate", label: "Moderate", maxChance: 0.18 },
+    { id: "high", label: "High", maxChance: 0.32 },
+    { id: "severe", label: "Severe", maxChance: Infinity }
+  ];
+  const BLACK_MARKET_REPUTATION_BANDS = [
+    { min: 300, label: "Known Operator" },
+    { min: 120, label: "Useful Rumor" },
+    { min: 35, label: "Whispered Supplier" },
+    { min: 1, label: "Unknown Seller" },
+    { min: -Infinity, label: "No Reputation" }
+  ];
+  const BLACK_MARKET_CONTACT_ARCHETYPES = [
+    { id: "backAlleyApothecary", label: "Back-alley Apothecary", tags: ["toxic", "medical", "sludge"], risk: "cautious" },
+    { id: "graveBroker", label: "Grave Broker", tags: ["organic", "decay", "dry"], risk: "steady" },
+    { id: "occultFactor", label: "Occult Factor", tags: ["arcane", "vapor", "glow"], risk: "cautious" },
+    { id: "industrialSmuggler", label: "Industrial Smuggler", tags: ["corrosive", "solvent", "metal"], risk: "reckless" },
+    { id: "nobleRetainer", label: "Noble Retainer", tags: ["rare", "clean", "glow"], risk: "steady" }
+  ];
+  const BLACK_MARKET_RISK_PROFILES = {
+    cautious: { label: "Cautious", chanceMod: -0.03, payoutMod: 0.9 },
+    steady: { label: "Steady", chanceMod: 0, payoutMod: 1 },
+    reckless: { label: "Reckless", chanceMod: 0.08, payoutMod: 1.18 }
+  };
+  const BLACK_MARKET_FIRST_NAMES = ["Vey", "Mara", "Corvin", "Ilen", "Sable", "Orra", "Lucan", "Nix", "Bryn", "Tamsin", "Calder", "Ysra"];
+  const BLACK_MARKET_LAST_NAMES = ["Blackglass", "Vell", "Underhook", "Mire", "Ashen", "Lowbell", "Cask", "Noct", "Thorn", "Harrow", "Grin", "Vale"];
   const ENVIRONMENTAL_SUSTENANCE_DEFS = [
     {
       id: "heat",
@@ -2129,7 +2194,7 @@
   let mapPanCarryY = 0;
   let mapPanShiftHeld = false;
   let mapDragState = null;
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "policies", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
     { id: "living", label: "Living" },
@@ -2162,6 +2227,13 @@
   ];
   const STORE_MENU_TAB_BY_ID = Object.fromEntries(STORE_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_STORE_MENU_TAB = "overview";
+  const ECONOMY_MENU_TAB_DEFS = [
+    { id: "overview", label: "Overview" },
+    { id: "contacts", label: "Contacts" },
+    { id: "deals", label: "Deals" }
+  ];
+  const ECONOMY_MENU_TAB_BY_ID = Object.fromEntries(ECONOMY_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_ECONOMY_MENU_TAB = "overview";
   const POLICY_MENU_TAB_DEFS = [
     { id: "overview", label: "Overview" },
     { id: "handling", label: "Handling" },
@@ -2184,6 +2256,7 @@
     { key: "T", label: "Tasks", workspaceTab: "tasks", menuPath: "tasks" },
     { key: "C", label: "Creatures", workspaceTab: "specimens", menuPath: "creatures" },
     { key: "I", label: "Stores", workspaceTab: "resources", menuPath: "stores" },
+    { key: "B", label: "Black Market", workspaceTab: "economy", menuPath: "economy" },
     { key: "P", label: "Policies", workspaceTab: "policies", menuPath: "policies" },
     { key: "R", label: "Records", workspaceTab: "journal", menuPath: "records" },
     { key: "G", label: "Debug", workspaceTab: "cheats", menuPath: "debug", debugOnly: true }
@@ -2226,6 +2299,15 @@
         { key: "N", label: "Scientist", workspaceTab: "resources", tabKind: "stores", tabId: "scientist" }
       ]
     },
+    economy: {
+      key: "B",
+      label: "Black Market",
+      items: [
+        { key: "O", label: "Overview", workspaceTab: "economy", tabKind: "economy", tabId: "overview" },
+        { key: "C", label: "Contacts", workspaceTab: "economy", tabKind: "economy", tabId: "contacts" },
+        { key: "L", label: "Deals", workspaceTab: "economy", tabKind: "economy", tabId: "deals" }
+      ]
+    },
     policies: {
       key: "P",
       label: "Policies",
@@ -2263,6 +2345,7 @@
     specimens: "C",
     containers: "C C",
     resources: "I",
+    economy: "B",
     policies: "P",
     journal: "R J",
     log: "R M",
@@ -2290,6 +2373,11 @@
     rooms: "I R",
     stations: "I C",
     scientist: "I N"
+  };
+  const ECONOMY_MENU_TAB_HOTKEYS = {
+    overview: "B O",
+    contacts: "B C",
+    deals: "B L"
   };
   const POLICY_MENU_TAB_HOTKEYS = {
     overview: "P O",
@@ -2348,6 +2436,7 @@
     "scientistMove",
     "containerInteraction",
     "collectionBayTransfer",
+    "blackMarketTrade",
     "physicalDiagnostic",
     "excavate",
     "rest"
@@ -2428,6 +2517,7 @@
       collectedByproductHistory: defaultCollectedByproductHistory(),
       specimenMaterials: defaultSpecimenMaterials(),
       collectionBay: defaultCollectionBayState(),
+      economy: defaultEconomyState(seed),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -2508,6 +2598,139 @@
     return { stations: {} };
   }
 
+  function defaultEconomyState(seed = "seed") {
+    const contacts = Array.from({ length: BLACK_MARKET_STARTING_CONTACTS }, (_entry, index) =>
+      createBlackMarketContact(seed, index + 1)
+    );
+    const economy = {
+      money: 0,
+      blackMarketReputation: 0,
+      contacts,
+      deals: [],
+      nextContactNumber: contacts.length + 1,
+      nextDealNumber: 1,
+      lastContactRefreshAt: 0
+    };
+    for (const contact of contacts) {
+      for (let slot = 0; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
+        economy.deals.push(createBlackMarketDeal(seed, contact, economy.nextDealNumber++, slot, 0, 0));
+      }
+    }
+    return economy;
+  }
+
+  function createBlackMarketContact(seed, number = 1) {
+    const rng = seedRng(`${seed}:black-market-contact:${number}`);
+    const archetype = BLACK_MARKET_CONTACT_ARCHETYPES[(number - 1) % BLACK_MARKET_CONTACT_ARCHETYPES.length];
+    const first = BLACK_MARKET_FIRST_NAMES[Math.floor(rng() * BLACK_MARKET_FIRST_NAMES.length)] || "Vey";
+    const last = BLACK_MARKET_LAST_NAMES[Math.floor(rng() * BLACK_MARKET_LAST_NAMES.length)] || "Vell";
+    const riskIds = Object.keys(BLACK_MARKET_RISK_PROFILES);
+    const riskProfile = archetype.risk || riskIds[Math.floor(rng() * riskIds.length)] || "steady";
+    return {
+      id: `contact-${number}`,
+      name: `${first} ${last}`,
+      archetype: archetype.id,
+      archetypeLabel: archetype.label,
+      trust: Math.round(6 + rng() * 8),
+      riskProfile,
+      preferredTags: [...archetype.tags],
+      discoveredAt: 0,
+      notes: `${archetype.label}; prefers ${archetype.tags.join(", ")} byproducts.`
+    };
+  }
+
+  function blackMarketByproductTags(label) {
+    const text = String(label || "").toLowerCase();
+    const tags = new Set([byproductCollectionType(text)]);
+    for (const [element, pool] of Object.entries(BYPRODUCT_POOLS_BY_ELEMENT)) {
+      if (pool.includes(text)) {
+        tags.add(element);
+      }
+    }
+    if (/acid|corrosive|solvent|dissolved/.test(text)) tags.add("corrosive");
+    if (/poison|numbing|contaminated|irritant|bitter/.test(text)) tags.add("toxic");
+    if (/mana|ether|glow|opalescent/.test(text)) tags.add("arcane");
+    if (/smoke|vapor|mist|fume|ozone/.test(text)) tags.add("vapor");
+    if (/water|clean|sterile|pale|cooling/.test(text)) tags.add("clean");
+    if (/metal|oxide|charged|static|flake|grease/.test(text)) tags.add("metal");
+    if (/silt|grit|crystal|salt|clay|dust|film|residue/.test(text)) tags.add("dry");
+    if (/mucus|gel|slime|sludge|paste|tar|resin|wax|foam|pulp/.test(text)) tags.add("sludge");
+    if (/corpse|decay|contaminated|bitter|dark|black/.test(text)) tags.add("decay");
+    if (/trace|inert|mucus|pulp|silt/.test(text)) tags.add("organic");
+    if (/mana|ether|acid|contaminated|opalescent|charged/.test(text)) tags.add("rare");
+    if (/numbing|brine|clean|sterile|glow/.test(text)) tags.add("medical");
+    return [...tags].filter(Boolean);
+  }
+
+  function blackMarketByproductUnitValue(label) {
+    const tags = new Set(blackMarketByproductTags(label));
+    let value = 8;
+    if (tags.has("corrosive")) value += 8;
+    if (tags.has("toxic")) value += 7;
+    if (tags.has("arcane")) value += 10;
+    if (tags.has("rare")) value += 5;
+    if (tags.has("clean")) value += 3;
+    if (tags.has("vapor")) value += 4;
+    if (tags.has("metal")) value += 4;
+    if (tags.has("dry")) value += 2;
+    return value;
+  }
+
+  function blackMarketMaterialPoolForContact(contact) {
+    const wanted = new Set(contact?.preferredTags || []);
+    const matches = BLACK_MARKET_BYPRODUCT_LABELS.filter((label) =>
+      blackMarketByproductTags(label).some((tag) => wanted.has(tag))
+    );
+    return matches.length ? matches : BLACK_MARKET_BYPRODUCT_LABELS;
+  }
+
+  function createBlackMarketDeal(seed, contact, number = 1, slot = 0, reputation = 0, clock = 0) {
+    const rng = seedRng(`${seed}:black-market-deal:${contact?.id || "contact"}:${number}:${slot}:${contact?.trust || 0}:${reputation}`);
+    const pool = blackMarketMaterialPoolForContact(contact);
+    const material = pool[Math.floor(rng() * pool.length)] || BLACK_MARKET_BYPRODUCT_LABELS[0] || "trace slime";
+    const tags = blackMarketByproductTags(material);
+    const amount = roundOutputValue(2 + rng() * 5 + Math.min(3, (Number(reputation) || 0) / 120));
+    const demand = 0.85 + rng() * 0.6;
+    const profile = BLACK_MARKET_RISK_PROFILES[contact?.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
+    const danger = tags.filter((tag) => ["corrosive", "toxic", "arcane", "rare", "vapor"].includes(tag)).length;
+    const payout = Math.max(1, Math.round(amount * blackMarketByproductUnitValue(material) * demand * profile.payoutMod * (1 + (Number(contact?.trust) || 0) / 260)));
+    const exposureChance = clamp(0.04 + danger * 0.035 + amount * 0.006 + profile.chanceMod - (Number(contact?.trust) || 0) / 800 - (Number(reputation) || 0) / 4000, 0.02, 0.55);
+    return {
+      id: `deal-${number}`,
+      contactId: contact?.id || "",
+      material,
+      tags,
+      amount,
+      payout,
+      exposureChance: roundOutputValue(exposureChance),
+      suspicionOnObserved: Math.max(1, Math.round(3 + danger * 2 + amount * 0.7)),
+      reputationGain: Math.max(1, Math.round(2 + danger + payout / 45)),
+      trustGain: Math.max(1, Math.round(1 + payout / 80)),
+      status: "open",
+      taskId: "",
+      createdAt: finiteTime(clock, 0),
+      completedAt: null,
+      flavor: blackMarketDealFlavor(contact, material, tags)
+    };
+  }
+
+  function blackMarketDealFlavor(contact, material, tags = []) {
+    const type = contact?.archetypeLabel || "Buyer";
+    if (tags.includes("toxic")) {
+      return `${type} needs carefully stoppered ${material}.`;
+    }
+    if (tags.includes("arcane")) {
+      return `${type} wants ${material} before it loses its charge.`;
+    }
+    if (tags.includes("corrosive")) {
+      return `${type} will pay extra if the ${material} arrives without eating through the wrapping.`;
+    }
+    if (tags.includes("vapor")) {
+      return `${type} requested sealed flasks of ${material}.`;
+    }
+    return `${type} is quietly buying ${material}.`;
+  }
+
   function defaultConstructionState() {
     return {
       nextRoomNumber: 1,
@@ -2538,6 +2761,7 @@
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
       taskMenuTab: DEFAULT_TASK_MENU_TAB,
       storeMenuTab: DEFAULT_STORE_MENU_TAB,
+      economyMenuTab: DEFAULT_ECONOMY_MENU_TAB,
       policyMenuTab: DEFAULT_POLICY_MENU_TAB,
       debugMenuTab: DEFAULT_DEBUG_MENU_TAB,
       messageFilter: DEFAULT_MESSAGE_FILTER,
@@ -2857,6 +3081,14 @@
       "storesToolsList",
       "roomStockpileList",
       "collectionStationInventoryList",
+      "economySummary",
+      "economyMenuTabs",
+      "economyOverviewBadge",
+      "economyContactsBadge",
+      "economyDealsBadge",
+      "economyOverviewList",
+      "economyContactsList",
+      "economyDealsList",
       "scientistConditionList",
       "skillList",
       "restFullBtn",
@@ -2873,6 +3105,9 @@
       "inventoryCommandInput",
       "inventoryCommandBtn",
       "inventoryCommandStatus",
+      "marketCommandInput",
+      "marketCommandBtn",
+      "marketCommandStatus",
       "debugMenuTabs",
       "aiDebugSummary",
       "aiDebugReadout",
@@ -3007,6 +3242,7 @@
       next.seed = cleanSeed(dom.seedInput.value) || makeSeed();
       next.journalMode = dom.journalModeSelect.value;
       next.complexity = dom.complexitySelect.value;
+      next.economy = defaultEconomyState(next.seed);
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
       geneMap = buildGeneMap(state.seed, state.complexity);
@@ -3099,6 +3335,16 @@
         return;
       }
       setStoreMenuTab(button.dataset.storesMenuTab);
+    });
+
+    dom.economyMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-economy-menu-tab]")
+        : null;
+      if (!button) {
+        return;
+      }
+      setEconomyMenuTab(button.dataset.economyMenuTab);
     });
 
     dom.policyMenuTabs?.addEventListener("click", (event) => {
@@ -3308,6 +3554,17 @@
       if (event.key === "Enter") {
         event.preventDefault();
         runResourceCommand();
+      }
+    });
+
+    dom.marketCommandBtn?.addEventListener("click", () => {
+      runMarketCommand();
+    });
+
+    dom.marketCommandInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runMarketCommand();
       }
     });
 
@@ -3708,6 +3965,9 @@
     if (tab === "resources") {
       return "stores";
     }
+    if (tab === "economy") {
+      return "economy";
+    }
     if (tab === "policies") {
       return "policies";
     }
@@ -3752,6 +4012,8 @@
       ui.creatureRecordTab = normalizeCreatureRecordTab(item.tabId);
     } else if (item.tabKind === "stores") {
       ui.storeMenuTab = normalizeStoreMenuTab(item.tabId);
+    } else if (item.tabKind === "economy") {
+      ui.economyMenuTab = normalizeEconomyMenuTab(item.tabId);
     } else if (item.tabKind === "policies") {
       ui.policyMenuTab = normalizePolicyMenuTab(item.tabId);
     } else if (item.tabKind === "debug") {
@@ -4149,6 +4411,30 @@
   function setStoreMenuTab(tabId, options = {}) {
     const ui = ensureUiState();
     ui.storeMenuTab = normalizeStoreMenuTab(tabId);
+    if (!options.keepKeyboardPath) {
+      ui.keyboardMenuPath = "";
+    }
+    if (options.render === false) {
+      return;
+    }
+    persist();
+    render();
+  }
+
+  function normalizeEconomyMenuTab(value) {
+    const id = String(value || DEFAULT_ECONOMY_MENU_TAB).trim();
+    return ECONOMY_MENU_TAB_BY_ID[id] ? id : DEFAULT_ECONOMY_MENU_TAB;
+  }
+
+  function currentEconomyMenuTab() {
+    const ui = ensureUiState();
+    ui.economyMenuTab = normalizeEconomyMenuTab(ui.economyMenuTab);
+    return ui.economyMenuTab;
+  }
+
+  function setEconomyMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.economyMenuTab = normalizeEconomyMenuTab(tabId);
     if (!options.keepKeyboardPath) {
       ui.keyboardMenuPath = "";
     }
@@ -4568,6 +4854,7 @@
       creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
       taskMenuTab: normalizeTaskMenuTab(candidate?.taskMenuTab),
       storeMenuTab: normalizeStoreMenuTab(candidate?.storeMenuTab),
+      economyMenuTab: normalizeEconomyMenuTab(candidate?.economyMenuTab),
       policyMenuTab: normalizePolicyMenuTab(candidate?.policyMenuTab),
       debugMenuTab: normalizeDebugMenuTab(candidate?.debugMenuTab),
       messageFilter: normalizeMessageFilter(candidate?.messageFilter),
@@ -5047,6 +5334,11 @@
 
     if (task.type === "collectionBayTransfer") {
       completeCollectionBayTransfer(task);
+      return;
+    }
+
+    if (task.type === "blackMarketTrade") {
+      completeBlackMarketTrade(task);
       return;
     }
 
@@ -18133,6 +18425,7 @@
     renderRooms();
     renderContextCommandMenu();
     renderInventory();
+    renderEconomy();
     renderScientist();
     renderTasks();
     renderJournal();
@@ -27179,6 +27472,175 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.collectionStationInventoryList.append(section);
   }
 
+  function clearEconomyMenuLists() {
+    for (const element of [
+      dom.economyOverviewList,
+      dom.economyContactsList,
+      dom.economyDealsList
+    ]) {
+      if (element) {
+        element.textContent = "";
+      }
+    }
+  }
+
+  function renderEconomyMenuTabs(counts = {}) {
+    const activeTab = currentEconomyMenuTab();
+    const badgeMap = {
+      overview: dom.economyOverviewBadge,
+      contacts: dom.economyContactsBadge,
+      deals: dom.economyDealsBadge
+    };
+    for (const [tab, badge] of Object.entries(badgeMap)) {
+      if (badge) {
+        badge.textContent = String(Math.max(0, Math.floor(Number(counts[tab]) || 0)));
+      }
+    }
+    for (const button of document.querySelectorAll("[data-economy-menu-tab]")) {
+      const tab = normalizeEconomyMenuTab(button.dataset.economyMenuTab);
+      const active = tab === activeTab;
+      setElementHotkeyHint(button, ECONOMY_MENU_TAB_HOTKEYS[tab]);
+      button.classList.toggle("active-record-tab", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-economy-menu-panel]")) {
+      const tab = normalizeEconomyMenuTab(panel.dataset.economyMenuPanel);
+      panel.hidden = tab !== activeTab;
+    }
+  }
+
+  function economyDealTitle(deal) {
+    const contact = blackMarketContactById(deal.contactId);
+    const risk = blackMarketRiskBand(deal.exposureChance);
+    return [
+      `${contact?.name || "Unknown contact"} wants ${formatCollectionAmount(deal.amount)} ${deal.material}.`,
+      `Payout: ${formatMoney(deal.payout)}.`,
+      `Exposure risk: ${risk.label} (${Math.round(deal.exposureChance * 100)}% observed chance).`,
+      "Suspicion only increases if authorities observe the exchange.",
+      deal.flavor
+    ].filter(Boolean).join("\n");
+  }
+
+  function renderEconomyOverview(economy, openDeals, activeTrade) {
+    if (!dom.economyOverviewList) {
+      return;
+    }
+    const cards = [
+      {
+        label: "Cash",
+        value: formatMoney(economy.money),
+        note: "Money is a prototype currency for illegal sales, bribes, facilities, and future supply chains.",
+        action: storesActionButton("View Deals", "Open currently available illicit buyer requests.", () => setEconomyMenuTab("deals"))
+      },
+      {
+        label: "Black market reputation",
+        value: blackMarketReputationLabel(economy.blackMarketReputation),
+        note: `${formatNumber(economy.blackMarketReputation)} reputation. Contacts, referrals, and stranger offers will eventually scale from this.`,
+        action: storesActionButton("View Contacts", "Open persistent contact trust records.", () => setEconomyMenuTab("contacts"))
+      },
+      {
+        label: "Open deals",
+        value: formatNumber(openDeals.filter((deal) => deal.status === "open").length),
+        note: "Deals are contact-specific and remain consistent until queued, completed, or refreshed by future systems.",
+        action: storesActionButton("View Deals", "Open tradeable byproduct offers.", () => setEconomyMenuTab("deals"))
+      },
+      {
+        label: "Scientist status",
+        value: activeTrade ? "Outside lab" : "Available",
+        note: activeTrade ? `${activeTrade.label}; due ${formatClock(activeTrade.dueAt)}.` : `Suspicion is currently ${suspicionBandForValue(state.suspicion).label}.`,
+        action: storesFocusRoomButton(CONCEALED_EXIT_ROOM_ID, "Focus Exit")
+      }
+    ];
+    const grid = document.createElement("div");
+    grid.className = "stores-overview-grid economy-overview-grid";
+    for (const card of cards) {
+      const panel = document.createElement("div");
+      panel.className = "stores-overview-card economy-overview-card";
+      panel.append(textEl("span", card.label), textEl("strong", card.value), textEl("small", card.note));
+      const actions = document.createElement("div");
+      actions.className = "stores-row-actions";
+      actions.append(card.action);
+      panel.append(actions);
+      grid.append(panel);
+    }
+    dom.economyOverviewList.append(grid);
+  }
+
+  function renderEconomyContacts(economy, openDeals) {
+    if (!dom.economyContactsList) {
+      return;
+    }
+    const section = storesSectionEl("Contacts", "Persistent illicit buyers and brokers. Trust is per-contact; reputation is global.", { economyCategory: "contacts" });
+    for (const contact of economy.contacts) {
+      const profile = BLACK_MARKET_RISK_PROFILES[contact.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
+      const activeDeals = openDeals.filter((deal) => deal.contactId === contact.id && deal.status === "open").length;
+      section.append(storesRowEl(contact.name, `Trust ${formatNumber(contact.trust)}/${BLACK_MARKET_TRUST_MAX}`, {
+        title: `${contact.name}\n${contact.archetypeLabel}\nRisk profile: ${profile.label}.\nPreferred goods: ${contact.preferredTags.join(", ")}.`,
+        subtitle: `${contact.archetypeLabel}; ${profile.label}; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "deal" : "deals"}; id ${contact.id}`,
+        dataset: { blackMarketContact: contact.id },
+        actions: [
+          storesActionButton("Deals", `Show ${contact.name}'s open deals.`, () => setEconomyMenuTab("deals"))
+        ]
+      }));
+    }
+    if (!economy.contacts.length) {
+      section.append(emptyText("No black market contacts yet."));
+    }
+    dom.economyContactsList.append(section);
+  }
+
+  function renderEconomyDeals(openDeals) {
+    if (!dom.economyDealsList) {
+      return;
+    }
+    const section = storesSectionEl("Available Deals", "Selling byproducts is a queued scientist task. The scientist leaves through the Concealed Exit and cannot perform lab work while outside.", { economyCategory: "deals" });
+    const deals = openDeals.filter((deal) => deal.status === "open" || deal.status === "queued");
+    if (!deals.length) {
+      section.append(emptyText("No black market deals are currently available."));
+      dom.economyDealsList.append(section);
+      return;
+    }
+    for (const deal of deals) {
+      const contact = blackMarketContactById(deal.contactId);
+      const available = collectedByproductAmount(deal.material);
+      const risk = blackMarketRiskBand(deal.exposureChance);
+      const reason = blackMarketDealBlockReason(deal);
+      const button = storesActionButton(
+        deal.status === "queued" ? "Queued" : "Queue Trade",
+        reason || `Queue a scientist trip through the Concealed Exit. Duration: ${formatDuration(blackMarketTradeDuration(deal))}.`,
+        () => startBlackMarketTrade(deal.id)
+      );
+      setActionButtonState(button, Boolean(reason), reason);
+      section.append(storesRowEl(`${deal.material} for ${contact?.name || "Unknown contact"}`, formatMoney(deal.payout), {
+        title: economyDealTitle(deal),
+        subtitle: `${formatCollectionAmount(deal.amount)} wanted; ${formatCollectionAmount(available)} available; ${risk.label} exposure; ${deal.flavor}`,
+        dataset: { blackMarketDeal: deal.id, blackMarketContact: deal.contactId, blackMarketMaterial: deal.material, dealStatus: deal.status },
+        actions: [button]
+      }));
+    }
+    dom.economyDealsList.append(section);
+  }
+
+  function renderEconomy() {
+    const economy = ensureEconomy();
+    const openDeals = blackMarketOpenDeals();
+    const activeTrade = activeBlackMarketTradeTask();
+    if (dom.economySummary) {
+      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${blackMarketReputationLabel(economy.blackMarketReputation)}; ${openDeals.filter((deal) => deal.status === "open").length} open deals`;
+      dom.economySummary.title = "Byproduct sales are handled as queued scientist trips through the Concealed Exit. Suspicion increases only if the exchange is observed.";
+    }
+    clearEconomyMenuLists();
+    renderEconomyMenuTabs({
+      overview: economy.contacts.length + openDeals.length,
+      contacts: economy.contacts.length,
+      deals: openDeals.length
+    });
+    renderEconomyOverview(economy, openDeals, activeTrade);
+    renderEconomyContacts(economy, openDeals);
+    renderEconomyDeals(openDeals);
+  }
+
   function renderScientist() {
     renderVitalReadouts();
     if (dom.scientistConditionList) {
@@ -28116,9 +28578,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
+    const activeTrade = activeBlackMarketTradeTask();
+    if (activeTrade && activeTrade.id !== task.id) {
+      return "The scientist is outside the lab for a black market trade.";
+    }
     const doorReason = taskDoorBlockReason(task);
     if (doorReason) {
       return doorReason;
+    }
+    if (task.type === "blackMarketTrade") {
+      return blackMarketTradeTaskBlockReason(task);
     }
     if (task.type === "synthesize") {
       return synthesisTaskBlockReason(task);
@@ -28241,6 +28710,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
       addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
+    }
+    if (task.type === "blackMarketTrade") {
+      const deal = blackMarketDealById(task.data?.dealId);
+      if (deal && deal.taskId === task.id) {
+        deal.status = "open";
+        deal.taskId = "";
+      }
     }
     const incidentId = String(task.data?.incidentId || "").trim();
     if (incidentId) {
@@ -28926,6 +29402,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ui.creatureRecordTab = normalizeCreatureRecordTab(options.tabId);
     } else if (options.tabKind === "stores") {
       ui.storeMenuTab = normalizeStoreMenuTab(options.tabId);
+    } else if (options.tabKind === "economy") {
+      ui.economyMenuTab = normalizeEconomyMenuTab(options.tabId);
     } else if (options.tabKind === "policies") {
       ui.policyMenuTab = normalizePolicyMenuTab(options.tabId);
     } else if (options.tabKind === "debug") {
@@ -29048,6 +29526,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tabKind: "stores",
         tabId: "stations",
         description: "Open Collection Bay station readouts and receptacle status."
+      }));
+    }
+    if (room.role === "labExit" || room.id === CONCEALED_EXIT_ROOM_ID) {
+      commands.push(openWorkspaceCommand({
+        id: `room.openBlackMarket.${room.id}`,
+        label: "Open Black Market",
+        group: "Open Menu",
+        workspaceTab: "economy",
+        tabKind: "economy",
+        tabId: "deals",
+        description: "Open illicit contacts and queued outside-lab trade options."
       }));
     }
     if (room.role === EXCAVATED_ROOM_ROLE) {
@@ -31429,7 +31918,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; T/I/C/P/R/G open menus; ? help.";
+      : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
@@ -31654,6 +32143,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
+      ["B", "Open the Black Market menu."],
       ["T/I/C/P/R/G", "Open Tasks, Stores, Creatures, Policies, Records, or Debug menus."],
       ["Menu letters", "Choose visible submenu tabs such as T Q, I B, or P F."],
       ["Esc", "Back out of menus, inspectors, and selections."],
@@ -32107,6 +32597,75 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     render();
   }
 
+  function runMarketCommand() {
+    const command = dom.marketCommandInput?.value.trim() || "";
+    if (!command) {
+      dom.marketCommandStatus.textContent = "Use: money 100, reputation 25, trust contact-1 10, or byproduct smoke vapor 5.";
+      return;
+    }
+    const moneyMatch = command.match(/^money\s+(-?\d+(?:\.\d+)?)$/i);
+    if (moneyMatch) {
+      const amount = Math.round(Number(moneyMatch[1]));
+      if (!Number.isFinite(amount) || !amount) {
+        dom.marketCommandStatus.textContent = "Enter a nonzero money amount.";
+        return;
+      }
+      const actual = addMoney(amount, "cheat command");
+      dom.marketCommandInput.value = "";
+      dom.marketCommandStatus.textContent = `${actual >= 0 ? "Added" : "Removed"} ${formatMoney(Math.abs(actual))}.`;
+      persist();
+      render();
+      return;
+    }
+    const reputationMatch = command.match(/^reputation\s+(-?\d+(?:\.\d+)?)$/i);
+    if (reputationMatch) {
+      const amount = Math.round(Number(reputationMatch[1]));
+      if (!Number.isFinite(amount) || !amount) {
+        dom.marketCommandStatus.textContent = "Enter a nonzero reputation amount.";
+        return;
+      }
+      const actual = addBlackMarketReputation(amount);
+      dom.marketCommandInput.value = "";
+      dom.marketCommandStatus.textContent = `${actual >= 0 ? "Added" : "Removed"} ${formatNumber(Math.abs(actual))} black market reputation.`;
+      persist();
+      render();
+      return;
+    }
+    const trustMatch = command.match(/^trust\s+(\S+)\s+(-?\d+(?:\.\d+)?)$/i);
+    if (trustMatch) {
+      const contactId = trustMatch[1];
+      const amount = Math.round(Number(trustMatch[2]));
+      const contact = blackMarketContactById(contactId);
+      if (!contact || !Number.isFinite(amount) || !amount) {
+        dom.marketCommandStatus.textContent = "Use a valid contact id and nonzero trust amount.";
+        return;
+      }
+      const actual = adjustBlackMarketContactTrust(contact.id, amount);
+      dom.marketCommandInput.value = "";
+      dom.marketCommandStatus.textContent = `${actual >= 0 ? "Added" : "Removed"} ${formatNumber(Math.abs(actual))} trust for ${contact.name}.`;
+      persist();
+      render();
+      return;
+    }
+    const byproductMatch = command.match(/^byproduct\s+(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s+(.+))?$/i);
+    if (byproductMatch) {
+      const label = byproductInventoryKey(byproductMatch[1]);
+      const amount = Number(byproductMatch[2]);
+      const roomId = roomIdFromCommand(byproductMatch[3]) || STORAGE_ROOM_ID;
+      if (!label || !Number.isFinite(amount) || amount <= 0) {
+        dom.marketCommandStatus.textContent = "Use format: byproduct smoke vapor 5 [room].";
+        return;
+      }
+      addCollectedByproduct(label, amount, "cheat command", roomId);
+      dom.marketCommandInput.value = "";
+      dom.marketCommandStatus.textContent = `Added ${formatCollectionAmount(amount)} ${label} to ${roomName(roomId)}.`;
+      persist();
+      render();
+      return;
+    }
+    dom.marketCommandStatus.textContent = "Use: money 100, reputation 25, trust contact-1 10, or byproduct smoke vapor 5.";
+  }
+
 
   function runInventoryCommand() {
     const command = dom.inventoryCommandInput?.value.trim() || "";
@@ -32148,6 +32707,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       bedroom: BEDROOM_ROOM_ID,
       storage: STORAGE_ROOM_ID,
       storageroom: STORAGE_ROOM_ID,
+      exit: CONCEALED_EXIT_ROOM_ID,
+      concealedexit: CONCEALED_EXIT_ROOM_ID,
       collection: COLLECTION_BAY_ROOM_ID,
       bay: COLLECTION_BAY_ROOM_ID,
       collectionbay: COLLECTION_BAY_ROOM_ID
@@ -32515,6 +33076,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "collectionBayTransfer") {
       return "Collection";
+    }
+    if (task.type === "blackMarketTrade") {
+      return "Black Market";
     }
     if (task.type === "mature") {
       return "Growth";
@@ -35190,6 +35754,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return delta;
   }
 
+  function spendCollectedByproduct(label, amount, source = "black market sale") {
+    const key = byproductInventoryKey(label);
+    const requested = roundOutputValue(Math.max(0, Number(amount) || 0));
+    if (!key || requested <= 0 || collectedByproductAmount(key) < requested) {
+      return 0;
+    }
+    ensureRoomStockpiles();
+    const inventory = ensureCollectedByproducts();
+    let remaining = requested;
+    const orderedRoomIds = roomStockpileIds()
+      .map((roomId) => ({
+        roomId,
+        amount: collectedByproductAmountInRoom(key, roomId),
+        rank: roomId === STORAGE_ROOM_ID ? 0 : 1
+      }))
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => a.rank - b.rank || roomName(a.roomId).localeCompare(roomName(b.roomId)));
+    for (const entry of orderedRoomIds) {
+      if (remaining <= 0) {
+        break;
+      }
+      const taken = roundOutputValue(Math.min(entry.amount, remaining));
+      if (taken > 0) {
+        const room = roomStockpile(entry.roomId);
+        const before = Number(room.collectedByproducts?.[key]) || 0;
+        const after = roundOutputValue(Math.max(0, before - taken));
+        if (after > 0) {
+          room.collectedByproducts[key] = after;
+        } else {
+          delete room.collectedByproducts[key];
+        }
+        remaining = roundOutputValue(remaining - taken);
+      }
+    }
+    const spent = roundOutputValue(requested - Math.max(0, remaining));
+    if (spent <= 0) {
+      return 0;
+    }
+    inventory[key] = roundOutputValue(Math.max(0, (Number(inventory[key]) || 0) - spent));
+    if (inventory[key] <= 0) {
+      delete inventory[key];
+    }
+    recordCollectedByproductChange(key, -spent, source);
+    return spent;
+  }
+
   function recordCollectedByproductChange(label, amount, source = "Collection Bay transfer") {
     const key = byproductInventoryKey(label);
     const delta = roundOutputValue(Number(amount) || 0);
@@ -35230,10 +35840,245 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       lines.push("No recorded transfers.");
     } else {
       for (const item of history.slice(0, 10)) {
-        lines.push(`+${formatCollectionAmount(item.amount)} ${item.source || "Collection Bay transfer"}`);
+        const amount = Number(item.amount) || 0;
+        const prefix = amount > 0 ? "+" : "-";
+        lines.push(`${prefix}${formatCollectionAmount(Math.abs(amount))} ${item.source || "Collection Bay transfer"}`);
       }
     }
     return lines.join("\n");
+  }
+
+  function ensureEconomy() {
+    if (!state.economy || !Array.isArray(state.economy.contacts) || !Array.isArray(state.economy.deals)) {
+      state.economy = normalizeEconomyState(state.economy, state.seed, state.clock);
+    }
+    return state.economy;
+  }
+
+  function blackMarketContactById(contactId) {
+    return ensureEconomy().contacts.find((contact) => contact.id === contactId) || null;
+  }
+
+  function blackMarketDealById(dealId) {
+    return ensureEconomy().deals.find((deal) => deal.id === dealId) || null;
+  }
+
+  function blackMarketOpenDeals() {
+    return ensureEconomy().deals
+      .filter((deal) => deal.status === "open" || deal.status === "queued")
+      .sort((a, b) => a.contactId.localeCompare(b.contactId) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  }
+
+  function formatMoney(value) {
+    return `${formatNumber(Math.max(0, Math.round(Number(value) || 0)))} marks`;
+  }
+
+  function addMoney(amount, source = "black market") {
+    const economy = ensureEconomy();
+    const delta = Math.round(Number(amount) || 0);
+    if (!delta) {
+      return 0;
+    }
+    const before = economy.money;
+    economy.money = Math.max(0, before + delta);
+    const actual = economy.money - before;
+    if (actual) {
+      addEvent(`${actual > 0 ? "Gained" : "Lost"} ${formatMoney(Math.abs(actual))} from ${source}.`);
+    }
+    return actual;
+  }
+
+  function addBlackMarketReputation(amount) {
+    const economy = ensureEconomy();
+    const before = economy.blackMarketReputation;
+    economy.blackMarketReputation = clamp(Math.round(before + (Number(amount) || 0)), 0, BLACK_MARKET_REPUTATION_MAX);
+    return economy.blackMarketReputation - before;
+  }
+
+  function adjustBlackMarketContactTrust(contactId, amount) {
+    const contact = blackMarketContactById(contactId);
+    if (!contact) {
+      return 0;
+    }
+    const before = contact.trust;
+    contact.trust = clamp(Math.round(before + (Number(amount) || 0)), 0, BLACK_MARKET_TRUST_MAX);
+    return contact.trust - before;
+  }
+
+  function blackMarketRiskBand(chance) {
+    const value = clamp(Number(chance) || 0, 0, 1);
+    return BLACK_MARKET_RISK_BANDS.find((band) => value <= band.maxChance) || BLACK_MARKET_RISK_BANDS[0];
+  }
+
+  function blackMarketReputationLabel(value = ensureEconomy().blackMarketReputation) {
+    const score = Number(value) || 0;
+    return BLACK_MARKET_REPUTATION_BANDS.find((band) => score >= band.min)?.label || "No Reputation";
+  }
+
+  function activeBlackMarketTradeTask() {
+    return scientistQueueTasks().find((task) => task.type === "blackMarketTrade") || null;
+  }
+
+  function blackMarketTradeBusyReason(ignoreTaskId = "") {
+    const active = scientistQueueTasks().find((task) => task.id !== ignoreTaskId);
+    if (!active) {
+      return "";
+    }
+    if (active.type === "blackMarketTrade") {
+      return "The scientist is outside the lab for a black market trade.";
+    }
+    return `The scientist queue is not clear; ${active.label} is pending.`;
+  }
+
+  function blackMarketDealBlockReason(deal) {
+    if (!deal) {
+      return "Deal not found.";
+    }
+    if (deal.status === "queued") {
+      return "Trade already queued.";
+    }
+    if (deal.status !== "open") {
+      return "Deal is no longer open.";
+    }
+    const contact = blackMarketContactById(deal.contactId);
+    if (!contact) {
+      return "Contact is no longer available.";
+    }
+    const busyReason = blackMarketTradeBusyReason();
+    if (busyReason) {
+      return busyReason;
+    }
+    if (collectedByproductAmount(deal.material) < deal.amount) {
+      return `Need ${formatCollectionAmount(deal.amount)} ${deal.material}; have ${formatCollectionAmount(collectedByproductAmount(deal.material))}.`;
+    }
+    const exit = roomById(CONCEALED_EXIT_ROOM_ID);
+    if (!exit) {
+      return "No Concealed Exit exists.";
+    }
+    const route = roomRouteBetween(scientistRoomId(), exit.id, { ignoreDoors: true, requireReachable: true });
+    if (!route.length) {
+      return "No route to the Concealed Exit.";
+    }
+    const doorReason = firstDoorSecurityBlockReason(route);
+    if (doorReason) {
+      return doorReason;
+    }
+    return staminaBlockReason(adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]));
+  }
+
+  function blackMarketTradeDuration(deal, route = []) {
+    const distance = roomPathDistanceMeters(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
+    const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
+    const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
+    return Math.max(1, Math.round(BLACK_MARKET_TRADE_BASE_SECONDS + (Number(deal?.amount) || 0) * BLACK_MARKET_TRADE_AMOUNT_SECONDS + travelSeconds + doorDelay));
+  }
+
+  function startBlackMarketTrade(dealId) {
+    const deal = blackMarketDealById(dealId);
+    const reason = blackMarketDealBlockReason(deal);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const contact = blackMarketContactById(deal.contactId);
+    const route = roomRouteBetween(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
+    const mapPath = roomPathBetween(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
+    const doorTransit = doorTransitPlan(route);
+    const cost = adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "blackMarketTrade",
+      label: `Trade ${deal.material} with ${contact.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + blackMarketTradeDuration(deal, route),
+      data: {
+        dealId: deal.id,
+        contactId: contact.id,
+        material: deal.material,
+        amount: deal.amount,
+        payout: deal.payout,
+        staminaCost: cost,
+        fromRoomId: scientistRoomId(),
+        toRoomId: CONCEALED_EXIT_ROOM_ID,
+        route,
+        mapPath,
+        doorTransit
+      }
+    };
+    state.tasks.push(task);
+    deal.status = "queued";
+    deal.taskId = task.id;
+    addEvent(`Black market trade queued: ${formatCollectionAmount(deal.amount)} ${deal.material} for ${formatMoney(deal.payout)} with ${contact.name}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function blackMarketTradeTaskBlockReason(task) {
+    const deal = blackMarketDealById(task.data?.dealId);
+    if (!deal) {
+      return "Deal no longer exists.";
+    }
+    if (deal.status !== "queued" || deal.taskId !== task.id) {
+      return "Deal is not assigned to this trade task.";
+    }
+    if (!blackMarketContactById(deal.contactId)) {
+      return "Contact is no longer available.";
+    }
+    if (collectedByproductAmount(deal.material) < deal.amount) {
+      return `Not enough ${deal.material} remains for the trade.`;
+    }
+    return "";
+  }
+
+  function completeBlackMarketTrade(task) {
+    const deal = blackMarketDealById(task.data?.dealId);
+    const contact = deal ? blackMarketContactById(deal.contactId) : null;
+    if (!deal || !contact) {
+      addEvent("Black market trade could not complete; the contact or deal vanished.");
+      return false;
+    }
+    const spent = spendCollectedByproduct(deal.material, deal.amount, `Sold to ${contact.name}`);
+    if (spent < deal.amount) {
+      deal.status = "open";
+      deal.taskId = "";
+      addEvent(`Black market trade with ${contact.name} failed; ${deal.material} was no longer available.`);
+      return false;
+    }
+    applyDoorTransitPolicy(task.data?.doorTransit, "Black market trade");
+    state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
+    state.scientist.mapCell = labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID);
+    addMoney(deal.payout, `sale to ${contact.name}`);
+    const repGain = addBlackMarketReputation(deal.reputationGain);
+    const trustGain = adjustBlackMarketContactTrust(contact.id, deal.trustGain);
+    const rng = seedRng(`${state.seed}:black-market-observation:${task.id}:${deal.id}:${state.clock}`);
+    const observed = rng() < deal.exposureChance;
+    if (observed) {
+      addSuspicion(deal.suspicionOnObserved);
+    }
+    deal.status = "completed";
+    deal.completedAt = state.clock;
+    deal.taskId = "";
+    addEvent(`Trade complete with ${contact.name}: ${formatMoney(deal.payout)}, +${formatNumber(repGain)} reputation, +${formatNumber(trustGain)} trust${observed ? `; observed by authorities (+${formatNumber(deal.suspicionOnObserved)} Suspicion)` : "; no authority observation"}.`);
+    replaceCompletedBlackMarketDeal(contact);
+    return true;
+  }
+
+  function replaceCompletedBlackMarketDeal(contact) {
+    const economy = ensureEconomy();
+    economy.deals = economy.deals.filter((deal) => deal.status !== "completed" || deal.completedAt === state.clock);
+    const activeCount = economy.deals.filter((deal) => deal.contactId === contact.id && ["open", "queued"].includes(deal.status)).length;
+    for (let slot = activeCount; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
+      economy.deals.push(createBlackMarketDeal(state.seed, contact, economy.nextDealNumber++, slot, economy.blackMarketReputation, state.clock));
+    }
   }
 
   function specimenHarvestYieldForSlime(slime, procedure) {
@@ -35560,6 +36405,98 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         .slice(0, 10);
     }
     return normalized;
+  }
+
+  function normalizeBlackMarketContact(candidate, index = 0, seed = state?.seed || "seed") {
+    const fallback = createBlackMarketContact(seed, index + 1);
+    const id = String(candidate?.id || fallback.id);
+    const archetype = BLACK_MARKET_CONTACT_ARCHETYPES.find((def) => def.id === candidate?.archetype) || BLACK_MARKET_CONTACT_ARCHETYPES.find((def) => def.id === fallback.archetype) || BLACK_MARKET_CONTACT_ARCHETYPES[0];
+    const riskProfile = BLACK_MARKET_RISK_PROFILES[candidate?.riskProfile] ? candidate.riskProfile : archetype.risk || "steady";
+    const preferredTags = Array.isArray(candidate?.preferredTags) && candidate.preferredTags.length
+      ? candidate.preferredTags.map((tag) => String(tag || "").trim()).filter(Boolean)
+      : [...(archetype.tags || [])];
+    return {
+      id,
+      name: String(candidate?.name || fallback.name),
+      archetype: archetype.id,
+      archetypeLabel: String(candidate?.archetypeLabel || archetype.label),
+      trust: clamp(Math.round(Number(candidate?.trust ?? fallback.trust) || 0), 0, BLACK_MARKET_TRUST_MAX),
+      riskProfile,
+      preferredTags,
+      discoveredAt: finiteTime(candidate?.discoveredAt, 0),
+      notes: String(candidate?.notes || `${archetype.label}; prefers ${preferredTags.join(", ")} byproducts.`)
+    };
+  }
+
+  function normalizeBlackMarketDeal(candidate, contacts = [], index = 0, seed = state?.seed || "seed", reputation = 0) {
+    const contact = contacts.find((item) => item.id === candidate?.contactId) || contacts[index % Math.max(1, contacts.length)] || createBlackMarketContact(seed, 1);
+    const fallback = createBlackMarketDeal(seed, contact, index + 1, index % BLACK_MARKET_DEALS_PER_CONTACT, reputation, candidate?.createdAt || 0);
+    const material = byproductInventoryKey(candidate?.material || fallback.material) || fallback.material;
+    const amount = roundOutputValue(Math.max(0.001, Number(candidate?.amount ?? fallback.amount) || fallback.amount));
+    const status = ["open", "queued", "completed", "expired"].includes(candidate?.status) ? candidate.status : fallback.status;
+    const tags = Array.isArray(candidate?.tags) && candidate.tags.length
+      ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+      : blackMarketByproductTags(material);
+    return {
+      id: String(candidate?.id || fallback.id),
+      contactId: contact.id,
+      material,
+      tags,
+      amount,
+      payout: Math.max(1, Math.round(Number(candidate?.payout ?? fallback.payout) || fallback.payout)),
+      exposureChance: clamp(roundOutputValue(Number(candidate?.exposureChance ?? fallback.exposureChance) || fallback.exposureChance), 0, 1),
+      suspicionOnObserved: Math.max(0, Math.round(Number(candidate?.suspicionOnObserved ?? fallback.suspicionOnObserved) || fallback.suspicionOnObserved)),
+      reputationGain: Math.max(0, Math.round(Number(candidate?.reputationGain ?? fallback.reputationGain) || fallback.reputationGain)),
+      trustGain: Math.max(0, Math.round(Number(candidate?.trustGain ?? fallback.trustGain) || fallback.trustGain)),
+      status,
+      taskId: status === "queued" ? String(candidate?.taskId || "") : "",
+      createdAt: finiteTime(candidate?.createdAt, 0),
+      completedAt: candidate?.completedAt === null || candidate?.completedAt === undefined ? null : finiteTime(candidate.completedAt, 0),
+      flavor: String(candidate?.flavor || blackMarketDealFlavor(contact, material, tags))
+    };
+  }
+
+  function normalizeEconomyState(candidate, seed = state?.seed || "seed", clock = 0) {
+    const fallback = defaultEconomyState(seed);
+    const economy = {
+      money: Math.max(0, Math.round(Number(candidate?.money ?? fallback.money) || 0)),
+      blackMarketReputation: clamp(Math.round(Number(candidate?.blackMarketReputation ?? fallback.blackMarketReputation) || 0), 0, BLACK_MARKET_REPUTATION_MAX),
+      contacts: [],
+      deals: [],
+      nextContactNumber: Math.max(1, Math.round(Number(candidate?.nextContactNumber) || fallback.nextContactNumber)),
+      nextDealNumber: Math.max(1, Math.round(Number(candidate?.nextDealNumber) || fallback.nextDealNumber)),
+      lastContactRefreshAt: finiteTime(candidate?.lastContactRefreshAt, 0)
+    };
+    const rawContacts = Array.isArray(candidate?.contacts) && candidate.contacts.length ? candidate.contacts : fallback.contacts;
+    economy.contacts = rawContacts.map((contact, index) => normalizeBlackMarketContact(contact, index, seed));
+    if (!economy.contacts.length) {
+      economy.contacts = fallback.contacts.map((contact, index) => normalizeBlackMarketContact(contact, index, seed));
+    }
+    const seenContacts = new Set();
+    economy.contacts = economy.contacts.filter((contact) => {
+      if (seenContacts.has(contact.id)) {
+        return false;
+      }
+      seenContacts.add(contact.id);
+      return true;
+    });
+
+    const rawDeals = Array.isArray(candidate?.deals) && candidate.deals.length ? candidate.deals : fallback.deals;
+    economy.deals = rawDeals
+      .map((deal, index) => normalizeBlackMarketDeal(deal, economy.contacts, index, seed, economy.blackMarketReputation))
+      .filter((deal) => economy.contacts.some((contact) => contact.id === deal.contactId));
+    const maxContactSuffix = economy.contacts.reduce((max, contact) => Math.max(max, numericSuffix(contact.id)), 0);
+    const maxDealSuffix = economy.deals.reduce((max, deal) => Math.max(max, numericSuffix(deal.id)), 0);
+    economy.nextContactNumber = Math.max(economy.nextContactNumber, maxContactSuffix + 1);
+    economy.nextDealNumber = Math.max(economy.nextDealNumber, maxDealSuffix + 1);
+
+    for (const contact of economy.contacts) {
+      const activeCount = economy.deals.filter((deal) => deal.contactId === contact.id && ["open", "queued"].includes(deal.status)).length;
+      for (let slot = activeCount; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
+        economy.deals.push(createBlackMarketDeal(seed, contact, economy.nextDealNumber++, slot, economy.blackMarketReputation, clock));
+      }
+    }
+    return economy;
   }
 
   function specimenMaterialKey(label, tags = []) {
@@ -37578,6 +38515,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
+    next.economy = normalizeEconomyState(next.economy, next.seed, next.clock);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
     next.nextResidueNumber = Math.max(
@@ -37599,6 +38537,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resultRepeats ||= {};
     next.events = normalizeMessages(next.events);
     next.tasks ||= [];
+    const activeBlackMarketTaskIds = new Set(next.tasks.filter((task) => task?.type === "blackMarketTrade").map((task) => String(task.id || "")));
+    for (const deal of next.economy.deals || []) {
+      if (deal.status === "queued" && !activeBlackMarketTaskIds.has(deal.taskId)) {
+        deal.status = "open";
+        deal.taskId = "";
+      }
+    }
     next.taskHistory = normalizeTaskHistory(next.taskHistory);
     next.slimes ||= [];
     next.suspicion = clamp(Math.round(Number(next.suspicion) || 0), 0, SUSPICION_MAX);
