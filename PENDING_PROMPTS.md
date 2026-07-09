@@ -12,32 +12,11 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Add Map Navigation Smoke Tests
-2. Black Market Byproduct Economy System
+1. Black Market Byproduct Economy System
 
 ---
 
-## 1. Add Map Navigation Smoke Tests
-
-Add smoke tests for the larger map, camera panning, keyboard movement, mouse drag panning, and contextual map actions.
-
-The map is becoming central enough that navigation regressions will make the whole game feel broken. Tests should verify that the map remains visible, selectable, pannable, and usable after the 100x100 expansion and contextual action updates.
-
-This system should answer questions like:
-- What should be tested through DOM/Playwright versus direct state/model tests?
-- How should tests confirm the camera moves without relying on fragile pixel-perfect assertions?
-- How should tests verify selection still works after panning?
-- How should tests verify synthesis tube contextual actions appear?
-- How should tests cover disabled command reasons?
-- Should tests include hotkey conflict checks?
-
-The desired result is a small but useful smoke suite that protects map navigation and contextual action basics.
-
-Before coding, discuss the most valuable smoke paths, test stability concerns, and whether this prompt should be implemented after all related map-navigation prompts or alongside them.
-
----
-
-## 2. Black Market Byproduct Economy System
+## 1. Black Market Byproduct Economy System
 
 Create a black market economy system focused on selling natural byproducts and other illegal biological goods.
 
