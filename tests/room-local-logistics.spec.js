@@ -188,7 +188,7 @@ test('resource overlay and selection inspector show known room supplies', async 
           return container.roomId === 'pits' && mapCell && `${mapCell.x},${mapCell.y}` === keyName;
         });
         const door = Object.values(state.labMap.doors || {}).some((candidate) => {
-          return `${candidate.from.x},${candidate.from.y}` === keyName || `${candidate.to.x},${candidate.to.y}` === keyName;
+          return `${candidate.cell.x},${candidate.cell.y}` === keyName;
         });
         return !occupied && !door;
       }),

@@ -106,6 +106,21 @@ test('map smoke keeps the large blueprint visible through keyboard pan and zoom'
   expect(initial.cells.some((cell) => cell.scientist)).toBe(true);
   await expect(page.locator('[data-map-viewport="true"]')).toHaveAttribute('data-map-viewport-width', String(initial.viewport.width));
   await expect(page.locator('[data-map-viewport="true"]')).toHaveAttribute('data-map-viewport-height', String(initial.viewport.height));
+  const tileSpacing = await page.locator('[data-map-viewport="true"]').evaluate((grid) => {
+    const first = grid.querySelector('.lab-map-cell');
+    const x = Number(first.dataset.mapX);
+    const y = Number(first.dataset.mapY);
+    const right = grid.querySelector(`[data-map-x="${x + 1}"][data-map-y="${y}"]`);
+    const below = grid.querySelector(`[data-map-x="${x}"][data-map-y="${y + 1}"]`);
+    const firstRect = first.getBoundingClientRect();
+    const rightRect = right.getBoundingClientRect();
+    const belowRect = below.getBoundingClientRect();
+    return {
+      columnGap: rightRect.left - firstRect.right,
+      rowGap: belowRect.top - firstRect.bottom,
+    };
+  });
+  expect(tileSpacing).toEqual({ columnGap: 0, rowGap: 0 });
 
   const beforePan = await savedMapUi(page);
   await page.keyboard.press('A');
@@ -173,6 +188,8 @@ test('map smoke keeps representative contextual actions selectable after navigat
   await expect(panel).toContainText('Door');
   await expect(panel.getByRole('button', { name: /Door$/ }).first()).toBeEnabled();
   await expect(panel.getByRole('button', { name: 'Door Policies' })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const containerTile = page.locator('[data-map-target-kind="container"][data-map-target-id="basic-1"]').first();
   await expect(containerTile).toBeVisible();
@@ -185,6 +202,8 @@ test('map smoke keeps representative contextual actions selectable after navigat
   await expect(panel.getByRole('button', { name: 'Stage in Collection Bay' })).toBeEnabled();
   await expect(panel.getByRole('button', { name: 'Haul to Main Lab' })).toHaveAttribute('data-context-command-disabled', 'true');
   await expect(panel).toContainText('Basic Glass Jar 1 is already in the Main Lab.');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const corpseTile = page.locator('[data-map-target-kind="corpse"][data-map-target-id="corpse-smoke-map"]').first();
   await expect(corpseTile).toBeVisible();

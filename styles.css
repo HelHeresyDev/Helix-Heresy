@@ -1285,7 +1285,9 @@ h2 {
 
 .lab-map-grid {
   display: grid;
-  gap: 1px;
+  gap: 0;
+  align-content: start;
+  justify-content: start;
   width: max-content;
   max-width: 100%;
   align-self: stretch;
@@ -1329,6 +1331,12 @@ body.map-dragging .lab-map-cell {
 .lab-map-cell.solid-earth-cell {
   background: #0b0b08;
   border-color: #14150f;
+}
+
+.lab-map-cell.floor-cell {
+  background: #242822;
+  border-color: #30362d;
+  color: #879080;
 }
 
 .lab-map-cell.planned-excavation-cell {

@@ -807,14 +807,32 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   const initial = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
-      `${door.from.x},${door.from.y}`,
-      `${door.to.x},${door.to.y}`
-    ]));
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).map((door) =>
+      `${door.cell.x},${door.cell.y}`
+    ));
+    const excavatedCells = new Set((state.labMap.terrain?.excavated || []).map((cell) => `${cell.x},${cell.y}`));
+    const designatedCells = new Set(Object.values(state.labMap.rooms || {}).flatMap((room) =>
+      (room.cells || []).map((cell) => `${cell.x},${cell.y}`)
+    ));
+    const doorGeometryValid = Object.values(state.labMap.doors || {}).every((door) => {
+      const keyName = `${door.cell.x},${door.cell.y}`;
+      const adjacentFloorCount = [
+        `${door.cell.x + 1},${door.cell.y}`,
+        `${door.cell.x - 1},${door.cell.y}`,
+        `${door.cell.x},${door.cell.y + 1}`,
+        `${door.cell.x},${door.cell.y - 1}`,
+      ].filter((neighbor) => excavatedCells.has(neighbor)).length;
+      return excavatedCells.has(keyName)
+        && !designatedCells.has(keyName)
+        && adjacentFloorCount === 2
+        && !Object.prototype.hasOwnProperty.call(door, 'from')
+        && !Object.prototype.hasOwnProperty.call(door, 'to');
+    });
     return {
       map: state.labMap,
       scientist: state.scientist,
       containers: state.containers,
+      doorGeometryValid,
       containerCellsValid: (state.containers || []).every((container) =>
         container.mapCell
         && (state.labMap.rooms[container.roomId]?.cells || []).some((cell) => cell.x === container.mapCell.x && cell.y === container.mapCell.y)
@@ -824,21 +842,24 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
+  expect(initial.map.version).toBe(2);
   expect(initial.map.width).toBe(100);
   expect(initial.map.height).toBe(100);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 46, y: 45, width: 12, height: 10 });
   expect(initial.map.rooms.storageRoom).toMatchObject({ x: 48, y: 40, width: 7, height: 5 });
   expect(initial.map.rooms.pits.cells.length).toBeLessThan(initial.map.rooms.pits.width * initial.map.rooms.pits.height);
   expect(initial.map.doors['mainLab::storageRoom']).toMatchObject({
-    from: { x: 51, y: 44 },
-    to: { x: 51, y: 45 }
+    cell: { x: 51, y: 44 }
   });
+  expect(initial.map.terrain.excavated).toEqual(expect.arrayContaining([{ x: 51, y: 44 }]));
+  expect(initial.doorGeometryValid).toBe(true);
   expect(initial.scientist.roomId).toBe('mainLab');
   expect(initial.scientist.mapCell).toEqual(initial.map.rooms.mainLab.anchor);
   expect(initial.scientist.physicalPresence.moveSpeedMps).toBeGreaterThan(0);
   expect(initial.containerCellsValid).toBe(true);
   expect(initial.containers.find((container) => container.id === 'basic-11').mapCell).toBeTruthy();
   expect(await page.locator('.lab-map-cell.blocking-object-cell').count()).toBeGreaterThan(initial.containers.length);
+  await expect(page.locator('.lab-map-cell.door-cell')).toHaveCount(Object.keys(initial.map.doors).length);
 
   const semanticMap = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
   expect(semanticMap.mapWidth).toBe(initial.map.width);
@@ -1017,8 +1038,8 @@ test('released slimes move toward accessible residue without raiding packaged st
       const current = movement.path[index];
       const next = movement.path[index + 1];
       const mapDoor = Object.values(state.labMap?.doors || {}).find((door) =>
-        (door.from.x === current.x && door.from.y === current.y && door.to.x === next.x && door.to.y === next.y)
-        || (door.to.x === current.x && door.to.y === current.y && door.from.x === next.x && door.from.y === next.y)
+        (door.cell.x === current.x && door.cell.y === current.y)
+        || (door.cell.x === next.x && door.cell.y === next.y)
       );
       if (mapDoor) {
         const door = state.doors?.[mapDoor.key] || mapDoor;
@@ -1697,15 +1718,15 @@ test('lab blueprint clicks focus existing room door and object selections', asyn
   }, { key: storageKey });
   expect(selected.kind).toBe('door');
   expect(selected.key).toBe('mainLab::storageRoom');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const bedroomCell = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const bedroom = state.labMap.rooms.bedroom;
-    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
-      `${door.from.x},${door.from.y}`,
-      `${door.to.x},${door.to.y}`
-    ]));
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).map((door) =>
+      `${door.cell.x},${door.cell.y}`
+    ));
     return bedroom.cells.find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
   }, { key: storageKey });
 
@@ -1890,15 +1911,15 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
     return state.doors['mainLab::storageRoom'];
   }, { key: storageKey });
   expect(changedDoor.state).toBe(initialDoor.state === 'open' ? 'closed' : 'open');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const bedroomCell = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const bedroom = state.labMap.rooms.bedroom;
-    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
-      `${door.from.x},${door.from.y}`,
-      `${door.to.x},${door.to.y}`
-    ]));
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).map((door) =>
+      `${door.cell.x},${door.cell.y}`
+    ));
     return bedroom.cells.find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
   }, { key: storageKey });
 
@@ -2199,10 +2220,9 @@ test('map overlays avoid unobserved room information unless debug is active', as
   const fixture = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    const doorCells = new Set(Object.values(state.labMap.doors || {}).flatMap((door) => [
-      `${door.from.x},${door.from.y}`,
-      `${door.to.x},${door.to.y}`,
-    ]));
+    const doorCells = new Set(Object.values(state.labMap.doors || {}).map((door) =>
+      `${door.cell.x},${door.cell.y}`
+    ));
     const pickRoomCell = (roomId) =>
       (state.labMap.rooms[roomId]?.cells || []).find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
     const mainCell = pickRoomCell('mainLab');
@@ -2481,7 +2501,8 @@ test('construction designations become unassigned rooms that can receive a purpo
       room,
       mapRoom: room ? state.labMap.rooms[room.id] : null,
       doorKeys,
-      doors: state.doors
+      doors: state.doors,
+      excavatedCells: state.labMap.terrain?.excavated || []
     };
   }, { key: storageKey });
 
@@ -2489,14 +2510,15 @@ test('construction designations become unassigned rooms that can receive a purpo
   expect(excavated.room.name).toBe('Unassigned Excavation 1');
   expect(excavated.room.connections).toEqual(expect.arrayContaining(['mainLab']));
   expect(excavated.mapRoom.cells).toHaveLength(16);
-  expect(excavated.doorKeys.length).toBeGreaterThan(0);
-  expect(excavated.doorKeys.some((keyName) => excavated.doors[keyName].state === 'open')).toBe(true);
+  expect(excavated.doorKeys).toHaveLength(0);
+  expect(excavated.excavatedCells).toEqual(expect.arrayContaining(excavated.mapRoom.cells));
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(0);
   await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Unassigned Excavation 1');
 
   await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
   await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Assign Storage Room' }).click();
 
@@ -2512,4 +2534,28 @@ test('construction designations become unassigned rooms that can receive a purpo
   await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]')).not.toContainText('Room Purpose');
+
+  await page.evaluate(({ key, roomId }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const main = state.rooms.find((room) => room.id === 'mainLab');
+    const excavation = state.rooms.find((room) => room.id === roomId);
+    main.attributes.contamination.current = 0;
+    main.attributes.contamination.baseline = 0;
+    excavation.attributes.contamination.current = 100;
+    excavation.attributes.contamination.baseline = 100;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, roomId: excavated.room.id });
+  await loadSavedRun(page);
+  await skipSeconds(page, 3600);
+  const openPassageDiffusion = await page.evaluate(({ key, roomId }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      main: state.rooms.find((room) => room.id === 'mainLab').attributes.contamination.current,
+      excavation: state.rooms.find((room) => room.id === roomId).attributes.contamination.current,
+    };
+  }, { key: storageKey, roomId: excavated.room.id });
+  expect(openPassageDiffusion.main).toBeGreaterThan(0);
+  expect(openPassageDiffusion.excavation).toBeLessThan(100);
 });
