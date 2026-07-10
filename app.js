@@ -86,8 +86,9 @@
   const LAB_MAP_DEFAULT_WIDTH = 100;
   const LAB_MAP_DEFAULT_HEIGHT = 100;
   const LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS = 6;
-  const LAB_MAP_VIEWPORT_PIXEL_WIDTH = 840;
-  const LAB_MAP_VIEWPORT_PIXEL_HEIGHT = 520;
+  const LAB_MAP_VIEWPORT_FALLBACK_PIXEL_WIDTH = 840;
+  const LAB_MAP_VIEWPORT_FALLBACK_PIXEL_HEIGHT = 520;
+  const LAB_MAP_VIEWPORT_CONTROL_RESERVE_PX = 112;
   const LAB_MAP_VIEWPORT_PADDING_CELLS = 2;
   const LAB_MAP_ZOOM_LEVELS = [8, 10, 12, 14, 16, 20, 24];
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
@@ -2194,6 +2195,9 @@
   let mapPanCarryY = 0;
   let mapPanShiftHeld = false;
   let mapDragState = null;
+  let measuredMapViewportPixels = null;
+  let mapViewportMeasureFrame = 0;
+  let mapViewportResizeFrame = 0;
   const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
@@ -3235,6 +3239,7 @@
 
   function bindEvents() {
     bindWorkspaceTabs();
+    window.addEventListener("resize", handleMapViewportResize);
 
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -4710,13 +4715,79 @@
     return LAB_MAP_ZOOM_LEVELS[normalizeMapZoomIndex(zoomIndex)] || LAB_MAP_ZOOM_LEVELS[LAB_MAP_DEFAULT_ZOOM_INDEX];
   }
 
+  function elementContentPixels(element) {
+    if (!element || element.clientWidth <= 0 || element.clientHeight <= 0) {
+      return null;
+    }
+    const styles = window.getComputedStyle(element);
+    const horizontalPadding = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+    const verticalPadding = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+    return {
+      width: Math.max(1, Math.floor(element.clientWidth - horizontalPadding)),
+      height: Math.max(1, Math.floor(element.clientHeight - verticalPadding))
+    };
+  }
+
+  function fallbackMapViewportPixels() {
+    const roomListPixels = elementContentPixels(dom.roomList);
+    if (roomListPixels) {
+      return {
+        width: Math.max(1, roomListPixels.width - 20),
+        height: Math.max(1, roomListPixels.height - LAB_MAP_VIEWPORT_CONTROL_RESERVE_PX)
+      };
+    }
+    return {
+      width: Math.max(1, Math.floor((window.innerWidth || LAB_MAP_VIEWPORT_FALLBACK_PIXEL_WIDTH) - 52)),
+      height: Math.max(1, Math.floor((window.innerHeight || LAB_MAP_VIEWPORT_FALLBACK_PIXEL_HEIGHT) - 280))
+    };
+  }
+
+  function mapViewportPixels() {
+    return measuredMapViewportPixels || fallbackMapViewportPixels();
+  }
+
   function mapViewportSizeForZoom(map = ensureLabMap(), zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
     const tilePx = mapZoomTilePx(zoomIndex);
+    const pixels = mapViewportPixels();
     return {
-      width: clamp(Math.floor(LAB_MAP_VIEWPORT_PIXEL_WIDTH / tilePx), 1, Math.max(1, map.width)),
-      height: clamp(Math.floor(LAB_MAP_VIEWPORT_PIXEL_HEIGHT / tilePx), 1, Math.max(1, map.height)),
+      width: clamp(Math.floor(pixels.width / tilePx), 1, Math.max(1, map.width)),
+      height: clamp(Math.floor(pixels.height / tilePx), 1, Math.max(1, map.height)),
       tilePx
     };
+  }
+
+  function scheduleMapViewportMeasurement() {
+    if (mapViewportMeasureFrame || !state?.started || currentWorkspaceTab() !== "map") {
+      return;
+    }
+    mapViewportMeasureFrame = window.requestAnimationFrame(() => {
+      mapViewportMeasureFrame = 0;
+      const grid = dom.roomList?.querySelector?.(".lab-map-grid");
+      const pixels = elementContentPixels(grid);
+      if (!pixels || pixels.width < 100 || pixels.height < 100) {
+        return;
+      }
+      if (measuredMapViewportPixels
+        && Math.abs(measuredMapViewportPixels.width - pixels.width) <= 1
+        && Math.abs(measuredMapViewportPixels.height - pixels.height) <= 1) {
+        return;
+      }
+      measuredMapViewportPixels = pixels;
+      render();
+    });
+  }
+
+  function handleMapViewportResize() {
+    measuredMapViewportPixels = null;
+    if (mapViewportResizeFrame) {
+      window.cancelAnimationFrame(mapViewportResizeFrame);
+    }
+    mapViewportResizeFrame = window.requestAnimationFrame(() => {
+      mapViewportResizeFrame = 0;
+      if (state?.started && currentWorkspaceTab() === "map") {
+        render();
+      }
+    });
   }
 
   function defaultMapCameraCell(context = state, zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
@@ -32498,6 +32569,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     refreshIncidentAlerts();
     dom.roomList.textContent = "";
     dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
+    scheduleMapViewportMeasurement();
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} mapped room${state.rooms.length === 1 ? "" : "s"}; current location: ${roomName(scientistRoomId())}${mapSummary ? `; ${mapSummary}` : ""}`;
   }

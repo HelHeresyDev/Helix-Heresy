@@ -349,7 +349,7 @@ h2 {
   position: fixed;
   inset: 0;
   z-index: 1;
-  overflow: auto;
+  overflow: hidden;
   padding: 4.85rem 1rem 5.85rem;
   background: transparent;
   border: 0;
@@ -359,6 +359,13 @@ h2 {
 
 .room-panel > .panel-heading {
   display: none;
+}
+
+#roomList {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .management-workspace-panel {
@@ -880,7 +887,10 @@ h2 {
   gap: 0.55rem;
   padding: 0.55rem;
   margin-top: 0;
-  min-height: calc(100vh - 10rem);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   background: rgba(21, 22, 16, 0.84);
   border: 1px solid #303329;
@@ -1288,8 +1298,11 @@ h2 {
   gap: 0;
   align-content: start;
   justify-content: start;
-  width: max-content;
-  max-width: 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
   align-self: stretch;
   padding: 0.35rem;
   background: #090a08;

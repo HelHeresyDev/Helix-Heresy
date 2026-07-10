@@ -121,6 +121,14 @@ test('map smoke keeps the large blueprint visible through keyboard pan and zoom'
     };
   });
   expect(tileSpacing).toEqual({ columnGap: 0, rowGap: 0 });
+  const roomPanelBox = await page.locator('[data-workspace-panel="map"]').boundingBox();
+  const mapGridBox = await page.locator('[data-map-viewport="true"]').boundingBox();
+  if (!roomPanelBox || !mapGridBox) {
+    throw new Error('Map workspace did not have measurable bounds.');
+  }
+  expect(mapGridBox.width).toBeGreaterThan(roomPanelBox.width * 0.9);
+  expect(mapGridBox.height).toBeGreaterThan(roomPanelBox.height * 0.5);
+  expect(initial.width).toBeGreaterThan(35);
 
   const beforePan = await savedMapUi(page);
   await page.keyboard.press('A');
@@ -179,6 +187,8 @@ test('map smoke keeps representative contextual actions selectable after navigat
   await expect(panel.getByRole('button', { name: 'Open Foundry' })).toBeEnabled();
   await expect(panel.getByRole('button', { name: 'Synthesize Slime' })).toBeEnabled();
   await expect(panel.getByRole('button', { name: 'Open Known Outcome Editor' })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const doorTile = page.locator('[data-map-door="mainLab::storageRoom"]').first();
   await expect(doorTile).toBeVisible();

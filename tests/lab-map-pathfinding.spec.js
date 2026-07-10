@@ -81,14 +81,18 @@ async function runSelectionCommand(page, name) {
 }
 
 async function ensureDigTileDrafted(page, x, y) {
-  await page.locator(`[data-map-x="${x}"][data-map-y="${y}"]`).click();
+  const tile = page.locator(`[data-map-x="${x}"][data-map-y="${y}"]`);
+  await tile.click();
+  if (await page.locator(`[data-map-x="${x}"][data-map-y="${y}"].draft-excavation-cell`).count()) {
+    return;
+  }
   const panel = await openSelectionActions(page);
   const add = panel.getByRole('button', { name: 'Add Dig Tile' });
   if (await add.count()) {
     await add.click();
-    return;
+  } else {
+    await expect(panel.getByRole('button', { name: 'Remove Dig Tile' })).toBeVisible();
   }
-  await expect(panel.getByRole('button', { name: 'Remove Dig Tile' })).toBeVisible();
 }
 
 async function selectDoorActions(page, key) {
