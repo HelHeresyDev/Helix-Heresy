@@ -1197,8 +1197,9 @@ h2 {
 
 .map-overlay-hud {
   position: fixed;
-  top: var(--management-top-offset);
-  left: 1rem;
+  top: calc(var(--management-top-offset) + 7.5rem);
+  right: 1.5rem;
+  left: auto;
   z-index: 28;
 }
 
@@ -1218,7 +1219,7 @@ h2 {
 .map-overlay-popover {
   position: absolute;
   top: calc(100% + 0.4rem);
-  left: 0;
+  right: 0;
   z-index: 24;
   width: min(26rem, calc(100vw - 2rem));
   padding: 0.65rem;
@@ -1647,6 +1648,42 @@ body.map-dragging .lab-map-cell {
   background: #302618;
   border-color: rgba(225, 183, 95, 0.78);
   box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.28);
+}
+
+.lab-map-cell.map-overlay-rooms {
+  box-shadow: inset 0 0 0 1px rgba(94, 166, 158, 0.38);
+}
+
+.lab-map-cell.map-overlay-rooms-unassigned {
+  background-color: rgba(73, 119, 112, 0.2);
+}
+
+.lab-map-cell.map-overlay-rooms-corridorLike,
+.lab-map-cell.map-overlay-rooms-narrow {
+  background-color: rgba(84, 109, 126, 0.22);
+}
+
+.lab-map-cell.map-overlay-rooms-threshold {
+  background-color: rgba(209, 166, 68, 0.32);
+  box-shadow: inset 0 0 0 2px rgba(209, 166, 68, 0.82);
+}
+
+.lab-map-cell.map-overlay-rooms-compromised {
+  box-shadow: inset 0 0 0 2px rgba(190, 74, 68, 0.82);
+}
+
+.lab-map-cell.map-overlay-rooms-exposed {
+  box-shadow: inset 0 0 0 2px rgba(194, 113, 55, 0.82);
+}
+
+.lab-map-cell.map-overlay-rooms-draft {
+  background-color: rgba(82, 184, 170, 0.4);
+  box-shadow: inset 0 0 0 2px rgba(112, 224, 207, 0.92);
+}
+
+.lab-map-cell.map-overlay-rooms-draft-invalid {
+  background-color: rgba(170, 65, 65, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(230, 93, 87, 0.92);
 }
 
 .lab-map-cell.map-overlay-debug {

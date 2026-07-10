@@ -76,6 +76,13 @@
   const EXCAVATION_BASE_DURATION_MINUTES = 4;
   const EXCAVATION_MINUTES_PER_TILE = 6;
   const EXCAVATION_MAX_TILES = 80;
+  const ROOM_DESIGNATION_POLICY_DEFS = [
+    { id: "off", label: "Off", description: "Detect architectural compartments, but never create or extend room designations automatically." },
+    { id: "suggest", label: "Suggest", description: "Show inferred compartments and likely purposes, but wait for player confirmation." },
+    { id: "automatic", label: "Automatic", description: "Accept unambiguous inferred compartments and assign obvious purposes without overwriting manual choices." }
+  ];
+  const ROOM_DESIGNATION_POLICY_BY_ID = Object.fromEntries(ROOM_DESIGNATION_POLICY_DEFS.map((policy) => [policy.id, policy]));
+  const DEFAULT_ROOM_DESIGNATION_POLICY_ID = "automatic";
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
   const DOOR_LOCK_UNLOCKED = "unlocked";
@@ -452,6 +459,14 @@
       roleLabel: "Byproduct collection",
       nameBase: "Collection Room",
       description: "Space for collection stations, receptacles, overflow apparatus, and future processing equipment."
+    },
+    {
+      id: "corridor",
+      label: "Corridor",
+      role: "corridor",
+      roleLabel: "Circulation space",
+      nameBase: "Corridor",
+      description: "A designated passage kept distinct from adjoining work and storage rooms."
     }
   ];
   const ROOM_PURPOSE_BY_ID = Object.fromEntries(ROOM_PURPOSE_DEFS.map((purpose) => [purpose.id, purpose]));
@@ -2243,6 +2258,7 @@
     { id: "handling", label: "Handling" },
     { id: "corpses", label: "Corpses" },
     { id: "doors", label: "Doors" },
+    { id: "rooms", label: "Rooms" },
     { id: "feeding", label: "Feeding" },
     { id: "automation", label: "Automation" }
   ];
@@ -2320,6 +2336,7 @@
         { key: "H", label: "Handling", workspaceTab: "policies", tabKind: "policies", tabId: "handling" },
         { key: "C", label: "Corpses", workspaceTab: "policies", tabKind: "policies", tabId: "corpses" },
         { key: "R", label: "Doors", workspaceTab: "policies", tabKind: "policies", tabId: "doors" },
+        { key: "M", label: "Rooms", workspaceTab: "policies", tabKind: "policies", tabId: "rooms" },
         { key: "F", label: "Feeding", workspaceTab: "policies", tabKind: "policies", tabId: "feeding" },
         { key: "U", label: "Automation", workspaceTab: "policies", tabKind: "policies", tabId: "automation" }
       ]
@@ -2388,6 +2405,7 @@
     handling: "P H",
     corpses: "P C",
     doors: "P R",
+    rooms: "P M",
     feeding: "P F",
     automation: "P U"
   };
@@ -2480,6 +2498,11 @@
       id: "construction",
       label: "Construction",
       description: "Player-designated excavation work."
+    },
+    {
+      id: "rooms",
+      label: "Rooms",
+      description: "Inferred architectural compartments, open thresholds, room designations, and manual room drafts."
     },
     {
       id: "debug",
@@ -2740,7 +2763,8 @@
       nextRoomNumber: 1,
       lastDigRect: null,
       mode: "idle",
-      draftCells: []
+      draftCells: [],
+      roomDraftCells: []
     };
   }
 
@@ -2969,6 +2993,7 @@
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
       handling: { method: DEFAULT_HANDLING_METHOD },
       doors: { behavior: DEFAULT_DOOR_POLICY_ID },
+      rooms: { designationMode: DEFAULT_ROOM_DESIGNATION_POLICY_ID },
       feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
@@ -3059,6 +3084,7 @@
       "handlingPolicyList",
       "corpsePolicyList",
       "doorPolicyList",
+      "roomPolicyList",
       "feedingPolicyList",
       "automationPolicyList",
       "roomSummary",
@@ -5602,61 +5628,21 @@
       addEvent("Excavation could not complete; the area no longer touches the laboratory.");
       return;
     }
-    const identity = nextExcavatedRoomIdentity();
-    const connectedIds = openings.map((opening) => opening.roomId);
-    const tileSize = Math.max(0.25, Number(map.tileSizeM) || LAB_MAP_TILE_SIZE_M);
-    const floorArea = cells.length * tileSize * tileSize;
-    const room = {
-      id: identity.id,
-      name: `Unassigned Excavation ${identity.number}`,
-      articleName: `the Unassigned Excavation ${identity.number}`,
-      role: EXCAVATED_ROOM_ROLE,
-      roleLabel: "Unassigned excavation",
-      description: "Freshly dug underground space. Assign a purpose before treating it as a real laboratory room.",
-      geometry: normalizeRoomGeometry({
-        shape: "rough dug-out chamber",
-        lengthM: rect.width * tileSize,
-        widthM: rect.height * tileSize,
-        heightM: 3,
-        floorAreaM2: floorArea,
-        volumeM3: floorArea * 3,
-        notes: "freshly excavated rough floor; no room purpose assigned"
-      }),
-      connections: connectedIds,
-      observation: null,
-      attributes: defaultRoomAttributes({
-        light: { current: 12, baseline: 12 },
-        ambientMana: { current: 45, baseline: 45 },
-        contamination: { current: 14, baseline: 10 }
-      })
-    };
-    state.rooms.push(room);
-    for (const connectedId of connectedIds) {
-      const connectedRoom = state.rooms.find((candidate) => candidate.id === connectedId);
-      if (connectedRoom && !connectedRoom.connections.includes(room.id)) {
-        connectedRoom.connections.push(room.id);
-      }
-    }
-    state.labMap.rooms ||= {};
-    state.labMap.rooms[room.id] = normalizeLabMapRoom({
-      roomId: room.id,
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
-      cells,
-      anchor: cells[0]
-    }, room);
     state.labMap.terrain ||= { excavated: [] };
     state.labMap.terrain.excavated = normalizeDigCells([
       ...(state.labMap.terrain.excavated || []),
       ...cells
     ]);
-    state.rooms = normalizeRooms(state.rooms);
-    state.doors = normalizeDoors(state.doors, state.rooms);
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
-    state.roomStockpiles = normalizeRoomStockpiles(state.roomStockpiles, state);
-    addEvent(`${room.name} excavated. Assign a room purpose when ready.`);
+    const updates = applyRoomDesignationPolicy({ focusCells: cells, silent: true });
+    const policy = roomDesignationPolicyDef();
+    addEvent(`${cells.length} tile${cells.length === 1 ? "" : "s"} excavated as rough floor. ${updates
+      ? `Room policy applied ${updates} automatic update${updates === 1 ? "" : "s"}.`
+      : policy.id === "automatic"
+        ? "No unambiguous room designation was available."
+        : policy.id === "suggest"
+          ? "Inferred compartments are ready for review."
+          : "Room designation automation is off."}`);
   }
 
   function startStaminaTask({ type, label, baseDuration, skillId, baseXp, baseCost, resourceCosts = {}, resourceRoomId = scientistRoomId(), allowResourceHaul = true, data }) {
@@ -5763,6 +5749,7 @@
         const nextTab = tab !== "map" && currentWorkspaceTab() === tab ? "map" : tab;
         ensureUiState().keyboardMenuPath = "";
         setActiveWorkspaceTab(nextTab, { scroll: true });
+        renderMapOverlayHud();
       });
     }
   }
@@ -7906,11 +7893,39 @@
     return assignments;
   }
 
+  function roomDraftAssignments() {
+    const assignments = new Map();
+    const cells = roomDesignationDraftCells();
+    const reason = cells.length ? roomDesignationBlockReason(cells) : "";
+    for (const cell of cells) {
+      assignments.set(mapCellKey(cell), {
+        label: "Manual room draft",
+        valid: !reason,
+        reason
+      });
+    }
+    return assignments;
+  }
+
+  function roomDraftAssignments() {
+    const assignments = new Map();
+    const cells = roomDesignationDraftCells();
+    const reason = cells.length ? roomDesignationBlockReason(cells) : "";
+    for (const cell of cells) {
+      assignments.set(mapCellKey(cell), {
+        label: "Manual room draft",
+        valid: !reason,
+        reason
+      });
+    }
+    return assignments;
+  }
+
   function digCellsAdjacentOpenings(cells, map = ensureLabMap()) {
     const cleanCells = normalizeDigCells(cells);
     const cellKeys = new Set(cleanCells.map(mapCellKey));
     const openings = [];
-    const roomSeen = new Set();
+    const openingSeen = new Set();
     for (const cell of cleanCells) {
       for (const neighbor of [
         { x: cell.x + 1, y: cell.y },
@@ -7921,11 +7936,13 @@
         if (cellKeys.has(mapCellKey(neighbor))) {
           continue;
         }
-        const roomId = labMapCellRoomId(neighbor, map);
-        if (!roomId || roomSeen.has(roomId)) {
+        if (!labMapCellIsExcavated(neighbor, map)) {
           continue;
         }
-        roomSeen.add(roomId);
+        const key = mapCellKey(neighbor);
+        if (openingSeen.has(key)) continue;
+        openingSeen.add(key);
+        const roomId = labMapCellRoomId(neighbor, map);
         openings.push({ roomId, from: cell, to: neighbor });
       }
     }
@@ -8041,9 +8058,32 @@
     return new Set(constructionDraftCells().map(mapCellKey));
   }
 
+  function roomDesignationDraftCells() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    return state.construction.roomDraftCells;
+  }
+
+  function roomDesignationDraftCellKeys() {
+    return new Set(roomDesignationDraftCells().map(mapCellKey));
+  }
+
   function constructionDigModeActive() {
     state.construction = normalizeConstructionState(state.construction, state);
     return state.construction.mode === "dig";
+  }
+
+  function roomDesignationModeActive() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    return state.construction.mode === "room";
+  }
+
+  function roomDesignationPolicyMode() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.rooms.designationMode;
+  }
+
+  function roomDesignationPolicyDef() {
+    return ROOM_DESIGNATION_POLICY_BY_ID[roomDesignationPolicyMode()] || ROOM_DESIGNATION_POLICY_BY_ID[DEFAULT_ROOM_DESIGNATION_POLICY_ID];
   }
 
   function constructionDraftBlockReason() {
@@ -8064,6 +8104,361 @@
     persist();
     render();
     return true;
+  }
+
+  function setRoomDesignationMode(active, options = {}) {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.mode = active ? "room" : "idle";
+    if (active) {
+      if (options.clearDraft !== false) state.construction.roomDraftCells = [];
+      ensureUiState().mapOverlay = "rooms";
+      setActiveWorkspaceTab("map");
+    }
+    persist();
+    render();
+    return true;
+  }
+
+  function roomDesignationCellBlockReason(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return "Select a valid map tile.";
+    if (!labMapCellIsExcavated(clean)) return "Only excavated floor can be designated as a room.";
+    if (labMapDoorAtCell(clean)) return "Doorway tiles remain architectural connectors and cannot be drafted automatically.";
+    return "";
+  }
+
+  function addRoomDesignationDraftCells(cells) {
+    const additions = normalizeDigCells(cells);
+    if (!additions.length) return false;
+    state.construction = normalizeConstructionState(state.construction, state);
+    const keys = roomDesignationDraftCellKeys();
+    for (const cell of additions) {
+      const reason = roomDesignationCellBlockReason(cell);
+      if (reason) {
+        addEvent(reason);
+        persist();
+        render();
+        return false;
+      }
+      const key = mapCellKey(cell);
+      if (!keys.has(key)) {
+        keys.add(key);
+        state.construction.roomDraftCells.push(cell);
+      }
+    }
+    state.construction.roomDraftCells = normalizeDigCells(state.construction.roomDraftCells);
+    state.construction.mode = "room";
+    ensureUiState().mapOverlay = "rooms";
+    persist();
+    render();
+    return true;
+  }
+
+  function toggleRoomDesignationDraftCell(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return false;
+    state.construction = normalizeConstructionState(state.construction, state);
+    const key = mapCellKey(clean);
+    if (roomDesignationDraftCellKeys().has(key)) {
+      state.construction.roomDraftCells = state.construction.roomDraftCells.filter((entry) => mapCellKey(entry) !== key);
+      persist();
+      render();
+      return true;
+    }
+    return addRoomDesignationDraftCells([clean]);
+  }
+
+  function clearRoomDesignationDraft() {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.roomDraftCells = [];
+    persist();
+    render();
+    return true;
+  }
+
+  function beginRoomDesignationAtCell(cell = null) {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.mode = "room";
+    state.construction.roomDraftCells = [];
+    const clean = cleanMapCell(cell);
+    if (clean && !roomDesignationCellBlockReason(clean)) state.construction.roomDraftCells = [clean];
+    ensureUiState().mapOverlay = "rooms";
+    setActiveWorkspaceTab("map");
+    persist();
+    render();
+    return true;
+  }
+
+  function roomDesignationCutsObject(cells, map = ensureLabMap()) {
+    const selected = new Set(normalizeDigCells(cells).map(mapCellKey));
+    for (const container of state.containers || []) {
+      const footprint = containerFootprintCells(container, map);
+      const selectedCount = footprint.filter((cell) => selected.has(mapCellKey(cell))).length;
+      if (selectedCount > 0 && selectedCount < footprint.length) return container.name || "a container";
+    }
+    return "";
+  }
+
+  function roomDesignationTouchesOwnedDoor(cells, map = ensureLabMap()) {
+    const selected = new Set(normalizeDigCells(cells).map(mapCellKey));
+    for (const door of Object.values(map.doors || {})) {
+      for (const neighbor of orthogonalMapNeighbors(door.cell)) {
+        if (selected.has(mapCellKey(neighbor)) && labMapCellRoomId(neighbor, map)) return door;
+      }
+    }
+    return null;
+  }
+
+  function roomDesignationBlockReason(cells, options = {}) {
+    const cleanCells = normalizeDigCells(cells);
+    if (!cleanCells.length) return "Select at least one excavated tile.";
+    if (!digCellsAreConnected(cleanCells)) return "A room designation must be one contiguous tile area.";
+    for (const cell of cleanCells) {
+      const reason = roomDesignationCellBlockReason(cell);
+      if (reason) return reason;
+    }
+    const map = ensureLabMap();
+    const cutObject = roomDesignationCutsObject(cleanCells, map);
+    if (cutObject) return `The designation cuts through ${cutObject}'s footprint.`;
+    if (!options.allowDoorAdjacency) {
+      const door = roomDesignationTouchesOwnedDoor(cleanCells, map);
+      if (door) return "Redrawing tiles beside an installed door requires the future door-placement pass.";
+    }
+    const selectedKeys = new Set(cleanCells.map(mapCellKey));
+    for (const room of Object.values(map.rooms || {})) {
+      const overlap = room.cells.filter((cell) => selectedKeys.has(mapCellKey(cell))).length;
+      if (overlap && overlap === room.cells.length) {
+        return `${roomName(room.roomId)} cannot be entirely replaced by another designation. Redraw a smaller section.`;
+      }
+    }
+    return "";
+  }
+
+  function roomGeometryForCells(cells, previous = {}) {
+    const cleanCells = normalizeDigCells(cells);
+    const bounds = compartmentBounds(cleanCells);
+    const tileSize = Math.max(0.25, Number(state?.labMap?.tileSizeM) || LAB_MAP_TILE_SIZE_M);
+    const area = cleanCells.length * tileSize * tileSize;
+    return normalizeRoomGeometry({
+      ...previous,
+      shape: cleanCells.length === bounds.width * bounds.height ? "rectangular" : "irregular",
+      lengthM: bounds.width * tileSize,
+      widthM: bounds.height * tileSize,
+      floorAreaM2: area,
+      volumeM3: area * Math.max(1, Number(previous?.heightM) || 3),
+      notes: previous?.notes || "player-designated excavated room"
+    });
+  }
+
+  function setMapRoomCells(roomId, cells) {
+    const map = ensureLabMap();
+    const cleanCells = normalizeDigCells(cells);
+    const bounds = compartmentBounds(cleanCells);
+    const room = state.rooms.find((entry) => entry.id === roomId);
+    map.rooms ||= {};
+    map.rooms[roomId] = normalizeLabMapRoom({
+      roomId,
+      ...bounds,
+      cells: cleanCells,
+      anchor: cleanCells[0]
+    }, room);
+    if (room) {
+      room.geometry = roomGeometryForCells(cleanCells, room.geometry);
+      room.designationDisconnected = !digCellsAreConnected(cleanCells);
+    }
+  }
+
+  function rebuildRoomConnectionsFromMap() {
+    for (const room of state.rooms || []) room.connections = [];
+    for (const pair of roomConnectionDoorPairs()) {
+      if (!pair.roomA.connections.includes(pair.roomB.id)) pair.roomA.connections.push(pair.roomB.id);
+      if (!pair.roomB.connections.includes(pair.roomA.id)) pair.roomB.connections.push(pair.roomA.id);
+    }
+    state.rooms = normalizeRooms(state.rooms);
+  }
+
+  function moveMappedEntitiesToRoom(cells, roomId, map = ensureLabMap()) {
+    const keys = new Set(normalizeDigCells(cells).map(mapCellKey));
+    for (const container of state.containers || []) {
+      const footprint = containerFootprintCells(container, map);
+      if (footprint.length && footprint.every((cell) => keys.has(mapCellKey(cell)))) container.roomId = roomId;
+    }
+    for (const slime of state.slimes || []) {
+      if (slime.containerId) {
+        const container = containerById(slime.containerId);
+        if (container) slime.roomId = container.roomId;
+      } else if (keys.has(mapCellKey(objectMapCell(slime) || {}))) {
+        slime.roomId = roomId;
+      }
+    }
+    for (const corpse of state.corpses || []) {
+      if (corpse.containerId) {
+        const container = containerById(corpse.containerId);
+        if (container) corpse.roomId = container.roomId;
+      } else if (keys.has(mapCellKey(objectMapCell(corpse) || {}))) {
+        corpse.roomId = roomId;
+      }
+    }
+    if (keys.has(mapCellKey(scientistMapCell()))) state.scientist.roomId = roomId;
+  }
+
+  function createRoomDesignation(cells, options = {}) {
+    const cleanCells = normalizeDigCells(cells);
+    const reason = options.skipValidation ? "" : roomDesignationBlockReason(cleanCells, options);
+    if (reason) {
+      if (!options.silent) addEvent(reason);
+      return null;
+    }
+    const map = ensureLabMap();
+    const selectedKeys = new Set(cleanCells.map(mapCellKey));
+    const identity = nextExcavatedRoomIdentity();
+    for (const mappedRoom of Object.values(map.rooms || {})) {
+      const remaining = mappedRoom.cells.filter((cell) => !selectedKeys.has(mapCellKey(cell)));
+      if (remaining.length !== mappedRoom.cells.length) setMapRoomCells(mappedRoom.roomId, remaining);
+    }
+    const number = identity.number;
+    const room = {
+      id: identity.id,
+      name: `Unassigned Room ${number}`,
+      articleName: `the Unassigned Room ${number}`,
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Unassigned room",
+      description: "Player-recognized excavated space awaiting a functional purpose.",
+      geometry: roomGeometryForCells(cleanCells, { heightM: 3, notes: "excavated floor; no room purpose assigned" }),
+      connections: [],
+      designationSource: options.source === "automatic" ? "automatic" : "manual",
+      purposeSource: "unassigned",
+      designationDisconnected: false,
+      observation: null,
+      attributes: defaultRoomAttributes({
+        light: { current: 12, baseline: 12 },
+        ambientMana: { current: 45, baseline: 45 },
+        contamination: { current: 14, baseline: 10 }
+      })
+    };
+    state.rooms.push(room);
+    state.labMap.rooms ||= {};
+    setMapRoomCells(room.id, cleanCells);
+    moveMappedEntitiesToRoom(cleanCells, room.id, map);
+    state.roomStockpiles ||= {};
+    state.roomStockpiles[room.id] ||= emptyRoomStockpile();
+    state.rooms = normalizeRooms(state.rooms);
+    state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    rebuildRoomConnectionsFromMap();
+    if (!options.silent) addEvent(`${room.name} designated from ${cleanCells.length} tile${cleanCells.length === 1 ? "" : "s"}.`);
+    return room;
+  }
+
+  function confirmRoomDesignationDraft() {
+    const cells = roomDesignationDraftCells();
+    const room = createRoomDesignation(cells, { source: "manual" });
+    if (!room) {
+      persist();
+      render();
+      return false;
+    }
+    state.construction.roomDraftCells = [];
+    state.construction.mode = "idle";
+    applyAutomaticRoomPurposes();
+    setSelection({ kind: "room", roomId: room.id }, { source: "map" });
+    persist();
+    render();
+    return true;
+  }
+
+  function designateInferredCompartmentAtCell(cell, options = {}) {
+    const map = ensureLabMap();
+    const compartment = inferredCompartmentAtCell(cell, map);
+    if (!compartment) {
+      if (!options.silent) addEvent("No inferred compartment exists at that tile.");
+      return null;
+    }
+    const unassigned = compartment.cells.filter((candidate) => !labMapCellRoomId(candidate, map));
+    if (!unassigned.length) {
+      if (!options.silent) addEvent("That inferred compartment is already fully designated.");
+      return null;
+    }
+    if (compartment.roomIds.length === 1) {
+      const roomId = compartment.roomIds[0];
+      const existingRoom = roomById(roomId);
+      if (options.source === "automatic" && existingRoom?.designationSource === "manual") {
+        if (!options.silent) addEvent(`${existingRoom.name} was drawn manually, so automation left its boundary unchanged.`);
+        return null;
+      }
+      const mappedRoom = map.rooms[roomId];
+      setMapRoomCells(roomId, [...mappedRoom.cells, ...unassigned]);
+      state.labMap = normalizeLabMap(state.labMap, state.rooms);
+      rebuildRoomConnectionsFromMap();
+      if (!options.silent) addEvent(`${roomName(roomId)} designation expanded into ${unassigned.length} inferred tile${unassigned.length === 1 ? "" : "s"}.`);
+      return roomById(roomId);
+    }
+    if (compartment.roomIds.length > 1) {
+      if (!options.silent) addEvent("The inferred compartment overlaps multiple rooms; designate it manually.");
+      return null;
+    }
+    return createRoomDesignation(unassigned, {
+      source: options.source || "automatic",
+      skipValidation: true,
+      silent: options.silent
+    });
+  }
+
+  function roomPurposeInference(room) {
+    if (!room || room.role !== EXCAVATED_ROOM_ROLE) return null;
+    const map = state.labMap || ensureLabMap();
+    const cells = labMapRoomCells(room.id, map);
+    const keys = new Set(cells.map(mapCellKey));
+    const reasons = new Map();
+    const add = (purposeId, reason) => {
+      if (!ROOM_PURPOSE_BY_ID[purposeId]) return;
+      const list = reasons.get(purposeId) || [];
+      list.push(reason);
+      reasons.set(purposeId, list);
+    };
+    for (const container of state.containers || []) {
+      if (!containerFootprintCells(container, map).some((cell) => keys.has(mapCellKey(cell)))) continue;
+      if (isSynthesisContainer(container)) add("workroom", `${container.name} is synthesis equipment`);
+      if (collectionBayStationSelectable(container)) add("collection", `${container.name} is a collection station`);
+      if (isPitHoleContainer(container)) add("corpseProcessing", `${container.name} is a processing pit`);
+    }
+    const stockpile = state.roomStockpiles?.[room.id];
+    const stocked = [stockpile?.resources, stockpile?.inventory, stockpile?.collectedByproducts, stockpile?.specimenMaterials]
+      .some((group) => Object.values(group || {}).some((amount) => Number(amount) > 0));
+    if (stocked) add("storage", "the room contains a stockpile");
+    if (reasons.size !== 1) return null;
+    const [purposeId, purposeReasons] = reasons.entries().next().value;
+    return { purposeId, reasons: purposeReasons };
+  }
+
+  function applyAutomaticRoomPurposes(options = {}) {
+    if (roomDesignationPolicyMode() !== "automatic") return 0;
+    let changed = 0;
+    for (const room of state.rooms || []) {
+      const inference = roomPurposeInference(room);
+      if (!inference) continue;
+      if (assignRoomPurposeValue(room, inference.purposeId, { source: "automatic", reason: inference.reasons.join(" and ") })) {
+        changed += 1;
+        if (!options.silent) addEvent(`${room.name} automatically designated because ${inference.reasons.join(" and ")}.`);
+      }
+    }
+    return changed;
+  }
+
+  function applyRoomDesignationPolicy(options = {}) {
+    if (roomDesignationPolicyMode() !== "automatic") return 0;
+    const map = ensureLabMap();
+    const focusKeys = options.focusCells?.length ? new Set(normalizeDigCells(options.focusCells).map(mapCellKey)) : null;
+    const inference = inferLabCompartments(map);
+    let changed = 0;
+    for (const compartment of inference.compartments) {
+      if (focusKeys && !compartment.cells.some((cell) => focusKeys.has(mapCellKey(cell)))) continue;
+      const unassigned = compartment.cells.filter((cell) => !labMapCellRoomId(cell, map));
+      if (!unassigned.length || compartment.roomIds.length > 1) continue;
+      if (designateInferredCompartmentAtCell(compartment.cells[0], { source: "automatic", silent: true })) changed += 1;
+    }
+    changed += applyAutomaticRoomPurposes({ silent: true });
+    if (changed && !options.silent) addEvent(`Room designation policy applied ${changed} automatic update${changed === 1 ? "" : "s"}.`);
+    return changed;
   }
 
   function toggleConstructionDigMode() {
@@ -8368,6 +8763,213 @@
     }
     const keys = excavatedKeys || labMapExcavatedCellKeys(map);
     return keys.has(mapCellKey(cell));
+  }
+
+  function orthogonalMapNeighbors(cell) {
+    return [
+      { x: cell.x + 1, y: cell.y },
+      { x: cell.x - 1, y: cell.y },
+      { x: cell.x, y: cell.y + 1 },
+      { x: cell.x, y: cell.y - 1 }
+    ];
+  }
+
+  function mapCellComponents(keys, cellByKey) {
+    const remaining = new Set(keys);
+    const components = [];
+    while (remaining.size) {
+      const firstKey = remaining.values().next().value;
+      remaining.delete(firstKey);
+      const stack = [cellByKey.get(firstKey)];
+      const cells = [];
+      while (stack.length) {
+        const cell = stack.pop();
+        if (!cell) continue;
+        cells.push(cell);
+        for (const neighbor of orthogonalMapNeighbors(cell)) {
+          const key = mapCellKey(neighbor);
+          if (!remaining.has(key)) continue;
+          remaining.delete(key);
+          stack.push(cellByKey.get(key));
+        }
+      }
+      components.push(normalizeDigCells(cells));
+    }
+    return components;
+  }
+
+  function compartmentBounds(cells) {
+    const rect = digCellsBoundingRect(cells) || { x: 0, y: 0, width: 1, height: 1 };
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }
+
+  function inferLabCompartments(map = ensureLabMap()) {
+    const doorByCell = new Map(Object.values(map.doors || {}).map((door) => [mapCellKey(door.cell), door]));
+    const floorCells = (map.terrain?.excavated || []).filter((cell) => !doorByCell.has(mapCellKey(cell)));
+    const cellByKey = new Map(floorCells.map((cell) => [mapCellKey(cell), cell]));
+    const floorKeys = new Set(cellByKey.keys());
+    const coreKeys = new Set();
+
+    for (const cell of floorCells) {
+      for (const offset of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+        const square = [
+          { x: cell.x + offset[0], y: cell.y + offset[1] },
+          { x: cell.x + offset[0] + 1, y: cell.y + offset[1] },
+          { x: cell.x + offset[0], y: cell.y + offset[1] + 1 },
+          { x: cell.x + offset[0] + 1, y: cell.y + offset[1] + 1 }
+        ];
+        if (square.every((candidate) => floorKeys.has(mapCellKey(candidate)))) {
+          square.forEach((candidate) => coreKeys.add(mapCellKey(candidate)));
+        }
+      }
+    }
+
+    const coreComponents = mapCellComponents(coreKeys, cellByKey);
+    const coreOwnerByCell = new Map();
+    const provisional = coreComponents.map((cells, index) => {
+      const id = `core-${index + 1}`;
+      cells.forEach((cell) => coreOwnerByCell.set(mapCellKey(cell), id));
+      return { id, kind: "roomLike", cells: [...cells] };
+    });
+    const provisionalById = new Map(provisional.map((entry) => [entry.id, entry]));
+    const narrowKeys = new Set([...floorKeys].filter((key) => !coreKeys.has(key)));
+    const connectors = [];
+
+    for (const cells of mapCellComponents(narrowKeys, cellByKey)) {
+      const adjacentCoreIds = new Set();
+      for (const cell of cells) {
+        for (const neighbor of orthogonalMapNeighbors(cell)) {
+          const ownerId = coreOwnerByCell.get(mapCellKey(neighbor));
+          if (ownerId) adjacentCoreIds.add(ownerId);
+        }
+      }
+      if (adjacentCoreIds.size === 1) {
+        const ownerId = [...adjacentCoreIds][0];
+        provisionalById.get(ownerId).cells.push(...cells);
+        cells.forEach((cell) => coreOwnerByCell.set(mapCellKey(cell), ownerId));
+        continue;
+      }
+      if (adjacentCoreIds.size >= 2 && cells.length === 1) {
+        connectors.push({ kind: "threshold", cell: cells[0], provisionalIds: [...adjacentCoreIds] });
+        continue;
+      }
+      const id = `narrow-${provisional.length + 1}`;
+      const entry = {
+        id,
+        kind: cells.length > 1 && adjacentCoreIds.size ? "corridorLike" : "narrow",
+        cells: [...cells]
+      };
+      provisional.push(entry);
+      provisionalById.set(id, entry);
+      cells.forEach((cell) => coreOwnerByCell.set(mapCellKey(cell), id));
+    }
+
+    provisional.sort((left, right) => {
+      const a = [...left.cells].sort((x, y) => (x.y - y.y) || (x.x - y.x))[0] || { x: 0, y: 0 };
+      const b = [...right.cells].sort((x, y) => (x.y - y.y) || (x.x - y.x))[0] || { x: 0, y: 0 };
+      return (a.y - b.y) || (a.x - b.x);
+    });
+    const stableIdByProvisionalId = new Map();
+    provisional.forEach((entry) => {
+      const anchor = [...entry.cells].sort((a, b) => (a.y - b.y) || (a.x - b.x))[0] || { x: 0, y: 0 };
+      stableIdByProvisionalId.set(entry.id, `compartment-${anchor.x}-${anchor.y}`);
+    });
+    const cellToCompartment = new Map();
+    const compartments = provisional.map((entry) => {
+      const id = stableIdByProvisionalId.get(entry.id);
+      entry.cells.forEach((cell) => cellToCompartment.set(mapCellKey(cell), id));
+      const roomIds = [...new Set(entry.cells.map((cell) => labMapCellRoomId(cell, map)).filter(Boolean))];
+      return {
+        id,
+        kind: entry.kind,
+        cells: normalizeDigCells(entry.cells),
+        bounds: compartmentBounds(entry.cells),
+        roomIds,
+        connectionIds: [],
+        portals: [],
+        status: entry.cells.some((cell) => cell.x === 0 || cell.y === 0 || cell.x === map.width - 1 || cell.y === map.height - 1)
+          ? "exposed"
+          : "enclosed"
+      };
+    });
+    const compartmentById = new Map(compartments.map((entry) => [entry.id, entry]));
+    const connectionKeys = new Set();
+    const connect = (leftId, rightId, portal) => {
+      if (!leftId || !rightId || leftId === rightId) return;
+      const key = [leftId, rightId].sort().join("::");
+      if (!connectionKeys.has(key)) {
+        connectionKeys.add(key);
+        compartmentById.get(leftId)?.connectionIds.push(rightId);
+        compartmentById.get(rightId)?.connectionIds.push(leftId);
+      }
+      if (portal) {
+        compartmentById.get(leftId)?.portals.push(portal);
+        compartmentById.get(rightId)?.portals.push(portal);
+      }
+    };
+
+    for (const cell of floorCells) {
+      const ownerId = cellToCompartment.get(mapCellKey(cell));
+      for (const neighbor of orthogonalMapNeighbors(cell)) {
+        connect(ownerId, cellToCompartment.get(mapCellKey(neighbor)));
+      }
+    }
+    for (const connector of connectors) {
+      const ids = connector.provisionalIds.map((id) => stableIdByProvisionalId.get(id)).filter(Boolean);
+      const portal = { kind: "threshold", cell: connector.cell, compartmentIds: ids };
+      for (let a = 0; a < ids.length; a += 1) {
+        for (let b = a + 1; b < ids.length; b += 1) connect(ids[a], ids[b], portal);
+      }
+    }
+    for (const door of doorByCell.values()) {
+      const ids = [...new Set(orthogonalMapNeighbors(door.cell)
+        .map((cell) => cellToCompartment.get(mapCellKey(cell)))
+        .filter(Boolean))];
+      const liveDoor = state?.doors?.[door.key] || door;
+      const portal = { kind: "door", cell: door.cell, key: door.key, compartmentIds: ids };
+      for (let a = 0; a < ids.length; a += 1) {
+        for (let b = a + 1; b < ids.length; b += 1) connect(ids[a], ids[b], portal);
+      }
+      if (doorIsBreached(liveDoor)) {
+        ids.forEach((id) => {
+          const compartment = compartmentById.get(id);
+          if (compartment && compartment.status !== "exposed") compartment.status = "compromised";
+        });
+      }
+    }
+
+    return {
+      compartments,
+      cellToCompartment,
+      connectors: connectors.map((connector) => ({
+        kind: connector.kind,
+        cell: connector.cell,
+        compartmentIds: connector.provisionalIds.map((id) => stableIdByProvisionalId.get(id)).filter(Boolean)
+      }))
+    };
+  }
+
+  function inferredCompartmentAtCell(cell, map = ensureLabMap(), inference = null) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return null;
+    const derived = inference || inferLabCompartments(map);
+    const id = derived.cellToCompartment.get(mapCellKey(clean));
+    return id ? derived.compartments.find((entry) => entry.id === id) || null : null;
+  }
+
+  function nearestDesignatedRoomIdForCell(cell, map = ensureLabMap()) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return MAIN_ROOM_ID;
+    const compartment = inferredCompartmentAtCell(clean, map);
+    if (compartment?.roomIds?.length === 1) return compartment.roomIds[0];
+    let nearest = null;
+    for (const room of Object.values(map.rooms || {})) {
+      for (const roomCell of room.cells || []) {
+        const distance = Math.abs(roomCell.x - clean.x) + Math.abs(roomCell.y - clean.y);
+        if (!nearest || distance < nearest.distance) nearest = { roomId: room.roomId, distance };
+      }
+    }
+    return nearest?.roomId || MAIN_ROOM_ID;
   }
 
   function labMapRoomAnchor(roomId, map = ensureLabMap()) {
@@ -8751,10 +9353,14 @@
     const startRoomId = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const targetRoomId = roomById(toRoomId)?.id || MAIN_ROOM_ID;
     const start = options.fromCell
-      ? normalizeMapCellForRoom(options.fromCell, startRoomId, map)
+      ? options.allowUnassignedCell && labMapCellIsExcavated(options.fromCell, map)
+        ? cleanMapCell(options.fromCell)
+        : normalizeMapCellForRoom(options.fromCell, startRoomId, map)
       : nearestOpenMapCellInRoom(startRoomId, labMapRoomAnchor(startRoomId, map), { ...options, map });
     const end = options.toCell
-      ? normalizeMapCellForRoom(options.toCell, targetRoomId, map)
+      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell, map)
+        ? cleanMapCell(options.toCell)
+        : normalizeMapCellForRoom(options.toCell, targetRoomId, map)
       : nearestOpenMapCellInRoom(targetRoomId, labMapRoomAnchor(targetRoomId, map), { ...options, map });
     return labMapPathBetweenCells(start, end, { ...options, map });
   }
@@ -9343,13 +9949,13 @@
   function roomRouteBetween(fromRoomId, toRoomId, options = {}) {
     const start = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const target = roomById(toRoomId)?.id || MAIN_ROOM_ID;
-    if (start === target) {
+    if (start === target && !(options.allowUnassignedCell && options.toCell)) {
       return [start];
     }
     const map = ensureLabMap();
     const path = roomPathBetween(start, target, { ...options, map });
     const mappedRooms = roomsFromMapPath(path, map);
-    if (mappedRooms.length && mappedRooms[0] === start && mappedRooms[mappedRooms.length - 1] === target) {
+    if (mappedRooms.length && mappedRooms[0] === start && (mappedRooms[mappedRooms.length - 1] === target || options.allowUnassignedCell)) {
       return mappedRooms;
     }
     return [];
@@ -16777,6 +17383,7 @@
 
     addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${mapPathSummary(task.data?.mapPath || [], ensureLabMap())}.`);
     refreshCorpseProcessingTargets();
+    applyAutomaticRoomPurposes({ silent: true });
     return true;
   }
 
@@ -22077,7 +22684,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
-    const targetCell = options.toCell ? normalizeMapCellForRoom(options.toCell, target.id) : null;
+    const targetCell = options.toCell
+      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell)
+        ? cleanMapCell(options.toCell)
+        : normalizeMapCellForRoom(options.toCell, target.id)
+      : null;
     if (fromRoomId === target.id && (!targetCell || mapCellKey(fromCell) === mapCellKey(targetCell))) {
       return "The scientist is already there.";
     }
@@ -22089,13 +22700,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ignoreDoorSecurity: true,
       requireReachable: true,
       fromCell,
-      toCell: targetCell || undefined
+      toCell: targetCell || undefined,
+      allowUnassignedCell: options.allowUnassignedCell
     });
     const doorBlock = firstDoorSecurityBlockReason(securityRoute);
     if (doorBlock) {
       return doorBlock;
     }
-    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined }).length) {
+    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined, allowUnassignedCell: options.allowUnassignedCell }).length) {
       return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
     }
     return "";
@@ -22104,8 +22716,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function scientistMoveDuration(fromRoomId, toRoomId, options = {}) {
     const fromCell = options.fromCell || scientistMapCell();
     const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId));
-    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
-    const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell });
+    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
+    const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
     const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
     return adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + doorDelay), "analysis");
@@ -22134,11 +22746,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
     const toCell = options.toCell
-      ? normalizeMapCellForRoom(options.toCell, target.id)
+      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell)
+        ? cleanMapCell(options.toCell)
+        : normalizeMapCellForRoom(options.toCell, target.id)
       : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
-    const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell });
-    const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
-    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell });
+    const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
+    const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
+    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
@@ -22151,6 +22765,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         route,
         fromCell,
         toCell,
+        allowUnassignedCell: Boolean(options.allowUnassignedCell),
         mapPath,
         doorTransit: doorTransitPlan(route),
         staminaCost: cost,
@@ -22176,7 +22791,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
-    state.scientist.mapCell = normalizeMapCellForRoom(task.data?.toCell, target.id);
+    state.scientist.mapCell = task.data?.allowUnassignedCell && labMapCellIsExcavated(task.data?.toCell)
+      ? cleanMapCell(task.data.toCell)
+      : normalizeMapCellForRoom(task.data?.toCell, target.id);
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     addEvent(`Arrived in ${target.name}.`);
     const incident = incidentById(task.data?.incidentId);
@@ -26791,6 +27408,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (dom.handlingPolicyList) dom.handlingPolicyList.textContent = "";
     dom.corpsePolicyList.textContent = "";
     dom.doorPolicyList.textContent = "";
+    if (dom.roomPolicyList) dom.roomPolicyList.textContent = "";
     if (dom.automationPolicyList) dom.automationPolicyList.textContent = "";
 
     const handlingControls = document.createElement("div");
@@ -26843,6 +27461,39 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     doorPolicyLabel.append(doorPolicySelect);
     dom.doorPolicyList.append(doorPolicyLabel);
 
+    const roomPolicyLabel = document.createElement("label");
+    roomPolicyLabel.className = "policy-option";
+    roomPolicyLabel.title = "Controls whether inferred architectural compartments remain suggestions or become room designations automatically.";
+    roomPolicyLabel.append(textEl("span", "Room designation"));
+    const roomPolicySelect = document.createElement("select");
+    roomPolicySelect.dataset.roomDesignationPolicySelect = "true";
+    for (const policyDef of ROOM_DESIGNATION_POLICY_DEFS) {
+      const option = document.createElement("option");
+      option.value = policyDef.id;
+      option.textContent = policyDef.label;
+      roomPolicySelect.append(option);
+    }
+    roomPolicySelect.value = roomDesignationPolicyMode();
+    roomPolicySelect.title = roomDesignationPolicyDef().description;
+    roomPolicySelect.addEventListener("change", () => {
+      state.policies.rooms.designationMode = ROOM_DESIGNATION_POLICY_BY_ID[roomPolicySelect.value]
+        ? roomPolicySelect.value
+        : DEFAULT_ROOM_DESIGNATION_POLICY_ID;
+      const updates = applyRoomDesignationPolicy({ silent: true });
+      addEvent(`Room designation policy set: ${roomDesignationPolicyDef().label}.${updates ? ` Applied ${updates} update${updates === 1 ? "" : "s"}.` : ""}`);
+      persist();
+      render();
+    });
+    roomPolicyLabel.append(roomPolicySelect);
+    dom.roomPolicyList?.append(roomPolicyLabel);
+
+    const compartmentReadout = document.createElement("p");
+    compartmentReadout.className = "journal-meta inventory-note";
+    const inferred = inferLabCompartments();
+    const unassigned = inferred.compartments.filter((compartment) => compartment.cells.some((cell) => !labMapCellRoomId(cell))).length;
+    compartmentReadout.textContent = `${inferred.compartments.length} inferred compartment${inferred.compartments.length === 1 ? "" : "s"}; ${unassigned} contain unassigned floor. Manual room designations are never overwritten by this policy.`;
+    dom.roomPolicyList?.append(compartmentReadout);
+
     const targets = state.policies.corpseProcessingTargets;
     const handling = corpseHandlingPolicy();
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
@@ -26853,7 +27504,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? `Corpse handling auto-moves local remains to ${corpseHandlingDestinationLabel(handling).toLowerCase()} when space is available.`
       : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
-    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}.`;
+    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}. Room designation: ${roomDesignationPolicyDef().label.toLowerCase()}.`;
     renderPolicyOverview({ corpseSummary, handlingSummary, feedingMode });
 
     const autoMoveLabel = document.createElement("label");
@@ -26996,6 +27647,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         currentDoorPolicyDef().label,
         currentDoorPolicyDef().description,
         policyTabButton("doors", "Open Doors")
+      ),
+      policyOverviewRow(
+        "Room designation",
+        roomDesignationPolicyDef().label,
+        roomDesignationPolicyDef().description,
+        policyTabButton("rooms", "Open Rooms")
       ),
       policyOverviewRow(
         "Auto-feeding",
@@ -28395,6 +29052,94 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function roomsOverlayAssignments(map) {
+    const assignments = new Map();
+    const inference = inferLabCompartments(map);
+    for (const compartment of inference.compartments) {
+      const designationLabel = compartment.roomIds.length
+        ? compartment.roomIds.map(roomName).join(", ")
+        : "Unassigned";
+      for (const cell of compartment.cells) {
+        setLabMapOverlayEntry(assignments, cell, {
+          overlayId: "rooms",
+          classNames: [
+            "map-overlay-rooms",
+            `map-overlay-rooms-${compartment.kind}`,
+            `map-overlay-rooms-${compartment.status}`,
+            ...(compartment.roomIds.length ? ["map-overlay-rooms-designated"] : ["map-overlay-rooms-unassigned"])
+          ],
+          label: `${designationLabel} · ${compartment.kind}`,
+          source: "Inferred architecture",
+          title: `Overlay: Rooms - ${compartment.cells.length} tile ${compartment.kind} compartment; ${compartment.status}; ${designationLabel.toLowerCase()}.`
+        }, map);
+      }
+    }
+    for (const connector of inference.connectors) {
+      setLabMapOverlayEntry(assignments, connector.cell, {
+        overlayId: "rooms",
+        classNames: ["map-overlay-rooms", "map-overlay-rooms-threshold"],
+        label: "Open one-tile threshold",
+        source: "Inferred architecture",
+        title: "Overlay: Rooms - open one-tile threshold separates inferred compartments without blocking movement or diffusion."
+      }, map);
+    }
+    for (const [key, draft] of roomDraftAssignments()) {
+      const [x, y] = key.split(",").map(Number);
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: "rooms",
+        classNames: ["map-overlay-rooms", "map-overlay-rooms-draft", ...(draft.valid ? [] : ["map-overlay-rooms-draft-invalid"])],
+        label: draft.label,
+        source: "Player draft",
+        title: draft.reason ? `Overlay: Rooms - ${draft.reason}` : "Overlay: Rooms - tile belongs to the current manual room draft."
+      }, map);
+    }
+    return assignments;
+  }
+
+  function roomsOverlayAssignments(map) {
+    const assignments = new Map();
+    const inference = inferLabCompartments(map);
+    for (const compartment of inference.compartments) {
+      const designationLabel = compartment.roomIds.length
+        ? compartment.roomIds.map(roomName).join(", ")
+        : "Unassigned";
+      for (const cell of compartment.cells) {
+        setLabMapOverlayEntry(assignments, cell, {
+          overlayId: "rooms",
+          classNames: [
+            "map-overlay-rooms",
+            `map-overlay-rooms-${compartment.kind}`,
+            `map-overlay-rooms-${compartment.status}`,
+            ...(compartment.roomIds.length ? ["map-overlay-rooms-designated"] : ["map-overlay-rooms-unassigned"])
+          ],
+          label: `${designationLabel} · ${compartment.kind}`,
+          source: "Inferred architecture",
+          title: `Overlay: Rooms - ${compartment.cells.length} tile ${compartment.kind} compartment; ${compartment.status}; ${designationLabel.toLowerCase()}.`
+        }, map);
+      }
+    }
+    for (const connector of inference.connectors) {
+      setLabMapOverlayEntry(assignments, connector.cell, {
+        overlayId: "rooms",
+        classNames: ["map-overlay-rooms", "map-overlay-rooms-threshold"],
+        label: "Open one-tile threshold",
+        source: "Inferred architecture",
+        title: "Overlay: Rooms - open one-tile threshold separates inferred compartments without blocking movement or diffusion."
+      }, map);
+    }
+    for (const [key, draft] of roomDraftAssignments()) {
+      const [x, y] = key.split(",").map(Number);
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: "rooms",
+        classNames: ["map-overlay-rooms", "map-overlay-rooms-draft", ...(draft.valid ? [] : ["map-overlay-rooms-draft-invalid"])],
+        label: draft.label,
+        source: "Player draft",
+        title: draft.reason ? `Overlay: Rooms - ${draft.reason}` : "Overlay: Rooms - tile belongs to the current manual room draft."
+      }, map);
+    }
+    return assignments;
+  }
+
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const normalized = normalizeMapOverlayId(overlayId);
     if (normalized === "none") {
@@ -28417,6 +29162,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "construction") {
       return constructionOverlayAssignments(map, context.plannedExcavations || plannedExcavationAssignments());
+    }
+    if (normalized === "rooms") {
+      return roomsOverlayAssignments(map);
+    }
+    if (normalized === "rooms") {
+      return roomsOverlayAssignments(map);
     }
     if (normalized === "debug") {
       return contaminationOverlayAssignments(map, { debug: true });
@@ -29292,7 +30043,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
-      return room ? [room.roleLabel || "Custom room", roomOccupancySummary(room.id)].map(chip) : [];
+      return room ? [
+        room.roleLabel || "Custom room",
+        room.designationDisconnected ? "Disconnected designation" : `${titleCase(room.designationSource || "manual")} designation`,
+        roomOccupancySummary(room.id)
+      ].map(chip) : [];
     }
     if (selection.kind === "door") {
       const door = labMapDoor(selection.key);
@@ -29695,7 +30450,80 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
       }
     }
+    commands.push(...roomDesignationContextCommands(labMapRoomAnchor(room.id), room));
     commands.push(...roomMenuContextCommands(room));
+    return commands;
+  }
+
+  function roomDesignationContextCommands(cell, room = null) {
+    const clean = cleanMapCell(cell);
+    const manualStartCell = room ? null : clean;
+    const draft = roomDesignationDraftCells();
+    const draftReason = draft.length ? roomDesignationBlockReason(draft) : "No room draft has been selected.";
+    const compartment = clean ? inferredCompartmentAtCell(clean) : null;
+    const unassignedCount = compartment
+      ? compartment.cells.filter((candidate) => !labMapCellRoomId(candidate)).length
+      : 0;
+    const commands = [
+      commandDef({
+        id: `roomDesignation.begin.${clean?.x ?? "none"}.${clean?.y ?? "none"}`,
+        label: roomDesignationModeActive() ? "Restart Room Draft" : "Draw Room Designation",
+        group: "Room Designation",
+        disabledReason: room ? "" : clean ? roomDesignationCellBlockReason(clean) : "No excavated tile selected.",
+        description: "Enter manual room designation mode. Click excavated tiles to define one persistent room area.",
+        run: () => beginRoomDesignationAtCell(manualStartCell)
+      }),
+      commandDef({
+        id: "roomDesignation.confirm",
+        label: "Confirm Room Designation",
+        group: "Room Designation",
+        disabledReason: draftReason,
+        description: "Create a new room from the manual tile draft. Existing room tiles are reassigned without deleting disconnected remnants.",
+        run: () => confirmRoomDesignationDraft()
+      }),
+      commandDef({
+        id: "roomDesignation.clear",
+        label: "Clear Room Draft",
+        group: "Room Designation",
+        disabledReason: draft.length ? "" : "No room draft has been selected.",
+        description: "Clear the current manual room tile selection.",
+        run: () => clearRoomDesignationDraft()
+      }),
+      commandDef({
+        id: `roomDesignation.accept.${compartment?.id || "none"}`,
+        label: "Accept Inferred Compartment",
+        group: "Room Designation",
+        disabledReason: !compartment
+          ? "No inferred compartment exists at this tile."
+          : unassignedCount
+            ? ""
+            : "This inferred compartment is already fully designated.",
+        description: "Accept the automatically inferred architectural area as a room, or expand its one existing room designation into unassigned tiles.",
+        run: () => {
+          const result = designateInferredCompartmentAtCell(clean, { source: "manual" });
+          applyAutomaticRoomPurposes();
+          persist();
+          render();
+          return Boolean(result);
+        }
+      }),
+      commandDef({
+        id: `roomDesignation.overlay.${clean?.x ?? "none"}.${clean?.y ?? "none"}`,
+        label: "Show Rooms Overlay",
+        group: "Map",
+        description: "Show inferred compartments, thresholds, room ownership, and the current manual draft.",
+        run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "rooms", keyboardMenuPath: "" })
+      })
+    ];
+    if (room?.designationDisconnected) {
+      commands.unshift(commandDef({
+        id: `roomDesignation.disconnected.${room.id}`,
+        label: "Room Designation Is Disconnected",
+        group: "Room Designation",
+        disabledReason: "Redraw this room when convenient; its existing tile ownership has been preserved.",
+        description: "Construction split this room into disconnected tile groups. The game has preserved them instead of deleting either side."
+      }));
+    }
     return commands;
   }
 
@@ -29705,6 +30533,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const cell = cleanMapCell(selection?.tile);
       if (!cell) {
         return [];
+      }
+      if (labMapCellIsExcavated(cell)) {
+        const movementRoomId = nearestDesignatedRoomIdForCell(cell);
+        const movementReason = scientistMoveBlockReason(movementRoomId, {
+          toCell: cell,
+          allowMultiRoom: true,
+          allowUnassignedCell: true
+        });
+        return [
+          commandDef({
+            id: `tile.moveUnassigned.${cell.x}.${cell.y}`,
+            label: "Move Scientist Here",
+            group: "Movement",
+            disabledReason: movementReason,
+            description: `Queue movement to unassigned rough floor at ${cell.x},${cell.y}.`,
+            run: () => startScientistMove(movementRoomId, {
+              toCell: cell,
+              allowMultiRoom: true,
+              allowUnassignedCell: true,
+              label: `Move scientist to unassigned tile ${cell.x},${cell.y}`
+            })
+          }),
+          ...roomDesignationContextCommands(cell)
+        ];
       }
       const inDraft = constructionDraftCellKeys().has(mapCellKey(cell));
       const draftCells = constructionDraftCells();
@@ -30776,11 +31628,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "tile") {
       const roomId = selection.roomId || labMapCellRoomId(selection.tile);
       const door = labMapDoorAtCell(selection.tile);
+      const excavated = labMapCellIsExcavated(selection.tile);
+      const compartment = inferredCompartmentAtCell(selection.tile);
       return [
         ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
-        ["Room", roomId ? roomName(roomId) : "Solid earth"],
+        ["Room", roomId ? roomName(roomId) : excavated ? "Unassigned floor" : "Solid earth"],
+        ["Inferred compartment", compartment ? `${compartment.kind}; ${compartment.status}; ${compartment.cells.length} tiles` : "None"],
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
-        ["Walkability", roomId ? "Walkable if not blocked" : "Solid"]
+        ["Walkability", excavated ? "Walkable if not blocked" : "Solid"]
       ];
     }
     if (selection.kind === "room") {
@@ -30788,6 +31643,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const geometry = roomGeometry(room);
       return [
         ["Purpose", room.roleLabel || "Custom room"],
+        ["Designation", `${titleCase(room.designationSource || "manual")}${room.designationDisconnected ? "; disconnected" : ""}`],
+        ["Purpose source", titleCase(room.purposeSource || "manual")],
+        ["Purpose rationale", room.purposeReason || (room.role === EXCAVATED_ROOM_ROLE ? "No unambiguous contents" : "Assigned directly")],
         ["Shape", titleCase(geometry.shape)],
         ["Size", `${formatDecimal(geometry.lengthM, 1)}m x ${formatDecimal(geometry.widthM, 1)}m x ${formatDecimal(geometry.heightM, 1)}m`],
         ["Spatial feel", roomSpatialFeel(room)],
@@ -31881,6 +32739,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const viewport = mapViewportForUi(map);
     const anchors = labMapAnchorAssignments(map);
     const knownCellKeys = labMapKnownCellKeys(map, { fullReveal });
+    const compartmentInference = inferLabCompartments(map);
     const cells = [];
 
     for (let y = viewport.y; y < viewport.y + viewport.height; y += 1) {
@@ -31889,7 +32748,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const key = mapCellKey(cell);
         const known = labMapCellKnown(cell, map, knownCellKeys);
         const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
-        cells.push(buildLabMapCellView({
+        const cellView = buildLabMapCellView({
           cell,
           map,
           anchorRoom: anchors.get(key),
@@ -31903,7 +32762,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           scientistCell,
           cursorCell,
           known
-        }));
+        });
+        cellView.compartmentId = compartmentInference.cellToCompartment.get(key) || "";
+        cells.push(cellView);
       }
     }
 
@@ -31931,6 +32792,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       resourceFocus,
       overlayMenuOpen: Boolean(ensureUiState().overlayMenuOpen),
       keyboardHelpOpen: ensureUiState().keyboardHelpOpen,
+      compartments: compartmentInference.compartments.map((compartment) => ({
+        id: compartment.id,
+        kind: compartment.kind,
+        status: compartment.status,
+        cells: compartment.cells.map((cell) => ({ ...cell })),
+        bounds: { ...compartment.bounds },
+        roomIds: [...compartment.roomIds],
+        connectionIds: [...compartment.connectionIds],
+        portals: compartment.portals.map((portal) => ({ ...portal, cell: { ...portal.cell }, compartmentIds: [...portal.compartmentIds] }))
+      })),
+      compartmentConnectors: compartmentInference.connectors.map((connector) => ({
+        ...connector,
+        cell: { ...connector.cell },
+        compartmentIds: [...connector.compartmentIds]
+      })),
       cells,
       legendItems: mapOverlayLegendItems(overlay.id)
     };
@@ -32043,6 +32919,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
       : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
+    if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
+    else if (constructionDigModeActive()) row.append(chip("Dig mode"));
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
       textEl("span", cursorText),
@@ -32134,9 +33012,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Stale combat markers are last-known locations."
       ],
       construction: [
-        "Player plan: draft, planned, and rough excavation spaces.",
+        "Player plan: draft and planned excavation spaces.",
         "d = draft dig; D = planned dig.",
-        "Rough rooms await a room-purpose designation."
+        "Completed excavation is rough floor; use the Rooms overlay to review inferred compartments."
+      ],
+      rooms: [
+        "Architectural inference: broad spaces, narrow corridors, and one-tile thresholds.",
+        "Room designations are persistent player ownership overlays, not movement barriers.",
+        "Open thresholds do not block movement or environmental diffusion."
       ],
       debug: [
         "Debug omniscient: ignores normal player knowledge.",
@@ -32266,6 +33149,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["Middle drag", "Grab and pan the map."],
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
+      ["Room Mode", "Click excavated floor to toggle manual room designation tiles."],
       ["O / Shift+O", "Cycle map overlays forward or backward."],
       ["B", "Open the Black Market menu."],
       ["T/I/C/P/R/G", "Open Tasks, Stores, Creatures, Policies, Records, or Debug menus."],
@@ -32286,6 +33170,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function handleConstructionMapCellClick(cellView) {
+    if (roomDesignationModeActive()) {
+      const cell = cleanMapCell(cellView?.cell);
+      if (!cell || cellView?.known === false || roomDesignationCellBlockReason(cell)) return false;
+      toggleRoomDesignationDraftCell(cell);
+      return true;
+    }
     if (!constructionDigModeActive()) {
       return false;
     }
@@ -32530,17 +33420,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(room && room.role === EXCAVATED_ROOM_ROLE);
   }
 
-
-
-  function assignRoomPurpose(roomId, purposeId) {
-    const room = state.rooms.find((candidate) => candidate.id === roomId);
+  function assignRoomPurposeValue(room, purposeId, options = {}) {
     const purpose = ROOM_PURPOSE_BY_ID[purposeId];
-    if (!roomCanAssignPurpose(room) || !purpose) {
-      addEvent("Room purpose could not be assigned.");
-      persist();
-      render();
-      return false;
-    }
+    if (!roomCanAssignPurpose(room) || !purpose) return false;
     const suffix = numericSuffix(room.id);
     const name = suffix ? `${purpose.nameBase} ${suffix}` : purpose.nameBase;
     room.name = name;
@@ -32548,14 +33430,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     room.role = purpose.role;
     room.roleLabel = purpose.roleLabel;
     room.description = purpose.description;
+    room.purposeSource = options.source === "automatic" ? "automatic" : "manual";
+    room.purposeReason = String(options.reason || "").trim();
     room.geometry = normalizeRoomGeometry({
       ...room.geometry,
       notes: `${room.geometry?.notes || "excavated room"}; assigned purpose: ${purpose.label}`
     });
+    return true;
+  }
+
+
+
+  function assignRoomPurpose(roomId, purposeId) {
+    const room = state.rooms.find((candidate) => candidate.id === roomId);
+    const purpose = ROOM_PURPOSE_BY_ID[purposeId];
+    if (!assignRoomPurposeValue(room, purposeId, { source: "manual" })) {
+      addEvent("Room purpose could not be assigned.");
+      persist();
+      render();
+      return false;
+    }
     state.rooms = normalizeRooms(state.rooms);
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
     syncRoomObservationMemory();
-    addEvent(`${name} assigned as ${purpose.label}.`);
+    addEvent(`${room.name} assigned as ${purpose.label}.`);
     persist();
     render();
     return true;
@@ -37326,6 +38224,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       description: String(candidate.description || base?.description || "").trim(),
       geometry: normalizeRoomGeometry(candidate.geometry || base?.geometry),
       connections: normalizeRoomConnections(candidate.connections || base?.connections, id),
+      designationSource: ["starter", "automatic", "manual"].includes(candidate.designationSource)
+        ? candidate.designationSource
+        : base ? "starter" : "manual",
+      purposeSource: ["starter", "automatic", "manual", "unassigned"].includes(candidate.purposeSource)
+        ? candidate.purposeSource
+        : base ? "starter" : candidate.role === EXCAVATED_ROOM_ROLE ? "unassigned" : "manual",
+      purposeReason: String(candidate.purposeReason || "").trim(),
+      designationDisconnected: Boolean(candidate.designationDisconnected),
       observation: normalizeRoomObservation(candidate.observation),
       attributes: normalizeRoomAttributes(candidate.attributes || base?.attributes)
     };
@@ -37397,8 +38303,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pendingMax + 1
       ),
       lastDigRect: normalizeDigRect(candidate?.lastDigRect),
-      mode: candidate?.mode === "dig" ? "dig" : fallback.mode,
-      draftCells: normalizeDigCells(candidate?.draftCells)
+      mode: ["dig", "room"].includes(candidate?.mode) ? candidate.mode : fallback.mode,
+      draftCells: normalizeDigCells(candidate?.draftCells),
+      roomDraftCells: normalizeDigCells(candidate?.roomDraftCells)
     };
   }
 
@@ -37623,6 +38530,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const doors = {
       behavior: DOOR_POLICY_BY_ID[candidate?.doors?.behavior] ? candidate.doors.behavior : DEFAULT_DOOR_POLICY_ID
     };
+    const rooms = {
+      designationMode: ROOM_DESIGNATION_POLICY_BY_ID[candidate?.rooms?.designationMode]
+        ? candidate.rooms.designationMode
+        : DEFAULT_ROOM_DESIGNATION_POLICY_ID
+    };
     return {
       ...fallback,
       ...(candidate || {}),
@@ -37630,6 +38542,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpseHandling,
       handling,
       doors,
+      rooms,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,

@@ -794,6 +794,9 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   await page.locator('[data-policy-menu-tab="automation"]').click();
   await expect(page.locator('[data-policy-menu-panel="automation"]')).toBeVisible();
   await expect(page.locator('#automationPolicyList')).toContainText(/No living specimens|Global automation exclusions/);
+  await page.locator('[data-policy-menu-tab="rooms"]').click();
+  await expect(page.locator('[data-policy-menu-panel="rooms"]')).toBeVisible();
+  await expect(page.locator('#roomPolicyList')).toContainText('Room designation');
   await page.locator('[data-workspace-tab="cheats"]').click();
   await expect(page.locator('[data-debug-menu-tab="cheats"]')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('[data-debug-menu-panel="cheats"]')).toBeVisible();
@@ -947,6 +950,36 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
 
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('door state changes isolation without changing inferred room identity', async ({ page }) => {
+  await startRun(page);
+  const initial = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().compartments);
+  expect(initial).toHaveLength(7);
+  expect(initial.every((compartment) => compartment.roomIds.length === 1)).toBe(true);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.doors['mainLab::storageRoom'].state = 'open';
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  const opened = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().compartments);
+  expect(opened.map((entry) => entry.id)).toEqual(initial.map((entry) => entry.id));
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.doors['mainLab::storageRoom'].condition = 0;
+    state.doors['mainLab::storageRoom'].breached = true;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  const breached = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().compartments);
+  expect(breached.find((entry) => entry.roomIds.includes('mainLab')).status).toBe('compromised');
+  expect(breached.find((entry) => entry.roomIds.includes('storageRoom')).status).toBe('compromised');
+  expect(breached.map((entry) => entry.id)).toEqual(initial.map((entry) => entry.id));
 });
 
 test('released slimes move toward accessible residue without raiding packaged storage supplies', async ({ page }) => {
@@ -2459,16 +2492,18 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('No selection');
 });
 
-test('construction designations become unassigned rooms that can receive a purpose', async ({ page }) => {
+test('one-tile openings infer separate compartments and automatic room designations', async ({ page }) => {
   await startRun(page);
 
-  const digRect = { x: 55, y: 41, width: 4, height: 4 };
-  for (let y = digRect.y; y < digRect.y + digRect.height; y += 1) {
-    for (let x = digRect.x; x < digRect.x + digRect.width; x += 1) {
+  const chamberRect = { x: 56, y: 40, width: 4, height: 4 };
+  const connector = { x: 57, y: 44 };
+  for (let y = chamberRect.y; y < chamberRect.y + chamberRect.height; y += 1) {
+    for (let x = chamberRect.x; x < chamberRect.x + chamberRect.width; x += 1) {
       await ensureDigTileDrafted(page, x, y);
     }
   }
-  await expect(page.locator('.lab-map-cell.draft-excavation-cell')).toHaveCount(16);
+  await ensureDigTileDrafted(page, connector.x, connector.y);
+  await expect(page.locator('.lab-map-cell.draft-excavation-cell')).toHaveCount(17);
   await runSelectionCommand(page, 'Confirm Dig Designation');
 
   const queued = await page.evaluate(({ key }) => {
@@ -2483,15 +2518,15 @@ test('construction designations become unassigned rooms that can receive a purpo
   }, { key: storageKey });
 
   expect(queued.task).toBeTruthy();
-  expect(queued.task.data.rect).toEqual(digRect);
-  expect(queued.task.data.cells).toHaveLength(16);
+  expect(queued.task.data.rect).toEqual({ x: 56, y: 40, width: 4, height: 5 });
+  expect(queued.task.data.cells).toHaveLength(17);
   expect(queued.map.width).toBeGreaterThanOrEqual(100);
-  expect(queued.construction.lastDigRect).toEqual(digRect);
+  expect(queued.construction.lastDigRect).toEqual({ x: 56, y: 40, width: 4, height: 5 });
   expect(queued.construction.draftCells).toHaveLength(0);
-  await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(16);
+  await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(17);
 
   await page.locator('#queueToggleBtn').click();
-  await page.locator('#taskList .task-row').filter({ hasText: 'Excavate 4 x 4 chamber' }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Excavate 17 tile rough chamber' }).getByRole('button', { name: 'Finish' }).click();
   await page.locator('#queueToggleBtn').click();
 
   const excavated = await page.evaluate(({ key }) => {
@@ -2506,20 +2541,39 @@ test('construction designations become unassigned rooms that can receive a purpo
       mapRoom: room ? state.labMap.rooms[room.id] : null,
       doorKeys,
       doors: state.doors,
-      excavatedCells: state.labMap.terrain?.excavated || []
+      excavatedCells: state.labMap.terrain?.excavated || [],
+      construction: state.construction
     };
   }, { key: storageKey });
 
   expect(excavated.room).toBeTruthy();
-  expect(excavated.room.name).toBe('Unassigned Excavation 1');
+  expect(excavated.room.name).toBe('Unassigned Room 1');
+  expect(excavated.room.designationSource).toBe('automatic');
+  expect(excavated.room.purposeSource).toBe('unassigned');
   expect(excavated.room.connections).toEqual(expect.arrayContaining(['mainLab']));
   expect(excavated.mapRoom.cells).toHaveLength(16);
   expect(excavated.doorKeys).toHaveLength(0);
   expect(excavated.excavatedCells).toEqual(expect.arrayContaining(excavated.mapRoom.cells));
+  expect(excavated.excavatedCells).toEqual(expect.arrayContaining([connector]));
+  expect(excavated.construction.roomDraftCells).toEqual([]);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(0);
   await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
-  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Unassigned Excavation 1');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Unassigned Room 1');
+
+  await selectMapOverlay(page, 'rooms');
+  const inferred = await page.evaluate(({ roomId, connector }) => {
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    return {
+      roomCompartment: view.compartments.find((compartment) => compartment.roomIds.includes(roomId)),
+      mainCompartment: view.compartments.find((compartment) => compartment.roomIds.includes('mainLab')),
+      connector: view.compartmentConnectors.find((entry) => entry.cell.x === connector.x && entry.cell.y === connector.y),
+    };
+  }, { roomId: excavated.room.id, connector });
+  expect(inferred.roomCompartment).toMatchObject({ kind: 'roomLike', status: 'enclosed' });
+  expect(inferred.mainCompartment.id).not.toBe(inferred.roomCompartment.id);
+  expect(inferred.connector).toMatchObject({ kind: 'threshold', cell: connector });
+  await expect(page.locator(`[data-map-x="${connector.x}"][data-map-y="${connector.y}"]`)).toHaveClass(/map-overlay-rooms-threshold/);
 
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
@@ -2562,4 +2616,90 @@ test('construction designations become unassigned rooms that can receive a purpo
   }, { key: storageKey, roomId: excavated.room.id });
   expect(openPassageDiffusion.main).toBeGreaterThan(0);
   expect(openPassageDiffusion.excavation).toBeLessThan(100);
+});
+
+test('manual room drawing can divide an inferred compartment and preserves disconnected remnants', async ({ page }) => {
+  await startRun(page);
+  await page.locator('[data-workspace-tab="policies"]').click();
+  await page.locator('[data-policy-menu-tab="rooms"]').click();
+  await page.locator('[data-room-designation-policy-select="true"]').selectOption('off');
+
+  const chamber = [];
+  for (let y = 40; y < 44; y += 1) {
+    for (let x = 56; x < 60; x += 1) chamber.push({ x, y });
+  }
+  const connector = { x: 57, y: 44 };
+  await page.evaluate(({ key, chamber, connector }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.labMap.terrain.excavated = [...(state.labMap.terrain.excavated || []), ...chamber, connector];
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey, chamber, connector });
+  await loadSavedRun(page);
+
+  await selectMapOverlay(page, 'rooms');
+  await page.locator('[data-map-x="56"][data-map-y="40"]').click();
+  await runSelectionCommand(page, 'Draw Room Designation');
+  for (const cell of chamber.slice(1)) {
+    await page.locator(`[data-map-x="${cell.x}"][data-map-y="${cell.y}"]`).click();
+  }
+  await expect(page.locator('.map-overlay-rooms-draft')).toHaveCount(16);
+  await runSelectionCommand(page, 'Confirm Room Designation');
+
+  const firstRoom = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return state.rooms.find((room) => room.id === 'excavation-1');
+  }, { key: storageKey });
+  expect(firstRoom).toMatchObject({ designationSource: 'manual', designationDisconnected: false });
+  expect(firstRoom.geometry.floorAreaM2).toBe(16);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.roomStockpiles['excavation-1'] ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
+    state.roomStockpiles['excavation-1'].resources.biomass = 1;
+    state.roomStockpiles.storageRoom.resources.biomass = Math.max(0, (state.roomStockpiles.storageRoom.resources.biomass || 0) - 1);
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  await page.locator('[data-workspace-tab="policies"]').click();
+  await page.locator('[data-policy-menu-tab="rooms"]').click();
+  await page.locator('[data-room-designation-policy-select="true"]').selectOption('automatic');
+  const automaticallyPurposed = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).rooms.find((room) => room.id === 'excavation-1');
+  }, { key: storageKey });
+  expect(automaticallyPurposed).toMatchObject({ role: 'materialStorage', purposeSource: 'automatic' });
+  await page.locator('[data-workspace-tab="map"]').click();
+  await selectMapOverlay(page, 'rooms');
+
+  await page.locator('[data-map-x="57"][data-map-y="40"]').click();
+  await runSelectionCommand(page, 'Draw Room Designation');
+  for (let y = 40; y < 44; y += 1) {
+    await page.locator(`[data-map-x="57"][data-map-y="${y}"]`).click();
+  }
+  await runSelectionCommand(page, 'Confirm Room Designation');
+
+  const divided = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      first: state.rooms.find((room) => room.id === 'excavation-1'),
+      second: state.rooms.find((room) => room.id === 'excavation-2'),
+      firstCells: state.labMap.rooms['excavation-1'].cells,
+      secondCells: state.labMap.rooms['excavation-2'].cells,
+    };
+  }, { key: storageKey });
+  expect(divided.first).toMatchObject({ designationDisconnected: true, role: 'materialStorage', purposeSource: 'automatic' });
+  expect(divided.firstCells).toHaveLength(12);
+  expect(divided.second).toMatchObject({ designationSource: 'manual', designationDisconnected: false });
+  expect(divided.secondCells).toEqual([
+    { x: 57, y: 40 },
+    { x: 57, y: 41 },
+    { x: 57, y: 42 },
+    { x: 57, y: 43 },
+  ]);
+  expect(divided.first.connections).toEqual(expect.arrayContaining(['excavation-2', 'mainLab']));
+  expect(divided.second.connections).toEqual(expect.arrayContaining(['excavation-1', 'mainLab']));
 });
