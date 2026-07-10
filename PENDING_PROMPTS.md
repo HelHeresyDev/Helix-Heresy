@@ -2,7 +2,7 @@
 
 This file contains Codex prompts that are waiting to be discussed and eventually implemented.
 
-Codex may refer to `DESIGN_BIBLE.md` for project context, but this file is the active implementation queue.
+Codex may refer to `DESIGN_BIBLE.md` for project context, but this file is the active implementation queue. The prompts and their order are recommendations based on the current state of the prototype, not immutable commitments. Reevaluate the order whenever implementation reveals a more important dependency or the developer changes direction.
 
 Important: Do not implement any prompt from this file immediately. Every prompt must go through a design discussion first. Codex should respond with feedback, concerns, suggestions, and clarifying questions before making code changes. Implementation should only begin after the design has been discussed and I explicitly approve moving forward.
 
@@ -12,151 +12,149 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Room Enclosure, Room Detection, and Room Ownership
-2. Construction Designations and Build/Dig Workflow
-3. Wall, Door, and Floor Materials
-4. Room Purpose, Zoning, and Room Requirements
-5. Furniture, Fixtures, and Lab Equipment Placement
-6. Environmental Infrastructure: Ventilation, Heat, Light, Mana, and Moisture
-7. Creature Movement, Door Policies, and Restricted Zones
-8. Containment Emergency Response and Recapture Tools
-9. Cleaning, Hauling, Maintenance, and Repair Jobs
-10. Black Market Commissions and External Pressure
+1. Room Enclosure Detection and Boundary Recalculation
+2. Room Ownership and Tile Designation
+3. Room Purposes, Zones, and Functional Requirements
+4. Dig, Build, Remove, and Smooth Designation Modes
+5. Buildable Walls, Floors, and Door Placement
+6. Structural Materials, Durability, and Breach Resistance
+7. Furniture, Fixtures, and Laboratory Equipment Placement
+8. Physical Stockpiles, Shelves, Crates, and Accessibility
+9. Loose Items, Spills, Waste, and Tile Contents
+10. Tile-Level Environmental Fields and Diffusion
+11. Ventilation, Drainage, Heating, Lighting, and Mana Infrastructure
+12. Visibility, Sound, Scent, and Creature Perception
+13. Door Permissions, Restricted Zones, and Creature Access Policies
+14. Scalable Pathfinding, Space Sharing, and Movement Reservations
+15. Slime Need Priorities, Intent Switching, and Interrupted Actions
+16. Creature Job Autonomy and Physical Workplace Interaction
+17. Containment Breach Response, Recapture, and Emergency Lockdown
+18. Cleaning, Hauling, Maintenance, and Repair Work
+19. Tactical Combat Movement, Abilities, and Map Commands
+20. Simulation Scheduling and Performance for Hundreds of Actors
 
 ---
 
-## 1. Room Enclosure, Room Detection, and Room Ownership
+## 1. Room Enclosure Detection and Boundary Recalculation
 
-Design discussion: room enclosure, room detection, and room ownership.
+Design how physical enclosed regions are derived from excavated terrain, walls, doors, breaches, and open passages. Resolve split and merge behavior, stable region identity, hallways, unenclosed spaces, and when boundary changes trigger recalculation.
 
-Do not make code changes yet.
-
-Focus on how the game should decide what counts as a room after walls and one-tile doors exist.
-
-Questions to resolve include automatic room detection, player room assignment, rough excavated space, enclosed vs unenclosed areas, room labels, room ownership of objects, room boundaries, and how changing walls or doors should update rooms.
-
-Do not modify files until we have agreed on the design and scope.
+Keep physical enclosure separate from a room's player-assigned purpose. Door open/closed state should affect movement and environmental leakage without making room identity flicker unnecessarily.
 
 ---
 
-## 2. Construction Designations and Build/Dig Workflow
+## 2. Room Ownership and Tile Designation
 
-Design discussion: construction designations and build/dig workflow.
-
-Do not make code changes yet.
-
-Focus on the player workflow for digging, building walls, placing doors, creating floors, confirming designations, queueing work, canceling designations, and showing invalid construction plans.
-
-This should build toward a colony-sim style workflow without overbuilding a full construction economy yet.
-
-Do not modify files until we have agreed on the design and scope.
+Design how excavated tiles become player-recognized rooms, corridors, or unassigned space. Resolve manual tile selection, irregular and contiguous shapes, ownership of fixtures and contents, overlapping designations, and what happens when an existing designation is split or merged.
 
 ---
 
-## 3. Wall, Door, and Floor Materials
+## 3. Room Purposes, Zones, and Functional Requirements
 
-Design discussion: wall, door, and floor materials.
-
-Do not make code changes yet.
-
-Focus on materials as physical properties for constructed map elements: durability, seal quality, resistance, visibility, insulation, contamination retention, sound leakage, creature damage resistance, and future repair/replacement.
-
-Keep this separate from full crafting or supply chains unless absolutely necessary.
-
-Do not modify files until we have agreed on the design and scope.
+Design room roles such as laboratories, storage, menageries, collection bays, pits, morgues, quarters, and workrooms. Decide whether purpose is a label, a behavior policy, an equipment checklist, or a combination, and how incomplete rooms communicate missing requirements.
 
 ---
 
-## 4. Room Purpose, Zoning, and Room Requirements
+## 4. Dig, Build, Remove, and Smooth Designation Modes
 
-Design discussion: room purpose, zoning, and room requirements.
-
-Do not make code changes yet.
-
-Focus on how the player designates room roles such as Main Lab, Menagerie, Storage, Pits, Collection Bay, Quarters, Containment Room, Workroom, Morgue, or future specialized rooms.
-
-Resolve whether room purpose is a label, a ruleset, a zoning tool, an equipment requirement, or a combination.
-
-Do not modify files until we have agreed on the design and scope.
+Design a unified map workflow for marking excavation, construction, removal, smoothing, cancellation, and priority. Resolve invalid designations, overlapping orders, preview states, and how designated work becomes scientist tasks now and broader labor later.
 
 ---
 
-## 5. Furniture, Fixtures, and Lab Equipment Placement
+## 5. Buildable Walls, Floors, and Door Placement
 
-Design discussion: furniture, fixtures, and lab equipment placement.
-
-Do not make code changes yet.
-
-Focus on physical placement of synthesis equipment, containers, shelves, pits, collection stations, workbenches, lights, vents, drains, wards, beds, tool lockers, and future lab equipment.
-
-The goal is to make rooms function through placed objects rather than abstract room bonuses.
-
-Do not modify files until we have agreed on the design and scope.
+Design player-built terrain and fixtures, including walls, floors, doors, and replacement of rough excavated surfaces. Doors should be placed in physical one-tile openings and remain independent objects rather than abstract links between room records.
 
 ---
 
-## 6. Environmental Infrastructure: Ventilation, Heat, Light, Mana, and Moisture
+## 6. Structural Materials, Durability, and Breach Resistance
 
-Design discussion: environmental infrastructure.
-
-Do not make code changes yet.
-
-Focus on how built infrastructure should create, drain, route, block, or stabilize Temperature, Light, Ambient Mana, Moisture, Contamination, fumes, and Electrical Charge.
-
-This should connect physical room geometry, doors, walls, vents, lights, wards, drains, containers, environmental feeders, and room suitability.
-
-Do not modify files until we have agreed on the design and scope.
+Design shared material properties for walls, doors, floors, containers, and other structures. Consider durability, seal quality, elemental resistance, insulation, visibility, contamination retention, sound transmission, damage states, repairability, and enchantments.
 
 ---
 
-## 7. Creature Movement, Door Policies, and Restricted Zones
+## 7. Furniture, Fixtures, and Laboratory Equipment Placement
 
-Design discussion: creature movement, door policies, and restricted zones.
-
-Do not make code changes yet.
-
-Focus on how loose creatures interact with physical doors, walls, room zones, access restrictions, door policies, traces, blocked-door pressure, and containment boundaries.
-
-The goal is to make creature movement readable and dangerous without turning every loose slime into constant micromanagement.
-
-Do not modify files until we have agreed on the design and scope.
+Design placement, rotation, footprints, access tiles, and interaction points for synthesis equipment, containers, collection stations, workbenches, lights, vents, drains, wards, beds, shelves, and tools. Room function should increasingly emerge from physical equipment rather than abstract room bonuses.
 
 ---
 
-## 8. Containment Emergency Response and Recapture Tools
+## 8. Physical Stockpiles, Shelves, Crates, and Accessibility
 
-Design discussion: containment emergency response and recapture tools.
-
-Do not make code changes yet.
-
-Focus on what the player can do after a containment breach, loose creature alert, blocked-door pressure, or combat incident.
-
-Possible systems include recapture tasks, baiting, sealing rooms, emergency door control, tool-based handling, temporary cages, sedation, lures, emergency cleanup, and risk-aware response commands.
-
-Do not modify files until we have agreed on the design and scope.
+Design where resources and tools physically live, how stockpile zones differ from storage furniture, and whether actors can reach the contents. Include capacity, item categories, hauling destinations, last-inventoried knowledge, secured supplies, and protection from loose creatures.
 
 ---
 
-## 9. Cleaning, Hauling, Maintenance, and Repair Jobs
+## 9. Loose Items, Spills, Waste, and Tile Contents
 
-Design discussion: cleaning, hauling, maintenance, and repair jobs.
-
-Do not make code changes yet.
-
-Focus on making routine lab upkeep explicit: moving materials, cleaning residue, hauling corpses, transferring receptacles, repairing doors/containers/tools, replacing broken equipment, and maintaining rooms.
-
-This should support the map-first design without overwhelming the player.
-
-Do not modify files until we have agreed on the design and scope.
+Design map-level representation of loose materials, dropped tools, filled receptacles, corpses, feedstock, spills, sludge, residue, and other waste. Resolve tile capacity, stacking, contamination, accessibility, cleanup, and how crowded tiles expose the most relevant entity without granting hidden information.
 
 ---
 
-## 10. Black Market Commissions and External Pressure
+## 10. Tile-Level Environmental Fields and Diffusion
 
-Design discussion: black market commissions and external pressure.
+Move environmental simulation toward tile-level fields where appropriate. Design realistic diffusion and transfer for contamination, fumes, moisture, temperature, mana, electrical charge, and related hazards through open space, doors, seals, vents, liquids, and porous materials.
 
-Do not make code changes yet.
+---
 
-Focus on the next economy step after basic byproduct sales: commissions, requested traits, dangerous buyers, reputation growth, delivery risk, scams, exposure, Suspicion pressure, deadlines, and rewards that push the player to design specific creatures or byproducts.
+## 11. Ventilation, Drainage, Heating, Lighting, and Mana Infrastructure
 
-Do not modify files until we have agreed on the design and scope.
+Design infrastructure that creates, routes, removes, blocks, or stabilizes environmental conditions. Include power or operating requirements where useful, physical network layouts, failure states, maintenance, room suitability, and interactions with environmental feeders.
+
+---
+
+## 12. Visibility, Sound, Scent, and Creature Perception
+
+Design a shared perception model for scientists and creatures. Resolve line of sight, lighting, occlusion, sounds through barriers, scent and trace diffusion, skill effects, stale knowledge, investigation behavior, and what normal versus debug map rendering reveals.
+
+---
+
+## 13. Door Permissions, Restricted Zones, and Creature Access Policies
+
+Design actor-specific door permissions, forbidden areas, allowed zones, emergency restrictions, and automatic door behavior. Loose creatures should obey physical barriers and their own capabilities; policies should guide authorized actors without becoming magical walls.
+
+---
+
+## 14. Scalable Pathfinding, Space Sharing, and Movement Reservations
+
+Prepare movement for many simultaneous actors. Resolve path caching, invalidation, occupied destinations, multi-tile bodies, small creatures sharing space, passing in corridors, door interaction time, congestion, reservations, blocked routes, and performance limits.
+
+---
+
+## 15. Slime Need Priorities, Intent Switching, and Interrupted Actions
+
+Design how slime AI chooses among feeding, safety, rest, exploration, aggression, escape, social behavior, reproduction, and tagged jobs. Include hysteresis, commitment, interruption, memory, failed intentions, and readable activity explanations so creatures feel purposeful rather than erratic.
+
+---
+
+## 16. Creature Job Autonomy and Physical Workplace Interaction
+
+Rework jobs as player intentions rather than absolute commands. Design how creatures recognize relevant workplaces and materials, travel or remain in suitable containers and pits, perform work through physical interactions, abandon unsuitable work, and reveal suitability through observed performance.
+
+---
+
+## 17. Containment Breach Response, Recapture, and Emergency Lockdown
+
+Design tools and commands for responding to escapes and dangerous containment failures. Consider recapture, baiting, handling tools, temporary cages, emergency seals, room lockdown, evacuation, containment triage, scientist awareness, and consequences of imperfect responses.
+
+---
+
+## 18. Cleaning, Hauling, Maintenance, and Repair Work
+
+Design routine physical labor for moving materials, replacing receptacles, hauling corpses, cleaning residue, repairing damage, restoring seals, and maintaining equipment. Keep the scientist as the only directly controlled actor while allowing policies and future workers to perform designated labor autonomously.
+
+---
+
+## 19. Tactical Combat Movement, Abilities, and Map Commands
+
+Design map-centric combat interactions for the scientist and creatures. Include movement, targeting, ranges, contact, elemental clashes, abilities, mana use, awareness, time slowdown or pausing, contextual commands, testing through combat, injuries, retreat, and containment during a fight.
+
+---
+
+## 20. Simulation Scheduling and Performance for Hundreds of Actors
+
+Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
+
+---
+
+For every prompt above: do not modify files until the design has been discussed and the developer explicitly approves implementation.
