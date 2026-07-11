@@ -83,6 +83,13 @@
   ];
   const ROOM_DESIGNATION_POLICY_BY_ID = Object.fromEntries(ROOM_DESIGNATION_POLICY_DEFS.map((policy) => [policy.id, policy]));
   const DEFAULT_ROOM_DESIGNATION_POLICY_ID = "automatic";
+  const ROOM_PURPOSE_POLICY_DEFS = [
+    { id: "off", label: "Off", description: "Never classify room purposes automatically." },
+    { id: "suggest", label: "Suggest", description: "Show an inferred purpose when physical contents give one unambiguous answer." },
+    { id: "automatic", label: "Automatic", description: "Classify only Unassigned or already automatic rooms; manual and starter purposes remain protected." }
+  ];
+  const ROOM_PURPOSE_POLICY_BY_ID = Object.fromEntries(ROOM_PURPOSE_POLICY_DEFS.map((policy) => [policy.id, policy]));
+  const DEFAULT_ROOM_PURPOSE_POLICY_ID = "automatic";
   const DOOR_STATE_OPEN = "open";
   const DOOR_STATE_CLOSED = "closed";
   const DOOR_LOCK_UNLOCKED = "unlocked";
@@ -413,6 +420,13 @@
   const ROOM_BASE_DEF_BY_ID = Object.fromEntries(ROOM_BASE_DEFS.map((room) => [room.id, room]));
   const ROOM_PURPOSE_DEFS = [
     {
+      id: "unassigned",
+      label: "Unassigned",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "No primary purpose",
+      description: "Excavated space with no declared primary use."
+    },
+    {
       id: "workroom",
       label: "Workroom",
       role: "mainLab",
@@ -467,9 +481,33 @@
       roleLabel: "Circulation space",
       nameBase: "Corridor",
       description: "A designated passage kept distinct from adjoining work and storage rooms."
+    },
+    {
+      id: "access",
+      label: "Access Room",
+      role: "labExit",
+      roleLabel: "Controlled access",
+      description: "A controlled route between the laboratory and another area. Physical exits and security determine whether it functions."
     }
   ];
   const ROOM_PURPOSE_BY_ID = Object.fromEntries(ROOM_PURPOSE_DEFS.map((purpose) => [purpose.id, purpose]));
+  const ROOM_PURPOSE_ID_BY_ROLE = Object.fromEntries(ROOM_PURPOSE_DEFS.map((purpose) => [purpose.role, purpose.id]));
+  const ROOM_FUNCTION_STATUS_DEFS = {
+    planned: { id: "planned", label: "Planned" },
+    usable: { id: "usable", label: "Usable" },
+    impaired: { id: "impaired", label: "Impaired" },
+    unsafe: { id: "unsafe", label: "Unsafe" }
+  };
+  const ROOM_ZONE_DEFS = [
+    { id: "work", label: "Work Area", description: "Tiles intended for laboratory work and equipment access." },
+    { id: "containment", label: "Containment Zone", description: "Tiles intended for containers, pits, and secured specimens." },
+    { id: "stockpile", label: "Stockpile Zone", description: "Tiles intended to receive stored materials and tools." },
+    { id: "corpse", label: "Corpse Staging", description: "Tiles intended for remains awaiting examination or processing." },
+    { id: "collection", label: "Collection Zone", description: "Tiles intended for collection stations, receptacles, and overflow apparatus." },
+    { id: "rest", label: "Rest Area", description: "Tiles intended for beds and recovery facilities." },
+    { id: "traffic", label: "Traffic Zone", description: "Tiles intended to remain available for circulation." }
+  ];
+  const ROOM_ZONE_BY_ID = Object.fromEntries(ROOM_ZONE_DEFS.map((zone) => [zone.id, zone]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
   const RESOURCE_HAUL_BASE_DURATION = 8;
@@ -2857,6 +2895,32 @@
     };
   }
 
+  function defaultZoneTypeForPurpose(purposeId) {
+    return {
+      workroom: "work",
+      containment: "containment",
+      storage: "stockpile",
+      corpseProcessing: "corpse",
+      collection: "collection",
+      quarters: "rest",
+      corridor: "traffic",
+      access: "traffic"
+    }[purposeId] || "";
+  }
+
+  function starterRoomZones(roomDef) {
+    const purposeId = roomDef?.purposeId || ROOM_PURPOSE_ID_BY_ROLE[roomDef?.role] || "unassigned";
+    const typeId = defaultZoneTypeForPurpose(purposeId);
+    const rect = LAB_MAP_ROOM_RECTS[roomDef?.id];
+    if (!typeId || !rect) return [];
+    return [{
+      id: `zone-${roomDef.id}-${typeId}`,
+      typeId,
+      cells: defaultLabMapRoomCells(roomDef.id, rect),
+      source: "starter"
+    }];
+  }
+
 
   function defaultRooms() {
     return ROOM_BASE_DEFS.map((roomDef) => ({
@@ -2868,6 +2932,10 @@
       description: roomDef.description,
       geometry: normalizeRoomGeometry(roomDef.geometry),
       connections: normalizeRoomConnections(roomDef.connections, roomDef.id),
+      purposeId: roomDef.purposeId || ROOM_PURPOSE_ID_BY_ROLE[roomDef.role] || "unassigned",
+      purposeSource: "starter",
+      purposeReason: "Starter laboratory layout",
+      zones: starterRoomZones(roomDef),
       observation: null,
       attributes: defaultRoomAttributes(roomDef.attributes)
     }));
@@ -2994,7 +3062,10 @@
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
       handling: { method: DEFAULT_HANDLING_METHOD },
       doors: { behavior: DEFAULT_DOOR_POLICY_ID },
-      rooms: { designationMode: DEFAULT_ROOM_DESIGNATION_POLICY_ID },
+      rooms: {
+        designationMode: DEFAULT_ROOM_DESIGNATION_POLICY_ID,
+        purposeMode: DEFAULT_ROOM_PURPOSE_POLICY_ID
+      },
       feeding: { ...AUTO_FEED_DEFAULTS }
     };
   }
@@ -7728,7 +7799,7 @@
   }
 
   function roomById(roomId) {
-    state.rooms = normalizeRooms(state.rooms);
+    if (!Array.isArray(state?.rooms) || !state.rooms.length) state.rooms = normalizeRooms(state?.rooms);
     return state.rooms.find((room) => room.id === roomId) || state.rooms.find((room) => room.id === MAIN_ROOM_ID) || state.rooms[0] || null;
   }
 
@@ -8115,6 +8186,23 @@
     return ROOM_DESIGNATION_POLICY_BY_ID[roomDesignationPolicyMode()] || ROOM_DESIGNATION_POLICY_BY_ID[DEFAULT_ROOM_DESIGNATION_POLICY_ID];
   }
 
+  function roomPurposePolicyMode() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.rooms.purposeMode;
+  }
+
+  function roomPurposePolicyDef() {
+    return ROOM_PURPOSE_POLICY_BY_ID[roomPurposePolicyMode()] || ROOM_PURPOSE_POLICY_BY_ID[DEFAULT_ROOM_PURPOSE_POLICY_ID];
+  }
+
+  function roomPurposeId(room) {
+    return ROOM_PURPOSE_BY_ID[room?.purposeId] ? room.purposeId : ROOM_PURPOSE_ID_BY_ROLE[room?.role] || "unassigned";
+  }
+
+  function roomPurposeDef(room) {
+    return ROOM_PURPOSE_BY_ID[roomPurposeId(room)] || ROOM_PURPOSE_BY_ID.unassigned;
+  }
+
   function constructionDraftBlockReason() {
     return digCellsBlockReason(constructionDraftCells());
   }
@@ -8317,6 +8405,72 @@
     return Boolean(map.rooms?.[roomId]?.cells?.length);
   }
 
+  function roomZoneForType(room, typeId) {
+    return room?.zones?.find((zone) => zone.typeId === typeId) || null;
+  }
+
+  function roomZoneLabelsAtCell(room, cell) {
+    const key = mapCellKey(cell);
+    return (room?.zones || [])
+      .filter((zone) => zone.cells.some((candidate) => mapCellKey(candidate) === key))
+      .map((zone) => ROOM_ZONE_BY_ID[zone.typeId]?.label)
+      .filter(Boolean);
+  }
+
+  function reconcileRoomZones(map = ensureLabMap(), rooms = state.rooms) {
+    for (const room of rooms || []) {
+      const ownedKeys = new Set((map.rooms?.[room.id]?.cells || []).map(mapCellKey));
+      room.zones = normalizeRoomZones(room.zones).map((zone) => ({
+        ...zone,
+        cells: zone.cells.filter((cell) => ownedKeys.has(mapCellKey(cell)))
+      })).filter((zone) => zone.cells.length);
+    }
+  }
+
+  function setRoomZoneCells(roomId, typeId, cells, enabled = true) {
+    const map = state.labMap || ensureLabMap();
+    const room = state.rooms.find((entry) => entry.id === roomId);
+    const def = ROOM_ZONE_BY_ID[typeId];
+    if (!room || !def) return false;
+    const ownedKeys = new Set((map.rooms?.[roomId]?.cells || []).map(mapCellKey));
+    const wanted = normalizeDigCells(cells).filter((cell) => ownedKeys.has(mapCellKey(cell)));
+    if (!wanted.length) return false;
+    room.zones = normalizeRoomZones(room.zones);
+    let zone = roomZoneForType(room, typeId);
+    if (!zone && enabled) {
+      zone = { id: `zone-${room.id}-${typeId}`, typeId, cells: [], source: "manual" };
+      room.zones.push(zone);
+    }
+    if (!zone) return false;
+    const wantedKeys = new Set(wanted.map(mapCellKey));
+    const before = zone.cells.length;
+    zone.cells = enabled
+      ? normalizeDigCells([...zone.cells, ...wanted])
+      : zone.cells.filter((cell) => !wantedKeys.has(mapCellKey(cell)));
+    zone.source = "manual";
+    room.zones = room.zones.filter((entry) => entry.cells.length);
+    const changed = before !== zone.cells.length;
+    if (changed) {
+      addEvent(`${def.label} ${enabled ? "added to" : "removed from"} ${wanted.length} tile${wanted.length === 1 ? "" : "s"} in ${room.name}.`);
+      persist();
+      render();
+    }
+    return changed;
+  }
+
+  function mergeRoomZones(survivingRoom, absorbedRoom) {
+    survivingRoom.zones = normalizeRoomZones(survivingRoom.zones);
+    for (const absorbedZone of normalizeRoomZones(absorbedRoom.zones)) {
+      let survivorZone = roomZoneForType(survivingRoom, absorbedZone.typeId);
+      if (!survivorZone) {
+        survivorZone = { id: `zone-${survivingRoom.id}-${absorbedZone.typeId}`, typeId: absorbedZone.typeId, cells: [], source: "manual" };
+        survivingRoom.zones.push(survivorZone);
+      }
+      survivorZone.cells = normalizeDigCells([...survivorZone.cells, ...absorbedZone.cells]);
+    }
+    absorbedRoom.zones = [];
+  }
+
   function updateDoorAdjacencyAndState() {
     const existingDoors = state.doors;
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
@@ -8345,6 +8499,7 @@
 
   function finalizeRoomTopologyChange() {
     updateDoorAdjacencyAndState();
+    reconcileRoomZones(state.labMap);
     reconcileMappedEntityRoomOwnership(state.labMap);
     rebuildRoomConnectionsFromMap();
     applyAutomaticRoomPurposes({ silent: true });
@@ -8409,7 +8564,10 @@
       geometry: roomGeometryForCells(cleanCells, { heightM: 3, notes: "excavated floor; no room purpose assigned" }),
       connections: [],
       designationSource: options.source === "automatic" ? "automatic" : "manual",
+      purposeId: "unassigned",
       purposeSource: "unassigned",
+      purposeReason: "No primary purpose selected",
+      zones: [],
       designationDisconnected: false,
       observation: null,
       attributes: defaultRoomAttributes({
@@ -8523,6 +8681,7 @@
     const cells = normalizeDigCells([...(map.rooms[survivingRoomId]?.cells || []), ...(map.rooms[absorbedRoomId]?.cells || [])]);
     setMapRoomCells(survivingRoomId, cells);
     setMapRoomCells(absorbedRoomId, []);
+    mergeRoomZones(survivor, absorbed);
     mergeRoomStockpiles(survivingRoomId, absorbedRoomId);
     redirectRoomReferences(state.tasks, absorbedRoomId, survivingRoomId);
     redirectRoomReferences(state.taskHistory, absorbedRoomId, survivingRoomId);
@@ -8591,8 +8750,8 @@
   }
 
   function roomPurposeInference(room) {
-    if (!room || room.role !== EXCAVATED_ROOM_ROLE) return null;
     const map = state.labMap || ensureLabMap();
+    if (!room || !roomDesignationHasTiles(room.id, map)) return null;
     const cells = labMapRoomCells(room.id, map);
     const keys = new Set(cells.map(mapCellKey));
     const reasons = new Map();
@@ -8604,7 +8763,7 @@
     };
     for (const container of state.containers || []) {
       if (!containerFootprintCells(container, map).some((cell) => keys.has(mapCellKey(cell)))) continue;
-      if (isSynthesisContainer(container)) add("workroom", `${container.name} is synthesis equipment`);
+      if (isSynthesisTubeContainer(container)) add("workroom", `${container.name} is synthesis equipment`);
       if (collectionBayStationSelectable(container)) add("collection", `${container.name} is a collection station`);
       if (isPitHoleContainer(container)) add("corpseProcessing", `${container.name} is a processing pit`);
     }
@@ -8612,20 +8771,33 @@
     const stocked = [stockpile?.resources, stockpile?.inventory, stockpile?.collectedByproducts, stockpile?.specimenMaterials]
       .some((group) => Object.values(group || {}).some((amount) => Number(amount) > 0));
     if (stocked) add("storage", "the room contains a stockpile");
+    for (const zone of room.zones || []) {
+      const inferredPurposeId = {
+        work: "workroom",
+        containment: "containment",
+        stockpile: "storage",
+        corpse: "corpseProcessing",
+        collection: "collection",
+        rest: "quarters",
+        traffic: "corridor"
+      }[zone.typeId];
+      if (inferredPurposeId && zone.cells?.length) add(inferredPurposeId, `${ROOM_ZONE_BY_ID[zone.typeId].label} is designated`);
+    }
     if (reasons.size !== 1) return null;
     const [purposeId, purposeReasons] = reasons.entries().next().value;
     return { purposeId, reasons: purposeReasons };
   }
 
   function applyAutomaticRoomPurposes(options = {}) {
-    if (roomDesignationPolicyMode() !== "automatic") return 0;
+    if (roomPurposePolicyMode() !== "automatic") return 0;
     let changed = 0;
     for (const room of state.rooms || []) {
+      if (!["unassigned", "automatic"].includes(room.purposeSource)) continue;
       const inference = roomPurposeInference(room);
       if (!inference) continue;
       if (assignRoomPurposeValue(room, inference.purposeId, { source: "automatic", reason: inference.reasons.join(" and ") })) {
         changed += 1;
-        if (!options.silent) addEvent(`${room.name} automatically designated because ${inference.reasons.join(" and ")}.`);
+        if (!options.silent) addEvent(`${room.name} automatically classified as ${ROOM_PURPOSE_BY_ID[inference.purposeId].label} because ${inference.reasons.join(" and ")}.`);
       }
     }
     return changed;
@@ -8643,7 +8815,6 @@
       if (!unassigned.length || compartment.roomIds.length > 1) continue;
       if (designateInferredCompartmentAtCell(compartment.cells[0], { source: "automatic", silent: true })) changed += 1;
     }
-    changed += applyAutomaticRoomPurposes({ silent: true });
     if (changed && !options.silent) addEvent(`Room designation policy applied ${changed} automatic update${changed === 1 ? "" : "s"}.`);
     return changed;
   }
@@ -27795,11 +27966,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     roomPolicyLabel.append(roomPolicySelect);
     dom.roomPolicyList?.append(roomPolicyLabel);
 
+    const purposePolicyLabel = document.createElement("label");
+    purposePolicyLabel.className = "policy-option";
+    purposePolicyLabel.title = "Controls purpose classification independently from architectural room designation. Manual and starter purposes are never overwritten.";
+    purposePolicyLabel.append(textEl("span", "Purpose classification"));
+    const purposePolicySelect = document.createElement("select");
+    purposePolicySelect.dataset.roomPurposePolicySelect = "true";
+    for (const policyDef of ROOM_PURPOSE_POLICY_DEFS) {
+      const option = document.createElement("option");
+      option.value = policyDef.id;
+      option.textContent = policyDef.label;
+      purposePolicySelect.append(option);
+    }
+    purposePolicySelect.value = roomPurposePolicyMode();
+    purposePolicySelect.title = roomPurposePolicyDef().description;
+    purposePolicySelect.addEventListener("change", () => {
+      state.policies.rooms.purposeMode = ROOM_PURPOSE_POLICY_BY_ID[purposePolicySelect.value]
+        ? purposePolicySelect.value
+        : DEFAULT_ROOM_PURPOSE_POLICY_ID;
+      const updates = applyAutomaticRoomPurposes({ silent: true });
+      addEvent(`Purpose classification policy set: ${roomPurposePolicyDef().label}.${updates ? ` Applied ${updates} update${updates === 1 ? "" : "s"}.` : ""}`);
+      persist();
+      render();
+    });
+    purposePolicyLabel.append(purposePolicySelect);
+    dom.roomPolicyList?.append(purposePolicyLabel);
+
     const compartmentReadout = document.createElement("p");
     compartmentReadout.className = "journal-meta inventory-note";
     const inferred = inferLabCompartments();
     const unassigned = inferred.compartments.filter((compartment) => compartment.cells.some((cell) => !labMapCellRoomId(cell))).length;
-    compartmentReadout.textContent = `${inferred.compartments.length} inferred compartment${inferred.compartments.length === 1 ? "" : "s"}; ${unassigned} contain unassigned floor. Manual room designations are never overwritten by this policy.`;
+    const purposeSuggestions = (state.rooms || []).filter((room) => ["unassigned", "automatic"].includes(room.purposeSource) && roomPurposeInference(room)).length;
+    compartmentReadout.textContent = `${inferred.compartments.length} inferred compartment${inferred.compartments.length === 1 ? "" : "s"}; ${unassigned} contain unassigned floor; ${purposeSuggestions} room${purposeSuggestions === 1 ? " has" : "s have"} an unambiguous purpose signal. Manual boundaries and purposes remain protected.`;
     dom.roomPolicyList?.append(compartmentReadout);
 
     const targets = state.policies.corpseProcessingTargets;
@@ -27812,7 +28010,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? `Corpse handling auto-moves local remains to ${corpseHandlingDestinationLabel(handling).toLowerCase()} when space is available.`
       : "Corpses remain where they fall unless moved later.";
     const feedingMode = AUTO_FEED_MODE_BY_ID[state.policies.feeding.mode]?.label || "Maintenance";
-    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}. Room designation: ${roomDesignationPolicyDef().label.toLowerCase()}.`;
+    dom.policySummary.textContent = `${corpseSummary} ${handlingSummary} Auto-feeding: ${feedingMode.toLowerCase()}. Door behavior: ${currentDoorPolicyDef().label.toLowerCase()}. Room designation: ${roomDesignationPolicyDef().label.toLowerCase()}. Purpose classification: ${roomPurposePolicyDef().label.toLowerCase()}.`;
     renderPolicyOverview({ corpseSummary, handlingSummary, feedingMode });
 
     const autoMoveLabel = document.createElement("label");
@@ -27960,6 +28158,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Room designation",
         roomDesignationPolicyDef().label,
         roomDesignationPolicyDef().description,
+        policyTabButton("rooms", "Open Rooms")
+      ),
+      policyOverviewRow(
+        "Purpose classification",
+        roomPurposePolicyDef().label,
+        roomPurposePolicyDef().description,
         policyTabButton("rooms", "Open Rooms")
       ),
       policyOverviewRow(
@@ -28496,7 +28700,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const header = document.createElement("div");
       header.className = "stores-section-header";
       const title = document.createElement("div");
-      title.append(textEl("h3", room.name), textEl("small", `${room.roleLabel || "Custom room"} - Last inventoried stockpile`));
+      title.append(textEl("h3", room.name), textEl("small", `${roomPurposeDef(room).label} - Last inventoried stockpile`));
       const actions = document.createElement("div");
       actions.className = "stores-row-actions";
       actions.append(storesFocusRoomButton(room.id));
@@ -29346,7 +29550,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }, map);
     }
     for (const room of state.rooms || []) {
-      if (room?.role !== EXCAVATED_ROOM_ROLE) {
+      if (roomPurposeId(room) !== "unassigned") {
         continue;
       }
       addRoomOverlayEntries(assignments, room.id, {
@@ -29368,6 +29572,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? compartment.roomIds.map(roomName).join(", ")
         : "Unassigned";
       for (const cell of compartment.cells) {
+        const roomId = labMapCellRoomId(cell, map);
+        const room = roomId ? state.rooms.find((entry) => entry.id === roomId) : null;
+        const zoneLabels = roomZoneLabelsAtCell(room, cell);
         setLabMapOverlayEntry(assignments, cell, {
           overlayId: "rooms",
           classNames: [
@@ -29376,9 +29583,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             `map-overlay-rooms-${compartment.status}`,
             ...(compartment.roomIds.length ? ["map-overlay-rooms-designated"] : ["map-overlay-rooms-unassigned"])
           ],
-          label: `${designationLabel} · ${compartment.kind}`,
-          source: "Inferred architecture",
-          title: `Overlay: Rooms - ${compartment.cells.length} tile ${compartment.kind} compartment; ${compartment.status}; ${designationLabel.toLowerCase()}.`
+          label: `${designationLabel} · ${compartment.kind}${zoneLabels.length ? ` · ${zoneLabels.join(", ")}` : ""}`,
+          source: zoneLabels.length ? "Room ownership and zones" : "Inferred architecture",
+          title: `Overlay: Rooms - ${compartment.cells.length} tile ${compartment.kind} compartment; ${compartment.status}; ${designationLabel.toLowerCase()}${zoneLabels.length ? `; zones: ${zoneLabels.join(", ")}` : "; no zones on this tile"}.`,
+          target: { kind: "tile", tile: cell }
         }, map);
       }
     }
@@ -30314,8 +30522,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
+      const evaluation = room ? roomPurposeEvaluation(room) : null;
       return room ? [
-        room.roleLabel || "Custom room",
+        evaluation.purpose.label,
+        evaluation.status.label,
         room.designationDisconnected ? "Disconnected designation" : `${titleCase(room.designationSource || "manual")} designation`,
         roomOccupancySummary(room.id)
       ].map(chip) : [];
@@ -30678,7 +30888,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open illicit contacts and queued outside-lab trade options."
       }));
     }
-    if (room.role === EXCAVATED_ROOM_ROLE) {
+    if (roomPurposeId(room) === "unassigned") {
       commands.push(commandDef({
         id: `room.showConstruction.${room.id}`,
         label: "Show Construction Overlay",
@@ -30714,16 +30924,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const purpose of ROOM_PURPOSE_DEFS) {
         commands.push(commandDef({
           id: `room.assignPurpose.${room.id}.${purpose.id}`,
-          label: `Assign ${purpose.label}`,
+          label: purpose.id === "unassigned" ? "Clear Primary Purpose" : `Set Purpose: ${purpose.label}`,
           group: "Room Purpose",
+          disabledReason: roomPurposeId(room) === purpose.id ? `This room is already ${purpose.label}.` : "",
           description: purpose.description,
           run: () => assignRoomPurpose(room.id, purpose.id)
         }));
       }
+      const suggestion = roomPurposeInference(room);
+      if (suggestion && ["unassigned", "automatic"].includes(room.purposeSource) && suggestion.purposeId !== roomPurposeId(room)) {
+        const suggestedPurpose = ROOM_PURPOSE_BY_ID[suggestion.purposeId];
+        commands.unshift(commandDef({
+          id: `room.acceptPurposeSuggestion.${room.id}.${suggestion.purposeId}`,
+          label: `Accept Suggested ${suggestedPurpose.label}`,
+          group: "Room Purpose",
+          description: `Suggested because ${suggestion.reasons.join(" and ")}.`,
+          run: () => assignRoomPurpose(room.id, suggestion.purposeId)
+        }));
+      }
+      commands.push(...roomZoneContextCommands(room, labMapRoomCells(room.id), "room"));
     }
     commands.push(...roomDesignationContextCommands(labMapRoomAnchor(room.id), room));
     commands.push(...roomMenuContextCommands(room));
     return commands;
+  }
+
+  function roomZoneContextCommands(room, cells, scopeLabel = "tile") {
+    const cleanCells = normalizeDigCells(cells);
+    if (!room || !cleanCells.length) return [];
+    return ROOM_ZONE_DEFS.map((zoneDef) => {
+      const zone = roomZoneForType(room, zoneDef.id);
+      const zoneKeys = new Set((zone?.cells || []).map(mapCellKey));
+      const allIncluded = cleanCells.every((cell) => zoneKeys.has(mapCellKey(cell)));
+      return commandDef({
+        id: `room.zone.${room.id}.${zoneDef.id}.${scopeLabel}`,
+        label: `${allIncluded ? "Remove" : "Add"} ${zoneDef.label}${scopeLabel === "room" ? " Across Room" : ""}`,
+        group: "Zones",
+        description: `${zoneDef.description} Zones express player intent and do not create equipment or physical capability.`,
+        run: () => setRoomZoneCells(room.id, zoneDef.id, cleanCells, !allIncluded)
+      });
+    });
   }
 
   function roomDesignationContextCommands(cell, room = null) {
@@ -30954,7 +31194,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         group: "Map",
         description: "Switch the map to the resource overlay.",
         run: () => openWorkspaceContext({ workspaceTab: "map", overlayId: "resources", keyboardMenuPath: "" })
-      })
+      }),
+      ...roomZoneContextCommands(roomById(roomId), [selection.tile], "tile"),
+      ...roomDesignationContextCommands(selection.tile)
     ];
   }
 
@@ -31878,6 +32120,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
+      const evaluation = roomPurposeEvaluation(room);
+      rows.push(["Purpose", evaluation.purpose.label]);
+      rows.push(["Function", evaluation.status.label]);
       rows.push(["Occupancy", roomOccupancySummary(room.id)]);
       rows.push(["Observation", roomObservationInspectorSummary(room)]);
     } else if (selection.kind === "door") {
@@ -31968,11 +32213,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
       const geometry = roomGeometry(room);
+      const evaluation = roomPurposeEvaluation(room);
+      const suggestion = roomPurposeInference(room);
       return [
-        ["Purpose", room.roleLabel || "Custom room"],
+        ["Name", room.name],
+        ["Primary purpose", evaluation.purpose.label],
+        ["Functional state", evaluation.status.label],
+        ["Requirements", roomFunctionalIssueSummary(evaluation)],
+        ["Zones", roomZonesSummary(room)],
         ["Designation", `${titleCase(room.designationSource || "manual")}${room.designationDisconnected ? "; disconnected" : ""}`],
         ["Purpose source", titleCase(room.purposeSource || "manual")],
-        ["Purpose rationale", room.purposeReason || (room.role === EXCAVATED_ROOM_ROLE ? "No unambiguous contents" : "Assigned directly")],
+        ["Purpose rationale", room.purposeReason || (roomPurposeId(room) === "unassigned" ? "No primary purpose selected" : "Assigned directly")],
+        ["Suggested purpose", suggestion && suggestion.purposeId !== roomPurposeId(room) ? `${ROOM_PURPOSE_BY_ID[suggestion.purposeId].label}: ${suggestion.reasons.join(" and ")}` : "None"],
         ["Shape", titleCase(geometry.shape)],
         ["Size", `${formatDecimal(geometry.lengthM, 1)}m x ${formatDecimal(geometry.widthM, 1)}m x ${formatDecimal(geometry.heightM, 1)}m`],
         ["Spatial feel", roomSpatialFeel(room)],
@@ -33753,26 +34005,101 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
 
   function roomCanAssignPurpose(room) {
-    return Boolean(room && room.role === EXCAVATED_ROOM_ROLE);
+    const map = state.labMap || ensureLabMap();
+    return Boolean(room && roomDesignationHasTiles(room.id, map));
   }
 
   function assignRoomPurposeValue(room, purposeId, options = {}) {
     const purpose = ROOM_PURPOSE_BY_ID[purposeId];
     if (!roomCanAssignPurpose(room) || !purpose) return false;
-    const suffix = numericSuffix(room.id);
-    const name = suffix ? `${purpose.nameBase} ${suffix}` : purpose.nameBase;
-    room.name = name;
-    room.articleName = `the ${name}`;
+    if (roomPurposeId(room) === purposeId && room.purposeSource === (options.source === "automatic" ? "automatic" : purposeId === "unassigned" ? "unassigned" : "manual")) return false;
+    room.purposeId = purposeId;
     room.role = purpose.role;
     room.roleLabel = purpose.roleLabel;
     room.description = purpose.description;
-    room.purposeSource = options.source === "automatic" ? "automatic" : "manual";
+    room.purposeSource = options.source === "automatic" ? "automatic" : purposeId === "unassigned" ? "unassigned" : "manual";
     room.purposeReason = String(options.reason || "").trim();
-    room.geometry = normalizeRoomGeometry({
-      ...room.geometry,
-      notes: `${room.geometry?.notes || "excavated room"}; assigned purpose: ${purpose.label}`
-    });
     return true;
+  }
+
+  function roomPurposeFacilities(room) {
+    const map = state.labMap || ensureLabMap();
+    const containers = (state.containers || []).filter((container) => {
+      const footprint = containerFootprintCells(container, map);
+      return footprint.length && footprint.every((cell) => labMapCellRoomId(cell, map) === room.id);
+    });
+    const collectionStations = containers.filter((container) => {
+      const stored = state.collectionBay?.stations?.[container.id];
+      const hasStoredMaterial = Boolean(stored?.material || collectionBayStationFill(stored) > 0);
+      const hasStagedSpecimen = container.roomId === COLLECTION_BAY_ROOM_ID
+        && (state.slimes || []).some((slime) => slime.containerId === container.id && slime.status !== "dead" && slime.status !== "released");
+      return hasStagedSpecimen || hasStoredMaterial;
+    });
+    return {
+      containers,
+      synthesis: containers.filter(isSynthesisTubeContainer),
+      collectionStations,
+      pits: containers.filter(isPitHoleContainer),
+      specimenContainers: containers.filter((container) => !isSynthesisTubeContainer(container) && !isPitHoleContainer(container))
+    };
+  }
+
+  function roomPurposeEvaluation(room) {
+    const purpose = roomPurposeDef(room);
+    const facilities = roomPurposeFacilities(room);
+    const essential = [];
+    const support = [];
+    const concerns = [];
+    const unsafeReasons = [];
+    const addEssential = (label, met, detail) => essential.push({ label, met: Boolean(met), detail });
+    const expectedZone = defaultZoneTypeForPurpose(purpose.id);
+    const zone = expectedZone ? roomZoneForType(room, expectedZone) : null;
+
+    if (purpose.id === "unassigned") addEssential("Primary purpose", false, "Choose a primary purpose.");
+    if (purpose.id === "workroom") addEssential("Laboratory equipment", facilities.synthesis.length, facilities.synthesis.length ? `${facilities.synthesis.length} synthesis fixture${facilities.synthesis.length === 1 ? "" : "s"}` : "No synthesis tube or workbench is installed.");
+    if (purpose.id === "containment") addEssential("Containment fixtures", facilities.specimenContainers.length || facilities.pits.length, `${facilities.specimenContainers.length + facilities.pits.length} usable container or pit fixture${facilities.specimenContainers.length + facilities.pits.length === 1 ? "" : "s"}`);
+    if (purpose.id === "corpseProcessing") addEssential("Processing fixture", facilities.pits.length, facilities.pits.length ? `${facilities.pits.length} processing pit${facilities.pits.length === 1 ? "" : "s"}` : "No pit or remains-processing fixture is installed.");
+    if (purpose.id === "quarters") addEssential("Bed or rest fixture", false, "No physical bed fixture exists in the current prototype.");
+    if (purpose.id === "storage") addEssential("Stockpile zone", zone?.cells?.length, zone?.cells?.length ? `${zone.cells.length} designated tile${zone.cells.length === 1 ? "" : "s"}` : "No tiles accept stored supplies.");
+    if (purpose.id === "collection") addEssential("Collection station", facilities.collectionStations.length, facilities.collectionStations.length ? `${facilities.collectionStations.length} collection station${facilities.collectionStations.length === 1 ? "" : "s"}` : "No collection apparatus is installed.");
+    if (purpose.id === "access") addEssential("Physical access route", room.id === CONCEALED_EXIT_ROOM_ID, room.id === CONCEALED_EXIT_ROOM_ID ? "Concealed surface route present." : "No exit or transit fixture is installed.");
+
+    if (expectedZone && purpose.id !== "storage") {
+      support.push({ label: ROOM_ZONE_BY_ID[expectedZone].label, met: Boolean(zone?.cells?.length), detail: zone?.cells?.length ? `${zone.cells.length} intended tile${zone.cells.length === 1 ? "" : "s"}` : "No matching zone is designated." });
+      if (!zone?.cells?.length) concerns.push(`No ${ROOM_ZONE_BY_ID[expectedZone].label.toLowerCase()}`);
+    }
+    if (room.designationDisconnected) concerns.push("Room designation spans disconnected floor regions");
+    const straddling = (state.containers || []).filter((container) => container.roomIds?.includes(room.id) && container.roomOwnership === "straddling");
+    if (straddling.length) concerns.push(`${straddling.length} fixture${straddling.length === 1 ? "" : "s"} straddle room boundaries`);
+    const contamination = roomContaminationValue(room.id);
+    if (contamination >= 70) unsafeReasons.push(`Contamination is ${roomAttributeBand("contamination", contamination).label.toLowerCase()}`);
+    else if (contamination >= 40) concerns.push(`Contamination is ${roomAttributeBand("contamination", contamination).label.toLowerCase()}`);
+    const seriousIncidents = (state.incidents || []).filter((incident) => incident.roomId === room.id && incidentIsUnresolved(incident) && ["serious", "critical"].includes(incident.severity));
+    if (seriousIncidents.length) unsafeReasons.push(`${seriousIncidents.length} serious unresolved incident${seriousIncidents.length === 1 ? "" : "s"}`);
+
+    const missing = essential.filter((requirement) => !requirement.met);
+    const status = unsafeReasons.length
+      ? ROOM_FUNCTION_STATUS_DEFS.unsafe
+      : missing.length
+        ? ROOM_FUNCTION_STATUS_DEFS.planned
+        : concerns.length
+          ? ROOM_FUNCTION_STATUS_DEFS.impaired
+          : ROOM_FUNCTION_STATUS_DEFS.usable;
+    return { purpose, status, essential, support, missing, concerns, unsafeReasons, facilities };
+  }
+
+  function roomZonesSummary(room) {
+    const zones = normalizeRoomZones(room?.zones);
+    return zones.length
+      ? zones.map((zone) => `${ROOM_ZONE_BY_ID[zone.typeId].label} (${zone.cells.length})`).join("; ")
+      : "No zones";
+  }
+
+  function roomFunctionalIssueSummary(evaluation) {
+    if (evaluation.unsafeReasons.length) return evaluation.unsafeReasons.join("; ");
+    if (evaluation.missing.length) return evaluation.missing.map((entry) => `${entry.label}: ${entry.detail}`).join("; ");
+    if (evaluation.concerns.length) return evaluation.concerns.join("; ");
+    return "All essential requirements are currently met.";
   }
 
 
@@ -33789,7 +34116,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.rooms = normalizeRooms(state.rooms);
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
     syncRoomObservationMemory();
-    addEvent(`${room.name} assigned as ${purpose.label}.`);
+    addEvent(`${room.name} primary purpose set to ${purpose.label}.`);
     persist();
     render();
     return true;
@@ -38612,6 +38939,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return match ? Number(match[1]) : 1000;
   }
 
+  function normalizeRoomZones(candidate) {
+    const source = Array.isArray(candidate) ? candidate : [];
+    const seen = new Set();
+    return source.map((zone, index) => {
+      const typeId = ROOM_ZONE_BY_ID[zone?.typeId] ? zone.typeId : "";
+      if (!typeId) return null;
+      const id = String(zone?.id || `zone-${typeId}-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        typeId,
+        cells: normalizeDigCells(zone?.cells),
+        source: ["starter", "manual", "automatic"].includes(zone?.source) ? zone.source : "manual"
+      };
+    }).filter(Boolean);
+  }
+
 
 
   function normalizeRoom(candidate) {
@@ -38622,22 +38967,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const base = ROOM_BASE_DEF_BY_ID[id] || null;
     const rawName = String(candidate.name || "").trim();
     const name = rawName || base?.name || (id === MAIN_ROOM_ID ? "Main Lab" : titleCase(id));
+    const purposeId = ROOM_PURPOSE_BY_ID[candidate.purposeId]
+      ? candidate.purposeId
+      : ROOM_PURPOSE_ID_BY_ROLE[candidate.role || base?.role] || "unassigned";
+    const purpose = ROOM_PURPOSE_BY_ID[purposeId];
     return {
       id,
       name,
       articleName: String(candidate.articleName || base?.articleName || `the ${name}`).trim(),
-      role: String(candidate.role || base?.role || "custom").trim(),
-      roleLabel: String(candidate.roleLabel || base?.roleLabel || "Custom room").trim(),
-      description: String(candidate.description || base?.description || "").trim(),
+      role: purpose.role,
+      roleLabel: purpose.roleLabel,
+      description: String(candidate.description || base?.description || purpose.description).trim(),
       geometry: normalizeRoomGeometry(candidate.geometry || base?.geometry),
       connections: normalizeRoomConnections(candidate.connections || base?.connections, id),
       designationSource: ["starter", "automatic", "manual"].includes(candidate.designationSource)
         ? candidate.designationSource
         : base ? "starter" : "manual",
+      purposeId,
       purposeSource: ["starter", "automatic", "manual", "unassigned"].includes(candidate.purposeSource)
         ? candidate.purposeSource
-        : base ? "starter" : candidate.role === EXCAVATED_ROOM_ROLE ? "unassigned" : "manual",
+        : base ? "starter" : purposeId === "unassigned" ? "unassigned" : "manual",
       purposeReason: String(candidate.purposeReason || "").trim(),
+      zones: normalizeRoomZones(candidate.zones || (base ? starterRoomZones(base) : [])),
       designationDisconnected: Boolean(candidate.designationDisconnected),
       observation: normalizeRoomObservation(candidate.observation),
       attributes: normalizeRoomAttributes(candidate.attributes || base?.attributes)
@@ -38941,7 +39292,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const rooms = {
       designationMode: ROOM_DESIGNATION_POLICY_BY_ID[candidate?.rooms?.designationMode]
         ? candidate.rooms.designationMode
-        : DEFAULT_ROOM_DESIGNATION_POLICY_ID
+        : DEFAULT_ROOM_DESIGNATION_POLICY_ID,
+      purposeMode: ROOM_PURPOSE_POLICY_BY_ID[candidate?.rooms?.purposeMode]
+        ? candidate.rooms.purposeMode
+        : DEFAULT_ROOM_PURPOSE_POLICY_ID
     };
     return {
       ...fallback,
@@ -39934,6 +40288,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.roomObservations = normalizeRoomObservations(next.roomObservations);
     next.rooms = normalizeRooms(next.rooms);
     next.labMap = normalizeLabMap(next.labMap, next.rooms);
+    reconcileRoomZones(next.labMap, next.rooms);
     next.doors = normalizeDoors(next.doors, next.rooms, next.labMap);
     next.compartmentEnvironments = normalizeCompartmentEnvironments(
       next.compartmentEnvironments,

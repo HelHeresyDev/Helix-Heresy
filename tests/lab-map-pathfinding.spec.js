@@ -2579,7 +2579,7 @@ test('one-tile openings infer separate compartments and automatic room designati
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
-  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Assign Storage Room' }).click();
+  await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Set Purpose: Storage Room' }).click();
 
   const assigned = await page.evaluate(({ key, roomId }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -2588,11 +2588,13 @@ test('one-tile openings infer separate compartments and automatic room designati
     return { room };
   }, { key: storageKey, roomId: excavated.room.id });
 
-  expect(assigned.room.role).toBe('materialStorage');
-  expect(assigned.room.name).toBe('Storage Room 1');
+  expect(assigned.room).toMatchObject({ role: 'materialStorage', purposeId: 'storage', purposeSource: 'manual' });
+  expect(assigned.room.name).toBe('Unassigned Room 1');
+  await selectMapOverlay(page, 'none');
   await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
   await page.locator('[data-selection-inspector-tab="actions"]').click();
-  await expect(page.locator('[data-context-command-panel="true"]')).not.toContainText('Room Purpose');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
+  await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Set Purpose: Storage Room' })).toBeDisabled();
 
   await page.evaluate(({ key, roomId }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -2668,11 +2670,17 @@ test('manual room drawing can divide an inferred compartment and preserves disco
   await page.locator('[data-workspace-tab="policies"]').click();
   await page.locator('[data-policy-menu-tab="rooms"]').click();
   await page.locator('[data-room-designation-policy-select="true"]').selectOption('automatic');
+  const unchangedPurpose = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).rooms.find((room) => room.id === 'excavation-1');
+  }, { key: storageKey });
+  expect(unchangedPurpose).toMatchObject({ purposeId: 'unassigned', purposeSource: 'unassigned' });
+  await page.locator('[data-room-purpose-policy-select="true"]').selectOption('automatic');
   const automaticallyPurposed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).rooms.find((room) => room.id === 'excavation-1');
   }, { key: storageKey });
-  expect(automaticallyPurposed).toMatchObject({ role: 'materialStorage', purposeSource: 'automatic' });
+  expect(automaticallyPurposed).toMatchObject({ role: 'materialStorage', purposeId: 'storage', purposeSource: 'automatic' });
   await page.locator('[data-workspace-tab="map"]').click();
   await selectMapOverlay(page, 'rooms');
 
@@ -2782,4 +2790,47 @@ test('room redraw merge and deletion preserve physical fixtures and leave stock 
   expect(reloaded.mainCells).toEqual([]);
   expect(reloaded.floorStockpileCount).toBeGreaterThan(0);
   expect(reloaded.synthesisCell).toEqual(before.synthesisCell);
+});
+
+test('room names purposes functional requirements and tile zones remain independent', async ({ page }) => {
+  await startRun(page);
+  await page.locator('.lab-map-cell.room-cell[data-map-room="mainLab"]:not(.object-cell):not(.scientist-cell):not(.door-cell)').first().click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Workroom');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Usable');
+
+  await runSelectionCommand(page, 'Set Purpose: Quarters');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Main Lab');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Planned');
+  let room = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).rooms.find((candidate) => candidate.id === 'mainLab');
+  }, { key: storageKey });
+  expect(room).toMatchObject({ name: 'Main Lab', purposeId: 'quarters', purposeSource: 'manual' });
+
+  await runSelectionCommand(page, 'Set Purpose: Workroom');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Usable');
+
+  await selectMapOverlay(page, 'rooms');
+  const tile = page.locator('.lab-map-cell.room-cell[data-map-room="mainLab"]:not(.object-cell):not(.scientist-cell):not(.door-cell)').first();
+  const cell = {
+    x: Number(await tile.getAttribute('data-map-x')),
+    y: Number(await tile.getAttribute('data-map-y')),
+  };
+  await tile.click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'tile');
+  await runSelectionCommand(page, 'Add Rest Area');
+
+  room = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).rooms.find((candidate) => candidate.id === 'mainLab');
+  }, { key: storageKey });
+  expect(room.zones.find((zone) => zone.typeId === 'work').cells.length).toBeGreaterThan(1);
+  expect(room.zones.find((zone) => zone.typeId === 'rest').cells).toEqual([cell]);
+
+  await runSelectionCommand(page, 'Remove Rest Area');
+  room = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).rooms.find((candidate) => candidate.id === 'mainLab');
+  }, { key: storageKey });
+  expect(room.zones.some((zone) => zone.typeId === 'rest')).toBe(false);
 });
