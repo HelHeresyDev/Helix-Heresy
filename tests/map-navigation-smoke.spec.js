@@ -190,7 +190,7 @@ test('map smoke keeps representative contextual actions selectable after navigat
   await page.keyboard.press('Escape');
   await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
-  const doorTile = page.locator('[data-map-door="mainLab::storageRoom"]').first();
+  const doorTile = page.locator('[data-map-door="door-storage-main"]').first();
   await expect(doorTile).toBeVisible();
   await doorTile.click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'door');
