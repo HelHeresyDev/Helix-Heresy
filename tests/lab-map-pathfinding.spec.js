@@ -849,7 +849,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
-  expect(initial.map.version).toBe(3);
+  expect(initial.map.version).toBe(4);
   expect(initial.map.width).toBe(100);
   expect(initial.map.height).toBe(100);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 46, y: 45, width: 12, height: 10 });
@@ -2494,6 +2494,7 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
 });
 
 test('one-tile openings infer separate compartments and automatic room designations', async ({ page }) => {
+  test.setTimeout(60_000);
   await startRun(page);
 
   const chamberRect = { x: 56, y: 40, width: 4, height: 4 };
@@ -2510,24 +2511,32 @@ test('one-tile openings infer separate compartments and automatic room designati
   const queued = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    const task = (state.tasks || []).find((candidate) => candidate.type === 'excavate');
+    const task = (state.tasks || []).find((candidate) => candidate.type === 'constructionWork');
     return {
       task,
+      order: state.construction.orders[0],
       map: state.labMap,
       construction: state.construction
     };
   }, { key: storageKey });
 
   expect(queued.task).toBeTruthy();
-  expect(queued.task.data.rect).toEqual({ x: 56, y: 40, width: 4, height: 5 });
-  expect(queued.task.data.cells).toHaveLength(17);
+  expect(queued.task.data).toMatchObject({ constructionMode: 'mine', priority: 4, targetCell: connector });
+  expect(queued.order).toMatchObject({ mode: 'mine', priority: 4 });
+  expect(queued.order.tiles).toHaveLength(17);
+  expect(queued.order.tiles.find((tile) => tile.cell.x === 56 && tile.cell.y === 40)).toMatchObject({ status: 'planned', blockedReason: expect.stringContaining('No excavated work position') });
+  expect(queued.order.tiles.find((tile) => tile.cell.x === connector.x && tile.cell.y === connector.y)).toMatchObject({ status: 'queued' });
   expect(queued.map.width).toBeGreaterThanOrEqual(100);
   expect(queued.construction.lastDigRect).toEqual({ x: 56, y: 40, width: 4, height: 5 });
   expect(queued.construction.draftCells).toHaveLength(0);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(17);
 
   await page.locator('#queueToggleBtn').click();
-  await page.locator('#taskList .task-row').filter({ hasText: 'Excavate 17 tile rough chamber' }).getByRole('button', { name: 'Finish' }).click();
+  for (let index = 0; index < 17; index += 1) {
+    const taskRow = page.locator('#taskList .task-row').filter({ hasText: /Mine tile/ }).first();
+    await expect(taskRow).toBeVisible();
+    await taskRow.getByRole('button', { name: 'Finish' }).click();
+  }
   await page.locator('#queueToggleBtn').click();
 
   const excavated = await page.evaluate(({ key }) => {
@@ -2833,4 +2842,77 @@ test('room names purposes functional requirements and tile zones remain independ
     return (payload.state || payload).rooms.find((candidate) => candidate.id === 'mainLab');
   }, { key: storageKey });
   expect(room.zones.some((zone) => zone.typeId === 'rest')).toBe(false);
+});
+
+test('construction orders prioritize reachable tiles smooth surfaces and retain blocked plans', async ({ page }) => {
+  test.setTimeout(60_000);
+  await startRun(page);
+  const blockedCell = { x: 10, y: 34 };
+  const reachableCell = { x: 46, y: 44 };
+
+  await page.locator(`[data-map-x="${blockedCell.x}"][data-map-y="${blockedCell.y}"]`).click();
+  await runSelectionCommand(page, 'Priority 1 (Highest)');
+  await runSelectionCommand(page, 'Mine Mode');
+  await page.locator(`[data-map-x="${blockedCell.x}"][data-map-y="${blockedCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Dig Designation');
+
+  let construction = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { construction: state.construction, tasks: state.tasks };
+  }, { key: storageKey });
+  expect(construction.construction.orders[0]).toMatchObject({ mode: 'mine', priority: 1 });
+  expect(construction.construction.orders[0].tiles[0]).toMatchObject({ status: 'planned', blockedReason: expect.stringContaining('No excavated work position') });
+  expect(construction.tasks.filter((task) => task.type === 'constructionWork')).toHaveLength(0);
+
+  await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
+  await runSelectionCommand(page, 'Priority 7 (Lowest)');
+  await runSelectionCommand(page, 'Mine Mode');
+  await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Dig Designation');
+
+  construction = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return { construction: state.construction, task: state.tasks.find((entry) => entry.type === 'constructionWork') };
+  }, { key: storageKey });
+  expect(construction.task.data).toMatchObject({ constructionMode: 'mine', priority: 7, targetCell: reachableCell });
+  expect(construction.construction.orders[0].tiles[0].status).toBe('planned');
+
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Mine tile 46,44' }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`)).toHaveClass(/floor-cell|room-cell/);
+
+  await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
+  let actions = await openSelectionActions(page);
+  await expect(actions.getByRole('button', { name: 'Build Mode' })).toBeDisabled();
+  await expect(actions.getByRole('button', { name: 'Deconstruct Mode' })).toBeDisabled();
+  await actions.getByRole('button', { name: 'Smooth Floor Mode' }).click();
+  await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Smooth Floor Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Smooth Floor tile 46,44' }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`)).toHaveClass(/smoothed-floor-cell/);
+
+  const wallCell = { x: 45, y: 44 };
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Smooth Wall Mode');
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Smooth Wall Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Smooth Wall tile 45,44' }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).toHaveClass(/smoothed-wall-cell/);
+
+  await page.locator(`[data-map-x="${blockedCell.x}"][data-map-y="${blockedCell.y}"]`).click();
+  await runSelectionCommand(page, 'Cancel Orders Mode');
+  await page.locator(`[data-map-x="${blockedCell.x}"][data-map-y="${blockedCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Order Cancellation');
+  construction = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).construction;
+  }, { key: storageKey });
+  expect(construction.orders[0].tiles[0]).toMatchObject({ status: 'canceled', taskId: '' });
 });

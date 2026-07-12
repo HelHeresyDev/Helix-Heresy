@@ -1353,11 +1353,28 @@ body.map-dragging .lab-map-cell {
   color: #879080;
 }
 
+.lab-map-cell.smoothed-floor-cell {
+  background: #2d332c;
+  border-color: #444d42;
+}
+
+.lab-map-cell.smoothed-wall-cell {
+  background: #13150f;
+  border-color: #35392d;
+  box-shadow: inset 0 0 0 1px rgba(141, 153, 126, 0.18);
+}
+
 .lab-map-cell.planned-excavation-cell {
   background: #302618;
   border-color: rgba(225, 183, 95, 0.65);
   color: var(--amber);
   box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.22);
+}
+
+.lab-map-cell.blocked-construction-cell {
+  background: #2d2020;
+  border-color: rgba(201, 107, 79, 0.72);
+  color: #e9a190;
 }
 
 .lab-map-cell.draft-excavation-cell {
