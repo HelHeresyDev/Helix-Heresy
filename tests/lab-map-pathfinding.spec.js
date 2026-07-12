@@ -849,7 +849,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
-  expect(initial.map.version).toBe(4);
+  expect(initial.map.version).toBe(5);
   expect(initial.map.width).toBe(100);
   expect(initial.map.height).toBe(100);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 46, y: 45, width: 12, height: 10 });
@@ -2886,8 +2886,8 @@ test('construction orders prioritize reachable tiles smooth surfaces and retain 
 
   await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
   let actions = await openSelectionActions(page);
-  await expect(actions.getByRole('button', { name: 'Build Mode' })).toBeDisabled();
-  await expect(actions.getByRole('button', { name: 'Deconstruct Mode' })).toBeDisabled();
+  await expect(actions.getByRole('button', { name: 'Build Mode' })).toBeEnabled();
+  await expect(actions.getByRole('button', { name: 'Deconstruct Mode' })).toBeEnabled();
   await actions.getByRole('button', { name: 'Smooth Floor Mode' }).click();
   await page.locator(`[data-map-x="${reachableCell.x}"][data-map-y="${reachableCell.y}"]`).click();
   await runSelectionCommand(page, 'Confirm Smooth Floor Designation');
@@ -2915,4 +2915,121 @@ test('construction orders prioritize reachable tiles smooth surfaces and retain 
     return (payload.state || payload).construction;
   }, { key: storageKey });
   expect(construction.orders[0].tiles[0]).toMatchObject({ status: 'canceled', taskId: '' });
+});
+
+test('walls floors and anchored doors build one tile at a time and deconstruct into rubble', async ({ page }) => {
+  test.setTimeout(90_000);
+  await startRun(page);
+  await selectMapOverlay(page, 'rooms');
+
+  const wallCell = { x: 48, y: 45 };
+  const floorCell = { x: 50, y: 45 };
+  const doorCell = { x: 46, y: 45 };
+  const initial = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      stoneBlocks: state.resources.stoneBlocks,
+      lumber: state.resources.lumber,
+      mainCells: state.labMap.rooms.mainLab.cells.length,
+    };
+  }, { key: storageKey });
+
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Build: Stone-Block Wall');
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Stone-Block Wall Designation');
+  let queued = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      task: state.tasks.find((task) => task.type === 'constructionWork'),
+      stoneBlocks: state.resources.stoneBlocks,
+    };
+  }, { key: storageKey });
+  expect(queued.task.data).toMatchObject({ constructionMode: 'build', resourceCosts: { stoneBlocks: 2 } });
+  expect(queued.stoneBlocks).toBe(initial.stoneBlocks - 2);
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${wallCell.x},${wallCell.y}` }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).toHaveClass(/constructed-wall-cell/);
+
+  let built = await page.evaluate(({ key, wallCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      wall: state.labMap.terrain.constructedWalls.find((entry) => entry.cell.x === wallCell.x && entry.cell.y === wallCell.y),
+      roomOwnsWall: state.labMap.rooms.mainLab.cells.some((cell) => cell.x === wallCell.x && cell.y === wallCell.y),
+    };
+  }, { key: storageKey, wallCell });
+  expect(built.wall).toMatchObject({ materialId: 'stoneBlocks', condition: 100 });
+  expect(built.roomOwnsWall).toBe(false);
+
+  await selectMapOverlay(page, 'rooms');
+  await page.locator(`[data-map-x="${floorCell.x}"][data-map-y="${floorCell.y}"]`).click();
+  await runSelectionCommand(page, 'Build: Stone Floor');
+  await page.locator(`[data-map-x="${floorCell.x}"][data-map-y="${floorCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Stone Floor Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${floorCell.x},${floorCell.y}` }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${floorCell.x}"][data-map-y="${floorCell.y}"]`)).toHaveClass(/constructed-floor-cell/);
+
+  await selectMapOverlay(page, 'rooms');
+  await page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`).click();
+  await runSelectionCommand(page, 'Build: Rough Wood Door');
+  await page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Rough Wood Door Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${doorCell.x},${doorCell.y}` }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`)).toHaveClass(/door-cell/);
+
+  const door = await page.evaluate(({ key, doorCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const mapDoor = Object.values(state.labMap.doors).find((entry) => entry.cell.x === doorCell.x && entry.cell.y === doorCell.y);
+    return { mapDoor, door: state.doors[mapDoor.id], lumber: state.resources.lumber };
+  }, { key: storageKey, doorCell });
+  expect(door.door).toMatchObject({ state: 'closed', lockState: 'unlocked', sealState: 'unsealed', typeId: 'roughWoodDoor', wardIds: [] });
+  expect(door.lumber).toBe(initial.lumber - 1);
+  await page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`).click();
+  await runSelectionCommand(page, 'Open Door');
+  const openedDoor = await page.evaluate(({ key, doorId }) => JSON.parse(window.localStorage.getItem(key) || '{}').state.doors[doorId], { key: storageKey, doorId: door.mapDoor.id });
+  expect(openedDoor.state).toBe('open');
+
+  await selectMapOverlay(page, 'rooms');
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Deconstruct Mode');
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Deconstruct Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Deconstruct tile ${wallCell.x},${wallCell.y}` }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).not.toHaveClass(/constructed-wall-cell/);
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).toHaveClass(/rubble-object-cell/);
+
+  const deconstructed = await page.evaluate(({ key, wallCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      wall: state.labMap.terrain.constructedWalls.find((entry) => entry.cell.x === wallCell.x && entry.cell.y === wallCell.y),
+      rubble: state.labMap.terrain.rubble.find((entry) => entry.cell.x === wallCell.x && entry.cell.y === wallCell.y),
+      stoneBlocks: state.resources.stoneBlocks,
+    };
+  }, { key: storageKey, wallCell });
+  expect(deconstructed.wall).toBeUndefined();
+  expect(deconstructed.rubble.materials).toContainEqual(expect.objectContaining({ id: 'stoneBlocks', amount: 2 }));
+  expect(deconstructed.stoneBlocks).toBe(initial.stoneBlocks - 3);
+
+  const oreCell = { x: 47, y: 40 };
+  await page.locator(`[data-map-x="${oreCell.x}"][data-map-y="${oreCell.y}"]`).click();
+  await runSelectionCommand(page, 'Mine Mode');
+  await page.locator(`[data-map-x="${oreCell.x}"][data-map-y="${oreCell.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Dig Designation');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Mine tile ${oreCell.x},${oreCell.y}` }).getByRole('button', { name: 'Finish' }).click();
+  const oreRubble = await page.evaluate(({ key, oreCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return state.labMap.terrain.rubble.find((entry) => entry.cell.x === oreCell.x && entry.cell.y === oreCell.y);
+  }, { key: storageKey, oreCell });
+  expect(oreRubble.materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'granite', amount: 3 }),
+    expect.objectContaining({ id: 'ironOre', amount: 1 }),
+  ]));
 });

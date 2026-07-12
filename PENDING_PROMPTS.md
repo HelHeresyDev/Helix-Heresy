@@ -12,8 +12,8 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Buildable Walls, Floors, and Door Placement
-2. Structural Materials, Durability, and Breach Resistance
+1. Structural Materials, Durability, and Breach Resistance
+2. Mining, Construction, and Deconstruction Tools
 3. Furniture, Fixtures, and Laboratory Equipment Placement
 4. Physical Stockpiles, Shelves, Crates, and Accessibility
 5. Loose Items, Spills, Waste, and Tile Contents
@@ -31,15 +31,15 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ---
 
-## 1. Buildable Walls, Floors, and Door Placement
+## 1. Structural Materials, Durability, and Breach Resistance
 
-Design player-built terrain and fixtures, including walls, floors, doors, and replacement of rough excavated surfaces. Doors should be placed in physical one-tile openings and remain independent objects rather than abstract links between room records.
+Design shared material properties for walls, doors, floors, containers, and other structures. Consider durability, seal quality, elemental resistance, insulation, visibility, contamination retention, sound transmission, damage states, repairability, and enchantments.
 
 ---
 
-## 2. Structural Materials, Durability, and Breach Resistance
+## 2. Mining, Construction, and Deconstruction Tools
 
-Design shared material properties for walls, doors, floors, containers, and other structures. Consider durability, seal quality, elemental resistance, insulation, visibility, contamination retention, sound transmission, damage states, repairability, and enchantments.
+Design the physical tools required for excavation, construction, and dismantling. Include picks, axes, hammers, cutting tools, drills, and later explosives; tool materials, quality, durability, damage, repair, replacement, task suitability, required capabilities, and blocked construction orders when no suitable usable tool is available. Replace the current assumed basic construction kit with persistent tools that actors must retrieve and use.
 
 ---
 

@@ -76,6 +76,7 @@
   const EXCAVATION_BASE_DURATION_MINUTES = 4;
   const EXCAVATION_MINUTES_PER_TILE = 6;
   const SMOOTHING_MINUTES_PER_TILE = 4;
+  const DECONSTRUCTION_MINUTES_PER_TILE = 6;
   const EXCAVATION_MAX_TILES = 80;
   const CONSTRUCTION_PRIORITY_DEFAULT = 4;
   const CONSTRUCTION_PRIORITY_MIN = 1;
@@ -84,11 +85,18 @@
     { id: "mine", label: "Mine", description: "Excavate natural solid rock into rough floor.", implemented: true },
     { id: "smoothFloor", label: "Smooth Floor", description: "Finish one rough excavated floor tile.", implemented: true },
     { id: "smoothWall", label: "Smooth Wall", description: "Finish one exposed natural rock wall tile.", implemented: true },
-    { id: "build", label: "Build", description: "Place planned constructed walls, floors, and fixtures.", implemented: false },
-    { id: "deconstruct", label: "Deconstruct", description: "Dismantle constructed terrain or fixtures without confusing it with canceling an order.", implemented: false },
+    { id: "build", label: "Build", description: "Place constructed walls, floors, and anchored doors.", implemented: true },
+    { id: "deconstruct", label: "Deconstruct", description: "Dismantle constructed walls, floors, or doors into physical rubble.", implemented: true },
     { id: "cancel", label: "Cancel Orders", description: "Remove pending construction orders from painted tiles.", implemented: true }
   ];
   const CONSTRUCTION_MODE_BY_ID = Object.fromEntries(CONSTRUCTION_MODE_DEFS.map((mode) => [mode.id, mode]));
+  const CONSTRUCTION_BUILD_DEFS = [
+    { id: "stoneWall", label: "Stone-Block Wall", kind: "wall", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 2 }, workMinutes: 12, description: "Build an impassable stone-block wall over excavated floor." },
+    { id: "stoneFloor", label: "Stone Floor", kind: "floor", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 8, description: "Lay constructed stone flooring that removes rough-floor movement penalties." },
+    { id: "roughWoodDoor", label: "Rough Wood Door", kind: "door", materialId: "lumber", resourceCosts: { lumber: 1 }, workMinutes: 10, description: "Install a closed rough wood door anchored to at least one cardinally adjacent wall." }
+  ];
+  const CONSTRUCTION_BUILD_BY_ID = Object.fromEntries(CONSTRUCTION_BUILD_DEFS.map((def) => [def.id, def]));
+  const DEFAULT_CONSTRUCTION_BUILD_ID = "stoneWall";
   const ROOM_DESIGNATION_POLICY_DEFS = [
     { id: "off", label: "Off", description: "Detect architectural compartments, but never create or extend room designations automatically." },
     { id: "suggest", label: "Suggest", description: "Show inferred compartments and likely purposes, but wait for player confirmation." },
@@ -1923,6 +1931,10 @@
     { key: "geneticMaterial", label: "Genetic Material", initial: 0 },
     { key: "elementalResidue", label: "Elemental Residue", initial: 0 },
     { key: "waste", label: "Waste", initial: 0 },
+    { key: "stoneBlocks", label: "Stone Blocks", initial: 40 },
+    { key: "lumber", label: "Lumber", initial: 20 },
+    { key: "steelPanels", label: "Steel Panels", initial: 12 },
+    { key: "bricks", label: "Bricks", initial: 24 },
     ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
@@ -2821,6 +2833,7 @@
       lastDigRect: null,
       mode: "idle",
       priority: CONSTRUCTION_PRIORITY_DEFAULT,
+      buildType: DEFAULT_CONSTRUCTION_BUILD_ID,
       draftCells: [],
       orders: [],
       roomDraftCells: [],
@@ -2986,11 +2999,22 @@
       ...Object.values(doors).map((door) => door.cell)
     ]);
     return {
-      version: 4,
+      version: 5,
       tileSizeM: LAB_MAP_TILE_SIZE_M,
       width: LAB_MAP_DEFAULT_WIDTH,
       height: LAB_MAP_DEFAULT_HEIGHT,
-      terrain: { excavated, smoothedFloors: [], smoothedWalls: [] },
+      terrain: {
+        excavated,
+        smoothedFloors: [],
+        smoothedWalls: [],
+        constructedFloors: [],
+        constructedWalls: [],
+        naturalDeposits: [
+          { cell: { x: 47, y: 40 }, stoneId: "granite", oreId: "ironOre" },
+          { cell: { x: 55, y: 40 }, stoneId: "limestone", oreId: "copperOre" }
+        ],
+        rubble: []
+      },
       rooms,
       doors
     };
@@ -5706,9 +5730,36 @@
     return CONSTRUCTION_MODE_BY_ID[mode]?.label || titleCase(mode || "construction");
   }
 
-  function constructionOrderLabel(mode, cells) {
+  function constructionBuildDef(buildType = state.construction?.buildType) {
+    return CONSTRUCTION_BUILD_BY_ID[buildType] || CONSTRUCTION_BUILD_BY_ID[DEFAULT_CONSTRUCTION_BUILD_ID];
+  }
+
+  function constructionOrderBuildDef(order) {
+    return order?.mode === "build" ? constructionBuildDef(order.buildType) : null;
+  }
+
+  function constructionOrderResourceCosts(order) {
+    return normalizeResourceCosts(constructionOrderBuildDef(order)?.resourceCosts || {});
+  }
+
+  function constructedThingAtCell(cell, map = ensureLabMap()) {
+    const door = labMapDoorAtCell(cell, map);
+    if (door) return { kind: "door", label: "door", value: door };
+    const wall = constructedWallAtCell(cell, map);
+    if (wall) return { kind: "wall", label: "constructed wall", value: wall };
+    const floor = constructedFloorAtCell(cell, map);
+    if (floor) return { kind: "floor", label: "constructed floor", value: floor };
+    return null;
+  }
+
+  function doorHasPhysicalAnchor(cell, map = ensureLabMap()) {
+    return cardinalMapCells(cell).some((neighbor) => mapCellInBounds(neighbor, map) && (!labMapCellIsExcavated(neighbor, map) || Boolean(constructedWallAtCell(neighbor, map))));
+  }
+
+  function constructionOrderLabel(mode, cells, buildType = state.construction?.buildType) {
     const count = normalizeDigCells(cells).length;
     if (mode === "mine") return excavationDesignationLabel(cells);
+    if (mode === "build") return `Build ${constructionBuildDef(buildType).label} on ${count} tile${count === 1 ? "" : "s"}`;
     return `${constructionModeLabel(mode)} ${count} tile${count === 1 ? "" : "s"}`;
   }
 
@@ -5721,9 +5772,12 @@
       && order.tiles.some((tile) => ["planned", "queued"].includes(tile.status) && mapCellKey(tile.cell) === key));
     if (conflict) return `${constructionModeLabel(conflict.mode)} priority ${conflict.priority} is already designated here.`;
     const excavated = labMapCellIsExcavated(clean, map);
+    const buildDef = constructionBuildDef(options.buildType || options.order?.buildType);
     if (mode === "mine") return excavated ? "This tile is already excavated floor." : "";
     if (mode === "smoothFloor") {
       if (!excavated) return "Only excavated floor can be smoothed as floor.";
+      if (constructedFloorAtCell(clean, map)) return "Constructed flooring already finishes this tile.";
+      if (constructedWallAtCell(clean, map)) return "A constructed wall covers this floor tile.";
       if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) return "This floor tile is already smoothed.";
       return "";
     }
@@ -5733,6 +5787,24 @@
       const exposed = cardinalMapCells(clean).some((neighbor) => labMapCellIsExcavated(neighbor, map));
       return exposed ? "" : "Only exposed natural rock beside excavated floor can be smoothed.";
     }
+    if (mode === "build") {
+      if (!excavated) return `${buildDef.label} requires excavated floor.`;
+      if (buildDef.kind === "wall") {
+        if (constructedWallAtCell(clean, map)) return "A constructed wall already occupies this tile.";
+        if (labMapDoorAtCell(clean, map)) return "Remove the door before constructing a wall here.";
+      } else if (buildDef.kind === "floor") {
+        if (constructedFloorAtCell(clean, map)) return "Constructed flooring already covers this tile.";
+        if (constructedWallAtCell(clean, map)) return "Deconstruct the wall before laying flooring here.";
+        if (labMapDoorAtCell(clean, map)) return "Deconstruct the door before laying flooring here.";
+      } else if (buildDef.kind === "door") {
+        if (labMapDoorAtCell(clean, map)) return "A door already occupies this tile.";
+        if (constructedWallAtCell(clean, map)) return "Deconstruct the wall before installing a door here.";
+        if (!doorHasPhysicalAnchor(clean, map)) return "A door must be anchored to at least one cardinally adjacent natural or constructed wall.";
+      }
+      if (labMapBlockingCellKeys(map).has(key)) return "Permanent equipment occupies this tile.";
+      return "";
+    }
+    if (mode === "deconstruct") return constructedThingAtCell(clean, map) ? "" : "Only constructed walls, floors, and doors can be deconstructed.";
     return `${constructionModeLabel(mode)} is not implemented yet.`;
   }
 
@@ -5745,14 +5817,29 @@
     ];
   }
 
+  function constructionTargetOccupancyBlockReason(order, tile) {
+    if (!["build", "deconstruct"].includes(order?.mode)) return "";
+    const key = mapCellKey(tile.cell);
+    if (mapCellKey(scientistMapCell()) === key) return "The scientist is standing on the work tile.";
+    const slime = (state.slimes || []).find((entry) => entry.status === "released" && mapCellKey(objectMapCell(entry) || {}) === key);
+    if (slime) return `${slime.name} is occupying the work tile.`;
+    const corpse = (state.corpses || []).find((entry) => entry.storage !== "container" && mapCellKey(objectMapCell(entry) || {}) === key);
+    if (corpse) return `${corpse.name} remains are occupying the work tile.`;
+    return "";
+  }
+
   function constructionTileWorkPlan(order, tile) {
-    const staticReason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id });
+    const staticReason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id, order });
     if (staticReason) return { ok: false, reason: staticReason, path: [], accessCell: null };
+    const occupancyReason = constructionTargetOccupancyBlockReason(order, tile);
+    if (occupancyReason) return { ok: false, reason: occupancyReason, path: [], accessCell: null };
     const map = ensureLabMap();
     const start = scientistMapCell();
-    const candidates = order.mode === "smoothFloor"
+    const candidates = ["smoothFloor", "build"].includes(order.mode) && constructionOrderBuildDef(order)?.kind === "floor"
       ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsExcavated(cell, map))]
-      : cardinalMapCells(tile.cell).filter((cell) => labMapCellIsExcavated(cell, map));
+      : order.mode === "smoothFloor"
+        ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map))]
+        : cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map));
     let best = null;
     for (const accessCell of candidates) {
       if (mapCellKey(accessCell) !== mapCellKey(start) && labMapCellIsPathBlocked(accessCell, { map })) continue;
@@ -5760,17 +5847,43 @@
       if (!path.length) continue;
       if (!best || path.length < best.path.length) best = { ok: true, reason: "", path, accessCell };
     }
-    return best || {
+    if (!best) return {
       ok: false,
       reason: candidates.length ? "No reachable work position currently exists." : "No excavated work position borders this tile yet.",
       path: [],
       accessCell: null
     };
+    const costs = constructionOrderResourceCosts(order);
+    if (!Object.keys(costs).length) return best;
+    const globalReason = resourceBlockReason(costs);
+    if (globalReason) return { ok: false, reason: globalReason, path: [], accessCell: null };
+    const source = roomStockpileIds()
+      .filter((roomId) => !resourceBlockReasonForRoom(costs, roomId, { allowHaul: false }))
+      .map((roomId) => ({
+        roomId,
+        cell: nearestOpenMapCellInRoom(roomId, labMapRoomAnchor(roomId), { map }),
+      }))
+      .map((entry) => ({ ...entry, toSource: labMapPathBetweenCells(start, entry.cell, { map, ignoreDoors: true }) }))
+      .filter((entry) => entry.toSource.length)
+      .map((entry) => ({ ...entry, toWork: labMapPathBetweenCells(entry.cell, best.accessCell, { map, ignoreDoors: true }) }))
+      .filter((entry) => entry.toWork.length)
+      .sort((a, b) => (a.toSource.length + a.toWork.length) - (b.toSource.length + b.toWork.length))[0];
+    if (!source) return { ok: false, reason: `${formatResourceBundle(costs)} exists, but no reachable stockpile can supply this construction tile.`, path: [], accessCell: null };
+    return {
+      ...best,
+      path: [...source.toSource, ...source.toWork.slice(1)],
+      resourceCosts: costs,
+      resourceRoomId: source.roomId
+    };
   }
 
   function constructionWorkDuration(order, plan) {
-    const workMinutes = order.mode === "mine" ? EXCAVATION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
-    const travelSeconds = Math.max(0, (plan.path.length - 1) * ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    const workMinutes = order.mode === "mine"
+      ? EXCAVATION_MINUTES_PER_TILE
+      : order.mode === "build"
+        ? constructionOrderBuildDef(order).workMinutes
+        : order.mode === "deconstruct" ? DECONSTRUCTION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
     return minutesToSeconds(workMinutes) + travelSeconds;
   }
 
@@ -5809,6 +5922,10 @@
     const candidate = candidates[0];
     if (!candidate) return 0;
     const { order, tile, plan } = candidate;
+    if (plan.resourceCosts && !spendResourcesFromRoom(plan.resourceCosts, plan.resourceRoomId)) {
+      tile.blockedReason = resourceBlockReasonForRoom(plan.resourceCosts, plan.resourceRoomId, { allowHaul: false }) || "Construction materials are no longer available.";
+      return 0;
+    }
     const duration = constructionWorkDuration(order, plan);
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const task = {
@@ -5827,7 +5944,9 @@
         roomId: labMapCellRoomId(plan.accessCell) || scientistRoomId(),
         mapPath: plan.path,
         route: roomsFromMapPath(plan.path),
-        blockedReason: ""
+        blockedReason: "",
+        resourceCosts: plan.resourceCosts || {},
+        resourceRoomId: plan.resourceRoomId || ""
       }
     };
     tile.status = "queued";
@@ -5842,7 +5961,8 @@
     state.construction = normalizeConstructionState(state.construction, state);
     const cleanCells = normalizeDigCells(cells);
     if (!cleanCells.length) return false;
-    const invalid = cleanCells.map((cell) => constructionTileStaticBlockReason(mode, cell)).find(Boolean);
+    const buildType = mode === "build" ? (CONSTRUCTION_BUILD_BY_ID[options.buildType] ? options.buildType : state.construction.buildType) : "";
+    const invalid = cleanCells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType })).find(Boolean);
     if (invalid) {
       addEvent(invalid);
       persist();
@@ -5852,7 +5972,8 @@
     const order = {
       id: `construction-order-${state.construction.nextOrderNumber++}`,
       mode,
-      label: constructionOrderLabel(mode, cleanCells),
+      buildType,
+      label: constructionOrderLabel(mode, cleanCells, buildType),
       priority: clamp(Number(options.priority) || state.construction.priority, CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: state.clock,
       tiles: cleanCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null }))
@@ -5901,13 +6022,13 @@
   function startExcavationDraftDesignation() {
     const mode = constructionActiveMode();
     if (mode === "cancel") return cancelConstructionOrdersAtCells(constructionDraftCells());
-    if (!["mine", "smoothFloor", "smoothWall"].includes(mode)) {
+    if (!["mine", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) {
       addEvent(`${constructionModeLabel(mode)} is not implemented yet.`);
       persist();
       render();
       return false;
     }
-    return createConstructionOrder(mode, constructionDraftCells());
+    return createConstructionOrder(mode, constructionDraftCells(), { buildType: state.construction.buildType });
   }
 
   function nextExcavatedRoomIdentity() {
@@ -5958,6 +6079,78 @@
           : "Room designation automation is off."}`);
   }
 
+  function rubbleMaterialLabel(id) {
+    return {
+      stone: "Stone rubble",
+      granite: "Granite rubble",
+      limestone: "Limestone rubble",
+      ironOre: "Iron ore fragments",
+      copperOre: "Copper ore fragments",
+      stoneBlocks: "Broken stone blocks",
+      lumber: "Wood debris",
+      steelPanels: "Steel scrap",
+      bricks: "Broken bricks"
+    }[id] || titleCase(id);
+  }
+
+  function addRubblePile(cell, materials, source, map = ensureLabMap()) {
+    map.terrain.rubble = normalizeRubblePiles([
+      ...(map.terrain.rubble || []),
+      {
+        id: `rubble-${state.clock}-${map.terrain.rubble?.length || 0}-${cell.x}-${cell.y}`,
+        cell,
+        source,
+        createdAt: state.clock,
+        materials: Object.entries(materials || {}).map(([id, amount]) => ({ id, label: rubbleMaterialLabel(id), amount }))
+      }
+    ]);
+  }
+
+  function removeCellFromRoomDesignations(cell) {
+    const map = ensureLabMap();
+    const key = mapCellKey(cell);
+    let changed = false;
+    for (const [roomId, mapped] of Object.entries(map.rooms || {})) {
+      if (!(mapped.cells || []).some((entry) => mapCellKey(entry) === key)) continue;
+      setMapRoomCells(roomId, mapped.cells.filter((entry) => mapCellKey(entry) !== key));
+      changed = true;
+    }
+    if (changed) reconcileRoomZones(map, state.rooms);
+    return changed;
+  }
+
+  function createConstructedDoor(cell, buildDef, map = ensureLabMap()) {
+    const id = `door-${cell.x}-${cell.y}`;
+    const roomIds = roomIdsAdjacentToDoorCell(cell, map.rooms);
+    map.doors[id] = normalizeLabMapDoor({ id, cell, roomIds }, id, map.rooms);
+    const door = defaultDoorObject(roomIds[0], roomIds[1], id);
+    door.typeId = buildDef.id === "roughWoodDoor" ? "roughWoodDoor" : door.typeId;
+    door.state = DOOR_STATE_CLOSED;
+    door.materialId = buildDef.materialId;
+    door.wardIds = [];
+    state.doors ||= {};
+    state.doors[id] = door;
+  }
+
+  function deconstructAtCell(cell, map = ensureLabMap()) {
+    const target = constructedThingAtCell(cell, map);
+    if (!target) return false;
+    if (target.kind === "door") {
+      const liveDoor = doorFixtureState(target.value);
+      const materialId = liveDoor?.materialId || (DOOR_BASE_TYPE_BY_ID[liveDoor?.typeId]?.material.includes("wood") ? "lumber" : "steelPanels");
+      delete map.doors[target.value.id];
+      delete state.doors?.[target.value.id];
+      addRubblePile(cell, { [materialId]: 1 }, `${target.label} deconstruction`, map);
+    } else if (target.kind === "wall") {
+      map.terrain.constructedWalls = (map.terrain.constructedWalls || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
+      addRubblePile(cell, { [target.value.materialId || "stoneBlocks"]: 2 }, `${target.label} deconstruction`, map);
+    } else if (target.kind === "floor") {
+      map.terrain.constructedFloors = (map.terrain.constructedFloors || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
+      addRubblePile(cell, { [target.value.materialId || "stoneBlocks"]: 1 }, `${target.label} deconstruction`, map);
+    }
+    return true;
+  }
+
   function completeConstructionWork(task) {
     const order = constructionOrderById(task.data?.constructionOrderId);
     const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
@@ -5966,8 +6159,11 @@
       claimNextConstructionWork();
       return false;
     }
-    const reason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id });
+    const reason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id, order }) || constructionTargetOccupancyBlockReason(order, tile);
     if (reason) {
+      if (task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
+        addResources(task.data.resourceCosts, task.data.resourceRoomId || STORAGE_ROOM_ID);
+      }
       tile.status = "planned";
       tile.taskId = "";
       tile.blockedReason = reason;
@@ -5976,21 +6172,45 @@
       return false;
     }
     const accessCell = cleanMapCell(task.data?.toCell);
-    if (accessCell && labMapCellIsExcavated(accessCell)) {
+    if (accessCell && labMapCellIsWalkable(accessCell)) {
       state.scientist.mapCell = accessCell;
       state.scientist.roomId = labMapCellRoomId(accessCell) || state.scientist.roomId;
     }
     const map = ensureLabMap();
-    map.terrain ||= { excavated: [], smoothedFloors: [], smoothedWalls: [] };
+    map.terrain ||= { excavated: [], smoothedFloors: [], smoothedWalls: [], constructedFloors: [], constructedWalls: [], rubble: [] };
     if (order.mode === "mine") {
+      const deposit = naturalDepositAtCell(tile.cell, map);
       map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, tile.cell]);
       map.terrain.smoothedWalls = normalizeDigCells(map.terrain.smoothedWalls)
         .filter((cell) => mapCellKey(cell) !== mapCellKey(tile.cell));
+      map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(tile.cell));
+      addRubblePile(tile.cell, {
+        [deposit?.stoneId || "stone"]: 3,
+        ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
+      }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "natural stone excavation", map);
       state.labMap = normalizeLabMap(map, state.rooms);
     } else if (order.mode === "smoothFloor") {
       map.terrain.smoothedFloors = normalizeDigCells([...(map.terrain.smoothedFloors || []), tile.cell]);
     } else if (order.mode === "smoothWall") {
       map.terrain.smoothedWalls = normalizeDigCells([...(map.terrain.smoothedWalls || []), tile.cell]);
+    } else if (order.mode === "build") {
+      const buildDef = constructionOrderBuildDef(order);
+      if (buildDef.kind === "wall") {
+        map.terrain.constructedWalls = normalizeConstructedSurfaces([...(map.terrain.constructedWalls || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
+      } else if (buildDef.kind === "floor") {
+        map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
+      } else if (buildDef.kind === "door") {
+        createConstructedDoor(tile.cell, buildDef, map);
+      }
+      state.labMap = normalizeLabMap(map, state.rooms);
+      if (buildDef.kind === "wall") removeCellFromRoomDesignations(tile.cell);
+      state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
+      finalizeRoomTopologyChange();
+    } else if (order.mode === "deconstruct") {
+      deconstructAtCell(tile.cell, map);
+      state.labMap = normalizeLabMap(map, state.rooms);
+      state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
+      finalizeRoomTopologyChange();
     }
     tile.status = "completed";
     tile.taskId = "";
@@ -8132,6 +8352,58 @@
     return cells.sort((a, b) => (a.y - b.y) || (a.x - b.x));
   }
 
+  function normalizeConstructedSurfaces(candidate, allowedKinds = null) {
+    const source = Array.isArray(candidate) ? candidate : [];
+    const seen = new Set();
+    return source.map((entry) => {
+      const cell = cleanMapCell(entry?.cell || entry);
+      if (!cell || seen.has(mapCellKey(cell))) return null;
+      const materialId = String(entry?.materialId || "stoneBlocks").replace(/[^a-zA-Z0-9_-]/g, "") || "stoneBlocks";
+      const kind = String(entry?.kind || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (allowedKinds && kind && !allowedKinds.has(kind)) return null;
+      seen.add(mapCellKey(cell));
+      return {
+        cell,
+        materialId,
+        condition: clamp(Number(entry?.condition) || 100, 0, 100),
+        builtAt: finiteTime(entry?.builtAt, 0)
+      };
+    }).filter(Boolean).sort((a, b) => (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
+  }
+
+  function normalizeNaturalDeposits(candidate) {
+    const seen = new Set();
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const cell = cleanMapCell(entry?.cell);
+      if (!cell || seen.has(mapCellKey(cell))) return null;
+      seen.add(mapCellKey(cell));
+      return {
+        cell,
+        stoneId: String(entry?.stoneId || "stone").replace(/[^a-zA-Z0-9_-]/g, "") || "stone",
+        oreId: String(entry?.oreId || "").replace(/[^a-zA-Z0-9_-]/g, "")
+      };
+    }).filter(Boolean);
+  }
+
+  function normalizeRubblePiles(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => {
+      const cell = cleanMapCell(entry?.cell);
+      const materials = (Array.isArray(entry?.materials) ? entry.materials : []).map((material) => ({
+        id: String(material?.id || "stone").replace(/[^a-zA-Z0-9_-]/g, "") || "stone",
+        label: String(material?.label || "Stone rubble"),
+        amount: Math.max(0, roundOutputValue(Number(material?.amount) || 0))
+      })).filter((material) => material.amount > 0);
+      if (!cell || !materials.length) return null;
+      return {
+        id: String(entry?.id || `rubble-${index + 1}`),
+        cell,
+        source: String(entry?.source || "construction debris"),
+        createdAt: finiteTime(entry?.createdAt, 0),
+        materials
+      };
+    }).filter(Boolean);
+  }
+
   function digCellsBoundingRect(cells) {
     const cleanCells = normalizeDigCells(cells);
     if (!cleanCells.length) {
@@ -8431,7 +8703,7 @@
   }
 
   function constructionWorkModeActive() {
-    return ["mine", "smoothFloor", "smoothWall", "cancel"].includes(constructionActiveMode());
+    return ["mine", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel"].includes(constructionActiveMode());
   }
 
   function roomDesignationModeActive() {
@@ -8470,7 +8742,7 @@
     if (!cells.length) return mode === "cancel" ? "Select at least one planned order tile." : "Select at least one map tile.";
     if (cells.length > EXCAVATION_MAX_TILES) return `Construction batches are capped at ${EXCAVATION_MAX_TILES} tiles for this prototype pass.`;
     if (mode === "cancel") return cells.some((cell) => constructionOrderAtCell(cell)) ? "" : "No active construction orders are selected.";
-    return cells.map((cell) => constructionTileStaticBlockReason(mode, cell)).find(Boolean) || "";
+    return cells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType: state.construction.buildType })).find(Boolean) || "";
   }
 
   function constructionDraftDuration(cells = constructionDraftCells()) {
@@ -8511,6 +8783,20 @@
     return true;
   }
 
+  function setConstructionBuildType(buildType) {
+    const def = CONSTRUCTION_BUILD_BY_ID[buildType];
+    if (!def) return false;
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.buildType = def.id;
+    state.construction.mode = "build";
+    state.construction.draftCells = [];
+    ensureUiState().mapOverlay = "construction";
+    addEvent(`Build designation set to ${def.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
   function setRoomDesignationMode(active, options = {}) {
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.mode = active ? "room" : "idle";
@@ -8528,7 +8814,7 @@
   function roomDesignationCellBlockReason(cell) {
     const clean = cleanMapCell(cell);
     if (!clean) return "Select a valid map tile.";
-    if (!labMapCellIsExcavated(clean)) return "Only excavated floor can be designated as a room.";
+    if (!labMapCellIsWalkable(clean)) return "Only open excavated floor can be designated as a room.";
     if (labMapDoorAtCell(clean)) return "Door fixtures occupy connector tiles and cannot belong to a room designation.";
     return "";
   }
@@ -9118,7 +9404,7 @@
     }
     const mode = constructionActiveMode();
     if (mode === "cancel") return constructionOrderAtCell(clean) ? "" : "No active construction order exists on this tile.";
-    return constructionTileStaticBlockReason(mode, clean);
+    return constructionTileStaticBlockReason(mode, clean, { buildType: state.construction.buildType });
   }
 
   function addConstructionDraftCells(cells) {
@@ -9218,7 +9504,12 @@
     const taskIds = new Set(canceledTasks.map((task) => task.id));
     state.tasks = state.tasks.filter((task) => !taskIds.has(task.id));
     if (currentSelection()?.kind === "task" && taskIds.has(currentSelection().id)) setSelection(null);
-    for (const task of canceledTasks) recordTaskHistory(task, "canceled");
+    for (const task of canceledTasks) {
+      if (task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
+        addResources(task.data.resourceCosts, task.data.resourceRoomId || STORAGE_ROOM_ID);
+      }
+      recordTaskHistory(task, "canceled");
+    }
     state.construction.draftCells = [];
     state.construction.mode = "idle";
     refreshConstructionOrderBlocks();
@@ -9387,8 +9678,12 @@
       ...(Array.isArray(terrainSource) ? terrainSource : []),
       ...Object.values(normalizedDoors).map((door) => door.cell)
     ]).filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height);
+    const constructedFloors = normalizeConstructedSurfaces(source.terrain?.constructedFloors)
+      .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
+    const constructedWalls = normalizeConstructedSurfaces(source.terrain?.constructedWalls)
+      .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
     return {
-      version: 4,
+      version: 5,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
       width,
       height,
@@ -9397,7 +9692,12 @@
         smoothedFloors: normalizeDigCells(source.terrain?.smoothedFloors)
           .filter((cell) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(cell))),
         smoothedWalls: normalizeDigCells(source.terrain?.smoothedWalls)
-          .filter((cell) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(cell)))
+          .filter((cell) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(cell))),
+        constructedFloors,
+        constructedWalls,
+        naturalDeposits: normalizeNaturalDeposits(source.terrain?.naturalDeposits || fallback.terrain?.naturalDeposits)
+          .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
+        rubble: normalizeRubblePiles(source.terrain?.rubble)
       },
       rooms: normalizedRooms,
       doors: normalizedDoors
@@ -9462,6 +9762,30 @@
     return keys.has(mapCellKey(cell));
   }
 
+  function constructedFloorAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.constructedFloors || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+  }
+
+  function constructedWallAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.constructedWalls || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+  }
+
+  function naturalDepositAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+  }
+
+  function rubbleAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.rubble || []).filter((entry) => mapCellKey(entry.cell) === key);
+  }
+
+  function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
+    return labMapCellIsExcavated(cell, map, excavatedKeys) && !constructedWallAtCell(cell, map);
+  }
+
   function orthogonalMapNeighbors(cell) {
     return [
       { x: cell.x + 1, y: cell.y },
@@ -9502,7 +9826,7 @@
 
   function inferLabCompartments(map = ensureLabMap()) {
     const doorByCell = new Map(Object.values(map.doors || {}).map((door) => [mapCellKey(door.cell), door]));
-    const floorCells = (map.terrain?.excavated || []).filter((cell) => !doorByCell.has(mapCellKey(cell)));
+    const floorCells = (map.terrain?.excavated || []).filter((cell) => !doorByCell.has(mapCellKey(cell)) && !constructedWallAtCell(cell, map));
     const cellByKey = new Map(floorCells.map((cell) => [mapCellKey(cell), cell]));
     const floorKeys = new Set(cellByKey.keys());
     const coreKeys = new Set();
@@ -9892,14 +10216,14 @@
     }
     const footprint = containerFootprintDimensions(container);
     return objectFootprintCells(cell, footprint)
-      .filter((candidate) => mapCellInBounds(candidate, map) && labMapCellIsExcavated(candidate, map));
+      .filter((candidate) => mapCellInBounds(candidate, map) && labMapCellIsWalkable(candidate, map));
   }
 
   function objectFootprintRemainsPhysical(origin, footprint, map, occupied = new Set()) {
     const cells = objectFootprintCells(origin, footprint);
     return cells.length > 0 && cells.every((cell) =>
       mapCellInBounds(cell, map)
-      && labMapCellIsExcavated(cell, map)
+      && labMapCellIsWalkable(cell, map)
       && !labMapCellIsDoor(cell, map)
       && !occupied.has(mapCellKey(cell))
     );
@@ -10014,7 +10338,7 @@
       const occupied = new Set();
       state.scientist = normalizeScientist(state.scientist);
       const scientistCell = cleanMapCell(state.scientist.mapCell);
-      state.scientist.mapCell = scientistCell && labMapCellIsExcavated(scientistCell, map)
+      state.scientist.mapCell = scientistCell && labMapCellIsWalkable(scientistCell, map)
         ? scientistCell
         : normalizeMapCellForRoom(scientistCell, state.scientist.roomId || MAIN_ROOM_ID, map);
       occupied.add(mapCellKey(state.scientist.mapCell));
@@ -10042,7 +10366,7 @@
           slime.roomId = roomById(slime.roomId)?.id || MAIN_ROOM_ID;
           const movingCell = objectMapCell(slime);
           const movingRoomId = movingCell ? labMapCellRoomId(movingCell, map) : "";
-          if (slimeAutonomousMovementActive(slime) && movingCell && labMapCellIsExcavated(movingCell, map)) {
+          if (slimeAutonomousMovementActive(slime) && movingCell && labMapCellIsWalkable(movingCell, map)) {
             if (movingRoomId) slime.roomId = movingRoomId;
             slime.mapCell = movingCell;
           } else {
@@ -10067,7 +10391,7 @@
         }
         corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
         const corpseCell = objectMapCell(corpse);
-        corpse.mapCell = corpseCell && labMapCellIsExcavated(corpseCell, map)
+        corpse.mapCell = corpseCell && labMapCellIsWalkable(corpseCell, map)
           ? corpseCell
           : nearestOpenMapCellInRoom(corpse.roomId, corpseCell, {
               map,
@@ -10083,7 +10407,7 @@
   function labMapNeighborCells(cell, options = {}) {
     const map = options.map || ensureLabMap();
     const excavatedKeys = options.excavatedKeys || labMapExcavatedCellKeys(map);
-    if (!labMapCellIsExcavated(cell, map, excavatedKeys)) {
+    if (!labMapCellIsWalkable(cell, map, excavatedKeys)) {
       return [];
     }
     const candidates = [
@@ -10093,11 +10417,11 @@
       { x: cell.x, y: cell.y - 1 }
     ];
     return candidates.filter((candidate) => {
-      if (!labMapCellIsExcavated(candidate, map, excavatedKeys)) {
+      if (!labMapCellIsWalkable(candidate, map, excavatedKeys)) {
         return false;
       }
       const door = labMapDoorForCells(cell, candidate, map);
-      if (door && !doorAllowsPassage(door.roomIds[0], door.roomIds[1], options)) {
+      if (door && !doorFixtureAllowsPassage(door, options)) {
         return false;
       }
       return !labMapCellIsPathBlocked(candidate, { ...options, map });
@@ -10109,7 +10433,7 @@
     const start = cleanMapCell(startCell);
     const end = cleanMapCell(endCell);
     const excavatedKeys = labMapExcavatedCellKeys(map);
-    if (!start || !end || !labMapCellIsExcavated(start, map, excavatedKeys) || !labMapCellIsExcavated(end, map, excavatedKeys)) {
+    if (!start || !end || !labMapCellIsWalkable(start, map, excavatedKeys) || !labMapCellIsWalkable(end, map, excavatedKeys)) {
       return [];
     }
     const allowBlockedCellKeys = new Set([
@@ -10148,12 +10472,12 @@
     const startRoomId = roomById(fromRoomId)?.id || MAIN_ROOM_ID;
     const targetRoomId = roomById(toRoomId)?.id || MAIN_ROOM_ID;
     const start = options.fromCell
-      ? options.allowUnassignedCell && labMapCellIsExcavated(options.fromCell, map)
+      ? options.allowUnassignedCell && labMapCellIsWalkable(options.fromCell, map)
         ? cleanMapCell(options.fromCell)
         : normalizeMapCellForRoom(options.fromCell, startRoomId, map)
       : nearestOpenMapCellInRoom(startRoomId, labMapRoomAnchor(startRoomId, map), { ...options, map });
     const end = options.toCell
-      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell, map)
+      ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell, map)
         ? cleanMapCell(options.toCell)
         : normalizeMapCellForRoom(options.toCell, targetRoomId, map)
       : nearestOpenMapCellInRoom(targetRoomId, labMapRoomAnchor(targetRoomId, map), { ...options, map });
@@ -10175,7 +10499,7 @@
     const map = options.map || ensureLabMap();
     const path = roomPathBetween(fromRoomId, toRoomId, { ...options, map });
     if (path.length) {
-      return Math.max(0, path.length - 1) * map.tileSizeM;
+      return mapPathTravelDistanceMeters(path, map);
     }
     return Number.POSITIVE_INFINITY;
   }
@@ -10190,8 +10514,17 @@
     if (!path.length) {
       return "no physical path";
     }
-    const distance = Math.max(0, path.length - 1) * map.tileSizeM;
+    const distance = mapPathTravelDistanceMeters(path, map);
     return `${formatDecimal(distance, 0)} m via ${roomsFromMapPath(path, map).map(roomName).join(" -> ")}`;
+  }
+
+  function mapPathTravelDistanceMeters(path, map = ensureLabMap()) {
+    return (path || []).slice(1).reduce((distance, cell) => {
+      const key = mapCellKey(cell);
+      const finished = Boolean(constructedFloorAtCell(cell, map))
+        || (map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key);
+      return distance + map.tileSizeM * (finished ? 1 : 1.25);
+    }, 0);
   }
 
   function doorKey(roomAId, roomBId) {
@@ -10263,6 +10596,7 @@
       lockState: DOOR_LOCK_UNLOCKED,
       sealState: DOOR_SEAL_UNSEALED,
       typeId,
+      materialId: typeId === "roughWoodDoor" || typeId === "reinforcedWoodDoor" ? "lumber" : DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown",
       condition: CONTAINER_CONDITION_DEFAULT,
       wardIds: defaultDoorWardIds(roomAId, roomBId),
       breached: false
@@ -10378,6 +10712,23 @@
     return Boolean(options.ignoreDoors);
   }
 
+  function doorFixtureState(mapDoor) {
+    if (!mapDoor) return null;
+    state.doors = normalizeDoors(state.doors);
+    return state.doors?.[mapDoor.id || mapDoor.key] || null;
+  }
+
+  function doorFixtureAllowsPassage(mapDoor, options = {}) {
+    const door = doorFixtureState(mapDoor);
+    if (!door) return false;
+    if (doorIsBreached(door)) return true;
+    if (options.ignoreDoorSecurity) return Boolean(options.ignoreDoors || door.state === DOOR_STATE_OPEN);
+    if (door.sealState === DOOR_SEAL_SEALED) return false;
+    if (door.state === DOOR_STATE_OPEN) return true;
+    if (door.lockState === DOOR_LOCK_LOCKED) return false;
+    return Boolean(options.ignoreDoors);
+  }
+
   function firstDoorSecurityBlockReason(route) {
     for (let index = 0; index < (route || []).length - 1; index += 1) {
       if (!labMapDoorForRoomPair(route[index], route[index + 1])) {
@@ -10420,6 +10771,15 @@
     if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
       return "locked";
     }
+    return door.state === DOOR_STATE_OPEN ? "open" : "closed";
+  }
+
+  function doorStateLabelByFixture(mapDoor) {
+    const door = doorFixtureState(mapDoor);
+    if (!door) return "missing";
+    if (doorIsBreached(door)) return "breached";
+    if (door.sealState === DOOR_SEAL_SEALED) return "sealed";
+    if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) return "locked";
     return door.state === DOOR_STATE_OPEN ? "open" : "closed";
   }
 
@@ -23488,7 +23848,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
     const targetCell = options.toCell
-      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell)
+      ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell)
         ? cleanMapCell(options.toCell)
         : normalizeMapCellForRoom(options.toCell, target.id)
       : null;
@@ -23549,7 +23909,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
     const toCell = options.toCell
-      ? options.allowUnassignedCell && labMapCellIsExcavated(options.toCell)
+      ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell)
         ? cleanMapCell(options.toCell)
         : normalizeMapCellForRoom(options.toCell, target.id)
       : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
@@ -23594,7 +23954,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
     state.scientist.roomId = target.id;
-    state.scientist.mapCell = task.data?.allowUnassignedCell && labMapCellIsExcavated(task.data?.toCell)
+    state.scientist.mapCell = task.data?.allowUnassignedCell && labMapCellIsWalkable(task.data?.toCell)
       ? cleanMapCell(task.data.toCell)
       : normalizeMapCellForRoom(task.data?.toCell, target.id);
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
@@ -24531,13 +24891,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const current = path[index];
       const next = path[index + 1];
       const door = labMapDoorForCells(current, next, map);
-      if (door && !doorAllowsPassage(door.roomIds[0], door.roomIds[1])) {
+      if (door && !doorFixtureAllowsPassage(door)) {
         const [fromRoomId, toRoomId] = door.roomIds;
         return {
           fromRoomId,
           toRoomId,
           door,
-          state: door ? doorStateLabel(door.roomIds[0], door.roomIds[1]) : "missing"
+          state: door ? doorStateLabelByFixture(door) : "missing"
         };
       }
     }
@@ -24908,7 +25268,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const map = ensureLabMap();
-    const distanceMeters = Math.max(0, path.length - 1) * map.tileSizeM;
+    const distanceMeters = mapPathTravelDistanceMeters(path, map);
     const movementProfile = slimeMovementProfile(slime);
     const duration = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, distanceMeters / movementProfile.speedMps);
     const label = target.kind === "wander"
@@ -29410,13 +29770,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (roomId) {
       parts.push(roomName(roomId));
     } else if (labMapCellIsExcavated(cell, map)) {
-      parts.push("rough excavated floor");
+      const floor = constructedFloorAtCell(cell, map);
+      const wall = constructedWallAtCell(cell, map);
+      parts.push(wall ? `${resourceLabel(wall.materialId)} constructed wall` : floor ? `${resourceLabel(floor.materialId)} constructed floor` : "rough excavated floor");
     } else {
       parts.push("solid earth");
     }
     if (door) {
-      parts.push(`${doorStateLabel(door.roomIds[0], door.roomIds[1])} door to ${door.roomIds.map(roomName).join(" / ")}`);
-      const stateDoor = doorForConnection(door.roomIds[0], door.roomIds[1]);
+      parts.push(`${doorStateLabelByFixture(door)} door${door.roomIds.length ? ` to ${door.roomIds.map(roomName).join(" / ")}` : ""}`);
+      const stateDoor = doorFixtureState(door);
       if (stateDoor) {
         parts.push(`${doorTypeLabel(stateDoor.typeId)}, ${doorConditionLabel(stateDoor)}`);
       }
@@ -29424,12 +29786,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
+    const rubble = rubbleAtCell(cell, map);
+    if (rubble.length) parts.push(`rubble: ${rubble.flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ")}`);
     if (objectEntry?.labels?.length) {
       parts.push(objectEntry.labels.join("; "));
     }
     if (objectEntry?.classNames?.has?.("blocking-object-cell")) {
       parts.push("blocks movement");
-    } else if (labMapCellIsExcavated(cell, map)) {
+    } else if (labMapCellIsWalkable(cell, map)) {
       parts.push("walkable");
     }
     if (pathEntry) {
@@ -30064,6 +30428,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["floor-stockpile-object-cell"]
       );
     }
+    for (const rubble of map.terrain?.rubble || []) {
+      const summary = rubble.materials.map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ");
+      addCell(rubble.cell, "r", `Rubble: ${summary}; from ${rubble.source}`, ["rubble-object-cell"]);
+    }
     return assignments;
   }
 
@@ -30299,11 +30667,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const order = constructionOrderById(task.data?.constructionOrderId);
       const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
       if (!order || !tile || tile.status !== "queued" || tile.taskId !== task.id) return "The construction designation no longer exists.";
-      const staticReason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id });
+      const staticReason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id, order });
       if (staticReason) return staticReason;
+      const occupancyReason = constructionTargetOccupancyBlockReason(order, tile);
+      if (occupancyReason) return occupancyReason;
       const map = ensureLabMap();
       const accessCell = cleanMapCell(task.data?.toCell);
-      if (!accessCell || !labMapCellIsExcavated(accessCell, map)) return "The designated work position is no longer excavated floor.";
+      if (!accessCell || !labMapCellIsWalkable(accessCell, map)) return "The designated work position is no longer walkable floor.";
       if (mapCellKey(accessCell) !== mapCellKey(scientistMapCell()) && labMapCellIsPathBlocked(accessCell, { map })) return "The designated work position is occupied.";
       return labMapPathBetweenCells(scientistMapCell(), accessCell, { map, ignoreDoors: true }).length
         ? ""
@@ -31541,6 +31911,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const toggleLabel = mode === "mine"
       ? inDraft ? "Remove Dig Tile" : "Add Dig Tile"
       : mode === "cancel" ? `${inDraft ? "Remove" : "Add"} Order Cancellation Tile`
+      : mode === "build" ? `${inDraft ? "Remove" : "Add"} ${constructionBuildDef().label} Tile`
       : `${inDraft ? "Remove" : "Add"} ${constructionModeLabel(mode)} Tile`;
     const commands = [
       commandDef({
@@ -31549,7 +31920,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         group: "Construction Draft",
         disabledReason: inDraft ? "" : mode === "cancel"
           ? constructionOrderAtCell(clean) ? "" : "No active construction order exists on this tile."
-          : constructionTileStaticBlockReason(mode, clean),
+          : constructionTileStaticBlockReason(mode, clean, { buildType: state.construction.buildType }),
         description: `${inDraft ? "Remove this tile from" : "Add this tile to"} the ${constructionModeLabel(mode).toLowerCase()} draft.`,
         run: () => {
           if (!constructionWorkModeActive()) {
@@ -31561,7 +31932,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }),
       commandDef({
         id: "construction.confirmDraft",
-        label: mode === "mine" ? "Confirm Dig Designation" : mode === "cancel" ? "Confirm Order Cancellation" : `Confirm ${constructionModeLabel(mode)} Designation`,
+        label: mode === "mine" ? "Confirm Dig Designation" : mode === "cancel" ? "Confirm Order Cancellation" : mode === "build" ? `Confirm ${constructionBuildDef().label} Designation` : `Confirm ${constructionModeLabel(mode)} Designation`,
         group: "Construction Draft",
         disabledReason: draftReason,
         description: `Confirm ${draftCells.length} tile${draftCells.length === 1 ? "" : "s"} at priority ${state.construction.priority}. Work completes one tile at a time.`,
@@ -31581,11 +31952,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         id: `construction.mode.${def.id}`,
         label: `${def.label} Mode`,
         group: "Construction Mode",
-        disabledReason: !def.implemented
-          ? def.id === "build" ? "Build types are defined in the next walls, floors, and doors pass." : "Deconstruction targets and material recovery are defined in later construction passes."
-          : constructionActiveMode() === def.id ? `${def.label} Mode is already active.` : "",
+        disabledReason: !def.implemented ? `${def.label} is not implemented yet.` : constructionActiveMode() === def.id ? `${def.label} Mode is already active.` : "",
         description: def.description,
         run: () => setConstructionMode(def.id)
+      }));
+    }
+    for (const def of CONSTRUCTION_BUILD_DEFS) {
+      commands.push(commandDef({
+        id: `construction.buildType.${def.id}`,
+        label: `Build: ${def.label}`,
+        group: "Build Type",
+        disabledReason: constructionActiveMode() === "build" && state.construction.buildType === def.id ? `${def.label} is already selected.` : "",
+        description: `${def.description} Cost per tile: ${formatResourceBundle(def.resourceCosts)}.`,
+        run: () => setConstructionBuildType(def.id)
       }));
     }
     for (let priority = CONSTRUCTION_PRIORITY_MIN; priority <= CONSTRUCTION_PRIORITY_MAX; priority += 1) {
@@ -32602,11 +32981,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const roomId = selection.roomId || labMapCellRoomId(selection.tile);
       const door = labMapDoorAtCell(selection.tile);
       const excavated = labMapCellIsExcavated(selection.tile);
+      const constructedWall = constructedWallAtCell(selection.tile);
+      const constructedFloor = constructedFloorAtCell(selection.tile);
       const compartment = inferredCompartmentAtCell(selection.tile);
       const order = constructionOrderAtCell(selection.tile);
       const orderTile = constructionOrderTile(order, selection.tile);
       const key = mapCellKey(selection.tile);
-      const surface = (ensureLabMap().terrain?.smoothedFloors || []).some((cell) => mapCellKey(cell) === key)
+      const surface = constructedWall
+        ? `${resourceLabel(constructedWall.materialId)} constructed wall; ${formatNumber(constructedWall.condition)}% condition`
+        : constructedFloor
+          ? `${resourceLabel(constructedFloor.materialId)} constructed floor; ${formatNumber(constructedFloor.condition)}% condition`
+          : (ensureLabMap().terrain?.smoothedFloors || []).some((cell) => mapCellKey(cell) === key)
         ? "Smoothed floor"
         : (ensureLabMap().terrain?.smoothedWalls || []).some((cell) => mapCellKey(cell) === key)
           ? "Smoothed natural wall"
@@ -32618,7 +33003,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
         ["Surface", surface],
         ["Construction order", order ? `${constructionModeLabel(order.mode)}; priority ${order.priority}; ${titleCase(orderTile.status)}${orderTile.blockedReason ? `; ${orderTile.blockedReason}` : ""}` : "None"],
-        ["Walkability", excavated ? "Walkable if not blocked" : "Solid"]
+        ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
+        ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : excavated ? "Blocked by constructed wall" : "Solid"]
       ];
     }
     if (selection.kind === "room") {
@@ -33404,6 +33790,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         spriteKey: "tile.plannedExcavation"
       };
     }
+    const constructedWall = cell && map ? constructedWallAtCell(cell, map) : null;
+    const constructedFloor = cell && map ? constructedFloorAtCell(cell, map) : null;
+    if (constructedWall) {
+      return {
+        kind: "constructedWall",
+        materialId: constructedWall.materialId,
+        condition: constructedWall.condition,
+        spriteKey: `tile.wall.constructed.${constructedWall.materialId}`
+      };
+    }
     if (roomId) {
       const smoothed = Boolean(cell && (map?.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
       return {
@@ -33411,7 +33807,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         roomId,
         role: roomRole(roomId),
         smoothed,
-        spriteKey: smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
+        constructedFloor: constructedFloor?.materialId || "",
+        spriteKey: constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
       };
     }
     if (excavated) {
@@ -33419,7 +33816,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return {
         kind: "floor",
         smoothed,
-        spriteKey: smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
+        constructedFloor: constructedFloor?.materialId || "",
+        spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
     }
     const smoothedWall = Boolean(cell && (map?.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
@@ -33468,11 +33866,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       };
     }
     if (base.kind === "plannedExcavation") {
-      return { glyph: ({ mine: "M", smoothFloor: "F", smoothWall: "W", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
+      return { glyph: ({ mine: "M", smoothFloor: "F", smoothWall: "W", build: "B", deconstruct: "D", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
     }
     if (base.kind === "draftExcavation") {
-      const glyph = ({ mine: "m", smoothFloor: "f", smoothWall: "w", cancel: "x" }[base.mode] || "m");
+      const glyph = ({ mine: "m", smoothFloor: "f", smoothWall: "w", build: "b", deconstruct: "d", cancel: "x" }[base.mode] || "m");
       return { glyph: base.valid ? glyph : "?", spriteKey: base.spriteKey, layer: "construction" };
+    }
+    if (base.kind === "constructedWall") {
+      return { glyph: "#", spriteKey: base.spriteKey, layer: "structure" };
     }
     if (incident) {
       return {
@@ -33503,7 +33904,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const roomId = visible ? labMapCellRoomId(cell, map) : "";
     const excavated = visible && labMapCellIsExcavated(cell, map);
     const door = visible ? labMapDoorAtCell(cell, map) : null;
-    const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
+    const stateDoor = door ? doorFixtureState(door) || door : null;
     const scientistHere = visible && scientistCell.x === cell.x && scientistCell.y === cell.y;
     const visibleObjectEntry = visible ? objectEntry : null;
     const visibleIncidentEntry = visible ? incidentEntry : null;
@@ -33625,11 +34026,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (cellView.base.kind === "room") {
       classNames.push("room-cell", `room-${cellView.base.role}`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
+      if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       dataset.mapRoom = cellView.base.roomId;
     } else if (cellView.base.kind === "floor") {
       classNames.push("floor-cell");
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
+      if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       dataset.mapFloor = "true";
+    } else if (cellView.base.kind === "constructedWall") {
+      classNames.push("constructed-wall-cell", `constructed-wall-${cellView.base.materialId}`);
+      dataset.mapConstructedWall = cellView.base.materialId;
     } else if (cellView.base.kind === "unknownDark") {
       classNames.push("unknown-darkness-cell");
       dataset.mapUnknown = "true";
@@ -39506,6 +39912,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? candidate.mode === "dig" ? "mine" : candidate.mode
         : fallback.mode,
       priority: clamp(Math.floor(Number(candidate?.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
+      buildType: CONSTRUCTION_BUILD_BY_ID[candidate?.buildType] ? candidate.buildType : fallback.buildType,
       draftCells: normalizeDigCells(candidate?.draftCells),
       orders,
       roomDraftCells: normalizeDigCells(candidate?.roomDraftCells),
@@ -39518,7 +39925,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!candidate || typeof candidate !== "object") return null;
     const id = String(candidate.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
     const mode = candidate.mode === "dig" ? "mine" : candidate.mode;
-    if (!id || !["mine", "smoothFloor", "smoothWall"].includes(mode)) return null;
+    if (!id || !["mine", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) return null;
+    const buildType = mode === "build" && CONSTRUCTION_BUILD_BY_ID[candidate.buildType]
+      ? candidate.buildType
+      : mode === "build" ? DEFAULT_CONSTRUCTION_BUILD_ID : "";
     const seen = new Set();
     const tiles = (Array.isArray(candidate.tiles) ? candidate.tiles : candidate.cells || [])
       .map((entry) => {
@@ -39539,6 +39949,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return {
       id,
       mode,
+      buildType,
       label: String(candidate.label || CONSTRUCTION_MODE_BY_ID[mode]?.label || "Construction order"),
       priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: finiteTime(candidate.createdAt, 0),
@@ -39717,6 +40128,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         lockState,
         sealState,
         typeId,
+        materialId: String(raw.materialId || fallback.materialId || DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown"),
         condition,
         wardIds: normalizeContainerWardIds(raw.wardIds || fallback.wardIds),
         breached
@@ -40778,7 +41190,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       next.scientist.roomId = MAIN_ROOM_ID;
     }
     const savedScientistCell = cleanMapCell(next.scientist.mapCell);
-    next.scientist.mapCell = savedScientistCell && labMapCellIsExcavated(savedScientistCell, next.labMap)
+    next.scientist.mapCell = savedScientistCell && labMapCellIsWalkable(savedScientistCell, next.labMap)
       ? savedScientistCell
       : normalizeMapCellForRoom(savedScientistCell, next.scientist.roomId, next.labMap);
     for (const room of next.rooms) {
