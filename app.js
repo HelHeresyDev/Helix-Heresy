@@ -568,6 +568,65 @@
     arcane: ["arcane", "mana", "dream", "ether"],
     force: ["force", "gravity", "weight"]
   };
+  const MATERIAL_PROPERTY_DEFS = [
+    { id: "density", label: "Density" },
+    { id: "hardness", label: "Hardness" },
+    { id: "toughness", label: "Toughness" },
+    { id: "porosity", label: "Porosity" },
+    { id: "flammability", label: "Flammability" },
+    { id: "thermalResistance", label: "Thermal resistance" },
+    { id: "conductivity", label: "Electrical conductivity" },
+    { id: "corrosionResistance", label: "Corrosion resistance" },
+    { id: "moistureResistance", label: "Moisture resistance" },
+    { id: "arcanePermeability", label: "Arcane permeability" },
+    { id: "contaminationRetention", label: "Contamination retention" },
+    { id: "soundTransmission", label: "Sound transmission" }
+  ];
+  const MATERIAL_DEFS = [
+    { id: "stone", label: "Common Stone", properties: { density: 75, hardness: 72, toughness: 58, porosity: 28, flammability: 0, thermalResistance: 82, conductivity: 28, corrosionResistance: 62, moistureResistance: 68, arcanePermeability: 55, contaminationRetention: 35, soundTransmission: 72 } },
+    { id: "granite", label: "Granite", properties: { density: 82, hardness: 82, toughness: 68, porosity: 18, flammability: 0, thermalResistance: 88, conductivity: 25, corrosionResistance: 72, moistureResistance: 80, arcanePermeability: 48, contaminationRetention: 24, soundTransmission: 78 } },
+    { id: "limestone", label: "Limestone", properties: { density: 66, hardness: 55, toughness: 48, porosity: 42, flammability: 0, thermalResistance: 76, conductivity: 22, corrosionResistance: 28, moistureResistance: 48, arcanePermeability: 62, contaminationRetention: 52, soundTransmission: 64 } },
+    { id: "brick", label: "Brick", properties: { density: 65, hardness: 60, toughness: 52, porosity: 38, flammability: 0, thermalResistance: 80, conductivity: 18, corrosionResistance: 66, moistureResistance: 55, arcanePermeability: 58, contaminationRetention: 46, soundTransmission: 58 } },
+    { id: "wood", label: "Wood", properties: { density: 38, hardness: 38, toughness: 55, porosity: 62, flammability: 82, thermalResistance: 48, conductivity: 8, corrosionResistance: 32, moistureResistance: 24, arcanePermeability: 68, contaminationRetention: 72, soundTransmission: 42 } },
+    { id: "iron", label: "Iron", properties: { density: 82, hardness: 68, toughness: 72, porosity: 2, flammability: 0, thermalResistance: 72, conductivity: 88, corrosionResistance: 25, moistureResistance: 58, arcanePermeability: 38, contaminationRetention: 18, soundTransmission: 88 } },
+    { id: "steel", label: "Steel", properties: { density: 84, hardness: 82, toughness: 88, porosity: 1, flammability: 0, thermalResistance: 78, conductivity: 82, corrosionResistance: 55, moistureResistance: 72, arcanePermeability: 34, contaminationRetention: 12, soundTransmission: 90 } },
+    { id: "glass", label: "Glass", properties: { density: 52, hardness: 62, toughness: 18, porosity: 0, flammability: 0, thermalResistance: 38, conductivity: 5, corrosionResistance: 84, moistureResistance: 96, arcanePermeability: 78, contaminationRetention: 8, soundTransmission: 62 } },
+    { id: "reinforcedGlass", label: "Reinforced Glass", properties: { density: 58, hardness: 68, toughness: 45, porosity: 0, flammability: 0, thermalResistance: 48, conductivity: 12, corrosionResistance: 78, moistureResistance: 94, arcanePermeability: 70, contaminationRetention: 8, soundTransmission: 65 } },
+    { id: "ceramic", label: "Ceramic", properties: { density: 55, hardness: 78, toughness: 32, porosity: 12, flammability: 0, thermalResistance: 88, conductivity: 4, corrosionResistance: 88, moistureResistance: 86, arcanePermeability: 58, contaminationRetention: 22, soundTransmission: 48 } },
+    { id: "dirt", label: "Packed Earth", properties: { density: 48, hardness: 28, toughness: 46, porosity: 72, flammability: 8, thermalResistance: 74, conductivity: 32, corrosionResistance: 52, moistureResistance: 18, arcanePermeability: 78, contaminationRetention: 88, soundTransmission: 25 } },
+    { id: "rubber", label: "Rubber", properties: { density: 30, hardness: 18, toughness: 68, porosity: 4, flammability: 58, thermalResistance: 38, conductivity: 1, corrosionResistance: 58, moistureResistance: 94, arcanePermeability: 66, contaminationRetention: 28, soundTransmission: 18 } },
+    { id: "cloth", label: "Cloth", properties: { density: 8, hardness: 2, toughness: 28, porosity: 88, flammability: 88, thermalResistance: 28, conductivity: 3, corrosionResistance: 18, moistureResistance: 8, arcanePermeability: 88, contaminationRetention: 94, soundTransmission: 8 } },
+    { id: "wardedComposite", label: "Warded Composite", properties: { density: 66, hardness: 76, toughness: 82, porosity: 3, flammability: 5, thermalResistance: 78, conductivity: 38, corrosionResistance: 72, moistureResistance: 86, arcanePermeability: 12, contaminationRetention: 12, soundTransmission: 42 } }
+  ];
+  const MATERIAL_BY_ID = Object.fromEntries(MATERIAL_DEFS.map((material) => [material.id, material]));
+  const MATERIAL_ID_ALIASES = {
+    stoneBlocks: "stone", bricks: "brick", lumber: "wood", steelPanels: "steel",
+    "common stone": "stone", "reinforced glass": "reinforcedGlass", "warded composite": "wardedComposite",
+    "wood and iron": "wood", "rubberized protective gloves": "rubber", "metal reach tongs": "steel",
+    "reinforced reach pole": "wood", "stiff scraping tool": "steel"
+  };
+  const MATERIAL_COMPOSITION_SLOTS = ["primary", "reinforcement", "lining", "coating", "seal"];
+  const STRUCTURE_BREACH_THRESHOLD = 25;
+  const CONTAINER_MATERIAL_COMPOSITIONS = {
+    basicGlassJar: { primary: "glass" }, sealedGlassTank: { primary: "glass", seal: "rubber" },
+    reinforcedTank: { primary: "steel", lining: "reinforcedGlass", seal: "rubber" }, ironCage: { primary: "iron" },
+    ceramicVessel: { primary: "ceramic", seal: "rubber" }, stoneBasin: { primary: "stone" }, openTray: { primary: "steel" },
+    softLinedBox: { primary: "wood", lining: "cloth", seal: "rubber" }, sealedDrainageTank: { primary: "steel", coating: "ceramic", seal: "rubber" },
+    specimenDrainageTank: { primary: "steel", coating: "ceramic", seal: "rubber" }, openDirtPit: { primary: "dirt" },
+    gratedDirtPit: { primary: "dirt", reinforcement: "iron" }, cappedDirtPit: { primary: "dirt", reinforcement: "stone" },
+    containmentPod: { primary: "steel", lining: "ceramic", coating: "wardedComposite", seal: "rubber" },
+    synthesisTube: { primary: "steel", lining: "reinforcedGlass", seal: "rubber" }
+  };
+  const DOOR_MATERIAL_COMPOSITIONS = {
+    roughWoodDoor: { primary: "wood" }, reinforcedWoodDoor: { primary: "wood", reinforcement: "iron" },
+    ironBandDoor: { primary: "iron", reinforcement: "steel" }, stoneSlabDoor: { primary: "stone" },
+    glassObservationDoor: { primary: "reinforcedGlass", reinforcement: "steel", seal: "rubber" },
+    wardedContainmentDoor: { primary: "steel", coating: "wardedComposite", seal: "rubber" }
+  };
+  const TOOL_MATERIAL_COMPOSITIONS = {
+    thickGloves: { primary: "rubber", lining: "cloth" }, longTongs: { primary: "steel" },
+    hookPole: { primary: "wood", reinforcement: "iron" }, scraper: { primary: "steel" }
+  };
   const ELEMENT_DAMAGE_TYPE_IDS = {
     none: ["physical"],
     flame: ["heat"],
@@ -620,32 +679,29 @@
     ["null", "ether"],
     ["null", "dream"]
   ];
-  const HANDLING_METHOD_DAMAGE_RESISTANCES = {
-    bareHands: {},
-    thickGloves: { physical: 35, toxic: 35, cold: 25, corrosive: 18, heat: 18, moisture: 15, electrical: 5 },
-    longTongs: { physical: 35, corrosive: 40, toxic: 40, heat: 35, cold: 25, electrical: 25, moisture: 25, pressure: 20 },
-    hookPole: { physical: 30, force: 25, pressure: 25, corrosive: 15, toxic: 15, electrical: 15 },
-    scraper: { physical: 35, toxic: 30, corrosive: 25, heat: 15, cold: 15, moisture: 20 }
-  };
   const TOOL_DURABILITY_DEFS = {
     thickGloves: {
       max: 10,
       material: "rubberized protective gloves",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.thickGloves || { primary: "rubber", lining: "cloth" },
       notes: ["insulating", "direct-contact tool", "poor corrosion and heat endurance"]
     },
     longTongs: {
       max: 12,
       material: "metal reach tongs",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.longTongs || { primary: "steel" },
       notes: ["reach tool", "heat-tolerant", "conductive", "moderate corrosion risk"]
     },
     hookPole: {
       max: 12,
       material: "reinforced reach pole",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.hookPole || { primary: "wood", reinforcement: "iron" },
       notes: ["reach tool", "good leverage", "poor precision", "vulnerable to corrosion"]
     },
     scraper: {
       max: 10,
       material: "stiff scraping tool",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.scraper || { primary: "steel" },
       notes: ["cleanup tool", "handles residue", "poor thermal endurance"]
     }
   };
@@ -839,7 +895,6 @@
       gap: 10,
       durability: 25,
       comfort: 40,
-      resistances: { acid: 20, flame: 30, frost: 25, storm: 15, poison: 30, mana: 20 },
       environmentExchange: {
         temperature: 0.5,
         light: 1,
@@ -866,7 +921,6 @@
       gap: 0,
       durability: 35,
       comfort: 50,
-      resistances: { acid: 25, flame: 35, frost: 30, storm: 20, poison: 65, mana: 25 },
       environmentExchange: {
         temperature: 0.35,
         light: 1,
@@ -893,7 +947,6 @@
       gap: 0,
       durability: 80,
       comfort: 55,
-      resistances: { acid: 45, flame: 65, frost: 55, storm: 45, poison: 55, mana: 35 },
       environmentExchange: {
         temperature: 0.35,
         light: 0.5,
@@ -920,7 +973,6 @@
       gap: 90,
       durability: 85,
       comfort: 35,
-      resistances: { acid: 15, flame: 75, frost: 65, storm: 15, poison: 10, mana: 20 },
       environmentExchange: {
         temperature: 1,
         light: 1,
@@ -947,7 +999,6 @@
       gap: 0,
       durability: 50,
       comfort: 45,
-      resistances: { acid: 75, flame: 85, frost: 35, storm: 55, poison: 60, mana: 35 },
       environmentExchange: {
         temperature: 0.25,
         light: 0,
@@ -974,7 +1025,6 @@
       gap: 0,
       durability: 85,
       comfort: 40,
-      resistances: { acid: 70, flame: 90, frost: 75, storm: 45, poison: 45, mana: 30 },
       environmentExchange: {
         temperature: 0.75,
         light: 0.75,
@@ -1001,7 +1051,6 @@
       gap: 100,
       durability: 35,
       comfort: 30,
-      resistances: { acid: 35, flame: 35, frost: 35, storm: 25, poison: 10, mana: 15 },
       environmentExchange: {
         temperature: 1,
         light: 1,
@@ -1028,7 +1077,6 @@
       gap: 0,
       durability: 45,
       comfort: 90,
-      resistances: { acid: 25, flame: 20, frost: 60, storm: 25, poison: 45, mana: 30 },
       environmentExchange: {
         temperature: 0.3,
         light: 0,
@@ -1056,7 +1104,6 @@
       durability: 70,
       comfort: 50,
       drainage: true,
-      resistances: { acid: 65, flame: 45, frost: 45, storm: 35, poison: 75, mana: 30 },
       environmentExchange: {
         temperature: 0.25,
         light: 0,
@@ -1086,7 +1133,6 @@
       drainage: true,
       specimenDrainageTank: true,
       collectionMethods: ["drip", "sludge"],
-      resistances: { acid: 75, flame: 45, frost: 45, storm: 35, poison: 75, mana: 35 },
       environmentExchange: {
         temperature: 0.25,
         light: 0.25,
@@ -1117,7 +1163,6 @@
       pitHole: true,
       coverType: "none",
       corpseCapacity: 8,
-      resistances: { acid: 40, flame: 80, frost: 70, storm: 20, poison: 55, mana: 20 },
       environmentExchange: {
         temperature: 1,
         light: 1,
@@ -1148,7 +1193,6 @@
       pitHole: true,
       coverType: "grate",
       corpseCapacity: 7,
-      resistances: { acid: 45, flame: 85, frost: 70, storm: 35, poison: 55, mana: 25 },
       environmentExchange: {
         temperature: 0.85,
         light: 0.7,
@@ -1179,7 +1223,6 @@
       pitHole: true,
       coverType: "cap",
       corpseCapacity: 6,
-      resistances: { acid: 50, flame: 90, frost: 75, storm: 45, poison: 65, mana: 30 },
       environmentExchange: {
         temperature: 0.35,
         light: 0,
@@ -1206,7 +1249,6 @@
       gap: 0,
       durability: 90,
       comfort: 70,
-      resistances: { acid: 55, flame: 55, frost: 55, storm: 55, poison: 55, mana: 55 },
       environmentExchange: {
         temperature: 0.2,
         light: 0.35,
@@ -1247,7 +1289,6 @@
       durability: 35,
       seal: 20,
       lockStrength: 20,
-      resistances: { acid: 20, flame: 15, frost: 35, storm: 20, poison: 20, mana: 15 },
       notes: ["Cheap", "Weak seal", "Primitive construction"]
     },
     {
@@ -1257,7 +1298,6 @@
       durability: 55,
       seal: 35,
       lockStrength: 45,
-      resistances: { acid: 25, flame: 25, frost: 40, storm: 25, poison: 25, mana: 20 },
       notes: ["Basic lab door", "Reinforced frame"]
     },
     {
@@ -1267,7 +1307,6 @@
       durability: 75,
       seal: 45,
       lockStrength: 65,
-      resistances: { acid: 20, flame: 75, frost: 65, storm: 15, poison: 25, mana: 25 },
       notes: ["Strong", "Conductive", "Poor acid resistance"]
     },
     {
@@ -1277,7 +1316,6 @@
       durability: 90,
       seal: 60,
       lockStrength: 55,
-      resistances: { acid: 65, flame: 90, frost: 75, storm: 45, poison: 55, mana: 35 },
       notes: ["Very heavy", "Good primitive seal", "Slow to work with"]
     },
     {
@@ -1287,7 +1325,6 @@
       durability: 45,
       seal: 75,
       lockStrength: 50,
-      resistances: { acid: 25, flame: 35, frost: 30, storm: 20, poison: 65, mana: 25 },
       notes: ["High visibility", "Good seal", "Fragile under force"]
     },
     {
@@ -1297,7 +1334,6 @@
       durability: 90,
       seal: 85,
       lockStrength: 80,
-      resistances: { acid: 55, flame: 55, frost: 55, storm: 55, poison: 55, mana: 55 },
       notes: ["Purpose-built", "Ward-ready", "Strong baseline"]
     }
   ];
@@ -1854,6 +1890,7 @@
     corpseOverflow: { label: "Corpse Overflow" },
     containerBreach: { label: "Container Breach" },
     breachedDoor: { label: "Door Breach" },
+    structuralBreach: { label: "Structural Breach" },
     combat: { label: "Combat" }
   };
   const SPECIMEN_HARVEST_PROCEDURE_DEFS = [
@@ -3013,6 +3050,7 @@
           { cell: { x: 47, y: 40 }, stoneId: "granite", oreId: "ironOre" },
           { cell: { x: 55, y: 40 }, stoneId: "limestone", oreId: "copperOre" }
         ],
+        naturalDamage: [],
         rubble: []
       },
       rooms,
@@ -3372,7 +3410,31 @@
   function installDebugHooks() {
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
-      mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel)
+      mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
+      materialCatalog: () => MATERIAL_DEFS.map((material) => ({ ...material, properties: { ...material.properties } })),
+      toolMaterialSnapshot: (itemKey) => ({
+        itemKey,
+        composition: toolMaterialComposition(itemKey),
+        properties: Object.fromEntries(MATERIAL_PROPERTY_DEFS.map((property) => [property.id, compositionPropertyScore(toolMaterialComposition(itemKey), property.id)])),
+        resistances: Object.fromEntries(DAMAGE_TYPE_DEFS.map((type) => [type.id, handlingMethodDamageResistanceScore(Object.entries(HANDLING_METHOD_INVENTORY_ITEM_KEYS).find(([, key]) => key === itemKey)?.[0] || "bareHands", type.id)]))
+      }),
+      structuralSnapshot: (cell) => {
+        const target = structuralTargetAtCell(cleanMapCell(cell));
+        if (!target) return null;
+        const composition = structuralTargetComposition(target);
+        const condition = structuralTargetCondition(target);
+        return {
+          kind: target.kind,
+          cell: target.cell,
+          composition,
+          condition,
+          state: structureConditionBand(condition),
+          attackTransmission: wallAllowsAttackTransmission(target.cell),
+          resistances: Object.fromEntries(DAMAGE_TYPE_DEFS.map((type) => [type.id, structureDamageResistanceScore(target, type.id)])),
+          properties: Object.fromEntries(MATERIAL_PROPERTY_DEFS.map((property) => [property.id, compositionPropertyScore(composition, property.id)]))
+        };
+      },
+      damageStructure: (cell, amount, damageTypeId = "physical") => debugDamageStructure(cleanMapCell(cell), damageTypeId, amount)
     };
   }
 
@@ -6106,6 +6168,140 @@
     ]);
   }
 
+  function structuralTargetAtCell(cell, map = ensureLabMap()) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return null;
+    const mapDoor = labMapDoorAtCell(clean, map);
+    if (mapDoor) return { kind: "door", cell: clean, mapDoor, value: doorFixtureState(mapDoor) };
+    const wall = constructedWallAtCell(clean, map);
+    if (wall) return { kind: "constructedWall", cell: clean, value: wall };
+    const floor = constructedFloorAtCell(clean, map);
+    if (floor) return { kind: "constructedFloor", cell: clean, value: floor };
+    if (!labMapCellIsExcavated(clean, map)) return { kind: "naturalWall", cell: clean, value: naturalDamageAtCell(clean, map) };
+    return null;
+  }
+
+  function structuralTargetComposition(target, map = ensureLabMap()) {
+    if (!target) return normalizeMaterialComposition({ primary: "stone" });
+    if (target.kind === "door") return doorMaterialComposition(target.value);
+    if (target.kind === "naturalWall") return normalizeMaterialComposition({ primary: naturalWallMaterialId(target.cell, map) });
+    return normalizeMaterialComposition(target.value?.materialComposition, { primary: normalizeMaterialId(target.value?.materialId || "stone") });
+  }
+
+  function structuralTargetCondition(target, map = ensureLabMap()) {
+    if (!target) return 0;
+    if (target.kind === "door") return doorCondition(target.value);
+    if (target.kind === "naturalWall") return naturalDamageAtCell(target.cell, map)?.condition ?? 100;
+    return clamp(Number(target.value?.condition) || 0, 0, 100);
+  }
+
+  function structureDamageResistanceScore(target, damageTypeId, map = ensureLabMap()) {
+    const damageId = normalizeDamageTypeId(damageTypeId) || "physical";
+    const composition = structuralTargetComposition(target, map);
+    let score = compositionResistanceScore(composition, damageId);
+    const protectedTags = new Set(damageProtectionTags(damageId).map(normalizeCommandName));
+    if (normalizeContainerWardIds(target?.value?.wardIds).some((wardId) => containerWardDef(wardId)?.protects?.some((tag) => protectedTags.has(normalizeCommandName(tag))))) score += 30;
+    if (target?.kind === "door") {
+      const type = doorTypeDef(target.value?.typeId);
+      if (["physical", "force", "pressure"].includes(damageId)) score = score * 0.55 + (Number(type?.durability) || 35) * 0.45;
+      if (["toxic", "moisture", "pressure", "arcane"].includes(damageId)) score = score * 0.72 + doorEffectiveSeal(target.value) * 0.28;
+    } else if (target?.kind === "constructedWall") {
+      score += ["physical", "force", "pressure"].includes(damageId) ? 12 : 4;
+    } else if (target?.kind === "naturalWall") {
+      score += ["physical", "force", "pressure"].includes(damageId) ? 18 : 8;
+    } else if (target?.kind === "constructedFloor") {
+      score -= ["force", "pressure"].includes(damageId) ? 4 : 8;
+    }
+    const condition = structuralTargetCondition(target, map);
+    if (condition < 25) score -= 18;
+    else if (condition < 50) score -= 10;
+    else if (condition < 75) score -= 4;
+    return clamp(score, 0, 100);
+  }
+
+  function structuralDamageAmount(target, amount, damageTypeIds, map = ensureLabMap()) {
+    const ids = [...new Set((damageTypeIds?.length ? damageTypeIds : ["physical"]).map(normalizeDamageTypeId).filter(Boolean))];
+    const weakest = Math.min(...ids.map((id) => structureDamageResistanceScore(target, id, map)));
+    const formScale = target?.kind === "naturalWall" ? 0.55 : target?.kind === "constructedWall" ? 0.78 : target?.kind === "door" ? 1 : 1.1;
+    return Math.max(0.1, roundOutputValue(Math.max(0, Number(amount) || 0) * clamp((115 - weakest) / 75, 0.15, 1.5) * formScale));
+  }
+
+  function rubbleMaterialsForComposition(composition, amount = 1) {
+    const clean = normalizeMaterialComposition(composition);
+    const materials = { [clean.primary]: amount };
+    if (clean.reinforcement) materials[clean.reinforcement] = roundOutputValue(Math.max(0.25, amount * 0.35));
+    if (clean.lining) materials[clean.lining] = roundOutputValue(Math.max(0.1, amount * 0.15));
+    if (clean.coating) materials[clean.coating] = roundOutputValue(Math.max(0.1, amount * 0.1));
+    if (clean.seal) materials[clean.seal] = roundOutputValue(Math.max(0.1, amount * 0.1));
+    return materials;
+  }
+
+  function destroyStructuralTarget(target, source = "structural damage", map = ensureLabMap()) {
+    const key = mapCellKey(target.cell);
+    const composition = structuralTargetComposition(target, map);
+    if (target.kind === "door") {
+      delete map.doors[target.mapDoor.id];
+      delete state.doors?.[target.mapDoor.id];
+      addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 1), `${doorTypeLabel(target.value?.typeId)} destroyed by ${source}`, map);
+    } else if (target.kind === "constructedWall") {
+      map.terrain.constructedWalls = (map.terrain.constructedWalls || []).filter((entry) => mapCellKey(entry.cell) !== key);
+      addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 2), `wall destroyed by ${source}`, map);
+    } else if (target.kind === "constructedFloor") {
+      map.terrain.constructedFloors = (map.terrain.constructedFloors || []).filter((entry) => mapCellKey(entry.cell) !== key);
+      addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 1), `floor destroyed by ${source}`, map);
+    } else if (target.kind === "naturalWall") {
+      const deposit = naturalDepositAtCell(target.cell, map);
+      map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), target.cell]);
+      map.terrain.naturalDamage = (map.terrain.naturalDamage || []).filter((entry) => mapCellKey(entry.cell) !== key);
+      map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== key);
+      addRubblePile(target.cell, {
+        [deposit?.stoneId || composition.primary]: 3,
+        ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
+      }, `natural wall destroyed by ${source}`, map);
+    }
+    state.labMap = normalizeLabMap(map, state.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
+    finalizeRoomTopologyChange();
+    if (target.kind === "naturalWall" || target.kind === "constructedWall") applyRoomDesignationPolicy({ focusCells: [target.cell], silent: true });
+    return true;
+  }
+
+  function applyStructuralDamage(cell, amount, damageTypeIds = ["physical"], source = "an attack") {
+    const map = ensureLabMap();
+    const target = structuralTargetAtCell(cell, map);
+    if (!target) return { ok: false, reason: "No damageable structure occupies that tile." };
+    const before = structuralTargetCondition(target, map);
+    if (target.kind === "door" && before <= 0) {
+      destroyStructuralTarget(target, source, map);
+      addEvent(`${doorTypeLabel(target.value?.typeId)} at ${cell.x},${cell.y} was destroyed by ${source}.`);
+      return { ok: true, destroyed: true, damage: 0, before, after: 0, targetKind: target.kind };
+    }
+    const damage = structuralDamageAmount(target, amount, damageTypeIds, map);
+    const after = clamp(before - damage, 0, 100);
+    if (target.kind === "door") {
+      target.value.condition = after;
+      if (after < STRUCTURE_BREACH_THRESHOLD) {
+        target.value.breached = true;
+        target.value.state = DOOR_STATE_OPEN;
+        target.value.lockState = DOOR_LOCK_UNLOCKED;
+        target.value.sealState = DOOR_SEAL_UNSEALED;
+      }
+    } else if (target.kind === "naturalWall") {
+      map.terrain.naturalDamage = normalizeNaturalDamage([
+        ...(map.terrain.naturalDamage || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell)),
+        { cell, condition: after, lastDamageType: normalizeDamageTypeId(damageTypeIds[0]), lastDamagedAt: state.clock }
+      ]);
+    } else {
+      target.value.condition = after;
+    }
+    const destroyed = after <= 0 && target.kind !== "door";
+    if (destroyed) destroyStructuralTarget(target, source, map);
+    else state.labMap = normalizeLabMap(map, state.rooms);
+    const stateLabel = destroyed ? "Destroyed" : structureConditionBand(after);
+    addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${cell.x},${cell.y} took ${formatNumber(damage)} ${damageTypeListText(damageTypeIds.map(damageTypeDef).filter(Boolean)).toLowerCase()} damage from ${source}; ${stateLabel.toLowerCase()}.`);
+    return { ok: true, destroyed, damage, before, after, state: stateLabel, targetKind: target.kind, attackTransmission: !destroyed && wallAllowsAttackTransmission(cell, state.labMap) };
+  }
+
   function removeCellFromRoomDesignations(cell) {
     const map = ensureLabMap();
     const key = mapCellKey(cell);
@@ -6127,6 +6323,7 @@
     door.typeId = buildDef.id === "roughWoodDoor" ? "roughWoodDoor" : door.typeId;
     door.state = DOOR_STATE_CLOSED;
     door.materialId = buildDef.materialId;
+    door.materialComposition = doorMaterialComposition(door.typeId);
     door.wardIds = [];
     state.doors ||= {};
     state.doors[id] = door;
@@ -6137,16 +6334,15 @@
     if (!target) return false;
     if (target.kind === "door") {
       const liveDoor = doorFixtureState(target.value);
-      const materialId = liveDoor?.materialId || (DOOR_BASE_TYPE_BY_ID[liveDoor?.typeId]?.material.includes("wood") ? "lumber" : "steelPanels");
       delete map.doors[target.value.id];
       delete state.doors?.[target.value.id];
-      addRubblePile(cell, { [materialId]: 1 }, `${target.label} deconstruction`, map);
+      addRubblePile(cell, rubbleMaterialsForComposition(doorMaterialComposition(liveDoor), 1), `${target.label} deconstruction`, map);
     } else if (target.kind === "wall") {
       map.terrain.constructedWalls = (map.terrain.constructedWalls || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
-      addRubblePile(cell, { [target.value.materialId || "stoneBlocks"]: 2 }, `${target.label} deconstruction`, map);
+      addRubblePile(cell, rubbleMaterialsForComposition(target.value.materialComposition, 2), `${target.label} deconstruction`, map);
     } else if (target.kind === "floor") {
       map.terrain.constructedFloors = (map.terrain.constructedFloors || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
-      addRubblePile(cell, { [target.value.materialId || "stoneBlocks"]: 1 }, `${target.label} deconstruction`, map);
+      addRubblePile(cell, rubbleMaterialsForComposition(target.value.materialComposition, 1), `${target.label} deconstruction`, map);
     }
     return true;
   }
@@ -8365,7 +8561,10 @@
       return {
         cell,
         materialId,
-        condition: clamp(Number(entry?.condition) || 100, 0, 100),
+        materialComposition: normalizeMaterialComposition(entry?.materialComposition, { primary: normalizeMaterialId(materialId) }),
+        condition: clamp(Number.isFinite(Number(entry?.condition)) ? Number(entry.condition) : 100, 0, 100),
+        wardIds: normalizeContainerWardIds(entry?.wardIds),
+        enchantmentIds: [...new Set((Array.isArray(entry?.enchantmentIds) ? entry.enchantmentIds : []).map((id) => String(id || "").replace(/[^a-zA-Z0-9_-]/g, "")).filter(Boolean))],
         builtAt: finiteTime(entry?.builtAt, 0)
       };
     }).filter(Boolean).sort((a, b) => (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
@@ -8381,6 +8580,19 @@
         cell,
         stoneId: String(entry?.stoneId || "stone").replace(/[^a-zA-Z0-9_-]/g, "") || "stone",
         oreId: String(entry?.oreId || "").replace(/[^a-zA-Z0-9_-]/g, "")
+      };
+    }).filter(Boolean);
+  }
+
+  function normalizeNaturalDamage(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const cell = cleanMapCell(entry?.cell);
+      if (!cell) return null;
+      return {
+        cell,
+        condition: clamp(Number.isFinite(Number(entry?.condition)) ? Number(entry.condition) : 100, 0, 100),
+        lastDamageType: normalizeDamageTypeId(entry?.lastDamageType),
+        lastDamagedAt: finiteTime(entry?.lastDamagedAt, 0)
       };
     }).filter(Boolean);
   }
@@ -9697,6 +9909,8 @@
         constructedWalls,
         naturalDeposits: normalizeNaturalDeposits(source.terrain?.naturalDeposits || fallback.terrain?.naturalDeposits)
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
+        naturalDamage: normalizeNaturalDamage(source.terrain?.naturalDamage)
+          .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
         rubble: normalizeRubblePiles(source.terrain?.rubble)
       },
       rooms: normalizedRooms,
@@ -9775,6 +9989,33 @@
   function naturalDepositAtCell(cell, map = ensureLabMap()) {
     const key = mapCellKey(cell);
     return (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+  }
+
+  function naturalDamageAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.naturalDamage || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+  }
+
+  function naturalWallMaterialId(cell, map = ensureLabMap()) {
+    return normalizeMaterialId(naturalDepositAtCell(cell, map)?.stoneId || "stone");
+  }
+
+  function structureConditionBand(condition, destroyed = false) {
+    if (destroyed || Number(condition) <= 0) return "Destroyed";
+    if (Number(condition) < STRUCTURE_BREACH_THRESHOLD) return "Breached";
+    if (Number(condition) < 50) return "Damaged";
+    if (Number(condition) < 75) return "Worn";
+    return "Intact";
+  }
+
+  function wallAllowsAttackTransmission(cell, map = ensureLabMap()) {
+    const wall = constructedWallAtCell(cell, map);
+    if (wall) return wall.condition > 0 && wall.condition < STRUCTURE_BREACH_THRESHOLD;
+    if (!labMapCellIsExcavated(cell, map)) {
+      const damage = naturalDamageAtCell(cell, map);
+      return Boolean(damage && damage.condition > 0 && damage.condition < STRUCTURE_BREACH_THRESHOLD);
+    }
+    return false;
   }
 
   function rubbleAtCell(cell, map = ensureLabMap()) {
@@ -10597,6 +10838,7 @@
       sealState: DOOR_SEAL_UNSEALED,
       typeId,
       materialId: typeId === "roughWoodDoor" || typeId === "reinforcedWoodDoor" ? "lumber" : DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown",
+      materialComposition: doorMaterialComposition(typeId),
       condition: CONTAINER_CONDITION_DEFAULT,
       wardIds: defaultDoorWardIds(roomAId, roomBId),
       breached: false
@@ -10657,7 +10899,9 @@
     const conditionPenalty = condition < 50 ? 18 : condition < 75 ? 8 : 0;
     const sealedBonus = door?.sealState === DOOR_SEAL_SEALED ? 20 : 0;
     const wardBonus = doorHasWard(door, "sealTightening") ? 25 : 0;
-    return clamp(type.seal + sealedBonus + wardBonus - conditionPenalty, 0, 100);
+    const composition = doorMaterialComposition(door);
+    const sealMaterial = composition.seal ? materialPropertyScore(composition.seal, "moistureResistance") : 50;
+    return clamp(type.seal * 0.85 + sealMaterial * 0.15 + sealedBonus + wardBonus - conditionPenalty, 0, 100);
   }
 
   function doorIsBreached(doorOrRoomAId, roomBId = "") {
@@ -10796,7 +11040,7 @@
       return `No usable door data for ${connectionLabel}.`;
     }
     const type = doorTypeDef(door.typeId);
-    const physical = `${type.label}; material ${type.material}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; ${contaminationDiffusionDoorLabel(door)}; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
+    const physical = `${type.label}; materials ${materialCompositionLabel(doorMaterialComposition(door))}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; ${contaminationDiffusionDoorLabel(door)}; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
     if (doorIsBreached(door)) {
       return `Breached door: movement can pass through ${connectionLabel}, but the door no longer locks or seals. ${physical}`;
     }
@@ -11234,7 +11478,7 @@
         details.className = "room-door-details";
         details.append(
         chip(type.label),
-        chip(`material: ${type.material}`),
+        chip(`materials: ${materialCompositionLabel(doorMaterialComposition(door))}`),
         chip(`condition: ${doorConditionLabel(door)}`),
         chip(`seal: ${formatNumber(doorEffectiveSeal(door))}/100`),
         chip(`lock: ${formatNumber(type.lockStrength)}/100`),
@@ -12225,6 +12469,24 @@
       });
     }
 
+    const map = ensureLabMap();
+    for (const wall of map.terrain?.constructedWalls || []) {
+      if (wall.condition >= STRUCTURE_BREACH_THRESHOLD) continue;
+      const adjacentRoomIds = [...new Set(cardinalMapCells(wall.cell).map((cell) => labMapCellRoomId(cell, map)).filter(Boolean))];
+      if (adjacentRoomIds.length && !adjacentRoomIds.some((roomId) => scientistObservesRoom(roomId))) continue;
+      addDesiredIncident(desired, {
+        type: "structuralBreach",
+        label: `Wall breached at ${wall.cell.x},${wall.cell.y}`,
+        summary: "Attacks and directed abilities can pass through the breach, but movement remains blocked",
+        severity: "serious",
+        roomId: adjacentRoomIds.find((roomId) => scientistObservesRoom(roomId)) || adjacentRoomIds[0] || MAIN_ROOM_ID,
+        cell: wall.cell,
+        sourceKind: "tile",
+        sourceId: mapCellKey(wall.cell),
+        sourceLabel: `breached wall at ${wall.cell.x},${wall.cell.y}`
+      });
+    }
+
     state.containers = normalizeContainers(state.containers);
     for (const container of state.containers || []) {
       if (!container || container.type === "synthesis" || containerBreachState(container) === "intact") {
@@ -12582,7 +12844,10 @@
 
   function containerEffectiveSeal(container) {
     const type = containerTypeDef(container?.typeId);
-    return clamp(type.seal + (hasContainerWard(container, "sealTightening") ? 25 : 0), 0, 100);
+    const composition = containerMaterialComposition(container);
+    const sealMaterial = composition.seal ? materialPropertyScore(composition.seal, "moistureResistance") : 50;
+    const conditionPenalty = containerCondition(container) < 50 ? 18 : containerCondition(container) < 75 ? 8 : 0;
+    return clamp(type.seal * 0.85 + sealMaterial * 0.15 + (hasContainerWard(container, "sealTightening") ? 25 : 0) - conditionPenalty, 0, 100);
   }
 
   function containerEffectiveWeightLimit(container) {
@@ -12663,6 +12928,112 @@
       lines.push(`${type.label}: ${type.description}`);
     }
     return lines.join("\n");
+  }
+
+  function normalizeMaterialId(value, fallback = "stone") {
+    const raw = String(value || "").trim();
+    const alias = MATERIAL_ID_ALIASES[raw] || MATERIAL_ID_ALIASES[raw.toLowerCase()];
+    if (alias && MATERIAL_BY_ID[alias]) return alias;
+    if (MATERIAL_BY_ID[raw]) return raw;
+    const normalized = raw.replace(/[^a-zA-Z0-9]/g, "");
+    if (MATERIAL_BY_ID[normalized]) return normalized;
+    return MATERIAL_BY_ID[fallback] ? fallback : "stone";
+  }
+
+  function normalizeMaterialComposition(candidate, fallback = { primary: "stone" }) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const composition = {};
+    for (const slot of MATERIAL_COMPOSITION_SLOTS) {
+      const value = source[slot] ?? fallback?.[slot];
+      if (value) composition[slot] = normalizeMaterialId(value, slot === "primary" ? "stone" : "");
+    }
+    if (!composition.primary) composition.primary = normalizeMaterialId(fallback?.primary, "stone");
+    return composition;
+  }
+
+  function materialCompositionLabel(composition) {
+    const clean = normalizeMaterialComposition(composition);
+    return MATERIAL_COMPOSITION_SLOTS.filter((slot) => clean[slot]).map((slot) => {
+      const label = MATERIAL_BY_ID[clean[slot]]?.label || titleCase(clean[slot]);
+      return slot === "primary" ? label : `${titleCase(slot)}: ${label}`;
+    }).join("; ");
+  }
+
+  function materialPropertyScore(materialId, propertyId) {
+    return clamp(Number(MATERIAL_BY_ID[normalizeMaterialId(materialId)]?.properties?.[propertyId]) || 0, 0, 100);
+  }
+
+  function materialResistanceScore(materialId, damageTypeId) {
+    const id = normalizeMaterialId(materialId);
+    const p = MATERIAL_BY_ID[id]?.properties || MATERIAL_BY_ID.stone.properties;
+    const damageId = normalizeDamageTypeId(damageTypeId);
+    const score = {
+      physical: p.hardness * 0.55 + p.toughness * 0.45,
+      corrosive: p.corrosionResistance,
+      toxic: 100 - p.contaminationRetention * 0.65 - p.porosity * 0.25,
+      heat: p.thermalResistance * 0.62 + (100 - p.flammability) * 0.38,
+      cold: p.thermalResistance * 0.55 + p.toughness * 0.45,
+      electrical: 100 - p.conductivity,
+      moisture: p.moistureResistance,
+      pressure: p.toughness * 0.55 + (100 - p.porosity) * 0.25 + p.density * 0.2,
+      radiant: (100 - p.arcanePermeability) * 0.55 + p.thermalResistance * 0.45,
+      shadow: (100 - p.arcanePermeability) * 0.6 + p.corrosionResistance * 0.4,
+      arcane: 100 - p.arcanePermeability,
+      force: p.toughness * 0.55 + p.density * 0.45
+    }[damageId];
+    return clamp(Number(score) || 0, 0, 100);
+  }
+
+  function compositionResistanceScore(composition, damageTypeId) {
+    const clean = normalizeMaterialComposition(composition);
+    const damageId = normalizeDamageTypeId(damageTypeId);
+    const weights = {
+      primary: 0.62,
+      reinforcement: ["physical", "force", "pressure"].includes(damageId) ? 0.28 : 0.14,
+      lining: ["heat", "cold", "toxic", "arcane"].includes(damageId) ? 0.18 : 0.08,
+      coating: ["corrosive", "heat", "cold", "moisture", "shadow", "radiant"].includes(damageId) ? 0.25 : 0.08,
+      seal: ["toxic", "moisture", "pressure", "arcane"].includes(damageId) ? 0.22 : 0.04
+    };
+    let total = 0;
+    let weight = 0;
+    for (const slot of MATERIAL_COMPOSITION_SLOTS) {
+      if (!clean[slot]) continue;
+      const slotWeight = weights[slot];
+      total += materialResistanceScore(clean[slot], damageId) * slotWeight;
+      weight += slotWeight;
+    }
+    return weight ? clamp(total / weight, 0, 100) : 0;
+  }
+
+  function materialPropertyBand(score) {
+    if (score >= 80) return "Very High";
+    if (score >= 60) return "High";
+    if (score >= 40) return "Moderate";
+    if (score >= 20) return "Low";
+    return "Very Low";
+  }
+
+  function compositionPropertyScore(composition, propertyId) {
+    const clean = normalizeMaterialComposition(composition);
+    const ids = MATERIAL_COMPOSITION_SLOTS.map((slot) => clean[slot]).filter(Boolean);
+    if (!ids.length) return 0;
+    return clamp(ids.reduce((total, id, index) => total + materialPropertyScore(id, propertyId) * (index ? 0.35 : 1), 0) / (1 + Math.max(0, ids.length - 1) * 0.35), 0, 100);
+  }
+
+  function materialCompositionTooltip(composition, heading = "Material composition") {
+    const clean = normalizeMaterialComposition(composition);
+    const lines = [`${heading}: ${materialCompositionLabel(clean)}.`, "Properties are shown as descriptive bands; exact values remain internal."];
+    for (const property of MATERIAL_PROPERTY_DEFS) {
+      lines.push(`${property.label}: ${materialPropertyBand(compositionPropertyScore(clean, property.id))}.`);
+    }
+    return lines.join("\n");
+  }
+
+  function materialPropertySummary(composition) {
+    const clean = normalizeMaterialComposition(composition);
+    return ["hardness", "toughness", "porosity", "thermalResistance", "conductivity", "corrosionResistance"]
+      .map((id) => `${MATERIAL_PROPERTY_DEFS.find((property) => property.id === id)?.label}: ${materialPropertyBand(compositionPropertyScore(clean, id))}`)
+      .join("; ");
   }
 
   function normalizeCombatRecord(candidate) {
@@ -13451,6 +13822,47 @@
     return true;
   }
 
+  function strikeStructure(cell) {
+    const clean = cleanMapCell(cell);
+    const target = clean ? structuralTargetAtCell(clean) : null;
+    if (!target) {
+      addEvent("No damageable structure occupies that tile.");
+      persist();
+      render();
+      return false;
+    }
+    const scientistCell = scientistMapCell();
+    if (Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) > 1) {
+      addEvent("The scientist must be on or adjacent to the structure to strike it.");
+      persist();
+      render();
+      return false;
+    }
+    if (!confirmPhysicalStateRiskIfNeeded(`striking the ${target.kind}`)) return false;
+    const cost = adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]);
+    if (!spendStamina(cost)) {
+      addEvent(`Not enough stamina. ${cost} required.`);
+      persist();
+      render();
+      return false;
+    }
+    applyStructuralDamage(clean, COMBAT_SCIENTIST_STRIKE_DAMAGE, ["physical"], "the scientist's strike");
+    awardXp("creatureHandling", 2, "Strike structure");
+    refreshIncidentAlerts();
+    persist();
+    render();
+    return true;
+  }
+
+  function debugDamageStructure(cell, damageTypeId, amount = 40) {
+    const result = applyStructuralDamage(cleanMapCell(cell), amount, [damageTypeId], `debug ${damageTypeDef(damageTypeId)?.label.toLowerCase() || damageTypeId} damage`);
+    if (!result.ok) addEvent(result.reason);
+    refreshIncidentAlerts();
+    persist();
+    render();
+    return result.ok;
+  }
+
   function elementContainerHazards(element) {
     return damageTypesForElementLabel(element).map((type) => ({
       key: type.id,
@@ -13459,14 +13871,20 @@
     }));
   }
 
-  function resistanceScoreFromMap(resistances = {}, damageTypeId = "") {
-    for (const key of damageProtectionTags(damageTypeId)) {
-      const value = Number(resistances?.[key]);
-      if (Number.isFinite(value)) {
-        return value;
-      }
-    }
-    return null;
+  function containerMaterialComposition(containerOrType) {
+    const typeId = typeof containerOrType === "string" ? containerOrType : containerOrType?.typeId;
+    const stored = typeof containerOrType === "object" ? containerOrType?.materialComposition : null;
+    return normalizeMaterialComposition(stored, CONTAINER_MATERIAL_COMPOSITIONS[typeId] || { primary: "steel" });
+  }
+
+  function doorMaterialComposition(doorOrType) {
+    const typeId = typeof doorOrType === "string" ? doorOrType : doorOrType?.typeId;
+    const stored = typeof doorOrType === "object" ? doorOrType?.materialComposition : null;
+    return normalizeMaterialComposition(stored, DOOR_MATERIAL_COMPOSITIONS[typeId] || { primary: "wood" });
+  }
+
+  function toolMaterialComposition(itemKey) {
+    return normalizeMaterialComposition(TOOL_DURABILITY_DEFS[itemKey]?.materialComposition, TOOL_MATERIAL_COMPOSITIONS[itemKey] || { primary: "steel" });
   }
 
   function derivedContainerResistanceScore(type, damageTypeId) {
@@ -13493,8 +13911,12 @@
     if (!damageId) {
       return 0;
     }
-    const explicit = resistanceScoreFromMap(type?.resistances, damageId);
-    return explicit === null ? derivedContainerResistanceScore(type, damageId) : explicit;
+    const materialScore = compositionResistanceScore(containerMaterialComposition(type?.id), damageId);
+    const formScore = derivedContainerResistanceScore(type, damageId);
+    if (damageId === "moisture") return clamp(materialScore * 0.1 + formScore * 0.9, 0, 100);
+    if (damageId === "pressure") return clamp(materialScore * 0.3 + formScore * 0.7, 0, 100);
+    if (["physical", "force"].includes(damageId)) return clamp(materialScore * 0.55 + formScore * 0.45, 0, 100);
+    return materialScore;
   }
 
   function containerDamageResistanceScore(container, damageTypeId) {
@@ -13525,6 +13947,14 @@
       band: damageResistanceBand(containerDamageResistanceScore(container, type.id)),
       ward: containerProtectionLabel(container, damageProtectionTags(type.id))
     }));
+  }
+
+  function damageResistanceEntriesForComposition(composition, condition = 100) {
+    const conditionPenalty = condition < 25 ? 18 : condition < 50 ? 10 : condition < 75 ? 4 : 0;
+    return DAMAGE_TYPE_DEFS.map((type) => {
+      const score = clamp(compositionResistanceScore(composition, type.id) - conditionPenalty, 0, 100);
+      return { ...type, score, band: damageResistanceBand(score), ward: "" };
+    });
   }
 
   function damageResistanceEntriesForHandlingMethod(methodId) {
@@ -16910,7 +17340,8 @@
     const instances = toolInstancesForItem(itemKey);
     const lines = [
       `${item.label} condition.`,
-      `Material: ${def.material}.`,
+      `Material: ${materialCompositionLabel(toolMaterialComposition(itemKey))}.`,
+      materialCompositionTooltip(toolMaterialComposition(itemKey), `${item.label} material`),
       `Notes: ${def.notes.join(", ")}.`,
       toolDurabilitySummary(itemKey) + ".",
       "Broken tools remain cataloged but cannot be used until future repair or replacement."
@@ -17226,7 +17657,10 @@
     const itemKey = handlingMethodToolItemKey(method.id);
     const band = itemKey ? handlingMethodInventoryInfo(method.id)?.conditionBand : null;
     const conditionPenalty = Number(band?.resistancePenalty) || 0;
-    return clamp((Number(HANDLING_METHOD_DAMAGE_RESISTANCES[method.id]?.[normalizeDamageTypeId(damageTypeId)]) || 0) - conditionPenalty, 0, 100);
+    if (!itemKey) return 0;
+    const materialScore = compositionResistanceScore(toolMaterialComposition(itemKey), damageTypeId);
+    const reachFactor = method.id === "longTongs" ? 0.58 : method.id === "hookPole" ? 0.48 : method.id === "scraper" ? 0.5 : 0.42;
+    return clamp(materialScore * reachFactor - conditionPenalty, 0, 100);
   }
 
   function handlingDamageRiskPoints(damageTypeId) {
@@ -21443,6 +21877,33 @@
     const before = containerCondition(container);
     container.condition = normalizeContainerCondition(before + (Number(delta) || 0));
     return Math.abs(container.condition - before) >= 0.01;
+  }
+
+  function applyContainerMaterialDamage(container, amount, damageTypeId, source = "damage") {
+    if (!container) return null;
+    const damageId = normalizeDamageTypeId(damageTypeId) || "physical";
+    const resistance = containerDamageResistanceScore(container, damageId);
+    const effective = Math.max(0.1, roundOutputValue(Math.max(0, Number(amount) || 0) * clamp((115 - resistance) / 75, 0.15, 1.5)));
+    const before = containerCondition(container);
+    adjustContainerCondition(container, -effective);
+    if (containerCondition(container) <= 0) {
+      container.breachState = "breached";
+      container.isOpen = true;
+    } else if (containerCondition(container) < STRUCTURE_BREACH_THRESHOLD && containerBreachState(container) === "intact") {
+      container.breachState = "compromised";
+    }
+    addEvent(`${container.name} took ${formatNumber(effective)} ${damageTypeDef(damageId)?.label.toLowerCase()} damage from ${source}; ${containerConditionLabel(container)}.`);
+    return { effective, before, after: containerCondition(container), resistance };
+  }
+
+  function debugDamageContainer(containerId, damageTypeId, amount = 40) {
+    const container = containerById(containerId);
+    if (!container) return false;
+    applyContainerMaterialDamage(container, amount, damageTypeId, `debug ${damageTypeDef(damageTypeId)?.label.toLowerCase() || damageTypeId} damage`);
+    refreshIncidentAlerts();
+    persist();
+    render();
+    return true;
   }
 
   function containerConditionLabel(container) {
@@ -29772,7 +30233,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (labMapCellIsExcavated(cell, map)) {
       const floor = constructedFloorAtCell(cell, map);
       const wall = constructedWallAtCell(cell, map);
-      parts.push(wall ? `${resourceLabel(wall.materialId)} constructed wall` : floor ? `${resourceLabel(floor.materialId)} constructed floor` : "rough excavated floor");
+      parts.push(wall ? `${materialCompositionLabel(wall.materialComposition)} constructed wall; ${structureConditionBand(wall.condition)}` : floor ? `${materialCompositionLabel(floor.materialComposition)} constructed floor; ${structureConditionBand(floor.condition)}` : "rough excavated floor");
     } else {
       parts.push("solid earth");
     }
@@ -29786,6 +30247,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
+    if (!labMapCellIsExcavated(cell, map)) {
+      const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
+      parts.push(`${MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${structureConditionBand(naturalCondition)}`);
+    }
+    if (wallAllowsAttackTransmission(cell, map)) parts.push("breach passes attacks and directed abilities, but not movement");
     const rubble = rubbleAtCell(cell, map);
     if (rubble.length) parts.push(`rubble: ${rubble.flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ")}`);
     if (objectEntry?.labels?.length) {
@@ -31977,6 +32443,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => setConstructionPriority(priority)
       }));
     }
+    commands.push(...structuralDamageContextCommands(clean));
+    return commands;
+  }
+
+  function structuralDamageContextCommands(cell) {
+    const clean = cleanMapCell(cell);
+    const target = clean ? structuralTargetAtCell(clean) : null;
+    if (!target) return [];
+    const scientistCell = scientistMapCell();
+    const adjacent = Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) <= 1;
+    const commands = [commandDef({
+      id: `structure.strike.${clean.x}.${clean.y}`,
+      label: "Strike Structure",
+      group: "Combat",
+      disabledReason: adjacent ? staminaBlockReason(adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"])) : "The scientist must be on or adjacent to the structure.",
+      description: `Strike this ${target.kind} with physical force. Material resistance determines actual condition damage.`,
+      run: () => strikeStructure(clean)
+    })];
+    if (debugToolsEnabled()) {
+      for (const damageTypeId of ["physical", "corrosive", "heat", "electrical", "arcane", "force"]) {
+        const def = damageTypeDef(damageTypeId);
+        commands.push(commandDef({
+          id: `structure.debugDamage.${damageTypeId}.${clean.x}.${clean.y}`,
+          label: `Debug: ${def.label} Damage`,
+          group: "Debug Structure",
+          description: `Apply 40 raw ${def.label.toLowerCase()} damage to test material resistance and failure states.`,
+          run: () => debugDamageStructure(clean, damageTypeId, 40)
+        }));
+      }
+    }
     return commands;
   }
 
@@ -32048,7 +32544,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tabKind: "policies",
         tabId: "doors",
         description: "Open laboratory door automation and security policy settings."
-      })
+      }),
+      ...structuralDamageContextCommands(door.cell)
     ];
   }
 
@@ -32536,6 +33033,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open raw collected byproduct inventory."
       }));
     }
+    if (debugToolsEnabled()) {
+      for (const damageTypeId of ["physical", "corrosive", "heat", "electrical", "arcane", "force"]) {
+        const def = damageTypeDef(damageTypeId);
+        commands.push(commandDef({
+          id: `container.debugDamage.${container.id}.${damageTypeId}`,
+          label: `Debug: ${def.label} Damage`,
+          group: "Debug Structure",
+          description: `Apply 40 raw ${def.label.toLowerCase()} damage using the shared material model.`,
+          run: () => debugDamageContainer(container.id, damageTypeId, 40)
+        }));
+      }
+    }
     return commands;
   }
 
@@ -32983,6 +33492,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const excavated = labMapCellIsExcavated(selection.tile);
       const constructedWall = constructedWallAtCell(selection.tile);
       const constructedFloor = constructedFloorAtCell(selection.tile);
+      const structuralTarget = structuralTargetAtCell(selection.tile);
+      const structuralComposition = structuralTarget ? structuralTargetComposition(structuralTarget) : null;
+      const structuralCondition = structuralTarget ? structuralTargetCondition(structuralTarget) : null;
       const compartment = inferredCompartmentAtCell(selection.tile);
       const order = constructionOrderAtCell(selection.tile);
       const orderTile = constructionOrderTile(order, selection.tile);
@@ -33002,6 +33514,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Inferred compartment", compartment ? `${compartment.kind}; ${compartment.status}; ${compartment.cells.length} tiles` : "None"],
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
         ["Surface", surface],
+        ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : excavated ? "Excavated ground" : MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
+        ["Material properties", structuralComposition ? materialPropertySummary(structuralComposition) : "No constructed material profile"],
+        ["Damage resistance", structuralComposition ? damageResistanceSummary(damageResistanceEntriesForComposition(structuralComposition, structuralCondition), "none") : "None"],
+        ["Structural state", structuralTarget ? structureConditionBand(structuralCondition) : "Not a damageable structure"],
+        ["Attack channel", wallAllowsAttackTransmission(selection.tile) ? "Attacks and directed abilities may pass; movement remains blocked" : "Blocked"],
         ["Construction order", order ? `${constructionModeLabel(order.mode)}; priority ${order.priority}; ${titleCase(orderTile.status)}${orderTile.blockedReason ? `; ${orderTile.blockedReason}` : ""}` : "None"],
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
         ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : excavated ? "Blocked by constructed wall" : "Solid"]
@@ -33032,14 +33549,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "door") {
       const door = labMapDoor(selection.key);
-      const stateDoor = door ? doorForConnection(door.roomIds[0], door.roomIds[1]) || door : null;
+      const stateDoor = door ? doorFixtureState(door) || door : null;
       if (!door || !stateDoor) {
         return [];
       }
       return [
         ["Type", doorTypeLabel(stateDoor.typeId)],
         ["Connects", door.roomIds.map(roomName).join(" / ")],
-        ["State", doorStateLabel(door.roomIds[0], door.roomIds[1])],
+        ["State", doorStateLabelByFixture(door)],
+        ["Materials", materialCompositionLabel(doorMaterialComposition(stateDoor))],
+        ["Material properties", materialPropertySummary(doorMaterialComposition(stateDoor))],
+        ["Damage resistance", damageResistanceSummary(damageResistanceEntriesForComposition(doorMaterialComposition(stateDoor), doorCondition(stateDoor)), "none")],
         ["Lock", titleCase(stateDoor.lockState || "unlocked")],
         ["Seal", titleCase(stateDoor.sealState || "unsealed")],
         ["Condition", doorConditionLabel(stateDoor)],
@@ -33072,6 +33592,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return [
         ["Type", containerTypeLabel(container.typeId)],
+        ["Materials", materialCompositionLabel(containerMaterialComposition(container))],
+        ["Material properties", materialPropertySummary(containerMaterialComposition(container))],
+        ["Damage resistance", damageResistanceSummary(damageResistanceEntriesForContainer(container), "none")],
         ["Room", roomName(container.roomId)],
         ["Access", containerAccessLabel(container)],
         ["Breach", containerBreachStateLabel(container)],
@@ -33797,7 +34320,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         kind: "constructedWall",
         materialId: constructedWall.materialId,
         condition: constructedWall.condition,
-        spriteKey: `tile.wall.constructed.${constructedWall.materialId}`
+        state: structureConditionBand(constructedWall.condition).toLowerCase(),
+        attackTransmission: constructedWall.condition > 0 && constructedWall.condition < STRUCTURE_BREACH_THRESHOLD,
+        spriteKey: `tile.wall.constructed.${constructedWall.materialId}.${structureConditionBand(constructedWall.condition).toLowerCase()}`
       };
     }
     if (roomId) {
@@ -33821,10 +34346,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       };
     }
     const smoothedWall = Boolean(cell && (map?.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
+    const naturalCondition = cell && map ? naturalDamageAtCell(cell, map)?.condition ?? 100 : 100;
     return {
       kind: "solidEarth",
       smoothedWall,
-      spriteKey: smoothedWall ? "tile.wall.smoothed" : "tile.solidEarth"
+      materialId: cell && map ? naturalWallMaterialId(cell, map) : "stone",
+      condition: naturalCondition,
+      state: structureConditionBand(naturalCondition).toLowerCase(),
+      attackTransmission: naturalCondition > 0 && naturalCondition < STRUCTURE_BREACH_THRESHOLD,
+      spriteKey: smoothedWall ? `tile.wall.smoothed.${structureConditionBand(naturalCondition).toLowerCase()}` : `tile.solidEarth.${structureConditionBand(naturalCondition).toLowerCase()}`
     };
   }
 
@@ -34034,7 +34564,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       dataset.mapFloor = "true";
     } else if (cellView.base.kind === "constructedWall") {
-      classNames.push("constructed-wall-cell", `constructed-wall-${cellView.base.materialId}`);
+      classNames.push("constructed-wall-cell", `constructed-wall-${cellView.base.materialId}`, `structure-${cellView.base.state}`);
+      if (cellView.base.attackTransmission) classNames.push("attack-transmitting-breach");
       dataset.mapConstructedWall = cellView.base.materialId;
     } else if (cellView.base.kind === "unknownDark") {
       classNames.push("unknown-darkness-cell");
@@ -34057,6 +34588,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else {
       classNames.push("solid-earth-cell");
       if (cellView.base.smoothedWall) classNames.push("smoothed-wall-cell");
+      if (cellView.base.state && cellView.base.state !== "intact") classNames.push(`structure-${cellView.base.state}`);
+      if (cellView.base.attackTransmission) classNames.push("attack-transmitting-breach");
     }
     if (cellView.door) {
       classNames.push("door-cell", cellView.door.stateClass);
@@ -34699,6 +35232,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (door) {
         return { kind: "door", key: mapDoor.id, roomIds: mapDoor.roomIds };
       }
+    }
+    if (incident.sourceKind === "tile" && incident.cell) {
+      return { kind: "tile", tile: normalizedMapCell(incident.cell) };
     }
     return { kind: "room", roomId: incident.roomId || MAIN_ROOM_ID };
   }
@@ -39739,6 +40275,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       name: staleName ? fallbackName : rawName || fallbackName,
       type,
       typeId,
+      materialComposition: normalizeMaterialComposition(candidate.materialComposition, CONTAINER_MATERIAL_COMPOSITIONS[typeId] || { primary: "steel" }),
       wardIds: type === "synthesis" ? [] : normalizeContainerWardIds(candidate.wardIds || starter?.wardIds || []),
       roomId: type === "synthesis"
         ? MAIN_ROOM_ID
@@ -40129,6 +40666,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         sealState,
         typeId,
         materialId: String(raw.materialId || fallback.materialId || DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown"),
+        materialComposition: normalizeMaterialComposition(raw.materialComposition, fallback.materialComposition || DOOR_MATERIAL_COMPOSITIONS[typeId]),
         condition,
         wardIds: normalizeContainerWardIds(raw.wardIds || fallback.wardIds),
         breached

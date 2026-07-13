@@ -2959,7 +2959,7 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
       roomOwnsWall: state.labMap.rooms.mainLab.cells.some((cell) => cell.x === wallCell.x && cell.y === wallCell.y),
     };
   }, { key: storageKey, wallCell });
-  expect(built.wall).toMatchObject({ materialId: 'stoneBlocks', condition: 100 });
+  expect(built.wall).toMatchObject({ materialId: 'stoneBlocks', materialComposition: { primary: 'stone' }, condition: 100 });
   expect(built.roomOwnsWall).toBe(false);
 
   await selectMapOverlay(page, 'rooms');
@@ -2971,6 +2971,11 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
   await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${floorCell.x},${floorCell.y}` }).getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-workspace-tab="map"]').click();
   await expect(page.locator(`[data-map-x="${floorCell.x}"][data-map-y="${floorCell.y}"]`)).toHaveClass(/constructed-floor-cell/);
+  const builtFloor = await page.evaluate(({ key, floorCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return state.labMap.terrain.constructedFloors.find((entry) => entry.cell.x === floorCell.x && entry.cell.y === floorCell.y);
+  }, { key: storageKey, floorCell });
+  expect(builtFloor.materialComposition).toMatchObject({ primary: 'stone' });
 
   await selectMapOverlay(page, 'rooms');
   await page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`).click();
@@ -2987,7 +2992,7 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
     const mapDoor = Object.values(state.labMap.doors).find((entry) => entry.cell.x === doorCell.x && entry.cell.y === doorCell.y);
     return { mapDoor, door: state.doors[mapDoor.id], lumber: state.resources.lumber };
   }, { key: storageKey, doorCell });
-  expect(door.door).toMatchObject({ state: 'closed', lockState: 'unlocked', sealState: 'unsealed', typeId: 'roughWoodDoor', wardIds: [] });
+  expect(door.door).toMatchObject({ state: 'closed', lockState: 'unlocked', sealState: 'unsealed', typeId: 'roughWoodDoor', materialComposition: { primary: 'wood' }, wardIds: [] });
   expect(door.lumber).toBe(initial.lumber - 1);
   await page.locator(`[data-map-x="${doorCell.x}"][data-map-y="${doorCell.y}"]`).click();
   await runSelectionCommand(page, 'Open Door');
@@ -3014,7 +3019,7 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
     };
   }, { key: storageKey, wallCell });
   expect(deconstructed.wall).toBeUndefined();
-  expect(deconstructed.rubble.materials).toContainEqual(expect.objectContaining({ id: 'stoneBlocks', amount: 2 }));
+  expect(deconstructed.rubble.materials).toContainEqual(expect.objectContaining({ id: 'stone', amount: 2 }));
   expect(deconstructed.stoneBlocks).toBe(initial.stoneBlocks - 3);
 
   const oreCell = { x: 47, y: 40 };
@@ -3029,6 +3034,94 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
     return state.labMap.terrain.rubble.find((entry) => entry.cell.x === oreCell.x && entry.cell.y === oreCell.y);
   }, { key: storageKey, oreCell });
   expect(oreRubble.materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'granite', amount: 3 }),
+    expect.objectContaining({ id: 'ironOre', amount: 1 }),
+  ]));
+});
+
+test('shared materials drive banded structure reads breaches attack channels and destruction rubble', async ({ page }) => {
+  test.setTimeout(60_000);
+  await startRun(page);
+  const wallCell = { x: 48, y: 45 };
+  const oreCell = { x: 47, y: 40 };
+
+  await page.evaluate(({ key, wallCell }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.labMap.terrain.constructedWalls.push({
+      cell: wallCell,
+      materialId: 'stoneBlocks',
+      materialComposition: { primary: 'stone' },
+      condition: 100,
+      wardIds: [],
+      enchantmentIds: [],
+      builtAt: state.clock,
+    });
+    state.labMap.rooms.mainLab.cells = state.labMap.rooms.mainLab.cells.filter((cell) => cell.x !== wallCell.x || cell.y !== wallCell.y);
+    state.rooms.find((room) => room.id === 'mainLab').zones.forEach((zone) => {
+      zone.cells = zone.cells.filter((cell) => cell.x !== wallCell.x || cell.y !== wallCell.y);
+    });
+    window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
+  }, { key: storageKey, wallCell });
+  await loadSavedRun(page, { restoreSelectedSlime: false });
+
+  const migrated = await page.evaluate(({ wallCell }) => {
+    const wall = window.helixHeresyDebug.structuralSnapshot(wallCell);
+    const catalog = window.helixHeresyDebug.materialCatalog();
+    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+    const state = payload.state || payload;
+    return {
+      wall,
+      stone: catalog.find((material) => material.id === 'stone'),
+      glassContainer: state.containers.find((container) => container.id === 'basic-1')?.materialComposition,
+      reinforcedDoor: state.doors['door-bedroom-main']?.materialComposition,
+      gloves: window.helixHeresyDebug.toolMaterialSnapshot('thickGloves'),
+    };
+  }, { wallCell });
+  expect(migrated.wall).toMatchObject({ kind: 'constructedWall', composition: { primary: 'stone' }, state: 'Intact', attackTransmission: false });
+  expect(typeof migrated.stone.properties.hardness).toBe('number');
+  expect(typeof migrated.wall.resistances.corrosive).toBe('number');
+  expect(migrated.glassContainer).toMatchObject({ primary: 'glass' });
+  expect(migrated.reinforcedDoor).toMatchObject({ primary: 'wood', reinforcement: 'iron' });
+  expect(migrated.gloves.composition).toMatchObject({ primary: 'rubber', lining: 'cloth' });
+  expect(typeof migrated.gloves.resistances.electrical).toBe('number');
+
+  await page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`).click();
+  await page.locator('[data-selection-inspector-tab="details"]').click();
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  await expect(inspector).toContainText('Hardness: High');
+  await expect(inspector).toContainText('Attack channel');
+  await expect(inspector).not.toContainText(`Hardness: ${migrated.stone.properties.hardness}`);
+
+  await page.evaluate(({ wallCell }) => {
+    window.helixHeresyDebug.damageStructure(wallCell, 80, 'corrosive');
+    window.helixHeresyDebug.damageStructure(wallCell, 80, 'corrosive');
+  }, { wallCell });
+  const breached = await page.evaluate(({ wallCell }) => window.helixHeresyDebug.structuralSnapshot(wallCell), { wallCell });
+  expect(breached.state).toBe('Breached');
+  expect(breached.condition).toBeGreaterThan(0);
+  expect(breached.condition).toBeLessThan(25);
+  expect(breached.attackTransmission).toBe(true);
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).toHaveClass(/structure-breached/);
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).toHaveClass(/constructed-wall-cell/);
+
+  await page.evaluate(({ wallCell }) => window.helixHeresyDebug.damageStructure(wallCell, 100, 'corrosive'), { wallCell });
+  expect(await page.evaluate(({ wallCell }) => window.helixHeresyDebug.structuralSnapshot(wallCell), { wallCell })).toBeNull();
+  await expect(page.locator(`[data-map-x="${wallCell.x}"][data-map-y="${wallCell.y}"]`)).not.toHaveClass(/constructed-wall-cell/);
+  let rubble = await page.evaluate(({ key, wallCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return state.labMap.terrain.rubble.find((entry) => entry.cell.x === wallCell.x && entry.cell.y === wallCell.y);
+  }, { key: storageKey, wallCell });
+  expect(rubble.materials).toContainEqual(expect.objectContaining({ id: 'stone', amount: 2 }));
+
+  const oreTooltip = await page.locator(`[data-map-x="${oreCell.x}"][data-map-y="${oreCell.y}"]`).getAttribute('title');
+  expect(oreTooltip).not.toContain('Iron');
+  await page.evaluate(({ oreCell }) => window.helixHeresyDebug.damageStructure(oreCell, 500, 'corrosive'), { oreCell });
+  rubble = await page.evaluate(({ key, oreCell }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return state.labMap.terrain.rubble.find((entry) => entry.cell.x === oreCell.x && entry.cell.y === oreCell.y);
+  }, { key: storageKey, oreCell });
+  expect(rubble.materials).toEqual(expect.arrayContaining([
     expect.objectContaining({ id: 'granite', amount: 3 }),
     expect.objectContaining({ id: 'ironOre', amount: 1 }),
   ]));

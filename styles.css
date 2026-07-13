@@ -1371,6 +1371,23 @@ body.map-dragging .lab-map-cell {
   box-shadow: inset 0 0 0 2px rgba(152, 162, 148, 0.28);
 }
 
+.lab-map-cell.structure-worn {
+  border-style: dashed;
+}
+
+.lab-map-cell.structure-damaged {
+  border-color: #9b654f;
+  box-shadow: inset 0 0 0 1px rgba(201, 107, 79, 0.34);
+}
+
+.lab-map-cell.structure-breached,
+.lab-map-cell.attack-transmitting-breach {
+  border-color: #d08a63;
+  border-style: dashed;
+  color: #f0b28f;
+  box-shadow: inset 0 0 0 2px rgba(208, 138, 99, 0.4);
+}
+
 .lab-map-cell.rubble-object-cell {
   color: #b6a98c;
 }

@@ -210,5 +210,5 @@ test('bad hidden compatibility slowly stresses specimen and fouls container', as
 
   expect(result.stress).toBeGreaterThan(0);
   expect(result.contamination).toBeGreaterThan(0);
-  expect(result.condition).toBeLessThan(100);
+  expect(result.condition).toBe(100);
 });
