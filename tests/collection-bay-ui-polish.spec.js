@@ -325,7 +325,7 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   expect(pageErrors).toEqual([]);
 });
 
-test('Collection Bay transfer moves active receptacle contents into Collected Byproducts only', async ({ page }) => {
+test('Collection Bay transfer creates a filled physical vessel and installs a replacement', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
   page.on('console', (message) => {
@@ -369,8 +369,14 @@ test('Collection Bay transfer moves active receptacle contents into Collected By
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const stationState = state.collectionBay?.stations?.['basic-10'];
+    const filledVessel = (state.physicalItemStacks || []).find((stack) =>
+      stack.form === 'receptacle'
+      && (stack.contents || []).some((content) => content.kind === 'byproduct' && content.label === 'acid droplets')
+    );
     return {
       collected: Number(state.collectedByproducts?.['acid droplets']) || 0,
+      physicalAmount: (filledVessel?.contents || []).find((content) => content.label === 'acid droplets')?.amount || 0,
+      vesselKey: filledVessel?.key || '',
       historySource: state.collectedByproductHistory?.['acid droplets']?.[0]?.source || '',
       receptacle: Number(stationState?.receptacle?.amount) || 0,
       overflow: Number(stationState?.overflow?.amount) || 0,
@@ -378,6 +384,8 @@ test('Collection Bay transfer moves active receptacle contents into Collected By
   }, { key: storageKey });
 
   expect(transferState.collected).toBe(4);
+  expect(transferState.physicalAmount).toBe(4);
+  expect(transferState.vesselKey).toBe('sealedCollectionJar');
   expect(transferState.historySource).toContain('Transfer Drainage Tank station');
   expect(transferState.historySource).toContain('TRANSFER-ACID');
   expect(transferState.receptacle).toBe(3);

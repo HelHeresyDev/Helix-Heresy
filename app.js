@@ -563,9 +563,12 @@
   const SCIENTIST_DEFAULT_PHYSICAL_PRESENCE = {
     heightM: 1.75,
     shoulderWidthM: 0.55,
-    floorLoadM2: 1.0,
+    floorLoadM2: 0.32,
     moveSpeedMps: SCIENTIST_MOVE_SPEED_MPS
   };
+  const MAP_TILE_AREA_M2 = 1;
+  const FLOOR_PILE_HEIGHT_M = 0.5;
+  const TILE_OCCUPANCY_EPSILON = 0.02;
   const SCIENTIST_MOVE_BASE_STAMINA = 2;
   const PHYSICAL_STATE_MAX = 100;
   const PHYSICAL_STATE_EXPOSURE_RISE_PER_HOUR = 10;
@@ -724,10 +727,11 @@
   const STOCKPILE_PRIORITY_MAX = 7;
   const STOCKPILE_PRIORITY_DEFAULT = 4;
   const STOCKPILE_FILTER_PRESETS = [
-    { id: "all", label: "All Supplies", description: "Accept every currently tracked physical supply category.", sections: ["resources", "inventory", "collectedByproducts", "specimenMaterials"] },
+    { id: "all", label: "All Supplies", description: "Accept every currently tracked physical supply category.", sections: ["resources", "inventory", "collectedByproducts", "specimenMaterials", "residue"] },
     { id: "resources", label: "Core Resources", description: "Accept biomass, feedstocks, residues, construction resources, and other core resource units.", sections: ["resources"] },
     { id: "materials", label: "Construction Materials", description: "Accept stone blocks, lumber, panels, parts, and bricks.", sections: ["resources"], keys: ["stoneBlocks", "lumber", "steelPanels", "metalParts", "bricks"] },
     { id: "tools", label: "Tools", description: "Accept portable tools and handling equipment.", sections: ["inventory"], categories: ["tools"] },
+    { id: "receptacles", label: "Receptacles", description: "Accept empty and filled jars, flasks, bags, trays, and similar portable vessels.", sections: ["inventory"], categories: ["receptacles"] },
     { id: "byproducts", label: "Byproducts", description: "Accept collected creature byproducts.", sections: ["collectedByproducts"] },
     { id: "specimens", label: "Specimen Materials", description: "Accept harvested tissues, samples, and other specimen materials.", sections: ["specimenMaterials"] }
   ];
@@ -1907,13 +1911,23 @@
     }
   };
   const COLLECTION_BAY_RECEPTACLE_DEFS = {
-    drip: { label: "sealed collection jar", capacity: 10, overflowCapacity: 3 },
-    sludge: { label: "lined scrape jar", capacity: 12, overflowCapacity: 4 },
-    vapor: { label: "condenser flask", capacity: 8, overflowCapacity: 2 },
-    dry: { label: "filter bag", capacity: 10, overflowCapacity: 3 },
-    mixed: { label: "mixed-output jar", capacity: 8, overflowCapacity: 3 },
-    unclear: { label: "unassigned receptacle", capacity: 0, overflowCapacity: 0 }
+    drip: { label: "sealed collection jar", itemKey: "sealedCollectionJar", phase: "liquid", capacity: 10, overflowCapacity: 3 },
+    sludge: { label: "lined scrape jar", itemKey: "linedScrapeJar", phase: "sludge", capacity: 12, overflowCapacity: 4 },
+    vapor: { label: "condenser flask", itemKey: "condenserFlask", phase: "vapor", capacity: 8, overflowCapacity: 2 },
+    dry: { label: "filter bag", itemKey: "filterBag", phase: "powder", capacity: 10, overflowCapacity: 3 },
+    mixed: { label: "mixed-output jar", itemKey: "mixedOutputJar", phase: "mixed", capacity: 8, overflowCapacity: 3 },
+    unclear: { label: "unassigned receptacle", itemKey: "", phase: "unknown", capacity: 0, overflowCapacity: 0 }
   };
+  const CLEANUP_POLICY_MODES = [
+    { id: "manual", label: "Manual only" },
+    { id: "hazardous", label: "Observed hazardous spills" },
+    { id: "all", label: "All observed spills" }
+  ];
+  const CLEANUP_POLICY_MODE_BY_ID = Object.fromEntries(CLEANUP_POLICY_MODES.map((mode) => [mode.id, mode]));
+  const CLEANUP_POLICY_DEFAULTS = { mode: "hazardous", minimumUnits: 1, priority: 4 };
+  const SPILL_CLEANUP_BASE_SECONDS = 45;
+  const SPILL_CLEANUP_SECONDS_PER_UNIT = 8;
+  const SPILL_CLEANUP_STAMINA = 4;
   const COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE = 0.05;
   const BYPRODUCT_COLLECTION_TYPES = {
     "acid droplets": "drip",
@@ -2281,6 +2295,11 @@
       id: "tools",
       label: "Tools & Supplies",
       description: "Reusable lab tools and handling supplies already implied by current interaction methods. Matching handling procedures require a usable cataloged tool; hazardous use can damage or break tools."
+    },
+    {
+      id: "receptacles",
+      label: "Receptacles",
+      description: "Portable empty and filled vessels used for collection, cleanup, storage, and hauling."
     }
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
@@ -2319,6 +2338,41 @@
       category: "materials",
       initial: 0,
       description: "Stabilized biological samples reserved for later research and processing systems."
+    },
+    {
+      key: "sealedCollectionJar",
+      label: "Sealed collection jar",
+      category: "receptacles",
+      initial: 6,
+      description: "A ten-liter sealed jar for liquid and dripping outputs. Filled jars remain physical objects."
+    },
+    {
+      key: "linedScrapeJar",
+      label: "Lined scrape jar",
+      category: "receptacles",
+      initial: 6,
+      description: "A lined twelve-liter jar for gels, sludge, and scraped residue."
+    },
+    {
+      key: "condenserFlask",
+      label: "Condenser flask",
+      category: "receptacles",
+      initial: 6,
+      description: "An eight-liter sealed flask compatible with hood and condenser collection."
+    },
+    {
+      key: "filterBag",
+      label: "Filter bag",
+      category: "receptacles",
+      initial: 6,
+      description: "A ten-liter filter bag for powders, flakes, crystals, and other dry material."
+    },
+    {
+      key: "mixedOutputJar",
+      label: "Mixed-output jar",
+      category: "receptacles",
+      initial: 4,
+      description: "An eight-liter sealed jar reserved for mixed or poorly classified material."
     },
     {
       key: "thickGloves",
@@ -2896,6 +2950,7 @@
     "scientistMove",
     "containerInteraction",
     "collectionBayTransfer",
+    "spillCleanup",
     "blackMarketTrade",
     "physicalDiagnostic",
     "excavate",
@@ -3145,7 +3200,16 @@
         fixtureId,
         stockpileId: roomId === STORAGE_ROOM_ID ? "stockpile-storage-general" : "",
         observedAt: 0,
-        reservedTaskId: ""
+        reservedTaskId: "",
+        containerId: "",
+        form: key === "waste" ? "waste" : "stack",
+        phase: "solid",
+        tags: [],
+        contents: [],
+        sourceLabels: [],
+        sourceSlimeIds: [],
+        createdAt: 0,
+        updatedAt: 0
       });
     };
     for (const resource of RESOURCE_DEFS) {
@@ -3163,8 +3227,16 @@
     }
     for (const item of INVENTORY_ITEM_DEFS) {
       const amount = Number(item.initial) || 0;
-      const fixtureId = item.category === "tools" ? "starter-locking-cabinet" : "starter-storage-shelf";
-      const cell = fixtureId === "starter-locking-cabinet" ? { x: 54, y: 40 } : { x: 50, y: 40 };
+      const fixtureId = item.category === "tools" || ["filterBag", "mixedOutputJar"].includes(item.key)
+        ? "starter-locking-cabinet"
+        : item.category === "receptacles"
+          ? "starter-storage-crate"
+          : "starter-storage-shelf";
+      const cell = fixtureId === "starter-locking-cabinet"
+        ? { x: 54, y: 40 }
+        : fixtureId === "starter-storage-crate"
+          ? { x: 52, y: 40 }
+          : { x: 50, y: 40 };
       add("inventory", item.key, amount, fixtureId, cell);
     }
     return stacks;
@@ -3587,7 +3659,8 @@
         designationMode: DEFAULT_ROOM_DESIGNATION_POLICY_ID,
         purposeMode: DEFAULT_ROOM_PURPOSE_POLICY_ID
       },
-      feeding: { ...AUTO_FEED_DEFAULTS }
+      feeding: { ...AUTO_FEED_DEFAULTS },
+      cleanup: { ...CLEANUP_POLICY_DEFAULTS }
     };
   }
 
@@ -3902,8 +3975,34 @@
         floorStacks: ensurePhysicalItemStacks().filter((stack) => !stack.fixtureId && !stack.carriedBy).map((stack) => ({ ...stack, exposed: physicalStackExposed(stack), storedCorrectly: physicalStackStoredCorrectly(stack) })),
         carriedStacks: ensurePhysicalItemStacks().filter((stack) => stack.carriedBy).map((stack) => ({ ...stack, exposed: false, storedCorrectly: true })),
         stacks: ensurePhysicalItemStacks().map((stack) => ({ ...stack, exposed: physicalStackExposed(stack), storedCorrectly: physicalStackStoredCorrectly(stack) })),
-        activeHaul: stockpileHaulTask() ? { ...stockpileHaulTask(), data: { ...stockpileHaulTask().data } } : null
+        activeHaul: stockpileHaulTask() ? { ...stockpileHaulTask(), data: { ...stockpileHaulTask().data } } : null,
+        tileOccupancy: (cell) => ({
+          cell: cleanMapCell(cell),
+          occupiedM2: tileOccupiedAreaM2(cell),
+          capacityM2: MAP_TILE_AREA_M2,
+          scientistFits: canActorOccupyTile(state.scientist, cell)
+        })
       }),
+      actorSpaceSnapshot: (actorId, cell) => {
+        const actor = actorId === "scientist" ? state.scientist : findSlime(actorId);
+        return actor ? {
+          actorId,
+          cell: cleanMapCell(cell),
+          floorLoadM2: actorFloorLoadM2(actor),
+          occupiedM2: tileOccupiedAreaM2(cell, { excludeActor: actor }),
+          fits: canActorOccupyTile(actor, cell)
+        } : null;
+      },
+      genomeSpaceSnapshot: (genome, cell, mass = 100) => {
+        const actor = { genome, stats: { currentMass: { current: mass, max: 100 } } };
+        return {
+          genome,
+          cell: cleanMapCell(cell),
+          floorLoadM2: slimeFloorLoadM2(actor),
+          occupiedM2: tileOccupiedAreaM2(cell),
+          fits: tileOccupiedAreaM2(cell) + slimeFloorLoadM2(actor) <= MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON
+        };
+      },
       fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
       damageTool: (itemKey, amount) => {
         const tool = bestToolInstance(itemKey, true);
@@ -5980,6 +6079,7 @@
       completed: 0,
       constructionClaimed: 0,
       stockpileClaimed: 0,
+      cleanupClaimed: 0,
       constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
       observationChanged: false,
@@ -5988,6 +6088,7 @@
     changes.jobExpired = expireSlimes();
     changes.completed = completeDueTasks();
     changes.constructionClaimed = claimNextConstructionWork();
+    changes.cleanupClaimed = claimNextSpillCleanup();
     changes.stockpileClaimed = claimNextStockpileHaul();
     changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
     syncRoomObservationMemory();
@@ -6020,6 +6121,7 @@
       + changes.incidentUrgencyChanged
       + changes.completed
       + changes.constructionClaimed
+      + changes.cleanupClaimed
       + changes.stockpileClaimed
       + changes.constructionProgressChanged
       + changes.skillDecayChanged
@@ -6154,6 +6256,11 @@
 
     if (task.type === "collectionBayTransfer") {
       completeCollectionBayTransfer(task);
+      return;
+    }
+
+    if (task.type === "spillCleanup") {
+      completeSpillCleanup(task);
       return;
     }
 
@@ -10586,14 +10693,10 @@
   }
 
   function mergeRoomStockpiles(survivingRoomId, absorbedRoomId) {
-    state.roomStockpiles ||= {};
-    const survivor = state.roomStockpiles[survivingRoomId] ||= emptyRoomStockpile();
-    const absorbed = normalizeRoomStockpile(state.roomStockpiles[absorbedRoomId]);
-    mergeNumericStockpile(survivor.resources, absorbed.resources);
-    mergeNumericStockpile(survivor.inventory, absorbed.inventory);
-    mergeNumericStockpile(survivor.collectedByproducts, absorbed.collectedByproducts, true);
-    mergeSpecimenMaterialStockpile(survivor.specimenMaterials, absorbed.specimenMaterials);
-    state.roomStockpiles[absorbedRoomId] = emptyRoomStockpile();
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (stack.roomId === absorbedRoomId) stack.roomId = survivingRoomId;
+    }
+    syncPhysicalReadModels();
   }
 
   function mergeRoomDesignation(survivingRoomId, absorbedRoomId) {
@@ -11704,11 +11807,34 @@
         rubber: { volumeL: 1, massKg: 0.8 }
       }[key];
       if (metrics) return metrics;
+      if (INVENTORY_ITEM_BY_KEY[key]?.category === "receptacles") {
+        const capacity = Object.values(COLLECTION_BAY_RECEPTACLE_DEFS).find((def) => def.itemKey === key)?.capacity || 8;
+        return { volumeL: capacity + 1, massKg: 0.6 };
+      }
       return INVENTORY_ITEM_BY_KEY[key]?.category === "tools" ? { volumeL: 5, massKg: 3 } : { volumeL: 2, massKg: 1 };
     }
     if (section === "collectedByproducts") return { volumeL: 1, massKg: 1 };
     if (section === "specimenMaterials") return { volumeL: 1.25, massKg: 1.1 };
     return { volumeL: 1, massKg: 1 };
+  }
+
+  function normalizePhysicalContents(candidate) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map((entry) => {
+        const kind = ["byproduct", "waste", "residue", "material"].includes(entry?.kind) ? entry.kind : "material";
+        const key = String(entry?.key || entry?.label || "").trim();
+        const amount = roundOutputValue(Math.max(0, Number(entry?.amount) || 0));
+        if (!key || amount <= 0) return null;
+        return {
+          kind,
+          key,
+          label: String(entry?.label || key).trim(),
+          amount,
+          phase: String(entry?.phase || "solid"),
+          tags: normalizeResidueTags(entry?.tags)
+        };
+      })
+      .filter(Boolean);
   }
 
   function normalizeStockpileDesignation(candidate, index = 0) {
@@ -11740,7 +11866,7 @@
 
   function normalizePhysicalItemStack(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const section = ["resources", "inventory", "collectedByproducts", "specimenMaterials"].includes(candidate.section) ? candidate.section : "";
+    const section = ["resources", "inventory", "collectedByproducts", "specimenMaterials", "residue"].includes(candidate.section) ? candidate.section : "";
     const key = String(candidate.key || "");
     const fixtureId = String(candidate.fixtureId || "").replace(/[^a-zA-Z0-9:_-]/g, "");
     const cell = cleanMapCell(candidate.cell) || labMapRoomAnchor(candidate.roomId || STORAGE_ROOM_ID);
@@ -11759,14 +11885,23 @@
       knownQuantity,
       unitVolumeL: Math.max(0.001, Number(candidate.unitVolumeL) || metrics.volumeL),
       unitMassKg: Math.max(0.001, Number(candidate.unitMassKg) || metrics.massKg),
-      roomId: roomById(candidate.roomId)?.id || labMapCellRoomId(cell) || STORAGE_ROOM_ID,
+      roomId: cleanRoomId(candidate.roomId) || labMapCellRoomId(cell) || STORAGE_ROOM_ID,
       cell,
       fixtureId,
       stockpileId: String(candidate.stockpileId || ""),
       observedAt: finiteTime(candidate.observedAt, 0),
       reservedTaskId: String(candidate.reservedTaskId || ""),
       carriedBy: candidate.carriedBy === "scientist" ? "scientist" : "",
-      toolInstanceId: String(candidate.toolInstanceId || "")
+      toolInstanceId: String(candidate.toolInstanceId || ""),
+      containerId: cleanContainerId(candidate.containerId),
+      form: ["stack", "waste", "spill", "receptacle"].includes(candidate.form) ? candidate.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
+      phase: String(candidate.phase || (section === "residue" ? "sludge" : "solid")),
+      tags: normalizeResidueTags(candidate.tags),
+      contents: normalizePhysicalContents(candidate.contents),
+      sourceLabels: normalizeResidueSourceLabels(candidate.sourceLabels || candidate.sourceLabel),
+      sourceSlimeIds: idList(candidate.sourceSlimeIds),
+      createdAt: finiteTime(candidate.createdAt, 0),
+      updatedAt: finiteTime(candidate.updatedAt, candidate.createdAt || 0)
     };
   }
 
@@ -11785,6 +11920,94 @@
     return state.physicalItemStacks;
   }
 
+  function physicalStackSectionAmount(stack, section, key, known = false) {
+    if (!stack) return 0;
+    const quantity = Math.max(0, Number(known ? stack.knownQuantity : stack.quantity) || 0);
+    if (stack.section === section && stack.key === key) return quantity;
+    if (section !== "collectedByproducts" || quantity <= 0) return 0;
+    return roundOutputValue(normalizePhysicalContents(stack.contents)
+      .filter((content) => content.kind === "byproduct" && byproductInventoryKey(content.label || content.key) === key)
+      .reduce((total, content) => total + content.amount * quantity, 0));
+  }
+
+  function physicalActualAmount(section, key, options = {}) {
+    const roomId = options.roomId ? normalizeStockpileRoomId(options.roomId) : "";
+    const containerId = cleanContainerId(options.containerId);
+    return roundOutputValue(ensurePhysicalItemStacks()
+      .filter((stack) => !roomId || stack.roomId === roomId)
+      .filter((stack) => !containerId || stack.containerId === containerId)
+      .filter((stack) => options.exposed !== true || physicalStackExposed(stack))
+      .reduce((total, stack) => total + physicalStackSectionAmount(stack, section, key, false), 0));
+  }
+
+  function syncPhysicalReadModels(context = state) {
+    if (!context || !Array.isArray(context.physicalItemStacks)) return false;
+    const priorSpecimens = context.specimenMaterials || {};
+    const resources = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, 0]));
+    const inventory = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, 0]));
+    const collectedByproducts = {};
+    const specimenMaterials = {};
+    const roomStockpiles = {};
+    for (const room of context.rooms || []) roomStockpiles[room.id] = emptyRoomStockpile();
+    const ensureRoom = (roomId) => roomStockpiles[roomId] ||= emptyRoomStockpile();
+    const addCollected = (key, label, amount, roomId) => {
+      if (amount <= 0) return;
+      collectedByproducts[key] = roundOutputValue((Number(collectedByproducts[key]) || 0) + amount);
+      const local = ensureRoom(roomId).collectedByproducts;
+      local[key] = roundOutputValue((Number(local[key]) || 0) + amount);
+    };
+    const wasteTags = {};
+    for (const stack of context.physicalItemStacks) {
+      const quantity = Math.max(0, Number(stack.quantity) || 0);
+      if (quantity <= 0) continue;
+      const roomId = stack.roomId || STORAGE_ROOM_ID;
+      const room = ensureRoom(roomId);
+      if (stack.section === "resources" && RESOURCE_BY_KEY[stack.key]) {
+        resources[stack.key] = Math.max(0, Math.floor((resources[stack.key] || 0) + quantity));
+        room.resources[stack.key] = Math.max(0, Math.floor((Number(room.resources[stack.key]) || 0) + quantity));
+      } else if (stack.section === "inventory" && INVENTORY_ITEM_BY_KEY[stack.key]) {
+        inventory[stack.key] = Math.max(0, Math.floor((inventory[stack.key] || 0) + quantity));
+        room.inventory[stack.key] = Math.max(0, Math.floor((Number(room.inventory[stack.key]) || 0) + quantity));
+      } else if (stack.section === "collectedByproducts") {
+        addCollected(stack.key, priorCollected[stack.key]?.label || stack.key, quantity, roomId);
+      } else if (stack.section === "specimenMaterials") {
+        const prior = priorSpecimens[stack.key] || { key: stack.key, label: stack.key, tags: [], history: [] };
+        const entry = specimenMaterials[stack.key] || { ...prior, amount: 0 };
+        entry.amount = Math.max(0, Math.floor(entry.amount + quantity));
+        specimenMaterials[stack.key] = entry;
+        const local = room.specimenMaterials[stack.key] || { ...prior, amount: 0 };
+        local.amount = Math.max(0, Math.floor(local.amount + quantity));
+        room.specimenMaterials[stack.key] = local;
+      }
+      for (const content of normalizePhysicalContents(stack.contents)) {
+        const contentAmount = roundOutputValue(content.amount * quantity);
+        if (content.kind === "byproduct") {
+          const key = byproductInventoryKey(content.label || content.key);
+          addCollected(key, content.label || content.key, contentAmount, roomId);
+        } else if (content.kind === "waste") {
+          resources.waste = Math.max(0, Math.floor((resources.waste || 0) + contentAmount));
+          room.resources.waste = Math.max(0, Math.floor((Number(room.resources.waste) || 0) + contentAmount));
+          for (const tag of normalizeResidueTags(content.tags || stack.tags)) {
+            wasteTags[tag] = roundOutputValue((wasteTags[tag] || 0) + contentAmount);
+          }
+        }
+      }
+      if (stack.section === "resources" && stack.key === "waste") {
+        for (const tag of normalizeResidueTags(stack.tags)) {
+          wasteTags[tag] = roundOutputValue((wasteTags[tag] || 0) + quantity);
+        }
+      }
+    }
+    context.resources = resources;
+    context.inventory = inventory;
+    context.collectedByproducts = collectedByproducts;
+    context.specimenMaterials = specimenMaterials;
+    context.roomStockpiles = roomStockpiles;
+    context.wasteTags = wasteTags;
+    for (const container of context.containers || []) delete container.waste;
+    return true;
+  }
+
   function ensureStockpileDesignations() {
     if (!Array.isArray(state.stockpileDesignations)) state.stockpileDesignations = defaultStockpileDesignations();
     return state.stockpileDesignations;
@@ -11794,7 +12017,14 @@
     if (stack?.section === "resources") return resourceLabel(stack.key);
     if (stack?.section === "inventory") return inventoryItemLabel(stack.key);
     if (stack?.section === "specimenMaterials") return state.specimenMaterials?.[stack.key]?.label || stack.key;
+    if (stack?.section === "residue") return feedingResidueLabel(stack.key);
     return stack?.key || "Supplies";
+  }
+
+  function physicalStackContentsLabel(stack) {
+    const contents = normalizePhysicalContents(stack?.contents);
+    if (!contents.length) return "Empty";
+    return contents.map((entry) => `${formatCollectionAmount(entry.amount)} ${entry.label}`).join("; ");
   }
 
   function physicalStackQuantityText(stack, known = true) {
@@ -11895,6 +12125,7 @@
 
   function physicalStackExposed(stack) {
     if (stack?.carriedBy) return false;
+    if (stack?.containerId) return false;
     if (!stack?.fixtureId) return true;
     const fixture = fixtureById(stack.fixtureId);
     return Boolean(storageFixtureDef(fixture)?.capabilities?.includes("openStorage") || fixture?.accessState === "open");
@@ -11903,16 +12134,15 @@
   function physicalKnownAmountInRoom(section, key, roomId, options = {}) {
     const resolved = roomById(roomId)?.id || roomId;
     return roundOutputValue(ensurePhysicalItemStacks()
-      .filter((stack) => stack.section === section && stack.key === key && stack.roomId === resolved)
-      .filter((stack) => options.accessible === false || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
-      .reduce((total, stack) => total + stack.knownQuantity, 0));
+      .filter((stack) => stack.roomId === resolved)
+      .filter((stack) => options.accessible !== true || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .reduce((total, stack) => total + physicalStackSectionAmount(stack, section, key, true), 0));
   }
 
   function physicalKnownAmount(section, key, options = {}) {
     return roundOutputValue(ensurePhysicalItemStacks()
-      .filter((stack) => stack.section === section && stack.key === key)
-      .filter((stack) => options.accessible === false || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
-      .reduce((total, stack) => total + stack.knownQuantity, 0));
+      .filter((stack) => options.accessible !== true || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .reduce((total, stack) => total + physicalStackSectionAmount(stack, section, key, true), 0));
   }
 
   function physicalStockDestinationCandidates(section, key, options = {}) {
@@ -11986,7 +12216,7 @@
       section,
       key,
       quantity: amount,
-      knownQuantity: amount,
+      knownQuantity: options.known === false ? 0 : amount,
       unitVolumeL: metrics.volumeL,
       unitMassKg: metrics.massKg,
       roomId: location.roomId,
@@ -11996,9 +12226,19 @@
       observedAt: state.clock,
       reservedTaskId: "",
       carriedBy: options.carriedBy === "scientist" ? "scientist" : "",
-      toolInstanceId: String(options.toolInstanceId || "")
+      toolInstanceId: String(options.toolInstanceId || ""),
+      containerId: cleanContainerId(location.containerId || options.containerId),
+      form: ["stack", "waste", "spill", "receptacle"].includes(options.form) ? options.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
+      phase: String(options.phase || (section === "residue" ? "sludge" : "solid")),
+      tags: normalizeResidueTags(options.tags),
+      contents: normalizePhysicalContents(options.contents),
+      sourceLabels: normalizeResidueSourceLabels(options.sourceLabels || options.sourceLabel),
+      sourceSlimeIds: idList(options.sourceSlimeIds),
+      createdAt: state.clock,
+      updatedAt: state.clock
     };
     ensurePhysicalItemStacks().push(stack);
+    if (!options.deferSync) syncPhysicalReadModels();
     return stack;
   }
 
@@ -12013,12 +12253,14 @@
     if (source.quantity <= 0 && source.knownQuantity <= 0) {
       state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.id !== source.id);
     }
-    return createPhysicalItemStack("inventory", itemKey, 1, {
+    const carried = createPhysicalItemStack("inventory", itemKey, 1, {
       roomId: scientistRoomId(),
       cell: scientistMapCell(),
       fixtureId: "",
       stockpileId: ""
     }, { carriedBy: "scientist", toolInstanceId });
+    syncPhysicalReadModels();
+    return carried;
   }
 
   function releasePhysicalDurableTool(toolInstanceId, roomId = scientistRoomId()) {
@@ -12027,10 +12269,11 @@
     const itemKey = stack.key;
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
     addPhysicalItemQuantity("inventory", itemKey, 1, roomId);
+    syncPhysicalReadModels();
     return true;
   }
 
-  function addPhysicalItemQuantity(section, key, quantity, roomId) {
+  function addPhysicalItemQuantity(section, key, quantity, roomId, options = {}) {
     let remaining = section === "collectedByproducts" ? roundOutputValue(quantity) : Math.max(0, Math.floor(quantity));
     if (remaining <= 0) return 0;
     const destinations = physicalStockDestinationCandidates(section, key, { roomId });
@@ -12042,7 +12285,10 @@
       const fixtureId = destination.fixture?.id || destination.fixtureId || "";
       const stockpileId = destination.designation?.id || destination.stockpileId || "";
       const existing = ensurePhysicalItemStacks().find((stack) => stack.section === section && stack.key === key
-        && stack.fixtureId === fixtureId && mapCellKey(stack.cell) === mapCellKey(destination.cell));
+        && stack.fixtureId === fixtureId && mapCellKey(stack.cell) === mapCellKey(destination.cell)
+        && stack.form !== "receptacle" && stack.form !== "spill" && !normalizePhysicalContents(stack.contents).length
+        && !normalizePhysicalContents(options.contents).length
+        && normalizeResidueTags(stack.tags).join("|") === normalizeResidueTags(options.tags).join("|"));
       if (existing) {
         existing.quantity = section === "collectedByproducts" ? roundOutputValue(existing.quantity + amount) : existing.quantity + Math.floor(amount);
         existing.knownQuantity = existing.quantity;
@@ -12054,11 +12300,12 @@
           cell: destination.cell,
           fixtureId,
           stockpileId
-        });
+        }, { ...options, deferSync: true });
       }
       remaining = section === "collectedByproducts" ? roundOutputValue(remaining - amount) : remaining - Math.floor(amount);
     }
-    if (remaining > 0) createPhysicalItemStack(section, key, remaining, physicalFallbackLocation(roomId));
+    if (remaining > 0) createPhysicalItemStack(section, key, remaining, physicalFallbackLocation(roomId), { ...options, deferSync: true });
+    syncPhysicalReadModels();
     return section === "collectedByproducts" ? roundOutputValue(requested) : requested;
   }
 
@@ -12079,6 +12326,7 @@
       remaining = section === "collectedByproducts" ? roundOutputValue(remaining - taken) : remaining - Math.floor(taken);
     }
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0);
+    syncPhysicalReadModels();
     return section === "collectedByproducts" ? roundOutputValue(requested - remaining) : requested - remaining;
   }
 
@@ -12088,9 +12336,131 @@
     return removed;
   }
 
+  function receptacleDefByItemKey(itemKey) {
+    return Object.values(COLLECTION_BAY_RECEPTACLE_DEFS).find((def) => def.itemKey === itemKey) || null;
+  }
+
+  function physicalEmptyReceptacleStacks(itemKey = "") {
+    return ensurePhysicalItemStacks().filter((stack) =>
+      stack.section === "inventory"
+      && INVENTORY_ITEM_BY_KEY[stack.key]?.category === "receptacles"
+      && (!itemKey || stack.key === itemKey)
+      && stack.quantity > 0
+      && !normalizePhysicalContents(stack.contents).length
+      && !stack.carriedBy
+    );
+  }
+
+  function queuedReplacementReceptacleCount(itemKey) {
+    return scientistQueueTasks()
+      .filter((task) => ["collectionBayTransfer", "spillCleanup"].includes(task.type) && task.data?.replacementItemKey === itemKey)
+      .reduce((total, task) => total + Math.max(1, Math.floor(Number(task.data?.replacementCount) || 1)), 0);
+  }
+
+  function availableEmptyReceptacleCount(itemKey) {
+    const available = physicalEmptyReceptacleStacks(itemKey).reduce((total, stack) => total + stack.quantity, 0);
+    return Math.max(0, available - queuedReplacementReceptacleCount(itemKey));
+  }
+
+  function consumeEmptyReceptacle(itemKey) {
+    const stack = physicalEmptyReceptacleStacks(itemKey)
+      .sort((a, b) => a.roomId === scientistRoomId() ? -1 : b.roomId === scientistRoomId() ? 1 : a.observedAt - b.observedAt)[0];
+    if (!stack) return false;
+    stack.quantity -= 1;
+    stack.knownQuantity = Math.max(0, stack.knownQuantity - 1);
+    stack.updatedAt = state.clock;
+    if (stack.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    syncPhysicalReadModels();
+    return true;
+  }
+
+  function consumeEmptyReceptacles(itemKey, count = 1) {
+    const requested = Math.max(0, Math.floor(Number(count) || 0));
+    if (!requested) return 0;
+    let consumed = 0;
+    while (consumed < requested && consumeEmptyReceptacle(itemKey)) consumed += 1;
+    if (consumed < requested && consumed > 0) addPhysicalItemQuantity("inventory", itemKey, consumed, scientistRoomId());
+    return consumed === requested ? consumed : 0;
+  }
+
+  function createFilledReceptacle(itemKey, contents, location, options = {}) {
+    const def = receptacleDefByItemKey(itemKey);
+    if (!def || !normalizePhysicalContents(contents).length) return null;
+    return createPhysicalItemStack("inventory", itemKey, 1, location, {
+      form: "receptacle",
+      phase: def.phase,
+      tags: options.tags,
+      contents,
+      sourceLabels: options.sourceLabels,
+      sourceSlimeIds: options.sourceSlimeIds
+    });
+  }
+
+  function physicalWasteStacks(options = {}) {
+    const roomId = options.roomId ? normalizeStockpileRoomId(options.roomId) : "";
+    const containerId = cleanContainerId(options.containerId);
+    return ensurePhysicalItemStacks().filter((stack) =>
+      stack.section === "resources" && stack.key === "waste" && stack.quantity > 0
+      && (!roomId || stack.roomId === roomId)
+      && (!containerId || stack.containerId === containerId)
+      && (options.exposed !== true || physicalStackExposed(stack))
+    );
+  }
+
+  function createPhysicalWasteBatch(amount, tags = [], location = {}, options = {}) {
+    const units = Math.max(0, Math.trunc(Number(amount) || 0));
+    if (!units) return null;
+    const roomId = normalizeStockpileRoomId(location.roomId || PITS_ROOM_ID);
+    const containerId = cleanContainerId(location.containerId);
+    const cell = cleanMapCell(location.cell)
+      || objectMapCell(containerById(containerId))
+      || labMapRoomAnchor(roomId);
+    const cleanTags = normalizeResidueTags(["waste", ...tags]);
+    const existing = physicalWasteStacks({ roomId, containerId }).find((stack) =>
+      mapCellKey(stack.cell) === mapCellKey(cell) && normalizeResidueTags(stack.tags).join("|") === cleanTags.join("|")
+    );
+    if (existing) {
+      existing.quantity += units;
+      existing.knownQuantity += scientistObservesRoom(roomId) ? units : 0;
+      existing.updatedAt = state.clock;
+      existing.sourceLabels = normalizeResidueSourceLabels([...(existing.sourceLabels || []), ...(options.sourceLabels || [])]);
+      syncPhysicalReadModels();
+      return existing;
+    }
+    return createPhysicalItemStack("resources", "waste", units, {
+      roomId,
+      cell,
+      fixtureId: "",
+      stockpileId: "",
+      containerId
+    }, {
+      form: "waste",
+      phase: options.phase || "sludge",
+      tags: cleanTags,
+      sourceLabels: options.sourceLabels,
+      known: options.known ?? scientistObservesRoom(roomId)
+    });
+  }
+
+  function spendPhysicalWaste(amount, options = {}) {
+    let remaining = Math.max(0, Math.trunc(Number(amount) || 0));
+    const requested = remaining;
+    for (const stack of physicalWasteStacks(options).sort((a, b) => a.createdAt - b.createdAt)) {
+      if (remaining <= 0) break;
+      const taken = Math.min(stack.quantity, remaining);
+      stack.quantity -= taken;
+      stack.knownQuantity = Math.max(0, Math.min(stack.knownQuantity, stack.quantity));
+      remaining -= taken;
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0);
+    syncPhysicalReadModels();
+    return requested - remaining;
+  }
+
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
     if (stack.carriedBy === "scientist") return true;
+    if (stack.containerId || stack.form === "spill" || stack.form === "waste") return true;
     const designation = stack.stockpileId
       ? ensureStockpileDesignations().find((entry) => entry.id === stack.stockpileId)
       : stockpileDesignationAtCell(stack.cell);
@@ -12206,7 +12576,6 @@
       fixtureId: task.data.fixtureId || "",
       stockpileId: task.data.stockpileId || ""
     };
-    moveRoomStockpileLedgerOnly(stack.section, stack.key, amount, stack.roomId, destinationLocation.roomId);
     if (amount < stack.quantity) {
       stack.quantity -= amount;
       stack.knownQuantity = stack.quantity;
@@ -12223,6 +12592,7 @@
     }
     state.scientist.roomId = task.data.toRoomId;
     state.scientist.mapCell = cleanMapCell(task.data.toAccessCell) || labMapRoomAnchor(task.data.toRoomId);
+    syncPhysicalReadModels();
     addEvent(`Storage hauling complete: ${formatNumber(amount)} ${physicalStackLabel(stack)} placed in ${ensureStockpileDesignations().find((entry) => entry.id === task.data.stockpileId)?.name || "the stockpile"}.`);
     return true;
   }
@@ -12476,11 +12846,84 @@
     }
     const key = mapCellKey(cell);
     const allowed = options.allowBlockedCellKeys || new Set();
-    if (allowed.has(key)) {
-      return false;
+    if (options.actor && !canActorOccupyTile(options.actor, cell)) {
+      return true;
     }
+    if (allowed.has(key)) return false;
     const blocked = options.blockedCellKeys || labMapBlockingCellKeys(options.map || ensureLabMap(), options);
     return blocked.has(key);
+  }
+
+  function slimeFloorLoadM2(slime) {
+    const profile = physicalProfile(slime?.genome || "");
+    if (!profile) return 0.1;
+    const massFraction = clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.25);
+    const volumeM3 = Math.max(0.0001, (Number(profile.volumeCm3) || 1000) / 1000000 * massFraction);
+    const shapeFactor = {
+      puddle: 2.4,
+      "worm-like": 1.55,
+      blob: 1.25,
+      spherical: 0.8,
+      cubic: 1,
+      humanoid: 0.7,
+      "dog-shaped": 1.15
+    }[profile.shape] || 1;
+    return clamp(Math.pow(volumeM3, 2 / 3) * shapeFactor, 0.015, MAP_TILE_AREA_M2);
+  }
+
+  function corpseFloorLoadM2(corpse) {
+    const profile = physicalProfile(corpse?.genome || "");
+    if (!profile) return 0.08;
+    const remaining = clamp(1 - (Number(corpse?.consumedProgress) || 0) / 100, 0.05, 1);
+    const volumeM3 = Math.max(0.0001, (Number(profile.volumeCm3) || 1000) / 1000000 * remaining);
+    return clamp(Math.pow(volumeM3, 2 / 3) * 1.2, 0.015, MAP_TILE_AREA_M2 * 1.5);
+  }
+
+  function physicalStackFloorLoadM2(stack) {
+    if (!stack || stack.fixtureId || stack.containerId || stack.carriedBy || stack.form === "spill") return 0;
+    const volumeM3 = Math.max(0, (Number(stack.quantity) || 0) * (Number(stack.unitVolumeL) || 0) / 1000);
+    return volumeM3 / FLOOR_PILE_HEIGHT_M;
+  }
+
+  function samePhysicalActor(left, right) {
+    if (!left || !right) return false;
+    if (left === right) return true;
+    if (left === state.scientist || right === state.scientist) return false;
+    return Boolean(left.id && right.id && left.id === right.id);
+  }
+
+  function actorFloorLoadM2(actor) {
+    if (!actor) return 0;
+    if (actor === state.scientist || actor.physicalPresence) {
+      return Math.max(0, Number(actor.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
+    }
+    return slimeFloorLoadM2(actor);
+  }
+
+  function tileOccupiedAreaM2(cell, options = {}) {
+    const key = mapCellKey(cell);
+    const excludeActor = options.excludeActor || null;
+    let occupied = 0;
+    if (!samePhysicalActor(state.scientist, excludeActor) && mapCellKey(state.scientist?.mapCell) === key) {
+      occupied += Math.max(0, Number(state.scientist?.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
+    }
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "released" || samePhysicalActor(slime, excludeActor)) continue;
+      if (mapCellKey(objectMapCell(slime)) === key) occupied += slimeFloorLoadM2(slime);
+    }
+    for (const corpse of state.corpses || []) {
+      if (corpse.containerId || corpse.storage === "drum") continue;
+      if (mapCellKey(objectMapCell(corpse)) === key) occupied += corpseFloorLoadM2(corpse);
+    }
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (mapCellKey(stack.cell) === key) occupied += physicalStackFloorLoadM2(stack);
+    }
+    return Math.max(0, occupied);
+  }
+
+  function canActorOccupyTile(actor, cell) {
+    const load = actorFloorLoadM2(actor);
+    return load > 0 && tileOccupiedAreaM2(cell, { excludeActor: actor }) + load <= MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON;
   }
 
   function nearestOpenMapCellInRoom(roomId, preferredCell = null, options = {}) {
@@ -12493,7 +12936,9 @@
     const allowed = options.allowBlockedCellKeys || new Set();
     for (const cell of roomCellsSortedForPlacement(room, preferredCell || room.anchor)) {
       const key = mapCellKey(cell);
-      if (labMapCellIsDoor(cell, map) || (blocked.has(key) && !allowed.has(key))) {
+      if (labMapCellIsDoor(cell, map)
+        || (blocked.has(key) && !allowed.has(key))
+        || options.actor && !canActorOccupyTile(options.actor, cell)) {
         continue;
       }
       return cell;
@@ -14385,8 +14830,12 @@
       }
     }
 
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
-    for (const residue of state.feedingResidues || []) {
+    for (const residue of FEEDING_RESIDUE_DEFS.flatMap((def) =>
+      ensurePhysicalItemStacks()
+        .filter((stack) => stack.section === "residue" && stack.key === def.key && stack.quantity > 0)
+        .map(feedingResidueFromPhysicalStack)
+        .filter(Boolean)
+    )) {
       const roomId = residue.location?.type === "room" ? residue.location.roomId : "";
       if (!roomId || !scientistObservesRoom(roomId) || residue.amount < INCIDENT_RESIDUE_THRESHOLD) {
         continue;
@@ -14397,7 +14846,7 @@
         summary: `${feedingResidueUnitText(residue.amount)}; source ${residue.sourceLabels?.[0] || "unknown"}`,
         severity: residueIncidentSeverity(residue),
         roomId,
-        cell: labMapRoomAnchor(roomId),
+        cell: residue.location.cell || labMapRoomAnchor(roomId),
         sourceKind: "residue",
         sourceId: residue.id,
         sourceLabel: feedingResidueLabel(residue.typeKey)
@@ -14708,7 +15157,7 @@
       : containerOrId?.id
         ? containerById(containerOrId.id)
         : containerOrId;
-    return Math.max(0, Math.floor(Number(container?.waste?.amount) || 0));
+    return container ? Math.max(0, Math.floor(physicalActualAmount("resources", "waste", { containerId: container.id }))) : 0;
   }
 
   function containerWasteTotal() {
@@ -14725,16 +15174,11 @@
     if (!container || !units) {
       return false;
     }
-    container.waste = normalizeContainerWaste(container.waste);
-    container.waste.amount += units;
-    for (const tag of tags) {
-      const key = normalizeWasteTag(tag);
-      if (!key) {
-        continue;
-      }
-      container.waste.tags[key] = (container.waste.tags[key] || 0) + units;
-    }
-    return true;
+    return Boolean(createPhysicalWasteBatch(units, tags, {
+      roomId: container.roomId || PITS_ROOM_ID,
+      containerId: container.id,
+      cell: objectMapCell(container)
+    }, { sourceLabels: [container.name] }));
   }
 
   function spendContainerWaste(containerOrId, amount) {
@@ -14747,21 +15191,7 @@
     if (!container || !units) {
       return false;
     }
-    container.waste = normalizeContainerWaste(container.waste);
-    if (container.waste.amount < units) {
-      return false;
-    }
-    container.waste.amount = Math.max(0, container.waste.amount - units);
-    for (const key of Object.keys(container.waste.tags)) {
-      container.waste.tags[key] -= units;
-      if (container.waste.tags[key] <= 0) {
-        delete container.waste.tags[key];
-      }
-    }
-    if (container.waste.amount <= 0) {
-      container.waste.tags = {};
-    }
-    return true;
+    return spendPhysicalWaste(units, { containerId: container.id }) === units;
   }
 
   function availablePitHoleContainer() {
@@ -17637,7 +18067,6 @@
       return [];
     }
     const sources = [];
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
     for (const residue of feedingResiduesForLocation({ type: "room", roomId: room.id })) {
       if (residue.amount <= 0) {
         continue;
@@ -21903,13 +22332,14 @@
       const displaced = Math.max(0, preservedReceptacle - receptacleAmount);
       station.material = targetMaterial;
       station.methodType = targetMethodType;
-      station.receptacle = { label: def.label, amount: receptacleAmount, capacity: def.capacity };
+      station.receptacle = { label: def.label, itemKey: def.itemKey, installed: receptacleAmount > 0, amount: receptacleAmount, capacity: def.capacity };
       station.overflow = {
         amount: roundOutputValue(clamp(preservedOverflow + displaced, 0, def.overflowCapacity)),
         capacity: def.overflowCapacity
       };
     } else {
       station.receptacle.label = def.label;
+      station.receptacle.itemKey = def.itemKey;
       station.receptacle.capacity = def.capacity;
       station.overflow.capacity = def.overflowCapacity;
       station.receptacle.amount = roundOutputValue(clamp(station.receptacle.amount, 0, station.receptacle.capacity));
@@ -21920,6 +22350,29 @@
       ? cleanCollectionBaySourceList(keepExistingSources ? [...(station.sourceMaterials || []), ...targetSources] : targetSources)
       : cleanCollectionBaySourceList(targetSources.length ? targetSources : [targetMaterial]);
     station.sourceSlimes = cleanCollectionBaySourceList(keepExistingSources ? [...(station.sourceSlimes || []), ...targetSlimes] : targetSlimes);
+    collectionBayEnsureActiveReceptacle(station, def);
+    return true;
+  }
+
+  function collectionBayEnsureActiveReceptacle(station, def = collectionBayReceptacleDef(station?.methodType)) {
+    if (!station || !def?.itemKey) return false;
+    station.receptacle ||= { label: def.label, itemKey: def.itemKey, installed: false, amount: 0, capacity: def.capacity };
+    if (station.receptacle.installed && station.receptacle.itemKey === def.itemKey) return true;
+    if ((Number(station.receptacle.amount) || 0) > 0) {
+      station.receptacle.installed = true;
+      station.receptacle.itemKey = def.itemKey;
+      return true;
+    }
+    if (station.receptacle.installed && station.receptacle.itemKey && station.receptacle.itemKey !== def.itemKey) {
+      addInventoryItem(station.receptacle.itemKey, 1, "Collection station receptacle returned", COLLECTION_BAY_ROOM_ID);
+      station.receptacle.installed = false;
+    }
+    if (!consumeEmptyReceptacle(def.itemKey)) {
+      station.receptacle.installed = false;
+      station.receptacle.itemKey = def.itemKey;
+      return false;
+    }
+    station.receptacle = { label: def.label, itemKey: def.itemKey, installed: true, amount: 0, capacity: def.capacity };
     return true;
   }
 
@@ -22062,6 +22515,11 @@
       info.blockers.push("Collection station could not be configured.");
       return info;
     }
+    if (!station.receptacle.installed) {
+      info.status = `Paused: needs empty ${station.receptacle.label}`;
+      info.blockers.push(`No empty ${station.receptacle.label} is available.`);
+      return info;
+    }
     info.rate = roundOutputValue(group.scalarTotal * COLLECTION_BAY_BASE_OUTPUT_PER_MINUTE * info.support.factor);
     info.outputLabel = collectionBayRateLabel(info.rate);
     if (info.support.factor <= 0) {
@@ -22150,8 +22608,15 @@
     if (!info?.station || !info.station.material) {
       return "No collection receptacle is assigned.";
     }
+    if (!info.station.receptacle?.installed) {
+      return `No ${info.station.receptacle?.label || "collection receptacle"} is installed.`;
+    }
     if ((Number(info.station.receptacle?.amount) || 0) <= 0) {
       return "Receptacle is empty.";
+    }
+    const replacementItemKey = info.station.receptacle.itemKey || collectionBayReceptacleDef(info.station.methodType).itemKey;
+    if (!replacementItemKey || availableEmptyReceptacleCount(replacementItemKey) <= 0) {
+      return `No empty ${inventoryItemLabel(replacementItemKey || "receptacle")} is available as a replacement.`;
     }
     return "";
   }
@@ -22208,6 +22673,7 @@
       dueAt: state.clock + duration,
       data: {
         containerId,
+        replacementItemKey: info.station.receptacle.itemKey || collectionBayReceptacleDef(info.station.methodType).itemKey,
         staminaCost: cost
       }
     });
@@ -22226,13 +22692,46 @@
     }
     const amount = roundOutputValue(Number(info.station.receptacle.amount) || 0);
     const material = info.station.material || info.material;
-    const transferred = addCollectedByproduct(material, amount, collectionBayTransferSource(info), STORAGE_ROOM_ID);
-    if (transferred <= 0) {
+    const replacementItemKey = task.data?.replacementItemKey || info.station.receptacle.itemKey;
+    if (!consumeEmptyReceptacle(replacementItemKey)) {
+      addEvent(`Collection Bay transfer blocked; no empty ${inventoryItemLabel(replacementItemKey)} remains.`);
       return false;
     }
+    const sources = cleanCollectionBaySourceList(info.station.sourceMaterials?.length ? info.station.sourceMaterials : [material]);
+    const share = roundOutputValue(amount / Math.max(1, sources.length));
+    let assigned = 0;
+    const contents = sources.map((source, index) => {
+      const contentAmount = index === sources.length - 1 ? roundOutputValue(amount - assigned) : share;
+      assigned = roundOutputValue(assigned + contentAmount);
+      return {
+        kind: "byproduct",
+        key: byproductInventoryKey(source),
+        label: source,
+        amount: contentAmount,
+        phase: collectionBayReceptacleDef(info.station.methodType).phase,
+        tags: ["byproduct", info.station.methodType]
+      };
+    });
+    const filled = createFilledReceptacle(info.station.receptacle.itemKey, contents, {
+      roomId: COLLECTION_BAY_ROOM_ID,
+      cell: objectMapCell(container) || labMapRoomAnchor(COLLECTION_BAY_ROOM_ID),
+      fixtureId: "",
+      stockpileId: ""
+    }, {
+      sourceLabels: [collectionBayTransferSource(info)],
+      sourceSlimeIds: info.station.sourceSlimes
+    });
+    if (!filled) {
+      addInventoryItem(replacementItemKey, 1, "Failed collection transfer replacement", COLLECTION_BAY_ROOM_ID);
+      return false;
+    }
+    for (const content of contents) recordCollectedByproductChange(content.key, content.amount, collectionBayTransferSource(info));
     info.station.receptacle.amount = 0;
+    info.station.receptacle.itemKey = replacementItemKey;
+    info.station.receptacle.installed = true;
     const drained = collectionBayDrainOverflowIntoReceptacle(info.station);
-    addEvent(`Transferred ${formatCollectionAmount(transferred)} ${material} from ${info.container?.name || "Collection Bay"} receptacle to Storage Room${drained > 0 ? `; ${formatCollectionAmount(drained)} remains in the replacement receptacle` : ""}.`);
+    claimNextStockpileHaul();
+    addEvent(`Removed ${formatCollectionAmount(amount)} ${material} in a filled ${inventoryItemLabel(filled.key)} from ${info.container?.name || "Collection Bay"}${drained > 0 ? `; ${formatCollectionAmount(drained)} flowed into the replacement receptacle` : ""}.`);
     return true;
   }
 
@@ -26336,6 +26835,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!options.allowMultiRoom && fromRoomId !== target.id && !roomConnectedIds(fromRoomId).includes(target.id)) {
       return "The scientist can only move to connected rooms.";
     }
+    if (targetCell && !canActorOccupyTile(state.scientist, targetCell)) {
+      return "The destination tile does not have enough clear space for the scientist.";
+    }
     const securityRoute = roomRouteBetween(fromRoomId, target.id, {
       ignoreDoors: true,
       ignoreDoorSecurity: true,
@@ -26348,7 +26850,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (doorBlock) {
       return doorBlock;
     }
-    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined, allowUnassignedCell: options.allowUnassignedCell }).length) {
+    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist }).length) {
       return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
     }
     return "";
@@ -26356,8 +26858,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function scientistMoveDuration(fromRoomId, toRoomId, options = {}) {
     const fromCell = options.fromCell || scientistMapCell();
-    const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId));
-    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
+    const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId), { actor: state.scientist });
+    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist });
     const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
     const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
@@ -26390,10 +26892,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell)
         ? cleanMapCell(options.toCell)
         : normalizeMapCellForRoom(options.toCell, target.id)
-      : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell });
+      : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell, actor: state.scientist });
     const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
-    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
+    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
@@ -26431,10 +26933,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const fromRoomId = state.scientist?.roomId || task.data?.fromRoomId || MAIN_ROOM_ID;
     state.scientist = normalizeScientist(state.scientist);
-    state.scientist.roomId = target.id;
-    state.scientist.mapCell = task.data?.allowUnassignedCell && labMapCellIsWalkable(task.data?.toCell)
+    const destination = task.data?.allowUnassignedCell && labMapCellIsWalkable(task.data?.toCell)
       ? cleanMapCell(task.data.toCell)
       : normalizeMapCellForRoom(task.data?.toCell, target.id);
+    if (!canActorOccupyTile(state.scientist, destination)) {
+      addEvent("Scientist movement is blocked because the destination tile no longer has enough clear space.");
+      return false;
+    }
+    state.scientist.roomId = target.id;
+    state.scientist.mapCell = destination;
     applyDoorTransitPolicy(task.data?.doorTransit, "Scientist movement");
     addEvent(`Arrived in ${target.name}.`);
     const incident = incidentById(task.data?.incidentId);
@@ -27523,7 +28030,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       });
     };
 
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
     for (const residue of feedingResiduesForLocation({ type: "room", roomId })) {
       if (residue.amount <= 0) {
         continue;
@@ -27646,7 +28152,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       toCell,
       ignoreDoors: false,
       ignoreDoorSecurity: false,
-      requireReachable: true
+      requireReachable: true,
+      actor: slime
     });
   }
 
@@ -27754,7 +28261,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         y: room.y + Math.floor(rng() * Math.max(1, room.height))
       }).slice(0, 8);
       for (const cell of cells) {
-        if (labMapCellIsDoor(cell, map) || labMapCellIsPathBlocked(cell, { map })) {
+        if (labMapCellIsDoor(cell, map) || labMapCellIsPathBlocked(cell, { map, actor: slime })) {
           continue;
         }
         const path = roomPathBetween(currentRoomId, roomId, {
@@ -27763,7 +28270,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           toCell: cell,
           ignoreDoors: false,
           ignoreDoorSecurity: false,
-          requireReachable: true
+          requireReachable: true,
+          actor: slime
         });
         if (path.length > 1) {
           options.push({
@@ -27883,6 +28391,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 1;
     }
     const previousKey = mapCellKey(objectMapCell(slime) || movement.path[0]);
+    const nextCell = movement.path[Math.min(movement.path.length - 1, currentIndex + 1)];
+    if (nextCell && !canActorOccupyTile(slime, nextCell)) {
+      slime.autonomousMovement = null;
+      slime.roomActivity = {
+        type: "blocked",
+        label: "blocked by crowded floor space",
+        roomId: slime.roomId || MAIN_ROOM_ID,
+        targetRoomId: movement.targetRoomId,
+        targetKind: movement.targetKind,
+        targetId: movement.targetId,
+        targetLabel: movement.targetLabel,
+        updatedAt: state.clock
+      };
+      return 1;
+    }
     if (state.clock >= movement.arriveAt) {
       arriveAtAutonomousTarget(slime, movement);
       return 1;
@@ -27914,14 +28437,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function consumeFeedingResidueForSlime(slime, target, elapsed) {
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
     const roomId = slimeEffectiveRoomId(slime);
-    const residue = state.feedingResidues.find((entry) =>
-      entry.id === target.id && entry.location?.type === "room" && entry.location.roomId === roomId
-    ) || state.feedingResidues.find((entry) =>
-      entry.location?.type === "room" && entry.location.roomId === roomId && entry.amount > 0
+    const stack = physicalSpillStackById(target.id) || ensurePhysicalItemStacks().find((entry) =>
+      entry.section === "residue" && !entry.containerId && entry.roomId === roomId && entry.quantity > 0
     );
-    if (!residue) {
+    const residue = feedingResidueFromPhysicalStack(stack);
+    if (!residue || residue.location.type !== "room" || residue.location.roomId !== roomId) {
       return 0;
     }
     const match = looseFoodMatch(slime, residueFoodTags(residue));
@@ -27942,15 +28463,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 0;
     }
     slime.accessibleFeedingProgress -= units;
-    residue.amount -= units;
+    stack.quantity -= units;
+    if (scientistObservesRoom(roomId)) {
+      stack.knownQuantity = stack.quantity;
+      stack.observedAt = state.clock;
+    }
     applyLooseFoodEffects(slime, units, match, {
       roomId,
       label: feedingResidueLabel(residue.typeKey),
       tags: residueFoodTags(residue)
     });
-    if (residue.amount <= 0) {
-      state.feedingResidues = state.feedingResidues.filter((entry) => entry.id !== residue.id);
-    }
+    if (stack.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    syncPhysicalReadModels();
     return 1;
   }
 
@@ -28008,11 +28532,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     if (units <= 0) return 0;
     slime.accessibleFeedingProgress -= units;
-    ensureRoomStockpiles();
-    const localMap = state.roomStockpiles?.[roomId]?.resources || {};
-    localMap[stack.key] = Math.max(0, (Number(localMap[stack.key]) || 0) - units);
-    if (localMap[stack.key] <= 0) delete localMap[stack.key];
-    state.resources[stack.key] = Math.max(0, (Number(state.resources[stack.key]) || 0) - units);
     stack.quantity -= units;
     if (scientistObservesRoom(roomId)) {
       stack.knownQuantity = stack.quantity;
@@ -28022,6 +28541,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (stack.quantity <= 0 && scientistObservesRoom(roomId)) {
       state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
     }
+    syncPhysicalReadModels();
     return 1;
   }
 
@@ -31413,6 +31933,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         policyTabButton("feeding", "Open Feeding")
       ),
       policyOverviewRow(
+        "Spill cleanup",
+        CLEANUP_POLICY_MODE_BY_ID[cleanupPolicy().mode]?.label || "Manual only",
+        `Minimum ${formatNumber(cleanupPolicy().minimumUnits)} unit${cleanupPolicy().minimumUnits === 1 ? "" : "s"}; priority ${cleanupPolicy().priority}.`,
+        policyTabButton("automation", "Open Automation")
+      ),
+      policyOverviewRow(
         "Automation exclusions",
         formatNumber(excluded.length),
         excluded.length ? excluded.map((slime) => slime.name).join(", ") : "No living specimens are excluded.",
@@ -31425,6 +31951,59 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.automationPolicyList) {
       return;
     }
+    const cleanup = cleanupPolicy();
+    const cleanupControls = document.createElement("div");
+    cleanupControls.className = "policy-control-list";
+    const modeLabel = document.createElement("label");
+    modeLabel.className = "policy-field";
+    modeLabel.append(textEl("span", "Spill cleanup"));
+    const modeSelect = document.createElement("select");
+    modeSelect.setAttribute("aria-label", "Spill cleanup");
+    for (const mode of CLEANUP_POLICY_MODES) modeSelect.append(new Option(mode.label, mode.id));
+    modeSelect.value = cleanup.mode;
+    modeSelect.addEventListener("change", () => {
+      state.policies.cleanup.mode = modeSelect.value;
+      state.policies = normalizePolicies(state.policies);
+      claimNextSpillCleanup();
+      addEvent(`Spill cleanup policy set to ${CLEANUP_POLICY_MODE_BY_ID[state.policies.cleanup.mode].label}.`);
+      persist();
+      render();
+    });
+    modeLabel.append(modeSelect);
+    const minimumLabel = document.createElement("label");
+    minimumLabel.className = "policy-field";
+    minimumLabel.append(textEl("span", "Minimum spill units"));
+    const minimumInput = document.createElement("input");
+    minimumInput.type = "number";
+    minimumInput.min = "1";
+    minimumInput.max = "999";
+    minimumInput.value = String(cleanup.minimumUnits);
+    minimumInput.addEventListener("change", () => {
+      state.policies.cleanup.minimumUnits = clamp(Math.floor(Number(minimumInput.value) || 1), 1, 999);
+      state.policies = normalizePolicies(state.policies);
+      claimNextSpillCleanup();
+      persist();
+      render();
+    });
+    minimumLabel.append(minimumInput);
+    const priorityLabel = document.createElement("label");
+    priorityLabel.className = "policy-field";
+    priorityLabel.append(textEl("span", "Cleanup priority"));
+    const priorityInput = document.createElement("input");
+    priorityInput.type = "number";
+    priorityInput.min = "1";
+    priorityInput.max = "7";
+    priorityInput.value = String(cleanup.priority);
+    priorityInput.addEventListener("change", () => {
+      state.policies.cleanup.priority = clamp(Math.floor(Number(priorityInput.value) || 4), 1, 7);
+      state.policies = normalizePolicies(state.policies);
+      persist();
+      render();
+    });
+    priorityLabel.append(priorityInput);
+    cleanupControls.append(modeLabel, minimumLabel, priorityLabel);
+    dom.automationPolicyList.append(cleanupControls);
+
     const living = (state.slimes || [])
       .filter((slime) => slime.status !== "dead")
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -32980,9 +33559,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!mapShowsRoomOccupants(stack.roomId, options) && !mapShowsTrackedEntity("itemStack", stack.id)) continue;
       addCell(
         stack.cell,
-        "P",
-        `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)} on the floor; ${physicalStackKnowledgeLabel(stack)}`,
-        ["physical-item-stack-cell", "floor-stockpile-object-cell"],
+        stack.form === "spill" ? "~" : stack.form === "receptacle" ? "v" : "P",
+        `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)} on the floor; ${stack.contents?.length ? `${physicalStackContentsLabel(stack)}; ` : ""}${physicalStackKnowledgeLabel(stack)}`,
+        ["physical-item-stack-cell", "floor-stockpile-object-cell", ...(stack.form === "spill" ? ["spill-object-cell"] : [])],
         { kind: "itemStack", id: stack.id, label: `${physicalStackLabel(stack)} stack` }
       );
     }
@@ -33216,6 +33795,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if ((Number(info.station.receptacle?.amount) || 0) <= 0) {
       return "Receptacle is empty.";
     }
+    const replacementItemKey = task.data?.replacementItemKey || info.station.receptacle.itemKey;
+    if (!replacementItemKey || physicalEmptyReceptacleStacks(replacementItemKey).reduce((total, stack) => total + stack.quantity, 0) <= 0) {
+      return `No empty ${inventoryItemLabel(replacementItemKey || "receptacle")} remains for the replacement.`;
+    }
     return "";
   }
 
@@ -33285,8 +33868,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "collectionBayTransfer") {
       return collectionBayTransferTaskBlockReason(task);
     }
+    if (task.type === "spillCleanup") {
+      return spillCleanupTaskBlockReason(task);
+    }
     if (task.type === "scientistMove" && !roomById(task.data?.toRoomId)) {
       return "The destination room no longer exists.";
+    }
+    if (task.type === "scientistMove" && !canActorOccupyTile(state.scientist, task.data?.toCell)) {
+      return "The destination tile no longer has enough clear space for the scientist.";
     }
     if (task.type === "constructionWork") {
       const order = constructionOrderById(task.data?.constructionOrderId);
@@ -33426,6 +34015,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "stockpileHaul") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+    }
+    if (task.type === "spillCleanup") {
+      const stack = physicalSpillStackById(task.data?.spillId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     const incidentId = String(task.data?.incidentId || "").trim();
@@ -33747,7 +34340,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "itemStack") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
-      return stack ? `${physicalStackLabel(stack)} stack` : "Item Stack";
+      return stack ? `${physicalStackLabel(stack)}${stack.form === "spill" ? " spill" : ""}` : "Item Stack";
     }
     if (selection.kind === "slime") {
       return findSlime(selection.id)?.name || "Slime";
@@ -33787,7 +34380,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       door: "Door",
       container: "Container",
       fixture: "Fixture",
-      itemStack: "Stored Items",
+      itemStack: "Physical Contents",
       slime: "Living Specimen",
       corpse: "Deceased Specimen",
       incident: "Incident",
@@ -33924,7 +34517,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "itemStack") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
-      return stack ? [physicalStackQuantityText(stack), stack.fixtureId ? "stored" : "floor storage", physicalStackKnowledgeLabel(stack)].map(chip) : [];
+      return stack ? [physicalStackQuantityText(stack), titleCase(stack.form || "stack"), stack.fixtureId ? "stored" : stack.containerId ? "contained" : "on floor", physicalStackKnowledgeLabel(stack)].map(chip) : [];
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
@@ -35209,7 +35802,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             disabledReason: collectionBayTransferDisabledReason(stationInfo)
               || physicalStateRiskBlockReason(`transferring ${container.name} receptacle`)
               || staminaBlockReason(adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"])),
-            description: "Queue a scientist task to move only the active receptacle contents into Collected Byproducts in Storage Room. Overflow remains in the apparatus and can refill the replacement receptacle.",
+            description: "Queue a scientist task to remove the filled physical receptacle and install an empty replacement. Overflow remains in the apparatus and refills the replacement before hauling begins.",
             run: () => transferCollectionBayReceptacle(container.id)
           }));
         }
@@ -35479,6 +36072,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection?.id);
     if (!stack) return [];
     const commands = [];
+    if (stack.form === "spill") {
+      const itemKey = spillCleanupReceptacleItemKey(stack);
+      const cleanupReason = spillCleanupTask(stack.id)
+        ? "Cleanup is already queued for this spill."
+        : stack.containerId
+          ? "Interior residue requires a container-cleaning procedure."
+          : availableEmptyReceptacleCount(itemKey) <= 0
+            ? `No empty ${inventoryItemLabel(itemKey)} is available.`
+            : staminaBlockReason(SPILL_CLEANUP_STAMINA);
+      commands.push(commandDef({
+        id: `itemStack.clean.${stack.id}`,
+        label: "Clean Spill",
+        group: "Cleanup",
+        disabledReason: cleanupReason,
+        description: `Queue cleanup into an empty ${inventoryItemLabel(itemKey)}. Physical residue will be contained as tagged waste; environmental contamination remains.`,
+        run: () => {
+          const task = startSpillCleanup(stack.id);
+          persist();
+          render();
+          return task;
+        }
+      }));
+    }
     if (stack.roomId !== scientistRoomId()) {
       commands.push(commandDef({
         id: `itemStack.move.${stack.id}`,
@@ -35531,7 +36147,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         disabledReason: collectionBayTransferDisabledReason(info)
           || physicalStateRiskBlockReason(`transferring ${info.container.name} receptacle`)
           || staminaBlockReason(adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["materialsScience", "creatureHandling"])),
-        description: "Queue a scientist task to move the active receptacle contents into Collected Byproducts in Storage Room.",
+        description: "Queue a scientist task to remove the filled physical receptacle, install an empty replacement, and haul the filled vessel to an appropriate stockpile.",
         run: () => transferCollectionBayReceptacle(info.container.id)
       }),
       openWorkspaceCommand({
@@ -35913,8 +36529,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
       if (stack) {
         rows.push(["Known amount", `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)}`]);
+        rows.push(["Form", titleCase(stack.form || "stack")]);
+        if (stack.contents?.length) rows.push(["Contents", physicalStackContentsLabel(stack)]);
         rows.push(["Knowledge", physicalStackKnowledgeLabel(stack)]);
-        rows.push(["Storage", stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "Missing fixture" : "On designated floor"]);
+        rows.push(["Storage", stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "Missing fixture" : stack.containerId ? containerById(stack.containerId)?.name || "Contained" : "On floor"]);
       }
     } else if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -36135,11 +36753,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const designation = stack.stockpileId ? ensureStockpileDesignations().find((entry) => entry.id === stack.stockpileId) : stockpileDesignationAtCell(stack.cell);
       return [
         ["Item", physicalStackLabel(stack)],
+        ["Form", titleCase(stack.form || "stack")],
         ["Known amount", physicalStackQuantityText(stack)],
+        ["Contents", physicalStackContentsLabel(stack)],
+        ["Tags", normalizeResidueTags(stack.tags).join(", ") || "None"],
         ["Knowledge", physicalStackKnowledgeLabel(stack)],
         ["Physical volume", `${formatDecimal(stack.knownQuantity * stack.unitVolumeL, 1)} L`],
         ["Physical mass", `${formatDecimal(stack.knownQuantity * stack.unitMassKg, 1)} kg`],
-        ["Storage fixture", fixture?.name || "Floor storage"],
+        ["Storage fixture", fixture?.name || (stack.containerId ? containerById(stack.containerId)?.name || "Contained" : "Floor storage")],
         ["Access", fixture ? titleCase(fixture.accessState) : "Exposed"],
         ["Protection", physicalStackExposed(stack) ? "Exposed to loose creatures" : "Protected by closed storage"],
         ["Stockpile", designation?.name || "Not in a valid stockpile"],
@@ -36757,7 +37378,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (collectionStationTarget) {
       return collectionStationTarget;
     }
-    const priority = ["slime", "corpse", "container", "fixture"];
+    const hazardousSpill = targets.find((candidate) => {
+      if (candidate.kind !== "itemStack") return false;
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === candidate.id);
+      return stack?.form === "spill" && spillIsHazardous(stack);
+    });
+    if (hazardousSpill) return hazardousSpill;
+    const priority = ["slime", "corpse", "container"];
     for (const kind of priority) {
       const target = targets.find((candidate) => candidate.kind === kind);
       if (target) {
@@ -36766,6 +37393,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (door) {
       return { kind: "door", key: door.key, roomIds: door.roomIds };
+    }
+    for (const kind of ["fixture", "itemStack"]) {
+      const target = targets.find((candidate) => candidate.kind === kind);
+      if (target) {
+        return target;
+      }
     }
     if (overlayEntry?.target) {
       return overlayEntry.target;
@@ -37834,7 +38467,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return nearestOpenMapCellInRoom(roomId, incident.cell || labMapRoomAnchor(roomId), {
       preferredCell: incident.cell || labMapRoomAnchor(roomId),
-      ignoreObjects: incident.sourceKind !== "container"
+      actor: state.scientist
     });
   }
 
@@ -38752,6 +39385,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "collectionBayTransfer") {
       return "Collection";
+    }
+    if (task.type === "spillCleanup") {
+      return "Cleanup";
     }
     if (task.type === "blackMarketTrade") {
       return "Black Market";
@@ -40970,22 +41606,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function relocateRoomStockpileToFloor(roomId, cell) {
-    state.roomStockpiles ||= {};
-    const stockpile = normalizeRoomStockpile(state.roomStockpiles[roomId]);
-    state.roomStockpiles[roomId] = emptyRoomStockpile();
-    if (!roomStockpileHasContents(stockpile)) return null;
-    state.floorStockpiles = normalizeFloorStockpiles(state.floorStockpiles);
-    const destination = floorStockpileDestination(roomId);
-    const entry = {
-      id: `floor-stockpile-${state.clock}-${state.floorStockpiles.length + 1}`,
-      cell: cleanMapCell(cell) || labMapRoomAnchor(roomId),
-      sourceRoomId: roomId,
-      sourceRoomName: roomName(roomId),
-      destinationRoomId: destination?.id || "",
-      stockpile
-    };
-    state.floorStockpiles.push(entry);
-    return entry;
+    const targetCell = cleanMapCell(cell) || labMapRoomAnchor(roomId);
+    const moved = ensurePhysicalItemStacks().filter((stack) => stack.roomId === roomId).length;
+    syncPhysicalReadModels();
+    return moved ? { cell: targetCell, sourceRoomId: roomId, physicalStackCount: moved } : null;
   }
 
   function floorStockpileNumericTotal(entries, section, key) {
@@ -41168,11 +41792,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function ensureRoomStockpiles() {
-    state.resources = normalizeResources(state.resources);
-    state.inventory = normalizeInventory(state.inventory);
-    state.collectedByproducts = normalizeCollectedByproducts(state.collectedByproducts);
-    state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
-    state.roomStockpiles = normalizeRoomStockpiles(state.roomStockpiles, state);
+    if (!state.roomStockpiles || typeof state.roomStockpiles !== "object") syncPhysicalReadModels();
     return state.roomStockpiles;
   }
 
@@ -41205,23 +41825,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function addRoomNumeric(section, key, amount, roomId, allowFractional = false) {
-    const room = roomStockpile(roomId);
-    const map = room[section] ||= {};
     const delta = allowFractional ? roundOutputValue(Number(amount) || 0) : Math.trunc(Number(amount) || 0);
-    if (!delta) {
-      return 0;
-    }
-    const before = Number(map[key]) || 0;
-    const after = Math.max(0, before + delta);
-    const actual = allowFractional ? roundOutputValue(after - before) : Math.trunc(after - before);
-    if (after > 0) {
-      map[key] = allowFractional ? roundOutputValue(after) : Math.floor(after);
-    } else {
-      delete map[key];
-    }
-    if (actual > 0) addPhysicalItemQuantity(section, key, actual, roomId);
-    if (actual < 0) removePhysicalItemQuantity(section, key, -actual, roomId);
-    return actual;
+    if (!delta) return 0;
+    if (delta > 0) return addPhysicalItemQuantity(section, key, delta, roomId);
+    return -removePhysicalItemQuantity(section, key, -delta, roomId);
   }
 
   function moveRoomStockpileLedgerOnly(section, key, amount, fromRoomId, toRoomId, allowFractional = section === "collectedByproducts") {
@@ -41229,40 +41836,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const toRoom = normalizeStockpileRoomId(toRoomId);
     const requested = allowFractional ? roundOutputValue(Number(amount) || 0) : Math.max(0, Math.floor(Number(amount) || 0));
     if (requested <= 0 || fromRoom === toRoom) return 0;
-    const stockpiles = ensureRoomStockpiles();
-    stockpiles[fromRoom] ||= emptyRoomStockpile();
-    stockpiles[toRoom] ||= emptyRoomStockpile();
-    if (section === "specimenMaterials") {
-      const fromEntry = stockpiles[fromRoom].specimenMaterials?.[key];
-      if (!fromEntry) return 0;
-      const moved = Math.min(Number(fromEntry.amount) || 0, requested);
-      if (moved <= 0) return 0;
-      const toMaterials = stockpiles[toRoom].specimenMaterials;
-      const toEntry = toMaterials[key] || {
-        key,
-        label: fromEntry.label,
-        amount: 0,
-        tags: normalizeSpecimenMaterialTags(fromEntry.tags),
-        history: []
-      };
-      fromEntry.amount -= moved;
-      toEntry.amount += moved;
-      toEntry.history = normalizeSpecimenMaterialHistory([...(toEntry.history || []), ...(fromEntry.history || [])]);
-      toMaterials[key] = toEntry;
-      if (fromEntry.amount <= 0) delete stockpiles[fromRoom].specimenMaterials[key];
-      return moved;
-    }
-    const fromMap = stockpiles[fromRoom][section] ||= {};
-    const toMap = stockpiles[toRoom][section] ||= {};
-    const available = Number(fromMap[key]) || 0;
-    const moved = Math.min(available, requested);
-    if (moved <= 0) return 0;
-    const remaining = allowFractional ? roundOutputValue(available - moved) : Math.max(0, Math.floor(available - moved));
-    if (remaining > 0) fromMap[key] = remaining;
-    else delete fromMap[key];
-    const destination = (Number(toMap[key]) || 0) + moved;
-    toMap[key] = allowFractional ? roundOutputValue(destination) : Math.max(0, Math.floor(destination));
-    return allowFractional ? roundOutputValue(moved) : Math.floor(moved);
+    return relocatePhysicalItemQuantity(section, key, requested, fromRoom, toRoom);
   }
 
   function moveRoomNumeric(section, key, amount, fromRoomId, toRoomId, allowFractional = false) {
@@ -41273,8 +41847,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 0;
     }
     const moved = moveRoomStockpileLedgerOnly(section, key, requested, fromRoom, toRoom, allowFractional);
-    if (moved <= 0) return 0;
-    relocatePhysicalItemQuantity(section, key, moved, fromRoom, toRoom);
     return allowFractional ? roundOutputValue(moved) : Math.floor(moved);
   }
 
@@ -41282,10 +41854,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoom = normalizeStockpileRoomId(fromRoomId);
     const toRoom = normalizeStockpileRoomId(toRoomId);
     const requested = Math.max(0, Math.round(Number(amount) || 0));
-    const moved = moveRoomStockpileLedgerOnly("specimenMaterials", key, requested, fromRoom, toRoom);
-    if (moved <= 0) return 0;
-    relocatePhysicalItemQuantity("specimenMaterials", key, moved, fromRoom, toRoom);
-    return moved;
+    return moveRoomStockpileLedgerOnly("specimenMaterials", key, requested, fromRoom, toRoom);
   }
 
   function stockpileBreakdownLines(section, key, options = {}) {
@@ -41340,7 +41909,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
 
     const pitWaste = roomPitWasteAmount(resolvedRoomId);
-    const stockpiledWaste = resourceAmountInRoom("waste", resolvedRoomId);
+    const stockpiledWaste = roundOutputValue(ensurePhysicalItemStacks()
+      .filter((stack) => stack.roomId === resolvedRoomId && stack.section === "resources" && stack.key === "waste" && !stack.containerId)
+      .reduce((total, stack) => total + stack.knownQuantity, 0));
 
     for (const resource of RESOURCE_DEFS) {
       if (resource.key === "waste") {
@@ -41432,15 +42003,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!requestedDelta) {
       return 0;
     }
-    ensureRoomStockpiles();
-    ensureInventory();
-    const before = state.inventory[key] || 0;
+    const before = physicalActualAmount("inventory", key);
     const existingToolIds = new Set((state.toolDurability?.[key] || []).map((instance) => instance.id));
-    const after = Math.max(0, before + requestedDelta);
-    const actualDelta = after - before;
+    if (requestedDelta > 0) addPhysicalItemQuantity("inventory", key, requestedDelta, roomId);
+    else removePhysicalItemQuantity("inventory", key, -requestedDelta, roomId || "");
+    syncPhysicalReadModels();
+    const actualDelta = physicalActualAmount("inventory", key) - before;
     if (actualDelta) {
-      addRoomNumeric("inventory", key, actualDelta, roomId);
-      state.inventory[key] = after;
       if (TOOL_DURABILITY_DEFS[key]) {
         state.toolDurability = normalizeToolDurability(state.toolDurability, state.inventory);
         for (const instance of state.toolDurability[key] || []) {
@@ -41525,10 +42094,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!key || delta <= 0) {
       return 0;
     }
-    ensureRoomStockpiles();
-    addRoomNumeric("collectedByproducts", key, delta, roomId, true);
-    const inventory = ensureCollectedByproducts();
-    inventory[key] = roundOutputValue((Number(inventory[key]) || 0) + delta);
+    const method = byproductCollectionType(label);
+    const def = collectionBayReceptacleDef(method);
+    const itemKey = def.itemKey || "mixedOutputJar";
+    const capacity = Math.max(1, Number(def.capacity) || 1);
+    let remaining = delta;
+    while (remaining > 0) {
+      const vesselAmount = roundOutputValue(Math.min(capacity, remaining));
+      createFilledReceptacle(itemKey, [{
+        kind: "byproduct",
+        key,
+        label: String(label || key),
+        amount: vesselAmount,
+        phase: def.phase,
+        tags: ["byproduct", method]
+      }], physicalFallbackLocation(roomId), { sourceLabels: [source] });
+      remaining = roundOutputValue(remaining - vesselAmount);
+    }
+    syncPhysicalReadModels();
     recordCollectedByproductChange(key, delta, source);
     return delta;
   }
@@ -41539,43 +42122,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!key || requested <= 0 || collectedByproductAmount(key) < requested) {
       return 0;
     }
-    ensureRoomStockpiles();
-    const inventory = ensureCollectedByproducts();
     let remaining = requested;
-    const orderedRoomIds = roomStockpileIds()
-      .map((roomId) => ({
-        roomId,
-        amount: collectedByproductAmountInRoom(key, roomId),
-        rank: roomId === STORAGE_ROOM_ID ? 0 : 1
-      }))
-      .filter((entry) => entry.amount > 0)
-      .sort((a, b) => a.rank - b.rank || roomName(a.roomId).localeCompare(roomName(b.roomId)));
-    for (const entry of orderedRoomIds) {
-      if (remaining <= 0) {
-        break;
-      }
-      const taken = roundOutputValue(Math.min(entry.amount, remaining));
-      if (taken > 0) {
-        const room = roomStockpile(entry.roomId);
-        const before = Number(room.collectedByproducts?.[key]) || 0;
-        const after = roundOutputValue(Math.max(0, before - taken));
-        if (after > 0) {
-          room.collectedByproducts[key] = after;
-        } else {
-          delete room.collectedByproducts[key];
-        }
+    const stacks = ensurePhysicalItemStacks().sort((a, b) => a.roomId === STORAGE_ROOM_ID ? -1 : b.roomId === STORAGE_ROOM_ID ? 1 : a.createdAt - b.createdAt);
+    for (const stack of stacks) {
+      if (remaining <= 0) break;
+      for (const content of normalizePhysicalContents(stack.contents)) {
+        if (remaining <= 0 || content.kind !== "byproduct" || byproductInventoryKey(content.label || content.key) !== key) continue;
+        const taken = roundOutputValue(Math.min(content.amount, remaining));
+        const original = stack.contents.find((entry) => entry.kind === content.kind && entry.key === content.key && entry.label === content.label);
+        if (original) original.amount = roundOutputValue(Math.max(0, Number(original.amount) - taken));
         remaining = roundOutputValue(remaining - taken);
       }
+      stack.contents = normalizePhysicalContents(stack.contents);
+      stack.updatedAt = state.clock;
+    }
+    if (remaining > 0) {
+      const legacySpent = removePhysicalItemQuantity("collectedByproducts", key, remaining);
+      remaining = roundOutputValue(Math.max(0, remaining - legacySpent));
     }
     const spent = roundOutputValue(requested - Math.max(0, remaining));
     if (spent <= 0) {
       return 0;
     }
-    removePhysicalItemQuantity("collectedByproducts", key, spent);
-    inventory[key] = roundOutputValue(Math.max(0, (Number(inventory[key]) || 0) - spent));
-    if (inventory[key] <= 0) {
-      delete inventory[key];
-    }
+    syncPhysicalReadModels();
     recordCollectedByproductChange(key, -spent, source);
     return spent;
   }
@@ -41992,36 +42561,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const cleanTags = normalizeSpecimenMaterialTags(tags);
     const key = specimenMaterialKey(cleanLabel, cleanTags);
-    ensureRoomStockpiles();
-    const localInventory = roomStockpile(roomId).specimenMaterials;
-    const localEntry = localInventory[key] || {
-      key,
-      label: cleanLabel,
-      amount: 0,
-      tags: cleanTags,
-      history: []
-    };
-    localEntry.amount = Math.max(0, Math.round((Number(localEntry.amount) || 0) + delta));
-    localEntry.history = normalizeSpecimenMaterialHistory([
-      { amount: delta, source, tags: cleanTags },
-      ...(localEntry.history || [])
-    ]);
-    localInventory[key] = localEntry;
-    const inventory = ensureSpecimenMaterials();
-    const entry = inventory[key] || {
-      key,
-      label: cleanLabel,
-      amount: 0,
-      tags: cleanTags,
-      history: []
-    };
-    entry.amount = Math.max(0, Math.round((Number(entry.amount) || 0) + delta));
-    entry.history = normalizeSpecimenMaterialHistory([
-      { amount: delta, source, tags: cleanTags },
-      ...(entry.history || [])
-    ]);
-    inventory[key] = entry;
+    const prior = state.specimenMaterials?.[key];
     addPhysicalItemQuantity("specimenMaterials", key, delta, roomId);
+    const entry = state.specimenMaterials?.[key];
+    if (entry) {
+      entry.label = cleanLabel;
+      entry.tags = cleanTags;
+      entry.history = normalizeSpecimenMaterialHistory([
+        { amount: delta, source, tags: cleanTags },
+        ...(prior?.history || [])
+      ]);
+    }
     return delta;
   }
 
@@ -42366,6 +42916,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       methodType,
       receptacle: {
         label: String(candidate?.receptacle?.label || def.label),
+        itemKey: String(candidate?.receptacle?.itemKey || def.itemKey || ""),
+        installed: Boolean(candidate?.receptacle?.installed ?? (Number(candidate?.receptacle?.amount) > 0)),
         amount: roundOutputValue(clamp(Number(candidate?.receptacle?.amount) || 0, 0, receptacleCapacity)),
         capacity: receptacleCapacity,
       },
@@ -42449,7 +43001,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return {
         type: "container",
         containerId: container.id,
-        roomId: container.roomId || MAIN_ROOM_ID
+        roomId: container.roomId || MAIN_ROOM_ID,
+        cell: objectMapCell(container)
       };
     }
     const roomId = cleanRoomId(candidate.roomId || candidate.id) || MAIN_ROOM_ID;
@@ -42459,7 +43012,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return {
       type: "room",
-      roomId: room.id
+      roomId: room.id,
+      cell: cleanMapCell(candidate.cell) || labMapRoomAnchor(room.id)
     };
   }
 
@@ -42478,13 +43032,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return {
           type: "container",
           containerId: container.id,
-          roomId: container.roomId || slime.roomId || MAIN_ROOM_ID
+          roomId: container.roomId || slime.roomId || MAIN_ROOM_ID,
+          cell: objectMapCell(container)
         };
       }
     }
     return {
       type: "room",
-      roomId: roomById(slime?.roomId)?.id || slimeEffectiveRoomId(slime) || MAIN_ROOM_ID
+      roomId: roomById(slime?.roomId)?.id || slimeEffectiveRoomId(slime) || MAIN_ROOM_ID,
+      cell: objectMapCell(slime) || labMapRoomAnchor(slimeEffectiveRoomId(slime) || MAIN_ROOM_ID)
     };
   }
 
@@ -42495,13 +43051,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return {
           type: "container",
           containerId: container.id,
-          roomId: container.roomId || corpse.roomId || MAIN_ROOM_ID
+          roomId: container.roomId || corpse.roomId || MAIN_ROOM_ID,
+          cell: objectMapCell(container)
         };
       }
     }
     return {
       type: "room",
-      roomId: roomById(corpse?.roomId)?.id || MAIN_ROOM_ID
+      roomId: roomById(corpse?.roomId)?.id || MAIN_ROOM_ID,
+      cell: objectMapCell(corpse) || labMapRoomAnchor(roomById(corpse?.roomId)?.id || MAIN_ROOM_ID)
     };
   }
 
@@ -42519,7 +43077,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (left.type === "container") {
       return left.containerId === right.containerId;
     }
-    return left.roomId === right.roomId;
+    return left.roomId === right.roomId && (!left.cell || !right.cell || mapCellKey(left.cell) === mapCellKey(right.cell));
+  }
+
+  function feedingResidueFromPhysicalStack(stack) {
+    if (!stack || stack.section !== "residue") return null;
+    return {
+      id: stack.id,
+      typeKey: stack.key,
+      amount: Math.max(0, Math.floor(stack.quantity)),
+      location: stack.containerId
+        ? { type: "container", containerId: stack.containerId, roomId: stack.roomId, cell: stack.cell }
+        : { type: "room", roomId: stack.roomId, cell: stack.cell },
+      tags: normalizeResidueTags(stack.tags),
+      sourceLabels: normalizeResidueSourceLabels(stack.sourceLabels),
+      sourceSlimeIds: idList(stack.sourceSlimeIds),
+      createdAt: finiteTime(stack.createdAt, 0),
+      updatedAt: finiteTime(stack.updatedAt, stack.createdAt || 0)
+    };
+  }
+
+  function physicalSpillStackById(spillId) {
+    return ensurePhysicalItemStacks().find((stack) => stack.id === spillId && stack.section === "residue" && stack.form === "spill") || null;
   }
 
   function addFeedingResidue(typeKey, amount, options = {}) {
@@ -42528,7 +43107,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!def || !units) {
       return false;
     }
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
     const location = normalizeFeedingResidueLocation(options.location || feedingResidueLocationForSlime(options.slime));
     if (!location) {
       return false;
@@ -42536,28 +43114,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const tags = normalizeResidueTags(options.tags);
     const sourceLabels = normalizeResidueSourceLabels(options.sourceLabels || options.sourceLabel);
     const sourceSlimeIds = idList(options.sourceSlimeIds || (options.slime?.id ? [options.slime.id] : []));
-    const existing = state.feedingResidues.find((residue) => (
-      residue.typeKey === typeKey
-      && sameFeedingResidueLocation(residue.location, location)
-      && residue.tags.join("|") === tags.join("|")
+    const existing = ensurePhysicalItemStacks().find((stack) => (
+      stack.section === "residue"
+      && stack.key === typeKey
+      && sameFeedingResidueLocation(feedingResidueFromPhysicalStack(stack)?.location, location)
+      && normalizeResidueTags(stack.tags).join("|") === tags.join("|")
     ));
     if (existing) {
-      existing.amount += units;
+      existing.quantity += units;
+      if (scientistObservesRoom(location.roomId)) existing.knownQuantity += units;
       existing.updatedAt = state.clock;
       existing.sourceLabels = normalizeResidueSourceLabels([...(existing.sourceLabels || []), ...sourceLabels]);
       existing.sourceSlimeIds = [...new Set([...(existing.sourceSlimeIds || []), ...sourceSlimeIds])].slice(0, 8);
+      syncPhysicalReadModels();
     } else {
-      const id = `residue-${state.nextResidueNumber++}`;
-      state.feedingResidues.push({
-        id,
-        typeKey,
-        amount: units,
-        location,
+      createPhysicalItemStack("residue", typeKey, units, {
+        roomId: location.roomId,
+        cell: location.cell,
+        fixtureId: "",
+        stockpileId: "",
+        containerId: location.containerId || ""
+      }, {
+        form: "spill",
+        phase: ["looseBiomatter", "inertResidue", "elementalTrace"].includes(typeKey) ? "powder" : "sludge",
         tags,
         sourceLabels,
         sourceSlimeIds,
-        createdAt: state.clock,
-        updatedAt: state.clock
+        known: scientistObservesRoom(location.roomId)
       });
     }
     applyFeedingResidueContamination(location, def.contamination * units);
@@ -42590,13 +43173,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!normalized) {
       return [];
     }
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
-    return state.feedingResidues.filter((residue) => sameFeedingResidueLocation(residue.location, normalized));
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "residue" && stack.form === "spill" && stack.quantity > 0)
+      .map(feedingResidueFromPhysicalStack)
+      .filter(Boolean)
+      .filter((residue) => {
+        if (normalized.type !== residue.location.type) return false;
+        if (normalized.type === "container") return normalized.containerId === residue.location.containerId;
+        if (normalized.roomId !== residue.location.roomId) return false;
+        return !location?.cell || mapCellKey(normalized.cell) === mapCellKey(residue.location.cell);
+      });
   }
 
   function feedingResidueTotal() {
-    state.feedingResidues = normalizeFeedingResidues(state.feedingResidues);
-    return state.feedingResidues.reduce((total, residue) => total + residue.amount, 0);
+    return Math.floor(physicalActualAmount("residue", "looseBiomatter")
+      + FEEDING_RESIDUE_DEFS.filter((def) => def.key !== "looseBiomatter").reduce((total, def) => total + physicalActualAmount("residue", def.key), 0));
   }
 
   function feedingResidueLabel(typeKey) {
@@ -42648,12 +43239,157 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function cleanupPolicy() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.cleanup;
+  }
+
+  function spillIsHazardous(stack) {
+    if (!stack || stack.section !== "residue") return false;
+    const tags = new Set(normalizeResidueTags(stack.tags));
+    return stack.key === "hazardousSludge" || stack.key === "contaminatedResidue"
+      || ["hazardous", "contaminated", "toxic", "chemical", "corrosive"].some((tag) => tags.has(tag));
+  }
+
+  function spillCleanupReceptacleItemKey(stack) {
+    if (!stack) return "";
+    if (stack.phase === "powder" || ["looseBiomatter", "inertResidue", "elementalTrace"].includes(stack.key)) return "filterBag";
+    if (stack.phase === "vapor") return "condenserFlask";
+    return stack.key === "slimeTrace" ? "sealedCollectionJar" : "linedScrapeJar";
+  }
+
+  function spillCleanupRequiredReceptacles(stack, itemKey = spillCleanupReceptacleItemKey(stack)) {
+    const capacity = Math.max(1, Number(receptacleDefByItemKey(itemKey)?.capacity) || 1);
+    return Math.max(1, Math.ceil((Number(stack?.quantity) || 0) / capacity));
+  }
+
+  function spillCleanupTask(spillId = "") {
+    return scientistQueueTasks().find((task) => task.type === "spillCleanup" && (!spillId || task.data?.spillId === spillId)) || null;
+  }
+
+  function spillCleanupTaskBlockReason(task) {
+    const stack = physicalSpillStackById(task.data?.spillId);
+    if (!stack || stack.quantity <= 0) return "The spill no longer exists.";
+    if (stack.containerId) return "Interior residue requires a container-cleaning procedure.";
+    if (stack.reservedTaskId && stack.reservedTaskId !== task.id) return "The spill is reserved for other cleanup work.";
+    const replacementItemKey = task.data?.replacementItemKey || spillCleanupReceptacleItemKey(stack);
+    const required = task.data?.replacementCount || spillCleanupRequiredReceptacles(stack, replacementItemKey);
+    const available = physicalEmptyReceptacleStacks(replacementItemKey).reduce((total, entry) => total + entry.quantity, 0);
+    if (!replacementItemKey || available < required) {
+      return `Cleanup requires ${formatNumber(required)} empty ${inventoryItemLabel(replacementItemKey || "receptacle")}${required === 1 ? "" : "s"}; only ${formatNumber(available)} remain.`;
+    }
+    const path = labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    return path.length ? "" : "The scientist cannot reach the spill.";
+  }
+
+  function startSpillCleanup(spillId, options = {}) {
+    const stack = physicalSpillStackById(spillId);
+    if (!stack || stack.containerId || stack.quantity <= 0) return null;
+    if (spillCleanupTask(spillId)) return null;
+    const replacementItemKey = spillCleanupReceptacleItemKey(stack);
+    const replacementCount = spillCleanupRequiredReceptacles(stack, replacementItemKey);
+    if (!replacementItemKey || availableEmptyReceptacleCount(replacementItemKey) < replacementCount) {
+      if (!options.automatic) addEvent(`Cleanup requires ${formatNumber(replacementCount)} empty ${inventoryItemLabel(replacementItemKey || "receptacle")}${replacementCount === 1 ? "" : "s"}.`);
+      return null;
+    }
+    const path = labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    if (!path.length || !spendStamina(SPILL_CLEANUP_STAMINA)) return null;
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    const duration = SPILL_CLEANUP_BASE_SECONDS + stack.quantity * SPILL_CLEANUP_SECONDS_PER_UNIT + travelSeconds;
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "spillCleanup",
+      label: `Clean ${feedingResidueLabel(stack.key)}`,
+      createdAt: state.clock,
+      dueAt: queueTail + Math.max(1, Math.round(duration)),
+      data: {
+        spillId: stack.id,
+        roomId: stack.roomId,
+        targetCell: cleanMapCell(stack.cell),
+        mapPath: path,
+        replacementItemKey,
+        replacementCount,
+        automatic: Boolean(options.automatic),
+        staminaCost: SPILL_CLEANUP_STAMINA
+      }
+    };
+    stack.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`${options.automatic ? "Cleanup policy queued" : "Cleanup queued"}: ${feedingResidueLabel(stack.key)} in ${roomName(stack.roomId)}.`);
+    return task;
+  }
+
+  function claimNextSpillCleanup() {
+    if (spillCleanupTask() || scientistIsDead()) return 0;
+    const policy = cleanupPolicy();
+    if (policy.mode === "manual") return 0;
+    const stack = ensurePhysicalItemStacks()
+      .filter((entry) => entry.section === "residue" && entry.form === "spill" && !entry.containerId && !entry.reservedTaskId)
+      .filter((entry) => entry.knownQuantity >= policy.minimumUnits)
+      .filter((entry) => policy.mode === "all" || spillIsHazardous(entry))
+      .sort((a, b) => Number(spillIsHazardous(b)) - Number(spillIsHazardous(a)) || b.knownQuantity - a.knownQuantity || a.createdAt - b.createdAt)
+      .find((entry) => {
+        const itemKey = spillCleanupReceptacleItemKey(entry);
+        return availableEmptyReceptacleCount(itemKey) >= spillCleanupRequiredReceptacles(entry, itemKey);
+      });
+    return stack && startSpillCleanup(stack.id, { automatic: true }) ? 1 : 0;
+  }
+
+  function completeSpillCleanup(task) {
+    const stack = physicalSpillStackById(task.data?.spillId);
+    if (!stack || stack.quantity <= 0) return false;
+    const itemKey = task.data?.replacementItemKey || spillCleanupReceptacleItemKey(stack);
+    const receptacleCount = task.data?.replacementCount || spillCleanupRequiredReceptacles(stack, itemKey);
+    if (!consumeEmptyReceptacles(itemKey, receptacleCount)) return false;
+    const amount = stack.quantity;
+    const capacity = Math.max(1, Number(receptacleDefByItemKey(itemKey)?.capacity) || 1);
+    let remaining = amount;
+    const filled = [];
+    while (remaining > 0) {
+      const vesselAmount = Math.min(capacity, remaining);
+      const vessel = createFilledReceptacle(itemKey, [{
+        kind: "waste",
+        key: stack.key,
+        label: feedingResidueLabel(stack.key),
+        amount: vesselAmount,
+        phase: stack.phase,
+        tags: ["waste", ...normalizeResidueTags(stack.tags)]
+      }], {
+        roomId: stack.roomId,
+        cell: stack.cell,
+        fixtureId: "",
+        stockpileId: ""
+      }, {
+        tags: ["waste", ...normalizeResidueTags(stack.tags)],
+        sourceLabels: stack.sourceLabels,
+        sourceSlimeIds: stack.sourceSlimeIds
+      });
+      if (!vessel) break;
+      filled.push(vessel);
+      remaining -= vesselAmount;
+    }
+    if (remaining > 0) {
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => !filled.some((vessel) => vessel.id === entry.id));
+      addPhysicalItemQuantity("inventory", itemKey, receptacleCount, stack.roomId);
+      syncPhysicalReadModels();
+      return false;
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    state.scientist.roomId = stack.roomId;
+    state.scientist.mapCell = cleanMapCell(stack.cell) || labMapRoomAnchor(stack.roomId);
+    syncPhysicalReadModels();
+    claimNextStockpileHaul();
+    addEvent(`Cleanup complete: ${feedingResidueLabel(stack.key)} sealed in ${formatNumber(filled.length)} ${inventoryItemLabel(itemKey)}${filled.length === 1 ? "" : "s"}; lingering environmental contamination remains.`);
+    return true;
+  }
+
   function resourceAmount(key) {
     if (Array.isArray(state.physicalItemStacks)) return Math.max(0, Math.floor(physicalKnownAmount("resources", key)));
     return ensureResources()[key] || 0;
   }
 
-  function addResource(key, amount, roomId = STORAGE_ROOM_ID) {
+  function addResource(key, amount, roomId = null) {
     if (!RESOURCE_BY_KEY[key]) {
       return false;
     }
@@ -42661,16 +43397,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!delta) {
       return false;
     }
-    ensureRoomStockpiles();
-    ensureResources();
-    const before = state.resources[key] || 0;
-    const after = Math.max(0, before + delta);
-    const actualDelta = after - before;
-    if (actualDelta) {
-      addRoomNumeric("resources", key, actualDelta, roomId);
-    }
-    state.resources[key] = after;
-    return Boolean(actualDelta);
+    if (key === "waste" && delta > 0) return addWaste(delta, [], roomId || PITS_ROOM_ID);
+    const changed = delta > 0
+      ? addPhysicalItemQuantity("resources", key, delta, roomId || STORAGE_ROOM_ID)
+      : removePhysicalItemQuantity("resources", key, -delta, roomId || "");
+    syncPhysicalReadModels();
+    return Boolean(changed);
   }
 
   function addResources(changes, roomId = STORAGE_ROOM_ID) {
@@ -42681,17 +43413,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return changed;
   }
 
-  function addWaste(amount, tags = [], roomId = STORAGE_ROOM_ID) {
+  function addWaste(amount, tags = [], roomId = PITS_ROOM_ID, options = {}) {
     const units = Math.max(0, Math.trunc(Number(amount) || 0));
     if (!units) {
       return false;
     }
-    addResource("waste", units, roomId);
-    addWasteTags(tags, units);
+    const batch = createPhysicalWasteBatch(units, tags, {
+      roomId,
+      containerId: options.containerId,
+      cell: options.cell
+    }, {
+      phase: options.phase,
+      sourceLabels: options.sourceLabels
+    });
     if (wasteTagsAreDirty(tags)) {
       addResource("contaminatedFeedstock", units * CONTAMINATED_FEEDSTOCK_PER_DIRTY_WASTE, roomId);
     }
-    return true;
+    return Boolean(batch);
   }
 
   function wasteTagsAreDirty(tags) {
@@ -42705,46 +43443,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!units) {
       return false;
     }
-    if (roomId) {
-      if (resourceAmountInRoom("waste", roomId) < units) {
-        return false;
-      }
-      addResource("waste", -units, roomId);
-    } else {
-      if (resourceAmount("waste") < units) {
-        return false;
-      }
-      addResource("waste", -units);
-    }
-    consumeWasteTags(units);
-    return true;
+    const options = roomId ? { roomId } : {};
+    return spendPhysicalWaste(units, options) === units;
   }
 
   function addWasteTags(tags, amount) {
-    state.wasteTags = normalizeWasteTags(state.wasteTags);
-    const units = Math.max(0, Math.trunc(Number(amount) || 0));
-    for (const tag of tags) {
-      const key = normalizeWasteTag(tag);
-      if (!key) {
-        continue;
-      }
-      state.wasteTags[key] = (state.wasteTags[key] || 0) + units;
-    }
+    syncPhysicalReadModels();
   }
 
   function consumeWasteTags(amount) {
-    state.wasteTags = normalizeWasteTags(state.wasteTags);
-    const units = Math.max(0, Math.trunc(Number(amount) || 0));
-    if (resourceAmount("waste") <= 0) {
-      state.wasteTags = {};
-      return;
-    }
-    for (const key of Object.keys(state.wasteTags)) {
-      state.wasteTags[key] -= units;
-      if (state.wasteTags[key] <= 0) {
-        delete state.wasteTags[key];
-      }
-    }
+    syncPhysicalReadModels();
   }
 
   function corpseWasteTags(corpse) {
@@ -42947,7 +43655,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       environment: normalizeContainerEnvironment(candidate.environment),
       breachState: type === "synthesis" ? "intact" : cleanContainerBreachState(candidate.breachState),
       lastBreach: type === "synthesis" ? null : normalizeContainerLastBreach(candidate.lastBreach),
-      waste: normalizeContainerWaste(candidate.waste),
       mapCell: objectMapCell(candidate),
       roomOwnership: ["owned", "straddling", "unassigned"].includes(candidate.roomOwnership) ? candidate.roomOwnership : "owned",
       roomIds: normalizeRoomConnections(candidate.roomIds)
@@ -43394,6 +44101,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? candidate.rooms.purposeMode
         : DEFAULT_ROOM_PURPOSE_POLICY_ID
     };
+    const cleanup = {
+      ...CLEANUP_POLICY_DEFAULTS,
+      ...(candidate?.cleanup || {})
+    };
+    cleanup.mode = CLEANUP_POLICY_MODE_BY_ID[cleanup.mode] ? cleanup.mode : CLEANUP_POLICY_DEFAULTS.mode;
+    cleanup.minimumUnits = clamp(Math.floor(Number(cleanup.minimumUnits) || CLEANUP_POLICY_DEFAULTS.minimumUnits), 1, 999);
+    cleanup.priority = clamp(Math.floor(Number(cleanup.priority) || CLEANUP_POLICY_DEFAULTS.priority), 1, 7);
     return {
       ...fallback,
       ...(candidate || {}),
@@ -43402,6 +44116,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handling,
       doors,
       rooms,
+      cleanup,
       corpseProcessingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -44442,13 +45157,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       Number(next.nextPhysicalItemStackNumber) || 1,
       next.physicalItemStacks.reduce((max, stack) => Math.max(max, numericSuffix(stack.id)), 0) + 1
     );
+    syncPhysicalReadModels(next);
     next.economy = normalizeEconomyState(next.economy, next.seed, next.clock);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
-    next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
-    next.nextResidueNumber = Math.max(
-      Number(next.nextResidueNumber) || 1,
-      next.feedingResidues.reduce((max, residue) => Math.max(max, numericSuffix(residue.id)), 0) + 1
-    );
+    next.feedingResidues = [];
+    next.nextResidueNumber = Math.max(1, Number(next.nextResidueNumber) || 1);
     next.incidents = normalizeIncidents(next.incidents, next);
     next.nextIncidentNumber = Math.max(
       Number(next.nextIncidentNumber) || 1,

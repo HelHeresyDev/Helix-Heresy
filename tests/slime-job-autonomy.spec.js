@@ -149,10 +149,8 @@ test('corpse processing only targets remains inside the worker pit', async ({ pa
     }
     workerPit.name = 'Worker Pit';
     workerPit.roomId = 'pits';
-    workerPit.waste = { amount: 0, tags: {} };
     otherPit.name = 'Other Pit';
     otherPit.roomId = 'pits';
-    otherPit.waste = { amount: 0, tags: {} };
     state.started = true;
     state.paused = true;
     state.scientist ||= {};
@@ -163,7 +161,7 @@ test('corpse processing only targets remains inside the worker pit', async ({ pa
     state.selectedSlimeId = 'pit-worker';
     state.slimes = [workerSlime];
     state.corpses = [sameCorpse, otherCorpse];
-    state.feedingResidues = [];
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.key !== 'waste' && stack.section !== 'residue');
     state.nextResidueNumber = 1;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, workerSlime, sameCorpse, otherCorpse });
@@ -204,13 +202,11 @@ test('corpse processing only targets remains inside the worker pit', async ({ pa
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const worker = state.slimes.find((slime) => slime.id === 'pit-worker');
-    const workerPit = state.containers.find((item) => item.id === 'basic-11');
-    const otherPit = state.containers.find((item) => item.id === 'basic-12');
     return {
       corpseIds: state.corpses.map((corpse) => corpse.id),
       workerTarget: worker?.jobTargetCorpseId || null,
-      workerPitWaste: workerPit?.waste?.amount || 0,
-      otherPitWaste: otherPit?.waste?.amount || 0,
+      workerPitWaste: (state.physicalItemStacks || []).filter((stack) => stack.containerId === 'basic-11' && stack.key === 'waste').reduce((total, stack) => total + stack.quantity, 0),
+      otherPitWaste: (state.physicalItemStacks || []).filter((stack) => stack.containerId === 'basic-12' && stack.key === 'waste').reduce((total, stack) => total + stack.quantity, 0),
     };
   }, { key: storageKey });
 
@@ -272,23 +268,11 @@ test('waste disposal consumes Waste from the assigned pit instead of the room st
     }
     pit.name = 'Disposal Pit';
     pit.roomId = 'pits';
-    pit.waste = { amount: 1, tags: { hazardous: 1, chemical: 1, waste: 1 } };
     state.started = true;
     state.paused = true;
     state.scientist ||= {};
     state.scientist.roomId = 'pits';
     state.selectedSlimeId = 'pit-disposer';
-    state.resources = {
-      ...(state.resources || {}),
-      waste: 4,
-      elementalResidue: 0,
-    };
-    state.roomStockpiles ||= {};
-    state.roomStockpiles.pits ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    state.roomStockpiles.pits.resources = {
-      ...(state.roomStockpiles.pits.resources || {}),
-      waste: 4,
-    };
     state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => !(stack.section === 'resources' && stack.key === 'waste'));
     state.physicalItemStacks.push({
       id: 'stack-disposal-waste',
@@ -304,11 +288,16 @@ test('waste disposal consumes Waste from the assigned pit instead of the room st
       stockpileId: '',
       observedAt: state.clock,
       reservedTaskId: '',
+      form: 'waste', phase: 'sludge', tags: ['waste'], contents: [], sourceLabels: ['room waste'], sourceSlimeIds: [],
+    }, {
+      id: 'stack-disposal-pit-waste', section: 'resources', key: 'waste', quantity: 1, knownQuantity: 1,
+      unitVolumeL: 2, unitMassKg: 1.5, roomId: 'pits', cell: { ...pit.mapCell }, fixtureId: '', stockpileId: '',
+      observedAt: state.clock, reservedTaskId: '', containerId: pit.id, form: 'waste', phase: 'sludge',
+      tags: ['waste', 'hazardous', 'chemical'], contents: [], sourceLabels: ['pit waste'], sourceSlimeIds: [],
     });
     state.slimes = [disposerSlime];
     state.corpses = [];
     state.tasks = [];
-    state.feedingResidues = [];
     state.nextResidueNumber = 1;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, disposerSlime });
@@ -327,9 +316,9 @@ test('waste disposal consumes Waste from the assigned pit instead of the room st
     return {
       stockpiledWaste: state.resources?.waste || 0,
       roomWaste: state.roomStockpiles?.pits?.resources?.waste || 0,
-      pitWaste: pit?.waste?.amount || 0,
+      pitWaste: (state.physicalItemStacks || []).filter((stack) => stack.containerId === pit.id && stack.key === 'waste').reduce((total, stack) => total + stack.quantity, 0),
       slimeJob: slime?.job || '',
-      residues: state.feedingResidues || [],
+      residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
   }, { key: storageKey });
 
@@ -339,7 +328,8 @@ test('waste disposal consumes Waste from the assigned pit instead of the room st
   expect(result.slimeJob).toBe('disposal');
   expect(result.residues).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      location: expect.objectContaining({ type: 'container', containerId: 'basic-11' }),
+      containerId: 'basic-11',
+      form: 'spill',
     }),
   ]));
   expect(consoleIssues).toEqual([]);

@@ -97,19 +97,6 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
     state.started = true;
     state.paused = true;
     state.selectedSlimeId = 'residue-clean';
-    state.resources = {
-      ...(state.resources || {}),
-      organicFeedstock: 2,
-      metalFeedstock: 2,
-      waste: 0,
-    };
-    state.roomStockpiles ||= {};
-    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    state.roomStockpiles.mainLab.resources = {
-      ...(state.roomStockpiles.mainLab.resources || {}),
-      organicFeedstock: 2,
-      metalFeedstock: 2,
-    };
     state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => !['organicFeedstock', 'metalFeedstock'].includes(stack.key));
     state.physicalItemStacks.push(
       {
@@ -123,7 +110,6 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
         fixtureId: '', stockpileId: '', observedAt: state.clock, reservedTaskId: '',
       },
     );
-    state.feedingResidues = [];
     state.nextResidueNumber = 1;
     state.slimes = [
       {
@@ -165,7 +151,7 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
   let residueState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    return state.feedingResidues || [];
+    return (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue');
   }, { key: storageKey });
   expect(residueState).toEqual([]);
 
@@ -179,13 +165,14 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
   residueState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    return state.feedingResidues || [];
+    return (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue');
   }, { key: storageKey });
   expect(residueState).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      typeKey: 'inertResidue',
-      amount: 1,
-      location: expect.objectContaining({ type: 'container', containerId: 'basic-1' }),
+      key: 'inertResidue',
+      quantity: 1,
+      form: 'spill',
+      containerId: 'basic-1',
     }),
   ]));
 
@@ -237,18 +224,19 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     }
     pit.name = 'Residue Pit';
     pit.roomId = 'pits';
-    pit.waste = { amount: 1, tags: { hazardous: 1, chemical: 1, waste: 1 } };
     state.started = true;
     state.paused = true;
     state.scientist ||= {};
     state.scientist.roomId = 'pits';
     state.selectedSlimeId = 'residue-worker';
-    state.resources = {
-      ...(state.resources || {}),
-      waste: 0,
-      elementalResidue: 0,
-    };
-    state.feedingResidues = [];
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.key !== 'waste' && stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'stack-pit-hazard-waste', section: 'resources', key: 'waste', quantity: 1, knownQuantity: 1,
+      unitVolumeL: 2, unitMassKg: 1.5, roomId: 'pits', cell: { ...pit.mapCell }, fixtureId: '',
+      stockpileId: '', observedAt: state.clock, reservedTaskId: '', containerId: pit.id, form: 'waste',
+      phase: 'sludge', tags: ['waste', 'hazardous', 'chemical'], contents: [], sourceLabels: ['test waste'],
+      sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
+    });
     state.nextResidueNumber = 1;
     state.tasks = [];
     state.slimes = [slime];
@@ -268,9 +256,9 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     const state = payload.state || payload;
     return {
       waste: state.resources?.waste,
-      pitWaste: (state.containers || []).find((item) => item.id === 'basic-11')?.waste?.amount || 0,
+      pitWaste: (state.physicalItemStacks || []).filter((stack) => stack.containerId === 'basic-11' && stack.key === 'waste').reduce((total, stack) => total + stack.quantity, 0),
       elementalResidue: state.resources?.elementalResidue,
-      residues: state.feedingResidues || [],
+      residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
   }, { key: storageKey });
 
@@ -279,9 +267,10 @@ test('waste disposal can leave local feeding residue apart from elemental residu
   expect(result.elementalResidue).toBe(0);
   expect(result.residues).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      typeKey: 'inertResidue',
-      amount: 1,
-      location: expect.objectContaining({ type: 'container', containerId: 'basic-11' }),
+      key: 'inertResidue',
+      quantity: 1,
+      form: 'spill',
+      containerId: 'basic-11',
     }),
   ]));
 
@@ -321,17 +310,17 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
     state.paused = true;
     state.clock = 0;
     state.selectedSlimeId = 'loose-good-feed';
-    state.feedingResidues = [{
-      id: 'local-good-food',
-      typeKey: 'looseBiomatter',
-      amount: 2,
-      location: { type: 'room', roomId: 'mainLab' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'local-good-food', section: 'residue', key: 'looseBiomatter', quantity: 2, knownQuantity: 2,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic', 'mess'],
       sourceLabels: ['local spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     state.slimes = [{
       id: 'loose-good-feed',
@@ -377,13 +366,13 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
     return {
       nutrition: slime.stats.nutrition.current,
       stress: slime.stats.stress.current,
-      residues: state.feedingResidues || [],
+      residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
   }, { key: storageKey });
 
   expect(goodResult.nutrition).toBeGreaterThan(10);
   expect(goodResult.stress).toBe(0);
-  expect(goodResult.residues.some((residue) => residue.typeKey === 'contaminatedResidue' || residue.typeKey === 'hazardousSludge')).toBe(false);
+  expect(goodResult.residues.some((residue) => residue.key === 'contaminatedResidue' || residue.key === 'hazardousSludge')).toBe(false);
 
   await page.evaluate(({ key, genome }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -392,17 +381,17 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
     state.paused = true;
     state.clock = 0;
     state.selectedSlimeId = 'loose-bad-feed';
-    state.feedingResidues = [{
-      id: 'local-bad-food',
-      typeKey: 'looseBiomatter',
-      amount: 2,
-      location: { type: 'room', roomId: 'mainLab' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'local-bad-food', section: 'residue', key: 'looseBiomatter', quantity: 2, knownQuantity: 2,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic', 'mess'],
       sourceLabels: ['local spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     state.slimes = [{
       id: 'loose-bad-feed',
@@ -448,7 +437,7 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
     return {
       nutrition: slime.stats.nutrition.current,
       stress: slime.stats.stress.current,
-      residues: state.feedingResidues || [],
+      residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
   }, { key: storageKey });
 
@@ -456,8 +445,9 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
   expect(badResult.stress).toBeGreaterThan(0);
   expect(badResult.residues).toEqual(expect.arrayContaining([
     expect.objectContaining({
-      typeKey: 'contaminatedResidue',
-      location: expect.objectContaining({ type: 'room', roomId: 'mainLab' }),
+      key: 'contaminatedResidue',
+      roomId: 'mainLab',
+      form: 'spill',
     }),
   ]));
 

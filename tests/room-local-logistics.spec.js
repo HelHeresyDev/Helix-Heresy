@@ -172,7 +172,14 @@ test('resource overlay and selection inspector show known room supplies', async 
     }
     pit.name = 'Overlay Waste Pit';
     pit.roomId = 'pits';
-    pit.waste = { amount: 3, tags: { waste: 3, hazardous: 3 } };
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.key !== 'waste');
+    state.physicalItemStacks.push({
+      id: 'stack-overlay-pit-waste', section: 'resources', key: 'waste', quantity: 3, knownQuantity: 3,
+      unitVolumeL: 2, unitMassKg: 1.5, roomId: 'pits', cell: { ...pit.mapCell }, fixtureId: '',
+      stockpileId: '', observedAt: state.clock, reservedTaskId: '', containerId: pit.id, form: 'waste',
+      phase: 'sludge', tags: ['waste', 'hazardous'], contents: [], sourceLabels: ['overlay fixture'],
+      sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
+    });
     state.scientist ||= {};
     state.scientist.roomId = 'mainLab';
     state.scientist.mapCell = state.labMap.rooms.mainLab.anchor;
@@ -264,16 +271,11 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
     state.scientist ||= {};
     state.scientist.roomId = 'mainLab';
     state.selectedSlimeId = 'feed-delivery';
-    state.resources = {
-      ...(state.resources || {}),
-      organicFeedstock: 1,
-    };
     const organicStack = (state.physicalItemStacks || []).find((stack) => stack.section === 'resources' && stack.key === 'organicFeedstock');
     if (!organicStack) throw new Error('starter organic feedstock stack not found');
     organicStack.quantity = 1;
     organicStack.knownQuantity = 1;
     state.tasks = [];
-    state.feedingResidues = [];
     state.slimes = [
       {
         id: 'feed-delivery',
@@ -328,7 +330,7 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
       mainOrganic: state.roomStockpiles?.mainLab?.resources?.organicFeedstock || 0,
       storageOrganic: state.roomStockpiles?.storageRoom?.resources?.organicFeedstock || 0,
       nutrition: slime?.stats?.nutrition?.current,
-      residues: state.feedingResidues || [],
+      residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
   }, { key: storageKey });
 

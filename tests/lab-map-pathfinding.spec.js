@@ -393,12 +393,6 @@ test('slime ai perception stays local and respects containment limits', async ({
       mainPitDoor.lockState = 'unlocked';
       mainPitDoor.sealState = 'unsealed';
     }
-    state.roomStockpiles ||= {};
-    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    state.roomStockpiles.mainLab.resources ||= {};
-    state.roomStockpiles.mainLab.resources.waste = 6;
-    state.resources ||= {};
-    state.resources.waste = 6;
     state.physicalItemStacks ||= [];
     state.physicalItemStacks.push({
       id: 'stack-perception-waste',
@@ -414,19 +408,19 @@ test('slime ai perception stays local and respects containment limits', async ({
       stockpileId: '',
       observedAt: state.clock,
       reservedTaskId: '',
+      form: 'waste', phase: 'sludge', tags: ['waste'], contents: [], sourceLabels: ['perception fixture'], sourceSlimeIds: [],
     });
     state.nextResidueNumber = Math.max(2, Number(state.nextResidueNumber) || 1);
-    state.feedingResidues = [{
-      id: 'residue-perception',
-      typeKey: 'looseBiomatter',
-      amount: 5,
-      location: { type: 'room', roomId: 'mainLab' },
+    state.physicalItemStacks.push({
+      id: 'residue-perception', section: 'residue', key: 'looseBiomatter', quantity: 5, knownQuantity: 5,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+      fixtureId: '', stockpileId: '', observedAt: state.clock, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic'],
       sourceLabels: ['test spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     const now = Number(state.clock) || 0;
     const mainAnchor = state.labMap.rooms.mainLab.anchor;
     state.corpses = [{
@@ -652,14 +646,7 @@ test('released slimes can seek better adjacent habitat when no food is available
     }
     state.paused = true;
     state.clock = 0;
-    state.feedingResidues = [];
-    state.resources ||= {};
-    state.resources.waste = 0;
-    state.roomStockpiles ||= {};
-    for (const stockpile of Object.values(state.roomStockpiles)) {
-      stockpile.resources ||= {};
-      stockpile.resources.waste = 0;
-    }
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue' && stack.key !== 'waste');
     state.selectedSlimeId = 'habitat-seeker';
     state.slimes = [{
       id: 'habitat-seeker',
@@ -1012,26 +999,21 @@ test('released slimes move toward accessible residue without raiding packaged st
     state.paused = true;
     state.clock = 0;
     state.selectedSlimeId = 'loose-seeker';
-    state.resources = { ...(state.resources || {}), organicFeedstock: 5 };
-    state.roomStockpiles ||= {};
-    state.roomStockpiles.storageRoom ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    state.roomStockpiles.storageRoom.resources = {
-      ...(state.roomStockpiles.storageRoom.resources || {}),
-      organicFeedstock: 5,
-    };
-    state.roomStockpiles.mainLab ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    delete state.roomStockpiles.mainLab.resources?.organicFeedstock;
-    state.feedingResidues = [{
-      id: 'residue-menagerie',
-      typeKey: 'looseBiomatter',
-      amount: 4,
-      location: { type: 'room', roomId: 'menagerie' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.key !== 'organicFeedstock' && stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'stack-storage-organic', section: 'resources', key: 'organicFeedstock', quantity: 5, knownQuantity: 5,
+      unitVolumeL: 1, unitMassKg: 0.8, roomId: 'storageRoom', cell: { ...state.labMap.rooms.storageRoom.anchor },
+      fixtureId: 'starter-storage-crate', stockpileId: 'stockpile-storage-general', observedAt: 0, reservedTaskId: '',
+    }, {
+      id: 'residue-menagerie', section: 'residue', key: 'looseBiomatter', quantity: 4, knownQuantity: 4,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'menagerie', cell: { ...state.labMap.rooms.menagerie.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic', 'mess'],
       sourceLabels: ['test spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     state.slimes = [{
       id: 'loose-seeker',
@@ -1131,8 +1113,8 @@ test('released slimes move toward accessible residue without raiding packaged st
     const slime = (state.slimes || []).find((candidate) => candidate.id === 'loose-seeker');
     return {
       slime,
-      storageOrganic: state.roomStockpiles?.storageRoom?.resources?.organicFeedstock || 0,
-      residueAmount: (state.feedingResidues || []).find((residue) => residue.id === 'residue-menagerie')?.amount || 0,
+      storageOrganic: (state.physicalItemStacks || []).filter((stack) => stack.roomId === 'storageRoom' && stack.key === 'organicFeedstock').reduce((total, stack) => total + stack.quantity, 0),
+      residueAmount: (state.physicalItemStacks || []).find((stack) => stack.id === 'residue-menagerie')?.quantity || 0,
       tasks: state.tasks || [],
     };
   }, { key: storageKey });
@@ -1164,17 +1146,17 @@ test('released slime movement stops if an open route closes ahead of it', async 
     state.paused = true;
     state.clock = 0;
     state.selectedSlimeId = 'door-route';
-    state.feedingResidues = [{
-      id: 'residue-menagerie-route',
-      typeKey: 'looseBiomatter',
-      amount: 4,
-      location: { type: 'room', roomId: 'menagerie' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'residue-menagerie-route', section: 'residue', key: 'looseBiomatter', quantity: 4, knownQuantity: 4,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'menagerie', cell: { ...state.labMap.rooms.menagerie.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic', 'mess'],
       sourceLabels: ['test spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     state.slimes = [{
       id: 'door-route',
@@ -1280,17 +1262,17 @@ test('released slimes press blocked doors and expose possible intent instead of 
     state.paused = true;
     state.clock = 0;
     state.selectedSlimeId = 'door-seeker';
-    state.feedingResidues = [{
-      id: 'residue-storage',
-      typeKey: 'looseBiomatter',
-      amount: 3,
-      location: { type: 'room', roomId: 'storageRoom' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'residue-storage', section: 'residue', key: 'looseBiomatter', quantity: 3, knownQuantity: 3,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'storageRoom', cell: { ...state.labMap.rooms.storageRoom.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['organic', 'mess'],
       sourceLabels: ['test spill'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     state.slimes = [{
       id: 'door-seeker',
@@ -1388,17 +1370,17 @@ test('spatial incidents appear as map alerts with manual response controls', asy
         },
       };
     });
-    state.feedingResidues = [{
-      id: 'residue-alert',
-      typeKey: 'hazardousSludge',
-      amount: 3,
-      location: { type: 'room', roomId: 'mainLab' },
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
+    state.physicalItemStacks.push({
+      id: 'residue-alert', section: 'residue', key: 'hazardousSludge', quantity: 3, knownQuantity: 3,
+      unitVolumeL: 1, unitMassKg: 1, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+      fixtureId: '', stockpileId: '', observedAt: 0, reservedTaskId: '', containerId: '', form: 'spill', phase: 'sludge',
       tags: ['hazardous', 'mess'],
       sourceLabels: ['alert fixture'],
       sourceSlimeIds: [],
       createdAt: 0,
       updatedAt: 0,
-    }];
+    });
     state.nextResidueNumber = 2;
     const alertContainer = (state.containers || []).find((container) => container.id === 'basic-1')
       || (state.containers || []).find((container) => container.type !== 'synthesis');
@@ -1572,7 +1554,7 @@ test('room contamination diffuses through connected doors according to seal qual
     state.tasks = [];
     state.slimes = [];
     state.corpses = [];
-    state.feedingResidues = [];
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
     state.rooms = (state.rooms || []).map((room) => {
       const current = room.id === 'mainLab' ? 80 : 0;
       return {
@@ -2689,9 +2671,14 @@ test('manual room drawing can divide an inferred compartment and preserves disco
   await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    state.roomStockpiles['excavation-1'] ||= { resources: {}, inventory: {}, collectedByproducts: {}, specimenMaterials: {} };
-    state.roomStockpiles['excavation-1'].resources.biomass = 1;
-    state.roomStockpiles.storageRoom.resources.biomass = Math.max(0, (state.roomStockpiles.storageRoom.resources.biomass || 0) - 1);
+    const source = (state.physicalItemStacks || []).find((stack) => stack.key === 'biomass' && stack.quantity > 0);
+    source.quantity -= 1;
+    source.knownQuantity = Math.min(source.knownQuantity, source.quantity);
+    state.physicalItemStacks.push({
+      ...source,
+      id: 'stack-excavation-biomass', quantity: 1, knownQuantity: 1, roomId: 'excavation-1',
+      cell: { x: 56, y: 40 }, fixtureId: '', stockpileId: '', reservedTaskId: '',
+    });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey });
   await loadSavedRun(page);
@@ -2793,17 +2780,15 @@ test('room redraw merge and deletion preserve physical fixtures and leave stock 
     const state = payload.state || payload;
     return {
       mainCells: state.labMap.rooms.mainLab.cells,
-      floorStockpiles: state.floorStockpiles,
+      physicalStacks: state.physicalItemStacks.map((stack) => ({ id: stack.id, cell: stack.cell, fixtureId: stack.fixtureId })),
       door: state.doors['door-storage-main'],
       synthesisCell: state.containers.find((container) => container.id === 'synthesisTube')?.mapCell,
     };
   }, { key: storageKey });
   expect(deleted.mainCells).toEqual([]);
-  expect(deleted.floorStockpiles.length).toBeGreaterThan(0);
-  expect(deleted.floorStockpiles[0].destinationRoomId).toBe('');
+  expect(deleted.physicalStacks.length).toBeGreaterThan(0);
   expect(deleted.door.id).toBe('door-storage-main');
   expect(deleted.synthesisCell).toEqual(before.synthesisCell);
-  await expect(page.locator('.lab-map-cell.floor-stockpile-object-cell')).not.toHaveCount(0);
 
   await loadSavedRun(page);
   const reloaded = await page.evaluate(({ key }) => {
@@ -2811,12 +2796,12 @@ test('room redraw merge and deletion preserve physical fixtures and leave stock 
     const state = payload.state || payload;
     return {
       mainCells: state.labMap.rooms.mainLab.cells,
-      floorStockpileCount: state.floorStockpiles.length,
+      physicalStackCount: state.physicalItemStacks.length,
       synthesisCell: state.containers.find((container) => container.id === 'synthesisTube')?.mapCell,
     };
   }, { key: storageKey });
   expect(reloaded.mainCells).toEqual([]);
-  expect(reloaded.floorStockpileCount).toBeGreaterThan(0);
+  expect(reloaded.physicalStackCount).toBeGreaterThan(0);
   expect(reloaded.synthesisCell).toEqual(before.synthesisCell);
 });
 
