@@ -12,9 +12,9 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Furniture, Fixtures, and Laboratory Equipment Placement
-2. Physical Stockpiles, Shelves, Crates, and Accessibility
-3. Loose Items, Spills, Waste, and Tile Contents
+1. Physical Stockpiles, Shelves, Crates, and Accessibility
+2. Loose Items, Spills, Waste, and Tile Contents
+3. Workstations, Bills, Recipes, and Crafting Orders
 4. Tile-Level Environmental Fields and Diffusion
 5. Ventilation, Drainage, Heating, Lighting, and Mana Infrastructure
 6. Visibility, Sound, Scent, and Creature Perception
@@ -29,21 +29,23 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ---
 
-## 1. Furniture, Fixtures, and Laboratory Equipment Placement
-
-Design placement, rotation, footprints, access tiles, and interaction points for synthesis equipment, containers, collection stations, workbenches, lights, vents, drains, wards, beds, shelves, and tools. Room function should increasingly emerge from physical equipment rather than abstract room bonuses.
-
----
-
-## 2. Physical Stockpiles, Shelves, Crates, and Accessibility
+## 1. Physical Stockpiles, Shelves, Crates, and Accessibility
 
 Design where resources and tools physically live, how stockpile zones differ from storage furniture, and whether actors can reach the contents. Include capacity, item categories, hauling destinations, last-inventoried knowledge, secured supplies, and protection from loose creatures.
 
 ---
 
-## 3. Loose Items, Spills, Waste, and Tile Contents
+## 2. Loose Items, Spills, Waste, and Tile Contents
 
 Design map-level representation of loose materials, dropped tools, filled receptacles, corpses, feedstock, spills, sludge, residue, and other waste. Resolve tile capacity, stacking, contamination, accessibility, cleanup, and how crowded tiles expose the most relevant entity without granting hidden information.
+
+---
+
+## 3. Workstations, Bills, Recipes, and Crafting Orders
+
+Turn the fixture dependency records into physical production. Design workstation capabilities, recipes, actor knowledge, required skills and tools, local or global bill ownership, material selection, and finished-item or component outputs. Bills should support make once, quantity, repeat, and maintain-stock behavior. Material rules should include exact material, allowed materials, best known material, and closest valid material without granting hidden knowledge.
+
+An authorized intelligent actor who claims a task but discovers that a required object or component is missing should be able to expand that goal into linked production bills when the actor knows an appropriate recipe and can reach a suitable workstation. Preserve a visible dependency tree, sensible cancellation and reservation behavior, and the distinction between portable finished objects, large component-built furnishings assembled on site, and very large site-built equipment. Crafted outputs must become physical items or components rather than appearing directly inside construction orders.
 
 ---
 

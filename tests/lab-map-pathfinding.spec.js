@@ -885,7 +885,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(scientistCell).not.toHaveProperty('dataset');
   expect(scientistCell).not.toHaveProperty('title');
 
-  const objectCell = semanticMap.cells.find((cell) => cell.object?.blocking);
+  const objectCell = semanticMap.cells.find((cell) => cell.object?.blocking && cell.object.symbols.includes('C'));
   expect(objectCell).toBeTruthy();
   expect(objectCell.object).toMatchObject({
     symbols: expect.arrayContaining(['C']),
@@ -3037,6 +3037,65 @@ test('walls floors and anchored doors build one tile at a time and deconstruct i
     expect.objectContaining({ id: 'granite', amount: 3 }),
     expect.objectContaining({ id: 'ironOre', amount: 1 }),
   ]));
+});
+
+test('fixtures use rotated footprints interaction ports and linked production dependencies', async ({ page }) => {
+  test.setTimeout(90_000);
+  await startRun(page);
+
+  const starter = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot());
+  expect(starter.fixtures.map((fixture) => fixture.typeId)).toEqual(expect.arrayContaining([
+    'basicWorkbench',
+    'bed',
+    'collectionApparatus',
+    'concealedExit',
+  ]));
+  expect(starter.fixtures.find((fixture) => fixture.typeId === 'bed').accessiblePorts.length).toBeGreaterThan(0);
+
+  const origin = { x: 48, y: 45 };
+  await page.locator('[data-map-x="45"][data-map-y="45"]').click();
+  await runSelectionCommand(page, 'Build: Bed');
+  await runSelectionCommand(page, 'Material: Best Known');
+  await runSelectionCommand(page, 'Rotate Fixture (0 degrees)');
+  await page.locator(`[data-map-x="${origin.x}"][data-map-y="${origin.y}"]`).click();
+  await runSelectionCommand(page, 'Confirm Bed Designation');
+
+  let dependency = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const order = state.construction.orders.find((entry) => entry.buildType === 'fixture:bed' && entry.tiles[0].status !== 'completed');
+    return {
+      order,
+      bill: state.productionBills.find((entry) => entry.parentOrderId === order.id),
+      constructionTask: state.tasks.find((task) => task.type === 'constructionWork' && task.data.constructionOrderId === order.id),
+    };
+  }, { key: storageKey });
+  expect(dependency.order).toMatchObject({ rotation: 90, materialPolicy: 'best' });
+  expect(dependency.bill).toMatchObject({ fixtureTypeId: 'bed', status: 'blocked', createdBy: 'scientist' });
+  expect(dependency.bill.blockedReason).toContain('crafting pass');
+  expect(dependency.constructionTask).toBeUndefined();
+
+  await page.evaluate((billId) => window.helixHeresyDebug.fulfillFixtureProductionBill(billId), dependency.bill.id);
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${origin.x},${origin.y}` }).getByRole('button', { name: 'Finish' }).click();
+  await page.locator('[data-workspace-tab="map"]').click();
+
+  const built = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot());
+  const bed = built.fixtures.find((fixture) => fixture.typeId === 'bed' && fixture.id !== 'starter-bed');
+  expect(bed).toBeTruthy();
+  expect(bed.footprintCells).toEqual([origin, { x: origin.x, y: origin.y + 1 }]);
+  expect(bed.ports.some((port) => port.label === 'Bedside Access')).toBe(true);
+  expect(bed.accessiblePorts.length).toBeGreaterThan(0);
+
+  await page.locator(`[data-map-x="${origin.x}"][data-map-y="${origin.y}"]`).click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'fixture');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Details' }).click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Accessible points');
+  await runSelectionCommand(page, 'Dismantle Fixture');
+  await page.locator('#queueToggleBtn').click();
+  await page.locator('#taskList .task-row').filter({ hasText: `Deconstruct tile ${origin.x},${origin.y}` }).getByRole('button', { name: 'Finish' }).click();
+
+  const removed = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot());
+  expect(removed.fixtures.some((fixture) => fixture.id === bed.id)).toBe(false);
 });
 
 test('shared materials drive banded structure reads breaches attack channels and destruction rubble', async ({ page }) => {

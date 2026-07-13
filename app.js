@@ -90,10 +90,147 @@
     { id: "cancel", label: "Cancel Orders", description: "Remove pending construction orders from painted tiles.", implemented: true }
   ];
   const CONSTRUCTION_MODE_BY_ID = Object.fromEntries(CONSTRUCTION_MODE_DEFS.map((mode) => [mode.id, mode]));
+  const FIXTURE_ROTATIONS = [0, 90, 180, 270];
+  const FIXTURE_MATERIAL_POLICY_DEFS = [
+    { id: "closest", label: "Closest Suitable", description: "Use the nearest reachable suitable material." },
+    { id: "best", label: "Best Known", description: "Use the best suitable material based on known properties and the fixture's purpose." },
+    { id: "wood", label: "Wood", description: "Require the wood recipe where the design supports it." },
+    { id: "steel", label: "Steel", description: "Require the steel recipe where the design supports it." },
+    { id: "stone", label: "Stone", description: "Require the stone recipe where the design supports it." }
+  ];
+  const FIXTURE_MATERIAL_POLICY_BY_ID = Object.fromEntries(FIXTURE_MATERIAL_POLICY_DEFS.map((policy) => [policy.id, policy]));
+  const FIXTURE_DEFS = [
+    {
+      id: "basicWorkbench",
+      label: "Basic Workbench",
+      glyph: "W",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Operator Position", x: 0, y: 1 }, { id: "operator", label: "Operator Position", x: 1, y: 1 }],
+      capabilities: ["workbench", "fabrication", "maintenance"],
+      workMinutes: 14,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 3, metalParts: 1 }, score: 62 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 3, metalParts: 2 }, score: 84 }
+      },
+      description: "A general fabrication and maintenance surface with two operator positions."
+    },
+    {
+      id: "bed",
+      label: "Bed",
+      glyph: "B",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "rest", label: "Bedside Access", x: 0, y: 1 }, { id: "rest", label: "Bedside Access", x: 1, y: 1 }],
+      capabilities: ["rest"],
+      workMinutes: 12,
+      materialOptions: {
+        wood: { composition: { primary: "wood", lining: "cloth" }, costs: { lumber: 4 }, score: 78 },
+        steel: { composition: { primary: "steel", lining: "cloth" }, costs: { steelPanels: 3, metalParts: 1 }, score: 58 }
+      },
+      description: "A full-size bed assembled from fabricated frame pieces at its destination."
+    },
+    {
+      id: "collectionApparatus",
+      label: "Collection Apparatus",
+      glyph: "A",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "source", label: "Source Connection", x: 0, y: -1 }, { id: "receptacle", label: "Receptacle Access", x: 0, y: 1 }],
+      capabilities: ["collection"],
+      workMinutes: 8,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass", seal: "rubber" }, costs: { steelPanels: 1, metalParts: 2 }, score: 86 }
+      },
+      description: "A source connection, removable receptacle position, and small overflow buffer."
+    },
+    {
+      id: "wallLamp",
+      label: "Wall Lamp",
+      glyph: "i",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "overhead",
+      requiresAdjacentWall: true,
+      ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
+      capabilities: ["lighting"],
+      workMinutes: 5,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 1 }, score: 80 }
+      },
+      description: "A wall-anchored light fixture. Illumination behavior belongs to the infrastructure pass."
+    },
+    {
+      id: "wallVent",
+      label: "Wall Vent",
+      glyph: "v",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "wallMounted",
+      requiresAdjacentWall: true,
+      ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
+      capabilities: ["ventilation"],
+      workMinutes: 8,
+      materialOptions: {
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 1, metalParts: 1 }, score: 82 }
+      },
+      description: "A wall-anchored ventilation fixture awaiting a physical duct network."
+    },
+    {
+      id: "floorDrain",
+      label: "Floor Drain",
+      glyph: "d",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "underfloor",
+      ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
+      capabilities: ["drainage"],
+      workMinutes: 8,
+      materialOptions: {
+        steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1, metalParts: 1 }, score: 82 },
+        stone: { composition: { primary: "ceramic", seal: "rubber" }, costs: { bricks: 2, metalParts: 1 }, score: 72 }
+      },
+      description: "A walk-over floor drain awaiting a physical drainage network."
+    },
+    {
+      id: "concealedExit",
+      label: "Concealed Exit",
+      glyph: "EX",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "floor",
+      ports: [{ id: "transit", label: "Exit Access", x: 0, y: 0 }],
+      capabilities: ["labExit"],
+      workMinutes: 30,
+      materialOptions: {
+        stone: { composition: { primary: "stone", reinforcement: "steel" }, costs: { stoneBlocks: 4, metalParts: 2 }, score: 80 }
+      },
+      description: "A concealed physical route between the laboratory and the surface."
+    }
+  ];
+  const FIXTURE_BY_ID = Object.fromEntries(FIXTURE_DEFS.map((def) => [def.id, def]));
   const CONSTRUCTION_BUILD_DEFS = [
     { id: "stoneWall", label: "Stone-Block Wall", kind: "wall", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 2 }, workMinutes: 12, description: "Build an impassable stone-block wall over excavated floor." },
     { id: "stoneFloor", label: "Stone Floor", kind: "floor", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 8, description: "Lay constructed stone flooring that removes rough-floor movement penalties." },
-    { id: "roughWoodDoor", label: "Rough Wood Door", kind: "door", materialId: "lumber", resourceCosts: { lumber: 1 }, workMinutes: 10, description: "Install a closed rough wood door anchored to at least one cardinally adjacent wall." }
+    { id: "roughWoodDoor", label: "Rough Wood Door", kind: "door", materialId: "lumber", resourceCosts: { lumber: 1 }, workMinutes: 10, description: "Install a closed rough wood door anchored to at least one cardinally adjacent wall." },
+    ...FIXTURE_DEFS.filter((def) => def.id !== "concealedExit").map((def) => ({
+      id: `fixture:${def.id}`,
+      label: def.label,
+      kind: "fixture",
+      fixtureTypeId: def.id,
+      workMinutes: def.workMinutes,
+      description: def.description
+    }))
   ];
   const CONSTRUCTION_BUILD_BY_ID = Object.fromEntries(CONSTRUCTION_BUILD_DEFS.map((def) => [def.id, def]));
   const DEFAULT_CONSTRUCTION_BUILD_ID = "stoneWall";
@@ -2769,6 +2906,9 @@
       roomObservations: {},
       doors: defaultDoors(),
       containers: defaultContainers(),
+      fixtures: defaultFixtures(),
+      productionBills: [],
+      fabricatedFixtures: [],
       resources: defaultResources(),
       inventory: defaultInventory(),
       toolDurability: defaultToolDurability(),
@@ -2803,6 +2943,8 @@
       nextResidueNumber: 1,
       nextIncidentNumber: 1,
       nextTaskNumber: 1,
+      nextFixtureNumber: 1,
+      nextProductionBillNumber: 1,
       discoveries: {},
       regionNotes: {},
       genomeNotes: {},
@@ -2862,6 +3004,34 @@
 
   function defaultCollectionBayState() {
     return { stations: {} };
+  }
+
+  function defaultFixtures() {
+    return [
+      defaultFixtureInstance("starter-workbench", "basicWorkbench", { x: 55, y: 46 }, 0, { materialPolicy: "wood" }),
+      defaultFixtureInstance("starter-bed", "bed", { x: 49, y: 57 }, 0, { materialPolicy: "wood" }),
+      defaultFixtureInstance("starter-collection-apparatus", "collectionApparatus", { x: 64, y: 46 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("concealed-exit", "concealedExit", { x: 44, y: 42 }, 0, { materialPolicy: "stone" })
+    ];
+  }
+
+  function defaultFixtureInstance(id, typeId, origin, rotation = 0, options = {}) {
+    const def = FIXTURE_BY_ID[typeId] || FIXTURE_BY_ID.basicWorkbench;
+    const materialPolicy = fixtureMaterialPolicyId(options.materialPolicy, def);
+    const materialOption = fixtureMaterialOption(def, materialPolicy);
+    return {
+      id,
+      typeId: def.id,
+      name: String(options.name || def.label),
+      origin: cleanMapCell(origin),
+      rotation: normalizeFixtureRotation(rotation),
+      condition: clamp(Number(options.condition) || 100, 0, 100),
+      operationalState: String(options.operationalState || "operational"),
+      materialPolicy,
+      materialComposition: normalizeMaterialComposition(options.materialComposition, materialOption?.composition || { primary: "steel" }),
+      wardIds: normalizeContainerWardIds(options.wardIds || []),
+      installedAt: finiteTime(options.installedAt, 0)
+    };
   }
 
   function defaultEconomyState(seed = "seed") {
@@ -3005,6 +3175,8 @@
       mode: "idle",
       priority: CONSTRUCTION_PRIORITY_DEFAULT,
       buildType: DEFAULT_CONSTRUCTION_BUILD_ID,
+      fixtureRotation: 0,
+      fixtureMaterialPolicy: "closest",
       draftCells: [],
       orders: [],
       roomDraftCells: [],
@@ -3563,6 +3735,18 @@
           composition: toolMaterialComposition(itemKey)
         }))
       ),
+      fixtureSnapshot: () => ({
+        fixtures: (state.fixtures || []).map((fixture) => ({
+          ...fixture,
+          definition: fixtureDef(fixture),
+          footprintCells: fixtureFootprintCells(fixture),
+          ports: fixturePortCells(fixture),
+          accessiblePorts: fixtureAccessCells(fixture)
+        })),
+        productionBills: (state.productionBills || []).map((bill) => ({ ...bill })),
+        fabricatedFixtures: (state.fabricatedFixtures || []).map((item) => ({ ...item }))
+      }),
+      fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
       damageTool: (itemKey, amount) => {
         const tool = bestToolInstance(itemKey, true);
         const result = tool ? damageSpecificTool(tool.id, amount, "debug damage") : null;
@@ -5939,13 +6123,16 @@
 
   function constructionOrderTile(order, cellOrKey) {
     const key = typeof cellOrKey === "string" ? cellOrKey : mapCellKey(cellOrKey);
-    return order?.tiles?.find((tile) => mapCellKey(tile.cell) === key) || null;
+    return order?.tiles?.find((tile) => mapCellKey(tile.cell) === key)
+      || order?.tiles?.find((tile) => constructionOrderFootprintCells(order, tile).some((cell) => mapCellKey(cell) === key))
+      || null;
   }
 
   function constructionOrderAtCell(cell, options = {}) {
     const key = mapCellKey(cell);
     return activeConstructionOrders().find((order) => order.tiles.some((tile) => {
-      return mapCellKey(tile.cell) === key && (!options.statuses || options.statuses.includes(tile.status));
+      return constructionOrderFootprintCells(order, tile).some((entry) => mapCellKey(entry) === key)
+        && (!options.statuses || options.statuses.includes(tile.status));
     })) || null;
   }
 
@@ -5962,10 +6149,56 @@
   }
 
   function constructionOrderResourceCosts(order) {
-    return normalizeResourceCosts(constructionOrderBuildDef(order)?.resourceCosts || {});
+    const buildDef = constructionOrderBuildDef(order);
+    const fixture = constructionOrderFixtureDef(order);
+    if (fixture) {
+      if (fixture.assemblyClass !== "siteBuilt") return {};
+      return normalizeResourceCosts(fixtureMaterialOption(fixture, order.materialPolicy)?.costs || {});
+    }
+    return normalizeResourceCosts(buildDef?.resourceCosts || {});
+  }
+
+  function constructionOrderFootprintCells(order, tile) {
+    const def = constructionOrderFixtureDef(order);
+    return def ? fixtureFootprintCells(tile?.cell, def, order.rotation) : tile?.cell ? [tile.cell] : [];
+  }
+
+  function plannedFixtureAtCell(cell, exceptOrderId = "") {
+    const key = mapCellKey(cell);
+    for (const order of activeConstructionOrders()) {
+      if (order.id === exceptOrderId || !constructionOrderFixtureDef(order)) continue;
+      for (const tile of order.tiles.filter((entry) => ["planned", "queued"].includes(entry.status))) {
+        if (constructionOrderFootprintCells(order, tile).some((entry) => mapCellKey(entry) === key)) return { order, tile };
+      }
+    }
+    return null;
+  }
+
+  function fixturePlacementBlockReason(def, origin, rotation = 0, options = {}) {
+    const map = options.map || state.labMap || ensureLabMap();
+    const cells = fixtureFootprintCells(origin, def, rotation);
+    if (!cells.length) return "Select a valid fixture origin tile.";
+    const containerKeys = new Set((state.containers || []).flatMap((container) => containerFootprintCells(container, map)).map(mapCellKey));
+    for (const cell of cells) {
+      if (!mapCellInBounds(cell, map) || !labMapCellIsExcavated(cell, map)) return `${def.label} requires excavated floor across its full ${fixtureRotatedFootprint(def, rotation).width} x ${fixtureRotatedFootprint(def, rotation).height} footprint.`;
+      if (constructedWallAtCell(cell, map) || labMapDoorAtCell(cell, map)) return "A wall or door occupies part of this fixture footprint.";
+      if (containerKeys.has(mapCellKey(cell))) return "A containment vessel occupies part of this fixture footprint.";
+      const existing = fixtureAtCell(cell, { exceptFixtureId: options.exceptFixtureId });
+      if (existing && fixtureDef(existing)?.layer === def.layer) return `${existing.name} already occupies this placement layer.`;
+      const planned = plannedFixtureAtCell(cell, options.exceptOrderId);
+      if (planned) return `${constructionOrderFixtureDef(planned.order).label} is already planned across this tile.`;
+    }
+    if (def.requiresAdjacentWall && !cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map) || constructedWallAtCell(neighbor, map)))) {
+      return `${def.label} must be anchored beside a natural or constructed wall.`;
+    }
+    const ports = fixturePortCells(origin, def, rotation).filter((port) => mapCellInBounds(port.cell, map) && labMapCellIsWalkable(port.cell, map));
+    if (!ports.length) return `${def.label} has no physically valid interaction point at this placement.`;
+    return "";
   }
 
   function constructedThingAtCell(cell, map = ensureLabMap()) {
+    const fixture = fixtureAtCell(cell);
+    if (fixture && fixture.typeId !== "concealedExit") return { kind: "fixture", label: fixture.name || "fixture", value: fixture };
     const door = labMapDoorAtCell(cell, map);
     if (door) return { kind: "door", label: "door", value: door };
     const wall = constructedWallAtCell(cell, map);
@@ -5982,7 +6215,10 @@
   function constructionOrderLabel(mode, cells, buildType = state.construction?.buildType) {
     const count = normalizeDigCells(cells).length;
     if (mode === "mine") return excavationDesignationLabel(cells);
-    if (mode === "build") return `Build ${constructionBuildDef(buildType).label} on ${count} tile${count === 1 ? "" : "s"}`;
+    if (mode === "build") {
+      const def = constructionBuildDef(buildType);
+      return def.kind === "fixture" ? `Place ${def.label}` : `Build ${def.label} on ${count} tile${count === 1 ? "" : "s"}`;
+    }
     return `${constructionModeLabel(mode)} ${count} tile${count === 1 ? "" : "s"}`;
   }
 
@@ -6012,7 +6248,9 @@
     }
     if (mode === "build") {
       if (!excavated) return `${buildDef.label} requires excavated floor.`;
-      if (buildDef.kind === "wall") {
+      if (buildDef.kind === "fixture") {
+        return fixturePlacementBlockReason(fixtureDef(buildDef.fixtureTypeId), clean, options.order?.rotation ?? state.construction?.fixtureRotation, { exceptOrderId: options.exceptOrderId, map });
+      } else if (buildDef.kind === "wall") {
         if (constructedWallAtCell(clean, map)) return "A constructed wall already occupies this tile.";
         if (labMapDoorAtCell(clean, map)) return "Remove the door before constructing a wall here.";
       } else if (buildDef.kind === "floor") {
@@ -6042,11 +6280,11 @@
 
   function constructionTargetOccupancyBlockReason(order, tile) {
     if (!["build", "deconstruct"].includes(order?.mode)) return "";
-    const key = mapCellKey(tile.cell);
-    if (mapCellKey(scientistMapCell()) === key) return "The scientist is standing on the work tile.";
-    const slime = (state.slimes || []).find((entry) => entry.status === "released" && mapCellKey(objectMapCell(entry) || {}) === key);
+    const keys = new Set(constructionOrderFootprintCells(order, tile).map(mapCellKey));
+    if (keys.has(mapCellKey(scientistMapCell()))) return "The scientist is standing inside the work footprint.";
+    const slime = (state.slimes || []).find((entry) => entry.status === "released" && keys.has(mapCellKey(objectMapCell(entry) || {})));
     if (slime) return `${slime.name} is occupying the work tile.`;
-    const corpse = (state.corpses || []).find((entry) => entry.storage !== "container" && mapCellKey(objectMapCell(entry) || {}) === key);
+    const corpse = (state.corpses || []).find((entry) => entry.storage !== "container" && keys.has(mapCellKey(objectMapCell(entry) || {})));
     if (corpse) return `${corpse.name} remains are occupying the work tile.`;
     return "";
   }
@@ -6070,6 +6308,11 @@
     }
     if (order?.mode === "build") {
       const def = constructionOrderBuildDef(order);
+      if (def?.kind === "fixture") {
+        const fixture = constructionOrderFixtureDef(order);
+        const fabricated = fabricatedFixtureForOrder(order);
+        return normalizeMaterialComposition(fabricated?.materialComposition, fixtureMaterialOption(fixture, order.materialPolicy)?.composition || { primary: "steel" });
+      }
       return normalizeMaterialComposition({ primary: normalizeMaterialId(def?.materialId) });
     }
     if (order?.mode === "deconstruct") {
@@ -6090,6 +6333,12 @@
     }
     if (order?.mode === "build") {
       const def = constructionOrderBuildDef(order);
+      if (def?.kind === "fixture") {
+        const fixture = constructionOrderFixtureDef(order);
+        return fixture?.assemblyClass === "portable"
+          ? [{ label: "fixture installation", any: ["prying", "striking"], minimum: 32 }]
+          : [{ label: "fixture assembly", any: ["woodworking", "masonry", "prying"], minimum: 38 }];
+      }
       if (def?.kind === "door") {
         return [
           { label: "woodworking", any: ["woodworking"], minimum: 42 },
@@ -6200,7 +6449,15 @@
     if (occupancyReason) return { ok: false, reason: occupancyReason, path: [], accessCell: null };
     const map = ensureLabMap();
     const start = scientistMapCell();
-    const candidates = ["smoothFloor", "build"].includes(order.mode) && constructionOrderBuildDef(order)?.kind === "floor"
+    const fixture = constructionOrderFixtureDef(order);
+    if (fixture && fixture.assemblyClass !== "siteBuilt" && !fabricatedFixtureForOrder(order)) {
+      const bill = productionBillForOrder(order);
+      return { ok: false, reason: bill?.blockedReason || `Waiting for the linked ${fixture.label} production bill.`, path: [], accessCell: null };
+    }
+    const fixtureCandidates = fixture ? fixtureAccessCells(tile.cell, fixture, order.rotation, { map }) .map((port) => port.cell) : [];
+    const candidates = fixture
+      ? fixtureCandidates
+      : ["smoothFloor", "build"].includes(order.mode) && constructionOrderBuildDef(order)?.kind === "floor"
       ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsExcavated(cell, map))]
       : order.mode === "smoothFloor"
         ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map))]
@@ -6483,7 +6740,11 @@
     const cleanCells = normalizeDigCells(cells);
     if (!cleanCells.length) return false;
     const buildType = mode === "build" ? (CONSTRUCTION_BUILD_BY_ID[options.buildType] ? options.buildType : state.construction.buildType) : "";
-    const invalid = cleanCells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType })).find(Boolean);
+    const buildDef = mode === "build" ? constructionBuildDef(buildType) : null;
+    const rotation = buildDef?.kind === "fixture" ? normalizeFixtureRotation(options.rotation ?? state.construction.fixtureRotation) : 0;
+    const materialPolicy = buildDef?.kind === "fixture" ? fixtureMaterialPolicyId(options.materialPolicy ?? state.construction.fixtureMaterialPolicy, fixtureDef(buildDef.fixtureTypeId)) : "";
+    const orderCells = buildDef?.kind === "fixture" ? cleanCells.slice(0, 1) : cleanCells;
+    const invalid = orderCells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType, order: { rotation } })).find(Boolean);
     if (invalid) {
       addEvent(invalid);
       persist();
@@ -6494,16 +6755,20 @@
       id: `construction-order-${state.construction.nextOrderNumber++}`,
       mode,
       buildType,
-      label: constructionOrderLabel(mode, cleanCells, buildType),
+      rotation,
+      materialPolicy,
+      productionBillId: "",
+      label: constructionOrderLabel(mode, orderCells, buildType),
       priority: clamp(Number(options.priority) || state.construction.priority, CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: state.clock,
-      tiles: cleanCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null, workCompletedSeconds: 0, workRequiredSeconds: 0, lastInterruptionReason: "" }))
+      tiles: orderCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null, workCompletedSeconds: 0, workRequiredSeconds: 0, lastInterruptionReason: "" }))
     };
     state.construction.orders.push(order);
+    if (constructionOrderFixtureDef(order)?.assemblyClass !== "siteBuilt") createLinkedFixtureProductionBill(order);
     state.construction.lastDigRect = mode === "mine" ? digCellsBoundingRect(cleanCells) : state.construction.lastDigRect;
     state.construction.draftCells = [];
     state.construction.mode = "idle";
-    ensureLabMapCoversCells(cleanCells);
+    ensureLabMapCoversCells(orderCells);
     refreshConstructionOrderBlocks();
     claimNextConstructionWork();
     addEvent(`${order.label} designated at priority ${order.priority}.`);
@@ -6632,6 +6897,8 @@
     if (!clean) return null;
     const mapDoor = labMapDoorAtCell(clean, map);
     if (mapDoor) return { kind: "door", cell: clean, mapDoor, value: doorFixtureState(mapDoor) };
+    const fixture = fixtureAtCell(clean);
+    if (fixture) return { kind: "fixture", cell: objectMapCell(fixture), value: fixture };
     const wall = constructedWallAtCell(clean, map);
     if (wall) return { kind: "constructedWall", cell: clean, value: wall };
     const floor = constructedFloorAtCell(clean, map);
@@ -6702,6 +6969,9 @@
       delete map.doors[target.mapDoor.id];
       delete state.doors?.[target.mapDoor.id];
       addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 1), `${doorTypeLabel(target.value?.typeId)} destroyed by ${source}`, map);
+    } else if (target.kind === "fixture") {
+      state.fixtures = (state.fixtures || []).filter((fixture) => fixture.id !== target.value.id);
+      addRubblePile(target.cell, rubbleMaterialsForComposition(composition, Math.max(1, fixtureFootprintCells(target.value).length)), `${target.value.name} destroyed by ${source}`, map);
     } else if (target.kind === "constructedWall") {
       map.terrain.constructedWalls = (map.terrain.constructedWalls || []).filter((entry) => mapCellKey(entry.cell) !== key);
       addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 2), `wall destroyed by ${source}`, map);
@@ -6788,6 +7058,28 @@
     state.doors[id] = door;
   }
 
+  function createConstructedFixture(order, tile) {
+    const def = constructionOrderFixtureDef(order);
+    if (!def) return null;
+    const fabricated = fabricatedFixtureForOrder(order);
+    const materialOption = fixtureMaterialOption(def, order.materialPolicy);
+    const fixture = normalizeFixture({
+      id: `fixture-${state.nextFixtureNumber++}`,
+      typeId: def.id,
+      name: def.label,
+      origin: tile.cell,
+      rotation: order.rotation,
+      condition: 100,
+      operationalState: fixtureAccessCells(tile.cell, def, order.rotation).length ? "operational" : "impaired",
+      materialPolicy: order.materialPolicy,
+      materialComposition: fabricated?.materialComposition || materialOption?.composition,
+      installedAt: state.clock
+    });
+    state.fixtures.push(fixture);
+    if (fabricated) state.fabricatedFixtures = state.fabricatedFixtures.filter((item) => item.id !== fabricated.id);
+    return fixture;
+  }
+
   function deconstructAtCell(cell, map = ensureLabMap()) {
     const target = constructedThingAtCell(cell, map);
     if (!target) return false;
@@ -6796,6 +7088,9 @@
       delete map.doors[target.value.id];
       delete state.doors?.[target.value.id];
       addRubblePile(cell, rubbleMaterialsForComposition(doorMaterialComposition(liveDoor), 1), `${target.label} deconstruction`, map);
+    } else if (target.kind === "fixture") {
+      state.fixtures = (state.fixtures || []).filter((fixture) => fixture.id !== target.value.id);
+      addRubblePile(cell, rubbleMaterialsForComposition(target.value.materialComposition, Math.max(1, fixtureFootprintCells(target.value).length)), `${target.label} deconstruction`, map);
     } else if (target.kind === "wall") {
       map.terrain.constructedWalls = (map.terrain.constructedWalls || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
       addRubblePile(cell, rubbleMaterialsForComposition(target.value.materialComposition, 2), `${target.label} deconstruction`, map);
@@ -6857,6 +7152,8 @@
         map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
       } else if (buildDef.kind === "door") {
         createConstructedDoor(tile.cell, buildDef, map);
+      } else if (buildDef.kind === "fixture") {
+        createConstructedFixture(order, tile);
       }
       state.labMap = normalizeLabMap(map, state.rooms);
       if (buildDef.kind === "wall") removeCellFromRoomDesignations(tile.cell);
@@ -9260,7 +9557,7 @@
     for (const order of activeConstructionOrders()) {
       for (const tile of order.tiles) {
         if (["planned", "queued"].includes(tile.status) && (!exceptTaskId || tile.taskId !== exceptTaskId)) {
-          keys.add(mapCellKey(tile.cell));
+          for (const cell of constructionOrderFootprintCells(order, tile)) keys.add(mapCellKey(cell));
         }
       }
     }
@@ -9271,16 +9568,18 @@
     const assignments = new Map();
     for (const order of activeConstructionOrders()) {
       for (const tile of order.tiles.filter((entry) => ["planned", "queued"].includes(entry.status))) {
-        assignments.set(mapCellKey(tile.cell), {
-          order,
-          tile,
-          task: tile.taskId ? findTask(tile.taskId) : null,
-          mode: order.mode,
-          priority: order.priority,
-          status: tile.status,
-          blockedReason: tile.blockedReason,
-          label: `${constructionModeLabel(order.mode)} priority ${order.priority}${tile.blockedReason ? `; blocked: ${tile.blockedReason}` : ""}`
-        });
+        for (const cell of constructionOrderFootprintCells(order, tile)) {
+          assignments.set(mapCellKey(cell), {
+            order,
+            tile,
+            task: tile.taskId ? findTask(tile.taskId) : null,
+            mode: order.mode,
+            priority: order.priority,
+            status: tile.status,
+            blockedReason: tile.blockedReason,
+            label: `${constructionModeLabel(order.mode)} priority ${order.priority}${tile.blockedReason ? `; blocked: ${tile.blockedReason}` : ""}`
+          });
+        }
       }
     }
     return assignments;
@@ -9294,12 +9593,16 @@
       const reason = mode === "cancel"
         ? constructionOrderAtCell(cell) ? "" : "No active order on this tile."
         : constructionTileStaticBlockReason(mode, cell);
-      assignments.set(mapCellKey(cell), {
-        mode,
-        label: `Draft ${constructionModeLabel(mode).toLowerCase()}`,
-        valid: !reason,
-        reason
-      });
+      const def = mode === "build" ? fixtureDef(constructionBuildDef()?.fixtureTypeId) : null;
+      const footprint = def ? fixtureFootprintCells(cell, def, state.construction.fixtureRotation) : [cell];
+      for (const footprintCell of footprint) {
+        assignments.set(mapCellKey(footprintCell), {
+          mode,
+          label: def ? `Draft ${def.label} footprint` : `Draft ${constructionModeLabel(mode).toLowerCase()}`,
+          valid: !reason,
+          reason
+        });
+      }
     }
     return assignments;
   }
@@ -9545,10 +9848,36 @@
     if (!def) return false;
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.buildType = def.id;
+    if (def.kind === "fixture") {
+      state.construction.fixtureRotation = 0;
+      state.construction.fixtureMaterialPolicy = fixtureMaterialPolicyId(state.construction.fixtureMaterialPolicy, fixtureDef(def.fixtureTypeId));
+    }
     state.construction.mode = "build";
     state.construction.draftCells = [];
     ensureUiState().mapOverlay = "construction";
     addEvent(`Build designation set to ${def.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function rotateConstructionFixture(direction = 1) {
+    const def = fixtureDef(constructionBuildDef()?.fixtureTypeId);
+    if (!def) return false;
+    const currentIndex = FIXTURE_ROTATIONS.indexOf(normalizeFixtureRotation(state.construction.fixtureRotation));
+    state.construction.fixtureRotation = FIXTURE_ROTATIONS[(currentIndex + (direction < 0 ? 3 : 1)) % FIXTURE_ROTATIONS.length];
+    addEvent(`${def.label} placement rotated to ${state.construction.fixtureRotation} degrees.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setConstructionFixtureMaterialPolicy(policyId) {
+    const def = fixtureDef(constructionBuildDef()?.fixtureTypeId);
+    if (!def) return false;
+    const clean = fixtureMaterialPolicyId(policyId, def);
+    state.construction.fixtureMaterialPolicy = clean;
+    addEvent(`${def.label} material policy set to ${FIXTURE_MATERIAL_POLICY_BY_ID[clean]?.label || titleCase(clean)}.`);
     persist();
     render();
     return true;
@@ -10098,6 +10427,14 @@
       if (collectionBayStationSelectable(container)) add("collection", `${container.name} is a collection station`);
       if (isPitHoleContainer(container)) add("corpseProcessing", `${container.name} is a processing pit`);
     }
+    for (const fixture of state.fixtures || []) {
+      const def = fixtureDef(fixture);
+      if (!fixtureFootprintCells(fixture).some((cell) => keys.has(mapCellKey(cell))) || fixture.operationalState === "broken") continue;
+      if (def.capabilities.includes("workbench")) add("workroom", `${fixture.name} supports fabrication`);
+      if (def.capabilities.includes("collection")) add("collection", `${fixture.name} supports collection`);
+      if (def.capabilities.includes("rest")) add("quarters", `${fixture.name} supports rest`);
+      if (def.capabilities.includes("labExit")) add("access", `${fixture.name} provides a surface route`);
+    }
     const stockpile = state.roomStockpiles?.[room.id];
     const stocked = [stockpile?.resources, stockpile?.inventory, stockpile?.collectedByproducts, stockpile?.specimenMaterials]
       .some((group) => Object.values(group || {}).some((amount) => Number(amount) > 0));
@@ -10182,7 +10519,8 @@
       }
     }
     state.construction = normalizeConstructionState(state.construction, state);
-    const existing = constructionDraftCellKeys();
+    const fixturePlacement = constructionActiveMode() === "build" && constructionBuildDef()?.kind === "fixture";
+    const existing = fixturePlacement ? new Set() : constructionDraftCellKeys();
     const combined = [...state.construction.draftCells];
     for (const cell of additions) {
       const key = mapCellKey(cell);
@@ -10192,7 +10530,7 @@
       existing.add(key);
       combined.push(cell);
     }
-    state.construction.draftCells = normalizeDigCells(combined);
+    state.construction.draftCells = fixturePlacement ? [additions.at(-1)] : normalizeDigCells(combined);
     if (!constructionWorkModeActive()) state.construction.mode = "mine";
     ensureLabMapCoversCells(state.construction.draftCells);
     ensureUiState().mapOverlay = "construction";
@@ -10251,6 +10589,7 @@
         tile.blockedReason = "";
         canceled += 1;
       }
+      if (!order.tiles.some((tile) => ["planned", "queued"].includes(tile.status))) cancelLinkedFixtureProduction(order);
     }
     if (!canceled) {
       addEvent("No active construction orders were selected.");
@@ -10910,6 +11249,270 @@
     return cleanMapCell(candidate?.mapCell || candidate?.cell || candidate?.origin || candidate);
   }
 
+  function normalizeFixtureRotation(value) {
+    const normalized = ((Math.round(Number(value) || 0) % 360) + 360) % 360;
+    return FIXTURE_ROTATIONS.includes(normalized) ? normalized : 0;
+  }
+
+  function fixtureDef(candidate) {
+    const typeId = typeof candidate === "string" ? candidate : candidate?.typeId;
+    return FIXTURE_BY_ID[typeId] || null;
+  }
+
+  function constructionOrderFixtureDef(order) {
+    const buildDef = constructionOrderBuildDef(order);
+    return buildDef?.kind === "fixture" ? fixtureDef(buildDef.fixtureTypeId) : null;
+  }
+
+  function fixtureMaterialPolicyId(value, def = null) {
+    const requested = String(value || "closest");
+    const options = Object.keys(def?.materialOptions || {});
+    if (["closest", "best"].includes(requested)) return requested;
+    if (FIXTURE_MATERIAL_POLICY_BY_ID[requested] && (!options.length || options.includes(requested))) return requested;
+    return "closest";
+  }
+
+  function fixtureMaterialOption(def, policyId = "closest") {
+    const entries = Object.entries(def?.materialOptions || {});
+    if (!entries.length) return null;
+    const exact = entries.find(([id]) => id === policyId);
+    if (exact) return { id: exact[0], ...exact[1] };
+    const available = entries.filter(([_id, option]) => !resourceBlockReason(option.costs || {}));
+    const pool = available.length ? available : entries;
+    if (policyId === "best") {
+      const [id, option] = [...pool].sort((a, b) => (Number(b[1].score) || 0) - (Number(a[1].score) || 0))[0];
+      return { id, ...option };
+    }
+    const roomIds = roomStockpileIds();
+    const scientistCell = state?.scientist ? scientistMapCell() : null;
+    const ranked = pool.map(([id, option], index) => {
+      const sourceRoomId = roomIds.find((roomId) => !resourceBlockReasonForRoom(option.costs || {}, roomId, { allowHaul: false })) || "";
+      const sourceCell = sourceRoomId && state?.labMap ? labMapRoomAnchor(sourceRoomId) : null;
+      const distance = scientistCell && sourceCell ? Math.abs(scientistCell.x - sourceCell.x) + Math.abs(scientistCell.y - sourceCell.y) : index;
+      return { id, option, distance };
+    }).sort((a, b) => a.distance - b.distance || (Number(b.option.score) || 0) - (Number(a.option.score) || 0));
+    return { id: ranked[0].id, ...ranked[0].option };
+  }
+
+  function fixtureRotatedFootprint(def, rotation = 0) {
+    const base = def?.footprint || { width: 1, height: 1 };
+    const rotated = normalizeFixtureRotation(rotation);
+    return rotated === 90 || rotated === 270
+      ? { width: base.height, height: base.width }
+      : { width: base.width, height: base.height };
+  }
+
+  function rotateFixtureOffset(point, footprint, rotation = 0) {
+    const x = Number(point?.x) || 0;
+    const y = Number(point?.y) || 0;
+    const width = Math.max(1, Number(footprint?.width) || 1);
+    const height = Math.max(1, Number(footprint?.height) || 1);
+    if (rotation === 90) return { x: height - 1 - y, y: x };
+    if (rotation === 180) return { x: width - 1 - x, y: height - 1 - y };
+    if (rotation === 270) return { x: y, y: width - 1 - x };
+    return { x, y };
+  }
+
+  function fixtureFootprintCells(fixtureOrOrigin, defArg = null, rotationArg = null) {
+    const fixture = fixtureOrOrigin && fixtureOrOrigin.typeId ? fixtureOrOrigin : null;
+    const origin = objectMapCell(fixture || fixtureOrOrigin);
+    const def = defArg || fixtureDef(fixture);
+    const rotation = normalizeFixtureRotation(rotationArg ?? fixture?.rotation);
+    return objectFootprintCells(origin, fixtureRotatedFootprint(def, rotation));
+  }
+
+  function fixturePortCells(fixtureOrOrigin, defArg = null, rotationArg = null) {
+    const fixture = fixtureOrOrigin && fixtureOrOrigin.typeId ? fixtureOrOrigin : null;
+    const origin = objectMapCell(fixture || fixtureOrOrigin);
+    const def = defArg || fixtureDef(fixture);
+    const rotation = normalizeFixtureRotation(rotationArg ?? fixture?.rotation);
+    if (!origin || !def) return [];
+    return (def.ports || []).map((port) => {
+      const offset = rotateFixtureOffset(port, def.footprint, rotation);
+      return { ...port, cell: { x: origin.x + offset.x, y: origin.y + offset.y } };
+    });
+  }
+
+  function fixtureById(id) {
+    return (state.fixtures || []).find((fixture) => fixture.id === id) || null;
+  }
+
+  function fixtureAtCell(cell, options = {}) {
+    const key = mapCellKey(cell);
+    return (state.fixtures || []).find((fixture) => fixture.id !== options.exceptFixtureId
+      && fixtureFootprintCells(fixture).some((entry) => mapCellKey(entry) === key)) || null;
+  }
+
+  function fixtureCapabilityAvailable(capability, roomId = "") {
+    return (state.fixtures || []).some((fixture) => {
+      const def = fixtureDef(fixture);
+      if (!def?.capabilities?.includes(capability) || fixture.operationalState !== "operational" || fixture.condition <= 0) return false;
+      const fixtureRoomId = labMapCellRoomId(fixture.origin);
+      return !roomId || fixtureRoomId === roomId;
+    });
+  }
+
+  function fixtureAccessCells(fixtureOrOrigin, defArg = null, rotationArg = null, options = {}) {
+    const map = options.map || ensureLabMap();
+    const fixture = fixtureOrOrigin && fixtureOrOrigin.typeId ? fixtureOrOrigin : null;
+    const def = defArg || fixtureDef(fixture);
+    const ownKeys = new Set(fixtureFootprintCells(fixture || fixtureOrOrigin, def, rotationArg).map(mapCellKey));
+    const blocked = options.blockedCellKeys || labMapBlockingCellKeys(map, { excludeFixtureIds: fixture ? [fixture.id] : [] });
+    return fixturePortCells(fixture || fixtureOrOrigin, def, rotationArg)
+      .filter((port) => mapCellInBounds(port.cell, map) && labMapCellIsWalkable(port.cell, map))
+      .filter((port) => !labMapDoorAtCell(port.cell, map))
+      .filter((port) => !blocked.has(mapCellKey(port.cell)) || ownKeys.has(mapCellKey(port.cell)) && def?.collision !== "blocking");
+  }
+
+  function normalizeFixture(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const def = fixtureDef(candidate);
+    const id = String(candidate.id || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+    const origin = objectMapCell(candidate);
+    if (!def || !id || !origin) return null;
+    const materialPolicy = fixtureMaterialPolicyId(candidate.materialPolicy, def);
+    const materialOption = fixtureMaterialOption(def, materialPolicy);
+    return {
+      id,
+      typeId: def.id,
+      name: String(candidate.name || def.label),
+      origin,
+      rotation: normalizeFixtureRotation(candidate.rotation),
+      condition: clamp(Number.isFinite(Number(candidate.condition)) ? Number(candidate.condition) : 100, 0, 100),
+      operationalState: ["operational", "impaired", "broken", "unfinished"].includes(candidate.operationalState) ? candidate.operationalState : "operational",
+      materialPolicy,
+      materialComposition: normalizeMaterialComposition(candidate.materialComposition, materialOption?.composition || { primary: "steel" }),
+      wardIds: normalizeContainerWardIds(candidate.wardIds || []),
+      installedAt: finiteTime(candidate.installedAt, 0)
+    };
+  }
+
+  function normalizeFixtures(candidate) {
+    const seen = new Set();
+    const fixtures = (Array.isArray(candidate) ? candidate : defaultFixtures()).map(normalizeFixture).filter(Boolean).filter((fixture) => {
+      if (seen.has(fixture.id)) return false;
+      seen.add(fixture.id);
+      return true;
+    });
+    return fixtures;
+  }
+
+  function normalizeProductionBill(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const id = String(candidate.id || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+    const fixtureTypeId = String(candidate.fixtureTypeId || "");
+    if (!id || !fixtureDef(fixtureTypeId)) return null;
+    return {
+      id,
+      fixtureTypeId,
+      parentOrderId: String(candidate.parentOrderId || ""),
+      quantity: Math.max(1, Math.floor(Number(candidate.quantity) || 1)),
+      completedQuantity: clamp(Math.floor(Number(candidate.completedQuantity) || 0), 0, Math.max(1, Math.floor(Number(candidate.quantity) || 1))),
+      materialPolicy: fixtureMaterialPolicyId(candidate.materialPolicy, fixtureDef(fixtureTypeId)),
+      materialOptionId: String(candidate.materialOptionId || ""),
+      resourceCosts: normalizeResourceCosts(candidate.resourceCosts || {}),
+      status: ["planned", "blocked", "completed", "canceled"].includes(candidate.status) ? candidate.status : "planned",
+      blockedReason: String(candidate.blockedReason || ""),
+      createdBy: String(candidate.createdBy || "scientist"),
+      createdAt: finiteTime(candidate.createdAt, 0),
+      completedAt: candidate.completedAt == null ? null : finiteTime(candidate.completedAt, 0)
+    };
+  }
+
+  function normalizeProductionBills(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map(normalizeProductionBill).filter(Boolean);
+  }
+
+  function normalizeFabricatedFixtures(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((item) => ({
+      id: String(item?.id || "").replace(/[^a-zA-Z0-9:_-]/g, ""),
+      fixtureTypeId: String(item?.fixtureTypeId || ""),
+      materialPolicy: String(item?.materialPolicy || "closest"),
+      materialComposition: normalizeMaterialComposition(item?.materialComposition, { primary: "steel" }),
+      productionBillId: String(item?.productionBillId || ""),
+      reservedOrderId: String(item?.reservedOrderId || ""),
+      roomId: cleanRoomId(item?.roomId) || STORAGE_ROOM_ID,
+      createdAt: finiteTime(item?.createdAt, 0)
+    })).filter((item) => item.id && fixtureDef(item.fixtureTypeId));
+  }
+
+  function productionBillById(id) {
+    return (state.productionBills || []).find((bill) => bill.id === id) || null;
+  }
+
+  function productionBillForOrder(order) {
+    return productionBillById(order?.productionBillId) || (state.productionBills || []).find((bill) => bill.parentOrderId === order?.id && bill.status !== "canceled") || null;
+  }
+
+  function fabricatedFixtureForOrder(order) {
+    return (state.fabricatedFixtures || []).find((item) => item.reservedOrderId === order?.id) || null;
+  }
+
+  function fixtureProductionBlockReason(def) {
+    if (!def || def.assemblyClass === "siteBuilt") return "";
+    if (!fixtureCapabilityAvailable("workbench")) return "No operational workbench can fabricate the required item or components.";
+    return "Workstation bill execution is waiting for the physical stockpile and crafting pass.";
+  }
+
+  function createLinkedFixtureProductionBill(order) {
+    const def = constructionOrderFixtureDef(order);
+    if (!def || def.assemblyClass === "siteBuilt") return null;
+    const materialOption = fixtureMaterialOption(def, order.materialPolicy);
+    const bill = normalizeProductionBill({
+      id: `production-bill-${state.nextProductionBillNumber++}`,
+      fixtureTypeId: def.id,
+      parentOrderId: order.id,
+      quantity: 1,
+      completedQuantity: 0,
+      materialPolicy: order.materialPolicy,
+      materialOptionId: materialOption?.id || "",
+      resourceCosts: materialOption?.costs || {},
+      status: "blocked",
+      blockedReason: fixtureProductionBlockReason(def),
+      createdBy: "scientist",
+      createdAt: state.clock
+    });
+    state.productionBills.push(bill);
+    order.productionBillId = bill.id;
+    return bill;
+  }
+
+  function fulfillFixtureProductionBill(billOrId) {
+    const bill = typeof billOrId === "string" ? productionBillById(billOrId) : billOrId;
+    const order = constructionOrderById(bill?.parentOrderId);
+    const def = fixtureDef(bill?.fixtureTypeId);
+    if (!bill || !order || !def || bill.status === "canceled") return false;
+    const materialOption = fixtureMaterialOption(def, bill.materialOptionId || bill.materialPolicy);
+    bill.status = "completed";
+    bill.blockedReason = "";
+    bill.completedQuantity = bill.quantity;
+    bill.completedAt = state.clock;
+    state.fabricatedFixtures.push({
+      id: `fabricated-fixture-${bill.id}`,
+      fixtureTypeId: def.id,
+      materialPolicy: bill.materialPolicy,
+      materialComposition: normalizeMaterialComposition(materialOption?.composition, { primary: "steel" }),
+      productionBillId: bill.id,
+      reservedOrderId: order.id,
+      roomId: STORAGE_ROOM_ID,
+      createdAt: state.clock
+    });
+    refreshConstructionOrderBlocks();
+    claimNextConstructionWork();
+    persist();
+    render();
+    return true;
+  }
+
+  function cancelLinkedFixtureProduction(order) {
+    const bill = productionBillForOrder(order);
+    if (bill && bill.status !== "completed") {
+      bill.status = "canceled";
+      bill.blockedReason = "Parent placement order canceled.";
+    }
+    state.fabricatedFixtures = (state.fabricatedFixtures || []).map((item) => item.reservedOrderId === order?.id ? { ...item, reservedOrderId: "" } : item);
+  }
+
   function objectFootprintCells(origin, footprint) {
     const clean = cleanMapCell(origin);
     const width = clamp(Math.ceil(Number(footprint?.width) || 1), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS);
@@ -11020,7 +11623,12 @@
       ensurePhysicalObjectPlacements();
     }
     const excludedContainers = new Set(Array.isArray(options.excludeContainerIds) ? options.excludeContainerIds : []);
+    const excludedFixtures = new Set(Array.isArray(options.excludeFixtureIds) ? options.excludeFixtureIds : []);
     const blocked = new Set();
+    for (const fixture of state?.fixtures || []) {
+      if (!fixture || excludedFixtures.has(fixture.id) || fixtureDef(fixture)?.collision !== "blocking") continue;
+      for (const cell of fixtureFootprintCells(fixture)) blocked.add(mapCellKey(cell));
+    }
     for (const container of state?.containers || []) {
       if (!container || excludedContainers.has(container.id)) {
         continue;
@@ -11117,6 +11725,7 @@
       state.rooms = normalizeRooms(state.rooms);
       state.labMap = normalizeLabMap(state.labMap, state.rooms);
       state.containers = normalizeContainers(state.containers);
+      state.fixtures = normalizeFixtures(state.fixtures);
       state.slimes ||= [];
       state.corpses ||= [];
 
@@ -11128,6 +11737,10 @@
         ? scientistCell
         : normalizeMapCellForRoom(scientistCell, state.scientist.roomId || MAIN_ROOM_ID, map);
       occupied.add(mapCellKey(state.scientist.mapCell));
+
+      for (const fixture of state.fixtures) {
+        for (const cell of fixtureFootprintCells(fixture)) reserveObjectFootprint(occupied, cell, { width: 1, height: 1 });
+      }
 
       for (const container of state.containers) {
         const roomId = roomById(container.roomId)?.id || MAIN_ROOM_ID;
@@ -31422,6 +32035,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       assignments.set(key, entry);
     };
+    for (const fixture of state.fixtures || []) {
+      const def = fixtureDef(fixture);
+      const footprint = fixtureFootprintCells(fixture);
+      const footprintDef = fixtureRotatedFootprint(def, fixture.rotation);
+      const target = { kind: "fixture", id: fixture.id, label: fixture.name };
+      footprint.forEach((cell, index) => addCell(
+        cell,
+        index === 0 ? def?.glyph || "F" : "F",
+        `${fixture.name} footprint ${footprintDef.width}x${footprintDef.height}; ${fixture.operationalState}`,
+        ["fixture-object-cell", ...(def?.collision === "blocking" ? ["blocking-object-cell"] : [])],
+        target
+      ));
+      for (const port of fixturePortCells(fixture)) {
+        addCell(port.cell, "", `${fixture.name}: ${port.label}`, ["fixture-access-cell"]);
+      }
+    }
     for (const container of state.containers || []) {
       const footprint = containerFootprintCells(container, map);
       if (!footprint.length) {
@@ -31851,6 +32480,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tile.blockedReason = "";
       }
       releaseConstructionTaskTools(task, { retain: false });
+      cancelLinkedFixtureProduction(order);
     }
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
@@ -31995,6 +32625,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const id = cleanContainerId(candidate.id);
       return id && containerById(id) ? { kind, id } : null;
     }
+    if (kind === "fixture") {
+      const id = String(candidate.id || "");
+      return id && fixtureById(id) ? { kind, id } : null;
+    }
     if (kind === "slime") {
       const id = String(candidate.id || "");
       return id && findSlime(id) ? { kind, id } : null;
@@ -32052,7 +32686,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "stockpile") {
       return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
     }
-    if (["container", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+    if (["container", "fixture", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
     return null;
@@ -32162,6 +32796,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "container") {
       return containerById(selection.id)?.name || "Container";
     }
+    if (selection.kind === "fixture") {
+      return fixtureById(selection.id)?.name || "Fixture";
+    }
     if (selection.kind === "slime") {
       return findSlime(selection.id)?.name || "Slime";
     }
@@ -32199,6 +32836,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       room: "Room",
       door: "Door",
       container: "Container",
+      fixture: "Fixture",
       slime: "Living Specimen",
       corpse: "Deceased Specimen",
       incident: "Incident",
@@ -32229,6 +32867,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "container") {
       return containerById(selection.id)?.roomId || "";
+    }
+    if (selection.kind === "fixture") {
+      return labMapCellRoomId(fixtureById(selection.id)?.origin) || "";
     }
     if (selection.kind === "slime") {
       return slimeEffectiveRoomId(findSlime(selection.id));
@@ -32270,6 +32911,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "container") {
       return objectMapCell(containerById(selection.id));
+    }
+    if (selection.kind === "fixture") {
+      return objectMapCell(fixtureById(selection.id));
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -32316,6 +32960,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "container") {
       const container = containerById(selection.id);
       return container ? [containerTypeLabel(container.typeId), `condition ${containerConditionLabel(container)}`, roomName(container.roomId)].map(chip) : [];
+    }
+    if (selection.kind === "fixture") {
+      const fixture = fixtureById(selection.id);
+      return fixture ? [fixtureDef(fixture)?.label || "Fixture", titleCase(fixture.operationalState), `condition ${formatNumber(fixture.condition)}%`].map(chip) : [];
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
@@ -32418,6 +33066,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ...containerCorpses(container.id).map((corpse) => ({ kind: "corpse", id: corpse.id })),
         { kind: "room", roomId: container.roomId }
       ];
+    }
+    if (selection.kind === "fixture") {
+      const fixture = fixtureById(selection.id);
+      const roomId = fixture ? labMapCellRoomId(fixture.origin) : "";
+      return fixture && roomId ? [{ kind: "room", roomId }] : [];
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -32602,6 +33255,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "container") {
       return containerContextCommands(containerById(selection.id));
+    }
+    if (selection.kind === "fixture") {
+      return fixtureContextCommands(fixtureById(selection.id));
     }
     if (selection.kind === "collectionStation") {
       return collectionStationContextCommands(selection);
@@ -33032,14 +33688,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }));
     }
     for (const def of CONSTRUCTION_BUILD_DEFS) {
+      const fixture = def.kind === "fixture" ? fixtureDef(def.fixtureTypeId) : null;
+      const material = fixture ? fixtureMaterialOption(fixture, state.construction.fixtureMaterialPolicy) : null;
       commands.push(commandDef({
         id: `construction.buildType.${def.id}`,
         label: `Build: ${def.label}`,
         group: "Build Type",
         disabledReason: constructionActiveMode() === "build" && state.construction.buildType === def.id ? `${def.label} is already selected.` : "",
-        description: `${def.description} Cost per tile: ${formatResourceBundle(def.resourceCosts)}.`,
+        description: fixture
+          ? `${def.description} ${titleCase(fixture.assemblyClass.replace(/([A-Z])/g, " $1"))}; ${fixtureRotatedFootprint(fixture, state.construction.fixtureRotation).width}x${fixtureRotatedFootprint(fixture, state.construction.fixtureRotation).height} footprint. ${fixture.assemblyClass === "siteBuilt" ? `On-site materials: ${formatResourceBundle(material?.costs || {})}.` : "Missing items or components create an automatic linked production bill."}`
+          : `${def.description} Cost per tile: ${formatResourceBundle(def.resourceCosts)}.`,
         run: () => setConstructionBuildType(def.id)
       }));
+    }
+    const selectedFixture = constructionBuildDef()?.kind === "fixture" ? fixtureDef(constructionBuildDef().fixtureTypeId) : null;
+    if (selectedFixture) {
+      commands.push(commandDef({
+        id: "construction.fixture.rotate",
+        label: `Rotate Fixture (${state.construction.fixtureRotation} degrees)`,
+        group: "Fixture Placement",
+        description: "Rotate the footprint and every named interaction point clockwise by 90 degrees.",
+        run: () => rotateConstructionFixture(1)
+      }));
+      for (const policy of FIXTURE_MATERIAL_POLICY_DEFS.filter((policy) => ["closest", "best"].includes(policy.id) || selectedFixture.materialOptions[policy.id])) {
+        commands.push(commandDef({
+          id: `construction.fixture.material.${policy.id}`,
+          label: `Material: ${policy.label}`,
+          group: "Fixture Material",
+          disabledReason: state.construction.fixtureMaterialPolicy === policy.id ? `${policy.label} is already selected.` : "",
+          description: policy.description,
+          run: () => setConstructionFixtureMaterialPolicy(policy.id)
+        }));
+      }
     }
     for (let priority = CONSTRUCTION_PRIORITY_MIN; priority <= CONSTRUCTION_PRIORITY_MAX; priority += 1) {
       commands.push(commandDef({
@@ -33049,6 +33729,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         disabledReason: state.construction.priority === priority ? `Priority ${priority} is already selected.` : "",
         description: "Lower numbers are claimed first, following Dwarf Fortress priority ordering.",
         run: () => setConstructionPriority(priority)
+      }));
+    }
+    const selectedOrder = constructionOrderAtCell(clean);
+    const linkedBill = productionBillForOrder(selectedOrder);
+    if (debugToolsEnabled() && linkedBill && linkedBill.status !== "completed") {
+      commands.push(commandDef({
+        id: `construction.debugFulfillBill.${linkedBill.id}`,
+        label: `Debug: Fabricate ${fixtureDef(linkedBill.fixtureTypeId)?.label || "Fixture"}`,
+        group: "Debug Construction",
+        description: "Complete this linked prototype production bill so placement and assembly can be tested before the full crafting pass.",
+        run: () => fulfillFixtureProductionBill(linkedBill)
       }));
     }
     commands.push(...structuralDamageContextCommands(clean));
@@ -33656,6 +34347,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
+  function fixtureContextCommands(fixture) {
+    if (!fixture) return [];
+    const def = fixtureDef(fixture);
+    const access = fixtureAccessCells(fixture);
+    const commands = [commandDef({
+      id: `fixture.deconstruct.${fixture.id}`,
+      label: "Dismantle Fixture",
+      group: "Construction",
+      disabledReason: fixture.typeId === "concealedExit"
+        ? "The laboratory's only surface route cannot be dismantled in this pass."
+        : constructionOrderAtCell(fixture.origin) ? "Construction is already designated across this fixture." : "",
+      description: `${def?.assemblyClass === "siteBuilt" ? "Dismantle this site-built equipment" : "Dismantle this fixture"} into physical rubble. Heavy equipment must be reconstructed to move it.`,
+      run: () => createConstructionOrder("deconstruct", [fixture.origin])
+    })];
+    if (def?.capabilities?.includes("workbench")) {
+      commands.push(commandDef({
+        id: `fixture.openBills.${fixture.id}`,
+        label: "Review Linked Production Bills",
+        group: "Production",
+        disabledReason: (state.productionBills || []).length ? "" : "No production bills have been created.",
+        description: "Review automatic production dependencies. Full workstation bill management follows the physical stockpile and crafting passes.",
+        run: () => {
+          addEvent(`${(state.productionBills || []).filter((bill) => bill.status !== "canceled").length} production bill${(state.productionBills || []).filter((bill) => bill.status !== "canceled").length === 1 ? "" : "s"} recorded.`);
+          persist();
+          render();
+          return true;
+        }
+      }));
+    }
+    commands.push(commandDef({
+      id: `fixture.access.${fixture.id}`,
+      label: "Show Interaction Points",
+      group: "Fixture",
+      disabledReason: access.length ? "" : "All interaction points are physically blocked.",
+      description: access.length ? access.map((port) => `${port.label} at ${port.cell.x},${port.cell.y}`).join("; ") : "No usable interaction point remains.",
+      run: () => {
+        addEvent(`${fixture.name} interaction points: ${access.map((port) => `${port.label} ${port.cell.x},${port.cell.y}`).join("; ")}.`);
+        persist();
+        render();
+        return true;
+      }
+    }));
+    return commands;
+  }
+
   function collectionStationContextCommands(selection) {
     const info = collectionStationSelectionInfo(selection);
     if (!info?.container) {
@@ -34041,6 +34777,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           rows.push(["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]);
         }
       }
+    } else if (selection.kind === "fixture") {
+      const fixture = fixtureById(selection.id);
+      const def = fixtureDef(fixture);
+      if (fixture && def) {
+        rows.push(["State", titleCase(fixture.operationalState)]);
+        rows.push(["Assembly", titleCase(def.assemblyClass.replace(/([A-Z])/g, " $1"))]);
+        rows.push(["Access", `${fixtureAccessCells(fixture).length} / ${fixturePortCells(fixture).length} interaction points usable`]);
+      }
     } else if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
       if (slime) {
@@ -34106,6 +34850,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const compartment = inferredCompartmentAtCell(selection.tile);
       const order = constructionOrderAtCell(selection.tile);
       const orderTile = constructionOrderTile(order, selection.tile);
+      const productionBill = productionBillForOrder(order);
       const key = mapCellKey(selection.tile);
       const surface = constructedWall
         ? `${resourceLabel(constructedWall.materialId)} constructed wall; ${formatNumber(constructedWall.condition)}% condition`
@@ -34128,6 +34873,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Structural state", structuralTarget ? structureConditionBand(structuralCondition) : "Not a damageable structure"],
         ["Attack channel", wallAllowsAttackTransmission(selection.tile) ? "Attacks and directed abilities may pass; movement remains blocked" : "Blocked"],
         ["Construction order", order ? `${constructionModeLabel(order.mode)}; priority ${order.priority}; ${titleCase(orderTile.status)}${orderTile.blockedReason ? `; ${orderTile.blockedReason}` : ""}` : "None"],
+        ["Production dependency", productionBill ? `${fixtureDef(productionBill.fixtureTypeId)?.label || "Fixture"}; ${titleCase(productionBill.status)}${productionBill.blockedReason ? `; ${productionBill.blockedReason}` : ""}` : "None"],
         ["Work progress", orderTile?.workRequiredSeconds ? `${formatDuration(orderTile.workCompletedSeconds)} / ${formatDuration(orderTile.workRequiredSeconds)}` : order ? "Not started" : "None"],
         ["Last interruption", orderTile?.lastInterruptionReason || "None"],
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
@@ -34212,6 +34958,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Footprint", `${footprint.width} x ${footprint.height} tile${footprint.width * footprint.height === 1 ? "" : "s"}`],
         ["Wards", containerWardLabels(container.wardIds).join(", ") || "None"],
         ["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]
+      ];
+    }
+    if (selection.kind === "fixture") {
+      const fixture = fixtureById(selection.id);
+      const def = fixtureDef(fixture);
+      if (!fixture || !def) return [];
+      const footprint = fixtureRotatedFootprint(def, fixture.rotation);
+      const ports = fixturePortCells(fixture);
+      const usablePorts = fixtureAccessCells(fixture);
+      const roomId = labMapCellRoomId(fixture.origin);
+      return [
+        ["Type", def.label],
+        ["Room", roomId ? roomName(roomId) : "Unassigned floor"],
+        ["State", titleCase(fixture.operationalState)],
+        ["Assembly", titleCase(def.assemblyClass.replace(/([A-Z])/g, " $1"))],
+        ["Footprint", `${footprint.width} x ${footprint.height} tiles; ${fixture.rotation} degrees`],
+        ["Materials", materialCompositionLabel(fixture.materialComposition)],
+        ["Condition", `${formatNumber(fixture.condition)}%`],
+        ["Capabilities", def.capabilities.map(titleCase).join(", ") || "None"],
+        ["Interaction points", ports.map((port) => `${port.label} ${port.cell.x},${port.cell.y}`).join("; ") || "None"],
+        ["Accessible points", `${usablePorts.length} / ${ports.length}`],
+        ["Wards", containerWardLabels(fixture.wardIds).join(", ") || "None"]
       ];
     }
     if (selection.kind === "slime") {
@@ -34825,7 +35593,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (collectionStationTarget) {
       return collectionStationTarget;
     }
-    const priority = ["slime", "corpse", "container"];
+    const priority = ["slime", "corpse", "container", "fixture"];
     for (const kind of priority) {
       const target = targets.find((candidate) => candidate.kind === kind);
       if (target) {
@@ -35546,6 +36314,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const base = [
       "S = scientist",
       "C = blocking container footprint",
+      "W/B/A/... = physical fixture",
+      "faint outlined cells = fixture interaction points",
       "L = loose living",
       "R = remains",
       "room letters = room anchor",
@@ -36027,8 +36797,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && (state.slimes || []).some((slime) => slime.containerId === container.id && slime.status !== "dead" && slime.status !== "released");
       return hasStagedSpecimen || hasStoredMaterial;
     });
+    const fixtures = (state.fixtures || []).filter((fixture) => {
+      const cells = fixtureFootprintCells(fixture);
+      return cells.length && cells.every((cell) => labMapCellRoomId(cell, map) === room.id);
+    });
+    const operationalFixtures = fixtures.filter((fixture) => fixture.condition > 0
+      && fixture.operationalState === "operational"
+      && fixtureAccessCells(fixture).length > 0);
+    const withCapability = (capability) => operationalFixtures.filter((fixture) => fixtureDef(fixture)?.capabilities?.includes(capability));
     return {
       containers,
+      fixtures,
+      operationalFixtures,
+      workbenches: withCapability("workbench"),
+      beds: withCapability("rest"),
+      collectionApparatus: withCapability("collection"),
+      exits: withCapability("labExit"),
       synthesis: containers.filter(isSynthesisTubeContainer),
       collectionStations,
       pits: containers.filter(isPitHoleContainer),
@@ -36048,13 +36832,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const zone = expectedZone ? roomZoneForType(room, expectedZone) : null;
 
     if (purpose.id === "unassigned") addEssential("Primary purpose", false, "Choose a primary purpose.");
-    if (purpose.id === "workroom") addEssential("Laboratory equipment", facilities.synthesis.length, facilities.synthesis.length ? `${facilities.synthesis.length} synthesis fixture${facilities.synthesis.length === 1 ? "" : "s"}` : "No synthesis tube or workbench is installed.");
+    if (purpose.id === "workroom") addEssential("Laboratory equipment", facilities.synthesis.length || facilities.workbenches.length, facilities.synthesis.length || facilities.workbenches.length ? `${facilities.synthesis.length} synthesis fixture${facilities.synthesis.length === 1 ? "" : "s"}; ${facilities.workbenches.length} accessible workbench${facilities.workbenches.length === 1 ? "" : "es"}` : "No operational synthesis tube or accessible workbench is installed.");
     if (purpose.id === "containment") addEssential("Containment fixtures", facilities.specimenContainers.length || facilities.pits.length, `${facilities.specimenContainers.length + facilities.pits.length} usable container or pit fixture${facilities.specimenContainers.length + facilities.pits.length === 1 ? "" : "s"}`);
     if (purpose.id === "corpseProcessing") addEssential("Processing fixture", facilities.pits.length, facilities.pits.length ? `${facilities.pits.length} processing pit${facilities.pits.length === 1 ? "" : "s"}` : "No pit or remains-processing fixture is installed.");
-    if (purpose.id === "quarters") addEssential("Bed or rest fixture", false, "No physical bed fixture exists in the current prototype.");
+    if (purpose.id === "quarters") addEssential("Bed or rest fixture", facilities.beds.length, facilities.beds.length ? `${facilities.beds.length} operational accessible bed${facilities.beds.length === 1 ? "" : "s"}` : "No operational bed with a reachable bedside position exists.");
     if (purpose.id === "storage") addEssential("Stockpile zone", zone?.cells?.length, zone?.cells?.length ? `${zone.cells.length} designated tile${zone.cells.length === 1 ? "" : "s"}` : "No tiles accept stored supplies.");
-    if (purpose.id === "collection") addEssential("Collection station", facilities.collectionStations.length, facilities.collectionStations.length ? `${facilities.collectionStations.length} collection station${facilities.collectionStations.length === 1 ? "" : "s"}` : "No collection apparatus is installed.");
-    if (purpose.id === "access") addEssential("Physical access route", room.id === CONCEALED_EXIT_ROOM_ID, room.id === CONCEALED_EXIT_ROOM_ID ? "Concealed surface route present." : "No exit or transit fixture is installed.");
+    if (purpose.id === "collection") addEssential("Collection station", facilities.collectionApparatus.length, facilities.collectionApparatus.length ? `${facilities.collectionApparatus.length} operational collection apparatus fixture${facilities.collectionApparatus.length === 1 ? "" : "s"}` : "No operational collection apparatus with reachable interaction points is installed.");
+    if (purpose.id === "access") addEssential("Physical access route", facilities.exits.length, facilities.exits.length ? "Concealed surface route present and accessible." : "No operational exit or transit fixture is installed.");
 
     if (expectedZone && purpose.id !== "storage") {
       support.push({ label: ROOM_ZONE_BY_ID[expectedZone].label, met: Boolean(zone?.cells?.length), detail: zone?.cells?.length ? `${zone.cells.length} intended tile${zone.cells.length === 1 ? "" : "s"}` : "No matching zone is designated." });
@@ -36192,9 +36976,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function roomOccupancySummary(roomId) {
     const containers = (state.containers || []).filter((container) => (container.roomId || MAIN_ROOM_ID) === roomId).length;
+    const fixtures = (state.fixtures || []).filter((fixture) => labMapCellRoomId(fixture.origin) === roomId).length;
     const living = (state.slimes || []).filter((slime) => slime.status !== "dead" && slimeEffectiveRoomId(slime) === roomId).length;
     const corpses = (state.corpses || []).filter((corpse) => (corpse.roomId || MAIN_ROOM_ID) === roomId).length;
-    return `${containers} container${containers === 1 ? "" : "s"}; ${living} living; ${corpses} corpse${corpses === 1 ? "" : "s"}`;
+    return `${containers} container${containers === 1 ? "" : "s"}; ${fixtures} fixture${fixtures === 1 ? "" : "s"}; ${living} living; ${corpses} corpse${corpses === 1 ? "" : "s"}`;
   }
 
 
@@ -41146,6 +41931,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : fallback.mode,
       priority: clamp(Math.floor(Number(candidate?.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       buildType: CONSTRUCTION_BUILD_BY_ID[candidate?.buildType] ? candidate.buildType : fallback.buildType,
+      fixtureRotation: normalizeFixtureRotation(candidate?.fixtureRotation),
+      fixtureMaterialPolicy: FIXTURE_MATERIAL_POLICY_BY_ID[candidate?.fixtureMaterialPolicy] ? candidate.fixtureMaterialPolicy : fallback.fixtureMaterialPolicy,
       draftCells: normalizeDigCells(candidate?.draftCells),
       orders,
       roomDraftCells: normalizeDigCells(candidate?.roomDraftCells),
@@ -41186,6 +41973,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       id,
       mode,
       buildType,
+      rotation: normalizeFixtureRotation(candidate.rotation),
+      materialPolicy: String(candidate.materialPolicy || "closest"),
+      productionBillId: String(candidate.productionBillId || ""),
       label: String(candidate.label || CONSTRUCTION_MODE_BY_ID[mode]?.label || "Construction order"),
       priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: finiteTime(candidate.createdAt, 0),
@@ -42441,6 +43231,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const container of next.containers) {
       container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
     }
+    next.fixtures = normalizeFixtures(next.fixtures);
+    next.productionBills = normalizeProductionBills(next.productionBills);
+    next.fabricatedFixtures = normalizeFabricatedFixtures(next.fabricatedFixtures);
+    next.nextFixtureNumber = Math.max(
+      Number(next.nextFixtureNumber) || 1,
+      next.fixtures.reduce((max, fixture) => Math.max(max, numericSuffix(fixture.id)), 0) + 1
+    );
+    next.nextProductionBillNumber = Math.max(
+      Number(next.nextProductionBillNumber) || 1,
+      next.productionBills.reduce((max, bill) => Math.max(max, numericSuffix(bill.id)), 0) + 1
+    );
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
     next.toolDurability = normalizeToolDurability(next.toolDurability, next.inventory);
