@@ -625,7 +625,11 @@
   };
   const TOOL_MATERIAL_COMPOSITIONS = {
     thickGloves: { primary: "rubber", lining: "cloth" }, longTongs: { primary: "steel" },
-    hookPole: { primary: "wood", reinforcement: "iron" }, scraper: { primary: "steel" }
+    hookPole: { primary: "wood", reinforcement: "iron" }, scraper: { primary: "steel" },
+    miningPick: { primary: "steel", reinforcement: "wood" }, masonryHammer: { primary: "steel", reinforcement: "wood" },
+    stoneChisel: { primary: "steel" }, woodAxe: { primary: "steel", reinforcement: "wood" },
+    handSaw: { primary: "steel", reinforcement: "wood" }, pryBar: { primary: "steel" },
+    shovel: { primary: "steel", reinforcement: "wood" }
   };
   const ELEMENT_DAMAGE_TYPE_IDS = {
     none: ["physical"],
@@ -703,6 +707,55 @@
       material: "stiff scraping tool",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.scraper || { primary: "steel" },
       notes: ["cleanup tool", "handles residue", "poor thermal endurance"]
+    },
+    miningPick: {
+      max: 500,
+      material: "steel-headed mining pick",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.miningPick || { primary: "steel", reinforcement: "wood" },
+      capabilities: { excavation: 88, masonryBreaking: 62 },
+      notes: ["primary mining tool", "effective against ordinary rock and ore", "can break masonry inefficiently"]
+    },
+    masonryHammer: {
+      max: 500,
+      material: "steel masonry hammer",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.masonryHammer || { primary: "steel", reinforcement: "wood" },
+      capabilities: { striking: 88, masonry: 84, masonryBreaking: 74 },
+      notes: ["masonry construction", "stone assembly", "controlled structural breaking"]
+    },
+    stoneChisel: {
+      max: 400,
+      material: "hardened steel chisel",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.stoneChisel || { primary: "steel" },
+      capabilities: { stoneShaping: 86, masonry: 48 },
+      notes: ["stone smoothing", "detail shaping", "requires a striking tool for smoothing"]
+    },
+    woodAxe: {
+      max: 450,
+      material: "steel-headed wood axe",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.woodAxe || { primary: "steel", reinforcement: "wood" },
+      capabilities: { woodCutting: 88, woodBreaking: 78 },
+      notes: ["fast rough wood cutting", "effective wooden deconstruction", "poor precision"]
+    },
+    handSaw: {
+      max: 350,
+      material: "steel hand saw",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.handSaw || { primary: "steel", reinforcement: "wood" },
+      capabilities: { woodworking: 86, woodCutting: 72 },
+      notes: ["precise woodworking", "door construction", "slower rough demolition"]
+    },
+    pryBar: {
+      max: 600,
+      material: "solid steel pry bar",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.pryBar || { primary: "steel" },
+      capabilities: { prying: 90, masonryBreaking: 42, woodBreaking: 68 },
+      notes: ["fixture dismantling", "door removal", "high leverage"]
+    },
+    shovel: {
+      max: 450,
+      material: "steel shovel with wooden haft",
+      materialComposition: TOOL_MATERIAL_COMPOSITIONS?.shovel || { primary: "steel", reinforcement: "wood" },
+      capabilities: { earthmoving: 88, excavation: 28 },
+      notes: ["earth and loose material", "future rubble clearing", "not adequate for solid rock"]
     }
   };
   const TOOL_CONDITION_BANDS = [
@@ -712,6 +765,25 @@
     { id: "failing", label: "Failing", minRatio: 0.01, resistancePenalty: 22, riskAdjustment: 8 },
     { id: "broken", label: "Broken", minRatio: 0, resistancePenalty: 100, riskAdjustment: 18 }
   ];
+  const TOOL_QUALITY_BANDS = [
+    { id: "masterwork", label: "Masterwork", min: 90 },
+    { id: "fine", label: "Fine", min: 70 },
+    { id: "standard", label: "Standard", min: 40 },
+    { id: "crude", label: "Crude", min: 0 }
+  ];
+  const TOOL_CAPABILITY_LABELS = {
+    excavation: "Excavation",
+    earthmoving: "Earthmoving",
+    striking: "Striking",
+    masonry: "Masonry",
+    stoneShaping: "Stone shaping",
+    masonryBreaking: "Masonry breaking",
+    woodworking: "Woodworking",
+    woodCutting: "Wood cutting",
+    woodBreaking: "Wood breaking",
+    prying: "Prying"
+  };
+  const CONSTRUCTION_TOOL_WEAR_PROGRESS_SECONDS = 60;
   const HANDLING_METHOD_DEFS = [
     {
       id: "bareHands",
@@ -1971,6 +2043,7 @@
     { key: "stoneBlocks", label: "Stone Blocks", initial: 40 },
     { key: "lumber", label: "Lumber", initial: 20 },
     { key: "steelPanels", label: "Steel Panels", initial: 12 },
+    { key: "metalParts", label: "Metal Parts", initial: 12 },
     { key: "bricks", label: "Bricks", initial: 24 },
     ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
@@ -2068,6 +2141,55 @@
       category: "tools",
       initial: 1,
       description: "A scraping tool required by the Scraper handling method for stuck, spoiled, ruined, or residue-like remains. Starter stock is cataloged in the Storage Room; hazardous use can wear it down."
+    },
+    {
+      key: "miningPick",
+      label: "Mining pick",
+      category: "tools",
+      initial: 1,
+      description: "A persistent excavation tool for cutting ordinary natural rock and ore-bearing walls."
+    },
+    {
+      key: "masonryHammer",
+      label: "Masonry hammer",
+      category: "tools",
+      initial: 1,
+      description: "A striking and masonry tool used to build, shape, and dismantle stone structures."
+    },
+    {
+      key: "stoneChisel",
+      label: "Stone chisel",
+      category: "tools",
+      initial: 1,
+      description: "A hardened shaping tool used with a hammer to smooth natural stone."
+    },
+    {
+      key: "woodAxe",
+      label: "Wood axe",
+      category: "tools",
+      initial: 1,
+      description: "A rough cutting tool suited to wooden structures and destructive woodwork."
+    },
+    {
+      key: "handSaw",
+      label: "Hand saw",
+      category: "tools",
+      initial: 1,
+      description: "A precise woodworking tool used to construct and cut wooden components."
+    },
+    {
+      key: "pryBar",
+      label: "Pry bar",
+      category: "tools",
+      initial: 1,
+      description: "A leverage tool for dismantling doors, fixtures, and constructed components."
+    },
+    {
+      key: "shovel",
+      label: "Shovel",
+      category: "tools",
+      initial: 1,
+      description: "An earthmoving tool for soil and future loose-rubble work; inadequate for solid stone."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -2094,6 +2216,13 @@
     gloves: "thickGloves",
     thick: "thickGloves",
     tong: "longTongs",
+    pick: "miningPick",
+    hammer: "masonryHammer",
+    chisel: "stoneChisel",
+    axe: "woodAxe",
+    saw: "handSaw",
+    pry: "pryBar",
+    crowbar: "pryBar",
     tongs: "longTongs",
     long: "longTongs",
     hook: "hookPole",
@@ -2564,6 +2693,7 @@
     "physicalDiagnostic",
     "excavate",
     "constructionWork",
+    "toolMaintenance",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -2722,7 +2852,11 @@
     return {
       id: `${itemKey}-${index + 1}`,
       current: max,
-      max
+      max,
+      quality: 50,
+      roomId: STORAGE_ROOM_ID,
+      carriedBy: "",
+      reservedTaskId: ""
     };
   }
 
@@ -3366,10 +3500,10 @@
         subpanel.innerHTML = `
           <div class="subpanel-title">Inventory Cheat</div>
           <div class="cheat-row">
-            <input id="inventoryCommandInput" type="text" spellcheck="false" placeholder="trace slime 5 storage">
-            <button id="inventoryCommandBtn" type="button">Add Item</button>
+            <input id="inventoryCommandInput" type="text" spellcheck="false" placeholder="pick 1 storage or damage pick 20">
+            <button id="inventoryCommandBtn" type="button">Apply</button>
           </div>
-          <p id="inventoryCommandStatus" class="journal-meta">Use inventory item name plus amount, with optional room.</p>
+          <p id="inventoryCommandStatus" class="journal-meta">Add/remove items, or use damage/restore/quality for durable tools.</p>
         `;
         cheatGrid.append(subpanel);
         dom.inventoryCommandInput = document.getElementById("inventoryCommandInput");
@@ -3418,6 +3552,25 @@
         properties: Object.fromEntries(MATERIAL_PROPERTY_DEFS.map((property) => [property.id, compositionPropertyScore(toolMaterialComposition(itemKey), property.id)])),
         resistances: Object.fromEntries(DAMAGE_TYPE_DEFS.map((type) => [type.id, handlingMethodDamageResistanceScore(Object.entries(HANDLING_METHOD_INVENTORY_ITEM_KEYS).find(([, key]) => key === itemKey)?.[0] || "bareHands", type.id)]))
       }),
+      constructionToolSnapshot: () => Object.entries(ensureToolDurability()).flatMap(([itemKey, instances]) =>
+        instances.filter(() => durableToolDef(itemKey)?.capabilities).map((instance) => ({
+          itemKey,
+          label: inventoryItemLabel(itemKey),
+          instance: { ...instance },
+          qualityBand: toolQualityBand(instance).label,
+          conditionBand: toolConditionBand(instance).label,
+          capabilities: { ...(durableToolDef(itemKey)?.capabilities || {}) },
+          composition: toolMaterialComposition(itemKey)
+        }))
+      ),
+      damageTool: (itemKey, amount) => {
+        const tool = bestToolInstance(itemKey, true);
+        const result = tool ? damageSpecificTool(tool.id, amount, "debug damage") : null;
+        refreshConstructionOrderBlocks();
+        persist();
+        render();
+        return result;
+      },
       structuralSnapshot: (cell) => {
         const target = structuralTargetAtCell(cleanMapCell(cell));
         if (!target) return null;
@@ -5456,7 +5609,7 @@
     };
   }
 
-  function runSimulationSystems(elapsed) {
+  function runSimulationSystems(elapsed, options = {}) {
     const changes = {
       vitalsChanged: recoverVitals(elapsed),
       physicalStateChanged: updateScientistPhysicalExposure(elapsed),
@@ -5484,6 +5637,7 @@
       jobExpired: 0,
       completed: 0,
       constructionClaimed: 0,
+      constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
       observationChanged: false,
       aiChanged: 0
@@ -5522,6 +5676,7 @@
       + changes.incidentUrgencyChanged
       + changes.completed
       + changes.constructionClaimed
+      + changes.constructionProgressChanged
       + changes.skillDecayChanged
       + changes.aiChanged
       + (changes.vitalsChanged ? 1 : 0)
@@ -5532,8 +5687,9 @@
 
   function advanceTime(seconds, options = {}) {
     const elapsed = Math.max(0, Number(seconds) || 0);
+    const fromClock = state.clock;
     state.clock += elapsed;
-    const changes = runSimulationSystems(elapsed);
+    const changes = runSimulationSystems(elapsed, { fromClock });
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
@@ -5670,6 +5826,10 @@
       completeConstructionWork(task);
       return;
     }
+    if (task.type === "toolMaintenance") {
+      completeToolMaintenance(task);
+      return;
+    }
 
     if (task.type === "mature") {
       const slime = findSlime(task.data.slimeId);
@@ -5765,6 +5925,7 @@
     addEvent(`${label} started.`);
     persist();
     render();
+    return task;
   }
 
   function activeConstructionOrders() {
@@ -5890,6 +6051,148 @@
     return "";
   }
 
+  function constructionBaseWorkSeconds(order) {
+    const minutes = order?.mode === "mine"
+      ? EXCAVATION_MINUTES_PER_TILE
+      : order?.mode === "build"
+        ? constructionOrderBuildDef(order)?.workMinutes
+        : order?.mode === "deconstruct" ? DECONSTRUCTION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
+    return minutesToSeconds(Math.max(1, Number(minutes) || 1));
+  }
+
+  function constructionTargetComposition(order, tile) {
+    const map = ensureLabMap();
+    if (order?.mode === "mine" || order?.mode === "smoothWall") {
+      return normalizeMaterialComposition({ primary: naturalWallMaterialId(tile.cell, map) });
+    }
+    if (order?.mode === "smoothFloor") {
+      return normalizeMaterialComposition({ primary: naturalWallMaterialId(tile.cell, map) });
+    }
+    if (order?.mode === "build") {
+      const def = constructionOrderBuildDef(order);
+      return normalizeMaterialComposition({ primary: normalizeMaterialId(def?.materialId) });
+    }
+    if (order?.mode === "deconstruct") {
+      const target = constructedThingAtCell(tile.cell, map);
+      if (target?.kind === "door") return doorMaterialComposition(doorFixtureState(target.value));
+      return normalizeMaterialComposition(target?.value?.materialComposition, { primary: normalizeMaterialId(target?.value?.materialId) });
+    }
+    return normalizeMaterialComposition({ primary: "stone" });
+  }
+
+  function constructionToolRequirements(order, tile) {
+    if (order?.mode === "mine") return [{ label: "solid-rock excavation", any: ["excavation"], minimum: 42 }];
+    if (["smoothFloor", "smoothWall"].includes(order?.mode)) {
+      return [
+        { label: "stone shaping", any: ["stoneShaping"], minimum: 42 },
+        { label: "controlled striking", any: ["striking"], minimum: 42 }
+      ];
+    }
+    if (order?.mode === "build") {
+      const def = constructionOrderBuildDef(order);
+      if (def?.kind === "door") {
+        return [
+          { label: "woodworking", any: ["woodworking"], minimum: 42 },
+          { label: "assembly striking", any: ["striking"], minimum: 38 }
+        ];
+      }
+      return [{ label: "masonry construction", any: ["masonry"], minimum: 42 }];
+    }
+    if (order?.mode === "deconstruct") {
+      const target = constructedThingAtCell(tile.cell, ensureLabMap());
+      const primary = constructionTargetComposition(order, tile).primary;
+      if (target?.kind === "door") return [{ label: "door dismantling", any: ["prying", "woodBreaking", "woodCutting"], minimum: 38 }];
+      if (primary === "wood") return [{ label: "wood dismantling", any: ["woodBreaking", "woodCutting", "prying"], minimum: 38 }];
+      return [{ label: "masonry dismantling", any: ["masonryBreaking", "prying"], minimum: 38 }];
+    }
+    return [];
+  }
+
+  function constructionToolCapabilityScore(itemKey, instance, requirement, targetComposition) {
+    const def = durableToolDef(itemKey);
+    const base = Math.max(...(requirement?.any || []).map((key) => Number(def?.capabilities?.[key]) || 0), 0);
+    if (!base || !instance || Number(instance.current) <= 0) return 0;
+    const conditionRatio = clamp(Number(instance.current) / Math.max(1, Number(instance.max) || 1), 0, 1);
+    const qualityAdjustment = (clamp(Number(instance.quality) || 0, 0, 100) - 50) * 0.25;
+    const toolHardness = compositionPropertyScore(toolMaterialComposition(itemKey), "hardness");
+    const targetHardness = compositionPropertyScore(targetComposition, "hardness");
+    const materialAdjustment = (toolHardness - targetHardness) * 0.2;
+    return clamp(base + qualityAdjustment + materialAdjustment - (1 - conditionRatio) * 35, 0, 120);
+  }
+
+  function constructionToolRate(score) {
+    if (score < 50) return 0.55;
+    if (score < 70) return 0.8;
+    if (score < 90) return 1;
+    return 1.15;
+  }
+
+  function appendMapPath(route, segment) {
+    const clean = Array.isArray(segment) ? segment.filter(cleanMapCell) : [];
+    if (!clean.length) return route;
+    if (!route.length) return [...clean];
+    return [...route, ...clean.slice(mapCellKey(route.at(-1)) === mapCellKey(clean[0]) ? 1 : 0)];
+  }
+
+  function toolMapCell(instance, map = ensureLabMap()) {
+    if (instance?.carriedBy === "scientist") return scientistMapCell();
+    const roomId = roomById(instance?.roomId)?.id || STORAGE_ROOM_ID;
+    return nearestOpenMapCellInRoom(roomId, labMapRoomAnchor(roomId), { map });
+  }
+
+  function constructionToolSelection(order, tile, startCell, accessCell) {
+    const requirements = constructionToolRequirements(order, tile);
+    if (!requirements.length) return { ok: true, selections: [], path: [startCell], rate: 1, reason: "" };
+    const targetComposition = constructionTargetComposition(order, tile);
+    const allCandidates = Object.entries(ensureToolDurability()).flatMap(([itemKey, instances]) =>
+      instances.map((instance) => ({ itemKey, instance }))
+    ).filter(({ itemKey, instance }) => durableToolDef(itemKey)?.capabilities
+      && Number(instance.current) > 0
+      && !instance.reservedTaskId);
+    const selections = [];
+    for (const requirement of requirements) {
+      const ranked = allCandidates.map((candidate) => ({
+        ...candidate,
+        requirement,
+        score: constructionToolCapabilityScore(candidate.itemKey, candidate.instance, requirement, targetComposition)
+      })).filter((candidate) => candidate.score >= requirement.minimum)
+        .sort((a, b) => b.score - a.score || b.instance.current - a.instance.current);
+      const chosen = ranked[0];
+      if (!chosen) {
+        const stockedCapability = allCandidates.some(({ itemKey }) => (requirement.any || []).some((key) => Number(durableToolDef(itemKey)?.capabilities?.[key]) > 0));
+        return {
+          ok: false,
+          reason: stockedCapability
+            ? `Available tools are inadequate for ${requirement.label} against ${materialCompositionLabel(targetComposition)}.`
+            : `No usable tool provides ${requirement.label}.`,
+          selections: [],
+          path: []
+        };
+      }
+      selections.push(chosen);
+    }
+    const unique = [...new Map(selections.map((selection) => [selection.instance.id, selection])).values()];
+    if (unique.length > 2) return { ok: false, reason: "This work requires more tools than the scientist can carry.", selections: [], path: [] };
+    let cursor = startCell;
+    let path = [startCell];
+    for (const selection of unique.filter(({ instance }) => instance.carriedBy !== "scientist")) {
+      const cell = toolMapCell(selection.instance);
+      const segment = labMapPathBetweenCells(cursor, cell, { map: ensureLabMap(), ignoreDoors: true });
+      if (!segment.length) return { ok: false, reason: `${inventoryItemLabel(selection.itemKey)} is stocked but unreachable.`, selections: [], path: [] };
+      path = appendMapPath(path, segment);
+      cursor = cell;
+    }
+    return {
+      ok: true,
+      reason: "",
+      selections: unique,
+      path,
+      endpoint: cursor,
+      rate: Math.min(...unique.map((selection) => constructionToolRate(selection.score))),
+      targetComposition
+    };
+  }
+
   function constructionTileWorkPlan(order, tile) {
     const staticReason = constructionTileStaticBlockReason(order.mode, tile.cell, { exceptOrderId: order.id, order });
     if (staticReason) return { ok: false, reason: staticReason, path: [], accessCell: null };
@@ -5915,17 +6218,25 @@
       path: [],
       accessCell: null
     };
+    best.targetCell = tile.cell;
+    const toolPlan = constructionToolSelection(order, tile, start, best.accessCell);
+    if (!toolPlan.ok) return { ok: false, reason: toolPlan.reason, path: [], accessCell: null };
     const costs = constructionOrderResourceCosts(order);
-    if (!Object.keys(costs).length) return best;
+    if (!Object.keys(costs).length) {
+      const toWork = labMapPathBetweenCells(toolPlan.endpoint || start, best.accessCell, { map, ignoreDoors: true });
+      if (!toWork.length) return { ok: false, reason: "No route connects the required tools to this work position.", path: [], accessCell: null };
+      return { ...best, path: appendMapPath(toolPlan.path, toWork), toolPlan };
+    }
     const globalReason = resourceBlockReason(costs);
     if (globalReason) return { ok: false, reason: globalReason, path: [], accessCell: null };
+    const toolEndpoint = toolPlan.endpoint || start;
     const source = roomStockpileIds()
       .filter((roomId) => !resourceBlockReasonForRoom(costs, roomId, { allowHaul: false }))
       .map((roomId) => ({
         roomId,
         cell: nearestOpenMapCellInRoom(roomId, labMapRoomAnchor(roomId), { map }),
       }))
-      .map((entry) => ({ ...entry, toSource: labMapPathBetweenCells(start, entry.cell, { map, ignoreDoors: true }) }))
+      .map((entry) => ({ ...entry, toSource: labMapPathBetweenCells(toolEndpoint, entry.cell, { map, ignoreDoors: true }) }))
       .filter((entry) => entry.toSource.length)
       .map((entry) => ({ ...entry, toWork: labMapPathBetweenCells(entry.cell, best.accessCell, { map, ignoreDoors: true }) }))
       .filter((entry) => entry.toWork.length)
@@ -5933,20 +6244,19 @@
     if (!source) return { ok: false, reason: `${formatResourceBundle(costs)} exists, but no reachable stockpile can supply this construction tile.`, path: [], accessCell: null };
     return {
       ...best,
-      path: [...source.toSource, ...source.toWork.slice(1)],
+      path: appendMapPath(appendMapPath(toolPlan.path, source.toSource), source.toWork),
+      toolPlan,
       resourceCosts: costs,
       resourceRoomId: source.roomId
     };
   }
 
   function constructionWorkDuration(order, plan) {
-    const workMinutes = order.mode === "mine"
-      ? EXCAVATION_MINUTES_PER_TILE
-      : order.mode === "build"
-        ? constructionOrderBuildDef(order).workMinutes
-        : order.mode === "deconstruct" ? DECONSTRUCTION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
-    return minutesToSeconds(workMinutes) + travelSeconds;
+    const tile = constructionOrderTile(order, plan.targetCell);
+    const required = Math.max(constructionBaseWorkSeconds(order), Number(tile?.workRequiredSeconds) || 0);
+    const remaining = Math.max(0, required - (Number(tile?.workCompletedSeconds) || 0));
+    return travelSeconds + remaining / Math.max(0.1, Number(plan.toolPlan?.rate) || 1);
   }
 
   function refreshConstructionOrderBlocks() {
@@ -5965,6 +6275,138 @@
 
   function activeConstructionWorkTask() {
     return (state.tasks || []).find((task) => task.type === "constructionWork") || null;
+  }
+
+  function constructionTaskToolEntries(task) {
+    return (Array.isArray(task?.data?.toolSelections) ? task.data.toolSelections : [])
+      .map((selection) => ({ ...selection, tool: toolInstanceById(selection.instanceId)?.instance || null }))
+      .filter((entry) => entry.tool);
+  }
+
+  function makeRoomForConstructionTools(selections) {
+    const selectedIds = new Set((selections || []).map((selection) => selection.instanceId || selection.instance?.id));
+    const carried = Object.values(ensureToolDurability()).flat().filter((instance) => instance.carriedBy === "scientist");
+    if (new Set([...carried.map((instance) => instance.id), ...selectedIds]).size <= 2) return 0;
+    let changed = 0;
+    for (const instance of carried.filter((entry) => !selectedIds.has(entry.id))) {
+      instance.carriedBy = "";
+      instance.roomId = scientistRoomId();
+      changed += 1;
+      if (new Set([
+        ...Object.values(ensureToolDurability()).flat().filter((entry) => entry.carriedBy === "scientist").map((entry) => entry.id),
+        ...selectedIds
+      ]).size <= 2) break;
+    }
+    return changed;
+  }
+
+  function pickupConstructionTaskTools(task) {
+    let changed = 0;
+    for (const entry of constructionTaskToolEntries(task)) {
+      if (entry.tool.carriedBy !== "scientist") {
+        entry.tool.carriedBy = "scientist";
+        entry.tool.roomId = scientistRoomId();
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  function constructionItemCouldServePendingWork(itemKey) {
+    const capabilities = durableToolDef(itemKey)?.capabilities || {};
+    return activeConstructionOrders().some((order) => order.tiles.some((tile) => {
+      if (tile.status !== "planned") return false;
+      return constructionToolRequirements(order, tile).some((requirement) =>
+        (requirement.any || []).some((capability) => Number(capabilities[capability]) > 0)
+      );
+    }));
+  }
+
+  function releaseConstructionTaskTools(task, options = {}) {
+    let changed = 0;
+    for (const entry of constructionTaskToolEntries(task)) {
+      if (entry.tool.reservedTaskId === task.id) {
+        entry.tool.reservedTaskId = "";
+        changed += 1;
+      }
+      const retain = options.retain !== false
+        && entry.tool.current > 0
+        && constructionItemCouldServePendingWork(entry.itemKey);
+      if (entry.tool.carriedBy === "scientist" && !retain) {
+        entry.tool.carriedBy = "";
+        entry.tool.roomId = scientistRoomId();
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  function damageSpecificTool(instanceId, amount, reason) {
+    const found = toolInstanceById(instanceId);
+    const tool = found?.instance;
+    const damage = Math.max(0, Math.round(Number(amount) || 0));
+    if (!tool || !damage || tool.current <= 0) return null;
+    const before = tool.current;
+    const beforeBand = toolConditionBand(tool);
+    tool.current = clamp(tool.current - damage, 0, tool.max);
+    const afterBand = toolConditionBand(tool);
+    if (afterBand.id === "broken" && beforeBand.id !== "broken") {
+      addEvent(`${inventoryItemLabel(found.itemKey)} broke during ${reason}.`);
+    } else if (afterBand.id !== beforeBand.id) {
+      addEvent(`${inventoryItemLabel(found.itemKey)} worn to ${afterBand.label} (${formatNumber(tool.current)}/${formatNumber(tool.max)}) during ${reason}.`);
+    }
+    return { ...found, amount: before - tool.current, broken: tool.current <= 0 };
+  }
+
+  function interruptConstructionForBrokenTool(task, broken) {
+    const order = constructionOrderById(task.data?.constructionOrderId);
+    const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
+    if (tile) {
+      tile.status = "planned";
+      tile.taskId = "";
+      tile.blockedReason = `${inventoryItemLabel(broken.itemKey)} broke after ${formatDuration(tile.workCompletedSeconds)} of persistent work.`;
+      tile.lastInterruptionReason = tile.blockedReason;
+    }
+    releaseConstructionTaskTools(task, { retain: false });
+    state.tasks = (state.tasks || []).filter((candidate) => candidate.id !== task.id);
+    if (currentSelection()?.kind === "task" && currentSelection().id === task.id) setSelection(null);
+    addEvent(`${task.label} interrupted; completed work remains on the tile.`);
+  }
+
+  function updateConstructionWorkProgress(fromClock, toClock) {
+    const task = firstScientistQueueTask();
+    if (!task || task.type !== "constructionWork") return 0;
+    const order = constructionOrderById(task.data?.constructionOrderId);
+    const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
+    if (!order || !tile || tile.status !== "queued") return 0;
+    const workStartsAt = finiteTime(task.data?.workStartsAt, task.createdAt);
+    const start = Math.max(Number(fromClock) || 0, workStartsAt);
+    const end = Math.min(Number(toClock) || 0, task.dueAt);
+    if (end <= start) return 0;
+    let changed = pickupConstructionTaskTools(task);
+    const required = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
+    tile.workRequiredSeconds = required;
+    const before = Math.max(0, Number(tile.workCompletedSeconds) || 0);
+    tile.workCompletedSeconds = Math.min(required, before + (end - start) * Math.max(0.1, Number(task.data?.workRate) || 1));
+    if (tile.workCompletedSeconds > before) changed += 1;
+    const earnedWearUnits = Math.floor(Math.max(0, tile.workCompletedSeconds - (Number(task.data?.wearProgressBase) || 0)) / CONSTRUCTION_TOOL_WEAR_PROGRESS_SECONDS);
+    const pendingWearUnits = Math.max(0, earnedWearUnits - (Number(task.data?.wearAppliedUnits) || 0));
+    for (let unit = 0; unit < pendingWearUnits; unit += 1) {
+      for (const selection of task.data.toolSelections || []) {
+        const wear = Number(selection.score) < 50 ? 2 : 1;
+        const result = damageSpecificTool(selection.instanceId, wear, constructionModeLabel(order.mode).toLowerCase());
+        if (result?.broken) {
+          task.data.wearAppliedUnits = earnedWearUnits;
+          interruptConstructionForBrokenTool(task, result);
+          return changed + 1;
+        }
+      }
+    }
+    if (pendingWearUnits) {
+      task.data.wearAppliedUnits = earnedWearUnits;
+      changed += 1;
+    }
+    return changed;
   }
 
   function claimNextConstructionWork() {
@@ -5990,6 +6432,8 @@
     }
     const duration = constructionWorkDuration(order, plan);
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
+    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "constructionWork",
@@ -6007,10 +6451,25 @@
         mapPath: plan.path,
         route: roomsFromMapPath(plan.path),
         blockedReason: "",
+        workStartsAt: queueTail + travelSeconds,
+        workRate: Math.max(0.1, Number(plan.toolPlan?.rate) || 1),
+        wearProgressBase: Number(tile.workCompletedSeconds) || 0,
+        wearAppliedUnits: 0,
+        toolSelections: (plan.toolPlan?.selections || []).map((selection) => ({
+          instanceId: selection.instance.id,
+          itemKey: selection.itemKey,
+          score: selection.score,
+          requirement: selection.requirement.label
+        })),
         resourceCosts: plan.resourceCosts || {},
         resourceRoomId: plan.resourceRoomId || ""
       }
     };
+    makeRoomForConstructionTools(task.data.toolSelections);
+    for (const selection of task.data.toolSelections) {
+      const tool = toolInstanceById(selection.instanceId)?.instance;
+      if (tool) tool.reservedTaskId = task.id;
+    }
     tile.status = "queued";
     tile.taskId = task.id;
     tile.blockedReason = "";
@@ -6038,7 +6497,7 @@
       label: constructionOrderLabel(mode, cleanCells, buildType),
       priority: clamp(Number(options.priority) || state.construction.priority, CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: state.clock,
-      tiles: cleanCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null }))
+      tiles: cleanCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null, workCompletedSeconds: 0, workRequiredSeconds: 0, lastInterruptionReason: "" }))
     };
     state.construction.orders.push(order);
     state.construction.lastDigRect = mode === "mine" ? digCellsBoundingRect(cleanCells) : state.construction.lastDigRect;
@@ -6363,6 +6822,7 @@
       tile.status = "planned";
       tile.taskId = "";
       tile.blockedReason = reason;
+      releaseConstructionTaskTools(task, { retain: false });
       addEvent(`${task.label} returned to its order: ${reason}`);
       claimNextConstructionWork();
       return false;
@@ -6412,6 +6872,8 @@
     tile.taskId = "";
     tile.blockedReason = "";
     tile.completedAt = state.clock;
+    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
+    tile.workCompletedSeconds = tile.workRequiredSeconds;
     addEvent(`${constructionModeLabel(order.mode)} completed at tile ${tile.cell.x},${tile.cell.y}.`);
     const remaining = order.tiles.some((entry) => ["planned", "queued"].includes(entry.status));
     if (!remaining) {
@@ -6424,6 +6886,7 @@
       }
     }
     refreshConstructionOrderBlocks();
+    releaseConstructionTaskTools(task, { retain: true });
     claimNextConstructionWork();
     return true;
   }
@@ -6434,6 +6897,15 @@
       persist();
       render();
       return false;
+    }
+    if (type === "toolMaintenance") {
+      const tool = toolInstanceById(data?.toolInstanceId)?.instance;
+      if (!tool || tool.reservedTaskId) {
+        addEvent(tool ? "Tool maintenance blocked because the tool was claimed by other work." : "Tool maintenance blocked because the tool is no longer available.");
+        persist();
+        render();
+        return false;
+      }
     }
     const riskyLabel = riskyTaskPhysicalStateLabel(type, label);
     if (riskyLabel && !confirmPhysicalStateRiskIfNeeded(riskyLabel)) {
@@ -6474,7 +6946,7 @@
       render();
       return false;
     }
-    createTask({
+    const task = createTask({
       type,
       label,
       duration: adjustedDuration(baseDuration, skillId),
@@ -6487,6 +6959,79 @@
         staminaCost: cost
       }
     });
+    if (type === "toolMaintenance") {
+      const tool = toolInstanceById(data?.toolInstanceId)?.instance;
+      if (tool) tool.reservedTaskId = task.id;
+    }
+    return true;
+  }
+
+  function toolRepairResourceCosts(itemKey) {
+    const primary = toolMaterialComposition(itemKey).primary;
+    if (["steel", "iron"].includes(primary)) return { metalParts: 1 };
+    if (primary === "wood") return { lumber: 1 };
+    if (["stone", "granite", "limestone", "brick", "ceramic"].includes(primary)) return { stoneBlocks: 1 };
+    return {};
+  }
+
+  function toolMaintenanceCandidate(itemKey, action) {
+    const instances = toolInstancesForItem(itemKey)
+      .filter((instance) => !instance.reservedTaskId)
+      .filter((instance) => action === "maintain" ? instance.current > 0 && instance.current < instance.max * 0.9 : instance.current < instance.max)
+      .sort((a, b) => a.current / a.max - b.current / b.max);
+    return instances[0] || null;
+  }
+
+  function toolMaintenanceBlockReason(itemKey, action) {
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    if (!item || !durableToolDef(itemKey)) return "This is not a maintainable tool.";
+    if (toolMaintenanceCandidate(itemKey, action)) return "";
+    const damaged = toolInstancesForItem(itemKey).some((instance) => action === "maintain" ? instance.current > 0 && instance.current < instance.max * 0.9 : instance.current < instance.max);
+    if (damaged) return `Every eligible ${item.label.toLowerCase()} is reserved for other work.`;
+    return action === "maintain" ? "No usable instance currently needs maintenance." : "No instance currently needs repair.";
+  }
+
+  function queueToolMaintenance(itemKey, action) {
+    const reason = toolMaintenanceBlockReason(itemKey, action);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const tool = toolMaintenanceCandidate(itemKey, action);
+    const item = INVENTORY_ITEM_BY_KEY[itemKey];
+    return startStaminaTask({
+      type: "toolMaintenance",
+      label: `${action === "maintain" ? "Maintain" : "Repair"} ${item.label}`,
+      baseDuration: minutesToSeconds(action === "maintain" ? 4 : 8),
+      skillId: "materialsScience",
+      baseXp: action === "maintain" ? 3 : 7,
+      baseCost: action === "maintain" ? 2 : 4,
+      resourceCosts: action === "repair" ? toolRepairResourceCosts(itemKey) : {},
+      resourceRoomId: tool.roomId || scientistRoomId(),
+      data: { itemKey, toolInstanceId: tool.id, action }
+    });
+  }
+
+  function completeToolMaintenance(task) {
+    const found = toolInstanceById(task.data?.toolInstanceId);
+    if (!found) {
+      addEvent("Tool maintenance failed because the tool is no longer available.");
+      return false;
+    }
+    const tool = found.instance;
+    const before = tool.current;
+    if (task.data?.action === "maintain") {
+      tool.current = Math.max(tool.current, Math.min(tool.max, Math.ceil(tool.max * 0.9)));
+    } else {
+      tool.current = Math.min(tool.max, Math.max(1, tool.current + Math.ceil(tool.max * 0.45)));
+    }
+    tool.reservedTaskId = "";
+    awardXp(task.data?.skillId, task.data?.baseXp, task.label);
+    addEvent(`${inventoryItemLabel(found.itemKey)} restored from ${formatNumber(before)}/${formatNumber(tool.max)} to ${formatNumber(tool.current)}/${formatNumber(tool.max)}.`);
+    refreshConstructionOrderBlocks();
+    claimNextConstructionWork();
     return true;
   }
 
@@ -17297,6 +17842,34 @@
     return ensureToolDurability()[itemKey] || [];
   }
 
+  function toolInstanceById(instanceId) {
+    const id = String(instanceId || "");
+    if (!id) return null;
+    for (const [itemKey, instances] of Object.entries(ensureToolDurability())) {
+      const instance = instances.find((candidate) => candidate.id === id);
+      if (instance) return { itemKey, instance };
+    }
+    return null;
+  }
+
+  function toolQualityBand(instance) {
+    const quality = clamp(Math.round(Number(instance?.quality) || 0), 0, 100);
+    return TOOL_QUALITY_BANDS.find((band) => quality >= band.min) || TOOL_QUALITY_BANDS[TOOL_QUALITY_BANDS.length - 1];
+  }
+
+  function toolCapabilitySummary(itemKey) {
+    const capabilities = durableToolDef(itemKey)?.capabilities || {};
+    const labels = Object.entries(capabilities)
+      .filter(([, value]) => Number(value) > 0)
+      .map(([key]) => TOOL_CAPABILITY_LABELS[key] || key);
+    return labels.length ? labels.join(", ") : "Specialized handling";
+  }
+
+  function toolInstanceLocationLabel(instance) {
+    if (instance?.carriedBy === "scientist") return "Carried by scientist";
+    return roomName(instance?.roomId || STORAGE_ROOM_ID);
+  }
+
   function toolConditionBand(instance) {
     if (!instance || Number(instance.current) <= 0) {
       return TOOL_CONDITION_BANDS.find((band) => band.id === "broken") || TOOL_CONDITION_BANDS[TOOL_CONDITION_BANDS.length - 1];
@@ -17343,12 +17916,13 @@
       `Material: ${materialCompositionLabel(toolMaterialComposition(itemKey))}.`,
       materialCompositionTooltip(toolMaterialComposition(itemKey), `${item.label} material`),
       `Notes: ${def.notes.join(", ")}.`,
+      `Capabilities: ${toolCapabilitySummary(itemKey)}.`,
       toolDurabilitySummary(itemKey) + ".",
-      "Broken tools remain cataloged but cannot be used until future repair or replacement."
+      "Broken tools remain cataloged and require repair before use."
     ];
     for (const [index, instance] of instances.entries()) {
       const band = toolConditionBand(instance);
-      lines.push(`#${index + 1}: ${formatNumber(instance.current)}/${formatNumber(instance.max)} ${band.label}.`);
+      lines.push(`#${index + 1}: ${formatNumber(instance.current)}/${formatNumber(instance.max)} ${band.label}; ${toolQualityBand(instance).label} quality; ${toolInstanceLocationLabel(instance)}${instance.reservedTaskId ? "; reserved" : ""}.`);
     }
     return lines.join("\n");
   }
@@ -29670,6 +30244,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
+  function toolMaintenanceButton(itemKey, action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "compact-button";
+    button.textContent = action === "maintain" ? "Maintain" : "Repair";
+    button.dataset.toolMaintenance = action;
+    button.dataset.toolItemKey = itemKey;
+    const reason = toolMaintenanceBlockReason(itemKey, action);
+    button.disabled = Boolean(reason);
+    button.title = reason || (action === "maintain"
+      ? "Queue cleaning, sharpening, and adjustment without consuming materials."
+      : `Queue a basic repair using ${formatResourceBundle(toolRepairResourceCosts(itemKey)) || "compatible repair material"}.`);
+    button.addEventListener("click", () => queueToolMaintenance(itemKey, action));
+    return button;
+  }
+
   function storesInventoryItemRow(item) {
     const amount = inventoryAmount(item.key);
     const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
@@ -29677,11 +30267,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? `; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}`
       : "";
     const breakdown = stockpileBreakdownLines("inventory", item.key);
+    const actions = [storesOverlayButton(`category:${item.category}`)];
+    if (durableToolDef(item.key)) actions.push(toolMaintenanceButton(item.key, "maintain"), toolMaintenanceButton(item.key, "repair"));
     return storesRowEl(item.label, `${formatNumber(amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}`, {
       title: inventoryItemTooltip(item),
       subtitle: breakdown.length ? `Last known: ${breakdown.join("; ")}` : item.description,
       dataset: { inventoryItemKey: item.key, inventoryCategory: item.category },
-      actions: [storesOverlayButton(`category:${item.category}`)]
+      actions
     });
   }
 
@@ -31137,6 +31729,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (staticReason) return staticReason;
       const occupancyReason = constructionTargetOccupancyBlockReason(order, tile);
       if (occupancyReason) return occupancyReason;
+      for (const selection of task.data?.toolSelections || []) {
+        const tool = toolInstanceById(selection.instanceId)?.instance;
+        if (!tool) return `${inventoryItemLabel(selection.itemKey)} is no longer available.`;
+        if (tool.current <= 0) return `${inventoryItemLabel(selection.itemKey)} is broken.`;
+        if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return `${inventoryItemLabel(selection.itemKey)} is reserved for other work.`;
+      }
       const map = ensureLabMap();
       const accessCell = cleanMapCell(task.data?.toCell);
       if (!accessCell || !labMapCellIsWalkable(accessCell, map)) return "The designated work position is no longer walkable floor.";
@@ -31144,6 +31742,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return labMapPathBetweenCells(scientistMapCell(), accessCell, { map, ignoreDoors: true }).length
         ? ""
         : "No physical route currently reaches the designated work position.";
+    }
+    if (task.type === "toolMaintenance") {
+      const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
+      if (!tool) return "The tool is no longer available.";
+      if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
     }
     return "";
   }
@@ -31247,6 +31850,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tile.taskId = "";
         tile.blockedReason = "";
       }
+      releaseConstructionTaskTools(task, { retain: false });
+    }
+    if (task.type === "toolMaintenance") {
+      const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
+      if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
     }
     const incidentId = String(task.data?.incidentId || "").trim();
     if (incidentId) {
@@ -33520,6 +34128,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Structural state", structuralTarget ? structureConditionBand(structuralCondition) : "Not a damageable structure"],
         ["Attack channel", wallAllowsAttackTransmission(selection.tile) ? "Attacks and directed abilities may pass; movement remains blocked" : "Blocked"],
         ["Construction order", order ? `${constructionModeLabel(order.mode)}; priority ${order.priority}; ${titleCase(orderTile.status)}${orderTile.blockedReason ? `; ${orderTile.blockedReason}` : ""}` : "None"],
+        ["Work progress", orderTile?.workRequiredSeconds ? `${formatDuration(orderTile.workCompletedSeconds)} / ${formatDuration(orderTile.workRequiredSeconds)}` : order ? "Not started" : "None"],
+        ["Last interruption", orderTile?.lastInterruptionReason || "None"],
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
         ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : excavated ? "Blocked by constructed wall" : "Solid"]
       ];
@@ -33652,7 +34262,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return [];
       }
       const status = taskStatusInfo(task);
-      return [
+      const rows = [
         ["Type", task.type],
         ["Category", taskCategory(task)],
         ["Status", status.label],
@@ -33665,6 +34275,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Due", formatClock(task.dueAt)],
         ["Remaining", formatDuration(Math.max(0, task.dueAt - state.clock))]
       ];
+      if (task.type === "constructionWork") {
+        const order = constructionOrderById(task.data?.constructionOrderId);
+        const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
+        rows.push(
+          ["Tools", (task.data?.toolSelections || []).map((selection) => `${inventoryItemLabel(selection.itemKey)} (${damageResistanceBand(selection.score)})`).join(", ") || "None"],
+          ["Work progress", tile ? `${formatDuration(tile.workCompletedSeconds)} / ${formatDuration(tile.workRequiredSeconds)}` : "Unknown"],
+          ["Work rate", `${formatDecimal((Number(task.data?.workRate) || 1) * 100, 0)}%`]
+        );
+      }
+      return rows;
     }
     if (selection.kind === "collectionStation") {
       const info = collectionStationSelectionInfo(selection);
@@ -35727,9 +36347,58 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function runInventoryCommand() {
     const command = dom.inventoryCommandInput?.value.trim() || "";
+    const damageMatch = command.match(/^damage\s+(.+?)\s+(\d+)$/i);
+    if (damageMatch) {
+      const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(damageMatch[1])];
+      const tool = itemKey ? bestToolInstance(itemKey, true) : null;
+      const result = tool ? damageSpecificTool(tool.id, Number(damageMatch[2]), "debug damage") : null;
+      if (!result) {
+        dom.inventoryCommandStatus.textContent = "Choose a usable durable tool and positive damage amount.";
+        return;
+      }
+      dom.inventoryCommandInput.value = "";
+      dom.inventoryCommandStatus.textContent = `${inventoryItemLabel(itemKey)} is now ${formatNumber(result.instance.current)}/${formatNumber(result.instance.max)}.`;
+      refreshConstructionOrderBlocks();
+      persist();
+      render();
+      return;
+    }
+    const restoreMatch = command.match(/^restore\s+(.+)$/i);
+    if (restoreMatch) {
+      const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(restoreMatch[1])];
+      const tools = itemKey ? toolInstancesForItem(itemKey) : [];
+      if (!tools.length) {
+        dom.inventoryCommandStatus.textContent = "Choose a stocked durable tool.";
+        return;
+      }
+      for (const tool of tools) tool.current = tool.max;
+      dom.inventoryCommandInput.value = "";
+      dom.inventoryCommandStatus.textContent = `Restored all ${inventoryItemLabel(itemKey)} instances.`;
+      refreshConstructionOrderBlocks();
+      claimNextConstructionWork();
+      persist();
+      render();
+      return;
+    }
+    const qualityMatch = command.match(/^quality\s+(.+?)\s+(\d+)$/i);
+    if (qualityMatch) {
+      const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(qualityMatch[1])];
+      const tool = itemKey ? bestToolInstance(itemKey, false) : null;
+      if (!tool) {
+        dom.inventoryCommandStatus.textContent = "Choose a stocked durable tool.";
+        return;
+      }
+      tool.quality = clamp(Number(qualityMatch[2]) || 0, 0, 100);
+      dom.inventoryCommandInput.value = "";
+      dom.inventoryCommandStatus.textContent = `${inventoryItemLabel(itemKey)} quality set to ${toolQualityBand(tool).label} (${formatNumber(tool.quality)}).`;
+      refreshConstructionOrderBlocks();
+      persist();
+      render();
+      return;
+    }
     const match = command.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s+(.+))?$/);
     if (!match) {
-      dom.inventoryCommandStatus.textContent = "Use format: trace slime 5 [room]";
+      dom.inventoryCommandStatus.textContent = "Use item amount [room], damage item amount, restore item, or quality item 0-100.";
       return;
     }
     const itemKey = INVENTORY_ITEM_ALIASES[normalizeCommandName(match[1])];
@@ -36140,6 +36809,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "constructionWork" || task.type === "excavate") {
       return "Construction";
+    }
+    if (task.type === "toolMaintenance") {
+      return "Maintenance";
     }
     if (task.type === "mature") {
       return "Growth";
@@ -38395,6 +39067,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const materials = normalizeSpecimenMaterials(context?.specimenMaterials);
     for (const key of Object.keys(resources)) resources[key] = Math.max(0, resources[key] - floorStockpileNumericTotal(floors, "resources", key));
     for (const key of Object.keys(inventory)) inventory[key] = Math.max(0, inventory[key] - floorStockpileNumericTotal(floors, "inventory", key));
+    const durableTools = normalizeToolDurability(context?.toolDurability, inventory);
+    for (const [itemKey, instances] of Object.entries(durableTools)) {
+      for (const stockpile of Object.values(normalized)) delete stockpile.inventory[itemKey];
+      const carriedCount = instances.filter((instance) => instance.carriedBy === "scientist").length;
+      inventory[itemKey] = Math.max(0, (inventory[itemKey] || 0) - carriedCount);
+      for (const instance of instances.filter((entry) => entry.carriedBy !== "scientist")) {
+        const roomId = roomIds.includes(instance.roomId) ? instance.roomId : STORAGE_ROOM_ID;
+        normalized[roomId].inventory[itemKey] = (normalized[roomId].inventory[itemKey] || 0) + 1;
+      }
+    }
     for (const key of Object.keys(byproducts)) byproducts[key] = Math.max(0, roundOutputValue(byproducts[key] - floorStockpileNumericTotal(floors, "collectedByproducts", key)));
     for (const [key, entry] of Object.entries(materials)) entry.amount = Math.max(0, entry.amount - floorSpecimenMaterialTotal(floors, key));
     reconcileNumericStockpileTotals(normalized, "resources", resources, RESOURCE_DEFS.map((resource) => resource.key));
@@ -38791,6 +39473,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     ensureRoomStockpiles();
     ensureInventory();
     const before = state.inventory[key] || 0;
+    const existingToolIds = new Set((state.toolDurability?.[key] || []).map((instance) => instance.id));
     const after = Math.max(0, before + requestedDelta);
     const actualDelta = after - before;
     if (actualDelta) {
@@ -38798,6 +39481,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state.inventory[key] = after;
       if (TOOL_DURABILITY_DEFS[key]) {
         state.toolDurability = normalizeToolDurability(state.toolDurability, state.inventory);
+        for (const instance of state.toolDurability[key] || []) {
+          if (!existingToolIds.has(instance.id)) instance.roomId = roomById(roomId)?.id || STORAGE_ROOM_ID;
+        }
       }
       recordInventoryChange(key, actualDelta, source);
     }
@@ -39409,7 +40095,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function ensureToolDurability() {
     state.inventory = normalizeInventory(state.inventory);
-    state.toolDurability = normalizeToolDurability(state.toolDurability, state.inventory);
+    const current = state.toolDurability;
+    const structurallyCurrent = current && typeof current === "object"
+      && Object.keys(TOOL_DURABILITY_DEFS).every((itemKey) =>
+        Array.isArray(current[itemKey])
+        && current[itemKey].length === Math.max(0, Math.floor(Number(state.inventory[itemKey]) || 0))
+      );
+    if (!structurallyCurrent) state.toolDurability = normalizeToolDurability(current, state.inventory);
     return state.toolDurability;
   }
 
@@ -39478,7 +40170,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return {
       id: String(candidate?.id || fallback.id),
       current,
-      max
+      max,
+      quality: clamp(Math.round(Number(candidate?.quality ?? fallback.quality) || 0), 0, 100),
+      roomId: cleanRoomId(candidate?.roomId) || fallback.roomId,
+      carriedBy: candidate?.carriedBy === "scientist" ? "scientist" : "",
+      reservedTaskId: String(candidate?.reservedTaskId || "")
     };
   }
 
@@ -40478,7 +41174,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           status,
           taskId: status === "queued" ? String(entry?.taskId || "") : "",
           blockedReason: status === "planned" ? String(entry?.blockedReason || "") : "",
-          completedAt: status === "completed" ? finiteTime(entry?.completedAt, 0) : null
+          completedAt: status === "completed" ? finiteTime(entry?.completedAt, 0) : null,
+          workCompletedSeconds: Math.max(0, Number(entry?.workCompletedSeconds) || 0),
+          workRequiredSeconds: Math.max(0, Number(entry?.workRequiredSeconds) || 0),
+          lastInterruptionReason: String(entry?.lastInterruptionReason || "")
         };
       })
       .filter(Boolean);
@@ -41774,6 +42473,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.tasks ||= [];
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
+    for (const instances of Object.values(next.toolDurability || {})) {
+      for (const tool of instances) {
+        if (tool.reservedTaskId && !constructionTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
+      }
+    }
     for (const order of next.construction.orders || []) {
       for (const tile of order.tiles || []) {
         if (tile.status === "queued" && !constructionTaskIds.has(tile.taskId)) {
