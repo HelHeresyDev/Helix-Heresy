@@ -289,6 +289,22 @@ test('waste disposal consumes Waste from the assigned pit instead of the room st
       ...(state.roomStockpiles.pits.resources || {}),
       waste: 4,
     };
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => !(stack.section === 'resources' && stack.key === 'waste'));
+    state.physicalItemStacks.push({
+      id: 'stack-disposal-waste',
+      section: 'resources',
+      key: 'waste',
+      quantity: 4,
+      knownQuantity: 4,
+      unitVolumeL: 2,
+      unitMassKg: 1.5,
+      roomId: 'pits',
+      cell: { ...state.labMap.rooms.pits.anchor },
+      fixtureId: '',
+      stockpileId: '',
+      observedAt: state.clock,
+      reservedTaskId: '',
+    });
     state.slimes = [disposerSlime];
     state.corpses = [];
     state.tasks = [];

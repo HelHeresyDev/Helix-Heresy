@@ -110,6 +110,19 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
       organicFeedstock: 2,
       metalFeedstock: 2,
     };
+    state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => !['organicFeedstock', 'metalFeedstock'].includes(stack.key));
+    state.physicalItemStacks.push(
+      {
+        id: 'stack-residue-organic', section: 'resources', key: 'organicFeedstock', quantity: 2, knownQuantity: 2,
+        unitVolumeL: 1, unitMassKg: 0.8, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+        fixtureId: '', stockpileId: '', observedAt: state.clock, reservedTaskId: '',
+      },
+      {
+        id: 'stack-residue-metal', section: 'resources', key: 'metalFeedstock', quantity: 2, knownQuantity: 2,
+        unitVolumeL: 1, unitMassKg: 1, roomId: 'mainLab', cell: { ...state.labMap.rooms.mainLab.anchor },
+        fixtureId: '', stockpileId: '', observedAt: state.clock, reservedTaskId: '',
+      },
+    );
     state.feedingResidues = [];
     state.nextResidueNumber = 1;
     state.slimes = [

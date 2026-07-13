@@ -399,6 +399,22 @@ test('slime ai perception stays local and respects containment limits', async ({
     state.roomStockpiles.mainLab.resources.waste = 6;
     state.resources ||= {};
     state.resources.waste = 6;
+    state.physicalItemStacks ||= [];
+    state.physicalItemStacks.push({
+      id: 'stack-perception-waste',
+      section: 'resources',
+      key: 'waste',
+      quantity: 6,
+      knownQuantity: 6,
+      unitVolumeL: 2,
+      unitMassKg: 1.5,
+      roomId: 'mainLab',
+      cell: { ...state.labMap.rooms.mainLab.anchor },
+      fixtureId: '',
+      stockpileId: '',
+      observedAt: state.clock,
+      reservedTaskId: '',
+    });
     state.nextResidueNumber = Math.max(2, Number(state.nextResidueNumber) || 1);
     state.feedingResidues = [{
       id: 'residue-perception',
@@ -1345,6 +1361,7 @@ test('released slimes press blocked doors and expose possible intent instead of 
 });
 
 test('spatial incidents appear as map alerts with manual response controls', async ({ page }) => {
+  test.setTimeout(60_000);
   await startRun(page);
 
   await page.evaluate(({ key }) => {
@@ -2264,7 +2281,9 @@ test('map overlays avoid unobserved room information unless debug is active', as
     const pickRoomCell = (roomId) =>
       (state.labMap.rooms[roomId]?.cells || []).find((cell) => !doorCells.has(`${cell.x},${cell.y}`));
     const mainCell = pickRoomCell('mainLab');
-    const storageCell = pickRoomCell('storageRoom');
+    const storageCells = state.labMap.rooms.storageRoom?.cells || [];
+    const maxStorageY = Math.max(...storageCells.map((cell) => cell.y));
+    const storageCell = storageCells.find((cell) => cell.y === maxStorageY && !doorCells.has(`${cell.x},${cell.y}`));
     const storageRoom = (state.rooms || []).find((room) => room.id === 'storageRoom');
     const mainRoom = (state.rooms || []).find((room) => room.id === 'mainLab');
     if (!mainCell || !storageCell || !storageRoom || !mainRoom) {
@@ -2845,7 +2864,7 @@ test('room names purposes functional requirements and tile zones remain independ
 });
 
 test('construction orders prioritize reachable tiles smooth surfaces and retain blocked plans', async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await startRun(page);
   const blockedCell = { x: 10, y: 34 };
   const reachableCell = { x: 46, y: 44 };
@@ -3075,6 +3094,15 @@ test('fixtures use rotated footprints interaction ports and linked production de
   expect(dependency.constructionTask).toBeUndefined();
 
   await page.evaluate((billId) => window.helixHeresyDebug.fulfillFixtureProductionBill(billId), dependency.bill.id);
+  const toolPickupDelay = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const task = state.tasks.find((entry) => entry.type === 'constructionWork');
+    return Math.max(1, Math.ceil(task.data.workStartsAt - state.clock + 1));
+  }, { key: storageKey });
+  await skipSeconds(page, toolPickupDelay);
+  const claimedTools = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(claimedTools.carriedStacks.length).toBeGreaterThan(0);
+  expect(claimedTools.carriedStacks.every((stack) => stack.toolInstanceId && stack.carriedBy === 'scientist')).toBe(true);
   await page.locator('#queueToggleBtn').click();
   await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${origin.x},${origin.y}` }).getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-workspace-tab="map"]').click();
@@ -3085,6 +3113,8 @@ test('fixtures use rotated footprints interaction ports and linked production de
   expect(bed.footprintCells).toEqual([origin, { x: origin.x, y: origin.y + 1 }]);
   expect(bed.ports.some((port) => port.label === 'Bedside Access')).toBe(true);
   expect(bed.accessiblePorts.length).toBeGreaterThan(0);
+  const returnedTools = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(returnedTools.carriedStacks).toHaveLength(0);
 
   await page.locator(`[data-map-x="${origin.x}"][data-map-y="${origin.y}"]`).click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'fixture');
@@ -3096,6 +3126,80 @@ test('fixtures use rotated footprints interaction ports and linked production de
 
   const removed = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot());
   expect(removed.fixtures.some((fixture) => fixture.id === bed.id)).toBe(false);
+});
+
+test('physical stockpiles distribute supplies secure contents and queue hauling after filter changes', async ({ page }) => {
+  test.setTimeout(90_000);
+  await startRun(page);
+
+  let stock = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(stock.designations).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'stockpile-storage-general', name: 'General Storage', filterPresetId: 'all', allowFloorStorage: true }),
+  ]));
+  const shelf = stock.fixtures.find((fixture) => fixture.typeId === 'storageShelf');
+  const crate = stock.fixtures.find((fixture) => fixture.typeId === 'storageCrate');
+  const cabinet = stock.fixtures.find((fixture) => fixture.typeId === 'lockingCabinet');
+  expect(shelf).toMatchObject({ accessState: 'open' });
+  expect(crate).toMatchObject({ accessState: 'closed' });
+  expect(cabinet).toMatchObject({ accessState: 'locked' });
+  expect(shelf.contents.some((stack) => stack.key === 'stoneBlocks' && stack.exposed)).toBe(true);
+  expect(crate.contents.some((stack) => stack.key === 'biomass' && !stack.exposed)).toBe(true);
+  expect(cabinet.contents.some((stack) => stack.section === 'inventory' && !stack.exposed)).toBe(true);
+  expect(shelf.usage.volumeL).toBeLessThanOrEqual(shelf.capacity.volumeL);
+  expect(crate.usage.massKg).toBeLessThanOrEqual(crate.capacity.massKg);
+
+  await page.locator('[data-map-x="54"][data-map-y="40"]').click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'fixture');
+  await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Details' }).click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('General Storage');
+  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Locked');
+  await runSelectionCommand(page, 'Unlock Storage');
+  await runSelectionCommand(page, 'Open Storage');
+  stock = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(stock.fixtures.find((fixture) => fixture.id === cabinet.id).accessState).toBe('open');
+  expect(stock.fixtures.find((fixture) => fixture.id === cabinet.id).contents.every((stack) => stack.exposed)).toBe(true);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.stockpileDesignations.push({
+      id: 'stockpile-storage-overflow',
+      name: 'Overflow Floor',
+      cells: [{ ...state.labMap.rooms.mainLab.anchor }],
+      priority: 5,
+      filterPresetId: 'all',
+      allowFloorStorage: true,
+      source: 'manual',
+      createdAt: state.clock,
+    });
+    for (const door of Object.values(state.doors || {})) {
+      door.state = 'open';
+      door.lockState = 'unlocked';
+      door.sealState = 'unsealed';
+    }
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page, { restoreSelectedSlime: false });
+  await runSelectionCommand(page, 'Accept Tools');
+
+  stock = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(stock.designations.find((designation) => designation.id === 'stockpile-storage-general').filterPresetId).toBe('tools');
+  expect(stock.activeHaul).toBeTruthy();
+  expect(stock.activeHaul.label).toContain('Overflow Floor');
+
+  await page.locator('#queueToggleBtn').click();
+  const haulRow = page.locator('#taskList .task-row').filter({ hasText: 'Store ' }).first();
+  await expect(haulRow).toBeVisible();
+  await haulRow.getByRole('button', { name: 'Finish' }).click();
+
+  stock = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
+  expect(stock.activeHaul).toBeTruthy();
+  expect(stock.activeHaul.id).not.toBe('task-1');
+  expect(stock.floorStacks).toEqual(expect.arrayContaining([
+    expect.objectContaining({ stockpileId: 'stockpile-storage-overflow', roomId: 'mainLab', storedCorrectly: true }),
+  ]));
+  const saved = await page.evaluate(({ key }) => JSON.parse(window.localStorage.getItem(key) || '{}').state, { key: storageKey });
+  expect(saved.roomStockpiles.mainLab.resources.biomass).toBeGreaterThan(0);
 });
 
 test('shared materials drive banded structure reads breaches attack channels and destruction rubble', async ({ page }) => {

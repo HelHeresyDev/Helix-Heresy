@@ -268,6 +268,10 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
       ...(state.resources || {}),
       organicFeedstock: 1,
     };
+    const organicStack = (state.physicalItemStacks || []).find((stack) => stack.section === 'resources' && stack.key === 'organicFeedstock');
+    if (!organicStack) throw new Error('starter organic feedstock stack not found');
+    organicStack.quantity = 1;
+    organicStack.knownQuantity = 1;
     state.tasks = [];
     state.feedingResidues = [];
     state.slimes = [

@@ -151,6 +151,60 @@
       description: "A source connection, removable receptacle position, and small overflow buffer."
     },
     {
+      id: "storageShelf",
+      label: "Storage Shelf",
+      glyph: "H",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "storage", label: "Shelf Access", x: 0, y: 1 }, { id: "storage", label: "Shelf Access", x: 1, y: 1 }],
+      capabilities: ["storage", "openStorage"],
+      storage: { volumeL: 600, massKg: 500, defaultAccessState: "open", security: 0, preference: ["resources", "inventory", "specimenMaterials", "collectedByproducts"] },
+      workMinutes: 10,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 4, metalParts: 1 }, score: 68 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 3, metalParts: 2 }, score: 84 }
+      },
+      description: "High-capacity open storage. Contents are quick to reach but exposed to loose creatures and room hazards."
+    },
+    {
+      id: "storageCrate",
+      label: "Storage Crate",
+      glyph: "K",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "storage", label: "Crate Access", x: 0, y: 1 }],
+      capabilities: ["storage", "closableStorage"],
+      storage: { volumeL: 300, massKg: 250, defaultAccessState: "closed", security: 1, preference: ["resources", "inventory", "collectedByproducts", "specimenMaterials"] },
+      workMinutes: 7,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 3, metalParts: 1 }, score: 66 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 2, metalParts: 1 }, score: 82 }
+      },
+      description: "Closed general storage with moderate capacity and basic protection from loose creatures."
+    },
+    {
+      id: "lockingCabinet",
+      label: "Locking Cabinet",
+      glyph: "L",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "storage", label: "Cabinet Access", x: 0, y: 1 }],
+      capabilities: ["storage", "secureStorage"],
+      storage: { volumeL: 160, massKg: 300, defaultAccessState: "locked", security: 3, preference: ["inventory", "specimenMaterials", "resources", "collectedByproducts"] },
+      workMinutes: 10,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 3, metalParts: 2 }, score: 70 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 2, metalParts: 3 }, score: 88 }
+      },
+      description: "Compact secure storage for tools, samples, and valuable supplies. The scientist is authorized to use its lock."
+    },
+    {
       id: "wallLamp",
       label: "Wall Lamp",
       glyph: "i",
@@ -666,11 +720,26 @@
     { id: "traffic", label: "Traffic Zone", description: "Tiles intended to remain available for circulation." }
   ];
   const ROOM_ZONE_BY_ID = Object.fromEntries(ROOM_ZONE_DEFS.map((zone) => [zone.id, zone]));
+  const STOCKPILE_PRIORITY_MIN = 1;
+  const STOCKPILE_PRIORITY_MAX = 7;
+  const STOCKPILE_PRIORITY_DEFAULT = 4;
+  const STOCKPILE_FILTER_PRESETS = [
+    { id: "all", label: "All Supplies", description: "Accept every currently tracked physical supply category.", sections: ["resources", "inventory", "collectedByproducts", "specimenMaterials"] },
+    { id: "resources", label: "Core Resources", description: "Accept biomass, feedstocks, residues, construction resources, and other core resource units.", sections: ["resources"] },
+    { id: "materials", label: "Construction Materials", description: "Accept stone blocks, lumber, panels, parts, and bricks.", sections: ["resources"], keys: ["stoneBlocks", "lumber", "steelPanels", "metalParts", "bricks"] },
+    { id: "tools", label: "Tools", description: "Accept portable tools and handling equipment.", sections: ["inventory"], categories: ["tools"] },
+    { id: "byproducts", label: "Byproducts", description: "Accept collected creature byproducts.", sections: ["collectedByproducts"] },
+    { id: "specimens", label: "Specimen Materials", description: "Accept harvested tissues, samples, and other specimen materials.", sections: ["specimenMaterials"] }
+  ];
+  const STOCKPILE_FILTER_PRESET_BY_ID = Object.fromEntries(STOCKPILE_FILTER_PRESETS.map((preset) => [preset.id, preset]));
   const CONTAINER_HAUL_BASE_DURATION = 20;
   const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
   const RESOURCE_HAUL_BASE_DURATION = 8;
   const RESOURCE_HAUL_PER_UNIT_DURATION = 0.8;
   const RESOURCE_HAUL_STAMINA = 3;
+  const STOCKPILE_HAUL_BASE_DURATION = 10;
+  const STOCKPILE_HAUL_PER_KG_SECONDS = 0.35;
+  const STOCKPILE_HAUL_STAMINA = 2;
   // Pits hauling now moves only the container. Contents must be moved by direct interaction.
   const CONTAINER_INTERACTION_OPEN_DURATION = 8;
   const CONTAINER_INTERACTION_CLOSE_DURATION = 5;
@@ -2823,6 +2892,7 @@
     "harvestCorpse",
     "containerHaul",
     "resourceHaul",
+    "stockpileHaul",
     "scientistMove",
     "containerInteraction",
     "collectionBayTransfer",
@@ -2907,6 +2977,8 @@
       doors: defaultDoors(),
       containers: defaultContainers(),
       fixtures: defaultFixtures(),
+      stockpileDesignations: defaultStockpileDesignations(),
+      physicalItemStacks: defaultPhysicalItemStacks(),
       productionBills: [],
       fabricatedFixtures: [],
       resources: defaultResources(),
@@ -2944,6 +3016,8 @@
       nextIncidentNumber: 1,
       nextTaskNumber: 1,
       nextFixtureNumber: 1,
+      nextStockpileNumber: 2,
+      nextPhysicalItemStackNumber: 100,
       nextProductionBillNumber: 1,
       discoveries: {},
       regionNotes: {},
@@ -3011,6 +3085,9 @@
       defaultFixtureInstance("starter-workbench", "basicWorkbench", { x: 55, y: 46 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-bed", "bed", { x: 49, y: 57 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-collection-apparatus", "collectionApparatus", { x: 64, y: 46 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-storage-shelf", "storageShelf", { x: 49, y: 40 }, 0, { materialPolicy: "wood", accessState: "open" }),
+      defaultFixtureInstance("starter-storage-crate", "storageCrate", { x: 52, y: 40 }, 0, { materialPolicy: "wood", accessState: "closed" }),
+      defaultFixtureInstance("starter-locking-cabinet", "lockingCabinet", { x: 54, y: 40 }, 0, { materialPolicy: "steel", accessState: "locked" }),
       defaultFixtureInstance("concealed-exit", "concealedExit", { x: 44, y: 42 }, 0, { materialPolicy: "stone" })
     ];
   }
@@ -3027,11 +3104,70 @@
       rotation: normalizeFixtureRotation(rotation),
       condition: clamp(Number(options.condition) || 100, 0, 100),
       operationalState: String(options.operationalState || "operational"),
+      accessState: String(options.accessState || def.storage?.defaultAccessState || "open"),
       materialPolicy,
       materialComposition: normalizeMaterialComposition(options.materialComposition, materialOption?.composition || { primary: "steel" }),
       wardIds: normalizeContainerWardIds(options.wardIds || []),
       installedAt: finiteTime(options.installedAt, 0)
     };
+  }
+
+  function defaultStockpileDesignations() {
+    return [{
+      id: "stockpile-storage-general",
+      name: "General Storage",
+      cells: defaultLabMapRoomCells(STORAGE_ROOM_ID, LAB_MAP_ROOM_RECTS[STORAGE_ROOM_ID]),
+      priority: STOCKPILE_PRIORITY_DEFAULT,
+      filterPresetId: "all",
+      allowFloorStorage: true,
+      source: "starter",
+      createdAt: 0
+    }];
+  }
+
+  function defaultPhysicalItemStacks() {
+    const stacks = [];
+    let number = 1;
+    const add = (section, key, quantity, fixtureId, cell, roomId = STORAGE_ROOM_ID) => {
+      const amount = section === "collectedByproducts" ? roundOutputValue(quantity) : Math.max(0, Math.floor(Number(quantity) || 0));
+      if (amount <= 0) return;
+      const metrics = physicalItemUnitMetrics(section, key);
+      stacks.push({
+        id: `stack-${number++}`,
+        section,
+        key,
+        quantity: amount,
+        knownQuantity: amount,
+        unitVolumeL: metrics.volumeL,
+        unitMassKg: metrics.massKg,
+        roomId,
+        cell: cleanMapCell(cell),
+        fixtureId,
+        stockpileId: roomId === STORAGE_ROOM_ID ? "stockpile-storage-general" : "",
+        observedAt: 0,
+        reservedTaskId: ""
+      });
+    };
+    for (const resource of RESOURCE_DEFS) {
+      const amount = Number(resource.initial) || 0;
+      if (resource.key === "waste") {
+        add("resources", resource.key, amount, "", {
+          x: LAB_MAP_ROOM_RECTS[PITS_ROOM_ID].x,
+          y: LAB_MAP_ROOM_RECTS[PITS_ROOM_ID].y
+        }, PITS_ROOM_ID);
+      } else if (resource.key === "biomass" || FEEDSTOCK_BY_KEY[resource.key]) {
+        add("resources", resource.key, amount, "starter-storage-crate", { x: 52, y: 40 });
+      } else {
+        add("resources", resource.key, amount, "starter-storage-shelf", { x: 49, y: 40 });
+      }
+    }
+    for (const item of INVENTORY_ITEM_DEFS) {
+      const amount = Number(item.initial) || 0;
+      const fixtureId = item.category === "tools" ? "starter-locking-cabinet" : "starter-storage-shelf";
+      const cell = fixtureId === "starter-locking-cabinet" ? { x: 54, y: 40 } : { x: 50, y: 40 };
+      add("inventory", item.key, amount, fixtureId, cell);
+    }
+    return stacks;
   }
 
   function defaultEconomyState(seed = "seed") {
@@ -3745,6 +3881,28 @@
         })),
         productionBills: (state.productionBills || []).map((bill) => ({ ...bill })),
         fabricatedFixtures: (state.fabricatedFixtures || []).map((item) => ({ ...item }))
+      }),
+      physicalStockSnapshot: () => ({
+        designations: ensureStockpileDesignations().map((designation) => ({
+          ...designation,
+          cells: designation.cells.map((cell) => ({ ...cell })),
+          roomId: stockpileDesignationRoomId(designation),
+          filterLabel: STOCKPILE_FILTER_PRESET_BY_ID[designation.filterPresetId]?.label || designation.filterPresetId
+        })),
+        fixtures: (state.fixtures || []).filter(isStorageFixture).map((fixture) => ({
+          id: fixture.id,
+          name: fixture.name,
+          typeId: fixture.typeId,
+          accessState: fixture.accessState,
+          roomId: labMapCellRoomId(fixture.origin),
+          capacity: { ...storageFixtureDef(fixture).storage },
+          usage: storageFixtureUsage(fixture),
+          contents: physicalStacksInFixture(fixture.id).map((stack) => ({ ...stack, exposed: physicalStackExposed(stack), storedCorrectly: physicalStackStoredCorrectly(stack) }))
+        })),
+        floorStacks: ensurePhysicalItemStacks().filter((stack) => !stack.fixtureId && !stack.carriedBy).map((stack) => ({ ...stack, exposed: physicalStackExposed(stack), storedCorrectly: physicalStackStoredCorrectly(stack) })),
+        carriedStacks: ensurePhysicalItemStacks().filter((stack) => stack.carriedBy).map((stack) => ({ ...stack, exposed: false, storedCorrectly: true })),
+        stacks: ensurePhysicalItemStacks().map((stack) => ({ ...stack, exposed: physicalStackExposed(stack), storedCorrectly: physicalStackStoredCorrectly(stack) })),
+        activeHaul: stockpileHaulTask() ? { ...stockpileHaulTask(), data: { ...stockpileHaulTask().data } } : null
       }),
       fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
       damageTool: (itemKey, amount) => {
@@ -5821,6 +5979,7 @@
       jobExpired: 0,
       completed: 0,
       constructionClaimed: 0,
+      stockpileClaimed: 0,
       constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
       observationChanged: false,
@@ -5829,6 +5988,7 @@
     changes.jobExpired = expireSlimes();
     changes.completed = completeDueTasks();
     changes.constructionClaimed = claimNextConstructionWork();
+    changes.stockpileClaimed = claimNextStockpileHaul();
     changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
     syncRoomObservationMemory();
     changes.observationChanged = Boolean(observeScientistRoom());
@@ -5860,6 +6020,7 @@
       + changes.incidentUrgencyChanged
       + changes.completed
       + changes.constructionClaimed
+      + changes.stockpileClaimed
       + changes.constructionProgressChanged
       + changes.skillDecayChanged
       + changes.aiChanged
@@ -5973,6 +6134,11 @@
 
     if (task.type === "resourceHaul") {
       completeResourceHaul(task);
+      return;
+    }
+
+    if (task.type === "stockpileHaul") {
+      completeStockpileHaul(task);
       return;
     }
 
@@ -6548,6 +6714,7 @@
     for (const instance of carried.filter((entry) => !selectedIds.has(entry.id))) {
       instance.carriedBy = "";
       instance.roomId = scientistRoomId();
+      releasePhysicalDurableTool(instance.id, scientistRoomId());
       changed += 1;
       if (new Set([
         ...Object.values(ensureToolDurability()).flat().filter((entry) => entry.carriedBy === "scientist").map((entry) => entry.id),
@@ -6563,6 +6730,7 @@
       if (entry.tool.carriedBy !== "scientist") {
         entry.tool.carriedBy = "scientist";
         entry.tool.roomId = scientistRoomId();
+        carryPhysicalDurableTool(entry.itemKey, entry.tool.id);
         changed += 1;
       }
     }
@@ -6592,6 +6760,7 @@
       if (entry.tool.carriedBy === "scientist" && !retain) {
         entry.tool.carriedBy = "";
         entry.tool.roomId = scientistRoomId();
+        releasePhysicalDurableTool(entry.tool.id, scientistRoomId());
         changed += 1;
       }
     }
@@ -10087,6 +10256,95 @@
     }
   }
 
+  function stockpileDesignationsInRoom(roomId) {
+    return ensureStockpileDesignations().filter((designation) => stockpileDesignationRoomId(designation) === roomId);
+  }
+
+  function syncStockpileDesignationCells(room, cells, enabled) {
+    if (!room) return false;
+    const wanted = normalizeDigCells(cells);
+    const wantedKeys = new Set(wanted.map(mapCellKey));
+    let changed = false;
+    if (enabled) {
+      let designation = stockpileDesignationsInRoom(room.id)
+        .find((entry) => entry.cells.some((cell) => wantedKeys.has(mapCellKey(cell))));
+      if (!designation) {
+        designation = {
+          id: `stockpile-${state.nextStockpileNumber++}`,
+          name: `${room.name} Stockpile`,
+          cells: [],
+          priority: STOCKPILE_PRIORITY_DEFAULT,
+          filterPresetId: "all",
+          allowFloorStorage: true,
+          source: "manual",
+          createdAt: state.clock
+        };
+        ensureStockpileDesignations().push(designation);
+      }
+      const before = designation.cells.length;
+      designation.cells = normalizeDigCells([...designation.cells, ...wanted]);
+      changed = designation.cells.length !== before;
+    } else {
+      for (const designation of stockpileDesignationsInRoom(room.id)) {
+        const before = designation.cells.length;
+        designation.cells = designation.cells.filter((cell) => !wantedKeys.has(mapCellKey(cell)));
+        changed = changed || designation.cells.length !== before;
+      }
+      state.stockpileDesignations = ensureStockpileDesignations().filter((designation) => designation.cells.length);
+    }
+    if (changed) claimNextStockpileHaul();
+    return changed;
+  }
+
+  function renameStockpileDesignation(stockpileId) {
+    const designation = ensureStockpileDesignations().find((entry) => entry.id === stockpileId);
+    if (!designation) return false;
+    const proposed = window.prompt("Stockpile name", designation.name);
+    if (proposed == null) return false;
+    const name = String(proposed).trim();
+    if (!name || name === designation.name) return false;
+    designation.name = name;
+    addEvent(`Stockpile renamed to ${name}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setStockpileFilterPreset(stockpileId, presetId) {
+    const designation = ensureStockpileDesignations().find((entry) => entry.id === stockpileId);
+    const preset = STOCKPILE_FILTER_PRESET_BY_ID[presetId];
+    if (!designation || !preset || designation.filterPresetId === preset.id) return false;
+    designation.filterPresetId = preset.id;
+    claimNextStockpileHaul();
+    addEvent(`${designation.name} now accepts ${preset.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setStockpilePriority(stockpileId, priority) {
+    const designation = ensureStockpileDesignations().find((entry) => entry.id === stockpileId);
+    const clean = clamp(Math.floor(Number(priority) || STOCKPILE_PRIORITY_DEFAULT), STOCKPILE_PRIORITY_MIN, STOCKPILE_PRIORITY_MAX);
+    if (!designation || designation.priority === clean) return false;
+    designation.priority = clean;
+    claimNextStockpileHaul();
+    addEvent(`${designation.name} priority changed to ${clean}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function toggleStockpileFloorStorage(stockpileId) {
+    const designation = ensureStockpileDesignations().find((entry) => entry.id === stockpileId);
+    if (!designation) return false;
+    designation.allowFloorStorage = !designation.allowFloorStorage;
+    claimNextStockpileHaul();
+    addEvent(`${designation.name} ${designation.allowFloorStorage ? "allows" : "forbids"} floor storage.`);
+    persist();
+    render();
+    return true;
+  }
+
   function setRoomZoneCells(roomId, typeId, cells, enabled = true) {
     const map = state.labMap || ensureLabMap();
     const room = state.rooms.find((entry) => entry.id === roomId);
@@ -10111,6 +10369,7 @@
     room.zones = room.zones.filter((entry) => entry.cells.length);
     const changed = before !== zone.cells.length;
     if (changed) {
+      if (typeId === "stockpile") syncStockpileDesignationCells(room, wanted, enabled);
       addEvent(`${def.label} ${enabled ? "added to" : "removed from"} ${wanted.length} tile${wanted.length === 1 ? "" : "s"} in ${room.name}.`);
       persist();
       render();
@@ -10153,6 +10412,11 @@
     for (const corpse of state.corpses || []) {
       const container = corpse.containerId ? containerById(corpse.containerId) : null;
       corpse.roomId = container?.roomId || roomAt(objectMapCell(corpse), corpse.roomId);
+    }
+    for (const stack of ensurePhysicalItemStacks()) {
+      stack.roomId = roomAt(stack.cell, stack.roomId);
+      const designation = stockpileDesignationAtCell(stack.cell);
+      if (designation) stack.stockpileId = designation.id;
     }
     state.scientist.roomId = roomAt(state.scientist.mapCell, state.scientist.roomId);
   }
@@ -11380,6 +11644,7 @@
       rotation: normalizeFixtureRotation(candidate.rotation),
       condition: clamp(Number.isFinite(Number(candidate.condition)) ? Number(candidate.condition) : 100, 0, 100),
       operationalState: ["operational", "impaired", "broken", "unfinished"].includes(candidate.operationalState) ? candidate.operationalState : "operational",
+      accessState: normalizeFixtureAccessState(candidate.accessState, def),
       materialPolicy,
       materialComposition: normalizeMaterialComposition(candidate.materialComposition, materialOption?.composition || { primary: "steel" }),
       wardIds: normalizeContainerWardIds(candidate.wardIds || []),
@@ -11395,6 +11660,571 @@
       return true;
     });
     return fixtures;
+  }
+
+  function normalizeFixtureAccessState(value, def = null) {
+    const fallback = def?.storage?.defaultAccessState || "open";
+    return ["open", "closed", "locked"].includes(value) ? value : fallback;
+  }
+
+  function storageFixtureDef(candidate) {
+    const def = fixtureDef(candidate);
+    return def?.storage ? def : null;
+  }
+
+  function isStorageFixture(candidate) {
+    return Boolean(storageFixtureDef(candidate));
+  }
+
+  function physicalItemUnitMetrics(section, key) {
+    if (section === "resources") {
+      return {
+        biomass: { volumeL: 1.2, massKg: 1 },
+        geneticMaterial: { volumeL: 0.1, massKg: 0.08 },
+        elementalResidue: { volumeL: 0.35, massKg: 0.5 },
+        waste: { volumeL: 2, massKg: 1.5 },
+        feedstock: { volumeL: 1, massKg: 0.8 },
+        carrion: { volumeL: 1.5, massKg: 1.2 },
+        contaminatedFeedstock: { volumeL: 1.1, massKg: 0.9 },
+        lumber: { volumeL: 12, massKg: 5 },
+        steelPanels: { volumeL: 6, massKg: 8 },
+        stoneBlocks: { volumeL: 5, massKg: 8 },
+        bricks: { volumeL: 3, massKg: 4 },
+        metalParts: { volumeL: 0.5, massKg: 1 }
+      }[key] || { volumeL: 1, massKg: 1 };
+    }
+    if (section === "inventory") {
+      const metrics = {
+        lumber: { volumeL: 12, massKg: 5 },
+        steelPanels: { volumeL: 6, massKg: 8 },
+        stoneBlocks: { volumeL: 5, massKg: 8 },
+        bricks: { volumeL: 3, massKg: 4 },
+        metalParts: { volumeL: 0.5, massKg: 1 },
+        cloth: { volumeL: 2, massKg: 0.5 },
+        rubber: { volumeL: 1, massKg: 0.8 }
+      }[key];
+      if (metrics) return metrics;
+      return INVENTORY_ITEM_BY_KEY[key]?.category === "tools" ? { volumeL: 5, massKg: 3 } : { volumeL: 2, massKg: 1 };
+    }
+    if (section === "collectedByproducts") return { volumeL: 1, massKg: 1 };
+    if (section === "specimenMaterials") return { volumeL: 1.25, massKg: 1.1 };
+    return { volumeL: 1, massKg: 1 };
+  }
+
+  function normalizeStockpileDesignation(candidate, index = 0) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const id = String(candidate.id || `stockpile-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "");
+    const cells = normalizeDigCells(candidate.cells);
+    if (!id || !cells.length) return null;
+    return {
+      id,
+      name: String(candidate.name || `Stockpile ${index + 1}`).trim() || `Stockpile ${index + 1}`,
+      cells,
+      priority: clamp(Math.floor(Number(candidate.priority) || STOCKPILE_PRIORITY_DEFAULT), STOCKPILE_PRIORITY_MIN, STOCKPILE_PRIORITY_MAX),
+      filterPresetId: STOCKPILE_FILTER_PRESET_BY_ID[candidate.filterPresetId] ? candidate.filterPresetId : "all",
+      allowFloorStorage: candidate.allowFloorStorage !== false,
+      source: String(candidate.source || "manual"),
+      createdAt: finiteTime(candidate.createdAt, 0)
+    };
+  }
+
+  function normalizeStockpileDesignations(candidate) {
+    const source = Array.isArray(candidate) ? candidate : defaultStockpileDesignations();
+    const seen = new Set();
+    return source.map(normalizeStockpileDesignation).filter(Boolean).filter((designation) => {
+      if (seen.has(designation.id)) return false;
+      seen.add(designation.id);
+      return true;
+    });
+  }
+
+  function normalizePhysicalItemStack(candidate, index = 0) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const section = ["resources", "inventory", "collectedByproducts", "specimenMaterials"].includes(candidate.section) ? candidate.section : "";
+    const key = String(candidate.key || "");
+    const fixtureId = String(candidate.fixtureId || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+    const cell = cleanMapCell(candidate.cell) || labMapRoomAnchor(candidate.roomId || STORAGE_ROOM_ID);
+    const allowFractional = section === "collectedByproducts";
+    const quantity = allowFractional ? roundOutputValue(Math.max(0, Number(candidate.quantity) || 0)) : Math.max(0, Math.floor(Number(candidate.quantity) || 0));
+    const knownQuantity = allowFractional
+      ? roundOutputValue(Math.max(0, Number(candidate.knownQuantity ?? quantity) || 0))
+      : Math.max(0, Math.floor(Number(candidate.knownQuantity ?? quantity) || 0));
+    if (!section || !key || !cell || quantity <= 0 && knownQuantity <= 0) return null;
+    const metrics = physicalItemUnitMetrics(section, key);
+    return {
+      id: String(candidate.id || `stack-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, ""),
+      section,
+      key,
+      quantity,
+      knownQuantity,
+      unitVolumeL: Math.max(0.001, Number(candidate.unitVolumeL) || metrics.volumeL),
+      unitMassKg: Math.max(0.001, Number(candidate.unitMassKg) || metrics.massKg),
+      roomId: roomById(candidate.roomId)?.id || labMapCellRoomId(cell) || STORAGE_ROOM_ID,
+      cell,
+      fixtureId,
+      stockpileId: String(candidate.stockpileId || ""),
+      observedAt: finiteTime(candidate.observedAt, 0),
+      reservedTaskId: String(candidate.reservedTaskId || ""),
+      carriedBy: candidate.carriedBy === "scientist" ? "scientist" : "",
+      toolInstanceId: String(candidate.toolInstanceId || "")
+    };
+  }
+
+  function normalizePhysicalItemStacks(candidate) {
+    const source = Array.isArray(candidate) ? candidate : defaultPhysicalItemStacks();
+    const seen = new Set();
+    return source.map(normalizePhysicalItemStack).filter(Boolean).filter((stack) => {
+      if (!stack.id || seen.has(stack.id)) return false;
+      seen.add(stack.id);
+      return true;
+    });
+  }
+
+  function ensurePhysicalItemStacks() {
+    if (!Array.isArray(state.physicalItemStacks)) state.physicalItemStacks = defaultPhysicalItemStacks();
+    return state.physicalItemStacks;
+  }
+
+  function ensureStockpileDesignations() {
+    if (!Array.isArray(state.stockpileDesignations)) state.stockpileDesignations = defaultStockpileDesignations();
+    return state.stockpileDesignations;
+  }
+
+  function physicalStackLabel(stack) {
+    if (stack?.section === "resources") return resourceLabel(stack.key);
+    if (stack?.section === "inventory") return inventoryItemLabel(stack.key);
+    if (stack?.section === "specimenMaterials") return state.specimenMaterials?.[stack.key]?.label || stack.key;
+    return stack?.key || "Supplies";
+  }
+
+  function physicalStackQuantityText(stack, known = true) {
+    const amount = known ? stack?.knownQuantity : stack?.quantity;
+    return stack?.section === "collectedByproducts" ? formatCollectionAmount(amount) : formatNumber(amount);
+  }
+
+  function physicalStackKnowledgeLabel(stack) {
+    if (!stack) return "Unknown";
+    if (scientistObservesRoom(stack.roomId)) return "Currently observed";
+    return `Last inventoried ${formatClock(stack.observedAt)}`;
+  }
+
+  function storageFixtureContentsLabel(fixture) {
+    const stacks = physicalStacksInFixture(fixture?.id).filter((stack) => stack.knownQuantity > 0);
+    return stacks.length
+      ? stacks.map((stack) => `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)}`).join(", ")
+      : "No contents known";
+  }
+
+  function storageFixtureCapacityLabel(fixture) {
+    const def = storageFixtureDef(fixture);
+    if (!def) return "Not storage";
+    const usage = storageFixtureUsage(fixture);
+    return `${formatDecimal(usage.volumeL, 1)} / ${formatNumber(def.storage.volumeL)} L; ${formatDecimal(usage.massKg, 1)} / ${formatNumber(def.storage.massKg)} kg`;
+  }
+
+  function stockpileDesignationAtCell(cell) {
+    const key = mapCellKey(cell);
+    return ensureStockpileDesignations()
+      .filter((designation) => designation.cells.some((entry) => mapCellKey(entry) === key))
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt)[0] || null;
+  }
+
+  function stockpileDesignationRoomId(designation) {
+    return labMapCellRoomId(designation?.cells?.[0]) || "";
+  }
+
+  function stockpileAcceptsItem(designation, section, key) {
+    if (!designation) return false;
+    const preset = STOCKPILE_FILTER_PRESET_BY_ID[designation.filterPresetId] || STOCKPILE_FILTER_PRESET_BY_ID.all;
+    if (!preset.sections.includes(section)) return false;
+    if (preset.keys?.length) return preset.keys.includes(key);
+    if (preset.categories?.length && section === "inventory") return preset.categories.includes(INVENTORY_ITEM_BY_KEY[key]?.category || "");
+    if (preset.id === "materials" && section === "inventory") return INVENTORY_ITEM_BY_KEY[key]?.category !== "tools";
+    return true;
+  }
+
+  function stockpileForFixture(fixture) {
+    const keys = new Set(fixtureFootprintCells(fixture).map(mapCellKey));
+    return ensureStockpileDesignations()
+      .filter((designation) => designation.cells.some((cell) => keys.has(mapCellKey(cell))))
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt)[0] || null;
+  }
+
+  function physicalStacksInFixture(fixtureId) {
+    return ensurePhysicalItemStacks().filter((stack) => stack.fixtureId === fixtureId);
+  }
+
+  function storageFixtureUsage(fixture) {
+    return physicalStacksInFixture(fixture?.id).reduce((usage, stack) => {
+      usage.volumeL += stack.quantity * stack.unitVolumeL;
+      usage.massKg += stack.quantity * stack.unitMassKg;
+      return usage;
+    }, { volumeL: 0, massKg: 0 });
+  }
+
+  function storageFixtureCapacityUnits(fixture, section, key) {
+    const def = storageFixtureDef(fixture);
+    if (!def) return 0;
+    const usage = storageFixtureUsage(fixture);
+    const metrics = physicalItemUnitMetrics(section, key);
+    const byVolume = Math.floor(Math.max(0, def.storage.volumeL - usage.volumeL) / metrics.volumeL);
+    const byMass = Math.floor(Math.max(0, def.storage.massKg - usage.massKg) / metrics.massKg);
+    return Math.max(0, Math.min(byVolume, byMass));
+  }
+
+  function storageFixtureScientistAccessible(fixture) {
+    return Boolean(fixture && fixture.condition > 0 && fixture.operationalState !== "broken" && fixtureAccessCells(fixture).length);
+  }
+
+  function setStorageFixtureAccessState(fixtureId, accessState) {
+    const fixture = fixtureById(fixtureId);
+    const def = storageFixtureDef(fixture);
+    const next = normalizeFixtureAccessState(accessState, def);
+    if (!fixture || !def) return false;
+    if (def.capabilities.includes("openStorage") && next !== "open") return false;
+    if (!def.capabilities.includes("secureStorage") && next === "locked") return false;
+    if (next === "locked" && fixture.accessState === "open") return false;
+    if (fixture.accessState === next) return false;
+    fixture.accessState = next;
+    addEvent(`${fixture.name} is now ${next}.`);
+    claimNextStockpileHaul();
+    persist();
+    render();
+    return true;
+  }
+
+  function physicalStackExposed(stack) {
+    if (stack?.carriedBy) return false;
+    if (!stack?.fixtureId) return true;
+    const fixture = fixtureById(stack.fixtureId);
+    return Boolean(storageFixtureDef(fixture)?.capabilities?.includes("openStorage") || fixture?.accessState === "open");
+  }
+
+  function physicalKnownAmountInRoom(section, key, roomId, options = {}) {
+    const resolved = roomById(roomId)?.id || roomId;
+    return roundOutputValue(ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === section && stack.key === key && stack.roomId === resolved)
+      .filter((stack) => options.accessible === false || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .reduce((total, stack) => total + stack.knownQuantity, 0));
+  }
+
+  function physicalKnownAmount(section, key, options = {}) {
+    return roundOutputValue(ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === section && stack.key === key)
+      .filter((stack) => options.accessible === false || !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .reduce((total, stack) => total + stack.knownQuantity, 0));
+  }
+
+  function physicalStockDestinationCandidates(section, key, options = {}) {
+    const preferredRoomId = options.roomId ? normalizeStockpileRoomId(options.roomId) : "";
+    const candidates = [];
+    for (const designation of ensureStockpileDesignations()) {
+      if (!stockpileAcceptsItem(designation, section, key)) continue;
+      const roomId = stockpileDesignationRoomId(designation);
+      if (preferredRoomId && roomId !== preferredRoomId) continue;
+      const designationKeys = new Set(designation.cells.map(mapCellKey));
+      for (const fixture of (state.fixtures || []).filter(isStorageFixture)) {
+        if (!fixtureFootprintCells(fixture).some((cell) => designationKeys.has(mapCellKey(cell)))) continue;
+        const accessCell = fixtureAccessCells(fixture)[0]?.cell;
+        if (!accessCell || !storageFixtureScientistAccessible(fixture)) continue;
+        const capacity = storageFixtureCapacityUnits(fixture, section, key);
+        if (capacity <= 0) continue;
+        const def = storageFixtureDef(fixture);
+        const preferenceIndex = Math.max(0, def.storage.preference.indexOf(section));
+        const securityWanted = section === "inventory" && INVENTORY_ITEM_BY_KEY[key]?.category === "tools" || section === "specimenMaterials";
+        candidates.push({
+          type: "fixture",
+          designation,
+          fixture,
+          roomId,
+          cell: fixture.origin,
+          accessCell,
+          capacity,
+          score: designation.priority * 100 + preferenceIndex * 10 - (securityWanted ? def.storage.security * 3 : 0)
+        });
+      }
+      if (designation.allowFloorStorage) {
+        const floorCell = designation.cells.find((cell) => labMapCellIsWalkable(cell, ensureLabMap()) && !labMapCellIsPathBlocked(cell, { map: ensureLabMap() }))
+          || designation.cells.find((cell) => labMapCellIsWalkable(cell, ensureLabMap()));
+        if (floorCell) {
+          candidates.push({
+            type: "floor",
+            designation,
+            fixture: null,
+            roomId,
+            cell: floorCell,
+            accessCell: floorCell,
+            capacity: Number.MAX_SAFE_INTEGER,
+            score: designation.priority * 100 + 90
+          });
+        }
+      }
+    }
+    return candidates.sort((a, b) => a.score - b.score
+      || mapPathTravelDistanceMeters(labMapPathBetweenCells(scientistMapCell(), a.accessCell || a.cell, { map: ensureLabMap(), ignoreDoors: true }), ensureLabMap())
+        - mapPathTravelDistanceMeters(labMapPathBetweenCells(scientistMapCell(), b.accessCell || b.cell, { map: ensureLabMap(), ignoreDoors: true }), ensureLabMap()));
+  }
+
+  function physicalFallbackLocation(roomId) {
+    const resolved = normalizeStockpileRoomId(roomId);
+    const localDesignation = ensureStockpileDesignations().find((designation) => stockpileDesignationRoomId(designation) === resolved && designation.allowFloorStorage);
+    return {
+      roomId: resolved,
+      cell: cleanMapCell(localDesignation?.cells?.[0]) || labMapRoomAnchor(resolved),
+      fixtureId: "",
+      stockpileId: localDesignation?.id || ""
+    };
+  }
+
+  function createPhysicalItemStack(section, key, quantity, location, options = {}) {
+    const allowFractional = section === "collectedByproducts";
+    const amount = allowFractional ? roundOutputValue(quantity) : Math.max(0, Math.floor(quantity));
+    if (amount <= 0) return null;
+    const metrics = physicalItemUnitMetrics(section, key);
+    const stack = {
+      id: `stack-${state.nextPhysicalItemStackNumber++}`,
+      section,
+      key,
+      quantity: amount,
+      knownQuantity: amount,
+      unitVolumeL: metrics.volumeL,
+      unitMassKg: metrics.massKg,
+      roomId: location.roomId,
+      cell: cleanMapCell(location.cell) || labMapRoomAnchor(location.roomId),
+      fixtureId: location.fixtureId || "",
+      stockpileId: location.stockpileId || "",
+      observedAt: state.clock,
+      reservedTaskId: "",
+      carriedBy: options.carriedBy === "scientist" ? "scientist" : "",
+      toolInstanceId: String(options.toolInstanceId || "")
+    };
+    ensurePhysicalItemStacks().push(stack);
+    return stack;
+  }
+
+  function carryPhysicalDurableTool(itemKey, toolInstanceId) {
+    const source = ensurePhysicalItemStacks().find((stack) =>
+      stack.section === "inventory" && stack.key === itemKey && !stack.carriedBy && stack.quantity > 0
+    );
+    if (!source) return null;
+    source.quantity -= 1;
+    source.knownQuantity = Math.max(0, source.knownQuantity - 1);
+    source.observedAt = state.clock;
+    if (source.quantity <= 0 && source.knownQuantity <= 0) {
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.id !== source.id);
+    }
+    return createPhysicalItemStack("inventory", itemKey, 1, {
+      roomId: scientistRoomId(),
+      cell: scientistMapCell(),
+      fixtureId: "",
+      stockpileId: ""
+    }, { carriedBy: "scientist", toolInstanceId });
+  }
+
+  function releasePhysicalDurableTool(toolInstanceId, roomId = scientistRoomId()) {
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.carriedBy === "scientist" && entry.toolInstanceId === toolInstanceId);
+    if (!stack) return false;
+    const itemKey = stack.key;
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    addPhysicalItemQuantity("inventory", itemKey, 1, roomId);
+    return true;
+  }
+
+  function addPhysicalItemQuantity(section, key, quantity, roomId) {
+    let remaining = section === "collectedByproducts" ? roundOutputValue(quantity) : Math.max(0, Math.floor(quantity));
+    if (remaining <= 0) return 0;
+    const destinations = physicalStockDestinationCandidates(section, key, { roomId });
+    if (!destinations.length) destinations.push({ ...physicalFallbackLocation(roomId), capacity: Number.MAX_SAFE_INTEGER, type: "floor", designation: null, fixture: null });
+    const requested = remaining;
+    for (const destination of destinations) {
+      if (remaining <= 0) break;
+      const amount = Math.min(remaining, destination.capacity);
+      const fixtureId = destination.fixture?.id || destination.fixtureId || "";
+      const stockpileId = destination.designation?.id || destination.stockpileId || "";
+      const existing = ensurePhysicalItemStacks().find((stack) => stack.section === section && stack.key === key
+        && stack.fixtureId === fixtureId && mapCellKey(stack.cell) === mapCellKey(destination.cell));
+      if (existing) {
+        existing.quantity = section === "collectedByproducts" ? roundOutputValue(existing.quantity + amount) : existing.quantity + Math.floor(amount);
+        existing.knownQuantity = existing.quantity;
+        existing.observedAt = state.clock;
+        existing.stockpileId = stockpileId;
+      } else {
+        createPhysicalItemStack(section, key, amount, {
+          roomId: destination.roomId || normalizeStockpileRoomId(roomId),
+          cell: destination.cell,
+          fixtureId,
+          stockpileId
+        });
+      }
+      remaining = section === "collectedByproducts" ? roundOutputValue(remaining - amount) : remaining - Math.floor(amount);
+    }
+    if (remaining > 0) createPhysicalItemStack(section, key, remaining, physicalFallbackLocation(roomId));
+    return section === "collectedByproducts" ? roundOutputValue(requested) : requested;
+  }
+
+  function removePhysicalItemQuantity(section, key, quantity, roomId = "") {
+    let remaining = section === "collectedByproducts" ? roundOutputValue(quantity) : Math.max(0, Math.floor(quantity));
+    const requested = remaining;
+    const resolved = roomId ? normalizeStockpileRoomId(roomId) : "";
+    const stacks = ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === section && stack.key === key && (!resolved || stack.roomId === resolved))
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .sort((a, b) => (a.roomId === STORAGE_ROOM_ID ? -1 : 0) - (b.roomId === STORAGE_ROOM_ID ? -1 : 0) || a.observedAt - b.observedAt);
+    for (const stack of stacks) {
+      if (remaining <= 0) break;
+      const taken = Math.min(stack.quantity, remaining);
+      stack.quantity = section === "collectedByproducts" ? roundOutputValue(stack.quantity - taken) : Math.max(0, stack.quantity - Math.floor(taken));
+      stack.knownQuantity = stack.quantity;
+      stack.observedAt = state.clock;
+      remaining = section === "collectedByproducts" ? roundOutputValue(remaining - taken) : remaining - Math.floor(taken);
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0);
+    return section === "collectedByproducts" ? roundOutputValue(requested - remaining) : requested - remaining;
+  }
+
+  function relocatePhysicalItemQuantity(section, key, quantity, fromRoomId, toRoomId) {
+    const removed = removePhysicalItemQuantity(section, key, quantity, fromRoomId);
+    if (removed > 0) addPhysicalItemQuantity(section, key, removed, toRoomId);
+    return removed;
+  }
+
+  function physicalStackStoredCorrectly(stack) {
+    if (!stack) return false;
+    if (stack.carriedBy === "scientist") return true;
+    const designation = stack.stockpileId
+      ? ensureStockpileDesignations().find((entry) => entry.id === stack.stockpileId)
+      : stockpileDesignationAtCell(stack.cell);
+    if (!designation || !stockpileAcceptsItem(designation, stack.section, stack.key)) return false;
+    if (stack.fixtureId) {
+      const fixture = fixtureById(stack.fixtureId);
+      return Boolean(isStorageFixture(fixture) && stockpileForFixture(fixture)?.id === designation.id);
+    }
+    return Boolean(designation.allowFloorStorage && designation.cells.some((cell) => mapCellKey(cell) === mapCellKey(stack.cell)));
+  }
+
+  function stockpileHaulAccessCell(stack) {
+    if (!stack) return null;
+    if (stack.carriedBy === "scientist") return scientistMapCell();
+    if (stack.fixtureId) return fixtureAccessCells(fixtureById(stack.fixtureId))[0]?.cell || null;
+    return cleanMapCell(stack.cell);
+  }
+
+  function stockpileDestinationForStack(stack) {
+    if (!stack) return null;
+    return physicalStockDestinationCandidates(stack.section, stack.key)
+      .filter((candidate) => candidate.designation?.id !== stack.stockpileId || candidate.fixture?.id !== stack.fixtureId || mapCellKey(candidate.cell) !== mapCellKey(stack.cell))
+      .find((candidate) => candidate.capacity > 0) || null;
+  }
+
+  function stockpileHaulTask() {
+    return (state.tasks || []).find((task) => task.type === "stockpileHaul") || null;
+  }
+
+  function stockpileHaulTaskBlockReason(task) {
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+    if (!stack) return "The stored item stack no longer exists.";
+    if (stack.reservedTaskId && stack.reservedTaskId !== task.id) return "The item stack is reserved for different work.";
+    if (stack.quantity < task.data.amount) return `${physicalStackLabel(stack)} no longer has the reserved quantity.`;
+    const destination = ensureStockpileDesignations().find((entry) => entry.id === task.data?.stockpileId);
+    if (!destination || !stockpileAcceptsItem(destination, stack.section, stack.key)) return "The destination stockpile no longer accepts this item.";
+    const fixture = task.data?.fixtureId ? fixtureById(task.data.fixtureId) : null;
+    if (fixture) {
+      if (!storageFixtureScientistAccessible(fixture)) return `${fixture.name} has no reachable interaction point.`;
+      if (storageFixtureCapacityUnits(fixture, stack.section, stack.key) < task.data.amount) return `${fixture.name} no longer has enough capacity.`;
+    } else if (!destination.allowFloorStorage) {
+      return `${destination.name} no longer permits floor storage.`;
+    }
+    const sourceAccess = stockpileHaulAccessCell(stack);
+    const destinationAccess = cleanMapCell(task.data?.toAccessCell);
+    if (!sourceAccess || !destinationAccess) return "A storage interaction point is missing.";
+    const map = ensureLabMap();
+    if (!labMapPathBetweenCells(scientistMapCell(), sourceAccess, { map, ignoreDoors: true }).length) return "The scientist cannot reach the stored items.";
+    if (!labMapPathBetweenCells(sourceAccess, destinationAccess, { map, ignoreDoors: true }).length) return "No physical route reaches the destination stockpile.";
+    return "";
+  }
+
+  function claimNextStockpileHaul() {
+    if (stockpileHaulTask() || scientistIsDead()) return 0;
+    const stack = ensurePhysicalItemStacks()
+      .filter((entry) => !entry.reservedTaskId && !entry.carriedBy && !physicalStackStoredCorrectly(entry))
+      .sort((a, b) => a.observedAt - b.observedAt || a.id.localeCompare(b.id))
+      .find((entry) => stockpileDestinationForStack(entry));
+    if (!stack) return 0;
+    const destination = stockpileDestinationForStack(stack);
+    const amount = Math.min(stack.quantity, destination.capacity);
+    const fromAccessCell = stockpileHaulAccessCell(stack);
+    const toAccessCell = destination.accessCell || destination.cell;
+    const map = ensureLabMap();
+    const firstPath = fromAccessCell ? labMapPathBetweenCells(scientistMapCell(), fromAccessCell, { map, ignoreDoors: true }) : [];
+    const secondPath = fromAccessCell && toAccessCell ? labMapPathBetweenCells(fromAccessCell, toAccessCell, { map, ignoreDoors: true }) : [];
+    const mapPath = [
+      ...firstPath,
+      ...secondPath.slice(firstPath.length && secondPath.length && mapCellKey(firstPath.at(-1)) === mapCellKey(secondPath[0]) ? 1 : 0)
+    ];
+    const massKg = amount * stack.unitMassKg;
+    const travelSeconds = mapPathTravelDistanceMeters(mapPath, map) / Math.max(0.1, RESOURCE_HAUL_SPEED_MPS);
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    if (!spendStamina(STOCKPILE_HAUL_STAMINA)) return 0;
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "stockpileHaul",
+      label: `Store ${formatNumber(amount)} ${physicalStackLabel(stack)} in ${destination.designation.name}`,
+      createdAt: state.clock,
+      dueAt: queueTail + Math.max(1, Math.round(minutesToSeconds(STOCKPILE_HAUL_BASE_DURATION) + massKg * STOCKPILE_HAUL_PER_KG_SECONDS + travelSeconds)),
+      data: {
+        stackId: stack.id,
+        amount,
+        fromRoomId: stack.roomId,
+        toRoomId: destination.roomId,
+        fromCell: stack.cell,
+        toCell: destination.cell,
+        fromAccessCell,
+        toAccessCell,
+        fixtureId: destination.fixture?.id || "",
+        stockpileId: destination.designation.id,
+        mapPath,
+        staminaCost: STOCKPILE_HAUL_STAMINA
+      }
+    };
+    stack.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`Storage hauling queued: ${formatNumber(amount)} ${physicalStackLabel(stack)} to ${destination.designation.name}.`);
+    return 1;
+  }
+
+  function completeStockpileHaul(task) {
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+    if (!stack) {
+      addEvent("Storage hauling could not complete; the item stack no longer exists.");
+      return false;
+    }
+    const amount = Math.min(stack.quantity, Number(task.data?.amount) || 0);
+    if (amount <= 0) return false;
+    const destinationLocation = {
+      roomId: task.data.toRoomId,
+      cell: task.data.toCell,
+      fixtureId: task.data.fixtureId || "",
+      stockpileId: task.data.stockpileId || ""
+    };
+    moveRoomStockpileLedgerOnly(stack.section, stack.key, amount, stack.roomId, destinationLocation.roomId);
+    if (amount < stack.quantity) {
+      stack.quantity -= amount;
+      stack.knownQuantity = stack.quantity;
+      stack.reservedTaskId = "";
+      createPhysicalItemStack(stack.section, stack.key, amount, destinationLocation);
+    } else {
+      stack.roomId = destinationLocation.roomId;
+      stack.cell = cleanMapCell(destinationLocation.cell);
+      stack.fixtureId = destinationLocation.fixtureId;
+      stack.stockpileId = destinationLocation.stockpileId;
+      stack.knownQuantity = stack.quantity;
+      stack.observedAt = state.clock;
+      stack.reservedTaskId = "";
+    }
+    state.scientist.roomId = task.data.toRoomId;
+    state.scientist.mapCell = cleanMapCell(task.data.toAccessCell) || labMapRoomAnchor(task.data.toRoomId);
+    addEvent(`Storage hauling complete: ${formatNumber(amount)} ${physicalStackLabel(stack)} placed in ${ensureStockpileDesignations().find((entry) => entry.id === task.data.stockpileId)?.name || "the stockpile"}.`);
+    return true;
   }
 
   function normalizeProductionBill(candidate) {
@@ -26012,6 +26842,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     room.observation = observation;
     state.roomObservations ||= {};
     state.roomObservations[room.id] = observation;
+    for (const stack of ensurePhysicalItemStacks().filter((entry) => entry.roomId === room.id)) {
+      stack.knownQuantity = stack.quantity;
+      stack.observedAt = state.clock;
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0 || stack.knownQuantity > 0);
     observeCreaturesInRoom(room.id);
     return observation;
   }
@@ -26607,6 +27442,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { quality: "bad", label, sharedTags: [] };
   }
 
+  function physicalResourceFoodTags(key) {
+    if (FEEDSTOCK_BY_KEY[key]) return [...FEEDSTOCK_BY_KEY[key].tags];
+    if (key === "biomass") return ["material", "organic", "clean"];
+    if (key === "geneticMaterial") return ["material", "organic", "arcane"];
+    if (key === "elementalResidue") return ["material", "mineral", "arcane"];
+    if (["stoneBlocks", "bricks"].includes(key)) return ["material", "mineral", "inert"];
+    if (["steelPanels", "metalParts"].includes(key)) return ["material", "metal", "mineral"];
+    if (key === "lumber") return ["material", "organic", "plant"];
+    return ["material"];
+  }
+
   function looseFeedingResidueType(sourceTags = [], match = null) {
     const tags = new Set(normalizeResidueTags(sourceTags));
     if (match?.quality === "harmful" || tags.has("hazardous") || tags.has("toxic")) {
@@ -26689,6 +27535,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: feedingResidueLabel(residue.typeKey),
         tags: residueFoodTags(residue),
         score: 70 + residue.amount * 8
+      });
+    }
+
+    for (const stack of ensurePhysicalItemStacks().filter((entry) =>
+      entry.section === "resources"
+      && entry.key !== "waste"
+      && entry.roomId === roomId
+      && entry.quantity > 0
+      && physicalStackExposed(entry)
+    )) {
+      const tags = physicalResourceFoodTags(stack.key);
+      const match = looseFoodMatch(slime, tags);
+      const qualityScore = { good: 42, partial: 30, bad: 12, harmful: 4 }[match.quality] || 8;
+      addTarget({
+        kind: "physicalStack",
+        id: stack.id,
+        roomId,
+        cell: stockpileHaulAccessCell(stack),
+        label: `exposed ${physicalStackLabel(stack).toLowerCase()}`,
+        tags,
+        score: qualityScore + Math.min(30, stack.quantity * 2)
       });
     }
 
@@ -27120,6 +27987,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return 1;
   }
 
+  function consumePhysicalResourceStackForSlime(slime, target, elapsed) {
+    const roomId = slimeEffectiveRoomId(slime);
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === target.id);
+    if (!stack || stack.section !== "resources" || stack.roomId !== roomId || stack.quantity <= 0 || !physicalStackExposed(stack)) return 0;
+    const tags = physicalResourceFoodTags(stack.key);
+    const match = looseFoodMatch(slime, tags);
+    const effects = LOOSE_FEED_MATCH_EFFECTS[match.quality] || LOOSE_FEED_MATCH_EFFECTS.bad;
+    slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0)
+      + CREATURE_AUTONOMOUS_WASTE_UNITS_PER_HOUR * effects.rate * secondsToHours(elapsed);
+    const units = Math.min(stack.quantity, Math.floor(slime.accessibleFeedingProgress));
+    slime.roomActivity = {
+      type: "feedingStockpile",
+      label: `feeding on exposed ${physicalStackLabel(stack).toLowerCase()}`,
+      roomId,
+      targetKind: "physicalStack",
+      targetId: stack.id,
+      targetLabel: physicalStackLabel(stack),
+      updatedAt: state.clock
+    };
+    if (units <= 0) return 0;
+    slime.accessibleFeedingProgress -= units;
+    ensureRoomStockpiles();
+    const localMap = state.roomStockpiles?.[roomId]?.resources || {};
+    localMap[stack.key] = Math.max(0, (Number(localMap[stack.key]) || 0) - units);
+    if (localMap[stack.key] <= 0) delete localMap[stack.key];
+    state.resources[stack.key] = Math.max(0, (Number(state.resources[stack.key]) || 0) - units);
+    stack.quantity -= units;
+    if (scientistObservesRoom(roomId)) {
+      stack.knownQuantity = stack.quantity;
+      stack.observedAt = state.clock;
+    }
+    applyLooseFoodEffects(slime, units, match, { roomId, label: physicalStackLabel(stack), tags });
+    if (stack.quantity <= 0 && scientistObservesRoom(roomId)) {
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    }
+    return 1;
+  }
+
   function feedLooseSlimeOnCorpse(slime, target, elapsed) {
     const corpse = findCorpse(target.id);
     if (!corpse || !["room", "overflow"].includes(corpse.storage) || (corpse.roomId || MAIN_ROOM_ID) !== slimeEffectiveRoomId(slime)) {
@@ -27170,6 +28075,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (target.kind === "waste") {
       return consumeWasteForLooseSlime(slime, elapsed);
+    }
+    if (target.kind === "physicalStack") {
+      return consumePhysicalResourceStackForSlime(slime, target, elapsed);
     }
     if (target.kind === "corpse") {
       return feedLooseSlimeOnCorpse(slime, target, elapsed);
@@ -31056,6 +31964,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       actions.append(storesFocusRoomButton(room.id));
       header.append(title, actions);
       section.append(header);
+      for (const designation of stockpileDesignationsInRoom(room.id)) {
+        const preset = STOCKPILE_FILTER_PRESET_BY_ID[designation.filterPresetId] || STOCKPILE_FILTER_PRESET_BY_ID.all;
+        section.append(storesRowEl(designation.name, `Priority ${designation.priority}`, {
+          subtitle: `${preset.label}; ${designation.cells.length} tiles; floor storage ${designation.allowFloorStorage ? "allowed" : "forbidden"}`,
+          dataset: { stockpileDesignation: designation.id }
+        }));
+      }
+      for (const fixture of (state.fixtures || []).filter((entry) => isStorageFixture(entry) && labMapCellRoomId(entry.origin) === room.id)) {
+        section.append(storesRowEl(fixture.name, titleCase(fixture.accessState), {
+          subtitle: `${storageFixtureContentsLabel(fixture)}; ${storageFixtureCapacityLabel(fixture)}`,
+          dataset: { storageFixture: fixture.id },
+          actions: [storesActionButton("Focus", `Select ${fixture.name} on the map.`, () => focusMapTarget({ kind: "fixture", id: fixture.id }))]
+        }));
+      }
       if (!rows.length) {
         section.append(emptyText("No known supplies in this room."));
       } else {
@@ -32040,16 +32962,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const footprint = fixtureFootprintCells(fixture);
       const footprintDef = fixtureRotatedFootprint(def, fixture.rotation);
       const target = { kind: "fixture", id: fixture.id, label: fixture.name };
+      const storageLabel = isStorageFixture(fixture)
+        ? `; ${fixture.accessState}; ${storageFixtureContentsLabel(fixture)}; ${storageFixtureCapacityLabel(fixture)}`
+        : "";
       footprint.forEach((cell, index) => addCell(
         cell,
         index === 0 ? def?.glyph || "F" : "F",
-        `${fixture.name} footprint ${footprintDef.width}x${footprintDef.height}; ${fixture.operationalState}`,
+        `${fixture.name} footprint ${footprintDef.width}x${footprintDef.height}; ${fixture.operationalState}${storageLabel}`,
         ["fixture-object-cell", ...(def?.collision === "blocking" ? ["blocking-object-cell"] : [])],
         target
       ));
       for (const port of fixturePortCells(fixture)) {
         addCell(port.cell, "", `${fixture.name}: ${port.label}`, ["fixture-access-cell"]);
       }
+    }
+    for (const stack of ensurePhysicalItemStacks().filter((entry) => !entry.fixtureId && !entry.carriedBy && entry.knownQuantity > 0)) {
+      if (!mapShowsRoomOccupants(stack.roomId, options) && !mapShowsTrackedEntity("itemStack", stack.id)) continue;
+      addCell(
+        stack.cell,
+        "P",
+        `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)} on the floor; ${physicalStackKnowledgeLabel(stack)}`,
+        ["physical-item-stack-cell", "floor-stockpile-object-cell"],
+        { kind: "itemStack", id: stack.id, label: `${physicalStackLabel(stack)} stack` }
+      );
     }
     for (const container of state.containers || []) {
       const footprint = containerFootprintCells(container, map);
@@ -32344,6 +33279,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "resourceHaul") {
       return resourceHaulTaskBlockReason(task);
     }
+    if (task.type === "stockpileHaul") {
+      return stockpileHaulTaskBlockReason(task);
+    }
     if (task.type === "collectionBayTransfer") {
       return collectionBayTransferTaskBlockReason(task);
     }
@@ -32485,6 +33423,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+    }
+    if (task.type === "stockpileHaul") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     const incidentId = String(task.data?.incidentId || "").trim();
     if (incidentId) {
@@ -32629,6 +33571,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const id = String(candidate.id || "");
       return id && fixtureById(id) ? { kind, id } : null;
     }
+    if (kind === "itemStack") {
+      const id = String(candidate.id || "");
+      return id && ensurePhysicalItemStacks().some((stack) => stack.id === id) ? { kind, id } : null;
+    }
     if (kind === "slime") {
       const id = String(candidate.id || "");
       return id && findSlime(id) ? { kind, id } : null;
@@ -32686,7 +33632,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "stockpile") {
       return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
     }
-    if (["container", "fixture", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+    if (["container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
     return null;
@@ -32799,6 +33745,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "fixture") {
       return fixtureById(selection.id)?.name || "Fixture";
     }
+    if (selection.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
+      return stack ? `${physicalStackLabel(stack)} stack` : "Item Stack";
+    }
     if (selection.kind === "slime") {
       return findSlime(selection.id)?.name || "Slime";
     }
@@ -32837,6 +33787,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       door: "Door",
       container: "Container",
       fixture: "Fixture",
+      itemStack: "Stored Items",
       slime: "Living Specimen",
       corpse: "Deceased Specimen",
       incident: "Incident",
@@ -32870,6 +33821,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "fixture") {
       return labMapCellRoomId(fixtureById(selection.id)?.origin) || "";
+    }
+    if (selection.kind === "itemStack") {
+      return ensurePhysicalItemStacks().find((stack) => stack.id === selection.id)?.roomId || "";
     }
     if (selection.kind === "slime") {
       return slimeEffectiveRoomId(findSlime(selection.id));
@@ -32914,6 +33868,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "fixture") {
       return objectMapCell(fixtureById(selection.id));
+    }
+    if (selection.kind === "itemStack") {
+      return cleanMapCell(ensurePhysicalItemStacks().find((stack) => stack.id === selection.id)?.cell);
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -32964,6 +33921,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "fixture") {
       const fixture = fixtureById(selection.id);
       return fixture ? [fixtureDef(fixture)?.label || "Fixture", titleCase(fixture.operationalState), `condition ${formatNumber(fixture.condition)}%`].map(chip) : [];
+    }
+    if (selection.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
+      return stack ? [physicalStackQuantityText(stack), stack.fixtureId ? "stored" : "floor storage", physicalStackKnowledgeLabel(stack)].map(chip) : [];
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
@@ -33070,7 +34031,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "fixture") {
       const fixture = fixtureById(selection.id);
       const roomId = fixture ? labMapCellRoomId(fixture.origin) : "";
-      return fixture && roomId ? [{ kind: "room", roomId }] : [];
+      return fixture && roomId ? [
+        ...physicalStacksInFixture(fixture.id).filter((stack) => stack.knownQuantity > 0).map((stack) => ({ kind: "itemStack", id: stack.id })),
+        { kind: "room", roomId }
+      ] : [];
+    }
+    if (selection.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
+      return stack ? [
+        stack.fixtureId ? { kind: "fixture", id: stack.fixtureId } : null,
+        stack.roomId ? { kind: "room", roomId: stack.roomId } : null
+      ].filter(Boolean) : [];
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -33259,6 +34230,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "fixture") {
       return fixtureContextCommands(fixtureById(selection.id));
     }
+    if (selection.kind === "itemStack") {
+      return physicalItemStackContextCommands(selection);
+    }
     if (selection.kind === "collectionStation") {
       return collectionStationContextCommands(selection);
     }
@@ -33396,6 +34370,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
       }
       commands.push(...roomZoneContextCommands(room, labMapRoomCells(room.id), "room"));
+    }
+    for (const designation of stockpileDesignationsInRoom(room.id)) {
+      commands.push(commandDef({
+        id: `room.stockpile.rename.${designation.id}`,
+        label: `Rename ${designation.name}`,
+        group: "Stockpile",
+        description: "Stockpile names and identities remain independent of the room and its generic zone layer.",
+        run: () => renameStockpileDesignation(designation.id)
+      }));
+      for (const preset of STOCKPILE_FILTER_PRESETS) {
+        commands.push(commandDef({
+          id: `room.stockpile.filter.${designation.id}.${preset.id}`,
+          label: `${designation.name}: Accept ${preset.label}`,
+          group: "Stockpile Filters",
+          disabledReason: designation.filterPresetId === preset.id ? `${designation.name} already uses this filter.` : "",
+          description: preset.description,
+          run: () => setStockpileFilterPreset(designation.id, preset.id)
+        }));
+      }
+      commands.push(commandDef({
+        id: `room.stockpile.floor.${designation.id}`,
+        label: `${designation.allowFloorStorage ? "Forbid" : "Allow"} Floor Storage in ${designation.name}`,
+        group: "Stockpile",
+        description: "Furniture improves capacity and protection, but designated floor tiles may store accepted items by default.",
+        run: () => toggleStockpileFloorStorage(designation.id)
+      }));
     }
     commands.push(...roomDesignationContextCommands(labMapRoomAnchor(room.id), room));
     commands.push(...roomMenuContextCommands(room));
@@ -34376,6 +35376,89 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }));
     }
+    if (isStorageFixture(fixture)) {
+      const designation = stockpileForFixture(fixture);
+      const canClose = !def.capabilities.includes("openStorage");
+      const canLock = def.capabilities.includes("secureStorage");
+      if (fixture.accessState === "open") {
+        commands.push(commandDef({
+          id: `fixture.storage.close.${fixture.id}`,
+          label: "Close Storage",
+          group: "Storage Access",
+          disabledReason: canClose ? "" : "Open shelves cannot be closed.",
+          description: "Close this storage fixture. Its contents remain available to authorized workers but are protected from loose creatures.",
+          run: () => setStorageFixtureAccessState(fixture.id, "closed")
+        }));
+      } else if (fixture.accessState === "closed") {
+        commands.push(commandDef({
+          id: `fixture.storage.open.${fixture.id}`,
+          label: "Open Storage",
+          group: "Storage Access",
+          description: "Open this fixture, exposing its contents to anything able to reach the interaction point.",
+          run: () => setStorageFixtureAccessState(fixture.id, "open")
+        }));
+        commands.push(commandDef({
+          id: `fixture.storage.lock.${fixture.id}`,
+          label: "Lock Storage",
+          group: "Storage Access",
+          disabledReason: canLock ? "" : "This storage fixture has no lock.",
+          description: "Lock this fixture against unauthorized actors. The scientist remains authorized.",
+          run: () => setStorageFixtureAccessState(fixture.id, "locked")
+        }));
+      } else {
+        commands.push(commandDef({
+          id: `fixture.storage.unlock.${fixture.id}`,
+          label: "Unlock Storage",
+          group: "Storage Access",
+          description: "Unlock this fixture while leaving it closed.",
+          run: () => setStorageFixtureAccessState(fixture.id, "closed")
+        }));
+      }
+      commands.push(commandDef({
+        id: `fixture.storage.rename.${fixture.id}`,
+        label: "Rename Stockpile",
+        group: "Stockpile",
+        disabledReason: designation ? "" : "This fixture is not inside a stockpile designation.",
+        description: designation ? `Rename ${designation.name}, independently of its room and zone labels.` : "Place this fixture inside a stockpile designation first.",
+        run: () => renameStockpileDesignation(designation?.id)
+      }));
+      for (const preset of STOCKPILE_FILTER_PRESETS) {
+        commands.push(commandDef({
+          id: `fixture.storage.filter.${fixture.id}.${preset.id}`,
+          label: `Accept ${preset.label}`,
+          group: "Stockpile Filters",
+          disabledReason: !designation
+            ? "This fixture is not inside a stockpile designation."
+            : designation.filterPresetId === preset.id ? `${designation.name} already uses this filter.` : "",
+          description: preset.description,
+          run: () => setStockpileFilterPreset(designation?.id, preset.id)
+        }));
+      }
+      commands.push(commandDef({
+        id: `fixture.storage.priorityUp.${fixture.id}`,
+        label: "Raise Stockpile Priority",
+        group: "Stockpile",
+        disabledReason: !designation ? "This fixture is not inside a stockpile designation." : designation.priority <= STOCKPILE_PRIORITY_MIN ? "This stockpile is already priority 1." : "",
+        description: "Move this designation one step closer to priority 1. Haulers prefer lower numbers.",
+        run: () => setStockpilePriority(designation?.id, designation.priority - 1)
+      }));
+      commands.push(commandDef({
+        id: `fixture.storage.priorityDown.${fixture.id}`,
+        label: "Lower Stockpile Priority",
+        group: "Stockpile",
+        disabledReason: !designation ? "This fixture is not inside a stockpile designation." : designation.priority >= STOCKPILE_PRIORITY_MAX ? "This stockpile is already priority 7." : "",
+        description: "Move this designation one step closer to priority 7.",
+        run: () => setStockpilePriority(designation?.id, designation.priority + 1)
+      }));
+      commands.push(commandDef({
+        id: `fixture.storage.floor.${fixture.id}`,
+        label: designation?.allowFloorStorage ? "Forbid Floor Storage" : "Allow Floor Storage",
+        group: "Stockpile",
+        disabledReason: designation ? "" : "This fixture is not inside a stockpile designation.",
+        description: "Choose whether accepted items may be left directly on designated floor tiles when furniture is full or unsuitable.",
+        run: () => toggleStockpileFloorStorage(designation?.id)
+      }));
+    }
     commands.push(commandDef({
       id: `fixture.access.${fixture.id}`,
       label: "Show Interaction Points",
@@ -34388,6 +35471,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         render();
         return true;
       }
+    }));
+    return commands;
+  }
+
+  function physicalItemStackContextCommands(selection) {
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection?.id);
+    if (!stack) return [];
+    const commands = [];
+    if (stack.roomId !== scientistRoomId()) {
+      commands.push(commandDef({
+        id: `itemStack.move.${stack.id}`,
+        label: "Move Scientist Here",
+        group: "Movement",
+        disabledReason: scientistMoveBlockReason(stack.roomId, { allowMultiRoom: true }),
+        description: `Queue movement to ${roomName(stack.roomId)} to inspect these supplies.`,
+        run: () => startScientistMove(stack.roomId, { allowMultiRoom: true })
+      }));
+    }
+    if (stack.fixtureId) {
+      commands.push(commandDef({
+        id: `itemStack.fixture.${stack.id}`,
+        label: "Focus Storage Fixture",
+        group: "Storage",
+        disabledReason: fixtureById(stack.fixtureId) ? "" : "The recorded storage fixture no longer exists.",
+        description: "Select the shelf, crate, or cabinet holding this stack.",
+        run: () => focusMapTarget({ kind: "fixture", id: stack.fixtureId }, { keepWorkspace: true, source: "map", resetInspectorTab: true, resetCommandMenu: true })
+      }));
+    }
+    commands.push(openWorkspaceCommand({
+      id: `itemStack.openStores.${stack.id}`,
+      label: "Open Stores",
+      group: "Open Menu",
+      workspaceTab: "resources",
+      tabKind: "stores",
+      tabId: stack.section === "collectedByproducts" ? "byproducts" : stack.section === "specimenMaterials" ? "specimens" : "materials",
+      description: "Open the relevant inventory ledger for this physical stack."
     }));
     return commands;
   }
@@ -34784,6 +35903,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["State", titleCase(fixture.operationalState)]);
         rows.push(["Assembly", titleCase(def.assemblyClass.replace(/([A-Z])/g, " $1"))]);
         rows.push(["Access", `${fixtureAccessCells(fixture).length} / ${fixturePortCells(fixture).length} interaction points usable`]);
+        if (isStorageFixture(fixture)) {
+          rows.push(["Storage", titleCase(fixture.accessState)]);
+          rows.push(["Known contents", storageFixtureContentsLabel(fixture)]);
+          rows.push(["Capacity", storageFixtureCapacityLabel(fixture)]);
+        }
+      }
+    } else if (selection.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
+      if (stack) {
+        rows.push(["Known amount", `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)}`]);
+        rows.push(["Knowledge", physicalStackKnowledgeLabel(stack)]);
+        rows.push(["Storage", stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "Missing fixture" : "On designated floor"]);
       }
     } else if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
@@ -34968,7 +36099,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const ports = fixturePortCells(fixture);
       const usablePorts = fixtureAccessCells(fixture);
       const roomId = labMapCellRoomId(fixture.origin);
-      return [
+      const rows = [
         ["Type", def.label],
         ["Room", roomId ? roomName(roomId) : "Unassigned floor"],
         ["State", titleCase(fixture.operationalState)],
@@ -34980,6 +36111,39 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Interaction points", ports.map((port) => `${port.label} ${port.cell.x},${port.cell.y}`).join("; ") || "None"],
         ["Accessible points", `${usablePorts.length} / ${ports.length}`],
         ["Wards", containerWardLabels(fixture.wardIds).join(", ") || "None"]
+      ];
+      if (isStorageFixture(fixture)) {
+        const storageDef = storageFixtureDef(fixture).storage;
+        const designation = stockpileForFixture(fixture);
+        rows.push(
+          ["Storage access", titleCase(fixture.accessState)],
+          ["Security", storageDef.security ? `Rating ${storageDef.security}; ${physicalStacksInFixture(fixture.id).some(physicalStackExposed) ? "contents exposed" : "contents protected"}` : "Open storage; contents exposed"],
+          ["Capacity used", storageFixtureCapacityLabel(fixture)],
+          ["Known contents", storageFixtureContentsLabel(fixture)],
+          ["Stockpile", designation?.name || "No designation"],
+          ["Accepted category", designation ? STOCKPILE_FILTER_PRESET_BY_ID[designation.filterPresetId].label : "None"],
+          ["Stockpile priority", designation ? `${designation.priority} (1 is highest)` : "None"],
+          ["Floor storage", designation ? designation.allowFloorStorage ? "Allowed" : "Forbidden" : "No designation"]
+        );
+      }
+      return rows;
+    }
+    if (selection.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection.id);
+      if (!stack) return [];
+      const fixture = stack.fixtureId ? fixtureById(stack.fixtureId) : null;
+      const designation = stack.stockpileId ? ensureStockpileDesignations().find((entry) => entry.id === stack.stockpileId) : stockpileDesignationAtCell(stack.cell);
+      return [
+        ["Item", physicalStackLabel(stack)],
+        ["Known amount", physicalStackQuantityText(stack)],
+        ["Knowledge", physicalStackKnowledgeLabel(stack)],
+        ["Physical volume", `${formatDecimal(stack.knownQuantity * stack.unitVolumeL, 1)} L`],
+        ["Physical mass", `${formatDecimal(stack.knownQuantity * stack.unitMassKg, 1)} kg`],
+        ["Storage fixture", fixture?.name || "Floor storage"],
+        ["Access", fixture ? titleCase(fixture.accessState) : "Exposed"],
+        ["Protection", physicalStackExposed(stack) ? "Exposed to loose creatures" : "Protected by closed storage"],
+        ["Stockpile", designation?.name || "Not in a valid stockpile"],
+        ["Stored correctly", physicalStackStoredCorrectly(stack) ? "Yes" : "No; automatic hauling will seek a valid destination"]
       ];
     }
     if (selection.kind === "slime") {
@@ -37580,7 +38744,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "containerHaul") {
       return "Hauling";
     }
-    if (task.type === "resourceHaul") {
+    if (task.type === "resourceHaul" || task.type === "stockpileHaul") {
       return "Logistics";
     }
     if (task.type === "containerInteraction") {
@@ -40020,19 +41184,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function resourceAmountInRoom(key, roomId) {
+    if (Array.isArray(state.physicalItemStacks)) return Math.max(0, Math.floor(physicalKnownAmountInRoom("resources", key, roomId)));
     return Math.max(0, Math.floor(Number(roomStockpile(roomId).resources?.[key]) || 0));
   }
 
   function inventoryAmountInRoom(key, roomId) {
+    if (Array.isArray(state.physicalItemStacks) && !durableToolDef(key)) return Math.max(0, Math.floor(physicalKnownAmountInRoom("inventory", key, roomId)));
     return Math.max(0, Math.floor(Number(roomStockpile(roomId).inventory?.[key]) || 0));
   }
 
   function collectedByproductAmountInRoom(label, roomId) {
     const key = byproductInventoryKey(label);
+    if (Array.isArray(state.physicalItemStacks)) return roundOutputValue(physicalKnownAmountInRoom("collectedByproducts", key, roomId));
     return roundOutputValue(Number(roomStockpile(roomId).collectedByproducts?.[key]) || 0);
   }
 
   function specimenMaterialAmountInRoom(key, roomId) {
+    if (Array.isArray(state.physicalItemStacks)) return Math.max(0, Math.floor(physicalKnownAmountInRoom("specimenMaterials", key, roomId)));
     return Math.max(0, Math.round(Number(roomStockpile(roomId).specimenMaterials?.[key]?.amount) || 0));
   }
 
@@ -40051,7 +41219,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else {
       delete map[key];
     }
+    if (actual > 0) addPhysicalItemQuantity(section, key, actual, roomId);
+    if (actual < 0) removePhysicalItemQuantity(section, key, -actual, roomId);
     return actual;
+  }
+
+  function moveRoomStockpileLedgerOnly(section, key, amount, fromRoomId, toRoomId, allowFractional = section === "collectedByproducts") {
+    const fromRoom = normalizeStockpileRoomId(fromRoomId);
+    const toRoom = normalizeStockpileRoomId(toRoomId);
+    const requested = allowFractional ? roundOutputValue(Number(amount) || 0) : Math.max(0, Math.floor(Number(amount) || 0));
+    if (requested <= 0 || fromRoom === toRoom) return 0;
+    const stockpiles = ensureRoomStockpiles();
+    stockpiles[fromRoom] ||= emptyRoomStockpile();
+    stockpiles[toRoom] ||= emptyRoomStockpile();
+    if (section === "specimenMaterials") {
+      const fromEntry = stockpiles[fromRoom].specimenMaterials?.[key];
+      if (!fromEntry) return 0;
+      const moved = Math.min(Number(fromEntry.amount) || 0, requested);
+      if (moved <= 0) return 0;
+      const toMaterials = stockpiles[toRoom].specimenMaterials;
+      const toEntry = toMaterials[key] || {
+        key,
+        label: fromEntry.label,
+        amount: 0,
+        tags: normalizeSpecimenMaterialTags(fromEntry.tags),
+        history: []
+      };
+      fromEntry.amount -= moved;
+      toEntry.amount += moved;
+      toEntry.history = normalizeSpecimenMaterialHistory([...(toEntry.history || []), ...(fromEntry.history || [])]);
+      toMaterials[key] = toEntry;
+      if (fromEntry.amount <= 0) delete stockpiles[fromRoom].specimenMaterials[key];
+      return moved;
+    }
+    const fromMap = stockpiles[fromRoom][section] ||= {};
+    const toMap = stockpiles[toRoom][section] ||= {};
+    const available = Number(fromMap[key]) || 0;
+    const moved = Math.min(available, requested);
+    if (moved <= 0) return 0;
+    const remaining = allowFractional ? roundOutputValue(available - moved) : Math.max(0, Math.floor(available - moved));
+    if (remaining > 0) fromMap[key] = remaining;
+    else delete fromMap[key];
+    const destination = (Number(toMap[key]) || 0) + moved;
+    toMap[key] = allowFractional ? roundOutputValue(destination) : Math.max(0, Math.floor(destination));
+    return allowFractional ? roundOutputValue(moved) : Math.floor(moved);
   }
 
   function moveRoomNumeric(section, key, amount, fromRoomId, toRoomId, allowFractional = false) {
@@ -40061,24 +41272,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (requested <= 0 || fromRoom === toRoom) {
       return 0;
     }
-    const stockpiles = ensureRoomStockpiles();
-    stockpiles[fromRoom] ||= emptyRoomStockpile();
-    stockpiles[toRoom] ||= emptyRoomStockpile();
-    const fromMap = stockpiles[fromRoom][section] ||= {};
-    const toMap = stockpiles[toRoom][section] ||= {};
-    const available = Number(fromMap[key]) || 0;
-    const moved = Math.min(available, requested);
-    if (moved <= 0) {
-      return 0;
-    }
-    const remaining = allowFractional ? roundOutputValue(available - moved) : Math.max(0, Math.floor(available - moved));
-    if (remaining > 0) {
-      fromMap[key] = remaining;
-    } else {
-      delete fromMap[key];
-    }
-    const destination = (Number(toMap[key]) || 0) + moved;
-    toMap[key] = allowFractional ? roundOutputValue(destination) : Math.max(0, Math.floor(destination));
+    const moved = moveRoomStockpileLedgerOnly(section, key, requested, fromRoom, toRoom, allowFractional);
+    if (moved <= 0) return 0;
+    relocatePhysicalItemQuantity(section, key, moved, fromRoom, toRoom);
     return allowFractional ? roundOutputValue(moved) : Math.floor(moved);
   }
 
@@ -40086,29 +41282,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoom = normalizeStockpileRoomId(fromRoomId);
     const toRoom = normalizeStockpileRoomId(toRoomId);
     const requested = Math.max(0, Math.round(Number(amount) || 0));
-    const stockpiles = ensureRoomStockpiles();
-    stockpiles[fromRoom] ||= emptyRoomStockpile();
-    stockpiles[toRoom] ||= emptyRoomStockpile();
-    const fromEntry = stockpiles[fromRoom].specimenMaterials?.[key];
-    if (!fromEntry || requested <= 0 || fromRoom === toRoom) {
-      return 0;
-    }
-    const moved = Math.min(Number(fromEntry.amount) || 0, requested);
-    const toMaterials = stockpiles[toRoom].specimenMaterials;
-    const toEntry = toMaterials[key] || {
-      key,
-      label: fromEntry.label,
-      amount: 0,
-      tags: normalizeSpecimenMaterialTags(fromEntry.tags),
-      history: []
-    };
-    fromEntry.amount -= moved;
-    toEntry.amount += moved;
-    toEntry.history = normalizeSpecimenMaterialHistory([...(toEntry.history || []), ...(fromEntry.history || [])]);
-    toMaterials[key] = toEntry;
-    if (fromEntry.amount <= 0) {
-      delete stockpiles[fromRoom].specimenMaterials[key];
-    }
+    const moved = moveRoomStockpileLedgerOnly("specimenMaterials", key, requested, fromRoom, toRoom);
+    if (moved <= 0) return 0;
+    relocatePhysicalItemQuantity("specimenMaterials", key, moved, fromRoom, toRoom);
     return moved;
   }
 
@@ -40244,6 +41420,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function inventoryAmount(key) {
+    if (Array.isArray(state.physicalItemStacks) && !durableToolDef(key)) return Math.max(0, Math.floor(physicalKnownAmount("inventory", key)));
     return ensureInventory()[key] || 0;
   }
 
@@ -40338,6 +41515,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function collectedByproductAmount(label) {
     const key = byproductInventoryKey(label);
+    if (Array.isArray(state.physicalItemStacks)) return roundOutputValue(physicalKnownAmount("collectedByproducts", key));
     return ensureCollectedByproducts()[key] || 0;
   }
 
@@ -40393,6 +41571,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (spent <= 0) {
       return 0;
     }
+    removePhysicalItemQuantity("collectedByproducts", key, spent);
     inventory[key] = roundOutputValue(Math.max(0, (Number(inventory[key]) || 0) - spent));
     if (inventory[key] <= 0) {
       delete inventory[key];
@@ -40842,6 +42021,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...(entry.history || [])
     ]);
     inventory[key] = entry;
+    addPhysicalItemQuantity("specimenMaterials", key, delta, roomId);
     return delta;
   }
 
@@ -41469,6 +42649,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function resourceAmount(key) {
+    if (Array.isArray(state.physicalItemStacks)) return Math.max(0, Math.floor(physicalKnownAmount("resources", key)));
     return ensureResources()[key] || 0;
   }
 
@@ -43232,11 +44413,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
     }
     next.fixtures = normalizeFixtures(next.fixtures);
+    next.stockpileDesignations = normalizeStockpileDesignations(next.stockpileDesignations);
     next.productionBills = normalizeProductionBills(next.productionBills);
     next.fabricatedFixtures = normalizeFabricatedFixtures(next.fabricatedFixtures);
     next.nextFixtureNumber = Math.max(
       Number(next.nextFixtureNumber) || 1,
       next.fixtures.reduce((max, fixture) => Math.max(max, numericSuffix(fixture.id)), 0) + 1
+    );
+    next.nextStockpileNumber = Math.max(
+      Number(next.nextStockpileNumber) || 1,
+      next.stockpileDesignations.reduce((max, designation) => Math.max(max, numericSuffix(designation.id)), 0) + 1
     );
     next.nextProductionBillNumber = Math.max(
       Number(next.nextProductionBillNumber) || 1,
@@ -43251,6 +44437,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
     next.floorStockpiles = normalizeFloorStockpiles(next.floorStockpiles);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
+    next.physicalItemStacks = normalizePhysicalItemStacks(next.physicalItemStacks);
+    next.nextPhysicalItemStackNumber = Math.max(
+      Number(next.nextPhysicalItemStackNumber) || 1,
+      next.physicalItemStacks.reduce((max, stack) => Math.max(max, numericSuffix(stack.id)), 0) + 1
+    );
     next.economy = normalizeEconomyState(next.economy, next.seed, next.clock);
     next.collectionBay = normalizeCollectionBayState(next.collectionBay);
     next.feedingResidues = normalizeFeedingResidues(next.feedingResidues, next);
