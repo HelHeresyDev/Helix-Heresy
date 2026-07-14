@@ -1639,6 +1639,61 @@ body.map-dragging .lab-map-cell {
   box-shadow: inset 0 0 0 1px rgba(255, 139, 115, 0.18);
 }
 
+.lab-map-cell[class*="map-overlay-temperature-"] {
+  border-color: rgba(181, 178, 155, 0.58);
+}
+
+.lab-map-cell.map-overlay-temperature-freezing,
+.lab-map-cell.map-overlay-temperature-bittercold,
+.lab-map-cell.map-overlay-temperature-cold {
+  background: #162a32;
+  border-color: rgba(104, 200, 216, 0.7);
+}
+
+.lab-map-cell.map-overlay-temperature-cool,
+.lab-map-cell.map-overlay-temperature-comfortable {
+  background: #203026;
+}
+
+.lab-map-cell.map-overlay-temperature-warm,
+.lab-map-cell.map-overlay-temperature-hot,
+.lab-map-cell.map-overlay-temperature-scalding {
+  background: #3b241c;
+  border-color: rgba(230, 126, 78, 0.78);
+}
+
+.lab-map-cell.map-overlay-humidity-parched,
+.lab-map-cell.map-overlay-humidity-dry {
+  background: #302b1d;
+  border-color: rgba(202, 177, 101, 0.62);
+}
+
+.lab-map-cell.map-overlay-humidity-normal {
+  background: #1e2e28;
+}
+
+.lab-map-cell.map-overlay-humidity-damp,
+.lab-map-cell.map-overlay-humidity-wet {
+  background: #183039;
+  border-color: rgba(100, 178, 205, 0.72);
+}
+
+.lab-map-cell.map-overlay-ambientmana-depleted,
+.lab-map-cell.map-overlay-ambientmana-thin {
+  background: #27252b;
+  border-color: rgba(142, 135, 151, 0.52);
+}
+
+.lab-map-cell.map-overlay-ambientmana-normal {
+  background: #243027;
+}
+
+.lab-map-cell.map-overlay-ambientmana-rich,
+.lab-map-cell.map-overlay-ambientmana-saturated {
+  background: #2b2538;
+  border-color: rgba(191, 145, 221, 0.72);
+}
+
 .lab-map-cell.map-overlay-movement-route {
   background: #1f302d;
   border-color: rgba(104, 200, 216, 0.6);

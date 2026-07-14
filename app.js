@@ -449,9 +449,9 @@
       },
       connections: [MAIN_ROOM_ID],
       attributes: {
-        temperature: { current: 45, baseline: 45 },
+        temperature: { current: 16, baseline: 16 },
         light: { current: 18, baseline: 18 },
-        moisture: { current: 68, baseline: 68 },
+        humidity: { current: 68, baseline: 68 },
         contamination: { current: 28, baseline: 28, recoveryPerHour: 0.35 }
       }
     },
@@ -472,10 +472,10 @@
       },
       connections: [MAIN_ROOM_ID],
       attributes: {
-        temperature: { current: 50, baseline: 50 },
+        temperature: { current: 19, baseline: 19 },
         light: { current: 35, baseline: 35 },
         ambientMana: { current: 35, baseline: 35 },
-        moisture: { current: 45, baseline: 45 },
+        humidity: { current: 45, baseline: 45 },
         contamination: { current: 2, baseline: 2, recoveryPerHour: 1.1 },
         electricalCharge: { current: 5, baseline: 5 }
       }
@@ -497,10 +497,10 @@
       },
       connections: [MAIN_ROOM_ID],
       attributes: {
-        temperature: { current: 48, baseline: 48 },
+        temperature: { current: 17, baseline: 17 },
         light: { current: 28, baseline: 28 },
         ambientMana: { current: 32, baseline: 32 },
-        moisture: { current: 42, baseline: 42 },
+        humidity: { current: 42, baseline: 42 },
         contamination: { current: 4, baseline: 4, recoveryPerHour: 0.9 },
         electricalCharge: { current: 6, baseline: 6 }
       }
@@ -522,10 +522,10 @@
       },
       connections: [MAIN_ROOM_ID],
       attributes: {
-        temperature: { current: 46, baseline: 46 },
+        temperature: { current: 16, baseline: 16 },
         light: { current: 16, baseline: 16 },
         ambientMana: { current: 44, baseline: 44 },
-        moisture: { current: 62, baseline: 62 },
+        humidity: { current: 62, baseline: 62 },
         contamination: { current: 12, baseline: 12, recoveryPerHour: 0.55 },
         electricalCharge: { current: 9, baseline: 9 }
       }
@@ -548,10 +548,10 @@
       },
       connections: [STORAGE_ROOM_ID],
       attributes: {
-        temperature: { current: 44, baseline: 44 },
+        temperature: { current: 14, baseline: 14 },
         light: { current: 10, baseline: 10 },
         ambientMana: { current: 22, baseline: 22 },
-        moisture: { current: 36, baseline: 36 },
+        humidity: { current: 36, baseline: 36 },
         contamination: { current: 5, baseline: 5, recoveryPerHour: 0.65 },
         electricalCharge: { current: 3, baseline: 3 }
       }
@@ -583,8 +583,17 @@
   const ROOM_CORPSE_FLOOR_LOAD_M2 = 0.75;
   const ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 = 100;
   const ROOM_EFFECT_REFERENCE_VOLUME_M3 = 300;
-  const CONTAMINATION_DIFFUSION_EXCHANGE_M3_PER_HOUR = 18;
-  const CONTAMINATION_DIFFUSION_MIN_DELTA = 0.01;
+  const TILE_ENVIRONMENT_HEIGHT_M = 3;
+  const TILE_ENVIRONMENT_MAX_STEP_SECONDS = 300;
+  const TILE_ENVIRONMENT_EPSILON = 0.0001;
+  const TILE_ENVIRONMENT_AIRBORNE_PRUNE_EPSILON = 1e-12;
+  const TILE_ENVIRONMENT_AIRBORNE_RATE_PER_HOUR = 8;
+  const TILE_ENVIRONMENT_TEMPERATURE_RATE_PER_HOUR = 12;
+  const TILE_ENVIRONMENT_HUMIDITY_RATE_PER_HOUR = 8;
+  const TILE_ENVIRONMENT_MANA_RATE_PER_HOUR = 2;
+  const TILE_ENVIRONMENT_ROCK_TEMPERATURE_RATE_PER_HOUR = 0.012;
+  const TILE_ENVIRONMENT_ROCK_MANA_RATE_PER_HOUR = 0.004;
+  const TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID = "background-laboratory-aerosol";
   const CONTAMINATION_DIFFUSION_OPEN_MODIFIER = 1;
   const CONTAMINATION_DIFFUSION_BREACHED_MODIFIER = 1.35;
   const CONTAMINATION_DIFFUSION_CLOSED_MODIFIER = 0.18;
@@ -1096,16 +1105,21 @@
     {
       key: "temperature",
       label: "Temperature",
-      initial: 50,
-      baseline: 50,
-      recoveryPerHour: 2,
+      unit: "°C",
+      initial: 20,
+      baseline: 16,
+      min: -100,
+      max: 500,
+      recoveryPerHour: 0,
       bands: [
-        { min: 0, label: "Freezing" },
-        { min: 20, label: "Cold" },
-        { min: 40, label: "Cool" },
-        { min: 45, label: "Normal" },
-        { min: 65, label: "Warm" },
-        { min: 82, label: "Hot" }
+        { min: -100, label: "Freezing" },
+        { min: 0, label: "Bitter Cold" },
+        { min: 10, label: "Cold" },
+        { min: 16, label: "Cool" },
+        { min: 19, label: "Comfortable" },
+        { min: 25, label: "Warm" },
+        { min: 35, label: "Hot" },
+        { min: 60, label: "Scalding" }
       ]
     },
     {
@@ -1113,6 +1127,8 @@
       label: "Light",
       initial: 60,
       baseline: 60,
+      min: 0,
+      max: 100,
       recoveryPerHour: 2,
       bands: [
         { min: 0, label: "Dark" },
@@ -1124,8 +1140,11 @@
     {
       key: "ambientMana",
       label: "Ambient Mana",
+      unit: "thaums/m³",
       initial: 50,
       baseline: 50,
+      min: 0,
+      max: 1000,
       recoveryPerHour: 1,
       bands: [
         { min: 0, label: "Depleted" },
@@ -1136,11 +1155,14 @@
       ]
     },
     {
-      key: "moisture",
-      label: "Moisture",
+      key: "humidity",
+      label: "Humidity",
+      unit: "% RH",
       initial: 50,
       baseline: 50,
-      recoveryPerHour: 1.5,
+      min: 0,
+      max: 100,
+      recoveryPerHour: 0,
       bands: [
         { min: 0, label: "Parched" },
         { min: 25, label: "Dry" },
@@ -1154,7 +1176,9 @@
       label: "Contamination",
       initial: 10,
       baseline: 10,
-      recoveryPerHour: 0.75,
+      min: 0,
+      max: 100,
+      recoveryPerHour: 0,
       bands: [
         { min: 0, label: "Clean" },
         { min: 8, label: "Low" },
@@ -1168,6 +1192,8 @@
       label: "Electrical Charge",
       initial: 15,
       baseline: 15,
+      min: 0,
+      max: 100,
       recoveryPerHour: 1,
       bands: [
         { min: 0, label: "Dormant" },
@@ -1185,8 +1211,8 @@
     mana: "ambientMana",
     ambientmana: "ambientMana",
     ambient: "ambientMana",
-    moisture: "moisture",
-    humidity: "moisture",
+    moisture: "humidity",
+    humidity: "humidity",
     contamination: "contamination",
     cleanliness: "contamination",
     charge: "electricalCharge",
@@ -1215,7 +1241,7 @@
         temperature: 0.5,
         light: 1,
         ambientMana: 0.75,
-        moisture: 0.5,
+        humidity: 0.5,
         contamination: 0.5,
         electricalCharge: 0.25
       },
@@ -1241,7 +1267,7 @@
         temperature: 0.35,
         light: 1,
         ambientMana: 0.5,
-        moisture: 0.2,
+        humidity: 0.2,
         contamination: 0.2,
         electricalCharge: 0.2
       },
@@ -1267,7 +1293,7 @@
         temperature: 0.35,
         light: 0.5,
         ambientMana: 0.4,
-        moisture: 0.25,
+        humidity: 0.25,
         contamination: 0.25,
         electricalCharge: 0.35
       },
@@ -1293,7 +1319,7 @@
         temperature: 1,
         light: 1,
         ambientMana: 1,
-        moisture: 1,
+        humidity: 1,
         contamination: 1,
         electricalCharge: 1
       },
@@ -1319,7 +1345,7 @@
         temperature: 0.25,
         light: 0,
         ambientMana: 0.35,
-        moisture: 0.25,
+        humidity: 0.25,
         contamination: 0.25,
         electricalCharge: 0.1
       },
@@ -1345,7 +1371,7 @@
         temperature: 0.75,
         light: 0.75,
         ambientMana: 0.75,
-        moisture: 0.75,
+        humidity: 0.75,
         contamination: 0.75,
         electricalCharge: 0.4
       },
@@ -1371,7 +1397,7 @@
         temperature: 1,
         light: 1,
         ambientMana: 1,
-        moisture: 1,
+        humidity: 1,
         contamination: 1,
         electricalCharge: 1
       },
@@ -1397,7 +1423,7 @@
         temperature: 0.3,
         light: 0,
         ambientMana: 0.35,
-        moisture: 0.25,
+        humidity: 0.25,
         contamination: 0.3,
         electricalCharge: 0.15
       },
@@ -1424,7 +1450,7 @@
         temperature: 0.25,
         light: 0,
         ambientMana: 0.3,
-        moisture: 0.15,
+        humidity: 0.15,
         contamination: 0.15,
         electricalCharge: 0.2
       },
@@ -1453,7 +1479,7 @@
         temperature: 0.25,
         light: 0.25,
         ambientMana: 0.3,
-        moisture: 0.15,
+        humidity: 0.15,
         contamination: 0.15,
         electricalCharge: 0.2
       },
@@ -1483,7 +1509,7 @@
         temperature: 1,
         light: 1,
         ambientMana: 1,
-        moisture: 1,
+        humidity: 1,
         contamination: 1,
         electricalCharge: 0.8
       },
@@ -1513,7 +1539,7 @@
         temperature: 0.85,
         light: 0.7,
         ambientMana: 0.85,
-        moisture: 0.9,
+        humidity: 0.9,
         contamination: 0.9,
         electricalCharge: 0.65
       },
@@ -1543,7 +1569,7 @@
         temperature: 0.35,
         light: 0,
         ambientMana: 0.35,
-        moisture: 0.45,
+        humidity: 0.45,
         contamination: 0.4,
         electricalCharge: 0.25
       },
@@ -1569,7 +1595,7 @@
         temperature: 0.2,
         light: 0.35,
         ambientMana: 0.2,
-        moisture: 0.2,
+        humidity: 0.2,
         contamination: 0.15,
         electricalCharge: 0.2
       },
@@ -2052,9 +2078,9 @@
       attributeKey: "temperature",
       sourceLabel: "heat",
       actionLabel: "absorbing heat",
-      floor: 25,
-      fullAt: 65,
-      drainPerNutrition: 6
+      floor: 22,
+      fullAt: 42,
+      drainPerNutrition: 1.5
     },
     {
       id: "light",
@@ -2079,9 +2105,9 @@
     {
       id: "moisture",
       matchTags: ["moisture"],
-      attributeKey: "moisture",
-      sourceLabel: "moisture",
-      actionLabel: "absorbing moisture",
+      attributeKey: "humidity",
+      sourceLabel: "humidity",
+      actionLabel: "absorbing humidity",
       floor: 15,
       fullAt: 68,
       drainPerNutrition: 6
@@ -3079,6 +3105,21 @@
       description: "Observed contamination only. Unobserved rooms stay blank unless debug is active."
     },
     {
+      id: "temperature",
+      label: "Temperature",
+      description: "Observed tile temperature in degrees Celsius."
+    },
+    {
+      id: "humidity",
+      label: "Humidity",
+      description: "Observed tile relative humidity."
+    },
+    {
+      id: "ambientMana",
+      label: "Ambient Mana",
+      description: "Observed ambient mana density in thaums per cubic meter."
+    },
+    {
       id: "movement",
       label: "Movement",
       description: "Known scientist position and the next queued movement path."
@@ -3136,6 +3177,7 @@
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
       labMap: defaultLabMap(),
+      tileEnvironments: {},
       compartmentEnvironments: {},
       roomObservations: {},
       doors: defaultDoors(),
@@ -3702,8 +3744,8 @@
         return [
           attribute.key,
           {
-            current: clamp(Number.isFinite(Number(override.current)) ? Number(override.current) : attribute.initial, 0, 100),
-            baseline: clamp(Number.isFinite(Number(override.baseline)) ? Number(override.baseline) : attribute.baseline, 0, 100),
+            current: clampRoomAttributeValue(attribute, Number.isFinite(Number(override.current)) ? Number(override.current) : attribute.initial),
+            baseline: clampRoomAttributeValue(attribute, Number.isFinite(Number(override.baseline)) ? Number(override.baseline) : attribute.baseline),
             recoveryPerHour: Math.max(0, Number.isFinite(Number(override.recoveryPerHour)) ? Number(override.recoveryPerHour) : attribute.recoveryPerHour)
           }
         ];
@@ -3721,6 +3763,7 @@
         recoveryPerHour: def.recoveryPerHour
       };
     }
+    env.airborne = {};
     return env;
   }
 
@@ -4125,6 +4168,52 @@
           scientistFits: canActorOccupyTile(state.scientist, cell)
         })
       }),
+      tileEnvironmentSnapshot: (cell = null) => {
+        const map = ensureLabMap();
+        const environments = ensureTileEnvironments(map);
+        const records = cell ? [tileEnvironmentAtCell(cell, map)].filter(Boolean) : Object.values(environments);
+        return records.map((record) => ({
+          ...record,
+          cell: { ...record.cell },
+          airborne: { ...record.airborne },
+          airborneTotal: airborneLoadTotal(record.airborne),
+          substances: Object.entries(record.airborne).map(([id, concentration]) => ({ id, label: airborneSubstanceLabel(id), concentration }))
+        }));
+      },
+      setTileEnvironment: (cell, values = {}) => {
+        const record = tileEnvironmentAtCell(cell);
+        if (!record) return false;
+        if (Number.isFinite(Number(values.temperatureC))) record.temperatureC = clamp(Number(values.temperatureC), -100, 500);
+        if (Number.isFinite(Number(values.rockTemperatureC))) record.rockTemperatureC = clamp(Number(values.rockTemperatureC), -100, 100);
+        if (Number.isFinite(Number(values.humidity))) record.humidity = clamp(Number(values.humidity), 0, 100);
+        if (Number.isFinite(Number(values.manaDensity))) record.manaDensity = clamp(Number(values.manaDensity), 0, 1000);
+        if (Number.isFinite(Number(values.rockManaDensity))) record.rockManaDensity = clamp(Number(values.rockManaDensity), 0, 1000);
+        if (values.airborne) record.airborne = normalizeAirborneLoads(values.airborne);
+        record.updatedAt = state.clock;
+        syncRoomAttributeSummaries();
+        persist();
+        render();
+        return true;
+      },
+      addAirborneSubstance: (cell, substanceId, concentration) => {
+        const changed = adjustTileEnvironmentAtCell(cell, "contamination", concentration, { substanceId });
+        syncRoomAttributeSummaries();
+        persist();
+        render();
+        return changed;
+      },
+      airborneMassSnapshot: () => {
+        const totals = {};
+        const tileVolume = tileEnvironmentVolumeM3();
+        for (const record of Object.values(ensureTileEnvironments())) {
+          for (const [id, concentration] of Object.entries(record.airborne || {})) totals[id] = (totals[id] || 0) + concentration * tileVolume;
+        }
+        for (const container of state.containers || []) {
+          const volume = containerInteriorVolumeM3(container);
+          for (const [id, concentration] of Object.entries(container.environment?.airborne || {})) totals[id] = (totals[id] || 0) + concentration * volume;
+        }
+        return totals;
+      },
       actorSpaceSnapshot: (actorId, cell) => {
         const actor = actorId === "scientist" ? state.scientist : findSlime(actorId);
         return actor ? {
@@ -6272,7 +6361,6 @@
       vitalsChanged: recoverVitals(elapsed),
       physicalStateChanged: updateScientistPhysicalExposure(elapsed),
       suspicionChanged: updateSuspicionDecay(),
-      roomChanges: recoverRoomAttributes(elapsed),
       roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
       envChanges: exchangeContainerEnvironments(elapsed),
       habitatChanged: updateSlimeHabitatEffects(elapsed),
@@ -6322,7 +6410,6 @@
       + changes.jobExpired
       + changes.corpseChanges
       + changes.jobChanges
-      + changes.roomChanges
       + changes.roomPropagationChanges
       + changes.envChanges
       + changes.habitatChanged
@@ -9565,6 +9652,229 @@
     return SUSPICION_BANDS[Math.max(0, peakIndex - 1)].min;
   }
 
+  function normalizeAirborneSubstanceId(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9:_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+  }
+
+  function airborneSubstanceLabel(value) {
+    const id = normalizeAirborneSubstanceId(value);
+    if (id === TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID) return "background laboratory aerosol";
+    return id.split(":").map((part) => part.replace(/-/g, " ")).join(": ");
+  }
+
+  function normalizeAirborneLoads(candidate) {
+    const normalized = {};
+    for (const [rawId, rawAmount] of Object.entries(candidate && typeof candidate === "object" ? candidate : {})) {
+      const id = normalizeAirborneSubstanceId(rawId);
+      const amount = Math.max(0, Number(rawAmount) || 0);
+      if (id && amount >= TILE_ENVIRONMENT_AIRBORNE_PRUNE_EPSILON) normalized[id] = amount;
+    }
+    return normalized;
+  }
+
+  function airborneLoadTotal(candidate) {
+    return Object.values(normalizeAirborneLoads(candidate)).reduce((total, amount) => total + amount, 0);
+  }
+
+  function tileEnvironmentCells(map = ensureLabMap()) {
+    return (map.terrain?.excavated || []).filter((cell) => !constructedWallAtCell(cell, map));
+  }
+
+  function initialTileEnvironmentRecord(cell, map = ensureLabMap(), rooms = state.rooms || []) {
+    const roomId = labMapCellRoomId(cell, map);
+    const room = rooms.find((entry) => entry.id === roomId);
+    const attributes = normalizeRoomAttributes(room?.attributes);
+    const contamination = Math.max(0, Number(attributes.contamination.current) || 0);
+    return {
+      cell: cleanMapCell(cell),
+      temperatureC: Number(attributes.temperature.current),
+      rockTemperatureC: Number(attributes.temperature.baseline),
+      humidity: Number(attributes.humidity.current),
+      manaDensity: Number(attributes.ambientMana.current),
+      rockManaDensity: Number(attributes.ambientMana.baseline),
+      airborne: contamination >= TILE_ENVIRONMENT_EPSILON
+        ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: contamination }
+        : {},
+      updatedAt: Number(state?.clock) || 0
+    };
+  }
+
+  function normalizeTileEnvironmentRecord(candidate, cell, fallback) {
+    const base = fallback || initialTileEnvironmentRecord(cell);
+    return {
+      cell: cleanMapCell(cell) || cleanMapCell(base.cell),
+      temperatureC: clamp(Number.isFinite(Number(candidate?.temperatureC)) ? Number(candidate.temperatureC) : base.temperatureC, -100, 500),
+      rockTemperatureC: clamp(Number.isFinite(Number(candidate?.rockTemperatureC)) ? Number(candidate.rockTemperatureC) : base.rockTemperatureC, -100, 100),
+      humidity: clamp(Number.isFinite(Number(candidate?.humidity)) ? Number(candidate.humidity) : base.humidity, 0, 100),
+      manaDensity: clamp(Number.isFinite(Number(candidate?.manaDensity)) ? Number(candidate.manaDensity) : base.manaDensity, 0, 1000),
+      rockManaDensity: clamp(Number.isFinite(Number(candidate?.rockManaDensity)) ? Number(candidate.rockManaDensity) : base.rockManaDensity, 0, 1000),
+      airborne: normalizeAirborneLoads(candidate?.airborne ?? base.airborne),
+      updatedAt: finiteTime(candidate?.updatedAt, Number(state?.clock) || 0)
+    };
+  }
+
+  function normalizeTileEnvironments(candidate, map = ensureLabMap(), rooms = state.rooms || []) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const normalized = {};
+    for (const cell of tileEnvironmentCells(map)) {
+      const key = mapCellKey(cell);
+      const fallback = initialTileEnvironmentRecord(cell, map, rooms);
+      normalized[key] = normalizeTileEnvironmentRecord(source[key], cell, fallback);
+    }
+    return normalized;
+  }
+
+  function ensureTileEnvironments(map = ensureLabMap()) {
+    state.tileEnvironments = normalizeTileEnvironments(state.tileEnvironments, map, state.rooms || []);
+    return state.tileEnvironments;
+  }
+
+  function tileEnvironmentAtCell(cell, map = ensureLabMap()) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !labMapCellIsExcavated(clean, map) || constructedWallAtCell(clean, map)) return null;
+    return ensureTileEnvironments(map)[mapCellKey(clean)] || null;
+  }
+
+  function tileEnvironmentAttributes(record, fallback = null) {
+    const attributes = normalizeRoomAttributes(fallback);
+    if (!record) return attributes;
+    attributes.temperature.current = record.temperatureC;
+    attributes.temperature.baseline = record.rockTemperatureC;
+    attributes.humidity.current = record.humidity;
+    attributes.ambientMana.current = record.manaDensity;
+    attributes.ambientMana.baseline = record.rockManaDensity;
+    attributes.contamination.current = clamp(airborneLoadTotal(record.airborne), 0, 100);
+    attributes.contamination.baseline = 0;
+    attributes.contamination.recoveryPerHour = 0;
+    return attributes;
+  }
+
+  function tileEnvironmentAirModifier(cellA, cellB, map = ensureLabMap()) {
+    const mapDoor = labMapDoorForCells(cellA, cellB, map);
+    if (!mapDoor) return 1;
+    return contaminationDiffusionDoorModifier(state.doors?.[mapDoor.key] || mapDoor);
+  }
+
+  function tileEnvironmentOpenEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
+    const edges = [];
+    const keys = new Set(Object.keys(environments));
+    for (const record of Object.values(environments)) {
+      for (const neighbor of [{ x: record.cell.x + 1, y: record.cell.y }, { x: record.cell.x, y: record.cell.y + 1 }]) {
+        const neighborKey = mapCellKey(neighbor);
+        if (!keys.has(neighborKey)) continue;
+        edges.push({
+          left: record,
+          right: environments[neighborKey],
+          air: tileEnvironmentAirModifier(record.cell, neighbor, map),
+          temperature: 1,
+          mana: 1
+        });
+      }
+    }
+    return edges;
+  }
+
+  function tileEnvironmentBarrierEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
+    const edges = [];
+    const seen = new Set();
+    for (const record of Object.values(environments)) {
+      for (const direction of [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }]) {
+        const barrierCell = { x: record.cell.x + direction.x, y: record.cell.y + direction.y };
+        const farCell = { x: record.cell.x + direction.x * 2, y: record.cell.y + direction.y * 2 };
+        const far = environments[mapCellKey(farCell)];
+        if (!far || labMapCellIsExcavated(barrierCell, map) && !constructedWallAtCell(barrierCell, map)) continue;
+        const pairKey = [mapCellKey(record.cell), mapCellKey(farCell)].sort().join("::");
+        if (seen.has(pairKey)) continue;
+        seen.add(pairKey);
+        const wall = constructedWallAtCell(barrierCell, map);
+        const materialId = wall?.materialId || naturalWallMaterialId(barrierCell, map) || "stone";
+        const condition = wall ? clamp(Number(wall.condition) || 0, 0, 100) : 100;
+        const porosity = compositionPropertyScore({ primary: materialId }, "porosity") / 100;
+        const thermalTransfer = Math.max(0.01, (100 - compositionPropertyScore({ primary: materialId }, "thermalResistance")) / 100);
+        const manaTransfer = Math.max(0.005, compositionPropertyScore({ primary: materialId }, "arcanePermeability") / 100);
+        const damageLeak = wall ? Math.pow(1 - condition / 100, 2) * 0.5 : 0;
+        edges.push({
+          left: record,
+          right: far,
+          air: wall ? clamp(porosity * 0.03 + damageLeak, 0, 0.75) : 0,
+          temperature: thermalTransfer * 0.08,
+          mana: manaTransfer * 0.04
+        });
+      }
+    }
+    return edges;
+  }
+
+  function environmentDeltaRecord() {
+    return { temperatureC: 0, humidity: 0, manaDensity: 0, airborne: {} };
+  }
+
+  function addEnvironmentScalarTransfer(left, right, key, fraction, deltas) {
+    const amount = (Number(left[key]) - Number(right[key])) * clamp(fraction, 0, 0.24);
+    if (!Number.isFinite(amount) || Math.abs(amount) < TILE_ENVIRONMENT_EPSILON) return;
+    deltas[mapCellKey(left.cell)][key] -= amount;
+    deltas[mapCellKey(right.cell)][key] += amount;
+  }
+
+  function addEnvironmentAirborneTransfer(left, right, fraction, deltas) {
+    const ids = new Set([...Object.keys(left.airborne || {}), ...Object.keys(right.airborne || {})]);
+    for (const id of ids) {
+      const amount = ((Number(left.airborne?.[id]) || 0) - (Number(right.airborne?.[id]) || 0)) * clamp(fraction, 0, 0.24);
+      if (Math.abs(amount) < TILE_ENVIRONMENT_EPSILON) continue;
+      deltas[mapCellKey(left.cell)].airborne[id] = (deltas[mapCellKey(left.cell)].airborne[id] || 0) - amount;
+      deltas[mapCellKey(right.cell)].airborne[id] = (deltas[mapCellKey(right.cell)].airborne[id] || 0) + amount;
+    }
+  }
+
+  function simulateTileEnvironmentStep(seconds, map = ensureLabMap()) {
+    const elapsedHours = secondsToHours(seconds);
+    if (!elapsedHours) return 0;
+    const environments = ensureTileEnvironments(map);
+    const deltas = Object.fromEntries(Object.keys(environments).map((key) => [key, environmentDeltaRecord()]));
+    const edges = [...tileEnvironmentOpenEdges(map, environments), ...tileEnvironmentBarrierEdges(map, environments)];
+    for (const edge of edges) {
+      addEnvironmentScalarTransfer(edge.left, edge.right, "temperatureC", TILE_ENVIRONMENT_TEMPERATURE_RATE_PER_HOUR * edge.temperature * elapsedHours, deltas);
+      addEnvironmentScalarTransfer(edge.left, edge.right, "humidity", TILE_ENVIRONMENT_HUMIDITY_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
+      addEnvironmentScalarTransfer(edge.left, edge.right, "manaDensity", TILE_ENVIRONMENT_MANA_RATE_PER_HOUR * edge.mana * elapsedHours, deltas);
+      if (edge.air > 0) addEnvironmentAirborneTransfer(edge.left, edge.right, TILE_ENVIRONMENT_AIRBORNE_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
+    }
+    let changes = 0;
+    for (const [key, record] of Object.entries(environments)) {
+      const delta = deltas[key];
+      const rockHeatFraction = 1 - Math.exp(-TILE_ENVIRONMENT_ROCK_TEMPERATURE_RATE_PER_HOUR * elapsedHours);
+      const rockManaFraction = 1 - Math.exp(-TILE_ENVIRONMENT_ROCK_MANA_RATE_PER_HOUR * elapsedHours);
+      delta.temperatureC += (record.rockTemperatureC - record.temperatureC) * rockHeatFraction;
+      delta.manaDensity += (record.rockManaDensity - record.manaDensity) * rockManaFraction;
+      const before = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}`;
+      record.temperatureC = clamp(record.temperatureC + delta.temperatureC, -100, 500);
+      record.humidity = clamp(record.humidity + delta.humidity, 0, 100);
+      record.manaDensity = clamp(record.manaDensity + delta.manaDensity, 0, 1000);
+      for (const [id, amount] of Object.entries(delta.airborne)) record.airborne[id] = Math.max(0, (record.airborne[id] || 0) + amount);
+      record.airborne = normalizeAirborneLoads(record.airborne);
+      record.updatedAt = state.clock;
+      const after = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}`;
+      if (before !== after) changes += 1;
+    }
+    return changes;
+  }
+
+  function updateTileEnvironmentFields(seconds) {
+    let remaining = Math.max(0, Number(seconds) || 0);
+    let changes = 0;
+    while (remaining > 0) {
+      const step = Math.min(remaining, TILE_ENVIRONMENT_MAX_STEP_SECONDS);
+      changes += simulateTileEnvironmentStep(step);
+      remaining -= step;
+    }
+    syncRoomAttributeSummaries();
+    return changes;
+  }
+
   function suspicionBandForValue(value) {
     const suspicion = clamp(Math.round(Number(value) || 0), 0, SUSPICION_MAX);
     for (let index = SUSPICION_BANDS.length - 1; index >= 0; index -= 1) {
@@ -9586,31 +9896,6 @@
     }
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
-  }
-
-  function recoverRoomAttributes(minutes) {
-    const elapsed = Math.max(0, Number(minutes) || 0);
-    if (!elapsed) {
-      return 0;
-    }
-    const environments = ensureCompartmentEnvironments();
-    let changes = 0;
-    for (const environment of Object.values(environments)) {
-      for (const attribute of Object.values(environment.attributes)) {
-        const difference = attribute.baseline - attribute.current;
-        if (Math.abs(difference) < 0.01) {
-          continue;
-        }
-        const recovery = Math.max(0, attribute.recoveryPerHour) * secondsToHours(elapsed);
-        if (!recovery) {
-          continue;
-        }
-        attribute.current += Math.sign(difference) * Math.min(Math.abs(difference), recovery);
-        changes += 1;
-      }
-    }
-    syncRoomAttributeSummaries();
-    return changes;
   }
 
   function contaminationDiffusionLeakFraction(door) {
@@ -9713,55 +9998,7 @@
   }
 
   function propagateRoomEnvironmentAttributes(minutes) {
-    const elapsed = Math.max(0, Number(minutes) || 0);
-    if (!elapsed) {
-      return 0;
-    }
-    const map = ensureLabMap();
-    const inference = inferLabCompartments(map);
-    const environments = ensureCompartmentEnvironments(map, inference);
-    const byId = new Map(inference.compartments.map((entry) => [entry.id, entry]));
-    const visited = new Set();
-    let changes = 0;
-    for (const compartment of inference.compartments) {
-      for (const connectedId of compartment.connectionIds) {
-        const pairKey = [compartment.id, connectedId].sort().join("::");
-        if (visited.has(pairKey)) continue;
-        visited.add(pairKey);
-        const other = byId.get(connectedId);
-        const left = environments[compartment.id];
-        const right = environments[connectedId];
-        if (!other || !left || !right) continue;
-        const portal = compartment.portals.find((entry) => entry.compartmentIds?.includes(connectedId));
-        const door = portal?.kind === "door" ? state.doors?.[portal.key] : null;
-        changes += propagateContaminationBetweenEnvironments(left, right, door, elapsed, map);
-      }
-    }
-    syncRoomAttributeSummaries(map, inference);
-    return changes;
-  }
-
-  function propagateContaminationBetweenEnvironments(left, right, door, elapsed, map = ensureLabMap()) {
-    const attributeA = left?.attributes?.contamination;
-    const attributeB = right?.attributes?.contamination;
-    if (!attributeA || !attributeB) return 0;
-    const valueA = Number(attributeA.current);
-    const valueB = Number(attributeB.current);
-    const diff = valueA - valueB;
-    if (!Number.isFinite(diff) || Math.abs(diff) < CONTAMINATION_DIFFUSION_MIN_DELTA) return 0;
-    const modifier = contaminationDiffusionDoorModifier(door);
-    if (modifier <= 0) return 0;
-    const tileVolume = Math.max(0.25, Number(map.tileSizeM) || 1) ** 2 * 3;
-    const volumeA = Math.max(tileVolume, left.cells.length * tileVolume);
-    const volumeB = Math.max(tileVolume, right.cells.length * tileVolume);
-    const exchangeVolume = CONTAMINATION_DIFFUSION_EXCHANGE_M3_PER_HOUR * modifier * secondsToHours(elapsed);
-    const transferLoad = Math.sign(diff) * Math.min(Math.abs(diff) * exchangeVolume, Math.abs(diff) * Math.min(volumeA, volumeB) * 0.5);
-    const nextA = clamp(valueA - transferLoad / volumeA, 0, 100);
-    const nextB = clamp(valueB + transferLoad / volumeB, 0, 100);
-    if (Math.abs(nextA - valueA) < CONTAMINATION_DIFFUSION_MIN_DELTA && Math.abs(nextB - valueB) < CONTAMINATION_DIFFUSION_MIN_DELTA) return 0;
-    attributeA.current = nextA;
-    attributeB.current = nextB;
-    return 1;
+    return updateTileEnvironmentFields(minutes);
   }
 
   function containerEnvironmentExchange(container) {
@@ -9794,53 +10031,131 @@
     let changes = 0;
     for (const container of state.containers) {
       const rates = containerEnvironmentExchange(container);
-      const room = roomById(container.roomId || MAIN_ROOM_ID);
-      if (!room) {
-        continue;
-      }
       container.environment = normalizeContainerEnvironment(container.environment);
-      for (const def of ROOM_ATTRIBUTE_DEFS) {
-        const key = def.key;
+      const tile = tileEnvironmentAtCell(objectMapCell(container));
+      if (!tile) continue;
+      const volumeRatio = clamp(containerInteriorVolumeM3(container) / tileEnvironmentVolumeM3(), 0.0001, 1);
+      for (const [key, tileKey, materialModifier] of [
+        ["temperature", "temperatureC", containerEnvironmentMaterialModifier(container, "temperature")],
+        ["humidity", "humidity", containerEnvironmentMaterialModifier(container, "humidity")],
+        ["ambientMana", "manaDensity", containerEnvironmentMaterialModifier(container, "ambientMana")]
+      ]) {
         const rate = Number(rates[key]);
-        if (!rate || rate <= 0) {
-          continue;
-        }
-        const roomValue = Number(roomEnvironmentAttributes(room.id, objectMapCell(container))?.[key]?.current);
-        const envValue = Number(container.environment[key]?.current);
-        if (!Number.isFinite(roomValue) || !Number.isFinite(envValue)) {
-          continue;
-        }
-        const diff = roomValue - envValue;
-        if (Math.abs(diff) < 0.01) {
-          continue;
-        }
-        const step = Math.min(1, rate * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed));
-        const delta = step * diff;
-        container.environment[key].current = clamp(envValue + delta, 0, 100);
-        if (Math.abs(delta) >= 0.01) {
+        const containerAttribute = container.environment[key];
+        if (!rate || !containerAttribute) continue;
+        const fraction = clamp(rate * materialModifier * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed), 0, 0.85);
+        const delta = (tile[tileKey] - containerAttribute.current) * fraction;
+        if (Math.abs(delta) < TILE_ENVIRONMENT_EPSILON) continue;
+        containerAttribute.current = clampRoomAttributeValue(ROOM_ATTRIBUTE_BY_KEY[key], containerAttribute.current + delta);
+        tile[tileKey] = clampRoomAttributeValue(ROOM_ATTRIBUTE_BY_KEY[key], tile[tileKey] - delta * volumeRatio);
+        changes += 1;
+      }
+      const airRate = Number(rates.contamination) || 0;
+      const airFraction = clamp(airRate * containerEnvironmentMaterialModifier(container, "airborne") * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed), 0, 0.85);
+      if (airFraction > 0) {
+        const ids = new Set([...Object.keys(tile.airborne || {}), ...Object.keys(container.environment.airborne || {})]);
+        for (const id of ids) {
+          const tileAmount = Number(tile.airborne?.[id]) || 0;
+          const containerAmount = Number(container.environment.airborne?.[id]) || 0;
+          const delta = (tileAmount - containerAmount) * airFraction;
+          if (Math.abs(delta) < TILE_ENVIRONMENT_EPSILON) continue;
+          container.environment.airborne[id] = Math.max(0, containerAmount + delta);
+          tile.airborne[id] = Math.max(0, tileAmount - delta * volumeRatio);
           changes += 1;
         }
+        container.environment.airborne = normalizeAirborneLoads(container.environment.airborne);
+        tile.airborne = normalizeAirborneLoads(tile.airborne);
+        container.environment.contamination.current = clamp(airborneLoadTotal(container.environment.airborne), 0, 100);
       }
     }
+    syncRoomAttributeSummaries();
     return changes;
   }
 
-  function adjustRoomAttribute(roomId, attributeKey, amount) {
+  function tileEnvironmentVolumeM3(map = ensureLabMap()) {
+    return Math.max(0.25, Number(map.tileSizeM) || 1) ** 2 * TILE_ENVIRONMENT_HEIGHT_M;
+  }
+
+  function containerInteriorVolumeM3(container) {
+    return Math.max(0.001, (Number(containerTypeDef(container?.typeId)?.capacityCm3) || 1000) / 1000000);
+  }
+
+  function containerEnvironmentMaterialModifier(container, field) {
+    const type = containerTypeDef(container?.typeId);
+    const composition = containerMaterialComposition(container);
+    const open = Boolean(type.geometry?.openTop || container.isOpen || containerAlwaysOpen(container));
+    const leak = open ? 1 : clamp((100 - containerEffectiveSeal(container)) / 100, 0, 1);
+    if (field === "temperature") {
+      return clamp(0.08 + (100 - compositionPropertyScore(composition, "thermalResistance")) / 100 * 0.92, 0.02, 1);
+    }
+    if (field === "ambientMana") {
+      const permeability = compositionPropertyScore(composition, "arcanePermeability") / 100;
+      const wardModifier = hasContainerWard(container, "manaInsulating") ? 0.2 : 1;
+      return clamp((open ? 1 : 0.1 + permeability * 0.9) * wardModifier, 0, 1);
+    }
+    const porosity = compositionPropertyScore(composition, "porosity") / 100;
+    const materialLeak = open ? 1 : leak * (0.2 + porosity * 0.8);
+    const wardModifier = field === "airborne" && hasContainerWard(container, "poisonSealing") ? 0.25 : 1;
+    return clamp(materialLeak * wardModifier, 0, 1);
+  }
+
+  function adjustRoomAttribute(roomId, attributeKey, amount, options = {}) {
     const room = roomById(roomId);
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
     const delta = Number(amount);
     if (!room || !def || !Number.isFinite(delta) || !delta) {
       return false;
     }
-    let changed = false;
-    for (const environment of compartmentEnvironmentRecordsForRoom(roomId)) {
-      const attribute = environment.attributes[attributeKey];
-      const before = attribute.current;
-      attribute.current = clamp(attribute.current + delta, 0, 100);
-      changed ||= Math.abs(attribute.current - before) >= 0.01;
+    if (["temperature", "humidity", "ambientMana", "contamination"].includes(attributeKey)) {
+      const map = ensureLabMap();
+      const requestedCell = cleanMapCell(options.cell);
+      const cells = requestedCell
+        ? [requestedCell]
+        : labMapRoomCells(roomId, map).filter((cell) => tileEnvironmentAtCell(cell, map));
+      let changed = false;
+      for (const cell of cells) changed ||= adjustTileEnvironmentAtCell(cell, attributeKey, delta, options);
+      syncRoomAttributeSummaries();
+      return changed;
     }
+    const attribute = room.attributes[attributeKey];
+    const before = attribute.current;
+    attribute.current = clampRoomAttributeValue(def, attribute.current + delta);
+    return Math.abs(attribute.current - before) >= 0.01;
+  }
+
+  function adjustTileEnvironmentAtCell(cell, attributeKey, amount, options = {}) {
+    const environment = tileEnvironmentAtCell(cell);
+    const delta = Number(amount);
+    if (!environment || !Number.isFinite(delta) || !delta) return false;
+    if (attributeKey === "contamination") {
+      const substanceId = normalizeAirborneSubstanceId(options.substanceId || "unidentified-airborne-contaminant");
+      const before = Number(environment.airborne[substanceId]) || 0;
+      environment.airborne[substanceId] = Math.max(0, before + delta);
+      environment.airborne = normalizeAirborneLoads(environment.airborne);
+      environment.updatedAt = state.clock;
+      return Math.abs((environment.airborne[substanceId] || 0) - before) >= TILE_ENVIRONMENT_EPSILON;
+    }
+    const key = { temperature: "temperatureC", humidity: "humidity", ambientMana: "manaDensity" }[attributeKey];
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    if (!key || !def) return false;
+    const before = environment[key];
+    environment[key] = clampRoomAttributeValue(def, before + delta);
+    environment.updatedAt = state.clock;
+    return Math.abs(environment[key] - before) >= TILE_ENVIRONMENT_EPSILON;
+  }
+
+  function removeAirborneLoadAtCell(cell, amount) {
+    const environment = tileEnvironmentAtCell(cell);
+    const requested = Math.max(0, Number(amount) || 0);
+    const total = environment ? airborneLoadTotal(environment.airborne) : 0;
+    if (!environment || !requested || total <= 0) return 0;
+    const removed = Math.min(requested, total);
+    const fraction = removed / total;
+    for (const id of Object.keys(environment.airborne)) environment.airborne[id] *= 1 - fraction;
+    environment.airborne = normalizeAirborneLoads(environment.airborne);
+    environment.updatedAt = state.clock;
     syncRoomAttributeSummaries();
-    return changed;
+    return removed;
   }
 
   function roomById(roomId) {
@@ -11770,17 +12085,22 @@
   }
 
   function compartmentEnvironmentAtCell(cell, map = ensureLabMap(), inference = null) {
-    const derived = inference || inferLabCompartments(map);
-    const compartment = inferredCompartmentAtCell(cell, map, derived);
-    return compartment ? ensureCompartmentEnvironments(map, derived)[compartment.id] || null : null;
+    const clean = cleanMapCell(cell);
+    const tile = tileEnvironmentAtCell(clean, map);
+    if (!clean || !tile) return null;
+    return {
+      id: mapCellKey(clean),
+      cells: [clean],
+      attributes: tileEnvironmentAttributes(tile, roomById(labMapCellRoomId(clean, map))?.attributes)
+    };
   }
 
   function compartmentEnvironmentRecordsForRoom(roomId, map = ensureLabMap(), inference = null) {
     const derived = inference || inferLabCompartments(map);
-    const environments = ensureCompartmentEnvironments(map, derived);
+    syncRoomAttributeSummaries(map, derived);
     return derived.compartments
       .filter((compartment) => compartment.cells.some((cell) => labMapCellRoomId(cell, map) === roomId))
-      .map((compartment) => environments[compartment.id])
+      .map((compartment) => state.compartmentEnvironments?.[compartment.id])
       .filter(Boolean);
   }
 
@@ -11793,13 +12113,25 @@
 
   function syncRoomAttributeSummaries(map = ensureLabMap(), inference = null) {
     const derived = inference || inferLabCompartments(map);
-    const environments = ensureCompartmentEnvironments(map, derived);
+    const tileEnvironments = ensureTileEnvironments(map);
+    const compartmentEnvironments = {};
+    for (const compartment of derived.compartments) {
+      const sources = compartment.cells
+        .map((cell) => tileEnvironments[mapCellKey(cell)])
+        .filter(Boolean)
+        .map((record) => ({ attributes: tileEnvironmentAttributes(record, null), weight: 1 }));
+      compartmentEnvironments[compartment.id] = {
+        id: compartment.id,
+        cells: normalizeDigCells(compartment.cells),
+        attributes: weightedEnvironmentAttributes(sources, defaultRoomAttributes())
+      };
+    }
+    state.compartmentEnvironments = compartmentEnvironments;
     for (const room of state.rooms || []) {
-      const sources = [];
-      for (const compartment of derived.compartments) {
-        const weight = compartment.cells.filter((cell) => labMapCellRoomId(cell, map) === room.id).length;
-        if (weight && environments[compartment.id]) sources.push({ attributes: environments[compartment.id].attributes, weight });
-      }
+      const sources = labMapRoomCells(room.id, map)
+        .map((cell) => tileEnvironments[mapCellKey(cell)])
+        .filter(Boolean)
+        .map((record) => ({ attributes: tileEnvironmentAttributes(record, room.attributes), weight: 1 }));
       if (sources.length) room.attributes = weightedEnvironmentAttributes(sources, room.attributes);
     }
   }
@@ -15396,13 +15728,25 @@
     if (!def) {
       return { min: 0, label: "Unknown" };
     }
-    const current = clamp(Number(value) || 0, 0, 100);
+    const current = clampRoomAttributeValue(def, Number(value) || 0);
     for (let index = def.bands.length - 1; index >= 0; index -= 1) {
       if (current >= def.bands[index].min) {
         return def.bands[index];
       }
     }
     return def.bands[0];
+  }
+
+  function clampRoomAttributeValue(definition, value) {
+    const def = definition || {};
+    return clamp(Number(value) || 0, Number.isFinite(Number(def.min)) ? Number(def.min) : 0, Number.isFinite(Number(def.max)) ? Number(def.max) : 100);
+  }
+
+  function roomAttributeMeasurementText(attributeKey, value, options = {}) {
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    if (!def) return formatDecimal(Number(value) || 0, 1);
+    const digits = attributeKey === "temperature" ? 1 : options.debug ? 2 : 1;
+    return `${formatDecimal(Number(value) || 0, digits)}${def.unit ? ` ${def.unit}` : " / 100"}`;
   }
 
   function cleanIncidentSeverity(value) {
@@ -18809,19 +19153,24 @@
   }
 
   function addEnvironmentPerceptionEntries(entries, attributes, sourceLabel, roomId, intensity = "clear") {
+    const extremeBands = {
+      temperature: new Set(["Freezing", "Bitter Cold", "Hot", "Scalding"]),
+      light: new Set(["Dark", "Bright"]),
+      ambientMana: new Set(["Depleted", "Saturated"]),
+      humidity: new Set(["Parched", "Wet"]),
+      contamination: new Set(["Tainted", "Fouled", "Hazardous"]),
+      electricalCharge: new Set(["Arcing"])
+    };
     for (const def of ROOM_ATTRIBUTE_DEFS) {
-      const value = clamp(Number(attributes?.[def.key]?.current) || 0, 0, 100);
+      const value = clampRoomAttributeValue(def, attributes?.[def.key]?.current);
       const band = roomAttributeBand(def.key, value);
-      const lowExtreme = !["contamination", "electricalCharge"].includes(def.key) && value <= 25;
-      const highExtreme = value >= 75;
-      const contaminated = def.key === "contamination" && value >= 25;
-      const charged = def.key === "electricalCharge" && value >= 75;
-      const manaExtreme = def.key === "ambientMana" && (value <= 25 || value >= 80);
-      if (!lowExtreme && !highExtreme && !contaminated && !charged && !manaExtreme) {
+      if (!extremeBands[def.key]?.has(band.label)) {
         continue;
       }
+      const bandIndex = def.bands.findIndex((entry) => entry.label === band.label);
+      const outerBand = bandIndex === 0 || bandIndex === def.bands.length - 1;
       addSlimePerceptionEntry(entries, slimePerceptionEntry("environment", `${band.label} ${def.label.toLowerCase()}`, {
-        intensity: highExtreme || value <= 12 ? "strong" : intensity,
+        intensity: outerBand ? "strong" : intensity,
         sourceLabel,
         roomId
       }));
@@ -21826,7 +22175,7 @@
     if (!container?.environment?.contamination) {
       return;
     }
-    container.environment.contamination.current = clamp((Number(container.environment.contamination.current) || 0) + amount, 0, 100);
+    adjustContainerEnvironment(container, "contamination", amount, { substanceId: "slime-transfer-aerosol" });
   }
 
   function completeLiveSlimeTransfer(task, sourceContainer, methodId, method) {
@@ -22019,12 +22368,12 @@
       return;
     }
     const increase = action === "scrapeRemains" ? 12 : 8;
-    container.environment.contamination.current = clamp((Number(container.environment.contamination.current) || 0) + increase, 0, 100);
+    adjustContainerEnvironment(container, "contamination", increase, { substanceId: "corpse-handling-aerosol" });
   }
 
   function foulPitsAfterRemainsHandling(action) {
     const increase = action === "scrapeRemains" ? 4 : 3;
-    adjustRoomAttribute(PITS_ROOM_ID, "contamination", increase);
+    adjustRoomAttribute(PITS_ROOM_ID, "contamination", increase, { substanceId: "corpse-handling-aerosol" });
   }
 
   function completeRemainsHandling(task, container, action, methodId, method) {
@@ -22641,18 +22990,19 @@
   }
 
   function habitatAttributeValue(attributes, key) {
-    return clamp(Number(attributes?.[key]?.current) || 0, 0, 100);
+    return clampRoomAttributeValue(ROOM_ATTRIBUTE_BY_KEY[key], Number(attributes?.[key]?.current) || 0);
   }
 
   function addSlimeHabitatPreference(preferences, slime, options, traitKey, preference) {
     if (options?.knownOnly && traitKey && !slimeTraitKnown(slime, traitKey)) {
       return;
     }
+    const def = ROOM_ATTRIBUTE_BY_KEY[preference.attributeKey];
     preferences.push({
       traitKey,
       attributeKey: preference.attributeKey,
-      min: clamp(Number(preference.min) || 0, 0, 100),
-      max: clamp(Number(preference.max) || 100, 0, 100),
+      min: clampRoomAttributeValue(def, Number.isFinite(Number(preference.min)) ? Number(preference.min) : def?.min || 0),
+      max: clampRoomAttributeValue(def, Number.isFinite(Number(preference.max)) ? Number(preference.max) : def?.max || 100),
       weight: Math.max(0.1, Number(preference.weight) || 1),
       label: preference.label || ROOM_ATTRIBUTE_BY_KEY[preference.attributeKey]?.label || preference.attributeKey,
       reason: preference.reason || ""
@@ -22672,41 +23022,41 @@
     const sustenance = baseOutcomeLabel(traits.sustenance);
     const behavior = baseOutcomeLabel(traits.behavior);
 
-    if (element === "flame") add("element", { attributeKey: "temperature", min: 65, max: 100, weight: 2, label: "warmth", reason: "flame affinity" });
-    if (element === "frost") add("element", { attributeKey: "temperature", min: 0, max: 38, weight: 2, label: "cold", reason: "frost affinity" });
+    if (element === "flame") add("element", { attributeKey: "temperature", min: 28, max: 90, weight: 2, label: "warmth", reason: "flame affinity" });
+    if (element === "frost") add("element", { attributeKey: "temperature", min: -30, max: 12, weight: 2, label: "cold", reason: "frost affinity" });
     if (element === "storm") add("element", { attributeKey: "electricalCharge", min: 40, max: 100, weight: 1.8, label: "charged air", reason: "storm affinity" });
-    if (element === "water") add("element", { attributeKey: "moisture", min: 65, max: 100, weight: 1.8, label: "wet air", reason: "water affinity" });
+    if (element === "water") add("element", { attributeKey: "humidity", min: 65, max: 100, weight: 1.8, label: "humid air", reason: "water affinity" });
     if (element === "light") add("element", { attributeKey: "light", min: 65, max: 100, weight: 1.4, label: "bright light", reason: "light affinity" });
     if (element === "shadow") add("element", { attributeKey: "light", min: 0, max: 35, weight: 1.5, label: "low light", reason: "shadow affinity" });
     if (element === "wood") {
-      add("element", { attributeKey: "moisture", min: 55, max: 90, weight: 1.1, label: "damp air", reason: "wood affinity" });
+      add("element", { attributeKey: "humidity", min: 55, max: 90, weight: 1.1, label: "damp air", reason: "wood affinity" });
       add("element", { attributeKey: "light", min: 35, max: 85, weight: 0.8, label: "growth light", reason: "wood affinity" });
     }
-    if (["stone", "metal"].includes(element)) add("element", { attributeKey: "moisture", min: 0, max: 60, weight: 1.1, label: "dry footing", reason: `${element} affinity` });
+    if (["stone", "metal"].includes(element)) add("element", { attributeKey: "humidity", min: 0, max: 60, weight: 1.1, label: "dry air", reason: `${element} affinity` });
     if (["poison", "acid"].includes(element)) add("element", { attributeKey: "contamination", min: 20, max: 85, weight: 1.1, label: "fouled medium", reason: `${element} affinity` });
     if (["dream", "ether", "gravity"].includes(element)) add("element", { attributeKey: "ambientMana", min: 62, max: 100, weight: 1.5, label: "rich mana", reason: `${element} affinity` });
 
     if (["watery", "runny gel", "syrupy", "loose jelly", "mucous", "foamy"].includes(consistency)) {
-      add("consistency", { attributeKey: "moisture", min: 60, max: 100, weight: 1.2, label: "humid body support", reason: `${consistency} body` });
+      add("consistency", { attributeKey: "humidity", min: 60, max: 100, weight: 1.2, label: "humid body support", reason: `${consistency} body` });
     }
     if (["soft gelatin", "elastic gel", "rubbery"].includes(consistency)) {
-      add("consistency", { attributeKey: "moisture", min: 35, max: 80, weight: 0.7, label: "balanced moisture", reason: `${consistency} body` });
+      add("consistency", { attributeKey: "humidity", min: 35, max: 80, weight: 0.7, label: "balanced humidity", reason: `${consistency} body` });
     }
     if (["tar-like", "waxen"].includes(consistency)) {
-      add("consistency", { attributeKey: "temperature", min: 55, max: 90, weight: 1, label: "softening warmth", reason: `${consistency} body` });
+      add("consistency", { attributeKey: "temperature", min: 24, max: 42, weight: 1, label: "softening warmth", reason: `${consistency} body` });
     }
     if (["grainy slurry", "crystalline gel", "brittle jelly", "clay-like"].includes(consistency)) {
-      add("consistency", { attributeKey: "moisture", min: 0, max: 55, weight: 1, label: "dry structure", reason: `${consistency} body` });
+      add("consistency", { attributeKey: "humidity", min: 0, max: 55, weight: 1, label: "dry structure", reason: `${consistency} body` });
     }
     if (consistency === "fibrous gel") {
-      add("consistency", { attributeKey: "moisture", min: 35, max: 85, weight: 0.8, label: "fibrous moisture", reason: "fibrous body" });
+      add("consistency", { attributeKey: "humidity", min: 35, max: 85, weight: 0.8, label: "fibrous humidity", reason: "fibrous body" });
     }
 
     const sustenancePrefs = {
-      "heat absorber": { attributeKey: "temperature", min: 68, max: 100, weight: 2.4, label: "available heat", reason: "environmental Sustenance" },
+      "heat absorber": { attributeKey: "temperature", min: 30, max: 100, weight: 2.4, label: "available heat", reason: "environmental Sustenance" },
       "light absorber": { attributeKey: "light", min: 68, max: 100, weight: 2.4, label: "available light", reason: "environmental Sustenance" },
       "ambient mana absorber": { attributeKey: "ambientMana", min: 70, max: 100, weight: 2.4, label: "available mana", reason: "environmental Sustenance" },
-      "moisture absorber": { attributeKey: "moisture", min: 70, max: 100, weight: 2.4, label: "available moisture", reason: "environmental Sustenance" },
+      "moisture absorber": { attributeKey: "humidity", min: 70, max: 100, weight: 2.4, label: "available humidity", reason: "environmental Sustenance" },
       "electrical absorber": { attributeKey: "electricalCharge", min: 45, max: 100, weight: 2.4, label: "available charge", reason: "environmental Sustenance" },
       "fume absorber": { attributeKey: "contamination", min: 35, max: 95, weight: 2.2, label: "available fumes", reason: "environmental Sustenance" },
       "filth feeder": { attributeKey: "contamination", min: 20, max: 85, weight: 1.3, label: "fouled surroundings", reason: "filth Sustenance" },
@@ -22718,8 +23068,8 @@
 
     if (behavior === "light seeking") add("behavior", { attributeKey: "light", min: 62, max: 100, weight: 0.9, label: "visible light", reason: "light-seeking behavior" });
     if (behavior === "light avoiding" || behavior === "hiding") add("behavior", { attributeKey: "light", min: 0, max: 38, weight: 0.9, label: "cover from light", reason: `${behavior} behavior` });
-    if (behavior === "heat seeking") add("behavior", { attributeKey: "temperature", min: 62, max: 100, weight: 0.8, label: "warm route", reason: "heat-seeking behavior" });
-    if (behavior === "cold nesting") add("behavior", { attributeKey: "temperature", min: 0, max: 42, weight: 0.8, label: "cool nest", reason: "cold-nesting behavior" });
+    if (behavior === "heat seeking") add("behavior", { attributeKey: "temperature", min: 26, max: 100, weight: 0.8, label: "warm route", reason: "heat-seeking behavior" });
+    if (behavior === "cold nesting") add("behavior", { attributeKey: "temperature", min: -30, max: 15, weight: 0.8, label: "cool nest", reason: "cold-nesting behavior" });
 
     return preferences;
   }
@@ -24991,9 +25341,11 @@
     for (const def of ROOM_ATTRIBUTE_DEFS) {
       const key = def.key;
       const value = container.environment[key]?.current || 0;
-      const status = value < 25 ? "low" : value > 75 ? "high" : "normal";
-      attributes.push(`${def.label}: ${value}% (${status})`);
+      const status = roomAttributeBand(key, value).label.toLowerCase();
+      attributes.push(`${def.label}: ${roomAttributeMeasurementText(key, value)} (${status})`);
     }
+    const airborne = Object.entries(container.environment.airborne || {});
+    if (airborne.length) attributes.push(`Airborne: ${airborne.map(([id]) => airborneSubstanceLabel(id)).join(", ")}`);
     return attributes.join("; ");
   }
 
@@ -25019,12 +25371,8 @@
     for (const def of ROOM_ATTRIBUTE_DEFS) {
       const key = def.key;
       const value = container.environment[key]?.current || 0;
-      
-      if (value < 25) {
-        warnings.push(`${def.label} low`);
-      } else if (value > 75) {
-        warnings.push(`${def.label} high`);
-      }
+      const band = roomAttributeBand(key, value).label;
+      if (["Freezing", "Bitter Cold", "Scalding", "Hazardous", "Arcing", "Depleted", "Saturated", "Parched", "Wet"].includes(band)) warnings.push(`${def.label}: ${band.toLowerCase()}`);
     }
     return warnings;
   }
@@ -25408,7 +25756,7 @@
       if (compatibility.materialScore >= 16) {
         const contaminationDelta = (0.6 + severity * 2.4) * days;
         if (contaminationDelta >= 0.01) {
-          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta) ? 1 : 0;
+          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta, { substanceId: "containment-material-effluent" }) ? 1 : 0;
         }
         const conditionDelta = -(0.2 + severity * 0.8) * days;
         if (Math.abs(conditionDelta) >= 0.01) {
@@ -25418,7 +25766,7 @@
       if (compatibility.supportScore >= 16) {
         const contaminationDelta = (0.4 + severity * 1.2) * days;
         if (contaminationDelta >= 0.01) {
-          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta) ? 1 : 0;
+          changes += adjustContainerEnvironment(container, "contamination", contaminationDelta, { substanceId: "containment-support-effluent" }) ? 1 : 0;
         }
       }
       if (compatibility.score >= 60) {
@@ -25516,13 +25864,16 @@
     let suspicion = 0;
 
     if (incident === "fouling") {
-      adjustContainerEnvironment(container, "contamination", 8);
+      adjustContainerEnvironment(container, "contamination", 8, { substanceId: "containment-fouling" });
       adjustContainerCondition(container, -1);
       adjustSlimeStat(slime, "stress", 2);
       message += " Interior contamination rose.";
     } else if (incident === "leak") {
-      adjustContainerEnvironment(container, "contamination", 5);
-      adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", 2);
+      adjustContainerEnvironment(container, "contamination", 5, { substanceId: "containment-seepage" });
+      adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", 2, {
+        cell: objectMapCell(container),
+        substanceId: "containment-seepage"
+      });
       adjustContainerCondition(container, -2);
       adjustSlimeStat(slime, "stress", 3);
       suspicion = 1;
@@ -25905,14 +26256,17 @@
     }
 
     const contaminationDelta = method.contaminationPerDay * days * scale * resistanceFactor;
-    if (contaminationDelta >= 0.01 && adjustContainerEnvironment(container, "contamination", contaminationDelta)) {
+    if (contaminationDelta >= 0.01 && adjustContainerEnvironment(container, "contamination", contaminationDelta, { substanceId: `containment-test:${method.id}` })) {
       changes += 1;
       effects.push("interior contamination");
     }
 
     if (["seep", "foul", "corrode"].includes(method.id) && (containerCondition(container) < 25 || record.pressureBand === "critical")) {
       const roomDelta = contaminationDelta * 0.2;
-      if (roomDelta >= 0.02 && adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", roomDelta)) {
+      if (roomDelta >= 0.02 && adjustRoomAttribute(container.roomId || slime.roomId || MAIN_ROOM_ID, "contamination", roomDelta, {
+        cell: objectMapCell(container),
+        substanceId: `containment-test:${method.id}`
+      })) {
         changes += 1;
         effects.push("room trace");
       }
@@ -26129,7 +26483,7 @@
       adjustContainerCondition(targetContainer, -result.conditionDamage);
     }
     if (Number(result.containerContamination) > 0) {
-      adjustContainerEnvironment(targetContainer, "contamination", result.containerContamination);
+      adjustContainerEnvironment(targetContainer, "contamination", result.containerContamination, { substanceId: `breach:${result.id || "unknown"}` });
     }
     if (containerCondition(targetContainer) <= 0) {
       finalReusable = false;
@@ -26139,7 +26493,10 @@
       }
     }
     if (Number(result.roomContamination) > 0) {
-      adjustRoomAttribute(roomId, "contamination", result.roomContamination);
+      adjustRoomAttribute(roomId, "contamination", result.roomContamination, {
+        cell: objectMapCell(targetContainer),
+        substanceId: `breach:${result.id || "unknown"}`
+      });
     }
     addEvent(`${slime.name} escaped ${containerName}: ${result.summary} ${finalReusable ? "The container is compromised but still physically usable." : "The container is breached and cannot hold specimens until future repair or replacement."}`);
     return 1;
@@ -26193,16 +26550,25 @@
     return changes;
   }
 
-  function adjustContainerEnvironment(container, attributeKey, amount) {
+  function adjustContainerEnvironment(container, attributeKey, amount, options = {}) {
     if (!container) return false;
     container.environment = normalizeContainerEnvironment(container.environment);
-    const attribute = container.environment?.[attributeKey];
     const delta = Number(amount);
-    if (!attribute || !Number.isFinite(delta) || !delta) {
+    if (!Number.isFinite(delta) || !delta) {
       return false;
     }
+    if (attributeKey === "contamination") {
+      const substanceId = normalizeAirborneSubstanceId(options.substanceId || "unidentified-container-contaminant");
+      const before = Number(container.environment.airborne[substanceId]) || 0;
+      container.environment.airborne[substanceId] = Math.max(0, before + delta);
+      container.environment.airborne = normalizeAirborneLoads(container.environment.airborne);
+      container.environment.contamination.current = clamp(airborneLoadTotal(container.environment.airborne), 0, 100);
+      return Math.abs((container.environment.airborne[substanceId] || 0) - before) >= TILE_ENVIRONMENT_EPSILON;
+    }
+    const attribute = container.environment?.[attributeKey];
+    if (!attribute) return false;
     const before = attribute.current;
-    attribute.current = clamp(attribute.current + delta, 0, 100);
+    attribute.current = clampRoomAttributeValue(ROOM_ATTRIBUTE_BY_KEY[attributeKey], attribute.current + delta);
     return Math.abs(attribute.current - before) >= 0.01;
   }
 
@@ -29702,14 +30068,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       changes += updateAccessibleSlimeFeeding(slime, elapsed);
 
       const room = roomById(slime.roomId);
-      const contamination = room?.attributes?.contamination;
-      const current = Number(contamination?.current) || 0;
-      if (room && contamination && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
+      const slimeCell = objectMapCell(slime);
+      const localEnvironment = tileEnvironmentAtCell(slimeCell);
+      const current = airborneLoadTotal(localEnvironment?.airborne);
+      if (room && localEnvironment && info.eatsContamination && current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR) {
         const eatRate = OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
         const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
         if (drained > 0) {
-          const before = contamination.current;
-          contamination.current = clamp(contamination.current - drained, 0, 100);
+          const before = current;
+          removeAirborneLoadAtCell(slimeCell, drained);
+          const after = airborneLoadTotal(localEnvironment.airborne);
           adjustSlimeStat(slime, "nutrition", drained * 0.4);
           adjustSlimeStat(slime, "stress", -drained * 0.05);
           slime.roomActivity = {
@@ -29722,17 +30090,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             updatedAt: state.clock
           };
           recordCleanupObservation(slime, "feedingOnContamination", elapsed, room.id);
-          if (before > OUT_OF_CONTAINER_CONTAMINATION_FLOOR && contamination.current <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR && !room.biologicalCleanupClearedNotifiedAt) {
+          if (before > OUT_OF_CONTAINER_CONTAMINATION_FLOOR && after <= OUT_OF_CONTAINER_CONTAMINATION_FLOOR && !room.biologicalCleanupClearedNotifiedAt) {
             const observation = ensureCleanupObservation(slime);
             observation.clearEvents += 1;
             room.biologicalCleanupClearedNotifiedAt = state.clock;
             if (scientistObservesRoom(room.id)) {
               addEvent(`${room.name} visible contamination cleared by biological cleanup.`);
             }
-          } else if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
+          } else if (after > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
             room.biologicalCleanupClearedNotifiedAt = 0;
           }
-          if (Math.abs(before - contamination.current) >= 0.01) {
+          if (Math.abs(before - after) >= 0.01) {
             changes += 1;
           }
         }
@@ -29766,11 +30134,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
       if (info.spreadsContamination) {
         const room = roomById(slime.roomId);
-        const contamination = room?.attributes?.contamination;
-        if (room && contamination) {
-          const before = contamination.current;
+        const slimeCell = objectMapCell(slime);
+        const localEnvironment = tileEnvironmentAtCell(slimeCell);
+        if (room && localEnvironment) {
+          const before = airborneLoadTotal(localEnvironment.airborne);
           const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
-          contamination.current = clamp(contamination.current + residue, 0, 100);
+          adjustRoomAttribute(room.id, "contamination", residue, { cell: slimeCell, substanceId: `slime-emission:${slime.id}` });
+          const after = airborneLoadTotal(localEnvironment.airborne);
           slime.roomActivity = {
             type: "leavingResidue",
             label: "leaving residue",
@@ -29778,10 +30148,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             updatedAt: state.clock
           };
           recordCleanupObservation(slime, "leavingResidue", elapsed, room.id);
-          if (contamination.current > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
+          if (after > OUT_OF_CONTAINER_CONTAMINATION_FLOOR + 0.5) {
             room.biologicalCleanupClearedNotifiedAt = 0;
           }
-          if (Math.abs(before - contamination.current) >= 0.01) {
+          if (Math.abs(before - after) >= 0.01) {
             changes += 1;
           }
         }
@@ -29925,12 +30295,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     adjustSlimeStat(slime, "nutrition", gain);
     const drained = gain * drainPerNutrition;
     if (source.type === "room") {
-      adjustRoomAttribute(room.id, profile.attributeKey, -drained);
+      adjustRoomAttribute(room.id, profile.attributeKey, -drained, { cell: objectMapCell(slime) });
     } else {
       /* Contained slime: drain container interior, not the room */
-      source.attributes[profile.attributeKey].current = clamp(
+      source.attributes[profile.attributeKey].current = clampRoomAttributeValue(
+        ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey],
         (source.attributes[profile.attributeKey].current || 0) - drained,
-        0, 100
       );
     }
     const changed = slimeStat(slime, "nutrition").current !== before;
@@ -29968,9 +30338,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!attribute) {
       return { availability: 0, rate: 0 };
     }
-    const current = clamp(Number(attribute.current) || 0, 0, 100);
-    const floor = clamp(Number(profile.floor) || 0, 0, 100);
-    const fullAt = Math.max(floor + 1, clamp(Number(profile.fullAt) || 100, 0, 100));
+    const definition = ROOM_ATTRIBUTE_BY_KEY[profile.attributeKey];
+    const current = clampRoomAttributeValue(definition, attribute.current);
+    const floor = clampRoomAttributeValue(definition, profile.floor);
+    const fullAt = Math.max(floor + 1, clampRoomAttributeValue(definition, profile.fullAt));
     const rawAvailability = clamp((current - floor) / (fullAt - floor), 0, 1);
     if (rawAvailability <= 0) {
       return { availability: 0, rate: 0 };
@@ -34176,6 +34547,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function contaminationOverlayAssignments(map, options = {}) {
     const assignments = new Map();
+    if (options.debug) {
+      return tileEnvironmentOverlayAssignments(map, "contamination", { debug: true, overlayId: "debug" });
+    }
     for (const room of state.rooms || []) {
       const reading = roomContaminationOverlayReading(room, options);
       if (!reading) {
@@ -34193,6 +34567,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         source: reading.sourceLabel,
         title: reading.title,
         value: reading.revealValue ? formatDecimal(reading.value, 1) : null
+      }, map);
+    }
+    return assignments;
+  }
+
+  function tileEnvironmentOverlayAssignments(map, attributeKey, options = {}) {
+    const assignments = new Map();
+    const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
+    if (!def) return assignments;
+    const environments = ensureTileEnvironments(map);
+    for (const record of Object.values(environments)) {
+      const roomId = labMapCellRoomId(record.cell, map);
+      if (!options.debug && (!roomId || !scientistObservesRoom(roomId))) continue;
+      const attributes = tileEnvironmentAttributes(record, roomById(roomId)?.attributes);
+      const value = Number(attributes[attributeKey]?.current) || 0;
+      const band = roomAttributeBand(attributeKey, value);
+      const substances = Object.entries(record.airborne || {}).sort((a, b) => b[1] - a[1]);
+      const substanceText = substances.length
+        ? substances.map(([id, concentration]) => `${airborneSubstanceLabel(id)} ${formatDecimal(concentration, 2)}`).join("; ")
+        : "none";
+      const overlayId = options.overlayId || attributeKey;
+      setLabMapOverlayEntry(assignments, record.cell, {
+        overlayId,
+        classNames: [
+          `map-overlay-${overlayClassPart(attributeKey)}`,
+          `map-overlay-${overlayClassPart(attributeKey)}-${overlayClassPart(band.label)}`,
+          ...(options.debug ? ["map-overlay-debug-value"] : [])
+        ],
+        label: `${def.label}: ${band.label}`,
+        source: options.debug ? "Debug tile field" : "Current observation",
+        title: attributeKey === "contamination"
+          ? `Airborne hazard: ${roomAttributeMeasurementText(attributeKey, value, { debug: options.debug })}; ${substanceText}.`
+          : `${def.label}: ${roomAttributeMeasurementText(attributeKey, value, { debug: options.debug })} (${band.label}).`,
+        value: options.debug ? formatDecimal(value, 2) : null,
+        target: { kind: "tile", tile: { ...record.cell } }
       }, map);
     }
     return assignments;
@@ -34528,6 +34937,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "contamination") {
       return contaminationOverlayAssignments(map);
+    }
+    if (["temperature", "humidity", "ambientMana"].includes(normalized)) {
+      return tileEnvironmentOverlayAssignments(map, normalized);
     }
     if (normalized === "movement") {
       return movementOverlayAssignments(map, context.route);
@@ -35673,7 +36085,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!container) {
         return [];
       }
-      return [
+      const rows = [
         ...containerOccupants(container.id).map((slime) => ({ kind: "slime", id: slime.id })),
         ...containerCorpses(container.id).map((corpse) => ({ kind: "corpse", id: corpse.id })),
         { kind: "room", roomId: container.roomId }
@@ -37673,7 +38085,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : (ensureLabMap().terrain?.smoothedWalls || []).some((cell) => mapCellKey(cell) === key)
           ? "Smoothed natural wall"
           : excavated ? "Rough floor" : "Natural rock";
-      return [
+      const rows = [
         ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
         ["Room", roomId ? roomName(roomId) : excavated ? "Unassigned floor" : "Solid earth"],
         ["Inferred compartment", compartment ? `${compartment.kind}; ${compartment.status}; ${compartment.cells.length} tiles` : "None"],
@@ -37691,6 +38103,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
         ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : excavated ? "Blocked by constructed wall" : "Solid"]
       ];
+      const environment = tileEnvironmentAtCell(selection.tile);
+      const environmentKnown = Boolean(environment && (mapDebugOverlayActive() || (roomId && scientistObservesRoom(roomId))));
+      if (environmentKnown) {
+        const debug = mapDebugOverlayActive();
+        const attributes = tileEnvironmentAttributes(environment, roomById(roomId)?.attributes);
+        for (const attributeKey of ["temperature", "humidity", "ambientMana", "contamination"]) {
+          const value = attributes[attributeKey].current;
+          const band = roomAttributeBand(attributeKey, value);
+          rows.push([ROOM_ATTRIBUTE_BY_KEY[attributeKey].label, debug ? `${roomAttributeMeasurementText(attributeKey, value, { debug: true })}; ${band.label}` : band.label]);
+        }
+        if (debug) {
+          rows.push(["Airborne substances", Object.entries(environment.airborne || {}).length
+            ? Object.entries(environment.airborne).map(([id, concentration]) => `${airborneSubstanceLabel(id)}: ${formatDecimal(concentration, 2)}`).join("; ")
+            : "None"]);
+        }
+      } else if (environment) {
+        rows.push(["Environment", "Not currently observed"]);
+      }
+      return rows;
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
@@ -37714,6 +38145,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Connections", roomConnectionsLabel(room).replace(/^Connected to:\s*/i, "")],
         ["Observation", roomObservationInspectorSummary(room)]
       ];
+      const observed = scientistObservesRoom(room.id);
+      if (observed || mapDebugOverlayActive()) {
+        for (const attributeKey of ["temperature", "humidity", "ambientMana", "contamination"]) {
+          const value = room.attributes[attributeKey].current;
+          const band = roomAttributeBand(attributeKey, value);
+          rows.push([ROOM_ATTRIBUTE_BY_KEY[attributeKey].label, mapDebugOverlayActive() ? `${roomAttributeMeasurementText(attributeKey, value, { debug: true })}; ${band.label}` : band.label]);
+        }
+      }
+      return rows;
     }
     if (selection.kind === "door") {
       const door = labMapDoor(selection.key);
@@ -39190,6 +39630,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Known: observed and remembered room contamination only.",
         "Clean, low, tainted, fouled, and hazardous bands use the latest available observation.",
         "Unobserved rooms stay blank unless Debug is active."
+      ],
+      temperature: [
+        "Known: observed tile temperature in degrees Celsius.",
+        "Heat transfers through air and conducts slowly through surrounding material.",
+        "Unobserved rooms stay blank."
+      ],
+      humidity: [
+        "Known: observed relative humidity by tile.",
+        "Humidity moves with leaking and open air; liquid wetness is not simulated yet.",
+        "Unobserved rooms stay blank."
+      ],
+      ambientMana: [
+        "Known: observed mana density in thaums/m³.",
+        "Mana crosses open air and permeable materials at its own rate.",
+        "Unobserved rooms stay blank."
       ],
       movement: [
         "Player plan: next scientist movement or hauling route only.",
@@ -42111,14 +42566,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     let changed = 0;
     if (corpse.storage === "container") {
       const container = containerById(corpse.containerId);
-      changed += adjustContainerEnvironment(container, "contamination", delta) ? 1 : 0;
+      changed += adjustContainerEnvironment(container, "contamination", delta, { substanceId: `corpse-decay:${freshness}` }) ? 1 : 0;
       const incompatible = containerOccupants(corpse.containerId)
         .filter((slime) => !corpseFeedingRateForSlime(slime, corpse).rate);
       for (const slime of incompatible) {
         adjustSlimeStat(slime, "stress", 0.5 * secondsToDays(elapsed));
       }
     } else if (corpse.storage === "room") {
-      changed += adjustRoomAttribute(corpse.roomId || MAIN_ROOM_ID, "contamination", delta) ? 1 : 0;
+      changed += adjustRoomAttribute(corpse.roomId || MAIN_ROOM_ID, "contamination", delta, {
+        cell: objectMapCell(corpse),
+        substanceId: `corpse-decay:${freshness}`
+      }) ? 1 : 0;
     }
     return changed;
   }
@@ -44213,11 +44671,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         known: scientistObservesRoom(location.roomId)
       });
     }
-    applyFeedingResidueContamination(location, def.contamination * units);
+    applyFeedingResidueContamination(location, def.contamination * units, typeKey);
     return true;
   }
 
-  function applyFeedingResidueContamination(location, amount) {
+  function applyFeedingResidueContamination(location, amount, residueTypeKey = "unknown") {
     const increase = Math.max(0, Number(amount) || 0);
     if (!increase || !location) {
       return false;
@@ -44227,15 +44685,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!container) {
         return false;
       }
-      container.environment = normalizeContainerEnvironment(container.environment);
-      container.environment.contamination.current = clamp(
-        (Number(container.environment.contamination.current) || 0) + increase,
-        0,
-        100
-      );
-      return true;
+      return adjustContainerEnvironment(container, "contamination", increase, { substanceId: `residue:${residueTypeKey}` });
     }
-    return adjustRoomAttribute(location.roomId || MAIN_ROOM_ID, "contamination", increase);
+    return adjustRoomAttribute(location.roomId || MAIN_ROOM_ID, "contamination", increase, {
+      cell: location.cell,
+      substanceId: `residue:${residueTypeKey}`
+    });
   }
 
   function feedingResiduesForLocation(location) {
@@ -45000,8 +45455,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const baseline = Number(candidate?.[def.key]?.baseline);
       const recoveryPerHour = Number(candidate?.[def.key]?.recoveryPerHour);
       normalized[def.key] = {
-        current: clamp(Number.isFinite(current) ? current : def.initial, 0, 100),
-        baseline: clamp(Number.isFinite(baseline) ? baseline : def.baseline, 0, 100),
+        current: clampRoomAttributeValue(def, Number.isFinite(current) ? current : def.initial),
+        baseline: clampRoomAttributeValue(def, Number.isFinite(baseline) ? baseline : def.baseline),
         recoveryPerHour: Math.max(0, Number.isFinite(recoveryPerHour) ? recoveryPerHour : def.recoveryPerHour)
       };
     }
@@ -45016,11 +45471,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const baseline = Number(raw?.baseline);
       const recoveryPerHour = Number(raw?.recoveryPerHour);
       env[def.key] = {
-        current: clamp(Number.isFinite(current) ? current : def.initial, 0, 100),
-        baseline: clamp(Number.isFinite(baseline) ? baseline : def.baseline, 0, 100),
+        current: clampRoomAttributeValue(def, Number.isFinite(current) ? current : def.initial),
+        baseline: clampRoomAttributeValue(def, Number.isFinite(baseline) ? baseline : def.baseline),
         recoveryPerHour: Math.max(0, Number.isFinite(recoveryPerHour) ? recoveryPerHour : def.recoveryPerHour)
       };
     }
+    env.airborne = normalizeAirborneLoads(candidate?.airborne || (Number(candidate?.contamination?.current) > 0
+      ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: Number(candidate.contamination.current) }
+      : {}));
+    env.contamination.current = clamp(airborneLoadTotal(env.airborne), 0, 100);
+    env.contamination.baseline = 0;
+    env.contamination.recoveryPerHour = 0;
     return env;
   }
 
@@ -46172,6 +46633,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.labMap = normalizeLabMap(next.labMap, next.rooms);
     reconcileRoomZones(next.labMap, next.rooms);
     next.doors = normalizeDoors(next.doors, next.rooms, next.labMap);
+    next.tileEnvironments = normalizeTileEnvironments(next.tileEnvironments, next.labMap, next.rooms);
     next.compartmentEnvironments = normalizeCompartmentEnvironments(
       next.compartmentEnvironments,
       next.labMap,

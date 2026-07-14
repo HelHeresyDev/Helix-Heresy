@@ -97,6 +97,7 @@ test('hazard cleanup waits for enough vessel capacity and produces contained phy
     const state = payload.state || payload;
     const room = state.rooms.find((entry) => entry.id === 'mainLab');
     room.attributes.contamination.current = 44;
+    state.tileEnvironments = {};
     state.scientist.roomId = 'mainLab';
     state.scientist.mapCell = state.labMap.rooms.mainLab.anchor;
     state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.key !== 'linedScrapeJar' && stack.section !== 'residue');

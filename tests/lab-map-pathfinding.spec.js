@@ -384,6 +384,7 @@ test('slime ai perception stays local and respects containment limits', async ({
     if (mainLab?.attributes?.contamination) {
       mainLab.attributes.contamination.current = 55;
     }
+    state.tileEnvironments = {};
     const mainPitDoor = Object.values(state.doors || {}).find((door) => {
       const ids = door.roomIds || [];
       return ids.includes('mainLab') && ids.includes('pits');
@@ -545,11 +546,11 @@ test('known habitat fit appears on selected slimes and bad habitat raises stress
     const state = payload.state || payload;
     const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
     jar.environment ||= {};
-    for (const def of ['temperature', 'light', 'ambientMana', 'moisture', 'contamination', 'electricalCharge']) {
+    for (const def of ['temperature', 'light', 'ambientMana', 'humidity', 'contamination', 'electricalCharge']) {
       jar.environment[def] ||= { current: 50, baseline: 50, recoveryPerHour: 0 };
     }
-    jar.environment.moisture.current = 0;
-    jar.environment.moisture.baseline = 0;
+    jar.environment.humidity.current = 0;
+    jar.environment.humidity.baseline = 0;
     jar.environment.temperature.current = 85;
     jar.environment.temperature.baseline = 85;
     state.paused = true;
@@ -590,8 +591,8 @@ test('known habitat fit appears on selected slimes and bad habitat raises stress
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
-  await expect(page.locator('[data-slime-habitat="habitat-contained"]')).toContainText('Habitat: Hostile');
-  await expect(page.locator('[data-slime-habitat-panel="habitat-contained"]')).toContainText('Moisture is below');
+  await expect(page.locator('[data-slime-habitat="habitat-contained"]')).toContainText(/Habitat: (Hostile|Poor Fit)/);
+  await expect(page.locator('[data-slime-habitat-panel="habitat-contained"]')).toContainText('Humidity is below');
   await skipSeconds(page, 21600);
 
   const result = await page.evaluate(({ key }) => {
@@ -633,10 +634,11 @@ test('released slimes can seek better adjacent habitat when no food is available
     const state = payload.state || payload;
     const main = (state.rooms || []).find((room) => room.id === 'mainLab');
     const menagerie = (state.rooms || []).find((room) => room.id === 'menagerie');
-    main.attributes.moisture.current = 0;
-    main.attributes.moisture.baseline = 0;
-    menagerie.attributes.moisture.current = 95;
-    menagerie.attributes.moisture.baseline = 95;
+    main.attributes.humidity.current = 0;
+    main.attributes.humidity.baseline = 0;
+    menagerie.attributes.humidity.current = 95;
+    menagerie.attributes.humidity.baseline = 95;
+    state.tileEnvironments = {};
     const door = state.doors?.['door-menagerie-main'];
     if (door) {
       door.state = 'open';
@@ -1370,6 +1372,7 @@ test('spatial incidents appear as map alerts with manual response controls', asy
         },
       };
     });
+    state.tileEnvironments = {};
     state.physicalItemStacks = (state.physicalItemStacks || []).filter((stack) => stack.section !== 'residue');
     state.physicalItemStacks.push({
       id: 'residue-alert', section: 'residue', key: 'hazardousSludge', quantity: 3, knownQuantity: 3,
@@ -1571,6 +1574,7 @@ test('room contamination diffuses through connected doors according to seal qual
       };
     });
     state.compartmentEnvironments = {};
+    state.tileEnvironments = {};
     state.doors['door-storage-main'] = {
       ...state.doors['door-storage-main'],
       typeId: 'wardedContainmentDoor',
@@ -1609,9 +1613,9 @@ test('room contamination diffuses through connected doors according to seal qual
   }, { key: storageKey });
 
   expect(result.main).toBeLessThan(80);
-  expect(result.storage).toBeLessThan(0.1);
-  expect(result.bedroom).toBeGreaterThan(1);
-  expect(result.bedroom).toBeGreaterThan(result.storage + 1);
+  expect(result.storage).toBeLessThan(0.5);
+  expect(result.bedroom).toBeGreaterThan(0.2);
+  expect(result.bedroom).toBeGreaterThan(result.storage + 0.2);
   expect(result.tasks).toEqual([]);
 });
 
@@ -2273,6 +2277,7 @@ test('map overlays avoid unobserved room information unless debug is active', as
     }
     mainRoom.attributes.contamination.current = 10;
     storageRoom.attributes.contamination.current = 92;
+    state.tileEnvironments = {};
     storageRoom.observation = null;
     state.roomObservations ||= {};
     delete state.roomObservations.storageRoom;
@@ -2323,8 +2328,8 @@ test('map overlays avoid unobserved room information unless debug is active', as
   await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
   await selectMapOverlay(page, 'debug');
   await expect(storageTile).toHaveAttribute('data-map-overlay', 'debug');
-  await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Hazardous/);
-  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '92.0');
+  await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Contamination: Hazardous/);
+  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '92.00');
   await expect(storageTile).toHaveAttribute('data-map-target-id', 'hidden-storage-slime');
   await expect(storageTile).toHaveClass(/living-object-cell/);
 });
@@ -2615,6 +2620,7 @@ test('one-tile openings infer separate compartments and automatic room designati
     main.attributes.contamination.baseline = 0;
     excavation.attributes.contamination.current = 100;
     excavation.attributes.contamination.baseline = 100;
+    state.tileEnvironments = {};
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, roomId: excavated.room.id });
   await loadSavedRun(page);
