@@ -3070,15 +3070,17 @@ test('fixtures use rotated footprints interaction ports and linked production de
     return {
       order,
       bill: state.productionBills.find((entry) => entry.parentOrderId === order.id),
+      productionTask: state.tasks.find((task) => task.type === 'productionWork' && task.data.billId === order.productionBillId),
       constructionTask: state.tasks.find((task) => task.type === 'constructionWork' && task.data.constructionOrderId === order.id),
     };
   }, { key: storageKey });
   expect(dependency.order).toMatchObject({ rotation: 90, materialPolicy: 'best' });
-  expect(dependency.bill).toMatchObject({ fixtureTypeId: 'bed', status: 'blocked', createdBy: 'scientist' });
-  expect(dependency.bill.blockedReason).toContain('crafting pass');
+  expect(dependency.bill).toMatchObject({ fixtureTypeId: 'bed', status: 'active', createdBy: 'scientist', materialStrategy: 'best' });
+  expect(dependency.productionTask).toBeTruthy();
   expect(dependency.constructionTask).toBeUndefined();
 
-  await page.evaluate((billId) => window.helixHeresyDebug.fulfillFixtureProductionBill(billId), dependency.bill.id);
+  await page.locator('#queueToggleBtn').click();
+  await page.locator(`[data-task-row="${dependency.productionTask.id}"]`).getByRole('button', { name: 'Finish' }).click();
   const toolPickupDelay = await page.evaluate(({ key }) => {
     const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
     const task = state.tasks.find((entry) => entry.type === 'constructionWork');
@@ -3088,7 +3090,6 @@ test('fixtures use rotated footprints interaction ports and linked production de
   const claimedTools = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());
   expect(claimedTools.carriedStacks.length).toBeGreaterThan(0);
   expect(claimedTools.carriedStacks.every((stack) => stack.toolInstanceId && stack.carriedBy === 'scientist')).toBe(true);
-  await page.locator('#queueToggleBtn').click();
   await page.locator('#taskList .task-row').filter({ hasText: `Build tile ${origin.x},${origin.y}` }).getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-workspace-tab="map"]').click();
 

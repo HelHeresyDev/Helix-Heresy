@@ -104,7 +104,7 @@
       id: "basicWorkbench",
       label: "Basic Workbench",
       glyph: "W",
-      assemblyClass: "componentBuilt",
+      assemblyClass: "siteBuilt",
       footprint: { width: 2, height: 1 },
       collision: "blocking",
       layer: "floor",
@@ -273,6 +273,40 @@
     }
   ];
   const FIXTURE_BY_ID = Object.fromEntries(FIXTURE_DEFS.map((def) => [def.id, def]));
+  const FIXTURE_CRAFTED_ITEM_DEFS = FIXTURE_DEFS
+    .filter((def) => def.assemblyClass !== "siteBuilt")
+    .map((def) => ({
+      key: `${def.id}${def.assemblyClass === "portable" ? "Finished" : "Components"}`,
+      label: def.assemblyClass === "portable" ? def.label : `${def.label} components`,
+      fixtureTypeId: def.id,
+      assemblyClass: def.assemblyClass,
+      category: "crafted",
+      initial: 0,
+      description: def.assemblyClass === "portable"
+        ? `A completed portable ${def.label.toLowerCase()} awaiting storage or installation.`
+        : `Fabricated ${def.label.toLowerCase()} parts awaiting hauling and on-site assembly.`
+    }));
+  const FIXTURE_CRAFTED_ITEM_BY_TYPE = Object.fromEntries(FIXTURE_CRAFTED_ITEM_DEFS.map((item) => [item.fixtureTypeId, item]));
+  const CRAFTSMANSHIP_BANDS = [
+    { id: "legendary", label: "Legendary", min: 94 },
+    { id: "masterwork", label: "Masterwork", min: 82 },
+    { id: "exceptional", label: "Exceptional", min: 68 },
+    { id: "fine", label: "Fine", min: 54 },
+    { id: "common", label: "Common", min: 32 },
+    { id: "crude", label: "Crude", min: 0 }
+  ];
+  const PRODUCTION_BILL_MODE_DEFS = [
+    { id: "once", label: "Make Once", description: "Produce one item, then complete the bill." },
+    { id: "quantity", label: "Make Quantity", description: "Produce the requested total quantity, then complete the bill." },
+    { id: "repeat", label: "Repeat", description: "Continue producing one unit at a time until paused or canceled." },
+    { id: "maintain", label: "Maintain Stock", description: "Produce only while eligible known stock is below the target." }
+  ];
+  const PRODUCTION_BILL_MODE_BY_ID = Object.fromEntries(PRODUCTION_BILL_MODE_DEFS.map((mode) => [mode.id, mode]));
+  const PRODUCTION_MATERIAL_STRATEGY_DEFS = [
+    { id: "closest", label: "Closest Valid", description: "Choose the allowed material option requiring the least known hauling effort." },
+    { id: "best", label: "Best Known", description: "Choose the highest-scoring allowed material option using only known properties." }
+  ];
+  const PRODUCTION_MATERIAL_STRATEGY_BY_ID = Object.fromEntries(PRODUCTION_MATERIAL_STRATEGY_DEFS.map((strategy) => [strategy.id, strategy]));
   const CONSTRUCTION_BUILD_DEFS = [
     { id: "stoneWall", label: "Stone-Block Wall", kind: "wall", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 2 }, workMinutes: 12, description: "Build an impassable stone-block wall over excavated floor." },
     { id: "stoneFloor", label: "Stone Floor", kind: "floor", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 8, description: "Lay constructed stone flooring that removes rough-floor movement penalties." },
@@ -2265,6 +2299,9 @@
     { key: "steelPanels", label: "Steel Panels", initial: 12 },
     { key: "metalParts", label: "Metal Parts", initial: 12 },
     { key: "bricks", label: "Bricks", initial: 24 },
+    { key: "glass", label: "Glass", initial: 24 },
+    { key: "cloth", label: "Cloth", initial: 20 },
+    { key: "rubber", label: "Rubber", initial: 20 },
     ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
@@ -2300,6 +2337,11 @@
       id: "receptacles",
       label: "Receptacles",
       description: "Portable empty and filled vessels used for collection, cleanup, storage, and hauling."
+    },
+    {
+      id: "crafted",
+      label: "Crafted Items",
+      description: "Portable finished fixtures and component kits produced at workstations."
     }
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
@@ -2374,6 +2416,7 @@
       initial: 4,
       description: "An eight-liter sealed jar reserved for mixed or poorly classified material."
     },
+    ...FIXTURE_CRAFTED_ITEM_DEFS,
     {
       key: "thickGloves",
       label: "Thick gloves",
@@ -2453,6 +2496,55 @@
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
+  const PRODUCTION_RECIPE_DEFS = [
+    ...FIXTURE_DEFS.filter((fixture) => fixture.assemblyClass !== "siteBuilt").map((fixture) => ({
+      id: `fixture:${fixture.id}`,
+      label: `Fabricate ${FIXTURE_CRAFTED_ITEM_BY_TYPE[fixture.id].label}`,
+      description: fixture.description,
+      workstationCapabilities: ["workbench", "fabrication"],
+      toolRequirements: [],
+      skillId: "fabrication",
+      minimumSkillLevel: 0,
+      workSeconds: minutesToSeconds(Math.max(4, fixture.workMinutes)),
+      output: { section: "inventory", key: FIXTURE_CRAFTED_ITEM_BY_TYPE[fixture.id].key, quantity: 1, fixtureTypeId: fixture.id, assemblyClass: fixture.assemblyClass },
+      materialOptions: Object.entries(fixture.materialOptions || {}).map(([id, option]) => ({
+        id,
+        label: titleCase(id),
+        costs: option.costs || {},
+        composition: option.composition || {},
+        score: option.score || 50,
+        toolRequirements: id === "wood"
+          ? [{ label: "woodworking", any: ["woodworking"], minimum: 38 }]
+          : [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }]
+      }))
+    })),
+    {
+      id: "receptacle:sealedCollectionJar", label: "Make sealed collection jar", description: "Fabricate an empty sealed liquid-collection jar.",
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      output: { section: "inventory", key: "sealedCollectionJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 80 }]
+    },
+    {
+      id: "receptacle:linedScrapeJar", label: "Make lined scrape jar", description: "Fabricate an empty lined vessel for sludge and hazardous residue.",
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
+      output: { section: "inventory", key: "linedScrapeJar", quantity: 1 }, materialOptions: [{ id: "linedGlass", label: "Lined glass", costs: { glass: 2, rubber: 1, metalParts: 1 }, composition: { primary: "glass", reinforcement: "steel", seal: "rubber" }, score: 84 }]
+    },
+    {
+      id: "receptacle:condenserFlask", label: "Make condenser flask", description: "Fabricate an empty sealed flask for condensed vapors.",
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
+      output: { section: "inventory", key: "condenserFlask", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 82 }]
+    },
+    {
+      id: "receptacle:filterBag", label: "Make filter bag", description: "Sew an empty filter bag for powders and flakes.",
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(4),
+      output: { section: "inventory", key: "filterBag", quantity: 1 }, materialOptions: [{ id: "cloth", label: "Cloth", costs: { cloth: 2 }, composition: { primary: "cloth" }, score: 68 }]
+    },
+    {
+      id: "receptacle:mixedOutputJar", label: "Make mixed-output jar", description: "Fabricate an empty general-purpose sealed collection jar.",
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      output: { section: "inventory", key: "mixedOutputJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 76 }]
+    }
+  ];
+  const PRODUCTION_RECIPE_BY_ID = Object.fromEntries(PRODUCTION_RECIPE_DEFS.map((recipe) => [recipe.id, recipe]));
   const HANDLING_METHOD_INVENTORY_ITEM_KEYS = {
     thickGloves: "thickGloves",
     longTongs: "longTongs",
@@ -2704,7 +2796,7 @@
   let measuredMapViewportPixels = null;
   let mapViewportMeasureFrame = 0;
   let mapViewportResizeFrame = 0;
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
     { id: "living", label: "Living" },
@@ -2724,6 +2816,13 @@
   ];
   const TASK_MENU_TAB_BY_ID = Object.fromEntries(TASK_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_TASK_MENU_TAB = "queue";
+  const PRODUCTION_MENU_TAB_DEFS = [
+    { id: "bills", label: "Bills" },
+    { id: "recipes", label: "Recipes" },
+    { id: "workpieces", label: "Workpieces" }
+  ];
+  const PRODUCTION_MENU_TAB_BY_ID = Object.fromEntries(PRODUCTION_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
+  const DEFAULT_PRODUCTION_MENU_TAB = "bills";
   const TASK_HISTORY_LIMIT = 80;
   const STORE_MENU_TAB_DEFS = [
     { id: "overview", label: "Overview" },
@@ -2780,7 +2879,10 @@
       items: [
         { key: "Q", label: "Queue", workspaceTab: "tasks", tabKind: "tasks", tabId: "queue" },
         { key: "B", label: "Blocked", workspaceTab: "tasks", tabKind: "tasks", tabId: "blocked" },
-        { key: "C", label: "Completed", workspaceTab: "tasks", tabKind: "tasks", tabId: "completed" }
+        { key: "C", label: "Completed", workspaceTab: "tasks", tabKind: "tasks", tabId: "completed" },
+        { key: "P", label: "Production Bills", workspaceTab: "production", tabKind: "production", tabId: "bills" },
+        { key: "R", label: "Production Recipes", workspaceTab: "production", tabKind: "production", tabId: "recipes" },
+        { key: "K", label: "Production Workpieces", workspaceTab: "production", tabKind: "production", tabId: "workpieces" }
       ]
     },
     creatures: {
@@ -2854,6 +2956,7 @@
     map: "M",
     foundry: "F",
     tasks: "T",
+    production: "T P",
     specimens: "C",
     containers: "C C",
     resources: "I",
@@ -2875,6 +2978,11 @@
     queue: "T Q",
     blocked: "T B",
     completed: "T C"
+  };
+  const PRODUCTION_MENU_TAB_HOTKEYS = {
+    bills: "T P",
+    recipes: "T R",
+    workpieces: "T K"
   };
   const STORE_MENU_TAB_HOTKEYS = {
     overview: "I O",
@@ -2955,6 +3063,7 @@
     "physicalDiagnostic",
     "excavate",
     "constructionWork",
+    "productionWork",
     "toolMaintenance",
     "rest"
   ]);
@@ -3035,6 +3144,7 @@
       stockpileDesignations: defaultStockpileDesignations(),
       physicalItemStacks: defaultPhysicalItemStacks(),
       productionBills: [],
+      productionWorkpieces: [],
       fabricatedFixtures: [],
       resources: defaultResources(),
       inventory: defaultInventory(),
@@ -3074,6 +3184,7 @@
       nextStockpileNumber: 2,
       nextPhysicalItemStackNumber: 100,
       nextProductionBillNumber: 1,
+      nextProductionWorkpieceNumber: 1,
       discoveries: {},
       regionNotes: {},
       genomeNotes: {},
@@ -3162,6 +3273,8 @@
       accessState: String(options.accessState || def.storage?.defaultAccessState || "open"),
       materialPolicy,
       materialComposition: normalizeMaterialComposition(options.materialComposition, materialOption?.composition || { primary: "steel" }),
+      craftsmanship: clamp(Number(options.craftsmanship) || 50, 0, 100),
+      productionTaskId: "",
       wardIds: normalizeContainerWardIds(options.wardIds || []),
       installedAt: finiteTime(options.installedAt, 0)
     };
@@ -3205,6 +3318,10 @@
         form: key === "waste" ? "waste" : "stack",
         phase: "solid",
         tags: [],
+        craftsmanship: 0,
+        materialComposition: {},
+        productionBillId: "",
+        productionWorkpieceId: "",
         contents: [],
         sourceLabels: [],
         sourceSlimeIds: [],
@@ -3219,6 +3336,9 @@
           x: LAB_MAP_ROOM_RECTS[PITS_ROOM_ID].x,
           y: LAB_MAP_ROOM_RECTS[PITS_ROOM_ID].y
         }, PITS_ROOM_ID);
+      } else if (["glass", "cloth", "rubber"].includes(resource.key)) {
+        const x = { glass: 48, cloth: 49, rubber: 50 }[resource.key];
+        add("resources", resource.key, amount, "", { x, y: 41 });
       } else if (resource.key === "biomass" || FEEDSTOCK_BY_KEY[resource.key]) {
         add("resources", resource.key, amount, "starter-storage-crate", { x: 52, y: 40 });
       } else {
@@ -3413,6 +3533,7 @@
       resourceOverlayFocus: DEFAULT_RESOURCE_OVERLAY_FOCUS_ID,
       creatureRecordTab: DEFAULT_CREATURE_RECORD_TAB,
       taskMenuTab: DEFAULT_TASK_MENU_TAB,
+      productionMenuTab: DEFAULT_PRODUCTION_MENU_TAB,
       storeMenuTab: DEFAULT_STORE_MENU_TAB,
       economyMenuTab: DEFAULT_ECONOMY_MENU_TAB,
       policyMenuTab: DEFAULT_POLICY_MENU_TAB,
@@ -3827,6 +3948,25 @@
       "taskList",
       "blockedTaskList",
       "completedTaskList",
+      "productionSummary",
+      "productionMenuTabs",
+      "productionBillsBadge",
+      "productionRecipesBadge",
+      "productionWorkpiecesBadge",
+      "productionBillForm",
+      "productionRecipeSelect",
+      "productionModeSelect",
+      "productionQuantityField",
+      "productionQuantityInput",
+      "productionPriorityInput",
+      "productionMaterialStrategySelect",
+      "productionScopeSelect",
+      "productionWorkstationField",
+      "productionWorkstationSelect",
+      "productionMaterialRules",
+      "productionBillList",
+      "productionRecipeList",
+      "productionWorkpieceList",
       "mapOverlayHud",
       "messageFeed",
       "messageHistorySummary",
@@ -3953,6 +4093,8 @@
           accessiblePorts: fixtureAccessCells(fixture)
         })),
         productionBills: (state.productionBills || []).map((bill) => ({ ...bill })),
+        productionWorkpieces: (state.productionWorkpieces || []).map((workpiece) => ({ ...workpiece })),
+        recipes: PRODUCTION_RECIPE_DEFS.map((recipe) => ({ ...recipe, materialOptions: recipe.materialOptions.map((option) => ({ ...option })) })),
         fabricatedFixtures: (state.fabricatedFixtures || []).map((item) => ({ ...item }))
       }),
       physicalStockSnapshot: () => ({
@@ -4004,6 +4146,14 @@
         };
       },
       fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
+      createProductionBill: (options) => createProductionBill(options),
+      setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
+      advanceSimulation: (seconds) => {
+        advanceTime(Math.max(0, Number(seconds) || 0), { quiet: true });
+        persist();
+        render();
+        return true;
+      },
       damageTool: (itemKey, amount) => {
         const tool = bestToolInstance(itemKey, true);
         const result = tool ? damageSpecificTool(tool.id, amount, "debug damage") : null;
@@ -4128,6 +4278,44 @@
         return;
       }
       setTaskMenuTab(button.dataset.taskMenuTab);
+    });
+
+    dom.productionMenuTabs?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-production-menu-tab]")
+        : null;
+      if (button) setProductionMenuTab(button.dataset.productionMenuTab);
+    });
+
+    dom.productionRecipeSelect?.addEventListener("change", renderProductionBillEditor);
+    dom.productionModeSelect?.addEventListener("change", renderProductionBillEditor);
+    dom.productionScopeSelect?.addEventListener("change", renderProductionBillEditor);
+    dom.productionBillForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const allowedMaterialOptionIds = [...dom.productionMaterialRules.querySelectorAll("input[type=checkbox]:checked")]
+        .map((input) => input.value);
+      if (!allowedMaterialOptionIds.length) {
+        addEvent("Production bills require at least one allowed material option.");
+        persist();
+        render();
+        return;
+      }
+      const bill = createProductionBill({
+        recipeId: dom.productionRecipeSelect.value,
+        mode: dom.productionModeSelect.value,
+        quantity: Number(dom.productionQuantityInput.value) || 1,
+        targetQuantity: Number(dom.productionQuantityInput.value) || 1,
+        priority: Number(dom.productionPriorityInput.value) || CONSTRUCTION_PRIORITY_DEFAULT,
+        materialStrategy: dom.productionMaterialStrategySelect.value,
+        scope: dom.productionScopeSelect.value,
+        workstationId: dom.productionScopeSelect.value === "workstation" ? dom.productionWorkstationSelect.value : "",
+        allowedMaterialOptionIds
+      });
+      if (!bill) {
+        addEvent("Production bill could not be created.");
+        persist();
+        render();
+      }
     });
 
     dom.storesMenuTabs?.addEventListener("click", (event) => {
@@ -4849,6 +5037,8 @@
       ui.taskMenuTab = normalizeTaskMenuTab(item.tabId);
     } else if (item.tabKind === "creatures") {
       ui.creatureRecordTab = normalizeCreatureRecordTab(item.tabId);
+    } else if (item.tabKind === "production") {
+      ui.productionMenuTab = normalizeProductionMenuTab(item.tabId);
     } else if (item.tabKind === "stores") {
       ui.storeMenuTab = normalizeStoreMenuTab(item.tabId);
     } else if (item.tabKind === "economy") {
@@ -5183,6 +5373,12 @@
         key: "materials"
       },
       {
+        id: "category:crafted",
+        label: "Crafted Fixtures and Components",
+        type: "inventoryCategory",
+        key: "crafted"
+      },
+      {
         id: "category:collectedByproducts",
         label: "Collected Byproducts",
         type: "collectedByproducts",
@@ -5239,6 +5435,26 @@
   function normalizeStoreMenuTab(value) {
     const id = String(value || DEFAULT_STORE_MENU_TAB).trim();
     return STORE_MENU_TAB_BY_ID[id] ? id : DEFAULT_STORE_MENU_TAB;
+  }
+
+  function normalizeProductionMenuTab(value) {
+    const id = String(value || DEFAULT_PRODUCTION_MENU_TAB).trim();
+    return PRODUCTION_MENU_TAB_BY_ID[id] ? id : DEFAULT_PRODUCTION_MENU_TAB;
+  }
+
+  function currentProductionMenuTab() {
+    const ui = ensureUiState();
+    ui.productionMenuTab = normalizeProductionMenuTab(ui.productionMenuTab);
+    return ui.productionMenuTab;
+  }
+
+  function setProductionMenuTab(tabId, options = {}) {
+    const ui = ensureUiState();
+    ui.productionMenuTab = normalizeProductionMenuTab(tabId);
+    if (!options.keepKeyboardPath) ui.keyboardMenuPath = "";
+    if (options.render === false) return;
+    persist();
+    render();
   }
 
   function currentStoreMenuTab() {
@@ -5758,6 +5974,7 @@
       resourceOverlayFocus: normalizeResourceOverlayFocusId(candidate?.resourceOverlayFocus),
       creatureRecordTab: normalizeCreatureRecordTab(candidate?.creatureRecordTab),
       taskMenuTab: normalizeTaskMenuTab(candidate?.taskMenuTab),
+      productionMenuTab: normalizeProductionMenuTab(candidate?.productionMenuTab),
       storeMenuTab: normalizeStoreMenuTab(candidate?.storeMenuTab),
       economyMenuTab: normalizeEconomyMenuTab(candidate?.economyMenuTab),
       policyMenuTab: normalizePolicyMenuTab(candidate?.policyMenuTab),
@@ -6080,7 +6297,9 @@
       constructionClaimed: 0,
       stockpileClaimed: 0,
       cleanupClaimed: 0,
+      productionClaimed: 0,
       constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
+      productionProgressChanged: updateProductionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
       observationChanged: false,
       aiChanged: 0
@@ -6088,6 +6307,7 @@
     changes.jobExpired = expireSlimes();
     changes.completed = completeDueTasks();
     changes.constructionClaimed = claimNextConstructionWork();
+    changes.productionClaimed = claimNextProductionWork();
     changes.cleanupClaimed = claimNextSpillCleanup();
     changes.stockpileClaimed = claimNextStockpileHaul();
     changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
@@ -6119,6 +6339,8 @@
       + changes.creatureSkillPracticeChanged
       + changes.incidentAlertChanged
       + changes.incidentUrgencyChanged
+      + changes.productionClaimed
+      + changes.productionProgressChanged
       + changes.completed
       + changes.constructionClaimed
       + changes.cleanupClaimed
@@ -6281,6 +6503,10 @@
 
     if (task.type === "constructionWork") {
       completeConstructionWork(task);
+      return;
+    }
+    if (task.type === "productionWork") {
+      completeProductionWork(task);
       return;
     }
     if (task.type === "toolMaintenance") {
@@ -6751,6 +6977,22 @@
     best.targetCell = tile.cell;
     const toolPlan = constructionToolSelection(order, tile, start, best.accessCell);
     if (!toolPlan.ok) return { ok: false, reason: toolPlan.reason, path: [], accessCell: null };
+    const fabricated = fixture ? fabricatedFixtureForOrder(order) : null;
+    if (fabricated) {
+      const stack = fabricatedFixturePhysicalStack(fabricated);
+      const itemCell = stack ? stockpileHaulAccessCell(stack) : null;
+      if (!stack || !itemCell) return { ok: false, reason: `The reserved ${fixture.label} item is no longer physically available.`, path: [], accessCell: null };
+      const toItem = labMapPathBetweenCells(toolPlan.endpoint || start, itemCell, { map, ignoreDoors: true });
+      const toWork = labMapPathBetweenCells(itemCell, best.accessCell, { map, ignoreDoors: true });
+      if (!toItem.length || !toWork.length) return { ok: false, reason: `No physical route can haul the fabricated ${fixture.label} to this placement.`, path: [], accessCell: null };
+      return {
+        ...best,
+        path: appendMapPath(appendMapPath(toolPlan.path, toItem), toWork),
+        toolPlan,
+        fabricatedFixtureId: fabricated.id,
+        fabricatedStackId: stack.id
+      };
+    }
     const costs = constructionOrderResourceCosts(order);
     if (!Object.keys(costs).length) {
       const toWork = labMapPathBetweenCells(toolPlan.endpoint || start, best.accessCell, { map, ignoreDoors: true });
@@ -6995,7 +7237,9 @@
           requirement: selection.requirement.label
         })),
         resourceCosts: plan.resourceCosts || {},
-        resourceRoomId: plan.resourceRoomId || ""
+        resourceRoomId: plan.resourceRoomId || "",
+        fabricatedFixtureId: plan.fabricatedFixtureId || "",
+        fabricatedStackId: plan.fabricatedStackId || ""
       }
     };
     makeRoomForConstructionTools(task.data.toolSelections);
@@ -7040,7 +7284,10 @@
       tiles: orderCells.map((cell) => ({ cell, status: "planned", taskId: "", blockedReason: "", completedAt: null, workCompletedSeconds: 0, workRequiredSeconds: 0, lastInterruptionReason: "" }))
     };
     state.construction.orders.push(order);
-    if (constructionOrderFixtureDef(order)?.assemblyClass !== "siteBuilt") createLinkedFixtureProductionBill(order);
+    if (constructionOrderFixtureDef(order)?.assemblyClass !== "siteBuilt") {
+      createLinkedFixtureProductionBill(order);
+      claimNextProductionWork();
+    }
     state.construction.lastDigRect = mode === "mine" ? digCellsBoundingRect(cleanCells) : state.construction.lastDigRect;
     state.construction.draftCells = [];
     state.construction.mode = "idle";
@@ -7349,10 +7596,15 @@
       operationalState: fixtureAccessCells(tile.cell, def, order.rotation).length ? "operational" : "impaired",
       materialPolicy: order.materialPolicy,
       materialComposition: fabricated?.materialComposition || materialOption?.composition,
+      craftsmanship: fabricated?.craftsmanship || 50,
       installedAt: state.clock
     });
     state.fixtures.push(fixture);
-    if (fabricated) state.fabricatedFixtures = state.fabricatedFixtures.filter((item) => item.id !== fabricated.id);
+    if (fabricated) {
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.id !== fabricated.physicalStackId);
+      state.fabricatedFixtures = state.fabricatedFixtures.filter((item) => item.id !== fabricated.id);
+      syncPhysicalReadModels();
+    }
     return fixture;
   }
 
@@ -11750,6 +12002,8 @@
       accessState: normalizeFixtureAccessState(candidate.accessState, def),
       materialPolicy,
       materialComposition: normalizeMaterialComposition(candidate.materialComposition, materialOption?.composition || { primary: "steel" }),
+      craftsmanship: clamp(Number(candidate.craftsmanship) || 50, 0, 100),
+      productionTaskId: String(candidate.productionTaskId || ""),
       wardIds: normalizeContainerWardIds(candidate.wardIds || []),
       installedAt: finiteTime(candidate.installedAt, 0)
     };
@@ -11793,7 +12047,10 @@
         steelPanels: { volumeL: 6, massKg: 8 },
         stoneBlocks: { volumeL: 5, massKg: 8 },
         bricks: { volumeL: 3, massKg: 4 },
-        metalParts: { volumeL: 0.5, massKg: 1 }
+        metalParts: { volumeL: 0.5, massKg: 1 },
+        glass: { volumeL: 1.5, massKg: 1.2 },
+        cloth: { volumeL: 2, massKg: 0.5 },
+        rubber: { volumeL: 1, massKg: 0.8 }
       }[key] || { volumeL: 1, massKg: 1 };
     }
     if (section === "inventory") {
@@ -11897,6 +12154,12 @@
       form: ["stack", "waste", "spill", "receptacle"].includes(candidate.form) ? candidate.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
       phase: String(candidate.phase || (section === "residue" ? "sludge" : "solid")),
       tags: normalizeResidueTags(candidate.tags),
+      craftsmanship: clamp(Number(candidate.craftsmanship) || 0, 0, 100),
+      materialComposition: candidate.materialComposition && Object.keys(candidate.materialComposition).length
+        ? normalizeMaterialComposition(candidate.materialComposition)
+        : {},
+      productionBillId: String(candidate.productionBillId || ""),
+      productionWorkpieceId: String(candidate.productionWorkpieceId || ""),
       contents: normalizePhysicalContents(candidate.contents),
       sourceLabels: normalizeResidueSourceLabels(candidate.sourceLabels || candidate.sourceLabel),
       sourceSlimeIds: idList(candidate.sourceSlimeIds),
@@ -12231,6 +12494,12 @@
       form: ["stack", "waste", "spill", "receptacle"].includes(options.form) ? options.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
       phase: String(options.phase || (section === "residue" ? "sludge" : "solid")),
       tags: normalizeResidueTags(options.tags),
+      craftsmanship: clamp(Number(options.craftsmanship) || 0, 0, 100),
+      materialComposition: options.materialComposition && Object.keys(options.materialComposition).length
+        ? normalizeMaterialComposition(options.materialComposition)
+        : {},
+      productionBillId: String(options.productionBillId || ""),
+      productionWorkpieceId: String(options.productionWorkpieceId || ""),
       contents: normalizePhysicalContents(options.contents),
       sourceLabels: normalizeResidueSourceLabels(options.sourceLabels || options.sourceLabel),
       sourceSlimeIds: idList(options.sourceSlimeIds),
@@ -12288,6 +12557,8 @@
         && stack.fixtureId === fixtureId && mapCellKey(stack.cell) === mapCellKey(destination.cell)
         && stack.form !== "receptacle" && stack.form !== "spill" && !normalizePhysicalContents(stack.contents).length
         && !normalizePhysicalContents(options.contents).length
+        && Number(stack.craftsmanship || 0) === Number(options.craftsmanship || 0)
+        && JSON.stringify(stack.materialComposition || {}) === JSON.stringify(options.materialComposition ? normalizeMaterialComposition(options.materialComposition) : {})
         && normalizeResidueTags(stack.tags).join("|") === normalizeResidueTags(options.tags).join("|"));
       if (existing) {
         existing.quantity = section === "collectedByproducts" ? roundOutputValue(existing.quantity + amount) : existing.quantity + Math.floor(amount);
@@ -12597,22 +12868,49 @@
     return true;
   }
 
+  function productionRecipe(recipeOrId) {
+    const id = typeof recipeOrId === "string" ? recipeOrId : recipeOrId?.id;
+    return PRODUCTION_RECIPE_BY_ID[id] || null;
+  }
+
+  function productionRecipeForFixture(fixtureTypeId) {
+    return productionRecipe(`fixture:${fixtureTypeId}`);
+  }
+
+  function craftsmanshipBand(value) {
+    const score = clamp(Number(value) || 0, 0, 100);
+    return CRAFTSMANSHIP_BANDS.find((band) => score >= band.min) || CRAFTSMANSHIP_BANDS.at(-1);
+  }
+
   function normalizeProductionBill(candidate) {
     if (!candidate || typeof candidate !== "object") return null;
     const id = String(candidate.id || "").replace(/[^a-zA-Z0-9:_-]/g, "");
-    const fixtureTypeId = String(candidate.fixtureTypeId || "");
-    if (!id || !fixtureDef(fixtureTypeId)) return null;
+    const legacyFixtureTypeId = String(candidate.fixtureTypeId || "");
+    const recipeId = productionRecipe(candidate.recipeId) ? candidate.recipeId : productionRecipeForFixture(legacyFixtureTypeId)?.id;
+    const recipe = productionRecipe(recipeId);
+    if (!id || !recipe) return null;
+    const options = recipe.materialOptions || [];
+    const allowed = idList(candidate.allowedMaterialOptionIds).filter((optionId) => options.some((option) => option.id === optionId));
+    const mode = PRODUCTION_BILL_MODE_BY_ID[candidate.mode]?.id || "once";
+    const quantity = Math.max(1, Math.floor(Number(candidate.quantity) || 1));
     return {
       id,
-      fixtureTypeId,
+      recipeId: recipe.id,
+      fixtureTypeId: recipe.output?.fixtureTypeId || legacyFixtureTypeId,
       parentOrderId: String(candidate.parentOrderId || ""),
-      quantity: Math.max(1, Math.floor(Number(candidate.quantity) || 1)),
-      completedQuantity: clamp(Math.floor(Number(candidate.completedQuantity) || 0), 0, Math.max(1, Math.floor(Number(candidate.quantity) || 1))),
-      materialPolicy: fixtureMaterialPolicyId(candidate.materialPolicy, fixtureDef(fixtureTypeId)),
-      materialOptionId: String(candidate.materialOptionId || ""),
-      resourceCosts: normalizeResourceCosts(candidate.resourceCosts || {}),
-      status: ["planned", "blocked", "completed", "canceled"].includes(candidate.status) ? candidate.status : "planned",
+      scope: candidate.scope === "workstation" ? "workstation" : "global",
+      workstationId: String(candidate.workstationId || ""),
+      mode,
+      quantity: mode === "once" ? 1 : quantity,
+      targetQuantity: Math.max(1, Math.floor(Number(candidate.targetQuantity) || quantity)),
+      completedQuantity: Math.max(0, Math.floor(Number(candidate.completedQuantity) || 0)),
+      priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
+      materialStrategy: PRODUCTION_MATERIAL_STRATEGY_BY_ID[candidate.materialStrategy]?.id || (candidate.materialPolicy === "best" ? "best" : "closest"),
+      allowedMaterialOptionIds: allowed.length ? allowed : options.map((option) => option.id),
+      status: ["active", "paused", "completed", "canceled"].includes(candidate.status) ? candidate.status : candidate.status === "completed" ? "completed" : "active",
       blockedReason: String(candidate.blockedReason || ""),
+      activeTaskId: String(candidate.activeTaskId || ""),
+      autoGenerated: Boolean(candidate.autoGenerated || candidate.parentOrderId),
       createdBy: String(candidate.createdBy || "scientist"),
       createdAt: finiteTime(candidate.createdAt, 0),
       completedAt: candidate.completedAt == null ? null : finiteTime(candidate.completedAt, 0)
@@ -12623,13 +12921,45 @@
     return (Array.isArray(candidate) ? candidate : []).map(normalizeProductionBill).filter(Boolean);
   }
 
+  function normalizeProductionWorkpiece(candidate) {
+    if (!candidate || typeof candidate !== "object" || !productionRecipe(candidate.recipeId)) return null;
+    const id = String(candidate.id || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+    const workstationId = String(candidate.workstationId || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+    if (!id || !workstationId) return null;
+    return {
+      id,
+      billId: String(candidate.billId || ""),
+      recipeId: String(candidate.recipeId),
+      workstationId,
+      materialOptionId: String(candidate.materialOptionId || ""),
+      materialComposition: normalizeMaterialComposition(candidate.materialComposition),
+      inputCosts: normalizeResourceCosts(candidate.inputCosts || {}),
+      progressSeconds: Math.max(0, Number(candidate.progressSeconds) || 0),
+      requiredSeconds: Math.max(1, Number(candidate.requiredSeconds) || productionRecipe(candidate.recipeId).workSeconds || 1),
+      status: ["working", "paused", "completed", "canceled"].includes(candidate.status) ? candidate.status : "paused",
+      reservedTaskId: String(candidate.reservedTaskId || ""),
+      craftsmanship: clamp(Number(candidate.craftsmanship) || 0, 0, 100),
+      outputStackId: String(candidate.outputStackId || ""),
+      scrapStackId: String(candidate.scrapStackId || ""),
+      cell: cleanMapCell(candidate.cell) || labMapRoomAnchor(MAIN_ROOM_ID),
+      createdAt: finiteTime(candidate.createdAt, 0),
+      completedAt: candidate.completedAt == null ? null : finiteTime(candidate.completedAt, 0)
+    };
+  }
+
+  function normalizeProductionWorkpieces(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map(normalizeProductionWorkpiece).filter(Boolean);
+  }
+
   function normalizeFabricatedFixtures(candidate) {
     return (Array.isArray(candidate) ? candidate : []).map((item) => ({
       id: String(item?.id || "").replace(/[^a-zA-Z0-9:_-]/g, ""),
       fixtureTypeId: String(item?.fixtureTypeId || ""),
       materialPolicy: String(item?.materialPolicy || "closest"),
       materialComposition: normalizeMaterialComposition(item?.materialComposition, { primary: "steel" }),
+      craftsmanship: clamp(Number(item?.craftsmanship) || 0, 0, 100),
       productionBillId: String(item?.productionBillId || ""),
+      physicalStackId: String(item?.physicalStackId || ""),
       reservedOrderId: String(item?.reservedOrderId || ""),
       roomId: cleanRoomId(item?.roomId) || STORAGE_ROOM_ID,
       createdAt: finiteTime(item?.createdAt, 0)
@@ -12640,6 +12970,10 @@
     return (state.productionBills || []).find((bill) => bill.id === id) || null;
   }
 
+  function productionWorkpieceById(id) {
+    return (state.productionWorkpieces || []).find((workpiece) => workpiece.id === id) || null;
+  }
+
   function productionBillForOrder(order) {
     return productionBillById(order?.productionBillId) || (state.productionBills || []).find((bill) => bill.parentOrderId === order?.id && bill.status !== "canceled") || null;
   }
@@ -12648,27 +12982,50 @@
     return (state.fabricatedFixtures || []).find((item) => item.reservedOrderId === order?.id) || null;
   }
 
+  function fabricatedFixturePhysicalStack(item) {
+    return ensurePhysicalItemStacks().find((stack) => stack.id === item?.physicalStackId) || null;
+  }
+
+  function reserveFabricatedFixtureForOrder(order) {
+    const fixtureTypeId = constructionOrderFixtureDef(order)?.id;
+    if (!fixtureTypeId) return null;
+    const item = (state.fabricatedFixtures || []).find((candidate) => candidate.fixtureTypeId === fixtureTypeId
+      && !candidate.reservedOrderId && fabricatedFixturePhysicalStack(candidate));
+    if (!item) return null;
+    item.reservedOrderId = order.id;
+    const stack = fabricatedFixturePhysicalStack(item);
+    if (stack) stack.reservedTaskId = `order:${order.id}`;
+    return item;
+  }
+
   function fixtureProductionBlockReason(def) {
     if (!def || def.assemblyClass === "siteBuilt") return "";
     if (!fixtureCapabilityAvailable("workbench")) return "No operational workbench can fabricate the required item or components.";
-    return "Workstation bill execution is waiting for the physical stockpile and crafting pass.";
+    return `Waiting for ${FIXTURE_CRAFTED_ITEM_BY_TYPE[def.id]?.label || def.label} production.`;
   }
 
   function createLinkedFixtureProductionBill(order) {
     const def = constructionOrderFixtureDef(order);
     if (!def || def.assemblyClass === "siteBuilt") return null;
-    const materialOption = fixtureMaterialOption(def, order.materialPolicy);
+    if (reserveFabricatedFixtureForOrder(order)) return null;
+    const recipe = productionRecipeForFixture(def.id);
+    const allowed = order.materialPolicy && def.materialOptions?.[order.materialPolicy]
+      ? [order.materialPolicy]
+      : recipe.materialOptions.map((option) => option.id);
     const bill = normalizeProductionBill({
       id: `production-bill-${state.nextProductionBillNumber++}`,
-      fixtureTypeId: def.id,
+      recipeId: recipe.id,
       parentOrderId: order.id,
+      scope: "global",
+      mode: "once",
       quantity: 1,
       completedQuantity: 0,
-      materialPolicy: order.materialPolicy,
-      materialOptionId: materialOption?.id || "",
-      resourceCosts: materialOption?.costs || {},
-      status: "blocked",
+      priority: order.priority,
+      materialStrategy: order.materialPolicy === "best" ? "best" : "closest",
+      allowedMaterialOptionIds: allowed,
+      status: "active",
       blockedReason: fixtureProductionBlockReason(def),
+      autoGenerated: true,
       createdBy: "scientist",
       createdAt: state.clock
     });
@@ -12680,19 +13037,27 @@
   function fulfillFixtureProductionBill(billOrId) {
     const bill = typeof billOrId === "string" ? productionBillById(billOrId) : billOrId;
     const order = constructionOrderById(bill?.parentOrderId);
-    const def = fixtureDef(bill?.fixtureTypeId);
+    const recipe = productionRecipe(bill?.recipeId);
+    const def = fixtureDef(recipe?.output?.fixtureTypeId);
     if (!bill || !order || !def || bill.status === "canceled") return false;
-    const materialOption = fixtureMaterialOption(def, bill.materialOptionId || bill.materialPolicy);
+    const materialOption = recipe.materialOptions.find((option) => bill.allowedMaterialOptionIds.includes(option.id)) || recipe.materialOptions[0];
     bill.status = "completed";
     bill.blockedReason = "";
-    bill.completedQuantity = bill.quantity;
+    bill.completedQuantity = 1;
     bill.completedAt = state.clock;
+    const output = createPhysicalItemStack("inventory", recipe.output.key, 1, physicalFallbackLocation(STORAGE_ROOM_ID), {
+      craftsmanship: 50,
+      materialComposition: materialOption?.composition,
+      productionBillId: bill.id
+    });
     state.fabricatedFixtures.push({
       id: `fabricated-fixture-${bill.id}`,
       fixtureTypeId: def.id,
-      materialPolicy: bill.materialPolicy,
+      materialPolicy: materialOption?.id || "closest",
       materialComposition: normalizeMaterialComposition(materialOption?.composition, { primary: "steel" }),
+      craftsmanship: 50,
       productionBillId: bill.id,
+      physicalStackId: output?.id || "",
       reservedOrderId: order.id,
       roomId: STORAGE_ROOM_ID,
       createdAt: state.clock
@@ -12709,8 +13074,509 @@
     if (bill && bill.status !== "completed") {
       bill.status = "canceled";
       bill.blockedReason = "Parent placement order canceled.";
+      if (bill.activeTaskId) cancelTask(bill.activeTaskId, { quiet: true });
     }
-    state.fabricatedFixtures = (state.fabricatedFixtures || []).map((item) => item.reservedOrderId === order?.id ? { ...item, reservedOrderId: "" } : item);
+    state.fabricatedFixtures = (state.fabricatedFixtures || []).map((item) => {
+      if (item.reservedOrderId !== order?.id) return item;
+      const stack = fabricatedFixturePhysicalStack(item);
+      if (stack?.reservedTaskId === `order:${order.id}`) stack.reservedTaskId = "";
+      return { ...item, reservedOrderId: "" };
+    });
+  }
+
+  function productionWorkstations(recipeOrId, bill = null) {
+    const recipe = productionRecipe(recipeOrId);
+    if (!recipe) return [];
+    return (state.fixtures || []).filter((fixture) => {
+      const def = fixtureDef(fixture);
+      if (!def || fixture.condition <= 0 || fixture.operationalState !== "operational") return false;
+      if (bill?.scope === "workstation" && fixture.id !== bill.workstationId) return false;
+      if (!(recipe.workstationCapabilities || []).every((capability) => def.capabilities.includes(capability))) return false;
+      if (!fixtureAccessCells(fixture).length) return false;
+      const occupying = (state.productionWorkpieces || []).find((workpiece) => workpiece.workstationId === fixture.id && ["working", "paused"].includes(workpiece.status));
+      return !occupying || occupying.billId === bill?.id;
+    });
+  }
+
+  function productionAllowedMaterialOptions(bill, recipe = productionRecipe(bill?.recipeId)) {
+    if (!recipe) return [];
+    const allowed = new Set(bill?.allowedMaterialOptionIds || []);
+    return (recipe.materialOptions || []).filter((option) => !allowed.size || allowed.has(option.id));
+  }
+
+  function productionEligibleStockAmount(recipeOrId) {
+    const recipe = productionRecipe(recipeOrId);
+    if (!recipe?.output) return 0;
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === recipe.output.section && stack.key === recipe.output.key)
+      .filter((stack) => stack.knownQuantity > 0 && !stack.carriedBy)
+      .filter((stack) => !stack.reservedTaskId || findTask(stack.reservedTaskId)?.type === "stockpileHaul")
+      .filter((stack) => INVENTORY_ITEM_BY_KEY[recipe.output.key]?.category !== "receptacles" || !normalizePhysicalContents(stack.contents).length)
+      .reduce((total, stack) => total + stack.knownQuantity, 0);
+  }
+
+  function productionPausedWorkpieceForBill(bill) {
+    return (state.productionWorkpieces || []).find((workpiece) => workpiece.billId === bill?.id && workpiece.status === "paused") || null;
+  }
+
+  function productionBillNeedsUnit(bill) {
+    if (!bill || bill.status !== "active" || bill.activeTaskId) return false;
+    if (productionPausedWorkpieceForBill(bill)) return true;
+    if (bill.mode === "repeat") return true;
+    if (bill.mode === "maintain") return productionEligibleStockAmount(bill.recipeId) < bill.targetQuantity;
+    const target = bill.mode === "once" ? 1 : bill.quantity;
+    return bill.completedQuantity < target;
+  }
+
+  function productionResourceStacks(key) {
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "resources" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)));
+  }
+
+  function productionToolSelection(recipe, startCell, targetComposition, materialOption = null) {
+    const requirements = materialOption?.toolRequirements || recipe?.toolRequirements || [];
+    if (!requirements.length) return { ok: true, selections: [], path: [startCell], endpoint: startCell, rate: 1, reason: "" };
+    const allCandidates = Object.entries(ensureToolDurability()).flatMap(([itemKey, instances]) =>
+      instances.map((instance) => ({ itemKey, instance }))
+    ).filter(({ itemKey, instance }) => durableToolDef(itemKey)?.capabilities && instance.current > 0 && !instance.reservedTaskId);
+    const selections = [];
+    for (const requirement of requirements) {
+      const chosen = allCandidates.map((candidate) => ({
+        ...candidate,
+        requirement,
+        score: constructionToolCapabilityScore(candidate.itemKey, candidate.instance, requirement, targetComposition)
+      })).filter((candidate) => candidate.score >= requirement.minimum)
+        .sort((a, b) => b.score - a.score || b.instance.current - a.instance.current)[0];
+      if (!chosen) return { ok: false, selections: [], path: [], reason: `No usable tool provides ${requirement.label}.` };
+      selections.push(chosen);
+    }
+    const unique = [...new Map(selections.map((selection) => [selection.instance.id, selection])).values()];
+    if (unique.length > 2) return { ok: false, selections: [], path: [], reason: "This recipe requires more tools than the scientist can carry." };
+    let cursor = startCell;
+    let path = [startCell];
+    for (const selection of unique.filter(({ instance }) => instance.carriedBy !== "scientist")) {
+      const cell = toolMapCell(selection.instance);
+      const segment = labMapPathBetweenCells(cursor, cell, { map: ensureLabMap(), ignoreDoors: true });
+      if (!segment.length) return { ok: false, selections: [], path: [], reason: `${inventoryItemLabel(selection.itemKey)} is stocked but unreachable.` };
+      path = appendMapPath(path, segment);
+      cursor = cell;
+    }
+    return {
+      ok: true,
+      selections: unique,
+      path,
+      endpoint: cursor,
+      rate: Math.min(...unique.map((selection) => constructionToolRate(selection.score))),
+      reason: ""
+    };
+  }
+
+  function productionMaterialRoute(costs, startCell, workstationCell) {
+    const reservations = [];
+    let path = [startCell];
+    let cursor = startCell;
+    for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
+      let remaining = amount;
+      const candidates = productionResourceStacks(key).map((stack) => {
+        const accessCell = stockpileHaulAccessCell(stack);
+        const route = accessCell ? labMapPathBetweenCells(cursor, accessCell, { map: ensureLabMap(), ignoreDoors: true }) : [];
+        return { stack, accessCell, route };
+      }).filter((candidate) => candidate.route.length)
+        .sort((a, b) => a.route.length - b.route.length || a.stack.observedAt - b.stack.observedAt);
+      for (const candidate of candidates) {
+        if (remaining <= 0) break;
+        const quantity = Math.min(candidate.stack.quantity, remaining);
+        reservations.push({ stackId: candidate.stack.id, key, quantity, sourceCell: candidate.accessCell });
+        path = appendMapPath(path, candidate.route);
+        cursor = candidate.accessCell;
+        remaining -= quantity;
+      }
+      if (remaining > 0) return { ok: false, reason: `Not enough reachable ${resourceLabel(key)} is available.`, reservations: [], path: [] };
+    }
+    const toWorkstation = labMapPathBetweenCells(cursor, workstationCell, { map: ensureLabMap(), ignoreDoors: true });
+    if (!toWorkstation.length) return { ok: false, reason: "No route connects the materials to the selected workstation.", reservations: [], path: [] };
+    return { ok: true, reason: "", reservations, path: appendMapPath(path, toWorkstation) };
+  }
+
+  function productionWorkPlan(bill) {
+    const recipe = productionRecipe(bill?.recipeId);
+    if (!recipe) return { ok: false, reason: "The recipe is no longer known." };
+    if (skillLevel(recipe.skillId) < (recipe.minimumSkillLevel || 0)) return { ok: false, reason: `${skillDisplayName(recipe.skillId)} level ${recipe.minimumSkillLevel} is required.` };
+    const paused = productionPausedWorkpieceForBill(bill);
+    const workstations = productionWorkstations(recipe, bill).filter((fixture) => !paused || fixture.id === paused.workstationId);
+    if (!workstations.length) return { ok: false, reason: bill.scope === "workstation" ? "The assigned workstation is unavailable or inaccessible." : "No compatible operational workstation is available." };
+    const plans = [];
+    for (const workstation of workstations) {
+      const accessCells = fixtureAccessCells(workstation).map((port) => port.cell);
+      for (const materialOption of paused ? [productionAllowedMaterialOptions(bill, recipe).find((option) => option.id === paused.materialOptionId) || productionAllowedMaterialOptions(bill, recipe)[0]] : productionAllowedMaterialOptions(bill, recipe)) {
+        if (!materialOption) continue;
+        const toolPlan = productionToolSelection(recipe, scientistMapCell(), materialOption.composition, materialOption);
+        if (!toolPlan.ok) continue;
+        for (const accessCell of accessCells) {
+          const materials = paused
+            ? (() => {
+                const route = labMapPathBetweenCells(toolPlan.endpoint, accessCell, { map: ensureLabMap(), ignoreDoors: true });
+                return route.length ? { ok: true, reservations: [], path: appendMapPath(toolPlan.path, route), reason: "" } : { ok: false, reason: "Workpiece is unreachable." };
+              })()
+            : productionMaterialRoute(materialOption.costs, toolPlan.endpoint, accessCell);
+          if (!materials.ok) continue;
+          const path = paused ? materials.path : appendMapPath(toolPlan.path, materials.path);
+          plans.push({
+            ok: true,
+            bill,
+            recipe,
+            workstation,
+            accessCell,
+            materialOption,
+            reservations: materials.reservations || [],
+            toolPlan,
+            path,
+            workpiece: paused,
+            score: path.length,
+            materialScore: Number(materialOption.score) || 0
+          });
+        }
+      }
+    }
+    if (!plans.length) {
+      const options = productionAllowedMaterialOptions(bill, recipe);
+      const missing = options.map((option) => resourceBlockReason(option.costs)).filter(Boolean)[0];
+      return { ok: false, reason: missing || "Required tools, materials, or a route to the workstation are unavailable." };
+    }
+    return plans.sort((a, b) => bill.materialStrategy === "best"
+      ? b.materialScore - a.materialScore || a.score - b.score
+      : a.score - b.score || b.materialScore - a.materialScore)[0];
+  }
+
+  function reserveProductionMaterialSlices(reservations, taskId) {
+    const requestedByStack = new Map();
+    for (const reservation of reservations || []) {
+      requestedByStack.set(reservation.stackId, (requestedByStack.get(reservation.stackId) || 0) + reservation.quantity);
+    }
+    for (const [stackId, quantity] of requestedByStack) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+      if (!stack || stack.reservedTaskId || stack.quantity < quantity) return null;
+    }
+    const reservedIds = [];
+    for (const reservation of reservations || []) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === reservation.stackId);
+      if (!stack || stack.reservedTaskId || stack.quantity < reservation.quantity) return null;
+      if (stack.quantity === reservation.quantity) {
+        stack.reservedTaskId = taskId;
+        reservedIds.push(stack.id);
+      } else {
+        stack.quantity -= reservation.quantity;
+        stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
+        const reserved = {
+          ...stack,
+          id: `stack-${state.nextPhysicalItemStackNumber++}`,
+          quantity: reservation.quantity,
+          knownQuantity: reservation.quantity,
+          reservedTaskId: taskId,
+          updatedAt: state.clock
+        };
+        ensurePhysicalItemStacks().push(reserved);
+        reservedIds.push(reserved.id);
+      }
+    }
+    syncPhysicalReadModels();
+    return reservedIds;
+  }
+
+  function releaseProductionMaterialReservations(task) {
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (stack.reservedTaskId === task?.id) stack.reservedTaskId = "";
+    }
+    syncPhysicalReadModels();
+  }
+
+  function consumeProductionMaterialReservations(task) {
+    const ids = new Set(task?.data?.reservedStackIds || []);
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => !ids.has(stack.id));
+    syncPhysicalReadModels();
+  }
+
+  function createProductionBill(options = {}) {
+    const recipe = productionRecipe(options.recipeId);
+    if (!recipe) return null;
+    const bill = normalizeProductionBill({
+      id: `production-bill-${state.nextProductionBillNumber++}`,
+      recipeId: recipe.id,
+      scope: options.scope,
+      workstationId: options.workstationId,
+      mode: options.mode,
+      quantity: options.quantity,
+      targetQuantity: options.targetQuantity,
+      priority: options.priority,
+      materialStrategy: options.materialStrategy,
+      allowedMaterialOptionIds: options.allowedMaterialOptionIds,
+      status: "active",
+      createdBy: options.createdBy || "player",
+      createdAt: state.clock
+    });
+    if (!bill) return null;
+    state.productionBills.push(bill);
+    claimNextProductionWork();
+    addEvent(`${recipe.label} added to the ${bill.scope === "global" ? "global" : fixtureById(bill.workstationId)?.name || "workstation"} production queue.`);
+    persist();
+    render();
+    return bill;
+  }
+
+  function claimNextProductionWork() {
+    if (scientistIsDead() || (state.tasks || []).some((task) => task.type === "productionWork")) return 0;
+    const candidates = (state.productionBills || []).filter(productionBillNeedsUnit).map((bill) => ({ bill, plan: productionWorkPlan(bill) }));
+    for (const candidate of candidates) candidate.bill.blockedReason = candidate.plan.ok ? "" : candidate.plan.reason;
+    const candidate = candidates.filter((entry) => entry.plan.ok)
+      .sort((a, b) => a.bill.priority - b.bill.priority || a.bill.createdAt - b.bill.createdAt || a.plan.score - b.plan.score)[0];
+    if (!candidate) return 0;
+    const { bill, plan } = candidate;
+    const taskId = `task-${state.nextTaskNumber++}`;
+    const reservedStackIds = plan.workpiece ? [] : reserveProductionMaterialSlices(plan.reservations, taskId);
+    if (!reservedStackIds) {
+      bill.blockedReason = "Materials changed before the production unit could reserve them.";
+      return 0;
+    }
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const requiredSeconds = plan.workpiece?.requiredSeconds || plan.recipe.workSeconds;
+    const completedSeconds = plan.workpiece?.progressSeconds || 0;
+    const rate = Math.max(0.1, Number(plan.toolPlan.rate) || 1);
+    const task = {
+      id: taskId,
+      type: "productionWork",
+      label: `${plan.recipe.label} at ${plan.workstation.name} (priority ${bill.priority})`,
+      createdAt: state.clock,
+      dueAt: queueTail + travelSeconds + Math.max(0, requiredSeconds - completedSeconds) / rate,
+      data: {
+        billId: bill.id,
+        recipeId: plan.recipe.id,
+        workstationId: plan.workstation.id,
+        workpieceId: plan.workpiece?.id || "",
+        materialOptionId: plan.materialOption.id,
+        materialComposition: plan.materialOption.composition,
+        resourceCosts: plan.materialOption.costs,
+        reservedStackIds,
+        mapPath: plan.path,
+        route: roomsFromMapPath(plan.path),
+        toCell: plan.accessCell,
+        roomId: labMapCellRoomId(plan.workstation.origin),
+        workStartsAt: queueTail + travelSeconds,
+        workRate: rate,
+        toolSelections: plan.toolPlan.selections.map((selection) => ({
+          instanceId: selection.instance.id,
+          itemKey: selection.itemKey,
+          score: selection.score,
+          requirement: selection.requirement.label
+        }))
+      }
+    };
+    makeRoomForConstructionTools(task.data.toolSelections);
+    for (const selection of task.data.toolSelections) {
+      const tool = toolInstanceById(selection.instanceId)?.instance;
+      if (tool) tool.reservedTaskId = task.id;
+    }
+    if (plan.workpiece) {
+      plan.workpiece.status = "working";
+      plan.workpiece.reservedTaskId = task.id;
+    }
+    plan.workstation.productionTaskId = task.id;
+    bill.activeTaskId = task.id;
+    bill.blockedReason = "";
+    state.tasks.push(task);
+    addEvent(`${task.label} entered the scientist queue.`);
+    return 1;
+  }
+
+  function ensureProductionWorkpieceForTask(task) {
+    let workpiece = productionWorkpieceById(task?.data?.workpieceId);
+    if (workpiece) return workpiece;
+    const bill = productionBillById(task?.data?.billId);
+    const recipe = productionRecipe(task?.data?.recipeId);
+    const workstation = fixtureById(task?.data?.workstationId);
+    if (!bill || !recipe || !workstation) return null;
+    consumeProductionMaterialReservations(task);
+    workpiece = normalizeProductionWorkpiece({
+      id: `production-workpiece-${state.nextProductionWorkpieceNumber++}`,
+      billId: bill.id,
+      recipeId: recipe.id,
+      workstationId: workstation.id,
+      materialOptionId: task.data.materialOptionId,
+      materialComposition: task.data.materialComposition,
+      inputCosts: task.data.resourceCosts,
+      progressSeconds: 0,
+      requiredSeconds: recipe.workSeconds,
+      status: "working",
+      reservedTaskId: task.id,
+      cell: workstation.origin,
+      createdAt: state.clock
+    });
+    state.productionWorkpieces.push(workpiece);
+    task.data.workpieceId = workpiece.id;
+    pickupConstructionTaskTools(task);
+    return workpiece;
+  }
+
+  function updateProductionWorkProgress(fromClock, toClock) {
+    const task = firstScientistQueueTask();
+    if (!task || task.type !== "productionWork") return 0;
+    const start = Math.max(Number(fromClock) || 0, finiteTime(task.data?.workStartsAt, task.createdAt));
+    const end = Math.min(Number(toClock) || 0, task.dueAt);
+    if (end <= start) return 0;
+    const workpiece = ensureProductionWorkpieceForTask(task);
+    if (!workpiece) return 0;
+    pickupConstructionTaskTools(task);
+    const before = workpiece.progressSeconds;
+    workpiece.progressSeconds = Math.min(workpiece.requiredSeconds, before + (end - start) * Math.max(0.1, Number(task.data?.workRate) || 1));
+    workpiece.status = "working";
+    workpiece.reservedTaskId = task.id;
+    return workpiece.progressSeconds > before ? 1 : 0;
+  }
+
+  function productionCraftsmanship(task, workpiece) {
+    const recipe = productionRecipe(workpiece?.recipeId);
+    const materialOption = recipe?.materialOptions?.find((option) => option.id === workpiece.materialOptionId);
+    const workstation = fixtureById(workpiece?.workstationId);
+    const tools = constructionTaskToolEntries(task);
+    const toolQuality = tools.length
+      ? tools.reduce((total, entry) => total + clamp(Number(entry.tool.quality) || 50, 0, 100), 0) / tools.length
+      : 50;
+    const skill = skillLevel(recipe?.skillId || "fabrication");
+    const rng = seedRng(`${state.seed}:craftsmanship:${workpiece.id}:${task.id}`);
+    const variation = (rng() - 0.5) * 12;
+    return clamp(25 + Math.min(30, skill * 0.6) + toolQuality * 0.16 + (workstation?.condition || 0) * 0.1 + (materialOption?.score || 50) * 0.1 + variation, 0, 100);
+  }
+
+  function completeProductionWork(task) {
+    const bill = productionBillById(task.data?.billId);
+    const recipe = productionRecipe(task.data?.recipeId);
+    const workstation = fixtureById(task.data?.workstationId);
+    const workpiece = ensureProductionWorkpieceForTask(task);
+    if (!bill || !recipe || !workstation || !workpiece) {
+      releaseProductionMaterialReservations(task);
+      releaseConstructionTaskTools(task, { retain: false });
+      if (bill) bill.activeTaskId = "";
+      if (workstation) workstation.productionTaskId = "";
+      addEvent("Production could not complete because its bill, recipe, or workstation was lost.");
+      return false;
+    }
+    workpiece.progressSeconds = workpiece.requiredSeconds;
+    workpiece.craftsmanship = productionCraftsmanship(task, workpiece);
+    workpiece.status = "completed";
+    workpiece.completedAt = state.clock;
+    workpiece.reservedTaskId = "";
+    const outputCell = cleanMapCell(task.data?.toCell) || workstation.origin;
+    const output = createPhysicalItemStack(recipe.output.section, recipe.output.key, recipe.output.quantity || 1, {
+      roomId: labMapCellRoomId(workstation.origin) || MAIN_ROOM_ID,
+      cell: outputCell,
+      fixtureId: "",
+      stockpileId: ""
+    }, {
+      craftsmanship: workpiece.craftsmanship,
+      materialComposition: workpiece.materialComposition,
+      productionBillId: bill.id,
+      productionWorkpieceId: workpiece.id
+    });
+    workpiece.outputStackId = output?.id || "";
+    if (recipe.output.fixtureTypeId) {
+      state.fabricatedFixtures.push({
+        id: `fabricated-fixture-${workpiece.id}`,
+        fixtureTypeId: recipe.output.fixtureTypeId,
+        materialPolicy: workpiece.materialOptionId,
+        materialComposition: workpiece.materialComposition,
+        craftsmanship: workpiece.craftsmanship,
+        productionBillId: bill.id,
+        physicalStackId: output?.id || "",
+        reservedOrderId: bill.parentOrderId || "",
+        roomId: labMapCellRoomId(workstation.origin) || MAIN_ROOM_ID,
+        createdAt: state.clock
+      });
+      if (bill.parentOrderId && output) output.reservedTaskId = `order:${bill.parentOrderId}`;
+    }
+    bill.completedQuantity += recipe.output.quantity || 1;
+    bill.activeTaskId = "";
+    bill.blockedReason = "";
+    const target = bill.mode === "once" ? 1 : bill.quantity;
+    if (["once", "quantity"].includes(bill.mode) && bill.completedQuantity >= target) {
+      bill.status = "completed";
+      bill.completedAt = state.clock;
+    }
+    workstation.productionTaskId = "";
+    for (const selection of task.data.toolSelections || []) {
+      damageSpecificTool(selection.instanceId, 1, recipe.label.toLowerCase());
+    }
+    releaseConstructionTaskTools(task, { retain: false });
+    awardXp(recipe.skillId || "fabrication", Math.max(4, recipe.workSeconds / 60), recipe.output.fixtureTypeId ? "fixture fabrication" : "receptacle fabrication");
+    addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${INVENTORY_ITEM_BY_KEY[recipe.output.key]?.label || recipe.output.key} produced at ${workstation.name}.`);
+    refreshConstructionOrderBlocks();
+    claimNextConstructionWork();
+    claimNextProductionWork();
+    claimNextStockpileHaul();
+    return true;
+  }
+
+  function productionWorkTaskBlockReason(task) {
+    const bill = productionBillById(task?.data?.billId);
+    const workstation = fixtureById(task?.data?.workstationId);
+    if (!bill || bill.status === "canceled") return "The production bill was canceled or removed.";
+    if (!workstation || workstation.condition <= 0 || workstation.operationalState !== "operational") return "The selected workstation is unavailable.";
+    if (!fixtureAccessCells(workstation).length) return "No reachable operator position remains at the workstation.";
+    for (const stackId of task.data?.reservedStackIds || []) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+      if (!productionWorkpieceById(task.data?.workpieceId) && (!stack || stack.reservedTaskId !== task.id)) return "Reserved production materials are no longer available.";
+    }
+    for (const selection of task.data?.toolSelections || []) {
+      const tool = toolInstanceById(selection.instanceId)?.instance;
+      if (!tool || tool.current <= 0) return `${inventoryItemLabel(selection.itemKey)} is unavailable or broken.`;
+      if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return `${inventoryItemLabel(selection.itemKey)} is reserved for different work.`;
+    }
+    return "";
+  }
+
+  function cleanupCanceledProductionTask(task) {
+    const bill = productionBillById(task?.data?.billId);
+    const workstation = fixtureById(task?.data?.workstationId);
+    const workpiece = productionWorkpieceById(task?.data?.workpieceId);
+    if (workpiece) {
+      if (bill?.status === "canceled") {
+        workpiece.status = "canceled";
+        const scrapAmount = Math.max(1, Math.ceil(Object.values(workpiece.inputCosts || {}).reduce((total, amount) => total + (Number(amount) || 0), 0) * 0.5));
+        const scrap = createPhysicalItemStack("resources", "waste", scrapAmount, {
+          roomId: labMapCellRoomId(workpiece.cell) || MAIN_ROOM_ID,
+          cell: workpiece.cell,
+          fixtureId: "",
+          stockpileId: ""
+        }, {
+          tags: ["crafting scrap", workpiece.materialOptionId],
+          sourceLabels: [productionRecipe(workpiece.recipeId)?.label || "canceled production"]
+        });
+        workpiece.scrapStackId = scrap?.id || "";
+      } else {
+        workpiece.status = "paused";
+        if (bill?.status === "active") bill.status = "paused";
+      }
+      workpiece.reservedTaskId = "";
+    } else {
+      releaseProductionMaterialReservations(task);
+      if (bill?.status === "active") bill.status = "paused";
+    }
+    releaseConstructionTaskTools(task, { retain: false });
+    if (bill?.activeTaskId === task.id) bill.activeTaskId = "";
+    if (workstation?.productionTaskId === task.id) workstation.productionTaskId = "";
+  }
+
+  function setProductionBillStatus(billId, status) {
+    const bill = productionBillById(billId);
+    if (!bill || !["active", "paused", "canceled"].includes(status)) return false;
+    const activeTaskId = bill.activeTaskId;
+    bill.status = status;
+    bill.blockedReason = status === "canceled" ? "Canceled by player." : "";
+    if (["paused", "canceled"].includes(status) && activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
+    if (status === "active") claimNextProductionWork();
+    persist();
+    render();
+    return true;
   }
 
   function objectFootprintCells(origin, footprint) {
@@ -23262,6 +24128,7 @@
     renderEconomy();
     renderScientist();
     renderTasks();
+    renderProduction();
     renderJournal();
     renderEvents();
     renderMapOverlayHud();
@@ -32163,6 +33030,175 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
+  function renderProduction() {
+    if (!dom.productionBillList) return;
+    renderProductionBillEditor();
+    const activeTab = currentProductionMenuTab();
+    const activeBills = (state.productionBills || []).filter((bill) => !["completed", "canceled"].includes(bill.status));
+    dom.productionSummary.textContent = `${activeBills.length} active ${activeBills.length === 1 ? "bill" : "bills"}; ${(state.productionWorkpieces || []).filter((item) => item.status !== "completed").length} unfinished workpieces`;
+    dom.productionBillsBadge.textContent = String(activeBills.length);
+    dom.productionRecipesBadge.textContent = String(PRODUCTION_RECIPE_DEFS.length);
+    dom.productionWorkpiecesBadge.textContent = String((state.productionWorkpieces || []).length);
+    for (const button of document.querySelectorAll("[data-production-menu-tab]")) {
+      const tab = normalizeProductionMenuTab(button.dataset.productionMenuTab);
+      const selected = tab === activeTab;
+      setElementHotkeyHint(button, PRODUCTION_MENU_TAB_HOTKEYS[tab]);
+      button.classList.toggle("active-record-tab", selected);
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of document.querySelectorAll("[data-production-menu-panel]")) {
+      panel.hidden = normalizeProductionMenuTab(panel.dataset.productionMenuPanel) !== activeTab;
+    }
+    renderProductionBills();
+    renderProductionRecipes();
+    renderProductionWorkpieces();
+  }
+
+  function setSelectOptions(select, entries, previous, fallback = "") {
+    if (!select) return "";
+    select.textContent = "";
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.disabled = Boolean(entry.disabled);
+      select.append(option);
+    }
+    const available = entries.find((entry) => entry.value === previous && !entry.disabled)
+      || entries.find((entry) => entry.value === fallback && !entry.disabled)
+      || entries.find((entry) => !entry.disabled);
+    select.value = available?.value || "";
+    return select.value;
+  }
+
+  function renderProductionBillEditor() {
+    if (!dom.productionRecipeSelect) return;
+    const previousRecipe = dom.productionRecipeSelect.value;
+    const recipeId = setSelectOptions(dom.productionRecipeSelect, PRODUCTION_RECIPE_DEFS.map((recipe) => ({
+      value: recipe.id,
+      label: recipe.label
+    })), previousRecipe, PRODUCTION_RECIPE_DEFS[0]?.id);
+    setSelectOptions(dom.productionModeSelect, PRODUCTION_BILL_MODE_DEFS.map((mode) => ({ value: mode.id, label: mode.label })), dom.productionModeSelect.value, "once");
+    setSelectOptions(dom.productionMaterialStrategySelect, PRODUCTION_MATERIAL_STRATEGY_DEFS.map((strategy) => ({ value: strategy.id, label: strategy.label })), dom.productionMaterialStrategySelect.value, "closest");
+    const recipe = productionRecipe(recipeId);
+    const stationEntries = productionWorkstations(recipe).map((fixture) => ({ value: fixture.id, label: `${fixture.name} (${roomName(labMapCellRoomId(fixture.origin))})` }));
+    setSelectOptions(dom.productionWorkstationSelect, stationEntries.length ? stationEntries : [{ value: "", label: "No compatible workstation", disabled: true }], dom.productionWorkstationSelect.value);
+    const workstationScope = dom.productionScopeSelect.value === "workstation";
+    dom.productionWorkstationField.hidden = !workstationScope;
+    dom.productionQuantityField.firstChild.textContent = dom.productionModeSelect.value === "maintain" ? "Target stock" : "Quantity";
+    dom.productionQuantityField.hidden = dom.productionModeSelect.value === "once" || dom.productionModeSelect.value === "repeat";
+    dom.productionMaterialRules.textContent = "";
+    const legend = document.createElement("legend");
+    legend.textContent = "Allowed materials";
+    dom.productionMaterialRules.append(legend);
+    for (const material of recipe?.materialOptions || []) {
+      const label = document.createElement("label");
+      label.className = "production-material-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = material.id;
+      input.checked = true;
+      label.append(input, document.createTextNode(`${material.label}: ${formatResourceBundle(material.costs)}`));
+      label.title = materialCompositionLabel(material.composition);
+      dom.productionMaterialRules.append(label);
+    }
+    const submit = dom.productionBillForm.querySelector("button[type=submit]");
+    const disabledReason = !recipe
+      ? "Choose a known recipe."
+      : workstationScope && !dom.productionWorkstationSelect.value
+        ? "No compatible operational workstation is available."
+        : "";
+    setActionButtonState(submit, Boolean(disabledReason), disabledReason);
+  }
+
+  function productionCard(title, subtitle = "") {
+    const card = document.createElement("article");
+    card.className = "production-card";
+    const heading = document.createElement("div");
+    heading.className = "production-card-heading";
+    heading.append(textEl("strong", title));
+    if (subtitle) heading.append(textEl("span", subtitle));
+    card.append(heading);
+    return card;
+  }
+
+  function productionBillProgressText(bill) {
+    if (bill.mode === "repeat") return `${bill.completedQuantity} completed; repeating`;
+    if (bill.mode === "maintain") return `${productionEligibleStockAmount(bill.recipeId)}/${bill.targetQuantity} eligible stock`;
+    return `${bill.completedQuantity}/${bill.mode === "once" ? 1 : bill.quantity} completed`;
+  }
+
+  function renderProductionBills() {
+    dom.productionBillList.textContent = "";
+    const bills = [...(state.productionBills || [])].sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
+    if (!bills.length) {
+      dom.productionBillList.append(emptyText("No production bills. Add one above or place equipment that needs fabricated components."));
+      return;
+    }
+    for (const bill of bills) {
+      const recipe = productionRecipe(bill.recipeId);
+      const owner = bill.scope === "workstation" ? fixtureById(bill.workstationId)?.name || "Missing workstation" : "Global queue";
+      const card = productionCard(recipe?.label || bill.recipeId, `${owner}; priority ${bill.priority}; ${titleCase(bill.status)}`);
+      card.dataset.productionBill = bill.id;
+      card.append(emptyText(`${productionBillProgressText(bill)}. ${PRODUCTION_MATERIAL_STRATEGY_BY_ID[bill.materialStrategy]?.label || "Closest valid"}; ${productionAllowedMaterialOptions(bill, recipe).map((option) => option.label).join(", ") || "no allowed materials"}.`));
+      const task = findTask(bill.activeTaskId);
+      const workpiece = productionPausedWorkpieceForBill(bill) || productionWorkpieceById(task?.data?.workpieceId);
+      if (task) card.append(emptyText(`Active: ${task.label}; ${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining.`));
+      else if (workpiece) card.append(emptyText(`Paused workpiece: ${formatNumber(workpiece.progressSeconds)}/${formatNumber(workpiece.requiredSeconds)} seconds.`));
+      else if (bill.blockedReason) card.append(emptyText(`Blocked: ${bill.blockedReason}`));
+      if (bill.parentOrderId) card.append(emptyText(`Linked dependency for construction order ${bill.parentOrderId}.`));
+      const actions = document.createElement("div");
+      actions.className = "production-card-actions";
+      if (bill.status === "active") {
+        actions.append(storesActionButton("Pause", "Pause this bill. An existing workpiece is preserved.", () => setProductionBillStatus(bill.id, "paused")));
+      } else if (bill.status === "paused") {
+        actions.append(storesActionButton("Resume", "Resume this bill and allow the scientist to claim it.", () => setProductionBillStatus(bill.id, "active")));
+      }
+      if (!["completed", "canceled"].includes(bill.status)) {
+        actions.append(storesActionButton("Cancel", "Cancel this bill. A started workpiece becomes physical crafting waste and releases its workstation.", () => setProductionBillStatus(bill.id, "canceled")));
+      }
+      if (actions.childElementCount) card.append(actions);
+      dom.productionBillList.append(card);
+    }
+  }
+
+  function renderProductionRecipes() {
+    dom.productionRecipeList.textContent = "";
+    for (const recipe of PRODUCTION_RECIPE_DEFS) {
+      const output = INVENTORY_ITEM_BY_KEY[recipe.output.key]?.label || recipe.output.key;
+      const card = productionCard(recipe.label, `${formatDuration(recipe.workSeconds)} work; ${output}`);
+      card.append(emptyText(recipe.description));
+      const toolLabels = [...new Set([...(recipe.toolRequirements || []), ...recipe.materialOptions.flatMap((option) => option.toolRequirements || [])].map((item) => item.label))];
+      card.append(emptyText(`Workstation: ${recipe.workstationCapabilities.join(", ")}. Tools: ${toolLabels.join(", ") || "none"}. Materials: ${recipe.materialOptions.map((option) => `${option.label} (${formatResourceBundle(option.costs)})`).join("; ")}.`));
+      const button = storesActionButton("Create Bill", `Create a global ${recipe.label.toLowerCase()} bill.`, () => {
+        dom.productionRecipeSelect.value = recipe.id;
+        setProductionMenuTab("bills", { render: false });
+        persist();
+        render();
+      });
+      card.append(button);
+      dom.productionRecipeList.append(card);
+    }
+  }
+
+  function renderProductionWorkpieces() {
+    dom.productionWorkpieceList.textContent = "";
+    const workpieces = [...(state.productionWorkpieces || [])].sort((a, b) => b.createdAt - a.createdAt);
+    if (!workpieces.length) {
+      dom.productionWorkpieceList.append(emptyText("No material has entered production yet. A workpiece appears when the scientist reaches a workstation and begins work."));
+      return;
+    }
+    for (const workpiece of workpieces) {
+      const recipe = productionRecipe(workpiece.recipeId);
+      const progress = workpiece.requiredSeconds ? Math.round(workpiece.progressSeconds / workpiece.requiredSeconds * 100) : 0;
+      const card = productionCard(recipe?.label || workpiece.recipeId, `${titleCase(workpiece.status)} at ${fixtureById(workpiece.workstationId)?.name || "missing workstation"}`);
+      card.dataset.productionWorkpiece = workpiece.id;
+      card.append(emptyText(`${progress}% complete; ${materialCompositionLabel(workpiece.materialComposition)}.${workpiece.status === "completed" ? ` ${craftsmanshipBand(workpiece.craftsmanship).label} craftsmanship (${formatNumber(workpiece.craftsmanship)}).` : ""}`));
+      dom.productionWorkpieceList.append(card);
+    }
+  }
+
   function renderInventory() {
     state.inventory = normalizeInventory(state.inventory);
     state.specimenMaterials = normalizeSpecimenMaterials(state.specimenMaterials);
@@ -32176,6 +33212,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const specimenEntries = specimenMaterialEntries();
     const materialItems = items.filter((item) => item.category === "materials");
     const toolItems = items.filter((item) => item.category === "tools");
+    const craftedItems = items.filter((item) => item.category === "crafted");
     const stockedRoomIds = roomStockpileIds().filter((roomId) => knownSupplyEntriesForRoom(roomId).length > 0);
     const stationInfos = collectionBayActiveContainers().map((container) => collectionBayStationInfo(container));
     const stockedInventoryCount = items.filter((item) => inventoryAmount(item.key) > 0).length;
@@ -32193,7 +33230,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       materials: RESOURCE_DEFS.length + materialItems.length,
       byproducts: byproductEntries.length,
       specimens: specimenEntries.length,
-      tools: toolItems.length,
+      tools: toolItems.length + craftedItems.length,
       rooms: stockedRoomIds.length,
       stations: stationInfos.length,
       overview: nonzeroCount
@@ -32202,7 +33239,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderStoreMaterials(materialItems);
     renderStoreByproducts(byproductEntries);
     renderStoreSpecimenMaterials(specimenEntries);
-    renderStoreTools(toolItems);
+    renderStoreTools(toolItems, craftedItems);
     renderStoreRoomStockpiles(stockedRoomIds);
     renderStoreCollectionStations(stationInfos);
   }
@@ -32504,7 +33541,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.storesSpecimenMaterialList.append(section);
   }
 
-  function renderStoreTools(toolItems) {
+  function renderStoreTools(toolItems, craftedItems = []) {
     if (!dom.storesToolsList) {
       return;
     }
@@ -32517,6 +33554,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       section.append(emptyText("No tools or supplies are defined yet."));
     }
     dom.storesToolsList.append(section);
+    const crafted = storesSectionEl("Crafted Fixtures and Components", "Portable finished objects and component sets waiting for installation. Craftsmanship and material composition remain attached to each physical output.", { inventoryCategory: "crafted" });
+    const stockedCrafted = craftedItems.filter((item) => inventoryAmount(item.key) > 0);
+    if (stockedCrafted.length) {
+      for (const item of stockedCrafted) crafted.append(storesInventoryItemRow(item));
+    } else {
+      crafted.append(emptyText("No fabricated fixture items are currently stocked."));
+    }
+    dom.storesToolsList.append(crafted);
   }
 
   function renderStoreRoomStockpiles(stockedRoomIds = []) {
@@ -33332,7 +34377,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (focus.type === "inventoryCategory") {
       const wantedType = focus.key === "tools" ? "tool" : "inventory";
       const amount = entries
-        .filter((entry) => entry.type === wantedType)
+        .filter((entry) => entry.type === wantedType && INVENTORY_ITEM_BY_KEY[entry.key]?.category === focus.key)
         .reduce((total, entry) => total + (Number(entry.amount) || 0), 0);
       if (amount <= 0) return null;
       return {
@@ -33544,10 +34589,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const storageLabel = isStorageFixture(fixture)
         ? `; ${fixture.accessState}; ${storageFixtureContentsLabel(fixture)}; ${storageFixtureCapacityLabel(fixture)}`
         : "";
+      const workpiece = (state.productionWorkpieces || []).find((item) => item.workstationId === fixture.id && item.status !== "completed");
+      const productionLabel = workpiece
+        ? `; ${productionRecipe(workpiece.recipeId)?.label || "production workpiece"} ${Math.round(workpiece.progressSeconds / Math.max(1, workpiece.requiredSeconds) * 100)}% complete`
+        : "";
       footprint.forEach((cell, index) => addCell(
         cell,
         index === 0 ? def?.glyph || "F" : "F",
-        `${fixture.name} footprint ${footprintDef.width}x${footprintDef.height}; ${fixture.operationalState}${storageLabel}`,
+        `${fixture.name} footprint ${footprintDef.width}x${footprintDef.height}; ${fixture.operationalState}${storageLabel}${productionLabel}`,
         ["fixture-object-cell", ...(def?.collision === "blocking" ? ["blocking-object-cell"] : [])],
         target
       ));
@@ -33560,7 +34609,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addCell(
         stack.cell,
         stack.form === "spill" ? "~" : stack.form === "receptacle" ? "v" : "P",
-        `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)} on the floor; ${stack.contents?.length ? `${physicalStackContentsLabel(stack)}; ` : ""}${physicalStackKnowledgeLabel(stack)}`,
+        `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)} on the floor; ${stack.craftsmanship > 0 ? `${craftsmanshipBand(stack.craftsmanship).label} craftsmanship; ` : ""}${stack.contents?.length ? `${physicalStackContentsLabel(stack)}; ` : ""}${physicalStackKnowledgeLabel(stack)}`,
         ["physical-item-stack-cell", "floor-stockpile-object-cell", ...(stack.form === "spill" ? ["spill-object-cell"] : [])],
         { kind: "itemStack", id: stack.id, label: `${physicalStackLabel(stack)} stack` }
       );
@@ -33899,6 +34948,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? ""
         : "No physical route currently reaches the designated work position.";
     }
+    if (task.type === "productionWork") {
+      return productionWorkTaskBlockReason(task);
+    }
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (!tool) return "The tool is no longer available.";
@@ -34009,6 +35061,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       releaseConstructionTaskTools(task, { retain: false });
       cancelLinkedFixtureProduction(order);
     }
+    if (task.type === "productionWork") {
+      cleanupCanceledProductionTask(task);
+    }
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
@@ -34037,7 +35092,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
-  function cancelTask(taskId) {
+  function cancelTask(taskId, options = {}) {
     const task = findTask(taskId);
     const reason = cancelTaskBlockReason(task);
     if (reason) {
@@ -34054,9 +35109,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     recordTaskHistory(task, "canceled");
     refreshConstructionOrderBlocks();
     claimNextConstructionWork();
-    addEvent(`Canceled task: ${task.label}.`);
-    persist();
-    render();
+    if (!options.noProductionClaim) claimNextProductionWork();
+    if (!options.quiet) addEvent(`Canceled task: ${task.label}.`);
+    if (!options.quiet) {
+      persist();
+      render();
+    }
     return true;
   }
 
@@ -35957,14 +37015,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (def?.capabilities?.includes("workbench")) {
       commands.push(commandDef({
         id: `fixture.openBills.${fixture.id}`,
-        label: "Review Linked Production Bills",
+        label: "Add Workstation Bill",
         group: "Production",
-        disabledReason: (state.productionBills || []).length ? "" : "No production bills have been created.",
-        description: "Review automatic production dependencies. Full workstation bill management follows the physical stockpile and crafting passes.",
+        description: `Open Production with a bill scoped to ${fixture.name}. Bills created here remain pinned to this workstation.`,
         run: () => {
-          addEvent(`${(state.productionBills || []).filter((bill) => bill.status !== "canceled").length} production bill${(state.productionBills || []).filter((bill) => bill.status !== "canceled").length === 1 ? "" : "s"} recorded.`);
+          ensureUiState().productionMenuTab = "bills";
+          setActiveWorkspaceTab("production", { scroll: true, animate: false });
           persist();
           render();
+          requestAnimationFrame(() => {
+            dom.productionScopeSelect.value = "workstation";
+            renderProductionBillEditor();
+            dom.productionWorkstationSelect.value = fixture.id;
+          });
           return true;
         }
       }));
@@ -39395,6 +40458,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "constructionWork" || task.type === "excavate") {
       return "Construction";
     }
+    if (task.type === "productionWork") {
+      return "Production";
+    }
     if (task.type === "toolMaintenance") {
       return "Maintenance";
     }
@@ -42038,6 +43104,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function inventoryItemTooltip(item) {
     const breakdown = stockpileBreakdownLines("inventory", item.key);
+    const craftedStacks = ensurePhysicalItemStacks().filter((stack) => stack.section === "inventory" && stack.key === item.key && stack.quantity > 0 && stack.craftsmanship > 0);
     const lines = [
       item.label,
       item.description,
@@ -42046,6 +43113,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "",
       "Recent changes:"
     ];
+    if (craftedStacks.length) {
+      lines.splice(4, 0, ...craftedStacks.map((stack) => `${craftsmanshipBand(stack.craftsmanship).label} craftsmanship (${formatNumber(stack.craftsmanship)}); ${materialCompositionLabel(stack.materialComposition)}; ${stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "stored fixture" : roomName(stack.roomId)}.`));
+    }
     const methodId = handlingMethodIdForInventoryItem(item.key);
     if (methodId) {
       lines.splice(
@@ -45130,6 +46200,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.fixtures = normalizeFixtures(next.fixtures);
     next.stockpileDesignations = normalizeStockpileDesignations(next.stockpileDesignations);
     next.productionBills = normalizeProductionBills(next.productionBills);
+    next.productionWorkpieces = normalizeProductionWorkpieces(next.productionWorkpieces);
     next.fabricatedFixtures = normalizeFabricatedFixtures(next.fabricatedFixtures);
     next.nextFixtureNumber = Math.max(
       Number(next.nextFixtureNumber) || 1,
@@ -45142,6 +46213,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.nextProductionBillNumber = Math.max(
       Number(next.nextProductionBillNumber) || 1,
       next.productionBills.reduce((max, bill) => Math.max(max, numericSuffix(bill.id)), 0) + 1
+    );
+    next.nextProductionWorkpieceNumber = Math.max(
+      Number(next.nextProductionWorkpieceNumber) || 1,
+      next.productionWorkpieces.reduce((max, workpiece) => Math.max(max, numericSuffix(workpiece.id)), 0) + 1
     );
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
@@ -45178,9 +46253,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.tasks ||= [];
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
+    const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
+    const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds]);
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
-        if (tool.reservedTaskId && !constructionTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
+        if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
       }
     }
     for (const order of next.construction.orders || []) {
@@ -45190,6 +46267,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           tile.taskId = "";
         }
       }
+    }
+    for (const bill of next.productionBills || []) {
+      if (bill.activeTaskId && !productionTaskIds.has(bill.activeTaskId)) bill.activeTaskId = "";
+    }
+    for (const fixture of next.fixtures || []) {
+      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId)) fixture.productionTaskId = "";
+    }
+    for (const workpiece of next.productionWorkpieces || []) {
+      if (workpiece.reservedTaskId && !productionTaskIds.has(workpiece.reservedTaskId)) {
+        workpiece.reservedTaskId = "";
+        if (workpiece.status === "working") workpiece.status = "paused";
+      }
+    }
+    for (const stack of next.physicalItemStacks || []) {
+      if (stack.reservedTaskId && stack.reservedTaskId.startsWith("task-") && !next.tasks.some((task) => task.id === stack.reservedTaskId)) stack.reservedTaskId = "";
     }
     const activeBlackMarketTaskIds = new Set(next.tasks.filter((task) => task?.type === "blackMarketTrade").map((task) => String(task.id || "")));
     for (const deal of next.economy.deals || []) {

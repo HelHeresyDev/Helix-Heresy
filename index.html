@@ -52,6 +52,7 @@
               <span id="queueBadge" class="queue-badge">0</span>
               <span id="queueNextReadout" class="queue-next">Clear</span>
             </button>
+            <button class="workspace-tab" type="button" data-workspace-tab="production">Production</button>
           </div>
           <div class="workspace-tab-group" data-workspace-category="creatures">
             <span class="workspace-category-label">Creatures</span>
@@ -302,6 +303,42 @@
           </div>
           <div class="task-menu-panel" data-task-menu-panel="completed" role="tabpanel" hidden>
             <div id="completedTaskList" class="task-list"></div>
+          </div>
+        </section>
+
+        <section class="panel production-panel" aria-labelledby="productionTitle" data-workspace-panel="production">
+          <div class="panel-heading">
+            <div>
+              <h2 id="productionTitle">Production</h2>
+              <p id="productionSummary">Workstation bills and physical crafting</p>
+            </div>
+          </div>
+
+          <div id="productionMenuTabs" class="record-tabs production-menu-tabs" role="tablist" aria-label="Production sections">
+            <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-production-menu-tab="bills">Bills <span id="productionBillsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-production-menu-tab="recipes">Recipes <span id="productionRecipesBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-production-menu-tab="workpieces">Workpieces <span id="productionWorkpiecesBadge" class="record-tab-badge">0</span></button>
+          </div>
+
+          <div class="production-menu-panel" data-production-menu-panel="bills" role="tabpanel">
+            <form id="productionBillForm" class="production-bill-form">
+              <label>Recipe<select id="productionRecipeSelect"></select></label>
+              <label>Mode<select id="productionModeSelect"></select></label>
+              <label id="productionQuantityField">Quantity<input id="productionQuantityInput" type="number" min="1" value="1"></label>
+              <label>Priority<input id="productionPriorityInput" type="number" min="1" max="7" value="4"></label>
+              <label>Material choice<select id="productionMaterialStrategySelect"></select></label>
+              <label>Bill owner<select id="productionScopeSelect"><option value="global">Global queue</option><option value="workstation">Specific workstation</option></select></label>
+              <label id="productionWorkstationField">Workstation<select id="productionWorkstationSelect"></select></label>
+              <fieldset id="productionMaterialRules" class="production-material-rules"><legend>Allowed materials</legend></fieldset>
+              <button class="primary" type="submit">Add Bill</button>
+            </form>
+            <div id="productionBillList" class="production-list"></div>
+          </div>
+          <div class="production-menu-panel" data-production-menu-panel="recipes" role="tabpanel" hidden>
+            <div id="productionRecipeList" class="production-list"></div>
+          </div>
+          <div class="production-menu-panel" data-production-menu-panel="workpieces" role="tabpanel" hidden>
+            <div id="productionWorkpieceList" class="production-list"></div>
           </div>
         </section>
 

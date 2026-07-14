@@ -3394,3 +3394,85 @@ body.map-dragging .lab-map-cell {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+
+.production-bill-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.65rem;
+  padding: 0.75rem;
+  margin-bottom: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.production-bill-form > label,
+.production-material-option {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.production-bill-form select,
+.production-bill-form input[type="number"] {
+  width: 100%;
+}
+
+.production-material-rules {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.4rem;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.production-material-option {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--text);
+}
+
+.production-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.production-menu-panel[hidden],
+.production-bill-form > label[hidden] {
+  display: none;
+}
+
+.production-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.production-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.production-card-heading span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.production-card .journal-meta {
+  margin: 0;
+}
+
+.production-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
