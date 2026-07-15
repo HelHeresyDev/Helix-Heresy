@@ -1694,6 +1694,54 @@ body.map-dragging .lab-map-cell {
   border-color: rgba(191, 145, 221, 0.72);
 }
 
+.lab-map-cell.map-overlay-light-dark,
+.lab-map-cell.map-overlay-light-dim {
+  background: #151713;
+  border-color: rgba(121, 123, 105, 0.48);
+}
+
+.lab-map-cell.map-overlay-light-lit {
+  background: #303123;
+  border-color: rgba(205, 193, 126, 0.62);
+}
+
+.lab-map-cell.map-overlay-light-bright {
+  background: #45412a;
+  border-color: rgba(245, 221, 126, 0.82);
+}
+
+.lab-map-cell.map-overlay-infrastructure {
+  background: #202722;
+  border-color: rgba(174, 187, 166, 0.68);
+}
+
+.lab-map-cell.map-overlay-infrastructure-air {
+  background: #1b3031;
+  border-color: rgba(103, 190, 194, 0.75);
+}
+
+.lab-map-cell.map-overlay-infrastructure-drain {
+  background: #1b2935;
+  border-color: rgba(105, 158, 207, 0.76);
+}
+
+.lab-map-cell.map-overlay-infrastructure-electricity {
+  background: #38331c;
+  border-color: rgba(231, 204, 83, 0.82);
+}
+
+.lab-map-cell.map-overlay-infrastructure-mana {
+  background: #30253a;
+  border-color: rgba(191, 145, 221, 0.78);
+}
+
+.lab-map-cell.map-overlay-infrastructure-unpowered,
+.lab-map-cell.map-overlay-infrastructure-blocked,
+.lab-map-cell.map-overlay-infrastructure-saturated,
+.lab-map-cell.map-overlay-infrastructure-full {
+  box-shadow: inset 0 0 0 1px rgba(255, 139, 115, 0.68);
+}
+
 .lab-map-cell.map-overlay-movement-route {
   background: #1f302d;
   border-color: rgba(104, 200, 216, 0.6);

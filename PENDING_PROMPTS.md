@@ -12,74 +12,67 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Ventilation, Drainage, Heating, Lighting, and Mana Infrastructure
-2. Visibility, Sound, Scent, and Creature Perception
-3. Door Permissions, Restricted Zones, and Creature Access Policies
-4. Scalable Pathfinding, Space Sharing, and Movement Reservations
-5. Slime Need Priorities, Intent Switching, and Interrupted Actions
-6. Creature Job Autonomy and Physical Workplace Interaction
-7. Containment Breach Response, Recapture, and Emergency Lockdown
-8. Cleaning, Hauling, Maintenance, and Repair Work
-9. Tactical Combat Movement, Abilities, and Map Commands
-10. Simulation Scheduling and Performance for Hundreds of Actors
+1. Visibility, Sound, Scent, and Creature Perception
+2. Door Permissions, Restricted Zones, and Creature Access Policies
+3. Scalable Pathfinding, Space Sharing, and Movement Reservations
+4. Slime Need Priorities, Intent Switching, and Interrupted Actions
+5. Creature Job Autonomy and Physical Workplace Interaction
+6. Containment Breach Response, Recapture, and Emergency Lockdown
+7. Cleaning, Hauling, Maintenance, and Repair Work
+8. Tactical Combat Movement, Abilities, and Map Commands
+9. Simulation Scheduling and Performance for Hundreds of Actors
 
 ---
 
-## 1. Ventilation, Drainage, Heating, Lighting, and Mana Infrastructure
-
-Design infrastructure that creates, routes, removes, blocks, or stabilizes environmental conditions. Include power or operating requirements where useful, physical network layouts, failure states, maintenance, room suitability, and interactions with environmental feeders.
-
----
-
-## 2. Visibility, Sound, Scent, and Creature Perception
+## 1. Visibility, Sound, Scent, and Creature Perception
 
 Design a shared perception model for scientists and creatures. Resolve line of sight, lighting, occlusion, sounds through barriers, scent and trace diffusion, skill effects, stale knowledge, investigation behavior, and what normal versus debug map rendering reveals.
 
 ---
 
-## 3. Door Permissions, Restricted Zones, and Creature Access Policies
+## 2. Door Permissions, Restricted Zones, and Creature Access Policies
 
 Design actor-specific door permissions, forbidden areas, allowed zones, emergency restrictions, and automatic door behavior. Loose creatures should obey physical barriers and their own capabilities; policies should guide authorized actors without becoming magical walls.
 
 ---
 
-## 4. Scalable Pathfinding, Space Sharing, and Movement Reservations
+## 3. Scalable Pathfinding, Space Sharing, and Movement Reservations
 
 Prepare movement for many simultaneous actors. Resolve path caching, invalidation, occupied destinations, multi-tile bodies, small creatures sharing space, passing in corridors, door interaction time, congestion, reservations, blocked routes, and performance limits.
 
 ---
 
-## 5. Slime Need Priorities, Intent Switching, and Interrupted Actions
+## 4. Slime Need Priorities, Intent Switching, and Interrupted Actions
 
 Design how slime AI chooses among feeding, safety, rest, exploration, aggression, escape, social behavior, reproduction, and tagged jobs. Include hysteresis, commitment, interruption, memory, failed intentions, and readable activity explanations so creatures feel purposeful rather than erratic.
 
 ---
 
-## 6. Creature Job Autonomy and Physical Workplace Interaction
+## 5. Creature Job Autonomy and Physical Workplace Interaction
 
 Rework jobs as player intentions rather than absolute commands. Design how creatures recognize relevant workplaces and materials, travel or remain in suitable containers and pits, perform work through physical interactions, abandon unsuitable work, and reveal suitability through observed performance.
 
 ---
 
-## 7. Containment Breach Response, Recapture, and Emergency Lockdown
+## 6. Containment Breach Response, Recapture, and Emergency Lockdown
 
 Design tools and commands for responding to escapes and dangerous containment failures. Consider recapture, baiting, handling tools, temporary cages, emergency seals, room lockdown, evacuation, containment triage, scientist awareness, and consequences of imperfect responses.
 
 ---
 
-## 8. Cleaning, Hauling, Maintenance, and Repair Work
+## 7. Cleaning, Hauling, Maintenance, and Repair Work
 
 Design routine physical labor for moving materials, replacing receptacles, hauling corpses, cleaning residue, repairing damage, restoring seals, and maintaining equipment. Keep the scientist as the only directly controlled actor while allowing policies and future workers to perform designated labor autonomously.
 
 ---
 
-## 9. Tactical Combat Movement, Abilities, and Map Commands
+## 8. Tactical Combat Movement, Abilities, and Map Commands
 
 Design map-centric combat interactions for the scientist and creatures. Include movement, targeting, ranges, contact, elemental clashes, abilities, mana use, awareness, time slowdown or pausing, contextual commands, testing through combat, injuries, retreat, and containment during a fight.
 
 ---
 
-## 10. Simulation Scheduling and Performance for Hundreds of Actors
+## 9. Simulation Scheduling and Performance for Hundreds of Actors
 
 Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
 

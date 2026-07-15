@@ -99,6 +99,28 @@
     { id: "stone", label: "Stone", description: "Require the stone recipe where the design supports it." }
   ];
   const FIXTURE_MATERIAL_POLICY_BY_ID = Object.fromEntries(FIXTURE_MATERIAL_POLICY_DEFS.map((policy) => [policy.id, policy]));
+  const UTILITY_POWER_MODE_DEFS = [
+    { id: "fuel", label: "Direct Fuel" },
+    { id: "electric", label: "Electricity" },
+    { id: "mana", label: "Mana" }
+  ];
+  const UTILITY_POWER_MODE_BY_ID = Object.fromEntries(UTILITY_POWER_MODE_DEFS.map((mode) => [mode.id, mode]));
+  const UTILITY_CLIMATE_SETTING_DEFS = [
+    { id: "cold", label: "Cold", targetC: 12 },
+    { id: "comfortable", label: "Comfortable", targetC: 20 },
+    { id: "warm", label: "Warm", targetC: 30 }
+  ];
+  const UTILITY_CLIMATE_SETTING_BY_ID = Object.fromEntries(UTILITY_CLIMATE_SETTING_DEFS.map((setting) => [setting.id, setting]));
+  const UTILITY_AIRFLOW_MODES = new Set(["exhaust", "supply", "closed"]);
+  const UTILITY_MANA_SOURCE_MODES = new Set(["rock", "feedstock"]);
+  const UTILITY_OUTSIDE_TEMPERATURE_C = 12;
+  const UTILITY_OUTSIDE_HUMIDITY = 45;
+  const UTILITY_EXPOSURE_LOAD_STEP = 10;
+  const UTILITY_MAX_STEP_SECONDS = 60 * 60;
+  const UTILITY_FILTER_CAPACITY = 80;
+  const UTILITY_SUMP_CAPACITY = 120;
+  const UTILITY_FUEL_CAPACITY = 24;
+  const UTILITY_MANA_CAPACITY = 160;
   const FIXTURE_DEFS = [
     {
       id: "basicWorkbench",
@@ -215,6 +237,7 @@
       requiresAdjacentWall: true,
       ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
       capabilities: ["lighting"],
+      infrastructure: { role: "light", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 12, fuelPerHour: 0.04, manaPerHour: 1, light: 88, lightRadius: 7 },
       workMinutes: 5,
       materialOptions: {
         steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 1 }, score: 80 }
@@ -232,6 +255,7 @@
       requiresAdjacentWall: true,
       ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
       capabilities: ["ventilation"],
+      infrastructure: { role: "airTerminal", networks: ["air"], defaultMode: "exhaust", flowM3PerHour: 20 },
       workMinutes: 8,
       materialOptions: {
         steel: { composition: { primary: "steel" }, costs: { steelPanels: 1, metalParts: 1 }, score: 82 }
@@ -248,12 +272,254 @@
       layer: "underfloor",
       ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
       capabilities: ["drainage"],
+      infrastructure: { role: "drainInlet", networks: ["drain"], flowUnitsPerHour: 8 },
       workMinutes: 8,
       materialOptions: {
         steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1, metalParts: 1 }, score: 82 },
         stone: { composition: { primary: "ceramic", seal: "rubber" }, costs: { bricks: 2, metalParts: 1 }, score: 72 }
       },
       description: "A walk-over floor drain awaiting a physical drainage network."
+    },
+    {
+      id: "spaceHeater",
+      label: "Space Heater",
+      glyph: "h",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Controls and Fuel Access", x: 0, y: 1 }],
+      capabilities: ["heating"],
+      infrastructure: { role: "heater", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.18, manaPerHour: 4, heatCPerHour: 18, defaultSetting: "comfortable" },
+      workMinutes: 8,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "ceramic" }, costs: { steelPanels: 2, metalParts: 2 }, score: 82 }
+      },
+      description: "An independently powered heater with broad controls unless a thermostat is installed nearby."
+    },
+    {
+      id: "thermostat",
+      label: "Thermostat",
+      glyph: "t",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "wallControl",
+      requiresAdjacentWall: true,
+      ports: [{ id: "maintenance", label: "Control Access", x: 0, y: 0 }],
+      capabilities: ["temperatureControl"],
+      infrastructure: { role: "thermostat" },
+      workMinutes: 5,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 2, glass: 1 }, score: 84 }
+      },
+      description: "A local temperature sensor that unlocks exact Celsius targets for climate equipment in its room."
+    },
+    {
+      id: "airDuct",
+      label: "Air Duct",
+      glyph: "a",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "utilityAir",
+      ports: [{ id: "maintenance", label: "Duct Access", x: 0, y: 0 }],
+      capabilities: ["ventilationNetwork"],
+      infrastructure: { role: "conduit", networks: ["air"] },
+      workMinutes: 4,
+      materialOptions: {
+        steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1 }, score: 82 }
+      },
+      description: "A sealed air path connecting vents, fans, filters, and exterior terminals."
+    },
+    {
+      id: "ductFan",
+      label: "Duct Fan",
+      glyph: "F",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "utilityAir",
+      ports: [{ id: "maintenance", label: "Fan Access", x: 0, y: 0 }],
+      capabilities: ["ventilationPower"],
+      infrastructure: { role: "airFan", networks: ["air", "electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.12, manaPerHour: 3, flowM3PerHour: 24 },
+      workMinutes: 7,
+      materialOptions: {
+        steel: { composition: { primary: "steel", reinforcement: "iron" }, costs: { steelPanels: 1, metalParts: 2 }, score: 85 }
+      },
+      description: "A powered fan that moves exact air mixtures through a connected duct network."
+    },
+    {
+      id: "airFilter",
+      label: "Air Filter",
+      glyph: "f",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "utilityAir",
+      ports: [{ id: "maintenance", label: "Filter Access", x: 0, y: 0 }],
+      capabilities: ["airFiltration"],
+      infrastructure: { role: "airFilter", networks: ["air"], capacity: 80, captureFraction: 0.75 },
+      workMinutes: 6,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "cloth", seal: "rubber" }, costs: { steelPanels: 1, cloth: 2, rubber: 1 }, score: 86 }
+      },
+      description: "A finite filter that captures exact airborne substances until its physical medium is saturated."
+    },
+    {
+      id: "exteriorVent",
+      label: "Exterior Vent",
+      glyph: "V",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilityAir",
+      ports: [{ id: "maintenance", label: "Exterior Vent Access", x: 0, y: 0 }],
+      capabilities: ["exteriorDischarge"],
+      infrastructure: { role: "airExterior", networks: ["air"] },
+      workMinutes: 14,
+      materialOptions: {
+        steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 2, metalParts: 1 }, score: 84 }
+      },
+      description: "A concealed exterior air terminal. Hazardous discharge can be observed and increase Suspicion."
+    },
+    {
+      id: "drainPipe",
+      label: "Drain Pipe",
+      glyph: "p",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilityDrain",
+      ports: [{ id: "maintenance", label: "Pipe Access", x: 0, y: 0 }],
+      capabilities: ["drainageNetwork"],
+      infrastructure: { role: "conduit", networks: ["drain"] },
+      workMinutes: 4,
+      materialOptions: {
+        steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1 }, score: 84 },
+        stone: { composition: { primary: "ceramic", seal: "rubber" }, costs: { bricks: 1 }, score: 72 }
+      },
+      description: "An underfloor path carrying physical liquid and sludge toward a sump or exterior outlet."
+    },
+    {
+      id: "sumpTank",
+      label: "Sump Tank",
+      glyph: "U",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 2 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Sump Access", x: 0, y: 2 }],
+      capabilities: ["drainageStorage"],
+      infrastructure: { role: "drainSump", networks: ["drain"], capacity: 120 },
+      workMinutes: 16,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "ceramic", seal: "rubber" }, costs: { steelPanels: 4, metalParts: 2, rubber: 2 }, score: 88 }
+      },
+      description: "A finite physical reservoir for drained liquids and sludge. Full sumps stop accepting flow."
+    },
+    {
+      id: "drainOutfall",
+      label: "Exterior Drain Outfall",
+      glyph: "O",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilityDrain",
+      ports: [{ id: "maintenance", label: "Outfall Access", x: 0, y: 0 }],
+      capabilities: ["exteriorDischarge"],
+      infrastructure: { role: "drainExterior", networks: ["drain"] },
+      workMinutes: 14,
+      materialOptions: {
+        steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 2, metalParts: 1 }, score: 84 }
+      },
+      description: "A concealed exterior liquid outlet. Hazardous discharge can expose the laboratory."
+    },
+    {
+      id: "fuelGenerator",
+      label: "Fuel Generator",
+      glyph: "G",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Generator Controls", x: 0, y: 1 }],
+      capabilities: ["electricityGeneration"],
+      infrastructure: { role: "electricSource", networks: ["electricity"], fuelCapacity: 48, fuelPerHour: 0.3, outputPerHour: 30 },
+      workMinutes: 16,
+      materialOptions: {
+        steel: { composition: { primary: "steel", reinforcement: "iron" }, costs: { steelPanels: 4, metalParts: 4 }, score: 88 }
+      },
+      description: "A local fuel-burning generator that powers connected electrical conduits and emits heat and smoke."
+    },
+    {
+      id: "powerConduit",
+      label: "Power Conduit",
+      glyph: "e",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "utilityElectric",
+      ports: [{ id: "maintenance", label: "Conduit Access", x: 0, y: 0 }],
+      capabilities: ["electricityNetwork"],
+      infrastructure: { role: "conduit", networks: ["electricity"] },
+      workMinutes: 4,
+      materialOptions: {
+        steel: { composition: { primary: "iron", lining: "rubber" }, costs: { metalParts: 1, rubber: 1 }, score: 80 }
+      },
+      description: "An insulated physical electrical connection between generators and compatible equipment."
+    },
+    {
+      id: "manaCollector",
+      label: "Mana Collector",
+      glyph: "M",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Collector Controls", x: 0, y: 1 }],
+      capabilities: ["manaCollection"],
+      infrastructure: { role: "manaSource", networks: ["mana"], capacity: 160, collectPerHour: 8, feedstockCapacity: 24, defaultMode: "rock" },
+      workMinutes: 12,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { steelPanels: 2, metalParts: 2, glass: 2 }, score: 86 }
+      },
+      description: "A finite mana reservoir that can draw slowly from surrounding rock or consume Arcane Feedstock."
+    },
+    {
+      id: "manaConduit",
+      label: "Mana Conduit",
+      glyph: "m",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "utilityMana",
+      ports: [{ id: "maintenance", label: "Conduit Access", x: 0, y: 0 }],
+      capabilities: ["manaNetwork"],
+      infrastructure: { role: "conduit", networks: ["mana"] },
+      workMinutes: 4,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 1, glass: 1 }, score: 82 }
+      },
+      description: "A warded physical path carrying stored mana between collectors and compatible equipment."
+    },
+    {
+      id: "manaEmitter",
+      label: "Mana Emitter",
+      glyph: "E",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "wallControl",
+      requiresAdjacentWall: true,
+      ports: [{ id: "maintenance", label: "Emitter Controls", x: 0, y: 0 }],
+      capabilities: ["manaControl"],
+      infrastructure: { role: "manaEmitter", networks: ["mana"], outputPerHour: 8, defaultTarget: 70 },
+      workMinutes: 8,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { steelPanels: 1, metalParts: 2, glass: 1 }, score: 85 }
+      },
+      description: "A controlled outlet that spends stored network mana to raise the density on its exact tile."
     },
     {
       id: "concealedExit",
@@ -3110,6 +3376,11 @@
       description: "Observed tile temperature in degrees Celsius."
     },
     {
+      id: "light",
+      label: "Light",
+      description: "Observed tile illumination produced by physical light sources and blocked by solid geometry."
+    },
+    {
       id: "humidity",
       label: "Humidity",
       description: "Observed tile relative humidity."
@@ -3118,6 +3389,11 @@
       id: "ambientMana",
       label: "Ambient Mana",
       description: "Observed ambient mana density in thaums per cubic meter."
+    },
+    {
+      id: "infrastructure",
+      label: "Infrastructure",
+      description: "Physical utility fixtures, network media, connection state, and operating status."
     },
     {
       id: "movement",
@@ -3296,6 +3572,22 @@
       defaultFixtureInstance("starter-storage-shelf", "storageShelf", { x: 49, y: 40 }, 0, { materialPolicy: "wood", accessState: "open" }),
       defaultFixtureInstance("starter-storage-crate", "storageCrate", { x: 52, y: 40 }, 0, { materialPolicy: "wood", accessState: "closed" }),
       defaultFixtureInstance("starter-locking-cabinet", "lockingCabinet", { x: 54, y: 40 }, 0, { materialPolicy: "steel", accessState: "locked" }),
+      defaultFixtureInstance("starter-wall-lamp", "wallLamp", { x: 54, y: 45 }, 0, { materialPolicy: "steel", utility: { enabled: true, powerMode: "fuel", fuel: 8 } }),
+      defaultFixtureInstance("starter-space-heater", "spaceHeater", { x: 56, y: 52 }, 0, { materialPolicy: "steel", utility: { enabled: false, powerMode: "fuel", fuel: 12, climateSetting: "comfortable" } }),
+      defaultFixtureInstance("starter-thermostat", "thermostat", { x: 54, y: 54 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-wall-vent", "wallVent", { x: 66, y: 48 }, 0, { materialPolicy: "steel", utility: { mode: "exhaust" } }),
+      defaultFixtureInstance("starter-duct-fan", "ductFan", { x: 65, y: 48 }, 0, { materialPolicy: "steel", utility: { enabled: false, powerMode: "fuel", fuel: 12 } }),
+      defaultFixtureInstance("starter-air-filter", "airFilter", { x: 64, y: 48 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-air-duct", "airDuct", { x: 66, y: 47 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-exterior-vent", "exteriorVent", { x: 66, y: 46 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-floor-drain", "floorDrain", { x: 59, y: 50 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-drain-pipe", "drainPipe", { x: 60, y: 50 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-sump", "sumpTank", { x: 61, y: 49 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-mana-emitter", "manaEmitter", { x: 46, y: 52 }, 0, { materialPolicy: "steel", utility: { enabled: false, manaTarget: 70 } }),
+      defaultFixtureInstance("starter-mana-conduit", "manaConduit", { x: 47, y: 52 }, 0, { materialPolicy: "steel" }),
+      defaultFixtureInstance("starter-mana-collector", "manaCollector", { x: 48, y: 52 }, 0, { materialPolicy: "steel", utility: { enabled: false, mode: "rock", storedMana: 40 } }),
+      defaultFixtureInstance("starter-fuel-generator", "fuelGenerator", { x: 54, y: 53 }, 0, { materialPolicy: "steel", utility: { enabled: false, fuel: 18 } }),
+      defaultFixtureInstance("starter-power-conduit", "powerConduit", { x: 56, y: 53 }, 0, { materialPolicy: "steel" }),
       defaultFixtureInstance("concealed-exit", "concealedExit", { x: 44, y: 42 }, 0, { materialPolicy: "stone" })
     ];
   }
@@ -3318,6 +3610,7 @@
       craftsmanship: clamp(Number(options.craftsmanship) || 50, 0, 100),
       productionTaskId: "",
       wardIds: normalizeContainerWardIds(options.wardIds || []),
+      utility: normalizeFixtureUtility(options.utility, def),
       installedAt: finiteTime(options.installedAt, 0)
     };
   }
@@ -4140,6 +4433,28 @@
         recipes: PRODUCTION_RECIPE_DEFS.map((recipe) => ({ ...recipe, materialOptions: recipe.materialOptions.map((option) => ({ ...option })) })),
         fabricatedFixtures: (state.fabricatedFixtures || []).map((item) => ({ ...item }))
       }),
+      infrastructureSnapshot: () => {
+        const context = utilityNetworkContext();
+        return {
+          fixtures: (state.fixtures || []).filter(fixtureInfrastructureDef).map((fixture) => ({
+            id: fixture.id,
+            typeId: fixture.typeId,
+            name: fixture.name,
+            origin: { ...fixture.origin },
+            utility: {
+              ...fixture.utility,
+              contents: { ...fixture.utility.contents },
+              capturedAirborne: { ...fixture.utility.capturedAirborne }
+            },
+            networks: fixtureUtilityNetworks(fixture),
+            components: Object.fromEntries(fixtureUtilityNetworks(fixture).map((medium) => {
+              const component = utilityComponentForFixture(fixture, medium, context);
+              return [medium, component?.fixtures?.map((member) => member.id) || []];
+            }))
+          }))
+        };
+      },
+      setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
       physicalStockSnapshot: () => ({
         designations: ensureStockpileDesignations().map((designation) => ({
           ...designation,
@@ -4201,6 +4516,25 @@
         persist();
         render();
         return changed;
+      },
+      addPhysicalSpill: (cell, quantity = 1, key = "hazardousSludge", tags = ["debug-spill"]) => {
+        const clean = cleanMapCell(cell);
+        const roomId = labMapCellRoomId(clean);
+        if (!clean || !roomId) return null;
+        const stack = createPhysicalItemStack("residue", key, Math.max(0.01, Number(quantity) || 1), {
+          roomId,
+          cell: clean,
+          fixtureId: "",
+          containerId: "",
+          carriedBy: ""
+        }, {
+          form: "spill",
+          tags,
+          knownQuantity: Math.max(0.01, Number(quantity) || 1)
+        });
+        persist();
+        render();
+        return stack ? { ...stack, cell: { ...stack.cell }, tags: [...stack.tags] } : null;
       },
       airborneMassSnapshot: () => {
         const totals = {};
@@ -6362,6 +6696,7 @@
       physicalStateChanged: updateScientistPhysicalExposure(elapsed),
       suspicionChanged: updateSuspicionDecay(),
       roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
+      infrastructureChanged: updateInfrastructure(elapsed),
       envChanges: exchangeContainerEnvironments(elapsed),
       habitatChanged: updateSlimeHabitatEffects(elapsed),
       expired: expireSlimes(),
@@ -6411,6 +6746,7 @@
       + changes.corpseChanges
       + changes.jobChanges
       + changes.roomPropagationChanges
+      + changes.infrastructureChanged
       + changes.envChanges
       + changes.habitatChanged
       + changes.feedstockChanged
@@ -6749,10 +7085,11 @@
     return def ? fixtureFootprintCells(tile?.cell, def, order.rotation) : tile?.cell ? [tile.cell] : [];
   }
 
-  function plannedFixtureAtCell(cell, exceptOrderId = "") {
+  function plannedFixtureAtCell(cell, exceptOrderId = "", layer = "") {
     const key = mapCellKey(cell);
     for (const order of activeConstructionOrders()) {
-      if (order.id === exceptOrderId || !constructionOrderFixtureDef(order)) continue;
+      const plannedDef = constructionOrderFixtureDef(order);
+      if (order.id === exceptOrderId || !plannedDef || layer && plannedDef.layer !== layer) continue;
       for (const tile of order.tiles.filter((entry) => ["planned", "queued"].includes(entry.status))) {
         if (constructionOrderFootprintCells(order, tile).some((entry) => mapCellKey(entry) === key)) return { order, tile };
       }
@@ -6769,9 +7106,13 @@
       if (!mapCellInBounds(cell, map) || !labMapCellIsExcavated(cell, map)) return `${def.label} requires excavated floor across its full ${fixtureRotatedFootprint(def, rotation).width} x ${fixtureRotatedFootprint(def, rotation).height} footprint.`;
       if (constructedWallAtCell(cell, map) || labMapDoorAtCell(cell, map)) return "A wall or door occupies part of this fixture footprint.";
       if (containerKeys.has(mapCellKey(cell))) return "A containment vessel occupies part of this fixture footprint.";
-      const existing = fixtureAtCell(cell, { exceptFixtureId: options.exceptFixtureId });
-      if (existing && fixtureDef(existing)?.layer === def.layer) return `${existing.name} already occupies this placement layer.`;
-      const planned = plannedFixtureAtCell(cell, options.exceptOrderId);
+      const existing = fixturesAtCell(cell, { exceptFixtureId: options.exceptFixtureId }).find((fixture) => fixtureDef(fixture)?.layer === def.layer);
+      if (existing) return `${existing.name} already occupies this placement layer.`;
+      if (def.collision === "blocking") {
+        const blockingFixture = fixturesAtCell(cell, { exceptFixtureId: options.exceptFixtureId }).find((fixture) => fixtureDef(fixture)?.collision === "blocking");
+        if (blockingFixture) return `${blockingFixture.name} physically blocks this fixture footprint.`;
+      }
+      const planned = plannedFixtureAtCell(cell, options.exceptOrderId, def.layer);
       if (planned) return `${constructionOrderFixtureDef(planned.order).label} is already planned across this tile.`;
     }
     if (def.requiresAdjacentWall && !cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map) || constructedWallAtCell(neighbor, map)))) {
@@ -6792,6 +7133,16 @@
     const floor = constructedFloorAtCell(cell, map);
     if (floor) return { kind: "floor", label: "constructed floor", value: floor };
     return null;
+  }
+
+  function constructionOrderTarget(order, tile, map = ensureLabMap()) {
+    if (order?.targetFixtureId) {
+      const fixture = fixtureById(order.targetFixtureId);
+      if (fixture && fixture.typeId !== "concealedExit" && fixtureFootprintCells(fixture).some((cell) => mapCellKey(cell) === mapCellKey(tile?.cell || tile))) {
+        return { kind: "fixture", label: fixture.name || "fixture", value: fixture };
+      }
+    }
+    return constructedThingAtCell(tile?.cell || tile, map);
   }
 
   function doorHasPhysicalAnchor(cell, map = ensureLabMap()) {
@@ -6848,10 +7199,13 @@
         if (constructedWallAtCell(clean, map)) return "Deconstruct the wall before installing a door here.";
         if (!doorHasPhysicalAnchor(clean, map)) return "A door must be anchored to at least one cardinally adjacent natural or constructed wall.";
       }
-      if (labMapBlockingCellKeys(map).has(key)) return "Permanent equipment occupies this tile.";
+      if (buildDef.kind !== "fixture" && labMapBlockingCellKeys(map).has(key)) return "Permanent equipment occupies this tile.";
       return "";
     }
-    if (mode === "deconstruct") return constructedThingAtCell(clean, map) ? "" : "Only constructed walls, floors, and doors can be deconstructed.";
+    if (mode === "deconstruct") {
+      const target = constructionOrderTarget(options.order, clean, map);
+      return target ? "" : "Only constructed walls, floors, and doors can be deconstructed.";
+    }
     return `${constructionModeLabel(mode)} is not implemented yet.`;
   }
 
@@ -6902,7 +7256,7 @@
       return normalizeMaterialComposition({ primary: normalizeMaterialId(def?.materialId) });
     }
     if (order?.mode === "deconstruct") {
-      const target = constructedThingAtCell(tile.cell, map);
+      const target = constructionOrderTarget(order, tile, map);
       if (target?.kind === "door") return doorMaterialComposition(doorFixtureState(target.value));
       return normalizeMaterialComposition(target?.value?.materialComposition, { primary: normalizeMaterialId(target?.value?.materialId) });
     }
@@ -6934,7 +7288,7 @@
       return [{ label: "masonry construction", any: ["masonry"], minimum: 42 }];
     }
     if (order?.mode === "deconstruct") {
-      const target = constructedThingAtCell(tile.cell, ensureLabMap());
+      const target = constructionOrderTarget(order, tile, ensureLabMap());
       const primary = constructionTargetComposition(order, tile).primary;
       if (target?.kind === "door") return [{ label: "door dismantling", any: ["prying", "woodBreaking", "woodCutting"], minimum: 38 }];
       if (primary === "wood") return [{ label: "wood dismantling", any: ["woodBreaking", "woodCutting", "prying"], minimum: 38 }];
@@ -7365,6 +7719,7 @@
       rotation,
       materialPolicy,
       productionBillId: "",
+      targetFixtureId: mode === "deconstruct" ? String(options.targetFixtureId || "") : "",
       label: constructionOrderLabel(mode, orderCells, buildType),
       priority: clamp(Number(options.priority) || state.construction.priority, CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: state.clock,
@@ -7695,8 +8050,8 @@
     return fixture;
   }
 
-  function deconstructAtCell(cell, map = ensureLabMap()) {
-    const target = constructedThingAtCell(cell, map);
+  function deconstructAtCell(cell, map = ensureLabMap(), order = null) {
+    const target = constructionOrderTarget(order, cell, map);
     if (!target) return false;
     if (target.kind === "door") {
       const liveDoor = doorFixtureState(target.value);
@@ -7775,7 +8130,7 @@
       state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
       finalizeRoomTopologyChange();
     } else if (order.mode === "deconstruct") {
-      deconstructAtCell(tile.cell, map);
+      deconstructAtCell(tile.cell, map, order);
       state.labMap = normalizeLabMap(map, state.rooms);
       state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
       finalizeRoomTopologyChange();
@@ -9694,6 +10049,7 @@
       cell: cleanMapCell(cell),
       temperatureC: Number(attributes.temperature.current),
       rockTemperatureC: Number(attributes.temperature.baseline),
+      lightLevel: Number(attributes.light.current),
       humidity: Number(attributes.humidity.current),
       manaDensity: Number(attributes.ambientMana.current),
       rockManaDensity: Number(attributes.ambientMana.baseline),
@@ -9710,6 +10066,7 @@
       cell: cleanMapCell(cell) || cleanMapCell(base.cell),
       temperatureC: clamp(Number.isFinite(Number(candidate?.temperatureC)) ? Number(candidate.temperatureC) : base.temperatureC, -100, 500),
       rockTemperatureC: clamp(Number.isFinite(Number(candidate?.rockTemperatureC)) ? Number(candidate.rockTemperatureC) : base.rockTemperatureC, -100, 100),
+      lightLevel: clamp(Number.isFinite(Number(candidate?.lightLevel)) ? Number(candidate.lightLevel) : base.lightLevel, 0, 100),
       humidity: clamp(Number.isFinite(Number(candidate?.humidity)) ? Number(candidate.humidity) : base.humidity, 0, 100),
       manaDensity: clamp(Number.isFinite(Number(candidate?.manaDensity)) ? Number(candidate.manaDensity) : base.manaDensity, 0, 1000),
       rockManaDensity: clamp(Number.isFinite(Number(candidate?.rockManaDensity)) ? Number(candidate.rockManaDensity) : base.rockManaDensity, 0, 1000),
@@ -9730,7 +10087,13 @@
   }
 
   function ensureTileEnvironments(map = ensureLabMap()) {
-    state.tileEnvironments = normalizeTileEnvironments(state.tileEnvironments, map, state.rooms || []);
+    const current = state.tileEnvironments && typeof state.tileEnvironments === "object" ? state.tileEnvironments : null;
+    const expectedKeys = tileEnvironmentCells(map).map(mapCellKey);
+    const currentKeys = current ? Object.keys(current) : [];
+    const topologyMatches = current
+      && currentKeys.length === expectedKeys.length
+      && expectedKeys.every((key) => current[key]);
+    if (!topologyMatches) state.tileEnvironments = normalizeTileEnvironments(current, map, state.rooms || []);
     return state.tileEnvironments;
   }
 
@@ -9745,6 +10108,9 @@
     if (!record) return attributes;
     attributes.temperature.current = record.temperatureC;
     attributes.temperature.baseline = record.rockTemperatureC;
+    attributes.light.current = record.lightLevel;
+    attributes.light.baseline = 0;
+    attributes.light.recoveryPerHour = 0;
     attributes.humidity.current = record.humidity;
     attributes.ambientMana.current = record.manaDensity;
     attributes.ambientMana.baseline = record.rockManaDensity;
@@ -9872,6 +10238,520 @@
       remaining -= step;
     }
     syncRoomAttributeSummaries();
+    return changes;
+  }
+
+  function fixtureUtilityNetworks(candidate) {
+    return [...new Set((fixtureInfrastructureDef(candidate)?.networks || []).map(String).filter(Boolean))];
+  }
+
+  function utilityFixturesConnect(left, right) {
+    const rightKeys = new Set(fixtureFootprintCells(right).map(mapCellKey));
+    return fixtureFootprintCells(left).some((cell) => rightKeys.has(mapCellKey(cell))
+      || cardinalMapCells(cell).some((neighbor) => rightKeys.has(mapCellKey(neighbor))));
+  }
+
+  function utilityNetworkComponents(medium) {
+    const fixtures = (state.fixtures || []).filter((fixture) => fixture.condition > 0 && fixtureUtilityNetworks(fixture).includes(medium));
+    const remaining = new Set(fixtures.map((fixture) => fixture.id));
+    const components = [];
+    while (remaining.size) {
+      const firstId = remaining.values().next().value;
+      const queue = [fixtureById(firstId)];
+      const members = [];
+      remaining.delete(firstId);
+      while (queue.length) {
+        const current = queue.shift();
+        if (!current) continue;
+        members.push(current);
+        for (const candidateId of [...remaining]) {
+          const candidate = fixtureById(candidateId);
+          if (candidate && utilityFixturesConnect(current, candidate)) {
+            remaining.delete(candidateId);
+            queue.push(candidate);
+          }
+        }
+      }
+      components.push({ id: `${medium}:${components.length + 1}`, medium, fixtures: members });
+    }
+    return components;
+  }
+
+  function utilityNetworkContext() {
+    const media = ["air", "drain", "electricity", "mana"];
+    const components = Object.fromEntries(media.map((medium) => [medium, utilityNetworkComponents(medium)]));
+    const lookup = {};
+    for (const [medium, entries] of Object.entries(components)) {
+      lookup[medium] = {};
+      for (const component of entries) {
+        for (const fixture of component.fixtures) lookup[medium][fixture.id] = component;
+      }
+    }
+    return { components, lookup, electricityBudget: {} };
+  }
+
+  function utilityComponentForFixture(fixture, medium, context = utilityNetworkContext()) {
+    return context.lookup?.[medium]?.[fixture?.id] || null;
+  }
+
+  function utilitySetStatus(fixture, status, reason = "") {
+    if (!fixture?.utility) return 0;
+    const nextStatus = String(status || "idle");
+    const nextReason = String(reason || "");
+    const changed = fixture.utility.status !== nextStatus || fixture.utility.statusReason !== nextReason;
+    fixture.utility.status = nextStatus;
+    fixture.utility.statusReason = nextReason;
+    return changed ? 1 : 0;
+  }
+
+  function utilityFixtureEnabled(fixture) {
+    return Boolean(fixture?.utility?.enabled && fixture.condition > 0 && fixture.operationalState !== "broken" && fixture.operationalState !== "unfinished");
+  }
+
+  function fixtureEnvironmentRecords(fixture, map = ensureLabMap(), environmentRecords = null) {
+    const environments = environmentRecords || ensureTileEnvironments(map);
+    const direct = fixtureFootprintCells(fixture).map((cell) => environments[mapCellKey(cell)]).filter(Boolean);
+    if (direct.length) return direct;
+    const adjacent = new Map();
+    for (const cell of fixtureFootprintCells(fixture)) {
+      for (const neighbor of cardinalMapCells(cell)) {
+        const record = environments[mapCellKey(neighbor)];
+        if (record) adjacent.set(mapCellKey(neighbor), record);
+      }
+    }
+    return [...adjacent.values()];
+  }
+
+  function utilityCombustionAtFixture(fixture, fuelUsed) {
+    const amount = Math.max(0, Number(fuelUsed) || 0);
+    if (!amount) return 0;
+    const tile = fixtureEnvironmentRecords(fixture)[0];
+    if (!tile) return 0;
+    tile.temperatureC = clamp(tile.temperatureC + amount * 1.5, -100, 500);
+    tile.airborne["fuel-smoke"] = (tile.airborne["fuel-smoke"] || 0) + amount * 0.4;
+    tile.airborne = normalizeAirborneLoads(tile.airborne);
+    return 1;
+  }
+
+  function drawManaFromComponent(component, amount) {
+    let remaining = Math.max(0, Number(amount) || 0);
+    for (const source of component?.fixtures?.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "manaSource" && utilityFixtureEnabled(fixture)) || []) {
+      const taken = Math.min(source.utility.storedMana, remaining);
+      source.utility.storedMana -= taken;
+      remaining -= taken;
+      if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
+    }
+    return Math.max(0, amount - remaining);
+  }
+
+  function consumeUtilityPower(fixture, elapsedHours, demandPerHour, context) {
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    if (!infrastructure?.powerModes?.length) return 1;
+    if (!utilityFixtureEnabled(fixture)) return 0;
+    const demand = Math.max(0, Number(demandPerHour) || 1) * Math.max(0, elapsedHours);
+    if (!demand) return 1;
+    if (fixture.utility.powerMode === "fuel") {
+      const fuelRate = Math.max(0.001, Number(infrastructure.fuelPerHour) || 0.1);
+      const required = fuelRate * elapsedHours;
+      const ratio = clamp(fixture.utility.fuel / Math.max(required, TILE_ENVIRONMENT_EPSILON), 0, 1);
+      const used = required * ratio;
+      fixture.utility.fuel = Math.max(0, fixture.utility.fuel - used);
+      utilityCombustionAtFixture(fixture, used);
+      return ratio;
+    }
+    if (fixture.utility.powerMode === "electric") {
+      const component = utilityComponentForFixture(fixture, "electricity", context);
+      const generators = component?.fixtures?.filter((candidate) => fixtureInfrastructureDef(candidate)?.role === "electricSource" && utilityFixtureEnabled(candidate) && candidate.utility.fuel > 0) || [];
+      if (!generators.length) return 0;
+      let remaining = demand;
+      for (const generator of generators) {
+        const generatorDef = fixtureInfrastructureDef(generator);
+        const outputRate = Math.max(1, Number(generatorDef.outputPerHour) || 1);
+        const fuelRate = Math.max(0.001, Number(generatorDef.fuelPerHour) || 0.1);
+        if (!Number.isFinite(context.electricityBudget[generator.id])) context.electricityBudget[generator.id] = outputRate * elapsedHours;
+        const availableFuelOutput = generator.utility.fuel / fuelRate * outputRate;
+        const delivered = Math.min(remaining, context.electricityBudget[generator.id], availableFuelOutput);
+        if (delivered <= 0) continue;
+        const fuelUsed = delivered / outputRate * fuelRate;
+        generator.utility.fuel = Math.max(0, generator.utility.fuel - fuelUsed);
+        context.electricityBudget[generator.id] = Math.max(0, context.electricityBudget[generator.id] - delivered);
+        utilityCombustionAtFixture(generator, fuelUsed);
+        remaining -= delivered;
+        if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
+      }
+      return clamp((demand - remaining) / demand, 0, 1);
+    }
+    if (fixture.utility.powerMode === "mana") {
+      const component = utilityComponentForFixture(fixture, "mana", context);
+      return clamp(drawManaFromComponent(component, demand) / demand, 0, 1);
+    }
+    return 0;
+  }
+
+  function utilityThermostatAvailable(fixture) {
+    const roomId = labMapCellRoomId(fixture?.origin);
+    return Boolean(roomId && (state.fixtures || []).some((candidate) => fixtureInfrastructureDef(candidate)?.role === "thermostat"
+      && utilityFixtureEnabled(candidate) && labMapCellRoomId(candidate.origin) === roomId));
+  }
+
+  function utilityClimateTargetC(fixture) {
+    if (utilityThermostatAvailable(fixture) && Number.isFinite(Number(fixture.utility.exactTargetC))) return Number(fixture.utility.exactTargetC);
+    return UTILITY_CLIMATE_SETTING_BY_ID[fixture.utility.climateSetting]?.targetC ?? 20;
+  }
+
+  function lightPassesBetween(left, right, map = ensureLabMap()) {
+    for (const cell of [left, right]) {
+      const mapDoor = labMapDoorAtCell(cell, map);
+      if (!mapDoor) continue;
+      const door = doorFixtureState(mapDoor);
+      if (!doorIsBreached(door) && door.state !== DOOR_STATE_OPEN) return false;
+    }
+    return true;
+  }
+
+  function addFixtureLight(fixture, intensity, radius, environments, map = ensureLabMap()) {
+    const origins = fixtureEnvironmentRecords(fixture, map, environments).map((record) => record.cell);
+    if (!origins.length) return 0;
+    const queue = origins.map((cell) => ({ cell, distance: 0 }));
+    const visited = new Set(origins.map(mapCellKey));
+    let changes = 0;
+    while (queue.length) {
+      const { cell, distance } = queue.shift();
+      const record = environments[mapCellKey(cell)];
+      if (!record) continue;
+      const contribution = Math.max(0, intensity * (1 - distance / Math.max(1, radius + 1)));
+      if (contribution > 0) {
+        record.lightLevel = clamp(record.lightLevel + contribution, 0, 100);
+        changes += 1;
+      }
+      if (distance >= radius) continue;
+      for (const neighbor of cardinalMapCells(cell)) {
+        const key = mapCellKey(neighbor);
+        if (visited.has(key) || !environments[key] || !lightPassesBetween(cell, neighbor, map)) continue;
+        visited.add(key);
+        queue.push({ cell: neighbor, distance: distance + 1 });
+      }
+    }
+    return changes;
+  }
+
+  function updateInfrastructureLighting(elapsedHours, context, map = ensureLabMap()) {
+    const environments = ensureTileEnvironments(map);
+    for (const record of Object.values(environments)) record.lightLevel = 0;
+    let changes = 0;
+    for (const fixture of state.fixtures || []) {
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      if (infrastructure?.role !== "light") continue;
+      if (!utilityFixtureEnabled(fixture)) {
+        changes += utilitySetStatus(fixture, "disabled", "Switched off or damaged.");
+        continue;
+      }
+      const power = consumeUtilityPower(fixture, elapsedHours, Number(infrastructure.manaPerHour) || 1, context);
+      if (power <= 0) {
+        changes += utilitySetStatus(fixture, "unpowered", `${UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Selected source"} is unavailable.`);
+        continue;
+      }
+      const illuminatedTiles = addFixtureLight(fixture, (Number(infrastructure.light) || 80) * power, Number(infrastructure.lightRadius) || 6, environments, map);
+      changes += utilitySetStatus(fixture, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Power supply is insufficient." : `Illuminating ${illuminatedTiles} nearby tile${illuminatedTiles === 1 ? "" : "s"}.`);
+      changes += illuminatedTiles;
+    }
+    return changes;
+  }
+
+  function updateInfrastructureHeating(elapsedHours, context) {
+    let changes = 0;
+    for (const fixture of state.fixtures || []) {
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      if (infrastructure?.role !== "heater") continue;
+      const tile = tileEnvironmentAtCell(fixture.origin);
+      if (!tile || !utilityFixtureEnabled(fixture)) {
+        changes += utilitySetStatus(fixture, "disabled", tile ? "Switched off or damaged." : "No environmental tile exists at the heater.");
+        continue;
+      }
+      const target = utilityClimateTargetC(fixture);
+      if (tile.temperatureC >= target - 0.05) {
+        changes += utilitySetStatus(fixture, "idle", `Target ${formatDecimal(target, 1)} °C reached.`);
+        continue;
+      }
+      const demand = Number(infrastructure.manaPerHour) || 4;
+      const power = consumeUtilityPower(fixture, elapsedHours, demand, context);
+      if (power <= 0) {
+        changes += utilitySetStatus(fixture, "unpowered", `${UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Selected source"} is unavailable.`);
+        continue;
+      }
+      const delta = Math.min(target - tile.temperatureC, (Number(infrastructure.heatCPerHour) || 12) * elapsedHours * power);
+      if (delta > 0) {
+        tile.temperatureC = clamp(tile.temperatureC + delta, -100, 500);
+        changes += 1;
+      }
+      changes += utilitySetStatus(fixture, power < 0.99 ? "impaired" : "operating", `Heating toward ${formatDecimal(target, 1)} °C${utilityThermostatAvailable(fixture) && fixture.utility.exactTargetC !== null ? " by thermostat" : " on broad control"}.`);
+    }
+    return changes;
+  }
+
+  function captureAirborneInFilters(filters, loads) {
+    const captured = {};
+    for (const [id, rawLoad] of Object.entries(loads)) {
+      let remaining = Math.max(0, Number(rawLoad) || 0);
+      for (const filter of filters) {
+        const infrastructure = fixtureInfrastructureDef(filter);
+        const used = airborneLoadTotal(filter.utility.capturedAirborne);
+        const capacity = Math.max(0, Number(infrastructure.capacity) || UTILITY_FILTER_CAPACITY);
+        const available = Math.max(0, capacity - used);
+        const amount = Math.min(remaining * (Number(infrastructure.captureFraction) || 0.75), available);
+        if (amount <= 0) continue;
+        filter.utility.capturedAirborne[id] = (filter.utility.capturedAirborne[id] || 0) + amount;
+        captured[id] = (captured[id] || 0) + amount;
+        remaining -= amount;
+      }
+    }
+    return captured;
+  }
+
+  function registerExteriorDischarge(fixture, loads, kind) {
+    const total = Object.values(loads || {}).reduce((sum, amount) => sum + Math.max(0, Number(amount) || 0), 0);
+    if (!fixture || total <= TILE_ENVIRONMENT_EPSILON) return 0;
+    fixture.utility.dischargedLoad += total;
+    let changes = 1;
+    const checks = Math.floor(fixture.utility.dischargedLoad / UTILITY_EXPOSURE_LOAD_STEP);
+    while (fixture.utility.exposureChecks < checks) {
+      fixture.utility.exposureChecks += 1;
+      const roll = seedRng(`${state.seed}:utility-discharge:${fixture.id}:${fixture.utility.exposureChecks}`)();
+      const hazardous = Object.keys(loads).some((id) => /hazard|toxic|acid|poison|corpse|waste|sludge|contamin/.test(id));
+      const chance = hazardous ? 0.35 : 0.08;
+      if (roll < chance) {
+        addSuspicion(hazardous ? 3 : 1);
+        addEvent(`${kind === "drain" ? "Exterior drainage" : "Exterior exhaust"} was observed; evidence increased Suspicion.`);
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function updateVentilationNetworks(elapsedHours, context) {
+    let changes = 0;
+    const tileVolume = tileEnvironmentVolumeM3();
+    for (const component of context.components.air || []) {
+      const fans = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "airFan" && utilityFixtureEnabled(fixture));
+      const terminals = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "airTerminal" && utilityFixtureEnabled(fixture) && fixture.utility.mode !== "closed");
+      const filters = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "airFilter" && utilityFixtureEnabled(fixture));
+      const exterior = component.fixtures.find((fixture) => fixtureInfrastructureDef(fixture)?.role === "airExterior" && utilityFixtureEnabled(fixture));
+      let flow = 0;
+      for (const fan of fans) {
+        const infrastructure = fixtureInfrastructureDef(fan);
+        const power = consumeUtilityPower(fan, elapsedHours, Number(infrastructure.manaPerHour) || 3, context);
+        if (power > 0) {
+          flow += (Number(infrastructure.flowM3PerHour) || 20) * elapsedHours * power;
+          changes += utilitySetStatus(fan, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Insufficient power." : "Moving air through connected ducts.");
+        } else {
+          changes += utilitySetStatus(fan, "unpowered", "No usable power source reaches the fan.");
+        }
+      }
+      if (!flow || !terminals.length) {
+        for (const terminal of terminals) changes += utilitySetStatus(terminal, "idle", fans.length ? "No powered fan is operating." : "No fan is connected.");
+        continue;
+      }
+      const perTerminalVolume = flow / terminals.length;
+      for (const terminal of terminals) {
+        const tile = tileEnvironmentAtCell(terminal.origin);
+        if (!tile) continue;
+        const fraction = clamp(perTerminalVolume / tileVolume, 0, 0.85);
+        if (terminal.utility.mode === "supply") {
+          if (!exterior) {
+            changes += utilitySetStatus(terminal, "blocked", "No exterior air terminal is connected.");
+            continue;
+          }
+          tile.temperatureC += (UTILITY_OUTSIDE_TEMPERATURE_C - tile.temperatureC) * fraction;
+          tile.humidity += (UTILITY_OUTSIDE_HUMIDITY - tile.humidity) * fraction;
+          changes += utilitySetStatus(terminal, "operating", "Supplying exterior air to this tile.") + 1;
+          continue;
+        }
+        const exchangeVolume = fraction * tileVolume;
+        const proposedLoads = Object.fromEntries(Object.entries(tile.airborne || {}).map(([id, concentration]) => [id, concentration * exchangeVolume]));
+        const capturedLoads = captureAirborneInFilters(filters, proposedLoads);
+        const dischargedLoads = exterior
+          ? Object.fromEntries(Object.entries(proposedLoads).map(([id, amount]) => [id, Math.max(0, amount - (capturedLoads[id] || 0))]))
+          : {};
+        for (const [id, concentration] of Object.entries(tile.airborne || {})) {
+          const removedLoad = (capturedLoads[id] || 0) + (dischargedLoads[id] || 0);
+          tile.airborne[id] = Math.max(0, concentration - removedLoad / tileVolume);
+        }
+        tile.airborne = normalizeAirborneLoads(tile.airborne);
+        if (exterior) {
+          tile.temperatureC += (UTILITY_OUTSIDE_TEMPERATURE_C - tile.temperatureC) * fraction;
+          tile.humidity += (UTILITY_OUTSIDE_HUMIDITY - tile.humidity) * fraction;
+          changes += registerExteriorDischarge(exterior, dischargedLoads, "air");
+        }
+        const moved = Object.values(capturedLoads).some((amount) => amount > 0) || Object.values(dischargedLoads).some((amount) => amount > 0);
+        changes += utilitySetStatus(terminal, moved || exterior ? "operating" : "blocked", exterior ? "Exhausting through the exterior terminal." : filters.length ? "Filtering recirculated air; no exterior discharge path." : "No filter or exterior destination is connected.");
+        if (moved) changes += 1;
+      }
+      for (const filter of filters) {
+        const capacity = Number(fixtureInfrastructureDef(filter).capacity) || UTILITY_FILTER_CAPACITY;
+        const used = airborneLoadTotal(filter.utility.capturedAirborne);
+        changes += utilitySetStatus(filter, used >= capacity - TILE_ENVIRONMENT_EPSILON ? "saturated" : used > 0 ? "operating" : "idle", `${formatDecimal(used, 1)} / ${formatDecimal(capacity, 1)} airborne load captured.`);
+      }
+    }
+    return changes;
+  }
+
+  function utilityContentsTotal(contents) {
+    return Object.values(contents || {}).reduce((total, amount) => total + Math.max(0, Number(amount) || 0), 0);
+  }
+
+  function drainContentId(stack) {
+    return normalizeAirborneSubstanceId(`spill:${stack.key}:${normalizeResidueTags(stack.tags).join("-") || "untagged"}`);
+  }
+
+  function updateDrainageNetworks(elapsedHours, context) {
+    let changes = 0;
+    let contentsChanged = false;
+    for (const component of context.components.drain || []) {
+      const inlets = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainInlet" && utilityFixtureEnabled(fixture));
+      const sumps = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainSump" && utilityFixtureEnabled(fixture));
+      const outfall = component.fixtures.find((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainExterior" && utilityFixtureEnabled(fixture));
+      for (const inlet of inlets) {
+        const stacks = ensurePhysicalItemStacks().filter((stack) => stack.form === "spill" && !stack.containerId && mapCellKey(stack.cell) === mapCellKey(inlet.origin) && stack.quantity > 0);
+        if (!stacks.length) {
+          changes += utilitySetStatus(inlet, "idle", "No liquid or sludge is on the drain tile.");
+          continue;
+        }
+        const rate = (Number(fixtureInfrastructureDef(inlet).flowUnitsPerHour) || 8) * elapsedHours;
+        let remainingRate = rate;
+        for (const stack of stacks) {
+          if (remainingRate <= TILE_ENVIRONMENT_EPSILON) break;
+          const contentId = drainContentId(stack);
+          let moved = 0;
+          for (const sump of sumps) {
+            const capacity = Number(fixtureInfrastructureDef(sump).capacity) || UTILITY_SUMP_CAPACITY;
+            const available = Math.max(0, capacity - utilityContentsTotal(sump.utility.contents));
+            const amount = Math.min(stack.quantity, remainingRate, available);
+            if (amount <= 0) continue;
+            sump.utility.contents[contentId] = (sump.utility.contents[contentId] || 0) + amount;
+            moved += amount;
+            break;
+          }
+          if (moved <= 0 && outfall) {
+            moved = Math.min(stack.quantity, remainingRate);
+            changes += registerExteriorDischarge(outfall, { [contentId]: moved }, "drain");
+          }
+          if (moved <= 0) continue;
+          stack.quantity = Math.max(0, stack.quantity - moved);
+          stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
+          remainingRate -= moved;
+          contentsChanged = true;
+          changes += 1;
+        }
+        changes += utilitySetStatus(inlet, remainingRate < rate ? "operating" : "blocked", remainingRate < rate ? "Draining material from this exact tile." : "No connected sump capacity or exterior outfall is available.");
+      }
+      for (const sump of sumps) {
+        const capacity = Number(fixtureInfrastructureDef(sump).capacity) || UTILITY_SUMP_CAPACITY;
+        const used = utilityContentsTotal(sump.utility.contents);
+        changes += utilitySetStatus(sump, used >= capacity - TILE_ENVIRONMENT_EPSILON ? "full" : used > 0 ? "holding" : "empty", `${formatDecimal(used, 1)} / ${formatDecimal(capacity, 1)} units held.`);
+      }
+    }
+    if (contentsChanged) {
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > TILE_ENVIRONMENT_EPSILON);
+      syncPhysicalReadModels();
+    }
+    return changes;
+  }
+
+  function updateManaInfrastructure(elapsedHours, context) {
+    let changes = 0;
+    const tileVolume = tileEnvironmentVolumeM3();
+    for (const component of context.components.mana || []) {
+      const sources = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "manaSource" && utilityFixtureEnabled(fixture));
+      const emitters = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "manaEmitter" && utilityFixtureEnabled(fixture));
+      for (const source of sources) {
+        const infrastructure = fixtureInfrastructureDef(source);
+        const capacity = Number(infrastructure.capacity) || UTILITY_MANA_CAPACITY;
+        const available = Math.max(0, capacity - source.utility.storedMana);
+        let collected = 0;
+        if (available > 0 && source.utility.mode === "rock") {
+          const tile = tileEnvironmentAtCell(source.origin);
+          if (tile) {
+            collected = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours, tile.rockManaDensity * tileVolume);
+            tile.rockManaDensity = Math.max(0, tile.rockManaDensity - collected / tileVolume);
+          }
+        } else if (available > 0 && source.utility.mode === "feedstock" && source.utility.feedstock > 0) {
+          const potential = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours, source.utility.feedstock * 20);
+          collected = potential;
+          source.utility.feedstock = Math.max(0, source.utility.feedstock - potential / 20);
+        }
+        source.utility.storedMana += collected;
+        changes += utilitySetStatus(source, collected > 0 ? "collecting" : source.utility.storedMana >= capacity ? "full" : "idle", source.utility.mode === "rock" ? "Drawing mana from surrounding rock." : source.utility.feedstock > 0 ? "Converting Arcane Feedstock." : "No Arcane Feedstock is loaded.");
+        if (collected > 0) changes += 1;
+      }
+      for (const emitter of emitters) {
+        const tile = tileEnvironmentAtCell(emitter.origin);
+        if (!tile) continue;
+        const infrastructure = fixtureInfrastructureDef(emitter);
+        const target = emitter.utility.manaTarget;
+        const needed = Math.max(0, (target - tile.manaDensity) * tileVolume);
+        const requested = Math.min(needed, (Number(infrastructure.outputPerHour) || 8) * elapsedHours);
+        const delivered = drawManaFromComponent(component, requested);
+        if (delivered > 0) {
+          tile.manaDensity = clamp(tile.manaDensity + delivered / tileVolume, 0, 1000);
+          changes += utilitySetStatus(emitter, "operating", `Raising local mana toward ${formatDecimal(target, 1)} thaums/m³.`) + 1;
+        } else {
+          changes += utilitySetStatus(emitter, needed <= TILE_ENVIRONMENT_EPSILON ? "idle" : "unpowered", needed <= TILE_ENVIRONMENT_EPSILON ? "Target mana density reached." : "No stored mana is available on the connected network.");
+        }
+      }
+    }
+    return changes;
+  }
+
+  function updateInfrastructurePassiveStatuses(context) {
+    const activelyManagedRoles = new Set(["light", "heater", "airFan", "airTerminal", "airFilter", "drainInlet", "drainSump", "manaSource", "manaEmitter"]);
+    let changes = 0;
+    for (const fixture of state.fixtures || []) {
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      if (!infrastructure || activelyManagedRoles.has(infrastructure.role)) continue;
+      if (!utilityFixtureEnabled(fixture)) {
+        changes += utilitySetStatus(fixture, "disabled", "Switched off or damaged.");
+        continue;
+      }
+      if (infrastructure.role === "thermostat") {
+        changes += utilitySetStatus(fixture, "operating", "Exact temperature control is available in this room.");
+        continue;
+      }
+      if (infrastructure.role === "electricSource") {
+        changes += utilitySetStatus(fixture, fixture.utility.fuel > 0 ? "available" : "unpowered", fixture.utility.fuel > 0 ? "Ready to power its connected electrical network." : "No Fuel Reagent is loaded.");
+        continue;
+      }
+      const network = fixtureUtilityNetworks(fixture)[0];
+      const component = network ? utilityComponentForFixture(fixture, network, context) : null;
+      const connected = (component?.fixtures?.length || 0) > 1;
+      changes += utilitySetStatus(fixture, connected ? "connected" : "disconnected", connected ? `${component.fixtures.length} fixtures share this ${network} network.` : `No adjacent ${network || "utility"} fixture is connected.`);
+    }
+    return changes;
+  }
+
+  function updateInfrastructureStep(seconds) {
+    const elapsedHours = secondsToHours(seconds);
+    if (!elapsedHours) return 0;
+    state.fixtures = normalizeFixtures(state.fixtures);
+    const context = utilityNetworkContext();
+    let changes = 0;
+    changes += updateManaInfrastructure(elapsedHours, context);
+    changes += updateInfrastructureHeating(elapsedHours, context);
+    changes += updateVentilationNetworks(elapsedHours, context);
+    changes += updateDrainageNetworks(elapsedHours, context);
+    changes += updateInfrastructureLighting(elapsedHours, context);
+    changes += updateInfrastructurePassiveStatuses(context);
+    syncRoomAttributeSummaries();
+    return changes;
+  }
+
+  function updateInfrastructure(seconds) {
+    let remaining = Math.max(0, Number(seconds) || 0);
+    let changes = 0;
+    while (remaining > 0) {
+      const step = Math.min(remaining, UTILITY_MAX_STEP_SECONDS);
+      changes += updateInfrastructureStep(step);
+      remaining -= step;
+    }
     return changes;
   }
 
@@ -10050,6 +10930,15 @@
         tile[tileKey] = clampRoomAttributeValue(ROOM_ATTRIBUTE_BY_KEY[key], tile[tileKey] - delta * volumeRatio);
         changes += 1;
       }
+      const lightRate = Number(rates.light) || 0;
+      if (container.environment.light && lightRate > 0) {
+        const lightFraction = clamp(lightRate * containerEnvironmentMaterialModifier(container, "light") * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed), 0, 1);
+        const delta = (tile.lightLevel - container.environment.light.current) * lightFraction;
+        if (Math.abs(delta) >= TILE_ENVIRONMENT_EPSILON) {
+          container.environment.light.current = clamp(container.environment.light.current + delta, 0, 100);
+          changes += 1;
+        }
+      }
       const airRate = Number(rates.contamination) || 0;
       const airFraction = clamp(airRate * containerEnvironmentMaterialModifier(container, "airborne") * CONTAINER_ENVIRONMENT_EXCHANGE_PER_HOUR * secondsToHours(elapsed), 0, 0.85);
       if (airFraction > 0) {
@@ -10093,6 +10982,10 @@
       const wardModifier = hasContainerWard(container, "manaInsulating") ? 0.2 : 1;
       return clamp((open ? 1 : 0.1 + permeability * 0.9) * wardModifier, 0, 1);
     }
+    if (field === "light") {
+      const visibility = { none: 0, low: 0.2, medium: 0.55, high: 0.85 }[containerTypeDef(container.typeId)?.visibility] || 0;
+      return open ? 1 : visibility;
+    }
     const porosity = compositionPropertyScore(composition, "porosity") / 100;
     const materialLeak = open ? 1 : leak * (0.2 + porosity * 0.8);
     const wardModifier = field === "airborne" && hasContainerWard(container, "poisonSealing") ? 0.25 : 1;
@@ -10106,7 +10999,7 @@
     if (!room || !def || !Number.isFinite(delta) || !delta) {
       return false;
     }
-    if (["temperature", "humidity", "ambientMana", "contamination"].includes(attributeKey)) {
+    if (["temperature", "light", "humidity", "ambientMana", "contamination"].includes(attributeKey)) {
       const map = ensureLabMap();
       const requestedCell = cleanMapCell(options.cell);
       const cells = requestedCell
@@ -10135,7 +11028,7 @@
       environment.updatedAt = state.clock;
       return Math.abs((environment.airborne[substanceId] || 0) - before) >= TILE_ENVIRONMENT_EPSILON;
     }
-    const key = { temperature: "temperatureC", humidity: "humidity", ambientMana: "manaDensity" }[attributeKey];
+    const key = { temperature: "temperatureC", light: "lightLevel", humidity: "humidity", ambientMana: "manaDensity" }[attributeKey];
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
     if (!key || !def) return false;
     const before = environment[key];
@@ -12210,6 +13103,62 @@
     return FIXTURE_BY_ID[typeId] || null;
   }
 
+  function fixtureInfrastructureDef(candidate) {
+    return fixtureDef(candidate)?.infrastructure || null;
+  }
+
+  function normalizeUtilityContents(candidate) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const normalized = {};
+    for (const [key, amount] of Object.entries(source)) {
+      const clean = String(key || "").trim();
+      const value = Math.max(0, Number(amount) || 0);
+      if (clean && value > 0) normalized[clean] = roundOutputValue(value);
+    }
+    return normalized;
+  }
+
+  function normalizeFixtureUtility(candidate, def = null) {
+    const infrastructure = def?.infrastructure || {};
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const powerModes = infrastructure.powerModes || [];
+    const requestedPower = String(source.powerMode || infrastructure.defaultPowerMode || "");
+    const powerMode = powerModes.includes(requestedPower) ? requestedPower : powerModes[0] || "";
+    const requestedMode = String(source.mode || infrastructure.defaultMode || "");
+    const mode = infrastructure.role === "airTerminal"
+      ? UTILITY_AIRFLOW_MODES.has(requestedMode) ? requestedMode : "exhaust"
+      : infrastructure.role === "manaSource"
+        ? UTILITY_MANA_SOURCE_MODES.has(requestedMode) ? requestedMode : "rock"
+        : requestedMode;
+    const fuelCapacity = Math.max(0, Number(infrastructure.fuelCapacity) || 0);
+    const manaCapacity = Math.max(0, Number(infrastructure.capacity) || 0);
+    const feedstockCapacity = Math.max(0, Number(infrastructure.feedstockCapacity) || 0);
+    const storageCapacity = Math.max(0, Number(infrastructure.capacity) || 0);
+    const climateSetting = UTILITY_CLIMATE_SETTING_BY_ID[source.climateSetting]?.id
+      || UTILITY_CLIMATE_SETTING_BY_ID[infrastructure.defaultSetting]?.id
+      || "comfortable";
+    return {
+      enabled: source.enabled !== false,
+      powerMode,
+      mode,
+      climateSetting,
+      exactTargetC: source.exactTargetC !== null && source.exactTargetC !== "" && Number.isFinite(Number(source.exactTargetC))
+        ? clamp(Number(source.exactTargetC), -50, 100)
+        : null,
+      manaTarget: clamp(Number.isFinite(Number(source.manaTarget)) ? Number(source.manaTarget) : Number(infrastructure.defaultTarget) || 70, 0, 1000),
+      fuel: clamp(Number(source.fuel) || 0, 0, fuelCapacity || UTILITY_FUEL_CAPACITY),
+      feedstock: clamp(Number(source.feedstock) || 0, 0, feedstockCapacity || UTILITY_FUEL_CAPACITY),
+      storedMana: clamp(Number(source.storedMana) || 0, 0, manaCapacity || UTILITY_MANA_CAPACITY),
+      contents: normalizeUtilityContents(source.contents),
+      capturedAirborne: normalizeAirborneLoads(source.capturedAirborne),
+      dischargedLoad: Math.max(0, Number(source.dischargedLoad) || 0),
+      exposureChecks: Math.max(0, Math.floor(Number(source.exposureChecks) || 0)),
+      capacity: storageCapacity,
+      status: String(source.status || "idle"),
+      statusReason: String(source.statusReason || "")
+    };
+  }
+
   function constructionOrderFixtureDef(order) {
     const buildDef = constructionOrderBuildDef(order);
     return buildDef?.kind === "fixture" ? fixtureDef(buildDef.fixtureTypeId) : null;
@@ -12288,10 +13237,15 @@
     return (state.fixtures || []).find((fixture) => fixture.id === id) || null;
   }
 
-  function fixtureAtCell(cell, options = {}) {
+  function fixturesAtCell(cell, options = {}) {
     const key = mapCellKey(cell);
-    return (state.fixtures || []).find((fixture) => fixture.id !== options.exceptFixtureId
-      && fixtureFootprintCells(fixture).some((entry) => mapCellKey(entry) === key)) || null;
+    return (state.fixtures || []).filter((fixture) => fixture.id !== options.exceptFixtureId
+      && (!options.layer || fixtureDef(fixture)?.layer === options.layer)
+      && fixtureFootprintCells(fixture).some((entry) => mapCellKey(entry) === key));
+  }
+
+  function fixtureAtCell(cell, options = {}) {
+    return fixturesAtCell(cell, options)[0] || null;
   }
 
   function fixtureCapabilityAvailable(capability, roomId = "") {
@@ -12337,6 +13291,7 @@
       craftsmanship: clamp(Number(candidate.craftsmanship) || 50, 0, 100),
       productionTaskId: String(candidate.productionTaskId || ""),
       wardIds: normalizeContainerWardIds(candidate.wardIds || []),
+      utility: normalizeFixtureUtility(candidate.utility, def),
       installedAt: finiteTime(candidate.installedAt, 0)
     };
   }
@@ -14212,6 +15167,7 @@
       occupied.add(mapCellKey(state.scientist.mapCell));
 
       for (const fixture of state.fixtures) {
+        if (fixtureDef(fixture)?.collision !== "blocking") continue;
         for (const cell of fixtureFootprintCells(fixture)) reserveObjectFootprint(occupied, cell, { width: 1, height: 1 });
       }
 
@@ -34607,6 +35563,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function infrastructureOverlayAssignments(map) {
+    const assignments = new Map();
+    for (const fixture of state.fixtures || []) {
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      if (!infrastructure) continue;
+      const networks = fixtureUtilityNetworks(fixture);
+      const medium = networks[0] || infrastructure.role || "device";
+      for (const cell of fixtureFootprintCells(fixture)) {
+        setLabMapOverlayEntry(assignments, cell, {
+          overlayId: "infrastructure",
+          classNames: [
+            "map-overlay-infrastructure",
+            `map-overlay-infrastructure-${overlayClassPart(medium)}`,
+            `map-overlay-infrastructure-${overlayClassPart(fixture.utility.status || "idle")}`
+          ],
+          label: `${fixture.name}: ${titleCase(fixture.utility.status || "idle")}`,
+          source: networks.length ? networks.map(titleCase).join(" / ") : "Local device",
+          title: `Infrastructure: ${fixture.name}; ${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `; ${fixture.utility.statusReason}` : ""}.`,
+          target: { kind: "fixture", id: fixture.id }
+        }, map);
+      }
+    }
+    return assignments;
+  }
+
   function movementOverlayAssignments(map, route) {
     const assignments = new Map();
     if (route?.task) {
@@ -34938,8 +35919,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (normalized === "contamination") {
       return contaminationOverlayAssignments(map);
     }
-    if (["temperature", "humidity", "ambientMana"].includes(normalized)) {
+    if (["temperature", "light", "humidity", "ambientMana"].includes(normalized)) {
       return tileEnvironmentOverlayAssignments(map, normalized);
+    }
+    if (normalized === "infrastructure") {
+      return infrastructureOverlayAssignments(map);
     }
     if (normalized === "movement") {
       return movementOverlayAssignments(map, context.route);
@@ -37410,6 +38394,69 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
+  function updateFixtureUtility(fixtureId, changes, eventText = "") {
+    const fixture = fixtureById(fixtureId);
+    if (!fixture || !fixtureInfrastructureDef(fixture)) return false;
+    fixture.utility = normalizeFixtureUtility({ ...fixture.utility, ...changes }, fixtureDef(fixture));
+    if (eventText) addEvent(eventText);
+    persist();
+    render();
+    return true;
+  }
+
+  function loadFixtureUtilityResource(fixtureId, resourceKey, field, capacity) {
+    const fixture = fixtureById(fixtureId);
+    if (!fixture) return false;
+    const roomId = labMapCellRoomId(fixture.origin);
+    if (!roomId || resourceAmountInRoom(resourceKey, roomId) < 1) return false;
+    if ((Number(fixture.utility[field]) || 0) >= capacity) return false;
+    if (removePhysicalItemQuantity("resources", resourceKey, 1, roomId) < 1) return false;
+    fixture.utility[field] = Math.min(capacity, (Number(fixture.utility[field]) || 0) + 1);
+    addEvent(`${fixture.name} loaded with 1 ${resourceLabel(resourceKey)}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function emptyFixtureUtilityWaste(fixtureId, field, label) {
+    const fixture = fixtureById(fixtureId);
+    if (!fixture) return false;
+    const contents = field === "capturedAirborne" ? fixture.utility.capturedAirborne : fixture.utility.contents;
+    const amount = field === "capturedAirborne" ? airborneLoadTotal(contents) : utilityContentsTotal(contents);
+    if (amount <= TILE_ENVIRONMENT_EPSILON) return false;
+    const roomId = labMapCellRoomId(fixture.origin) || PITS_ROOM_ID;
+    createPhysicalWasteBatch(Math.max(1, Math.ceil(amount)), ["utility", field === "capturedAirborne" ? "filter" : "drainage", ...Object.keys(contents)], {
+      roomId,
+      cell: fixture.origin
+    }, { phase: field === "capturedAirborne" ? "solid" : "sludge", sourceLabels: [fixture.name] });
+    fixture.utility[field] = {};
+    addEvent(`${fixture.name} emptied into physical ${label}; the material now requires storage or disposal.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setFixtureExactTemperature(fixtureId) {
+    const fixture = fixtureById(fixtureId);
+    if (!fixture || !utilityThermostatAvailable(fixture)) return false;
+    const current = Number.isFinite(Number(fixture.utility.exactTargetC)) ? fixture.utility.exactTargetC : utilityClimateTargetC(fixture);
+    const proposed = window.prompt("Exact target temperature (°C)", String(current));
+    if (proposed === null) return false;
+    const value = Number(proposed);
+    if (!Number.isFinite(value)) return false;
+    return updateFixtureUtility(fixture.id, { exactTargetC: clamp(value, -50, 100) }, `${fixture.name} thermostat set to ${formatDecimal(clamp(value, -50, 100), 1)} °C.`);
+  }
+
+  function fixtureUtilityNetworkSummary(fixture) {
+    const networks = fixtureUtilityNetworks(fixture);
+    if (!networks.length) return "Local device";
+    const context = utilityNetworkContext();
+    return networks.map((medium) => {
+      const component = utilityComponentForFixture(fixture, medium, context);
+      return `${titleCase(medium)}: ${component?.fixtures?.length || 1} connected fixture${component?.fixtures?.length === 1 ? "" : "s"}`;
+    }).join("; ");
+  }
+
   function fixtureContextCommands(fixture) {
     if (!fixture) return [];
     const def = fixtureDef(fixture);
@@ -37422,7 +38469,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? "The laboratory's only surface route cannot be dismantled in this pass."
         : constructionOrderAtCell(fixture.origin) ? "Construction is already designated across this fixture." : "",
       description: `${def?.assemblyClass === "siteBuilt" ? "Dismantle this site-built equipment" : "Dismantle this fixture"} into physical rubble. Heavy equipment must be reconstructed to move it.`,
-      run: () => createConstructionOrder("deconstruct", [fixture.origin])
+      run: () => createConstructionOrder("deconstruct", [fixture.origin], { targetFixtureId: fixture.id })
     })];
     if (def?.capabilities?.includes("workbench")) {
       commands.push(commandDef({
@@ -37526,6 +38573,112 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Choose whether accepted items may be left directly on designated floor tiles when furniture is full or unsuitable.",
         run: () => toggleStockpileFloorStorage(designation?.id)
       }));
+    }
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    if (infrastructure) {
+      commands.push(commandDef({
+        id: `fixture.utility.toggle.${fixture.id}`,
+        label: fixture.utility.enabled ? "Switch Off" : "Switch On",
+        group: "Infrastructure",
+        description: fixture.utility.enabled ? "Disable this utility device without dismantling its physical network." : "Enable this utility device. It will operate only when its physical inputs and connections are available.",
+        run: () => updateFixtureUtility(fixture.id, { enabled: !fixture.utility.enabled }, `${fixture.name} switched ${fixture.utility.enabled ? "off" : "on"}.`)
+      }));
+      for (const mode of infrastructure.powerModes || []) {
+        commands.push(commandDef({
+          id: `fixture.utility.power.${fixture.id}.${mode}`,
+          label: `Use ${UTILITY_POWER_MODE_BY_ID[mode]?.label || titleCase(mode)}`,
+          group: "Power Source",
+          disabledReason: fixture.utility.powerMode === mode ? `${fixture.name} already uses this power source.` : "",
+          description: mode === "fuel" ? "Burn fuel stored inside this device." : mode === "electric" ? "Draw power from a physically connected electrical conduit and generator." : "Draw stored mana through a physically connected mana conduit.",
+          run: () => updateFixtureUtility(fixture.id, { powerMode: mode }, `${fixture.name} switched to ${UTILITY_POWER_MODE_BY_ID[mode]?.label || titleCase(mode)}.`)
+        }));
+      }
+      if (Number(infrastructure.fuelCapacity) > 0 || infrastructure.powerModes?.includes("fuel")) {
+        const capacity = Number(infrastructure.fuelCapacity) || UTILITY_FUEL_CAPACITY;
+        const roomId = labMapCellRoomId(fixture.origin);
+        commands.push(commandDef({
+          id: `fixture.utility.fuel.${fixture.id}`,
+          label: "Load Fuel Reagent",
+          group: "Power Source",
+          disabledReason: fixture.utility.fuel >= capacity ? "The internal fuel store is full." : resourceAmountInRoom("fuelReagent", roomId) < 1 ? `No Fuel Reagent is physically stored in ${roomName(roomId)}.` : "",
+          description: `Move one local Fuel Reagent into this device. Internal capacity ${formatDecimal(fixture.utility.fuel, 1)} / ${formatDecimal(capacity, 1)}.`,
+          run: () => loadFixtureUtilityResource(fixture.id, "fuelReagent", "fuel", capacity)
+        }));
+      }
+      if (infrastructure.role === "airTerminal") {
+        for (const mode of ["exhaust", "supply", "closed"]) {
+          commands.push(commandDef({
+            id: `fixture.utility.air.${fixture.id}.${mode}`,
+            label: `${titleCase(mode)} Airflow`,
+            group: "Ventilation",
+            disabledReason: fixture.utility.mode === mode ? `The terminal is already set to ${mode}.` : "",
+            description: mode === "exhaust" ? "Move this tile's exact air mixture toward filters and an exterior terminal." : mode === "supply" ? "Draw exterior air into this exact tile." : "Close this terminal without dismantling its duct connection.",
+            run: () => updateFixtureUtility(fixture.id, { mode }, `${fixture.name} set to ${mode} airflow.`)
+          }));
+        }
+      }
+      if (infrastructure.role === "heater") {
+        for (const setting of UTILITY_CLIMATE_SETTING_DEFS) {
+          commands.push(commandDef({
+            id: `fixture.utility.climate.${fixture.id}.${setting.id}`,
+            label: `${setting.label} Setting`,
+            group: "Temperature",
+            disabledReason: fixture.utility.climateSetting === setting.id && fixture.utility.exactTargetC === null ? `${fixture.name} already uses this broad setting.` : "",
+            description: `Use the broad ${setting.label.toLowerCase()} target, approximately ${setting.targetC} °C.`,
+            run: () => updateFixtureUtility(fixture.id, { climateSetting: setting.id, exactTargetC: null }, `${fixture.name} set to ${setting.label}.`)
+          }));
+        }
+        commands.push(commandDef({
+          id: `fixture.utility.climateExact.${fixture.id}`,
+          label: "Set Exact Temperature",
+          group: "Temperature",
+          disabledReason: utilityThermostatAvailable(fixture) ? "" : "Install an operational thermostat in this room to set an exact Celsius target.",
+          description: "Set a precise Celsius target through the room's thermostat.",
+          run: () => setFixtureExactTemperature(fixture.id)
+        }));
+      }
+      if (infrastructure.role === "manaSource") {
+        for (const mode of ["rock", "feedstock"]) {
+          commands.push(commandDef({
+            id: `fixture.utility.manaSource.${fixture.id}.${mode}`,
+            label: mode === "rock" ? "Collect from Rock" : "Consume Arcane Feedstock",
+            group: "Mana",
+            disabledReason: fixture.utility.mode === mode ? `The collector already uses ${mode}.` : "",
+            description: mode === "rock" ? "Slowly extract mana from the exact surrounding rock reservoir." : "Convert Arcane Feedstock loaded into this collector.",
+            run: () => updateFixtureUtility(fixture.id, { mode }, `${fixture.name} source changed to ${mode}.`)
+          }));
+        }
+        const capacity = Number(infrastructure.feedstockCapacity) || UTILITY_FUEL_CAPACITY;
+        const roomId = labMapCellRoomId(fixture.origin);
+        commands.push(commandDef({
+          id: `fixture.utility.arcaneFeedstock.${fixture.id}`,
+          label: "Load Arcane Feedstock",
+          group: "Mana",
+          disabledReason: fixture.utility.feedstock >= capacity ? "The feedstock hopper is full." : resourceAmountInRoom("arcaneFeedstock", roomId) < 1 ? `No Arcane Feedstock is physically stored in ${roomName(roomId)}.` : "",
+          description: `Load one local Arcane Feedstock. Hopper ${formatDecimal(fixture.utility.feedstock, 1)} / ${formatDecimal(capacity, 1)}.`,
+          run: () => loadFixtureUtilityResource(fixture.id, "arcaneFeedstock", "feedstock", capacity)
+        }));
+      }
+      if (infrastructure.role === "airFilter") {
+        commands.push(commandDef({
+          id: `fixture.utility.emptyFilter.${fixture.id}`,
+          label: "Remove Spent Filter Medium",
+          group: "Maintenance",
+          disabledReason: airborneLoadTotal(fixture.utility.capturedAirborne) > 0 ? "" : "The filter contains no captured material.",
+          description: "Turn captured airborne substances into physical tagged waste on this tile. This does not delete the material.",
+          run: () => emptyFixtureUtilityWaste(fixture.id, "capturedAirborne", "spent filter waste")
+        }));
+      }
+      if (infrastructure.role === "drainSump") {
+        commands.push(commandDef({
+          id: `fixture.utility.emptySump.${fixture.id}`,
+          label: "Pump Out Sump",
+          group: "Maintenance",
+          disabledReason: utilityContentsTotal(fixture.utility.contents) > 0 ? "" : "The sump is empty.",
+          description: "Move the sump's exact contents into physical tagged sludge on this tile for later handling.",
+          run: () => emptyFixtureUtilityWaste(fixture.id, "contents", "sump waste")
+        }));
+      }
     }
     commands.push(commandDef({
       id: `fixture.access.${fixture.id}`,
@@ -37994,6 +39147,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["State", titleCase(fixture.operationalState)]);
         rows.push(["Assembly", titleCase(def.assemblyClass.replace(/([A-Z])/g, " $1"))]);
         rows.push(["Access", `${fixtureAccessCells(fixture).length} / ${fixturePortCells(fixture).length} interaction points usable`]);
+        if (fixtureInfrastructureDef(fixture)) {
+          rows.push(["Utility", `${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `: ${fixture.utility.statusReason}` : ""}`]);
+        }
         if (isStorageFixture(fixture)) {
           rows.push(["Storage", titleCase(fixture.accessState)]);
           rows.push(["Known contents", storageFixtureContentsLabel(fixture)]);
@@ -38108,7 +39264,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (environmentKnown) {
         const debug = mapDebugOverlayActive();
         const attributes = tileEnvironmentAttributes(environment, roomById(roomId)?.attributes);
-        for (const attributeKey of ["temperature", "humidity", "ambientMana", "contamination"]) {
+        for (const attributeKey of ["temperature", "light", "humidity", "ambientMana", "contamination"]) {
           const value = attributes[attributeKey].current;
           const band = roomAttributeBand(attributeKey, value);
           rows.push([ROOM_ATTRIBUTE_BY_KEY[attributeKey].label, debug ? `${roomAttributeMeasurementText(attributeKey, value, { debug: true })}; ${band.label}` : band.label]);
@@ -38147,7 +39303,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ];
       const observed = scientistObservesRoom(room.id);
       if (observed || mapDebugOverlayActive()) {
-        for (const attributeKey of ["temperature", "humidity", "ambientMana", "contamination"]) {
+        for (const attributeKey of ["temperature", "light", "humidity", "ambientMana", "contamination"]) {
           const value = room.attributes[attributeKey].current;
           const band = roomAttributeBand(attributeKey, value);
           rows.push([ROOM_ATTRIBUTE_BY_KEY[attributeKey].label, mapDebugOverlayActive() ? `${roomAttributeMeasurementText(attributeKey, value, { debug: true })}; ${band.label}` : band.label]);
@@ -38233,6 +39389,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Accessible points", `${usablePorts.length} / ${ports.length}`],
         ["Wards", containerWardLabels(fixture.wardIds).join(", ") || "None"]
       ];
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      if (infrastructure) {
+        rows.push(
+          ["Utility state", `${fixture.utility.enabled ? "Enabled" : "Disabled"}; ${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `; ${fixture.utility.statusReason}` : ""}`],
+          ["Physical networks", fixtureUtilityNetworkSummary(fixture)]
+        );
+        if (infrastructure.powerModes?.length) rows.push(["Power source", UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Unavailable"]);
+        if (Number(infrastructure.fuelCapacity) > 0 || infrastructure.powerModes?.includes("fuel")) rows.push(["Internal fuel", `${formatDecimal(fixture.utility.fuel, 1)} / ${formatDecimal(Number(infrastructure.fuelCapacity) || UTILITY_FUEL_CAPACITY, 1)} Fuel Reagent`]);
+        if (infrastructure.role === "heater") rows.push(["Temperature target", utilityThermostatAvailable(fixture) && fixture.utility.exactTargetC !== null ? `${formatDecimal(fixture.utility.exactTargetC, 1)} °C (thermostat)` : `${titleCase(fixture.utility.climateSetting)} broad setting`]);
+        if (infrastructure.role === "airTerminal") rows.push(["Airflow mode", titleCase(fixture.utility.mode)]);
+        if (infrastructure.role === "airFilter") rows.push(["Filter load", `${formatDecimal(airborneLoadTotal(fixture.utility.capturedAirborne), 1)} / ${formatDecimal(Number(infrastructure.capacity) || UTILITY_FILTER_CAPACITY, 1)}; ${Object.keys(fixture.utility.capturedAirborne).map(airborneSubstanceLabel).join(", ") || "empty"}`]);
+        if (infrastructure.role === "drainSump") rows.push(["Sump contents", `${formatDecimal(utilityContentsTotal(fixture.utility.contents), 1)} / ${formatDecimal(Number(infrastructure.capacity) || UTILITY_SUMP_CAPACITY, 1)}; ${Object.keys(fixture.utility.contents).map(airborneSubstanceLabel).join(", ") || "empty"}`]);
+        if (infrastructure.role === "manaSource") rows.push(["Mana storage", `${formatDecimal(fixture.utility.storedMana, 1)} / ${formatDecimal(Number(infrastructure.capacity) || UTILITY_MANA_CAPACITY, 1)} thaums; source ${titleCase(fixture.utility.mode)}`]);
+        if (infrastructure.role === "manaEmitter") rows.push(["Mana target", `${formatDecimal(fixture.utility.manaTarget, 1)} thaums/m³`]);
+        if (["airExterior", "drainExterior"].includes(infrastructure.role)) rows.push(["Exterior discharge", `${formatDecimal(fixture.utility.dischargedLoad, 1)} total load; ${fixture.utility.exposureChecks} exposure checks`]);
+      }
       if (isStorageFixture(fixture)) {
         const storageDef = storageFixtureDef(fixture).storage;
         const designation = stockpileForFixture(fixture);
@@ -39636,6 +40808,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Heat transfers through air and conducts slowly through surrounding material.",
         "Unobserved rooms stay blank."
       ],
+      light: [
+        "Known: observed tile illumination from operating physical light sources.",
+        "Intensity falls with distance; solid rock, walls, and closed doors block propagation.",
+        "Multiple light sources add together."
+      ],
       humidity: [
         "Known: observed relative humidity by tile.",
         "Humidity moves with leaking and open air; liquid wetness is not simulated yet.",
@@ -39645,6 +40822,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Known: observed mana density in thaums/m³.",
         "Mana crosses open air and permeable materials at its own rate.",
         "Unobserved rooms stay blank."
+      ],
+      infrastructure: [
+        "Physical utility layers: air, drainage, electricity, mana, and local operating devices.",
+        "Color and tooltip status show disconnected, unpowered, blocked, saturated, full, and operating equipment.",
+        "Utility segments may share tiles when they occupy different physical layers."
       ],
       movement: [
         "Player plan: next scientist movement or hauling route only.",
@@ -45389,6 +46571,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       rotation: normalizeFixtureRotation(candidate.rotation),
       materialPolicy: String(candidate.materialPolicy || "closest"),
       productionBillId: String(candidate.productionBillId || ""),
+      targetFixtureId: mode === "deconstruct" ? String(candidate.targetFixtureId || "").replace(/[^a-zA-Z0-9:_-]/g, "") : "",
       label: String(candidate.label || CONSTRUCTION_MODE_BY_ID[mode]?.label || "Construction order"),
       priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       createdAt: finiteTime(candidate.createdAt, 0),
