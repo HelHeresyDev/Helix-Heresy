@@ -355,7 +355,13 @@ Slimes also have first-pass drive records stored at `slime.ai.drives`. Current d
 
 Drives are intentionally lightweight in this pass. They can raise urgency and nudge broad intent, such as hunger or regrowth producing `seekFood`, injury producing `rest`, assigned work producing `continueJob`, and containment or stress producing `endureContainment`. They do not yet execute full behavior, perceive distant targets, or override active movement/feeding/blockage states. Needs and drives describe what the slime wants; later perception, movement, feeding, habitat, threat, containment, and work-autonomy systems decide what it can actually do.
 
-Slimes now have first-pass current perception stored at `slime.ai.perception`. Perception is local and qualitative. Loose slimes can perceive same-room stimuli such as notable environment bands, feeding residue, local corpses, waste, nearby free creatures, the scientist, and open-door air from adjacent rooms. They can also perceive qualitative food and habitat traces drifting from adjacent rooms, including through closed doors when the door and seal allow enough leakage. These traces expose broad cues such as carrion, organic residue, hazardous sludge, contamination, or different room air; they do not reveal exact hidden resources or formulas. Contained slimes primarily perceive their own container interior, container-local residue/corpses/other occupants, containment strain, and only limited room cues when the container seal/visibility allows it. Sealed containers should block or muffle room cues rather than granting omniscient awareness. This record is current awareness only, not long-term memory; combat decisions and work autonomy should target perceived, contacted, or remembered things instead of global resources.
+Scientists and creatures now use a shared sensory model. Each actor has explicit capabilities, hidden sensitivity values, current perceptions, one-hour actionable memories, a bounded 100-entry sensory log, and persistent bounded route memory. Repeated sensory ticks are coalesced instead of flooding the log. Normal player rendering only shows what the scientist knows; exact biological sensitivity and slime sensory logs are Debug information.
+
+Slimes are blind and deaf. They universally possess chemical sensing, taste, physical contact, and magical sensitivity, with individual hidden biological sensitivity strengths. They detect physical volatile traces that diffuse tile by tile with airflow, leak according to doors and container seals, and decay over time. Taste and contact are exact only when the slime shares physical space with a source. Magical sensitivity detects mana gradients, magical presences, active effects, and supernatural infrastructure without revealing ordinary geometry or granting vision. `Perception` is general trained awareness, while `Arcane Senses` is trained interpretation of magical stimuli.
+
+The scientist has vision, hearing, smell/chemical awareness, taste, contact, and magical sensitivity. Vision is exact but requires range, line of sight, and sufficient light. Hearing is directional and approximate. Chemical cues are broad gradients. Magical cues provide approximate direction and intensity. All channels use the same one-hour actionable-memory duration, but retain their distinct precision. Only detected serious/critical incidents and combat alerts appear on the map; routine stimuli remain in actor logs. Approximate detections create uncertain incident locations that can later be refined by exact sight or contact.
+
+Loose slime food-seeking no longer uses exact room-wide resource knowledge. Slimes consume only contacted material, follow locally stronger physical chemical gradients one step at a time, and may retrace previously traversed cells toward a remembered cue. Habitat seeking likewise compares local adjacent conditions. Closed doors remain physical barriers even when traces leak through them.
 
 The current implementation deliberately mirrors existing `roomActivity`, `autonomousMovement`, job, container, and containment-risk behavior instead of replacing those systems all at once. This keeps loose movement, blocked-door pressure, feeding behavior, cleanup observations, and incident alerts working while giving future systems a consistent place to read and write intent. `slime.autonomousMovement` is the current route execution record for loose slimes; it stores intent, target, path, target cell, route distance, movement speed, condition modifiers, start time, and arrival time. Movement speed is derived from physical movement biology and then modified by current maturity, mass, Body Integrity, and Stress.
 
@@ -379,6 +385,8 @@ Base skills should be broad world-scale domains, not narrow lab job titles. The 
 
 - Analysis
 - Perception
+- Arcane Senses
+- Animancy
 - Creature Handling
 - Fabrication
 - Husbandry
@@ -394,7 +402,8 @@ These names should make sense beyond the starting scientist. Hunters, soldiers, 
 - Creature Handling can later evolve into Containment Handling, Predator Handling, Slime Handling, or another creature-family specialty.
 - Husbandry can later evolve into Slime Husbandry, Brood Husbandry, Monstrous Husbandry, or other care/reproduction specialties.
 - Analysis can later evolve into Combat Analysis, Surgical Analysis, Creature Analysis, or another reading specialty.
-- Perception can later evolve into Threat Perception, Arcane Sense, Tracking, or another awareness specialty.
+- Perception can later evolve into Threat Perception, Tracking, Investigation, or another general awareness specialty.
+- Arcane Senses can later evolve into Soul Sense, Mana Sight, Spell Sense, or another magical interpretation specialty.
 
 Examples of creature or combat skills:
 
@@ -404,11 +413,12 @@ Examples of creature or combat skills:
 - Evasion
 - Guarding
 - Perception
+- Arcane Senses
 - Thermal
 - Electrical
 - Corrosive
 - Toxic
-- Arcane
+- Arcane Manipulation
 - Blades
 - Axes
 - Firearms

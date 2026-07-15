@@ -67,20 +67,23 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await expect(skillList).toContainText(`0 / ${xpToNextLevel(1)} XP to level 2`);
   await expect(skillList).not.toContainText('No learned skills yet');
   await expect(skillList).not.toContainText('Observation');
-  await expect(skillList).not.toContainText('Perception');
+  await expect(skillList).toContainText('Perception');
+  await expect(skillList).toContainText('Arcane Senses');
+  await expect(skillList).toContainText('Animancy');
+  await expect(skillList).not.toContainText('Materials Science');
 
   const firstBreakthrough = xpToNextLevel(0);
 
   await openWorkspace(page, 'cheats');
-  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
+  await page.locator('#xpCommandInput').fill(`materialsScience ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Analysis');
-  await expect(skillList).not.toContainText('Perception');
+  await expect(skillList).not.toContainText('Materials Science');
 
-  await page.locator('#xpCommandInput').fill('perception 1');
+  await page.locator('#xpCommandInput').fill('materialsScience 1');
   await page.locator('#xpCommandBtn').click();
   await expect(skillList).toContainText('Analysis');
-  await expect(skillList).toContainText('Perception');
+  await expect(skillList).toContainText('Materials Science');
   await expect(skillList).toContainText('[Initiate], level 1');
   await expect(skillList).not.toContainText('Observation');
 
@@ -89,14 +92,14 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
     const state = payload.state || payload;
     return {
       analysis: state.scientist?.skills?.analysis || null,
-      perception: state.scientist?.skills?.perception || null,
+      materialsScience: state.scientist?.skills?.materialsScience || null,
     };
   });
 
   expect(savedSkills.analysis?.xp).toBe(firstBreakthrough);
   expect(savedSkills.analysis?.practiceTags?.starter).toBe(firstBreakthrough);
-  expect(savedSkills.perception?.xp).toBe(firstBreakthrough);
-  expect(savedSkills.perception?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
+  expect(savedSkills.materialsScience?.xp).toBe(firstBreakthrough);
+  expect(savedSkills.materialsScience?.practiceTags?.cheatcommand).toBe(firstBreakthrough);
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
@@ -129,7 +132,7 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
 
   const firstBreakthrough = xpToNextLevel(0);
   await openWorkspace(page, 'cheats');
-  await page.locator('#xpCommandInput').fill(`perception ${firstBreakthrough - 1}`);
+  await page.locator('#xpCommandInput').fill(`materialsScience ${firstBreakthrough - 1}`);
   await page.locator('#xpCommandBtn').click();
 
   await skipSeconds(page, 60 * 60 * 48);
@@ -137,14 +140,14 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
   const skill = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
-    return state.scientist?.skills?.perception || null;
+    return state.scientist?.skills?.materialsScience || null;
   }, { key: storageKey });
 
   const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
   expect(skill?.xp).toBeCloseTo(expected, 4);
   expect(skill?.lastBreakthroughDecayAt).toBe(60 * 60 * 48);
   await expect(page.locator('#skillList')).toContainText('Analysis');
-  await expect(page.locator('#skillList')).not.toContainText('Perception');
+  await expect(page.locator('#skillList')).not.toContainText('Materials Science');
 });
 
 test('slime combat practice stores hidden component skills and pain memory', async ({ page }) => {
@@ -224,7 +227,7 @@ test('slime combat practice stores hidden component skills and pain memory', asy
     };
   }, { key: storageKey });
 
-  expect(result.scientistSkills).toEqual(['analysis']);
+  expect(result.scientistSkills).toEqual(expect.arrayContaining(['analysis', 'perception', 'animancy', 'arcaneSenses']));
   expect(result.flameThermal).toBeGreaterThan(0);
   expect(result.frostCold).toBeGreaterThan(0);
   expect(result.flameToughness).toBeGreaterThan(0);

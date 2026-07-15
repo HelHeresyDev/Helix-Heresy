@@ -854,12 +854,22 @@
   const TILE_ENVIRONMENT_EPSILON = 0.0001;
   const TILE_ENVIRONMENT_AIRBORNE_PRUNE_EPSILON = 1e-12;
   const TILE_ENVIRONMENT_AIRBORNE_RATE_PER_HOUR = 8;
+  const TILE_ENVIRONMENT_CHEMICAL_TRACE_RATE_PER_HOUR = 8;
+  const TILE_ENVIRONMENT_CHEMICAL_TRACE_DECAY_PER_HOUR = 0.35;
   const TILE_ENVIRONMENT_TEMPERATURE_RATE_PER_HOUR = 12;
   const TILE_ENVIRONMENT_HUMIDITY_RATE_PER_HOUR = 8;
   const TILE_ENVIRONMENT_MANA_RATE_PER_HOUR = 2;
   const TILE_ENVIRONMENT_ROCK_TEMPERATURE_RATE_PER_HOUR = 0.012;
   const TILE_ENVIRONMENT_ROCK_MANA_RATE_PER_HOUR = 0.004;
   const TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID = "background-laboratory-aerosol";
+  const SENSORY_MEMORY_SECONDS = minutesToSeconds(60);
+  const SENSORY_LOG_LIMIT = 100;
+  const SENSORY_CURRENT_LIMIT = 32;
+  const SENSORY_ROUTE_MEMORY_LIMIT = 256;
+  const SENSORY_EVENT_LIMIT = 200;
+  const SENSORY_EVENT_MAX_AGE = minutesToSeconds(60);
+  const SENSORY_CHANNELS = ["vision", "hearing", "chemical", "taste", "magic", "contact"];
+  const CHEMICAL_TRACE_IDS = ["living", "scientist", "carrion", "organic", "waste", "hazard"];
   const CONTAMINATION_DIFFUSION_OPEN_MODIFIER = 1;
   const CONTAMINATION_DIFFUSION_BREACHED_MODIFIER = 1.35;
   const CONTAMINATION_DIFFUSION_CLOSED_MODIFIER = 0.18;
@@ -2923,7 +2933,9 @@
   };
   const SKILL_DEFS = [
     { id: "analysis", label: "Analysis", aliases: ["observation"], futureEvolutions: ["Creature Analysis", "Combat Analysis", "Forensic Analysis", "Material Analysis"] },
-    { id: "perception", label: "Perception", aliases: ["awareness", "senses", "detection"], futureEvolutions: ["Threat Perception", "Arcane Sense", "Tracking"] },
+    { id: "perception", label: "Perception", aliases: ["awareness", "senses", "detection"], futureEvolutions: ["Threat Perception", "Tracking", "Investigation"] },
+    { id: "arcaneSenses", label: "Arcane Senses", aliases: ["mana sensing", "magical sensitivity"], futureEvolutions: ["Soul Sense", "Mana Sight", "Spell Sense"] },
+    { id: "animancy", label: "Animancy", aliases: ["soul magic", "soulcraft"], futureEvolutions: ["Soul Analysis", "Soul Binding", "Vital Animancy"] },
     { id: "creatureHandling", label: "Creature Handling", aliases: ["slime handling", "specimen handling"], futureEvolutions: ["Containment Handling", "Predator Handling", "Slime Handling"] },
     { id: "fabrication", label: "Fabrication", aliases: ["biofabrication"], futureEvolutions: ["Biofabrication", "Container Fabrication", "Warded Fabrication"] },
     { id: "husbandry", label: "Husbandry", aliases: ["nutrition", "breeding", "reproductive biology"], futureEvolutions: ["Slime Husbandry", "Brood Husbandry", "Monstrous Husbandry"] },
@@ -2951,6 +2963,7 @@
   ]);
   const CREATURE_SKILL_DEFS = [
     { id: "perception", label: "Perception", aliases: ["awareness", "sensing"] },
+    { id: "arcaneSenses", label: "Arcane Senses", aliases: ["mana sensing", "magical sensitivity"] },
     { id: "toughness", label: "Toughness", aliases: ["endurance", "resilience"] },
     { id: "striking", label: "Striking", aliases: ["strike", "impact"] },
     { id: "grappling", label: "Grappling", aliases: ["grapple", "hold"] },
@@ -2965,7 +2978,7 @@
     { id: "pressure", label: "Pressure", aliases: ["wind", "air"] },
     { id: "radiant", label: "Radiant", aliases: ["light"] },
     { id: "umbral", label: "Umbral", aliases: ["shadow"] },
-    { id: "arcane", label: "Arcane", aliases: ["mana", "dream", "ether"] },
+    { id: "arcaneManipulation", label: "Arcane Manipulation", aliases: ["arcane", "mana", "dream", "ether"] },
     { id: "force", label: "Force", aliases: ["gravity"] }
   ];
   const CREATURE_SKILL_BY_ID = Object.fromEntries(CREATURE_SKILL_DEFS.map((skill) => [skill.id, skill]));
@@ -2984,7 +2997,7 @@
     pressure: "pressure",
     radiant: "radiant",
     shadow: "umbral",
-    arcane: "arcane",
+    arcane: "arcaneManipulation",
     force: "force"
   };
   const CREATURE_BEHAVIOR_MEMORY_KEYS = new Set([
@@ -3005,6 +3018,7 @@
   const CREATURE_PERCEPTION_PRACTICE_INTERVAL = minutesToSeconds(60);
   const CREATURE_PRACTICE_XP = {
     perception: 2,
+    arcaneSenses: 2,
     toughnessPerDamage: 0.35,
     strikingPerCycle: 4,
     elementalPerCycle: 3,
@@ -3479,6 +3493,7 @@
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
+      sensoryEvents: [],
       combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
@@ -3526,8 +3541,12 @@
         mana: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX }
       },
       skills: {
-        analysis: starterAnalysisSkillEntry()
-      }
+        analysis: starterSkillEntry(),
+        perception: starterSkillEntry(),
+        animancy: starterSkillEntry(),
+        arcaneSenses: starterSkillEntry()
+      },
+      sensory: defaultSensoryState("scientist")
     };
   }
 
@@ -4057,6 +4076,7 @@
       };
     }
     env.airborne = {};
+    env.chemicalTraces = {};
     return env;
   }
 
@@ -4491,6 +4511,8 @@
           ...record,
           cell: { ...record.cell },
           airborne: { ...record.airborne },
+          chemicalTraces: { ...record.chemicalTraces },
+          chemicalTraceTotal: chemicalTraceTotal(record.chemicalTraces),
           airborneTotal: airborneLoadTotal(record.airborne),
           substances: Object.entries(record.airborne).map(([id, concentration]) => ({ id, label: airborneSubstanceLabel(id), concentration }))
         }));
@@ -4504,6 +4526,7 @@
         if (Number.isFinite(Number(values.manaDensity))) record.manaDensity = clamp(Number(values.manaDensity), 0, 1000);
         if (Number.isFinite(Number(values.rockManaDensity))) record.rockManaDensity = clamp(Number(values.rockManaDensity), 0, 1000);
         if (values.airborne) record.airborne = normalizeAirborneLoads(values.airborne);
+        if (values.chemicalTraces) record.chemicalTraces = normalizeChemicalTraces(values.chemicalTraces);
         record.updatedAt = state.clock;
         syncRoomAttributeSummaries();
         persist();
@@ -4601,7 +4624,14 @@
           properties: Object.fromEntries(MATERIAL_PROPERTY_DEFS.map((property) => [property.id, compositionPropertyScore(composition, property.id)]))
         };
       },
-      damageStructure: (cell, amount, damageTypeId = "physical") => debugDamageStructure(cleanMapCell(cell), damageTypeId, amount)
+      damageStructure: (cell, amount, damageTypeId = "physical") => debugDamageStructure(cleanMapCell(cell), damageTypeId, amount),
+      sensorySnapshot: (actorId = "scientist") => {
+        const actor = actorId === "scientist" ? state.scientist : findSlime(actorId);
+        if (!actor) return null;
+        const actorType = actorId === "scientist" ? "scientist" : "slime";
+        const sensory = normalizeSensoryState(actor.sensory, actorType, actor.genome || "");
+        return JSON.parse(JSON.stringify({ actorId, actorType, sensory }));
+      }
     };
   }
 
@@ -6698,6 +6728,7 @@
       roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
       infrastructureChanged: updateInfrastructure(elapsed),
       envChanges: exchangeContainerEnvironments(elapsed),
+      sensoryChanged: updateSensorySystems(elapsed),
       habitatChanged: updateSlimeHabitatEffects(elapsed),
       expired: expireSlimes(),
       corpseChanges: updateCorpses(elapsed),
@@ -6748,6 +6779,7 @@
       + changes.roomPropagationChanges
       + changes.infrastructureChanged
       + changes.envChanges
+      + changes.sensoryChanged
       + changes.habitatChanged
       + changes.feedstockChanged
       + changes.feedingChanged
@@ -8466,6 +8498,7 @@
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
       skills: normalizeCreatureSkills(options.skills || {}),
       behaviorMemory: normalizeCreatureBehaviorMemory(options.behaviorMemory),
+      sensory: normalizeSensoryState(options.sensory, "slime", genome),
       analyzedCapabilities: normalizeAnalyzedCapabilities(options.analyzedCapabilities),
       containmentTest: normalizeContainmentTestRecord(options.containmentTest),
       nextPerceptionPracticeAt: finiteTime(options.nextPerceptionPracticeAt, 0),
@@ -8902,6 +8935,10 @@
   }
 
   function starterAnalysisSkillEntry() {
+    return starterSkillEntry();
+  }
+
+  function starterSkillEntry() {
     return {
       ...defaultSkillEntry(),
       xp: STARTING_ANALYSIS_XP,
@@ -9018,7 +9055,8 @@
     if (id === "pressure") return "Focused Pressure";
     if (id === "radiant") return "Focused Radiance";
     if (id === "umbral") return "Deepening Umbral";
-    if (id === "arcane") return "Shaped Arcane";
+    if (id === "arcaneManipulation") return "Shaped Arcane Manipulation";
+    if (id === "arcaneSenses") return has(/combat|threat/) ? "Threat Arcane Senses" : "Trace Arcane Senses";
     if (id === "force") return "Focused Force";
     if (id === "grappling") return "Locking Grapple";
     if (id === "guarding") return "Guarding Instinct";
@@ -9246,6 +9284,10 @@
       const xp = CREATURE_PRACTICE_XP.perception * (1 + highestRank * 0.35);
       if (awardCreatureSkillXp(slime, "perception", xp, "sensing stimuli", { outcome: "partial" }) > 0) {
         rememberCreatureExperience(slime, "perceivedStimuli", 1 + highestRank, perception.summary);
+        changes += 1;
+      }
+      const magicalEntries = slime.sensory?.current?.filter((entry) => entry.channel === "magic") || [];
+      if (magicalEntries.length && awardCreatureSkillXp(slime, "arcaneSenses", CREATURE_PRACTICE_XP.arcaneSenses, "interpreting magical stimuli", { outcome: "partial" }) > 0) {
         changes += 1;
       }
       slime.nextPerceptionPracticeAt = state.clock + CREATURE_PERCEPTION_PRACTICE_INTERVAL;
@@ -10036,6 +10078,19 @@
     return Object.values(normalizeAirborneLoads(candidate)).reduce((total, amount) => total + amount, 0);
   }
 
+  function normalizeChemicalTraces(candidate) {
+    const normalized = {};
+    for (const id of CHEMICAL_TRACE_IDS) {
+      const amount = Math.max(0, Number(candidate?.[id]) || 0);
+      if (amount >= TILE_ENVIRONMENT_AIRBORNE_PRUNE_EPSILON) normalized[id] = amount;
+    }
+    return normalized;
+  }
+
+  function chemicalTraceTotal(candidate) {
+    return Object.values(normalizeChemicalTraces(candidate)).reduce((total, amount) => total + amount, 0);
+  }
+
   function tileEnvironmentCells(map = ensureLabMap()) {
     return (map.terrain?.excavated || []).filter((cell) => !constructedWallAtCell(cell, map));
   }
@@ -10056,6 +10111,7 @@
       airborne: contamination >= TILE_ENVIRONMENT_EPSILON
         ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: contamination }
         : {},
+      chemicalTraces: {},
       updatedAt: Number(state?.clock) || 0
     };
   }
@@ -10071,6 +10127,7 @@
       manaDensity: clamp(Number.isFinite(Number(candidate?.manaDensity)) ? Number(candidate.manaDensity) : base.manaDensity, 0, 1000),
       rockManaDensity: clamp(Number.isFinite(Number(candidate?.rockManaDensity)) ? Number(candidate.rockManaDensity) : base.rockManaDensity, 0, 1000),
       airborne: normalizeAirborneLoads(candidate?.airborne ?? base.airborne),
+      chemicalTraces: normalizeChemicalTraces(candidate?.chemicalTraces ?? base.chemicalTraces),
       updatedAt: finiteTime(candidate?.updatedAt, Number(state?.clock) || 0)
     };
   }
@@ -10177,7 +10234,7 @@
   }
 
   function environmentDeltaRecord() {
-    return { temperatureC: 0, humidity: 0, manaDensity: 0, airborne: {} };
+    return { temperatureC: 0, humidity: 0, manaDensity: 0, airborne: {}, chemicalTraces: {} };
   }
 
   function addEnvironmentScalarTransfer(left, right, key, fraction, deltas) {
@@ -10197,6 +10254,16 @@
     }
   }
 
+  function addEnvironmentChemicalTransfer(left, right, fraction, deltas) {
+    const ids = new Set([...Object.keys(left.chemicalTraces || {}), ...Object.keys(right.chemicalTraces || {})]);
+    for (const id of ids) {
+      const amount = ((Number(left.chemicalTraces?.[id]) || 0) - (Number(right.chemicalTraces?.[id]) || 0)) * clamp(fraction, 0, 0.24);
+      if (Math.abs(amount) < TILE_ENVIRONMENT_EPSILON) continue;
+      deltas[mapCellKey(left.cell)].chemicalTraces[id] = (deltas[mapCellKey(left.cell)].chemicalTraces[id] || 0) - amount;
+      deltas[mapCellKey(right.cell)].chemicalTraces[id] = (deltas[mapCellKey(right.cell)].chemicalTraces[id] || 0) + amount;
+    }
+  }
+
   function simulateTileEnvironmentStep(seconds, map = ensureLabMap()) {
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
@@ -10208,6 +10275,7 @@
       addEnvironmentScalarTransfer(edge.left, edge.right, "humidity", TILE_ENVIRONMENT_HUMIDITY_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
       addEnvironmentScalarTransfer(edge.left, edge.right, "manaDensity", TILE_ENVIRONMENT_MANA_RATE_PER_HOUR * edge.mana * elapsedHours, deltas);
       if (edge.air > 0) addEnvironmentAirborneTransfer(edge.left, edge.right, TILE_ENVIRONMENT_AIRBORNE_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
+      if (edge.air > 0) addEnvironmentChemicalTransfer(edge.left, edge.right, TILE_ENVIRONMENT_CHEMICAL_TRACE_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
     }
     let changes = 0;
     for (const [key, record] of Object.entries(environments)) {
@@ -10216,14 +10284,18 @@
       const rockManaFraction = 1 - Math.exp(-TILE_ENVIRONMENT_ROCK_MANA_RATE_PER_HOUR * elapsedHours);
       delta.temperatureC += (record.rockTemperatureC - record.temperatureC) * rockHeatFraction;
       delta.manaDensity += (record.rockManaDensity - record.manaDensity) * rockManaFraction;
-      const before = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}`;
+      const before = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}|${JSON.stringify(record.chemicalTraces)}`;
       record.temperatureC = clamp(record.temperatureC + delta.temperatureC, -100, 500);
       record.humidity = clamp(record.humidity + delta.humidity, 0, 100);
       record.manaDensity = clamp(record.manaDensity + delta.manaDensity, 0, 1000);
       for (const [id, amount] of Object.entries(delta.airborne)) record.airborne[id] = Math.max(0, (record.airborne[id] || 0) + amount);
       record.airborne = normalizeAirborneLoads(record.airborne);
+      const traceDecay = Math.exp(-TILE_ENVIRONMENT_CHEMICAL_TRACE_DECAY_PER_HOUR * elapsedHours);
+      for (const [id, amount] of Object.entries(delta.chemicalTraces)) record.chemicalTraces[id] = Math.max(0, (record.chemicalTraces[id] || 0) + amount);
+      for (const id of Object.keys(record.chemicalTraces)) record.chemicalTraces[id] *= traceDecay;
+      record.chemicalTraces = normalizeChemicalTraces(record.chemicalTraces);
       record.updatedAt = state.clock;
-      const after = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}`;
+      const after = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}|${JSON.stringify(record.chemicalTraces)}`;
       if (before !== after) changes += 1;
     }
     return changes;
@@ -10955,6 +11027,18 @@
         container.environment.airborne = normalizeAirborneLoads(container.environment.airborne);
         tile.airborne = normalizeAirborneLoads(tile.airborne);
         container.environment.contamination.current = clamp(airborneLoadTotal(container.environment.airborne), 0, 100);
+        const traceIds = new Set([...Object.keys(tile.chemicalTraces || {}), ...Object.keys(container.environment.chemicalTraces || {})]);
+        for (const id of traceIds) {
+          const tileAmount = Number(tile.chemicalTraces?.[id]) || 0;
+          const containerAmount = Number(container.environment.chemicalTraces?.[id]) || 0;
+          const delta = (tileAmount - containerAmount) * airFraction;
+          if (Math.abs(delta) < TILE_ENVIRONMENT_EPSILON) continue;
+          container.environment.chemicalTraces[id] = Math.max(0, containerAmount + delta);
+          tile.chemicalTraces[id] = Math.max(0, tileAmount - delta * volumeRatio);
+          changes += 1;
+        }
+        container.environment.chemicalTraces = normalizeChemicalTraces(container.environment.chemicalTraces);
+        tile.chemicalTraces = normalizeChemicalTraces(tile.chemicalTraces);
       }
     }
     syncRoomAttributeSummaries();
@@ -16805,6 +16889,10 @@
       status,
       roomId,
       cell: cleanMapCell(candidate.cell),
+      actualCell: cleanMapCell(candidate.actualCell || candidate.cell),
+      perceptionChannel: String(candidate.perceptionChannel || "vision"),
+      perceptionPrecision: String(candidate.perceptionPrecision || "exact"),
+      uncertaintyRadius: Math.max(0, Math.round(Number(candidate.uncertaintyRadius) || 0)),
       sourceKind,
       sourceId,
       sourceLabel: String(candidate.sourceLabel || "").trim(),
@@ -16902,20 +16990,91 @@
     return "serious";
   }
 
+  function scientistIncidentPerception(candidate) {
+    if (!candidate || scientistIsDead()) return null;
+    state.scientist.sensory = normalizeSensoryState(state.scientist.sensory, "scientist");
+    const sensory = state.scientist.sensory;
+    const scientistCell = sensoryActorCell(state.scientist);
+    const sourceCell = cleanMapCell(candidate.cell);
+    if (!scientistCell || !sourceCell) return null;
+    const distance = mapCellDistance(scientistCell, sourceCell);
+    if (distance <= 1 && sensory.capabilities.contact) {
+      return { channel: "contact", precision: "exact", uncertaintyRadius: 0, perceivedCell: sourceCell };
+    }
+    const sourceLight = Number(tileEnvironmentAtCell(sourceCell)?.lightLevel) || 0;
+    if (sensory.capabilities.vision && distance <= 12 && sensoryLineOfSight(scientistCell, sourceCell) && (sourceLight >= 8 || distance <= 1)) {
+      return { channel: "vision", precision: "exact", uncertaintyRadius: 0, perceivedCell: sourceCell };
+    }
+    const matching = sensory.current.find((entry) =>
+      (candidate.sourceId && entry.sourceId === candidate.sourceId)
+      || (candidate.type === "combat" && entry.channel === "hearing" && entry.sourceId === candidate.sourceId)
+    );
+    if (matching) {
+      return {
+        channel: matching.channel,
+        precision: matching.precision,
+        uncertaintyRadius: matching.uncertaintyRadius,
+        perceivedCell: matching.perceivedCell
+      };
+    }
+    const severityRank = incidentSeverityRank(candidate.severity);
+    const audibleTypes = new Set(["combat", "blockedDoorPressure", "breachedDoor", "structuralBreach", "containerBreach"]);
+    const soundTransmission = sensoryBarrierTransmission(scientistCell, sourceCell, "hearing");
+    if (sensory.capabilities.hearing && audibleTypes.has(candidate.type) && severityRank >= incidentSeverityRank("serious") && distance <= 12 && soundTransmission > 0.01) {
+      const uncertaintyRadius = clamp(Math.ceil(distance / 4 + (1 - soundTransmission) * 2), 1, 6);
+      return {
+        channel: "hearing",
+        precision: "directional",
+        uncertaintyRadius,
+        perceivedCell: sensoryApproximateCell(sourceCell, uncertaintyRadius, `incident:${incidentKeyFor(candidate)}`)
+      };
+    }
+    if (sensory.capabilities.chemical && ["roomContamination", "residueSpill", "corpseOverflow", "exposedRemains"].includes(candidate.type)
+      && distance <= 8 && sensory.current.some((entry) => entry.channel === "chemical")) {
+      return {
+        channel: "chemical",
+        precision: "broad-gradient",
+        uncertaintyRadius: 4,
+        perceivedCell: sensoryApproximateCell(sourceCell, 4, `incident:${incidentKeyFor(candidate)}`)
+      };
+    }
+    if (sensory.capabilities.magic && ["combat", "looseCreature", "blockedDoorPressure"].includes(candidate.type)
+      && distance <= 8 && sensoryBarrierTransmission(scientistCell, sourceCell, "magic") > 0.01
+      && sensory.current.some((entry) => entry.channel === "magic")) {
+      return {
+        channel: "magic",
+        precision: "directional",
+        uncertaintyRadius: 2,
+        perceivedCell: sensoryApproximateCell(sourceCell, 2, `incident:${incidentKeyFor(candidate)}`)
+      };
+    }
+    return null;
+  }
+
   function addDesiredIncident(desired, data) {
     const roomId = roomById(data.roomId)?.id || MAIN_ROOM_ID;
-    const cell = incidentCell(roomId, data.cell);
+    const actualCell = incidentCell(roomId, data.cell);
+    const perception = scientistIncidentPerception({ ...data, roomId, cell: actualCell });
+    if (!perception) return;
+    const exact = ["vision", "contact", "taste"].includes(perception.channel) && perception.precision === "exact";
+    const perceivedLabel = exact
+      ? (data.label || incidentTypeLabel(data.type))
+      : data.type === "combat" ? "Possible combat" : `Possible ${incidentTypeLabel(data.type).toLowerCase()}`;
     desired.push({
       key: incidentKeyFor({ ...data, roomId }),
       type: data.type,
-      label: data.label || incidentTypeLabel(data.type),
-      summary: data.summary || "",
+      label: perceivedLabel,
+      summary: exact ? (data.summary || "") : `${titleCase(perception.channel)} indicates a ${incidentTypeLabel(data.type).toLowerCase()} somewhere nearby.`,
       severity: data.severity || "minor",
       roomId,
-      cell,
+      cell: perception.perceivedCell || actualCell,
+      actualCell,
+      perceptionChannel: perception.channel,
+      perceptionPrecision: perception.precision,
+      uncertaintyRadius: perception.uncertaintyRadius,
       sourceKind: data.sourceKind || "room",
       sourceId: data.sourceId || roomId,
-      sourceLabel: data.sourceLabel || ""
+      sourceLabel: exact ? (data.sourceLabel || "") : "Uncertain source"
     });
   }
 
@@ -16927,9 +17086,6 @@
         continue;
       }
       const roomId = slimeEffectiveRoomId(slime);
-      if (!scientistObservesRoom(roomId)) {
-        continue;
-      }
       const activity = slime.roomActivity || {};
       if (activity.type === "pressingClosedDoor") {
         addDesiredIncident(desired, {
@@ -16959,9 +17115,6 @@
     }
 
     for (const combat of activeCombatRecords()) {
-      if (!scientistObservesRoom(combat.roomId) && !combat.involvesScientist) {
-        continue;
-      }
       addDesiredIncident(desired, {
         type: "combat",
         label: combat.label,
@@ -16976,9 +17129,6 @@
     }
 
     for (const room of state.rooms || []) {
-      if (!scientistObservesRoom(room.id)) {
-        continue;
-      }
       const contamination = roomContaminationValue(room.id);
       if (contamination >= INCIDENT_CONTAMINATION_THRESHOLD) {
         const band = roomAttributeBand("contamination", contamination);
@@ -17003,7 +17153,7 @@
         .filter(Boolean)
     )) {
       const roomId = residue.location?.type === "room" ? residue.location.roomId : "";
-      if (!roomId || !scientistObservesRoom(roomId) || residue.amount < INCIDENT_RESIDUE_THRESHOLD) {
+      if (!roomId || residue.amount < INCIDENT_RESIDUE_THRESHOLD) {
         continue;
       }
       addDesiredIncident(desired, {
@@ -17034,7 +17184,7 @@
           sourceId: corpse.id,
           sourceLabel: `${corpse.name} remains`
         });
-      } else if (corpse.storage === "room" && scientistObservesRoom(roomId)) {
+      } else if (corpse.storage === "room") {
         addDesiredIncident(desired, {
           type: "exposedRemains",
           label: `${corpse.name} remains exposed in ${roomName(roomId)}`,
@@ -17055,16 +17205,13 @@
         continue;
       }
       const roomIds = door.roomIds || [];
-      if (!roomIds.some((roomId) => scientistObservesRoom(roomId))) {
-        continue;
-      }
       const key = door.key || doorKey(roomIds[0], roomIds[1]);
       addDesiredIncident(desired, {
         type: "breachedDoor",
         label: `${roomIds.map(roomName).join(" / ")} door breached`,
         summary: `${doorTypeLabel(door.typeId)} no longer seals or locks`,
         severity: "serious",
-        roomId: roomIds.find((roomId) => scientistObservesRoom(roomId)) || roomIds[0] || MAIN_ROOM_ID,
+        roomId: roomIds[0] || MAIN_ROOM_ID,
         cell: doorIncidentCell(key),
         sourceKind: "door",
         sourceId: key,
@@ -17076,13 +17223,12 @@
     for (const wall of map.terrain?.constructedWalls || []) {
       if (wall.condition >= STRUCTURE_BREACH_THRESHOLD) continue;
       const adjacentRoomIds = [...new Set(cardinalMapCells(wall.cell).map((cell) => labMapCellRoomId(cell, map)).filter(Boolean))];
-      if (adjacentRoomIds.length && !adjacentRoomIds.some((roomId) => scientistObservesRoom(roomId))) continue;
       addDesiredIncident(desired, {
         type: "structuralBreach",
         label: `Wall breached at ${wall.cell.x},${wall.cell.y}`,
         summary: "Attacks and directed abilities can pass through the breach, but movement remains blocked",
         severity: "serious",
-        roomId: adjacentRoomIds.find((roomId) => scientistObservesRoom(roomId)) || adjacentRoomIds[0] || MAIN_ROOM_ID,
+        roomId: adjacentRoomIds[0] || MAIN_ROOM_ID,
         cell: wall.cell,
         sourceKind: "tile",
         sourceId: mapCellKey(wall.cell),
@@ -17096,9 +17242,6 @@
         continue;
       }
       const roomId = roomById(container.roomId)?.id || MAIN_ROOM_ID;
-      if (!scientistObservesRoom(roomId)) {
-        continue;
-      }
       addDesiredIncident(desired, {
         type: "containerBreach",
         label: `${container.name} ${containerBreachStateLabel(container)}`,
@@ -18256,7 +18399,15 @@
     if (!record) {
       return false;
     }
-    return Boolean(record.involvesScientist || scientistObservesRoom(record.roomId));
+    if (record.involvesScientist) return true;
+    return Boolean(scientistIncidentPerception({
+      type: "combat",
+      severity: record.severity || "critical",
+      roomId: record.roomId,
+      cell: record.cell,
+      sourceKind: "combat",
+      sourceId: record.key
+    }));
   }
 
   function triggerAwareCombatPause(record) {
@@ -19501,6 +19652,260 @@
   const SLIME_PERCEPTION_ENTRY_LIMIT = 12;
   const SLIME_PERCEPTION_SUMMARY_LIMIT = 4;
 
+  function defaultSensoryCapabilities(actorType) {
+    return actorType === "slime"
+      ? { vision: false, hearing: false, chemical: true, taste: true, magic: true, contact: true }
+      : { vision: true, hearing: true, chemical: true, taste: true, magic: true, contact: true };
+  }
+
+  function derivedSensorySensitivity(actorType, genome = "") {
+    if (actorType !== "slime") {
+      return { vision: 72, hearing: 68, chemical: 48, taste: 55, magic: 65, contact: 75 };
+    }
+    const rng = seedRng(`${state?.seed || "seed"}:sensory:${genome || "slime"}`);
+    return {
+      vision: 0,
+      hearing: 0,
+      chemical: Math.round(35 + rng() * 60),
+      taste: Math.round(45 + rng() * 50),
+      magic: Math.round(35 + rng() * 60),
+      contact: Math.round(55 + rng() * 40)
+    };
+  }
+
+  function defaultSensoryState(actorType = "scientist", genome = "") {
+    return {
+      capabilities: defaultSensoryCapabilities(actorType),
+      sensitivity: derivedSensorySensitivity(actorType, genome),
+      current: [],
+      memories: [],
+      log: [],
+      routeMemory: { cells: [], edges: [] },
+      updatedAt: 0
+    };
+  }
+
+  function normalizeSensoryPerception(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const channel = SENSORY_CHANNELS.includes(candidate.channel) ? candidate.channel : "contact";
+    const sourceCell = cleanMapCell(candidate.sourceCell);
+    const perceivedCell = cleanMapCell(candidate.perceivedCell) || sourceCell;
+    const label = String(candidate.label || "").trim();
+    if (!label) return null;
+    return {
+      key: String(candidate.key || `${channel}:${candidate.kind || "stimulus"}:${candidate.sourceId || label}`).trim(),
+      channel,
+      kind: String(candidate.kind || "stimulus").trim(),
+      label,
+      intensity: cleanSlimePerceptionIntensity(candidate.intensity || "faint"),
+      value: Math.max(0, Number(candidate.value) || 0),
+      sourceKind: String(candidate.sourceKind || "").trim(),
+      sourceId: String(candidate.sourceId || "").trim(),
+      sourceCell,
+      perceivedCell,
+      roomId: cleanRoomId(candidate.roomId) || (perceivedCell ? labMapCellRoomId(perceivedCell) : ""),
+      direction: String(candidate.direction || "").trim(),
+      precision: String(candidate.precision || (channel === "vision" || channel === "contact" || channel === "taste" ? "exact" : "approximate")),
+      uncertaintyRadius: Math.max(0, Math.round(Number(candidate.uncertaintyRadius) || 0)),
+      detectedAt: finiteTime(candidate.detectedAt, Number(state?.clock) || 0),
+      expiresAt: finiteTime(candidate.expiresAt, (Number(state?.clock) || 0) + SENSORY_MEMORY_SECONDS)
+    };
+  }
+
+  function normalizeSensoryState(candidate, actorType = "scientist", genome = "") {
+    const fallback = defaultSensoryState(actorType, genome);
+    const capabilities = { ...fallback.capabilities };
+    for (const channel of SENSORY_CHANNELS) capabilities[channel] = Boolean(candidate?.capabilities?.[channel] ?? capabilities[channel]);
+    if (actorType === "slime") {
+      capabilities.vision = false;
+      capabilities.hearing = false;
+      capabilities.chemical = true;
+      capabilities.taste = true;
+      capabilities.magic = true;
+      capabilities.contact = true;
+    }
+    const sensitivity = { ...fallback.sensitivity };
+    for (const channel of SENSORY_CHANNELS) {
+      sensitivity[channel] = capabilities[channel]
+        ? clamp(Number.isFinite(Number(candidate?.sensitivity?.[channel])) ? Number(candidate.sensitivity[channel]) : sensitivity[channel], 0, 100)
+        : 0;
+    }
+    const normalizeEntries = (entries, limit) => (Array.isArray(entries) ? entries : [])
+      .map(normalizeSensoryPerception)
+      .filter(Boolean)
+      .slice(0, limit);
+    const log = (Array.isArray(candidate?.log) ? candidate.log : [])
+      .map((entry) => ({
+        ...normalizeSensoryPerception(entry),
+        at: finiteTime(entry?.at ?? entry?.detectedAt, Number(state?.clock) || 0),
+        count: Math.max(1, Math.floor(Number(entry?.count) || 1))
+      }))
+      .filter((entry) => entry.label)
+      .slice(0, SENSORY_LOG_LIMIT);
+    const cells = (Array.isArray(candidate?.routeMemory?.cells) ? candidate.routeMemory.cells : [])
+      .map(cleanMapCell).filter(Boolean).slice(-SENSORY_ROUTE_MEMORY_LIMIT);
+    const edges = (Array.isArray(candidate?.routeMemory?.edges) ? candidate.routeMemory.edges : [])
+      .map((entry) => String(entry || "")).filter(Boolean).slice(-SENSORY_ROUTE_MEMORY_LIMIT * 2);
+    return {
+      capabilities,
+      sensitivity,
+      current: normalizeEntries(candidate?.current, SENSORY_CURRENT_LIMIT),
+      memories: normalizeEntries(candidate?.memories, SENSORY_CURRENT_LIMIT * 2)
+        .filter((entry) => entry.expiresAt > (Number(state?.clock) || 0)),
+      log,
+      routeMemory: { cells, edges },
+      updatedAt: finiteTime(candidate?.updatedAt, 0)
+    };
+  }
+
+  function sensoryIntensity(value, sensitivity = 50) {
+    const perceived = Math.max(0, Number(value) || 0) * clamp((Number(sensitivity) || 0) / 50, 0, 2);
+    if (perceived >= 20) return "strong";
+    if (perceived >= 7) return "clear";
+    if (perceived >= 1.5) return "faint";
+    return perceived >= 0.2 ? "trace" : "";
+  }
+
+  function sensoryDirection(from, to) {
+    const left = cleanMapCell(from);
+    const right = cleanMapCell(to);
+    if (!left || !right) return "";
+    const dx = right.x - left.x;
+    const dy = right.y - left.y;
+    if (Math.abs(dx) >= Math.abs(dy) && dx) return dx > 0 ? "east" : "west";
+    if (dy) return dy > 0 ? "south" : "north";
+    return "here";
+  }
+
+  function sensoryApproximateCell(sourceCell, radius, key = "stimulus") {
+    const source = cleanMapCell(sourceCell);
+    const spread = Math.max(0, Math.round(Number(radius) || 0));
+    if (!source || !spread) return source;
+    const rng = seedRng(`${state?.seed || "seed"}:sensory-location:${key}:${Math.floor((state?.clock || 0) / 60)}`);
+    return {
+      x: clamp(source.x + Math.round((rng() * 2 - 1) * spread), 0, Math.max(0, (state?.labMap?.width || 100) - 1)),
+      y: clamp(source.y + Math.round((rng() * 2 - 1) * spread), 0, Math.max(0, (state?.labMap?.height || 100) - 1))
+    };
+  }
+
+  function mapLineCells(from, to) {
+    const start = cleanMapCell(from);
+    const end = cleanMapCell(to);
+    if (!start || !end) return [];
+    const cells = [];
+    let x = start.x;
+    let y = start.y;
+    const dx = Math.abs(end.x - start.x);
+    const sx = start.x < end.x ? 1 : -1;
+    const dy = -Math.abs(end.y - start.y);
+    const sy = start.y < end.y ? 1 : -1;
+    let error = dx + dy;
+    while (true) {
+      cells.push({ x, y });
+      if (x === end.x && y === end.y) break;
+      const doubled = 2 * error;
+      if (doubled >= dy) { error += dy; x += sx; }
+      if (doubled <= dx) { error += dx; y += sy; }
+    }
+    return cells;
+  }
+
+  function sensoryLineOfSight(from, to) {
+    const cells = mapLineCells(from, to);
+    if (cells.length < 2) return Boolean(cells.length);
+    const map = ensureLabMap();
+    for (const cell of cells.slice(1, -1)) {
+      if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
+      const mapDoor = labMapDoorAtCell(cell, map);
+      if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(doorForConnection(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]))) return false;
+    }
+    return true;
+  }
+
+  function sensoryBarrierTransmission(from, to, channel) {
+    const cells = mapLineCells(from, to);
+    if (cells.length < 2) return cells.length ? 1 : 0;
+    const map = ensureLabMap();
+    let transmission = 1;
+    for (const cell of cells.slice(1, -1)) {
+      const mapDoor = labMapDoorAtCell(cell, map);
+      if (mapDoor) {
+        const door = doorForConnection(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]);
+        if (doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1])) continue;
+        if (channel === "hearing") transmission *= clamp((100 - doorEffectiveSeal(door)) / 140, 0.03, 0.55);
+        else transmission *= clamp(compositionPropertyScore(doorMaterialComposition(door), "arcanePermeability") / 100, 0.02, 0.85);
+        continue;
+      }
+      if (labMapCellIsExcavated(cell, map) && !constructedWallAtCell(cell, map)) continue;
+      const wall = constructedWallAtCell(cell, map);
+      const materialId = wall?.materialId || naturalWallMaterialId(cell, map) || "stone";
+      const composition = wall?.materialComposition || { primary: materialId };
+      const damageLeak = wall ? Math.pow(1 - clamp(Number(wall.condition) || 0, 0, 100) / 100, 2) * 0.5 : 0;
+      if (channel === "hearing") {
+        const porosity = compositionPropertyScore(composition, "porosity") / 100;
+        transmission *= clamp(0.02 + porosity * 0.12 + damageLeak, 0.01, 0.65);
+      } else {
+        const permeability = compositionPropertyScore(composition, "arcanePermeability") / 100;
+        transmission *= clamp(0.01 + permeability * 0.35 + damageLeak, 0.005, 0.8);
+      }
+      if (transmission < 0.001) return 0;
+    }
+    return clamp(transmission, 0, 1);
+  }
+
+  function sensoryActorCell(actor) {
+    if (actor?.genome && actor.containerId) {
+      return objectMapCell(containerById(actor.containerId)) || objectMapCell(actor);
+    }
+    return objectMapCell(actor);
+  }
+
+  function rememberSensoryRoute(actor, sensory) {
+    const cell = cleanMapCell(sensoryActorCell(actor));
+    if (!cell) return;
+    const cells = sensory.routeMemory.cells;
+    const previous = cells[cells.length - 1];
+    if (!previous || mapCellKey(previous) !== mapCellKey(cell)) {
+      cells.push(cell);
+      if (previous && mapCellDistance(previous, cell) === 1) sensory.routeMemory.edges.push(`${mapCellKey(previous)}>${mapCellKey(cell)}`);
+    }
+    sensory.routeMemory.cells = cells.slice(-SENSORY_ROUTE_MEMORY_LIMIT);
+    sensory.routeMemory.edges = sensory.routeMemory.edges.slice(-SENSORY_ROUTE_MEMORY_LIMIT * 2);
+  }
+
+  function syncActorSensory(actor, actorType, perceptions) {
+    const sensory = normalizeSensoryState(actor?.sensory, actorType, actor?.genome || "");
+    const previous = new Map(sensory.current.map((entry) => [entry.key, entry]));
+    const current = perceptions.map((entry) => normalizeSensoryPerception({
+      ...entry,
+      detectedAt: state.clock,
+      expiresAt: state.clock + SENSORY_MEMORY_SECONDS
+    })).filter(Boolean).slice(0, SENSORY_CURRENT_LIMIT);
+    for (const entry of current) {
+      const prior = previous.get(entry.key);
+      if (!prior || prior.intensity !== entry.intensity || prior.direction !== entry.direction) {
+        const latest = sensory.log[0];
+        if (latest?.key === entry.key && state.clock - latest.at < minutesToSeconds(5)) {
+          latest.at = state.clock;
+          latest.count += 1;
+          latest.intensity = entry.intensity;
+          latest.direction = entry.direction;
+        } else {
+          sensory.log.unshift({ ...entry, at: state.clock, count: 1 });
+        }
+      }
+    }
+    const memoryByKey = new Map(sensory.memories.filter((entry) => entry.expiresAt > state.clock).map((entry) => [entry.key, entry]));
+    for (const entry of current) memoryByKey.set(entry.key, entry);
+    sensory.current = current;
+    sensory.memories = [...memoryByKey.values()].sort((a, b) => b.detectedAt - a.detectedAt).slice(0, SENSORY_CURRENT_LIMIT * 2);
+    sensory.log = sensory.log.slice(0, SENSORY_LOG_LIMIT);
+    sensory.updatedAt = state.clock;
+    rememberSensoryRoute(actor, sensory);
+    actor.sensory = sensory;
+    return sensory;
+  }
+
   function cleanSlimeAiState(value) {
     const stateId = String(value || "idle");
     return SLIME_AI_STATES.has(stateId) ? stateId : "idle";
@@ -20560,41 +20965,311 @@
     }
   }
 
+  function addChemicalTrace(environment, id, amount) {
+    if (!environment || !CHEMICAL_TRACE_IDS.includes(id) || amount <= 0) return false;
+    environment.chemicalTraces = normalizeChemicalTraces(environment.chemicalTraces);
+    environment.chemicalTraces[id] = Math.min(1000, (environment.chemicalTraces[id] || 0) + amount);
+    return true;
+  }
+
+  function sensoryEnvironmentForActor(actor) {
+    if (actor?.genome && !slimeIsUncontained(actor)) {
+      const container = containerById(actor.containerId);
+      if (container) {
+        container.environment = normalizeContainerEnvironment(container.environment);
+        return container.environment;
+      }
+    }
+    return tileEnvironmentAtCell(objectMapCell(actor));
+  }
+
+  function emitChemicalSources(elapsed) {
+    const hours = secondsToHours(Math.max(0, Number(elapsed) || 0));
+    if (!hours) return 0;
+    let changes = 0;
+    const emitActor = (actor, id, rate) => {
+      const environment = sensoryEnvironmentForActor(actor);
+      if (addChemicalTrace(environment, id, rate * hours)) changes += 1;
+    };
+    if (!scientistIsDead()) emitActor(state.scientist, "scientist", 2.5);
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "dead") emitActor(slime, "living", 3);
+    }
+    for (const corpse of state.corpses || []) {
+      if (corpse.storage === "drum") continue;
+      const container = corpse.containerId ? containerById(corpse.containerId) : null;
+      const environment = container
+        ? (container.environment = normalizeContainerEnvironment(container.environment))
+        : tileEnvironmentAtCell(objectMapCell(corpse));
+      const rate = { fresh: 2, decaying: 6, spoiled: 12, ruined: 5 }[corpseFreshness(corpse)] || 3;
+      if (addChemicalTrace(environment, "carrion", rate * hours)) changes += 1;
+    }
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (!physicalStackExposed(stack) || Number(stack.quantity) <= 0) continue;
+      const environment = stack.containerId
+        ? (() => {
+          const container = containerById(stack.containerId);
+          if (!container) return null;
+          container.environment = normalizeContainerEnvironment(container.environment);
+          return container.environment;
+        })()
+        : tileEnvironmentAtCell(stack.cell);
+      const tags = new Set([...(stack.tags || []), stack.key, stack.section].map(normalizeCommandName));
+      const traceId = [...tags].some((tag) => /waste|sludge|contamin/.test(tag))
+        ? "waste"
+        : [...tags].some((tag) => /hazard|toxic|poison|acid/.test(tag))
+          ? "hazard"
+          : "organic";
+      if (addChemicalTrace(environment, traceId, Math.min(15, Number(stack.quantity) || 1) * 0.8 * hours)) changes += 1;
+    }
+    return changes;
+  }
+
+  function sensoryChemicalEntries(actor, sensory) {
+    if (!sensory.capabilities.chemical) return [];
+    const environment = sensoryEnvironmentForActor(actor);
+    const traces = normalizeChemicalTraces(environment?.chemicalTraces);
+    const origin = sensoryActorCell(actor);
+    const entries = [];
+    const labels = {
+      living: "living creature trace",
+      scientist: "human trace",
+      carrion: "carrion trace",
+      organic: "organic feed trace",
+      waste: "waste trace",
+      hazard: "hazardous chemical trace"
+    };
+    for (const [id, value] of Object.entries(traces).sort((a, b) => b[1] - a[1])) {
+      const intensity = sensoryIntensity(value, sensory.sensitivity.chemical);
+      if (!intensity) continue;
+      let bestCell = origin;
+      let bestValue = value;
+      if (actor?.genome && slimeIsUncontained(actor)) {
+        for (const cell of cardinalMapCells(origin)) {
+          const candidate = Number(tileEnvironmentAtCell(cell)?.chemicalTraces?.[id]) || 0;
+          if (candidate > bestValue + 0.01) {
+            bestValue = candidate;
+            bestCell = cell;
+          }
+        }
+      }
+      entries.push({
+        key: `chemical:${id}`,
+        channel: "chemical",
+        kind: id === "carrion" || id === "organic" ? "food" : id === "waste" || id === "hazard" ? "waste" : "trace",
+        label: labels[id] || `${id} trace`,
+        intensity,
+        value,
+        sourceCell: bestCell,
+        perceivedCell: sensoryApproximateCell(bestCell, 3, `${actor.id || "scientist"}:${id}`),
+        roomId: slimeEffectiveRoomId(actor),
+        direction: sensoryDirection(origin, bestCell),
+        precision: "broad-gradient",
+        uncertaintyRadius: 3
+      });
+    }
+    return entries;
+  }
+
+  function actorsInPhysicalContact(actor) {
+    const cellKey = mapCellKey(sensoryActorCell(actor));
+    const contacts = [];
+    if (actor !== state.scientist && mapCellKey(sensoryActorCell(state.scientist)) === cellKey) contacts.push(state.scientist);
+    for (const slime of state.slimes || []) {
+      if (slime === actor || slime.status === "dead") continue;
+      if (actor?.containerId && slime.containerId === actor.containerId) contacts.push(slime);
+      else if (!actor?.containerId && slimeIsUncontained(slime) && mapCellKey(sensoryActorCell(slime)) === cellKey) contacts.push(slime);
+    }
+    return contacts;
+  }
+
+  function sensoryContactEntries(actor, sensory) {
+    if (!sensory.capabilities.contact) return [];
+    const origin = sensoryActorCell(actor);
+    const entries = actorsInPhysicalContact(actor).map((contact) => ({
+      key: `contact:actor:${contact.id || "scientist"}`,
+      channel: "contact",
+      kind: contact.genome ? "creature" : "actor",
+      label: contact.genome ? "another creature in physical contact" : "human in physical contact",
+      intensity: "strong",
+      value: 100,
+      sourceKind: contact.genome ? "slime" : "scientist",
+      sourceId: contact.id || "scientist",
+      sourceCell: origin,
+      perceivedCell: origin,
+      roomId: slimeEffectiveRoomId(actor),
+      direction: "here",
+      precision: "exact"
+    }));
+    if (actor?.genome && slimeIsUncontained(actor) && sensory.capabilities.taste) {
+      const food = localFoodTargetCandidates(actor).find((target) => mapCellKey(target.cell) === mapCellKey(origin));
+      if (food) entries.push({
+        key: `taste:${food.kind}:${food.id}`,
+        channel: "taste",
+        kind: "food",
+        label: `${food.label} in contact`,
+        intensity: "strong",
+        value: 100,
+        sourceKind: food.kind,
+        sourceId: food.id,
+        sourceCell: origin,
+        perceivedCell: origin,
+        roomId: slimeEffectiveRoomId(actor),
+        direction: "here",
+        precision: "exact"
+      });
+    }
+    return entries;
+  }
+
+  function sensoryMagicEntries(actor, sensory) {
+    if (!sensory.capabilities.magic) return [];
+    const origin = sensoryActorCell(actor);
+    if (!origin) return [];
+    const local = sensoryEnvironmentForActor(actor);
+    const baseline = actor?.containerId
+      ? Number(local?.ambientMana?.baseline) || 0
+      : Number(local?.rockManaDensity) || 0;
+    const mana = actor?.containerId ? Number(local?.ambientMana?.current) || 0 : Number(local?.manaDensity) || 0;
+    const entries = [];
+    const gradient = Math.abs(mana - baseline);
+    const gradientIntensity = sensoryIntensity(gradient, sensory.sensitivity.magic);
+    if (gradientIntensity) entries.push({
+      key: "magic:ambient-gradient",
+      channel: "magic",
+      kind: "environment",
+      label: mana >= baseline ? "elevated ambient mana" : "depleted ambient mana",
+      intensity: gradientIntensity,
+      value: gradient,
+      sourceCell: origin,
+      perceivedCell: sensoryApproximateCell(origin, 2, `${actor.id || "scientist"}:mana`),
+      roomId: slimeEffectiveRoomId(actor),
+      direction: "here",
+      precision: "approximate",
+      uncertaintyRadius: 2
+    });
+    const possible = [state.scientist, ...(state.slimes || [])]
+      .filter((candidate) => candidate && candidate !== actor && candidate.status !== "dead" && (candidate !== state.scientist || !scientistIsDead()))
+      .map((candidate) => ({ candidate, cell: sensoryActorCell(candidate), distance: mapCellDistance(origin, sensoryActorCell(candidate)) }))
+      .map((entry) => ({ ...entry, transmission: sensoryBarrierTransmission(origin, entry.cell, "magic") }))
+      .filter((entry) => entry.cell && entry.distance <= 8 && entry.transmission > 0.01)
+      .sort((a, b) => a.distance - b.distance);
+    const nearest = possible[0];
+    if (nearest) {
+      const intensity = sensoryIntensity(Math.max(0.5, 10 - nearest.distance) * nearest.transmission, sensory.sensitivity.magic);
+      if (intensity) entries.push({
+        key: `magic:presence:${nearest.candidate.id || "scientist"}`,
+        channel: "magic",
+        kind: nearest.candidate.genome ? "creature" : "actor",
+        label: "nearby magical presence",
+        intensity,
+        value: Math.max(0.5, 10 - nearest.distance),
+        sourceKind: nearest.candidate.genome ? "slime" : "scientist",
+        sourceId: nearest.candidate.id || "scientist",
+        sourceCell: nearest.cell,
+        perceivedCell: sensoryApproximateCell(nearest.cell, 2, `${actor.id || "scientist"}:core:${nearest.candidate.id || "scientist"}`),
+        roomId: labMapCellRoomId(nearest.cell),
+        direction: sensoryDirection(origin, nearest.cell),
+        precision: "directional",
+        uncertaintyRadius: 2
+      });
+    }
+    return entries;
+  }
+
+  function scientistVisionEntries(sensory) {
+    if (!sensory.capabilities.vision) return [];
+    const origin = sensoryActorCell(state.scientist);
+    return (state.slimes || []).filter((slime) => slime.status !== "dead" && slimeIsUncontained(slime))
+      .map((slime) => ({ slime, cell: sensoryActorCell(slime) }))
+      .filter(({ cell }) => cell && mapCellDistance(origin, cell) <= 12 && sensoryLineOfSight(origin, cell)
+        && (mapCellDistance(origin, cell) <= 1 || (Number(tileEnvironmentAtCell(cell)?.lightLevel) || 0) >= 8))
+      .map(({ slime, cell }) => ({
+        key: `vision:slime:${slime.id}`,
+        channel: "vision",
+        kind: "creature",
+        label: "visible creature",
+        intensity: mapCellDistance(origin, cell) <= 4 ? "strong" : "clear",
+        value: Math.max(1, 12 - mapCellDistance(origin, cell)),
+        sourceKind: "slime",
+        sourceId: slime.id,
+        sourceCell: cell,
+        perceivedCell: cell,
+        roomId: slimeEffectiveRoomId(slime),
+        direction: sensoryDirection(origin, cell),
+        precision: "exact"
+      }));
+  }
+
+  function scientistCombatSoundEntries(sensory) {
+    if (!sensory.capabilities.hearing) return [];
+    const origin = sensoryActorCell(state.scientist);
+    return activeCombatRecords().map((combat) => ({ combat, cell: cleanMapCell(combat.cell) }))
+      .filter(({ cell }) => cell && mapCellDistance(origin, cell) <= 14 && sensoryBarrierTransmission(origin, cell, "hearing") > 0.01)
+      .map(({ combat, cell }) => {
+        const distance = mapCellDistance(origin, cell);
+        const transmission = sensoryBarrierTransmission(origin, cell, "hearing");
+        const radius = clamp(Math.ceil(distance / 4 + (1 - transmission) * 2), 1, 6);
+        return {
+          key: `hearing:combat:${combat.key}`,
+          channel: "hearing",
+          kind: "combat",
+          label: "sounds of combat",
+          intensity: sensoryIntensity(Math.max(0.5, 14 - distance) * transmission, sensory.sensitivity.hearing) || "trace",
+          value: Math.max(0.5, 14 - distance) * transmission,
+          sourceKind: "combat",
+          sourceId: combat.key,
+          sourceCell: cell,
+          perceivedCell: sensoryApproximateCell(cell, radius, `combat:${combat.key}`),
+          roomId: combat.roomId,
+          direction: sensoryDirection(origin, cell),
+          precision: "directional",
+          uncertaintyRadius: radius
+        };
+      });
+  }
+
+  function deriveActorPerceptions(actor, actorType) {
+    const sensory = normalizeSensoryState(actor?.sensory, actorType, actor?.genome || "");
+    const entries = [
+      ...sensoryChemicalEntries(actor, sensory),
+      ...sensoryContactEntries(actor, sensory),
+      ...sensoryMagicEntries(actor, sensory)
+    ];
+    if (actorType === "scientist") entries.push(...scientistVisionEntries(sensory), ...scientistCombatSoundEntries(sensory));
+    return entries.sort((a, b) => perceptionIntensityRank(b.intensity) - perceptionIntensityRank(a.intensity));
+  }
+
+  function updateSensorySystems(elapsed) {
+    let changes = emitChemicalSources(elapsed);
+    state.scientist.sensory = normalizeSensoryState(state.scientist.sensory, "scientist");
+    syncActorSensory(state.scientist, "scientist", deriveActorPerceptions(state.scientist, "scientist"));
+    for (const slime of state.slimes || []) {
+      if (slime.status === "dead") continue;
+      syncActorSensory(slime, "slime", deriveActorPerceptions(slime, "slime"));
+      changes += 1;
+    }
+    state.sensoryEvents = (Array.isArray(state.sensoryEvents) ? state.sensoryEvents : [])
+      .filter((entry) => state.clock - finiteTime(entry?.at, 0) <= SENSORY_EVENT_MAX_AGE)
+      .slice(0, SENSORY_EVENT_LIMIT);
+    return changes;
+  }
+
   function evaluateSlimePerception(slime) {
     if (!slime || slime.status === "dead") {
       return defaultSlimePerceptionRecord();
     }
-    const entries = [];
-    const roomId = slimeEffectiveRoomId(slime);
-    const contained = !slimeIsUncontained(slime);
-    const container = contained ? containerById(slime.containerId) : null;
-
-    if (contained) {
-      addContainerPerceptionEntries(entries, slime, container);
-      const access = containerPerceptionAccess(container);
-      if (access >= 0.45) {
-        addRoomPerceptionEntries(entries, slime, roomId, {
-          intensity: access >= 0.75 ? "clear" : "faint",
-          residueIntensity: access >= 0.75 ? "" : "faint",
-          doorIntensity: "trace",
-          sourceLabel: `${roomName(roomId)} beyond container`
-        });
-      } else {
-        addSlimePerceptionEntry(entries, slimePerceptionEntry("containment", "container muffles room cues", {
-          intensity: "faint",
-          sourceLabel: container?.name || "containment",
-          roomId,
-          targetKind: "container",
-          targetId: container?.id || ""
-        }));
-      }
-    } else {
-      addRoomPerceptionEntries(entries, slime, roomId, { sourceLabel: roomName(roomId) });
-    }
-
-    const cleanEntries = cleanPerceptionEntries(entries);
+    slime.sensory = normalizeSensoryState(slime.sensory, "slime", slime.genome);
+    if (!slime.sensory.current.length) syncActorSensory(slime, "slime", deriveActorPerceptions(slime, "slime"));
+    const cleanEntries = cleanPerceptionEntries(slime.sensory.current.map((entry) => slimePerceptionEntry(entry.kind, entry.label, {
+      intensity: entry.intensity,
+      sourceLabel: `${titleCase(entry.channel)}${entry.direction ? `; ${entry.direction}` : ""}`,
+      roomId: entry.roomId,
+      targetKind: entry.sourceKind,
+      targetId: entry.sourceId
+    })));
     return normalizeSlimePerceptionRecord({
-      scope: contained ? "container-local" : "room-local",
+      scope: slimeIsUncontained(slime) ? "physically sensed" : "container-filtered",
       summary: slimePerceptionSummaryText(cleanEntries),
       entries: cleanEntries
     });
@@ -25964,10 +26639,6 @@
       if (driveChip) {
         meta.append(driveChip);
       }
-      const perceptionChip = slimePerceptionChip(slime);
-      if (perceptionChip) {
-        meta.append(perceptionChip);
-      }
       const socialChip = slimeSocialChip(slime);
       if (socialChip) {
         meta.append(socialChip);
@@ -26011,7 +26682,6 @@
         }
         card.append(renderSlimeHabitat(slime));
         card.append(renderSlimeDrives(slime));
-        card.append(renderSlimePerception(slime));
         card.append(renderFeedingControls(slime));
         card.append(renderLivingHarvestControls(slime));
         card.append(renderTraitGrid(slime, evaluated));
@@ -30346,6 +31016,67 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
+  function slimeCanSenseStepTo(slime, cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !labMapCellIsWalkable(clean) || labMapCellIsPathBlocked(clean, { actor: slime })) return false;
+    const mapDoor = labMapDoorAtCell(clean);
+    if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1])) return false;
+    return true;
+  }
+
+  function rememberedSensoryStep(slime, memory) {
+    const origin = objectMapCell(slime);
+    const target = cleanMapCell(memory?.perceivedCell);
+    const known = new Set((slime.sensory?.routeMemory?.cells || []).map(mapCellKey));
+    if (!origin || !target || !known.size) return null;
+    return cardinalMapCells(origin)
+      .filter((cell) => known.has(mapCellKey(cell)) && slimeCanSenseStepTo(slime, cell))
+      .map((cell) => ({ cell, distance: mapCellDistance(cell, target) }))
+      .sort((a, b) => a.distance - b.distance)[0]?.cell || null;
+  }
+
+  function perceivedChemicalStep(slime) {
+    slime.sensory = normalizeSensoryState(slime.sensory, "slime", slime.genome);
+    const origin = objectMapCell(slime);
+    if (!origin) return null;
+    const cues = slime.sensory.current.filter((entry) => entry.channel === "chemical" && ["food", "waste", "trace"].includes(entry.kind));
+    for (const cue of cues) {
+      const traceId = cue.key.split(":")[1];
+      const currentValue = Number(tileEnvironmentAtCell(origin)?.chemicalTraces?.[traceId]) || 0;
+      const option = cardinalMapCells(origin)
+        .filter((cell) => slimeCanSenseStepTo(slime, cell))
+        .map((cell) => ({ cell, value: Number(tileEnvironmentAtCell(cell)?.chemicalTraces?.[traceId]) || 0 }))
+        .filter((entry) => entry.value > currentValue + 0.01)
+        .sort((a, b) => b.value - a.value)[0];
+      if (option) return {
+        target: {
+          kind: cue.kind === "waste" ? "contamination" : "trace",
+          id: "",
+          roomId: labMapCellRoomId(option.cell) || slimeEffectiveRoomId(slime),
+          cell: option.cell,
+          label: cue.label,
+          score: option.value
+        },
+        path: [origin, option.cell],
+        value: option.value
+      };
+    }
+    const remembered = slime.sensory.memories.find((entry) => entry.channel === "chemical" && entry.expiresAt > state.clock);
+    const step = rememberedSensoryStep(slime, remembered);
+    return step ? {
+      target: {
+        kind: remembered.kind === "waste" ? "contamination" : "trace",
+        id: "",
+        roomId: labMapCellRoomId(step) || slimeEffectiveRoomId(slime),
+        cell: step,
+        label: `remembered ${remembered.label}`,
+        score: remembered.value
+      },
+      path: [origin, step],
+      value: remembered.value
+    } : null;
+  }
+
   function blockedDoorTowardTarget(slime, target) {
     const route = roomRouteBetween(slimeEffectiveRoomId(slime), target.roomId, {
       ignoreDoors: true,
@@ -30372,60 +31103,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function chooseAutonomousFoodTarget(slime) {
-    const targets = accessibleFoodTargetCandidates(slime);
-    if (!targets.length) {
-      return null;
-    }
-    const reachable = [];
-    const blocked = [];
-    for (const target of targets) {
-      const path = pathToAutonomousTarget(slime, target);
-      if (path.length) {
-        const distance = Math.max(0, path.length - 1);
-        reachable.push({ target, path, value: target.score - distance * 2 });
-      } else {
-        const block = blockedDoorTowardTarget(slime, target);
-        if (block) {
-          blocked.push({ target, block, value: target.score });
-        }
-      }
-    }
-    if (reachable.length) {
-      return reachable.sort((a, b) => b.value - a.value || a.path.length - b.path.length)[0];
-    }
-    if (blocked.length) {
-      return blocked.sort((a, b) => b.value - a.value)[0];
-    }
-    return null;
+    if (!slimeHasFeedingNeed(slime)) return null;
+    const origin = objectMapCell(slime);
+    const contact = localFoodTargetCandidates(slime)
+      .filter((target) => mapCellKey(target.cell) === mapCellKey(origin))
+      .sort((a, b) => b.score - a.score)[0];
+    if (contact) return { target: contact, path: [origin], value: contact.score };
+    return perceivedChemicalStep(slime);
   }
 
   function chooseAutonomousHabitatTarget(slime) {
-    const targets = adjacentHabitatTraceTargets(slime)
-      .filter((target) => target.improvement >= HABITAT_MOVEMENT_IMPROVEMENT_THRESHOLD);
-    if (!targets.length) {
-      return null;
-    }
-    const reachable = [];
-    const blocked = [];
-    for (const target of targets) {
-      const path = pathToAutonomousTarget(slime, target);
-      if (path.length) {
-        const distance = Math.max(0, path.length - 1);
-        reachable.push({ target, path, value: target.score - distance * 2 });
-      } else {
-        const block = blockedDoorTowardTarget(slime, target);
-        if (block) {
-          blocked.push({ target, block, value: target.score });
-        }
-      }
-    }
-    if (reachable.length) {
-      return reachable.sort((a, b) => b.value - a.value || a.path.length - b.path.length)[0];
-    }
-    if (blocked.length) {
-      return blocked.sort((a, b) => b.value - a.value)[0];
-    }
-    return null;
+    const origin = objectMapCell(slime);
+    const currentEnvironment = tileEnvironmentAtCell(origin);
+    if (!origin || !currentEnvironment) return null;
+    const currentFit = slimeHabitatFit(slime, {
+      source: { type: "tile", roomId: slimeEffectiveRoomId(slime), label: "local conditions", attributes: tileEnvironmentAttributes(currentEnvironment) }
+    });
+    const option = cardinalMapCells(origin)
+      .filter((cell) => slimeCanSenseStepTo(slime, cell))
+      .map((cell) => {
+        const environment = tileEnvironmentAtCell(cell);
+        const fit = environment ? slimeHabitatFit(slime, {
+          source: { type: "tile", roomId: labMapCellRoomId(cell), label: "adjacent conditions", attributes: tileEnvironmentAttributes(environment) }
+        }) : null;
+        return { cell, fit, improvement: (fit?.score || 0) - currentFit.score };
+      })
+      .filter((entry) => entry.fit && entry.improvement >= HABITAT_MOVEMENT_IMPROVEMENT_THRESHOLD)
+      .sort((a, b) => b.improvement - a.improvement)[0];
+    if (!option) return null;
+    const target = {
+      kind: "habitat",
+      id: "",
+      roomId: labMapCellRoomId(option.cell) || slimeEffectiveRoomId(slime),
+      cell: option.cell,
+      label: "locally better conditions",
+      score: option.fit.score,
+      improvement: option.improvement,
+      fitLabel: option.fit.label,
+      intensity: habitatTraceIntensity(option.improvement)
+    };
+    return { target, path: [origin, option.cell], value: option.fit.score };
   }
 
   function chooseAutonomousWanderTarget(slime) {
@@ -30621,7 +31338,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!slimeHasFeedingNeed(slime)) {
       return null;
     }
+    const origin = objectMapCell(slime);
     return localFoodTargetCandidates(slime)
+      .filter((target) => mapCellKey(target.cell) === mapCellKey(origin))
       .sort((a, b) => b.score - a.score)[0] || null;
   }
 
@@ -33054,11 +33773,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "debug"
     );
     addRow("Perception", perception.summary, `${perception.entries.length} entries`);
+    const sensory = normalizeSensoryState(slime.sensory, "slime", slime.genome);
+    addRow(
+      "Sensory biology",
+      Object.entries(sensory.capabilities).filter(([, enabled]) => enabled).map(([channel]) => titleCase(channel)).join(", "),
+      Object.entries(sensory.sensitivity).filter(([, value]) => value > 0).map(([channel, value]) => `${channel} ${formatDecimal(value, 0)}`).join("; ")
+    );
+    addRow("Sensory memory", `${sensory.memories.length} actionable`, `${sensory.log.length} / ${SENSORY_LOG_LIMIT} log entries`);
+    addRow("Route memory", `${sensory.routeMemory.cells.length} cells`, `${sensory.routeMemory.edges.length} traversed edges`);
     perception.entries.forEach((entry, index) => {
       addRow(
         `Perception ${index + 1}`,
         `${entry.kind} ${entry.intensity}`,
         `${entry.label}${entry.sourceLabel ? `; source ${entry.sourceLabel}` : ""}`,
+        JSON.stringify(entry)
+      );
+    });
+    sensory.log.slice(0, 12).forEach((entry, index) => {
+      addRow(
+        `Sensory log ${index + 1}`,
+        `${entry.channel} ${entry.intensity}`,
+        `${entry.label}; ${formatDuration(Math.max(0, state.clock - entry.at))} ago${entry.count > 1 ? `; x${entry.count}` : ""}`,
         JSON.stringify(entry)
       );
     });
@@ -39805,6 +40540,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? (scientistAwareOfCombat(record) ? "Currently known to the scientist" : "Known record; not currently observed")
         : (incident.status === "stale" ? "Last-known combat; current state unknown" : "Combat incident record; active combat no longer confirmed")],
       ["Last known tile", `${roomName(incident.roomId)}; cell ${incident.cell?.x ?? "?"},${incident.cell?.y ?? "?"}`],
+      ["Detected by", `${titleCase(incident.perceptionChannel || "vision")}; ${incident.perceptionPrecision || "exact"}${incident.uncertaintyRadius ? `; about ${incident.uncertaintyRadius} m uncertainty` : ""}`],
       ["Summary", incident.summary || incident.label],
       ["Participants", participants.length
         ? participants.map((target) => selectionLink(target))
@@ -46662,6 +47398,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     env.airborne = normalizeAirborneLoads(candidate?.airborne || (Number(candidate?.contamination?.current) > 0
       ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: Number(candidate.contamination.current) }
       : {}));
+    env.chemicalTraces = normalizeChemicalTraces(candidate?.chemicalTraces);
     env.contamination.current = clamp(airborneLoadTotal(env.airborne), 0, 100);
     env.contamination.baseline = 0;
     env.contamination.recoveryPerHour = 0;
@@ -47896,6 +48633,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.knownResultKeys ||= {};
     next.resultRepeats ||= {};
     next.events = normalizeMessages(next.events);
+    next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.tasks ||= [];
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
@@ -48014,6 +48752,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.stats = normalizeSlimeStats(slime.stats);
       slime.skills = normalizeCreatureSkills(slime.skills);
       slime.behaviorMemory = normalizeCreatureBehaviorMemory(slime.behaviorMemory);
+      slime.sensory = normalizeSensoryState(slime.sensory, "slime", slime.genome);
       slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
       slime.containmentTest = normalizeContainmentTestRecord(slime.containmentTest);
       slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
@@ -48250,7 +48989,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       physicalState: normalizeScientistPhysicalState(candidate?.physicalState),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },
-      skills: { ...fallback.skills, ...(candidate?.skills || {}) }
+      skills: { ...fallback.skills, ...(candidate?.skills || {}) },
+      sensory: normalizeSensoryState(candidate?.sensory, "scientist")
     };
     if (!state?.rooms?.some?.((room) => room.id === scientist.roomId)) {
       scientist.roomId = MAIN_ROOM_ID;
