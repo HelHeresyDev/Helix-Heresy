@@ -226,6 +226,7 @@
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="handling">Handling</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="corpses">Corpses</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="doors">Doors</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="access">Access</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="rooms">Rooms</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="feeding">Feeding</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-policy-menu-tab="automation">Automation</button>
@@ -248,6 +249,11 @@
           <div class="policy-menu-panel" data-policy-menu-panel="doors" role="tabpanel" hidden>
             <div class="subpanel-title">Doors</div>
             <div id="doorPolicyList" class="policy-list"></div>
+          </div>
+
+          <div class="policy-menu-panel" data-policy-menu-panel="access" role="tabpanel" hidden>
+            <div class="subpanel-title">Actor Access Areas</div>
+            <div id="accessPolicyList" class="policy-list access-policy-list"></div>
           </div>
 
           <div class="policy-menu-panel" data-policy-menu-panel="rooms" role="tabpanel" hidden>

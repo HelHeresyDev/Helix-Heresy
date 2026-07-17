@@ -655,6 +655,27 @@
   ];
   const DOOR_POLICY_BY_ID = Object.fromEntries(DOOR_POLICY_DEFS.map((policy) => [policy.id, policy]));
   const DEFAULT_DOOR_POLICY_ID = "leaveAsSet";
+  const DOOR_ACCESS_RULE_DEFS = [
+    { id: "unrestricted", label: "Unrestricted", description: "Any intelligent actor may operate this door when physically capable." },
+    { id: "staff", label: "Laboratory Staff", description: "Only actors assigned laboratory staff access may operate this door." },
+    { id: "containment", label: "Containment", description: "Only actors with containment access may operate this door." },
+    { id: "exterior", label: "Exterior", description: "Only actors authorized to use laboratory exits may operate this door." }
+  ];
+  const DOOR_ACCESS_RULE_BY_ID = Object.fromEntries(DOOR_ACCESS_RULE_DEFS.map((rule) => [rule.id, rule]));
+  const DEFAULT_DOOR_ACCESS_RULE_ID = "staff";
+  const DOOR_LOCKDOWN_ACTION_DEFS = [
+    { id: "unchanged", label: "Leave unchanged" },
+    { id: "close", label: "Close" },
+    { id: "lock", label: "Close and lock" },
+    { id: "seal", label: "Seal" }
+  ];
+  const DOOR_LOCKDOWN_ACTION_BY_ID = Object.fromEntries(DOOR_LOCKDOWN_ACTION_DEFS.map((action) => [action.id, action]));
+  const DEFAULT_ACCESS_PROFILE_ID = "scientist-default";
+  const ACCESS_AREA_KIND_DEFS = [
+    { id: "allowed", label: "Allowed Area", description: "Assigned actors remain inside the union of their active allowed areas during autonomous work." },
+    { id: "forbidden", label: "Forbidden Area", description: "Assigned actors avoid these tiles; forbidden areas override allowed areas." }
+  ];
+  const ACCESS_AREA_KIND_BY_ID = Object.fromEntries(ACCESS_AREA_KIND_DEFS.map((kind) => [kind.id, kind]));
   const ROOM_BASE_DEFS = [
     {
       id: MAIN_ROOM_ID,
@@ -3098,6 +3119,7 @@
   let mapPanShiftHeld = false;
   let mapDragState = null;
   let roomPaintState = null;
+  let accessPaintState = null;
   let suppressNextMapClick = false;
   let measuredMapViewportPixels = null;
   let mapViewportMeasureFrame = 0;
@@ -3154,6 +3176,7 @@
     { id: "handling", label: "Handling" },
     { id: "corpses", label: "Corpses" },
     { id: "doors", label: "Doors" },
+    { id: "access", label: "Access" },
     { id: "rooms", label: "Rooms" },
     { id: "feeding", label: "Feeding" },
     { id: "automation", label: "Automation" }
@@ -3235,6 +3258,7 @@
         { key: "H", label: "Handling", workspaceTab: "policies", tabKind: "policies", tabId: "handling" },
         { key: "C", label: "Corpses", workspaceTab: "policies", tabKind: "policies", tabId: "corpses" },
         { key: "R", label: "Doors", workspaceTab: "policies", tabKind: "policies", tabId: "doors" },
+        { key: "X", label: "Access", workspaceTab: "policies", tabKind: "policies", tabId: "access" },
         { key: "M", label: "Rooms", workspaceTab: "policies", tabKind: "policies", tabId: "rooms" },
         { key: "F", label: "Feeding", workspaceTab: "policies", tabKind: "policies", tabId: "feeding" },
         { key: "U", label: "Automation", workspaceTab: "policies", tabKind: "policies", tabId: "automation" }
@@ -3310,6 +3334,7 @@
     handling: "P H",
     corpses: "P C",
     doors: "P R",
+    access: "P X",
     rooms: "P M",
     feeding: "P F",
     automation: "P U"
@@ -3362,6 +3387,7 @@
     "resourceHaul",
     "stockpileHaul",
     "scientistMove",
+    "doorOperation",
     "containerInteraction",
     "collectionBayTransfer",
     "spillCleanup",
@@ -3440,6 +3466,11 @@
       description: "Inferred architectural compartments, open thresholds, room designations, and manual room drafts."
     },
     {
+      id: "access",
+      label: "Access",
+      description: "Named actor access areas, restrictions, and the active access-area painting surface."
+    },
+    {
       id: "debug",
       label: "Debug",
       description: "Developer overlay: ignores player knowledge and shows raw map diagnostics."
@@ -3497,6 +3528,7 @@
       combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
+      accessControl: defaultAccessControlState(),
       creatureRecords: {},
       currentGenome: "",
       slimes: [],
@@ -3867,6 +3899,23 @@
     };
   }
 
+  function defaultAccessControlState() {
+    return {
+      nextAreaNumber: 1,
+      lockdownActive: false,
+      areas: [],
+      profiles: [{
+        id: DEFAULT_ACCESS_PROFILE_ID,
+        name: "Scientist Default",
+        actorIds: ["scientist"],
+        areaIds: [],
+        doorAccessRuleIds: DOOR_ACCESS_RULE_DEFS.map((rule) => rule.id)
+      }],
+      assignments: { scientist: DEFAULT_ACCESS_PROFILE_ID },
+      editor: { activeAreaId: "", brush: "paint" }
+    };
+  }
+
   function defaultCombatState() {
     return {
       active: [],
@@ -4227,6 +4276,7 @@
       "handlingPolicyList",
       "corpsePolicyList",
       "doorPolicyList",
+      "accessPolicyList",
       "roomPolicyList",
       "feedingPolicyList",
       "automationPolicyList",
@@ -4422,6 +4472,11 @@
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
       mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
+      accessControlSnapshot: () => JSON.parse(JSON.stringify(ensureAccessControl())),
+      accessBlockReasons: (path, actorId = "scientist") => pathAccessBlockReasons(actorId === "scientist" ? state.scientist : findSlime(actorId), path),
+      startScientistMove: (roomId, options = {}) => startScientistMove(roomId, options),
+      taskStatusSnapshot: () => scientistQueueTasks().map((task) => ({ id: task.id, type: task.type, label: task.label, status: taskStatusInfo(task), data: { ...task.data } })),
+      queueDoorOperation: (doorId, operation, value, options = {}) => queueDoorOperation(doorId, operation, value, options),
       materialCatalog: () => MATERIAL_DEFS.map((material) => ({ ...material, properties: { ...material.properties } })),
       toolMaterialSnapshot: (itemKey) => ({
         itemKey,
@@ -5394,6 +5449,40 @@
     if (!roomPaintState || event.pointerId !== roomPaintState.pointerId) return;
     const changed = roomPaintState.changed;
     roomPaintState = null;
+    suppressNextMapClick = changed;
+    if (changed) {
+      persist();
+      render();
+    }
+  }
+
+  function handleAccessPaintPointerDown(event) {
+    if (event.button !== 0 || !accessAreaEditing()) return;
+    const tile = event.target instanceof Element ? event.target.closest(".lab-map-cell") : null;
+    const cell = mapCellFromDomTile(tile);
+    if (!cell || tile?.classList.contains("unknown-darkness-cell") || accessAreaCellBlockReason(cell)) return;
+    event.preventDefault();
+    accessPaintState = { pointerId: event.pointerId, changed: false, visited: new Set([mapCellKey(cell)]) };
+    accessPaintState.changed = applyAccessAreaBrush(cell, { persist: false, render: false });
+    document.addEventListener("pointerup", handleAccessPaintPointerEnd, { once: true });
+    document.addEventListener("pointercancel", handleAccessPaintPointerEnd, { once: true });
+  }
+
+  function handleAccessPaintPointerOver(event) {
+    if (!accessPaintState || event.pointerId !== accessPaintState.pointerId || !(event.buttons & 1)) return;
+    const tile = event.target instanceof Element ? event.target.closest(".lab-map-cell") : null;
+    const cell = mapCellFromDomTile(tile);
+    if (!cell || tile?.classList.contains("unknown-darkness-cell") || accessAreaCellBlockReason(cell)) return;
+    const key = mapCellKey(cell);
+    if (accessPaintState.visited.has(key)) return;
+    accessPaintState.visited.add(key);
+    accessPaintState.changed = applyAccessAreaBrush(cell, { persist: false, render: false }) || accessPaintState.changed;
+  }
+
+  function handleAccessPaintPointerEnd(event) {
+    if (!accessPaintState || event.pointerId !== accessPaintState.pointerId) return;
+    const changed = accessPaintState.changed;
+    accessPaintState = null;
     suppressNextMapClick = changed;
     if (changed) {
       persist();
@@ -6923,6 +7012,11 @@
 
     if (task.type === "scientistMove") {
       completeScientistMove(task);
+      return;
+    }
+
+    if (task.type === "doorOperation") {
+      completeDoorOperation(task);
       return;
     }
 
@@ -11590,6 +11684,143 @@
     return state.construction.mode === "room";
   }
 
+  function activeAccessArea() {
+    const access = ensureAccessControl();
+    return access.areas.find((area) => area.id === access.editor.activeAreaId) || null;
+  }
+
+  function accessAreaEditing() {
+    return Boolean(activeAccessArea());
+  }
+
+  function accessAreaCellBlockReason(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return "Select a valid map tile.";
+    return labMapCellIsWalkable(clean) ? "" : "Access areas can only include excavated walkable floor.";
+  }
+
+  function setAccessAreaEditor(areaId, options = {}) {
+    const access = ensureAccessControl();
+    access.editor.activeAreaId = access.areas.some((area) => area.id === areaId) ? areaId : "";
+    if (options.brush) access.editor.brush = options.brush === "erase" ? "erase" : "paint";
+    if (access.editor.activeAreaId) {
+      state.construction = normalizeConstructionState(state.construction, state);
+      state.construction.mode = "idle";
+      ensureUiState().mapOverlay = "access";
+      setActiveWorkspaceTab("map");
+    }
+    persist();
+    render();
+    return Boolean(access.editor.activeAreaId);
+  }
+
+  function setAccessAreaBrush(brush) {
+    const access = ensureAccessControl();
+    access.editor.brush = brush === "erase" ? "erase" : "paint";
+    persist();
+    render();
+  }
+
+  function applyAccessAreaBrush(cell, options = {}) {
+    const area = activeAccessArea();
+    const clean = cleanMapCell(cell);
+    if (!area || !clean || accessAreaCellBlockReason(clean)) return false;
+    const access = ensureAccessControl();
+    const key = mapCellKey(clean);
+    const before = area.cells.length;
+    if (access.editor.brush === "erase") {
+      area.cells = area.cells.filter((entry) => mapCellKey(entry) !== key);
+    } else if (!area.cells.some((entry) => mapCellKey(entry) === key)) {
+      area.cells.push(clean);
+    }
+    area.cells = normalizeDigCells(area.cells);
+    const changed = before !== area.cells.length;
+    if (changed && options.persist !== false) persist();
+    if (changed && options.render !== false) render();
+    return changed;
+  }
+
+  function createAccessArea(kind = "forbidden") {
+    const def = ACCESS_AREA_KIND_BY_ID[kind] || ACCESS_AREA_KIND_BY_ID.forbidden;
+    const proposed = window.prompt(`${def.label} name`, def.id === "allowed" ? "Scientist Work Area" : "Hazard Exclusion");
+    if (proposed === null) return false;
+    const name = String(proposed || "").trim();
+    if (!name) {
+      addEvent("Access area creation canceled; a name is required.");
+      persist();
+      render();
+      return false;
+    }
+    const access = ensureAccessControl();
+    const area = { id: `access-area-${access.nextAreaNumber++}`, name: name.slice(0, 80), kind: def.id, emergencyOnly: false, cells: [] };
+    access.areas.push(area);
+    const profile = accessProfileForActor(state.scientist);
+    if (profile && !profile.areaIds.includes(area.id)) profile.areaIds.push(area.id);
+    addEvent(`${def.label} created: ${area.name}. Paint its tiles on the Access overlay.`);
+    return setAccessAreaEditor(area.id);
+  }
+
+  function deleteAccessArea(areaId) {
+    const access = ensureAccessControl();
+    const area = access.areas.find((entry) => entry.id === areaId);
+    if (!area) return false;
+    if (!window.confirm(`Delete access area "${area.name}"? This removes only the policy designation.`)) return false;
+    access.areas = access.areas.filter((entry) => entry.id !== area.id);
+    for (const profile of access.profiles) profile.areaIds = profile.areaIds.filter((id) => id !== area.id);
+    if (access.editor.activeAreaId === area.id) access.editor.activeAreaId = "";
+    addEvent(`Access area deleted: ${area.name}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setAccessAreaAssigned(areaId, assigned) {
+    const area = ensureAccessControl().areas.find((entry) => entry.id === areaId);
+    const profile = accessProfileForActor(state.scientist);
+    if (!area || !profile) return false;
+    profile.areaIds = assigned
+      ? [...new Set([...profile.areaIds, area.id])]
+      : profile.areaIds.filter((id) => id !== area.id);
+    addEvent(`${area.name} ${assigned ? "assigned to" : "removed from"} the scientist's access profile.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setAccessAreaKind(areaId, kind) {
+    const area = ensureAccessControl().areas.find((entry) => entry.id === areaId);
+    if (!area || !ACCESS_AREA_KIND_BY_ID[kind]) return false;
+    area.kind = kind;
+    addEvent(`${area.name} changed to ${ACCESS_AREA_KIND_BY_ID[kind].label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setAccessAreaEmergencyOnly(areaId, emergencyOnly) {
+    const area = ensureAccessControl().areas.find((entry) => entry.id === areaId);
+    if (!area) return false;
+    area.emergencyOnly = Boolean(emergencyOnly);
+    addEvent(`${area.name} ${area.emergencyOnly ? "applies only during emergency restrictions" : "now applies routinely"}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function renameAccessArea(areaId) {
+    const area = ensureAccessControl().areas.find((entry) => entry.id === areaId);
+    if (!area) return false;
+    const proposed = window.prompt("Access area name", area.name);
+    if (proposed === null) return false;
+    const name = String(proposed || "").trim();
+    if (!name) return false;
+    area.name = name.slice(0, 80);
+    addEvent(`Access area renamed to ${area.name}.`);
+    persist();
+    render();
+    return true;
+  }
+
   function roomDesignationPolicyMode() {
     state.policies = normalizePolicies(state.policies);
     return state.policies.rooms.designationMode;
@@ -11646,6 +11877,7 @@
     state.construction.mode = mode;
     if (options.clearDraft !== false) state.construction.draftCells = [];
     if (mode !== "idle") {
+      ensureAccessControl().editor.activeAreaId = "";
       ensureUiState().mapOverlay = "construction";
       setActiveWorkspaceTab("map");
     }
@@ -11673,6 +11905,7 @@
       state.construction.fixtureMaterialPolicy = fixtureMaterialPolicyId(state.construction.fixtureMaterialPolicy, fixtureDef(def.fixtureTypeId));
     }
     state.construction.mode = "build";
+    ensureAccessControl().editor.activeAreaId = "";
     state.construction.draftCells = [];
     ensureUiState().mapOverlay = "construction";
     addEvent(`Build designation set to ${def.label}.`);
@@ -11707,6 +11940,7 @@
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.mode = active ? "room" : "idle";
     if (active) {
+      ensureAccessControl().editor.activeAreaId = "";
       if (options.clearDraft !== false) state.construction.roomDraftCells = [];
       if (options.editRoomId !== undefined) state.construction.roomEditId = cleanRoomId(options.editRoomId);
       ensureUiState().mapOverlay = "rooms";
@@ -11795,6 +12029,7 @@
   function beginRoomDesignationAtCell(cell = null) {
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.mode = "room";
+    ensureAccessControl().editor.activeAreaId = "";
     state.construction.roomEditId = "";
     state.construction.roomBrush = "paint";
     state.construction.roomDraftCells = [];
@@ -11813,6 +12048,7 @@
     if (!room || !mapped) return false;
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.mode = "room";
+    ensureAccessControl().editor.activeAreaId = "";
     state.construction.roomEditId = roomId;
     state.construction.roomBrush = "paint";
     state.construction.roomDraftCells = normalizeDigCells(mapped.cells);
@@ -15078,6 +15314,9 @@
   }
 
   function labMapCellIsPathBlocked(cell, options = {}) {
+    if (options.actor && !options.ignoreAccessPolicy && actorAccessCellBlockReason(options.actor, cell)) {
+      return true;
+    }
     if (options.ignoreObjects) {
       return false;
     }
@@ -15336,6 +15575,10 @@
       if (door && !doorFixtureAllowsPassage(door, options)) {
         return false;
       }
+      if (door && options.actor && !options.ignoreAccessPolicy) {
+        const liveDoor = doorFixtureState(door);
+        if (actorDoorAccessBlockReason(options.actor, liveDoor)) return false;
+      }
       return !labMapCellIsPathBlocked(candidate, { ...options, map });
     });
   }
@@ -15398,7 +15641,7 @@
 
   function roomsFromMapPath(path, map = ensureLabMap()) {
     const roomIds = [];
-    for (const cell of path || []) {
+    for (const cell of (path || []).slice(1)) {
       const roomId = labMapCellRoomId(cell, map);
       if (roomId && roomIds[roomIds.length - 1] !== roomId) {
         roomIds.push(roomId);
@@ -15500,6 +15743,12 @@
   function defaultDoorObject(roomAId, roomBId, id = "") {
     const typeId = defaultDoorTypeId(roomAId, roomBId);
     const doorId = cleanDoorId(id) || `door-${cleanRoomId(roomAId)}-${cleanRoomId(roomBId)}`;
+    const connectedIds = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
+    const accessRuleId = connectedIds.has(CONCEALED_EXIT_ROOM_ID)
+      ? "exterior"
+      : [MENAGERIE_ROOM_ID, PITS_ROOM_ID, COLLECTION_BAY_ROOM_ID].some((roomId) => connectedIds.has(roomId))
+        ? "containment"
+        : DEFAULT_DOOR_ACCESS_RULE_ID;
     return {
       id: doorId,
       key: doorId,
@@ -15512,6 +15761,8 @@
       materialComposition: doorMaterialComposition(typeId),
       condition: CONTAINER_CONDITION_DEFAULT,
       wardIds: defaultDoorWardIds(roomAId, roomBId),
+      accessRuleId,
+      lockdownAction: accessRuleId === "containment" || accessRuleId === "exterior" ? "lock" : "close",
       breached: false
     };
   }
@@ -15600,6 +15851,23 @@
     }
     if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) {
       return `${label} is locked. Unlock it before routing movement or hauling through it.`;
+    }
+    return "";
+  }
+
+  function doorFixtureSecurityBlockReason(mapDoor) {
+    const door = mapDoor ? doorFixtureState(mapDoor) : null;
+    if (!door || doorIsBreached(door)) return "";
+    const label = doorActionLabel(mapDoor);
+    if (door.sealState === DOOR_SEAL_SEALED) return `${label} is sealed. Unseal it before routing movement or hauling through it.`;
+    if (door.state !== DOOR_STATE_OPEN && door.lockState === DOOR_LOCK_LOCKED) return `${label} is locked. Unlock it before routing movement or hauling through it.`;
+    return "";
+  }
+
+  function firstMapPathDoorSecurityBlockReason(path) {
+    for (const cell of path || []) {
+      const reason = doorFixtureSecurityBlockReason(labMapDoorAtCell(cell));
+      if (reason) return reason;
     }
     return "";
   }
@@ -15711,7 +15979,7 @@
       return `No usable door data for ${connectionLabel}.`;
     }
     const type = doorTypeDef(door.typeId);
-    const physical = `${type.label}; materials ${materialCompositionLabel(doorMaterialComposition(door))}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; ${contaminationDiffusionDoorLabel(door)}; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
+    const physical = `${type.label}; materials ${materialCompositionLabel(doorMaterialComposition(door))}; condition ${doorConditionLabel(door)}; seal ${formatNumber(doorEffectiveSeal(door))}/100; access ${DOOR_ACCESS_RULE_BY_ID[door.accessRuleId]?.label || "Laboratory Staff"}; lockdown ${DOOR_LOCKDOWN_ACTION_BY_ID[door.lockdownAction]?.label || "unchanged"}; ${contaminationDiffusionDoorLabel(door)}; wards ${doorWardLabels(door.wardIds).join(", ") || "none"}.`;
     if (doorIsBreached(door)) {
       return `Breached door: movement can pass through ${connectionLabel}, but the door no longer locks or seals. ${physical}`;
     }
@@ -15854,6 +16122,55 @@
     render();
   }
 
+  function setDoorAccessRule(doorId, ruleId) {
+    state.doors = normalizeDoors(state.doors);
+    const door = state.doors[doorId];
+    if (!door) return false;
+    door.accessRuleId = DOOR_ACCESS_RULE_BY_ID[ruleId] ? ruleId : DEFAULT_DOOR_ACCESS_RULE_ID;
+    addEvent(`${doorActionLabel(labMapDoor(doorId))} access set to ${DOOR_ACCESS_RULE_BY_ID[door.accessRuleId].label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setDoorLockdownAction(doorId, actionId) {
+    state.doors = normalizeDoors(state.doors);
+    const door = state.doors[doorId];
+    if (!door) return false;
+    door.lockdownAction = DOOR_LOCKDOWN_ACTION_BY_ID[actionId] ? actionId : "unchanged";
+    addEvent(`${doorActionLabel(labMapDoor(doorId))} lockdown action set to ${DOOR_LOCKDOWN_ACTION_BY_ID[door.lockdownAction].label.toLowerCase()}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setScientistDoorRuleAuthorization(ruleId, authorized) {
+    const profile = accessProfileForActor(state.scientist);
+    if (!profile || !DOOR_ACCESS_RULE_BY_ID[ruleId]) return false;
+    profile.doorAccessRuleIds = authorized
+      ? [...new Set([...profile.doorAccessRuleIds, ruleId])]
+      : profile.doorAccessRuleIds.filter((id) => id !== ruleId);
+    addEvent(`${DOOR_ACCESS_RULE_BY_ID[ruleId].label} door authorization ${authorized ? "granted to" : "removed from"} the scientist profile.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function setAccessLockdown(active) {
+    const access = ensureAccessControl();
+    const next = Boolean(active);
+    if (access.lockdownActive === next) return false;
+    access.lockdownActive = next;
+    let queued = 0;
+    if (next) queued = queueLockdownDoorOperations();
+    addEvent(next
+      ? `Emergency access restrictions activated${queued ? `; ${queued} physical door operation${queued === 1 ? "" : "s"} queued` : "; no door work was configured"}.`
+      : "Emergency access restrictions lifted. Doors remain in their current physical states.");
+    persist();
+    render();
+    return true;
+  }
+
   function doorTransitPlan(route) {
     const steps = [];
     for (let index = 0; index < (route || []).length - 1; index += 1) {
@@ -15901,6 +16218,174 @@
     if (changed.length) {
       addEvent(`${actorLabel} door policy applied: ${changed.join(" · ")}.`);
     }
+  }
+
+  function doorOperationPlan(doorId) {
+    const mapDoor = labMapDoor(doorId);
+    const door = mapDoor ? doorFixtureState(mapDoor) : null;
+    if (!mapDoor || !door) return null;
+    const map = ensureLabMap();
+    const fromCell = scientistMapCell();
+    const candidates = cardinalMapCells(mapDoor.cell)
+      .filter((cell) => labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor: state.scientist, ignoreAccessPolicy: true }))
+      .map((cell) => ({
+        cell,
+        path: labMapPathBetweenCells(fromCell, cell, { map, ignoreDoors: true, ignoreAccessPolicy: true, actor: state.scientist })
+      }))
+      .filter((entry) => entry.path.length)
+      .sort((a, b) => a.path.length - b.path.length || mapCellDistance(a.cell, fromCell) - mapCellDistance(b.cell, fromCell));
+    const best = candidates[0];
+    if (!best) return { door, mapDoor, fromCell, accessCell: null, mapPath: [], route: [] };
+    return {
+      door,
+      mapDoor,
+      fromCell,
+      accessCell: best.cell,
+      mapPath: best.path,
+      route: roomsFromMapPath(best.path, map)
+    };
+  }
+
+  function doorOperationLabel(operation, value) {
+    if (operation === "position") return value === DOOR_STATE_OPEN ? "Open" : "Close";
+    if (operation === "lock") return value === DOOR_LOCK_LOCKED ? "Lock" : "Unlock";
+    if (operation === "seal") return value === DOOR_SEAL_SEALED ? "Seal" : "Unseal";
+    if (operation === "secure") return "Close and lock";
+    return "Operate";
+  }
+
+  function doorOperationStaticBlockReason(door, operation, value) {
+    if (!door) return "The door no longer exists.";
+    if (doorIsBreached(door)) return "A breached door cannot be operated until repaired.";
+    if (operation === "position" && value === DOOR_STATE_OPEN) {
+      if (door.sealState === DOOR_SEAL_SEALED) return "The door is sealed.";
+      if (door.lockState === DOOR_LOCK_LOCKED) return "The door is locked.";
+    }
+    if (operation === "lock" && value === DOOR_LOCK_LOCKED && door.sealState === DOOR_SEAL_SEALED) return "A sealed door is already secured and cannot also be locked.";
+    return "";
+  }
+
+  function queueDoorOperation(doorId, operation, value, options = {}) {
+    const plan = doorOperationPlan(doorId);
+    const staticReason = doorOperationStaticBlockReason(plan?.door, operation, value);
+    if (staticReason) {
+      addEvent(staticReason);
+      if (!options.deferRender) {
+        persist();
+        render();
+      }
+      return null;
+    }
+    if (!plan?.accessCell || !plan.mapPath.length) {
+      addEvent("No physical route reaches an operating position beside that door.");
+      if (!options.deferRender) {
+        persist();
+        render();
+      }
+      return null;
+    }
+    const targetDoorViolation = actorDoorAccessViolation(state.scientist, plan.door, plan.mapDoor.id);
+    const accessViolations = [...pathAccessViolations(state.scientist, plan.mapPath), ...(targetDoorViolation ? [targetDoorViolation] : [])];
+    const accessReasons = accessViolations.map((violation) => violation.reason);
+    if (accessReasons.length && !options.accessOverride) {
+      const accepted = window.confirm(`This direct door order overrides the scientist's access policy:\n\n${[...new Set(accessReasons)].join("\n")}\n\nProceed anyway?`);
+      if (!accepted) {
+        addEvent("Door operation canceled; the access restriction remains in effect.");
+        if (!options.deferRender) {
+          persist();
+          render();
+        }
+        return null;
+      }
+    }
+    const travelSeconds = mapPathTravelDistanceMeters(plan.mapPath, ensureLabMap()) / scientistMoveSpeedMps();
+    const operationSeconds = operation === "seal" ? 12 : operation === "secure" ? 8 : SCIENTIST_DOOR_TRANSIT_SECONDS;
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "doorOperation",
+      label: `${doorOperationLabel(operation, value)} ${doorActionLabel(plan.mapDoor)}`,
+      createdAt: state.clock,
+      dueAt: state.clock + adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + operationSeconds), "analysis"),
+      data: {
+        doorId,
+        operation,
+        value,
+        roomId: labMapCellRoomId(plan.accessCell) || scientistRoomId(),
+        fromCell: plan.fromCell,
+        toCell: plan.accessCell,
+        mapPath: plan.mapPath,
+        route: plan.route,
+        doorTransit: doorTransitPlan(plan.route),
+        accessOverride: Boolean(options.accessOverride || accessReasons.length),
+        accessOverrideAll: Boolean(options.accessOverrideAll || options.lockdown),
+        accessOverrideKeys: accessViolations.map((violation) => violation.key),
+        lockdown: Boolean(options.lockdown)
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} queued; the scientist must reach and operate the physical door.`);
+    if (!options.deferRender) {
+      persist();
+      render();
+    }
+    return task;
+  }
+
+  function queueLockdownDoorOperations() {
+    state.doors = normalizeDoors(state.doors);
+    let queued = 0;
+    for (const door of Object.values(state.doors)) {
+      const action = DOOR_LOCKDOWN_ACTION_BY_ID[door.lockdownAction] ? door.lockdownAction : "unchanged";
+      if (action === "unchanged" || doorIsBreached(door)) continue;
+      if (action === "close" && door.state === DOOR_STATE_CLOSED) continue;
+      if (action === "lock" && door.state === DOOR_STATE_CLOSED && door.lockState === DOOR_LOCK_LOCKED) continue;
+      if (action === "seal" && door.sealState === DOOR_SEAL_SEALED) continue;
+      const operation = action === "close" ? "position" : action === "lock" ? "secure" : "seal";
+      const value = action === "close" ? DOOR_STATE_CLOSED : action === "seal" ? DOOR_SEAL_SEALED : DOOR_LOCK_LOCKED;
+      if (queueDoorOperation(door.id, operation, value, { accessOverride: true, lockdown: true, deferRender: true })) queued += 1;
+    }
+    return queued;
+  }
+
+  function doorOperationTaskBlockReason(task) {
+    const doorId = String(task.data?.doorId || "");
+    const plan = doorOperationPlan(doorId);
+    const staticReason = doorOperationStaticBlockReason(plan?.door, task.data?.operation, task.data?.value);
+    if (staticReason) return staticReason;
+    if (!task.data?.accessOverrideAll) {
+      const allowedOverrideKeys = new Set(Array.isArray(task.data?.accessOverrideKeys) ? task.data.accessOverrideKeys : []);
+      const violation = actorDoorAccessViolation(state.scientist, plan.door, doorId);
+      if (violation && !allowedOverrideKeys.has(violation.key)) return violation.reason;
+    }
+    const accessCell = cleanMapCell(task.data?.toCell);
+    if (!accessCell || !labMapCellIsWalkable(accessCell)) return "The recorded operating position is no longer walkable.";
+    const path = labMapPathBetweenCells(scientistMapCell(), accessCell, { map: ensureLabMap(), ignoreDoors: true, ignoreAccessPolicy: true, actor: state.scientist });
+    if (!path.length) return "No physical route currently reaches the door's operating position.";
+    return "";
+  }
+
+  function completeDoorOperation(task) {
+    const mapDoor = labMapDoor(task.data?.doorId);
+    const door = mapDoor ? doorFixtureState(mapDoor) : null;
+    if (!door) return false;
+    state.scientist = normalizeScientist(state.scientist);
+    const accessCell = cleanMapCell(task.data?.toCell);
+    state.scientist.mapCell = accessCell;
+    state.scientist.roomId = labMapCellRoomId(accessCell) || state.scientist.roomId;
+    applyDoorTransitPolicy(task.data?.doorTransit, "Door-operation movement");
+    const operation = task.data?.operation;
+    const value = task.data?.value;
+    let changed = false;
+    if (operation === "position") changed = setDoorState("", "", value, { doorId: door.id, event: false });
+    if (operation === "lock") changed = setDoorLockState("", "", value, { doorId: door.id, event: false });
+    if (operation === "seal") changed = setDoorSealState("", "", value, { doorId: door.id, event: false });
+    if (operation === "secure") {
+      changed = setDoorState("", "", DOOR_STATE_CLOSED, { doorId: door.id, event: false }) || changed;
+      changed = setDoorLockState("", "", DOOR_LOCK_LOCKED, { doorId: door.id, event: false }) || changed;
+    }
+    addEvent(changed ? `${doorOperationLabel(operation, value)} operation completed at ${doorActionLabel(mapDoor)}.` : `${doorActionLabel(mapDoor)} already matched the requested state.`);
+    observeScientistRoom({ discoverChanges: true });
+    return true;
   }
 
   function roomSortRank(room) {
@@ -16153,6 +16638,8 @@
         chip(`condition: ${doorConditionLabel(door)}`),
         chip(`seal: ${formatNumber(doorEffectiveSeal(door))}/100`),
         chip(`lock: ${formatNumber(type.lockStrength)}/100`),
+        chip(`access: ${DOOR_ACCESS_RULE_BY_ID[door.accessRuleId]?.label || "Laboratory Staff"}`),
+        chip(`lockdown: ${DOOR_LOCKDOWN_ACTION_BY_ID[door.lockdownAction]?.label || "Leave unchanged"}`),
         chip(contaminationDiffusionDoorLabel(door))
       );
         const wards = doorWardLabels(door.wardIds);
@@ -16176,9 +16663,7 @@
         : `Open the ${roomName(room.id)} to ${roomName(connectedId)} door. Open doors allow free creature movement if behavior leads creatures through.`;
       setActionButtonState(positionButton, Boolean(positionBlock), positionBlock);
       positionButton.addEventListener("click", () => {
-        setDoorState(room.id, connectedId, isOpen ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
-        persist();
-        render();
+        queueDoorOperation(door.id, "position", isOpen ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN);
       });
       actions.append(positionButton);
 
@@ -16197,9 +16682,7 @@
         : `Lock the ${roomName(room.id)} to ${roomName(connectedId)} door. Locked doors block movement and hauling until unlocked.`;
       setActionButtonState(lockButton, Boolean(lockBlock), lockBlock);
       lockButton.addEventListener("click", () => {
-        setDoorLockState(room.id, connectedId, locked ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED);
-        persist();
-        render();
+        queueDoorOperation(door.id, "lock", locked ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED);
       });
       actions.append(lockButton);
 
@@ -16214,9 +16697,7 @@
         : `Seal the ${roomName(room.id)} to ${roomName(connectedId)} door. Sealed doors block movement, hauling, loose creatures, and future spread.`;
       setActionButtonState(sealButton, Boolean(sealBlock), sealBlock);
       sealButton.addEventListener("click", () => {
-        setDoorSealState(room.id, connectedId, sealed ? DOOR_SEAL_UNSEALED : DOOR_SEAL_SEALED);
-        persist();
-        render();
+        queueDoorOperation(door.id, "seal", sealed ? DOOR_SEAL_UNSEALED : DOOR_SEAL_SEALED);
       });
       actions.append(sealButton);
       row.append(actions);
@@ -29697,19 +30178,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (targetCell && !canActorOccupyTile(state.scientist, targetCell)) {
       return "The destination tile does not have enough clear space for the scientist.";
     }
-    const securityRoute = roomRouteBetween(fromRoomId, target.id, {
+    const securityPath = roomPathBetween(fromRoomId, target.id, {
       ignoreDoors: true,
       ignoreDoorSecurity: true,
+      ignoreAccessPolicy: true,
       requireReachable: true,
       fromCell,
       toCell: targetCell || undefined,
-      allowUnassignedCell: options.allowUnassignedCell
+      allowUnassignedCell: options.allowUnassignedCell,
+      actor: state.scientist
     });
-    const doorBlock = firstDoorSecurityBlockReason(securityRoute);
+    const doorBlock = firstMapPathDoorSecurityBlockReason(securityPath);
     if (doorBlock) {
       return doorBlock;
     }
-    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell: targetCell || undefined, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist }).length) {
+    if (!roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, ignoreAccessPolicy: true, fromCell, toCell: targetCell || undefined, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist }).length) {
       return `No physical walking route exists from ${roomArticleName(fromRoomId)} to ${roomArticleName(target.id)}.`;
     }
     return "";
@@ -29717,8 +30200,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function scientistMoveDuration(fromRoomId, toRoomId, options = {}) {
     const fromCell = options.fromCell || scientistMapCell();
-    const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId), { actor: state.scientist });
-    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist });
+    const toCell = options.toCell || nearestOpenMapCellInRoom(toRoomId, labMapRoomAnchor(toRoomId), { actor: state.scientist, ignoreAccessPolicy: true });
+    const distance = roomPathDistanceMeters(fromRoomId, toRoomId, { ignoreDoors: true, ignoreAccessPolicy: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist });
     const route = roomRouteBetween(fromRoomId, toRoomId, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
     const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
@@ -29736,6 +30219,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
+    const fromRoomId = scientistRoomId();
+    const fromCell = scientistMapCell();
+    const toCell = options.toCell
+      ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell)
+        ? cleanMapCell(options.toCell)
+        : normalizeMapCellForRoom(options.toCell, target.id)
+      : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell, actor: state.scientist, ignoreAccessPolicy: true });
+    const mapPath = roomPathBetween(fromRoomId, target.id, {
+      ignoreDoors: true,
+      ignoreAccessPolicy: true,
+      fromCell,
+      toCell,
+      allowUnassignedCell: options.allowUnassignedCell,
+      actor: state.scientist
+    });
+    const accessViolations = pathAccessViolations(state.scientist, mapPath);
+    const accessReasons = accessViolations.map((violation) => violation.reason);
+    if (accessReasons.length && !options.accessOverride) {
+      const accepted = window.confirm(`This direct order overrides the scientist's access policy:\n\n${accessReasons.join("\n")}\n\nProceed anyway?`);
+      if (!accepted) {
+        addEvent("Scientist movement canceled; the access restriction remains in effect.");
+        if (!options.deferRender) {
+          persist();
+          render();
+        }
+        return null;
+      }
+    }
     const cost = adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
@@ -29745,16 +30256,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
-    const fromRoomId = scientistRoomId();
-    const fromCell = scientistMapCell();
-    const toCell = options.toCell
-      ? options.allowUnassignedCell && labMapCellIsWalkable(options.toCell)
-        ? cleanMapCell(options.toCell)
-        : normalizeMapCellForRoom(options.toCell, target.id)
-      : nearestOpenMapCellInRoom(target.id, labMapRoomAnchor(target.id), { preferredCell: fromCell, actor: state.scientist });
     const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
-    const mapPath = roomPathBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell, actor: state.scientist });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "scientistMove",
@@ -29769,6 +30272,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         toCell,
         allowUnassignedCell: Boolean(options.allowUnassignedCell),
         mapPath,
+        accessOverride: Boolean(options.accessOverride || accessReasons.length),
+        accessOverrideAll: Boolean(options.accessOverrideAll),
+        accessOverrideKeys: accessViolations.map((violation) => violation.key),
         doorTransit: doorTransitPlan(route),
         staminaCost: cost,
         incidentId: String(options.incidentId || "").trim()
@@ -34576,6 +35082,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (dom.handlingPolicyList) dom.handlingPolicyList.textContent = "";
     dom.corpsePolicyList.textContent = "";
     dom.doorPolicyList.textContent = "";
+    if (dom.accessPolicyList) dom.accessPolicyList.textContent = "";
     if (dom.roomPolicyList) dom.roomPolicyList.textContent = "";
     if (dom.automationPolicyList) dom.automationPolicyList.textContent = "";
 
@@ -34612,7 +35119,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.handlingPolicyList?.append(handlingControls);
 
     const doorPolicyLabel = document.createElement("label");
-    doorPolicyLabel.className = "policy-option";
+    doorPolicyLabel.className = "policy-option door-behavior-policy";
     doorPolicyLabel.title = "Controls what happens after scientist movement or container hauling automatically uses a door.";
     doorPolicyLabel.append(textEl("span", "Door behavior"));
     const doorPolicySelect = document.createElement("select");
@@ -34628,6 +35135,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     doorPolicySelect.addEventListener("change", () => setDoorPolicy(doorPolicySelect.value));
     doorPolicyLabel.append(doorPolicySelect);
     dom.doorPolicyList.append(doorPolicyLabel);
+
+    renderDoorAccessPolicies();
+    renderAccessPolicies();
 
     const roomPolicyLabel = document.createElement("label");
     roomPolicyLabel.className = "policy-option";
@@ -34791,6 +35301,178 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function renderDoorAccessPolicies() {
+    if (!dom.doorPolicyList) return;
+    const profile = accessProfileForActor(state.scientist);
+    const authorization = document.createElement("div");
+    authorization.className = "policy-field door-access-authorizations";
+    authorization.append(textEl("strong", "Scientist Door Authorization"));
+    authorization.append(textEl("small", "Authorization guides voluntary routing. It does not unlock, unseal, or physically stop passage through an open door."));
+    for (const rule of DOOR_ACCESS_RULE_DEFS.filter((entry) => entry.id !== "unrestricted")) {
+      const label = document.createElement("label");
+      label.className = "policy-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = Boolean(profile?.doorAccessRuleIds.includes(rule.id));
+      input.addEventListener("change", () => setScientistDoorRuleAuthorization(rule.id, input.checked));
+      label.append(input, textEl("span", rule.label));
+      label.title = rule.description;
+      authorization.append(label);
+    }
+    dom.doorPolicyList.append(authorization);
+
+    state.doors = normalizeDoors(state.doors);
+    for (const door of Object.values(state.doors)) {
+      const mapDoor = labMapDoor(door.id);
+      const row = document.createElement("div");
+      row.className = "policy-field door-access-policy-row";
+      row.dataset.doorAccessPolicy = door.id;
+      row.append(textEl("strong", doorActionLabel(mapDoor)));
+      row.append(textEl("small", `${doorStateLabelByFixture(mapDoor)}; ${doorTypeLabel(door.typeId)}; permissions do not replace its physical lock or seal.`));
+
+      const accessLabel = document.createElement("label");
+      accessLabel.append(textEl("span", "Access requirement"));
+      const accessSelect = document.createElement("select");
+      accessSelect.dataset.doorAccessRule = door.id;
+      for (const rule of DOOR_ACCESS_RULE_DEFS) accessSelect.append(new Option(rule.label, rule.id));
+      accessSelect.value = door.accessRuleId;
+      accessSelect.title = DOOR_ACCESS_RULE_BY_ID[door.accessRuleId].description;
+      accessSelect.addEventListener("change", () => setDoorAccessRule(door.id, accessSelect.value));
+      accessLabel.append(accessSelect);
+      row.append(accessLabel);
+
+      const lockdownLabel = document.createElement("label");
+      lockdownLabel.append(textEl("span", "Lockdown order"));
+      const lockdownSelect = document.createElement("select");
+      lockdownSelect.dataset.doorLockdownAction = door.id;
+      for (const action of DOOR_LOCKDOWN_ACTION_DEFS) lockdownSelect.append(new Option(action.label, action.id));
+      lockdownSelect.value = door.lockdownAction;
+      lockdownSelect.title = "When emergency restrictions activate, this creates a scientist door-operation task. Ordinary doors do not change themselves.";
+      lockdownSelect.addEventListener("change", () => setDoorLockdownAction(door.id, lockdownSelect.value));
+      lockdownLabel.append(lockdownSelect);
+      row.append(lockdownLabel);
+      dom.doorPolicyList.append(row);
+    }
+  }
+
+  function renderAccessPolicies() {
+    if (!dom.accessPolicyList) return;
+    const access = ensureAccessControl();
+    const profile = accessProfileForActor(state.scientist);
+    const controls = document.createElement("div");
+    controls.className = "policy-field access-policy-controls";
+    controls.append(textEl("strong", "Scientist Default"));
+    controls.append(textEl("small", "Direct movement can override these restrictions after a warning. Automated work remains blocked when its route becomes restricted."));
+    const lockdownLabel = document.createElement("label");
+    lockdownLabel.className = "policy-option";
+    const lockdownInput = document.createElement("input");
+    lockdownInput.type = "checkbox";
+    lockdownInput.checked = access.lockdownActive;
+    lockdownInput.addEventListener("change", () => setAccessLockdown(lockdownInput.checked));
+    lockdownLabel.append(lockdownInput, textEl("span", "Emergency restrictions active"));
+    lockdownLabel.title = "Activating emergency restrictions enables emergency-only areas and queues configured physical door operations.";
+    controls.append(lockdownLabel);
+
+    const createRow = document.createElement("div");
+    createRow.className = "policy-button-row";
+    for (const kind of ACCESS_AREA_KIND_DEFS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `New ${kind.label}`;
+      button.title = `${kind.description} The new area is assigned to the scientist and opens the map painter.`;
+      button.addEventListener("click", () => createAccessArea(kind.id));
+      createRow.append(button);
+    }
+    controls.append(createRow);
+    dom.accessPolicyList.append(controls);
+
+    if (!access.areas.length) {
+      dom.accessPolicyList.append(emptyText("No named access areas. The scientist may route through any physically reachable tile and authorized door."));
+      return;
+    }
+
+    for (const area of access.areas) {
+      const row = document.createElement("div");
+      row.className = "policy-field access-area-row";
+      row.dataset.accessArea = area.id;
+      row.append(textEl("strong", area.name));
+      row.append(textEl("small", `${formatNumber(area.cells.length)} tile${area.cells.length === 1 ? "" : "s"}; ${profile?.areaIds.includes(area.id) ? "assigned to scientist" : "not assigned"}.`));
+
+      const kindLabel = document.createElement("label");
+      kindLabel.append(textEl("span", "Area type"));
+      const kindSelect = document.createElement("select");
+      for (const kind of ACCESS_AREA_KIND_DEFS) kindSelect.append(new Option(kind.label, kind.id));
+      kindSelect.value = area.kind;
+      kindSelect.addEventListener("change", () => setAccessAreaKind(area.id, kindSelect.value));
+      kindLabel.append(kindSelect);
+      row.append(kindLabel);
+
+      const assignedLabel = document.createElement("label");
+      assignedLabel.className = "policy-option";
+      const assignedInput = document.createElement("input");
+      assignedInput.type = "checkbox";
+      assignedInput.checked = Boolean(profile?.areaIds.includes(area.id));
+      assignedInput.addEventListener("change", () => setAccessAreaAssigned(area.id, assignedInput.checked));
+      assignedLabel.append(assignedInput, textEl("span", "Assign to scientist"));
+      row.append(assignedLabel);
+
+      const emergencyLabel = document.createElement("label");
+      emergencyLabel.className = "policy-option";
+      const emergencyInput = document.createElement("input");
+      emergencyInput.type = "checkbox";
+      emergencyInput.checked = area.emergencyOnly;
+      emergencyInput.addEventListener("change", () => setAccessAreaEmergencyOnly(area.id, emergencyInput.checked));
+      emergencyLabel.append(emergencyInput, textEl("span", "Emergency only"));
+      row.append(emergencyLabel);
+
+      const actions = document.createElement("div");
+      actions.className = "policy-button-row";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.textContent = access.editor.activeAreaId === area.id ? "Editing on Map" : "Edit on Map";
+      edit.title = "Open the Access overlay and paint or erase this named area's walkable tiles.";
+      edit.addEventListener("click", () => setAccessAreaEditor(area.id));
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.textContent = "Rename";
+      rename.title = "Rename this access area without changing its tiles or assignments.";
+      rename.addEventListener("click", () => renameAccessArea(area.id));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Delete";
+      remove.title = "Delete this policy designation without changing terrain or physical objects.";
+      remove.addEventListener("click", () => deleteAccessArea(area.id));
+      actions.append(edit, rename, remove);
+      row.append(actions);
+      dom.accessPolicyList.append(row);
+    }
+
+    if (accessAreaEditing()) {
+      const editor = document.createElement("div");
+      editor.className = "policy-field access-editor-controls";
+      editor.append(textEl("strong", `Map painter: ${activeAccessArea().name}`));
+      const actions = document.createElement("div");
+      actions.className = "policy-button-row";
+      for (const brush of ["paint", "erase"]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = titleCase(brush);
+        button.classList.toggle("primary", access.editor.brush === brush);
+        button.title = `${titleCase(brush)} access-area tiles by clicking or left-dragging on the map.`;
+        button.addEventListener("click", () => setAccessAreaBrush(brush));
+        actions.append(button);
+      }
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.textContent = "Stop Editing";
+      stop.title = "Keep the current area and leave access-area painting mode.";
+      stop.addEventListener("click", () => setAccessAreaEditor(""));
+      actions.append(stop);
+      editor.append(actions);
+      dom.accessPolicyList.append(editor);
+    }
+  }
+
   function policyOverviewRow(title, value, note = "", action = null) {
     const row = document.createElement("div");
     row.className = "inventory-row policy-overview-row";
@@ -34842,6 +35524,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         currentDoorPolicyDef().label,
         currentDoorPolicyDef().description,
         policyTabButton("doors", "Open Doors")
+      ),
+      policyOverviewRow(
+        "Actor access",
+        ensureAccessControl().lockdownActive ? "Emergency restrictions" : `${accessProfileForActor(state.scientist)?.areaIds.length || 0} assigned areas`,
+        "Named tile restrictions guide intelligent actors; loose creatures ignore administrative policy.",
+        policyTabButton("access", "Open Access")
       ),
       policyOverviewRow(
         "Room designation",
@@ -36646,6 +37334,43 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function accessOverlayAssignments(map) {
+    const assignments = new Map();
+    const access = ensureAccessControl();
+    const profile = accessProfileForActor(state.scientist);
+    const activeId = access.editor.activeAreaId;
+    const byCell = new Map();
+    for (const area of access.areas) {
+      for (const cell of area.cells) {
+        const key = mapCellKey(cell);
+        const list = byCell.get(key) || [];
+        list.push(area);
+        byCell.set(key, list);
+      }
+    }
+    for (const [key, areas] of byCell) {
+      const [x, y] = key.split(",").map(Number);
+      const forbidden = areas.some((area) => area.kind === "forbidden");
+      const active = areas.some((area) => area.id === activeId);
+      const assigned = areas.some((area) => profile?.areaIds.includes(area.id));
+      const labels = areas.map((area) => `${area.name} (${ACCESS_AREA_KIND_BY_ID[area.kind].label}${area.emergencyOnly ? ", emergency" : ""}${profile?.areaIds.includes(area.id) ? ", assigned" : ""})`);
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: "access",
+        classNames: [
+          "map-overlay-access",
+          forbidden ? "map-overlay-access-forbidden" : "map-overlay-access-allowed",
+          ...(active ? ["map-overlay-access-active"] : []),
+          ...(assigned ? ["map-overlay-access-assigned"] : ["map-overlay-access-unassigned"])
+        ],
+        label: labels.join(" · "),
+        source: active ? "Active access-area editor" : "Access policy",
+        title: `Overlay: Access - ${labels.join("; ")}. Administrative access does not create a physical barrier.`,
+        target: { kind: "tile", tile: { x, y } }
+      }, map);
+    }
+    return assignments;
+  }
+
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const normalized = normalizeMapOverlayId(overlayId);
     if (normalized === "none") {
@@ -36677,6 +37402,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "rooms") {
       return roomsOverlayAssignments(map);
+    }
+    if (normalized === "access") {
+      return accessOverlayAssignments(map);
     }
     if (normalized === "debug") {
       return contaminationOverlayAssignments(map, { debug: true });
@@ -36938,6 +37666,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskDoorBlockReason(task) {
+    for (const path of taskPathList(task)) {
+      const reason = firstMapPathDoorSecurityBlockReason(path);
+      if (reason) return reason;
+    }
     for (const route of taskRouteList(task)) {
       const reason = firstDoorSecurityBlockReason(route);
       if (reason) {
@@ -37010,6 +37742,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (doorReason) {
       return doorReason;
     }
+    if (!task.data?.accessOverrideAll) {
+      const allowedOverrideKeys = new Set(Array.isArray(task.data?.accessOverrideKeys) ? task.data.accessOverrideKeys : []);
+      for (const path of taskPathList(task)) {
+        const accessViolation = pathAccessViolations(state.scientist, path).find((violation) => !allowedOverrideKeys.has(violation.key));
+        if (accessViolation) return accessViolation.reason;
+      }
+    }
     if (task.type === "blackMarketTrade") {
       return blackMarketTradeTaskBlockReason(task);
     }
@@ -37056,6 +37795,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "scientistMove" && !canActorOccupyTile(state.scientist, task.data?.toCell)) {
       return "The destination tile no longer has enough clear space for the scientist.";
+    }
+    if (task.type === "doorOperation") {
+      return doorOperationTaskBlockReason(task);
     }
     if (task.type === "constructionWork") {
       const order = constructionOrderById(task.data?.constructionOrderId);
@@ -38584,12 +39326,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           ? "This door is sealed."
           : openAction === DOOR_STATE_OPEN && liveDoor.lockState === DOOR_LOCK_LOCKED ? "This door is locked." : ""),
         description,
-        run: () => {
-          const result = setDoorState(roomAId, roomBId, openAction, { doorId: key });
-          persist();
-          render();
-          return result;
-        }
+        run: () => queueDoorOperation(key, "position", openAction)
       }),
       commandDef({
         id: `door.lock.${key}`,
@@ -38597,12 +39334,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         group: "Door",
         disabledReason: breachedReason || (lockAction === DOOR_LOCK_LOCKED && liveDoor.sealState === DOOR_SEAL_SEALED ? "Sealed doors are already secured." : ""),
         description,
-        run: () => {
-          const result = setDoorLockState(roomAId, roomBId, lockAction, { doorId: key });
-          persist();
-          render();
-          return result;
-        }
+        run: () => queueDoorOperation(key, "lock", lockAction)
       }),
       commandDef({
         id: `door.seal.${key}`,
@@ -38610,12 +39342,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         group: "Door",
         disabledReason: breachedReason,
         description,
-        run: () => {
-          const result = setDoorSealState(roomAId, roomBId, sealAction, { doorId: key });
-          persist();
-          render();
-          return result;
-        }
+        run: () => queueDoorOperation(key, "seal", sealAction)
       }),
       openWorkspaceCommand({
         id: `door.openPolicies.${key}`,
@@ -41465,7 +42192,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
       : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
-    if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
+    if (accessAreaEditing()) row.append(chip(`Access area: ${activeAccessArea().name} · ${ensureAccessControl().editor.brush}`));
+    else if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
     else if (constructionWorkModeActive()) row.append(chip(`${constructionModeLabel(constructionActiveMode())} mode · priority ${state.construction.priority}`));
     row.append(
       chip(keyboardModeLabel(mapView.mode)),
@@ -41594,6 +42322,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Room designations are persistent player ownership overlays, not movement barriers.",
         "Open thresholds do not block movement or environmental diffusion."
       ],
+      access: [
+        "Green tiles are allowed areas; red tiles are forbidden areas.",
+        "Forbidden designations override allowed designations when they overlap.",
+        "These policies guide authorized intelligent actors and never form physical barriers for loose creatures."
+      ],
       debug: [
         "Debug omniscient: ignores normal player knowledge.",
         "Shows raw diagnostics, hidden room conditions, and unobserved actors.",
@@ -41656,6 +42389,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const description = textEl("span", mapView.overlay?.description || "");
     description.className = "map-overlay-description";
     menu.append(description);
+
+    if (mapView.overlay?.id === "access" && accessAreaEditing()) {
+      const editor = document.createElement("div");
+      editor.className = "map-overlay-field";
+      editor.append(textEl("span", `Editing ${activeAccessArea().name}`));
+      const actions = document.createElement("div");
+      actions.className = "policy-button-row";
+      for (const brush of ["paint", "erase"]) {
+        const brushButton = document.createElement("button");
+        brushButton.type = "button";
+        brushButton.textContent = titleCase(brush);
+        brushButton.classList.toggle("primary", ensureAccessControl().editor.brush === brush);
+        brushButton.addEventListener("click", () => setAccessAreaBrush(brush));
+        actions.append(brushButton);
+      }
+      const done = document.createElement("button");
+      done.type = "button";
+      done.textContent = "Done";
+      done.addEventListener("click", () => setAccessAreaEditor(""));
+      actions.append(done);
+      editor.append(actions);
+      menu.append(editor);
+    }
 
     if (mapView.overlay?.id === "resources") {
       const focusField = document.createElement("label");
@@ -41743,6 +42499,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function handleConstructionMapCellClick(cellView) {
+    if (accessAreaEditing()) {
+      const cell = cleanMapCell(cellView?.cell);
+      if (!cell || cellView?.known === false || accessAreaCellBlockReason(cell)) return false;
+      applyAccessAreaBrush(cell);
+      return true;
+    }
     if (roomDesignationModeActive()) {
       const cell = cleanMapCell(cellView?.cell);
       if (!cell || cellView?.known === false || roomDesignationCellBlockReason(cell)) return false;
@@ -41793,6 +42555,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
     grid.addEventListener("pointerdown", (event) => handleMapDragPointerDown(event, mapView));
+    grid.addEventListener("pointerdown", handleAccessPaintPointerDown);
+    grid.addEventListener("pointerover", handleAccessPaintPointerOver);
+    grid.addEventListener("pointerup", handleAccessPaintPointerEnd);
+    grid.addEventListener("pointercancel", handleAccessPaintPointerEnd);
     grid.addEventListener("pointerdown", handleRoomPaintPointerDown);
     grid.addEventListener("pointerover", handleRoomPaintPointerOver);
     grid.addEventListener("pointerup", handleRoomPaintPointerEnd);
@@ -42794,6 +43560,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "scientistMove") {
       return "Scientist";
+    }
+    if (task.type === "doorOperation") {
+      return "Door Operation";
     }
     if (task.type === "synthesize") {
       return "Scientist";
@@ -47233,6 +48002,148 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return normalized;
   }
 
+  function normalizeAccessControlState(candidate) {
+    const fallback = defaultAccessControlState();
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const seenAreaIds = new Set();
+    const areas = (Array.isArray(source.areas) ? source.areas : []).map((area, index) => {
+      let id = String(area?.id || `access-area-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!id || seenAreaIds.has(id)) id = `access-area-${index + 1}`;
+      seenAreaIds.add(id);
+      return {
+        id,
+        name: String(area?.name || `Access Area ${index + 1}`).trim().slice(0, 80) || `Access Area ${index + 1}`,
+        kind: ACCESS_AREA_KIND_BY_ID[area?.kind] ? area.kind : "forbidden",
+        emergencyOnly: Boolean(area?.emergencyOnly),
+        cells: normalizeDigCells(area?.cells)
+      };
+    });
+    const areaIds = new Set(areas.map((area) => area.id));
+    const sourceProfiles = Array.isArray(source.profiles) && source.profiles.length ? source.profiles : fallback.profiles;
+    const profiles = sourceProfiles.map((profile, index) => {
+      const id = String(profile?.id || `access-profile-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "") || `access-profile-${index + 1}`;
+      return {
+        id,
+        name: String(profile?.name || `Access Profile ${index + 1}`).trim().slice(0, 80) || `Access Profile ${index + 1}`,
+        actorIds: [...new Set((Array.isArray(profile?.actorIds) ? profile.actorIds : []).map((actorId) => String(actorId || "").trim()).filter(Boolean))],
+        areaIds: [...new Set((Array.isArray(profile?.areaIds) ? profile.areaIds : []).filter((areaId) => areaIds.has(areaId)))],
+        doorAccessRuleIds: [...new Set((Array.isArray(profile?.doorAccessRuleIds) ? profile.doorAccessRuleIds : []).filter((ruleId) => DOOR_ACCESS_RULE_BY_ID[ruleId]))]
+      };
+    });
+    let scientistProfile = profiles.find((profile) => profile.id === DEFAULT_ACCESS_PROFILE_ID);
+    if (!scientistProfile) {
+      scientistProfile = { ...fallback.profiles[0], actorIds: ["scientist"], areaIds: [] };
+      profiles.unshift(scientistProfile);
+    }
+    if (!scientistProfile.actorIds.includes("scientist")) scientistProfile.actorIds.push("scientist");
+    const profileIds = new Set(profiles.map((profile) => profile.id));
+    const assignments = { ...(source.assignments || {}), scientist: profileIds.has(source.assignments?.scientist) ? source.assignments.scientist : scientistProfile.id };
+    const activeAreaId = areaIds.has(source.editor?.activeAreaId) ? source.editor.activeAreaId : "";
+    return {
+      nextAreaNumber: Math.max(1, Math.floor(Number(source.nextAreaNumber) || fallback.nextAreaNumber), areas.reduce((max, area) => Math.max(max, numericSuffix(area.id)), 0) + 1),
+      lockdownActive: Boolean(source.lockdownActive),
+      areas,
+      profiles,
+      assignments,
+      editor: { activeAreaId, brush: source.editor?.brush === "erase" ? "erase" : "paint" }
+    };
+  }
+
+  function ensureAccessControl() {
+    if (!state.accessControl || !Array.isArray(state.accessControl.areas) || !Array.isArray(state.accessControl.profiles)) {
+      state.accessControl = normalizeAccessControlState(state.accessControl);
+    }
+    return state.accessControl;
+  }
+
+  function accessProfileForActor(actor) {
+    const access = ensureAccessControl();
+    const actorId = actor === state.scientist ? "scientist" : String(actor?.id || "").trim();
+    if (!actorId) return null;
+    const assignedId = access.assignments[actorId];
+    return access.profiles.find((profile) => profile.id === assignedId || profile.actorIds.includes(actorId)) || null;
+  }
+
+  function actorUsesAccessPolicy(actor) {
+    return Boolean(actor === state.scientist || actor?.accessPolicyAware);
+  }
+
+  function actorAccessAreas(actor) {
+    const access = ensureAccessControl();
+    const profile = accessProfileForActor(actor);
+    if (!profile) return { profile: null, allowed: [], forbidden: [] };
+    const assigned = access.areas.filter((area) => profile.areaIds.includes(area.id));
+    const routineAllowed = assigned.filter((area) => area.kind === "allowed" && !area.emergencyOnly);
+    const emergencyAllowed = access.lockdownActive ? assigned.filter((area) => area.kind === "allowed" && area.emergencyOnly) : [];
+    return {
+      profile,
+      allowed: emergencyAllowed.length ? emergencyAllowed : routineAllowed,
+      forbidden: assigned.filter((area) => area.kind === "forbidden" && (!area.emergencyOnly || access.lockdownActive))
+    };
+  }
+
+  function actorAccessCellViolation(actor, cell) {
+    if (!actorUsesAccessPolicy(actor)) return null;
+    const clean = cleanMapCell(cell);
+    if (!clean) return { key: "access:invalid", reason: "No valid access tile was provided." };
+    const { profile, allowed, forbidden } = actorAccessAreas(actor);
+    const key = mapCellKey(clean);
+    const forbiddenArea = forbidden.find((area) => area.cells.some((candidate) => mapCellKey(candidate) === key));
+    if (forbiddenArea) return { key: `area:${forbiddenArea.id}:${key}`, reason: `${forbiddenArea.name} is forbidden by the actor's access profile.` };
+    if (allowed.length && !allowed.some((area) => area.cells.some((candidate) => mapCellKey(candidate) === key))) {
+      return { key: `allowed:${profile?.id || "actor"}:${key}`, reason: `Tile ${clean.x},${clean.y} is outside the actor's allowed area.` };
+    }
+    return null;
+  }
+
+  function actorAccessCellBlockReason(actor, cell) {
+    return actorAccessCellViolation(actor, cell)?.reason || "";
+  }
+
+  function actorDoorAccessViolation(actor, door, doorId = "") {
+    if (!actorUsesAccessPolicy(actor) || !door || doorIsBreached(door)) return null;
+    const ruleId = DOOR_ACCESS_RULE_BY_ID[door.accessRuleId] ? door.accessRuleId : DEFAULT_DOOR_ACCESS_RULE_ID;
+    if (ruleId === "unrestricted") return null;
+    const profile = accessProfileForActor(actor);
+    return profile?.doorAccessRuleIds?.includes(ruleId) ? null : {
+      key: `door:${doorId || door.id || door.key}:${ruleId}`,
+      reason: `${DOOR_ACCESS_RULE_BY_ID[ruleId].label} authorization is required to operate or voluntarily pass this door.`
+    };
+  }
+
+  function actorDoorAccessBlockReason(actor, door, doorId = "") {
+    return actorDoorAccessViolation(actor, door, doorId)?.reason || "";
+  }
+
+  function pathAccessViolations(actor, path) {
+    if (!actorUsesAccessPolicy(actor)) return [];
+    const violations = [];
+    const seen = new Set();
+    for (const cell of (path || []).slice(1)) {
+      const areaViolation = actorAccessCellViolation(actor, cell);
+      if (areaViolation && !seen.has(areaViolation.key)) {
+        seen.add(areaViolation.key);
+        violations.push(areaViolation);
+      }
+      const mapDoor = labMapDoorAtCell(cell);
+      const door = mapDoor ? doorFixtureState(mapDoor) : null;
+      const doorViolation = actorDoorAccessViolation(actor, door, mapDoor?.id);
+      if (doorViolation && !seen.has(doorViolation.key)) {
+        seen.add(doorViolation.key);
+        violations.push(doorViolation);
+      }
+    }
+    return violations;
+  }
+
+  function pathAccessBlockReasons(actor, path) {
+    return pathAccessViolations(actor, path).map((violation) => violation.reason);
+  }
+
+  function pathAccessBlockReason(actor, path) {
+    return pathAccessBlockReasons(actor, path)[0] || "";
+  }
+
   function normalizeConstructionState(candidate, context = state) {
     const fallback = defaultConstructionState();
     const orders = (Array.isArray(candidate?.orders) ? candidate.orders : [])
@@ -47497,6 +48408,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         materialComposition: normalizeMaterialComposition(raw.materialComposition, fallback.materialComposition || DOOR_MATERIAL_COMPOSITIONS[typeId]),
         condition,
         wardIds: normalizeContainerWardIds(raw.wardIds || fallback.wardIds),
+        accessRuleId: DOOR_ACCESS_RULE_BY_ID[raw.accessRuleId] ? raw.accessRuleId : fallback.accessRuleId || DEFAULT_DOOR_ACCESS_RULE_ID,
+        lockdownAction: DOOR_LOCKDOWN_ACTION_BY_ID[raw.lockdownAction] ? raw.lockdownAction : fallback.lockdownAction || "unchanged",
         breached
       };
     }
@@ -48552,6 +49465,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.rooms = normalizeRooms(next.rooms);
     next.labMap = normalizeLabMap(next.labMap, next.rooms);
     reconcileRoomZones(next.labMap, next.rooms);
+    next.accessControl = normalizeAccessControlState(next.accessControl);
     next.doors = normalizeDoors(next.doors, next.rooms, next.labMap);
     next.tileEnvironments = normalizeTileEnvironments(next.tileEnvironments, next.labMap, next.rooms);
     next.compartmentEnvironments = normalizeCompartmentEnvironments(

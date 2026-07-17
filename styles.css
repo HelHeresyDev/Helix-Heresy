@@ -1850,6 +1850,24 @@ body.map-dragging .lab-map-cell {
   box-shadow: inset 0 0 0 2px rgba(230, 93, 87, 0.92);
 }
 
+.lab-map-cell.map-overlay-access-allowed {
+  background-color: rgba(72, 143, 92, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(116, 205, 132, 0.7);
+}
+
+.lab-map-cell.map-overlay-access-forbidden {
+  background-color: rgba(154, 55, 55, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(232, 104, 91, 0.78);
+}
+
+.lab-map-cell.map-overlay-access-unassigned {
+  opacity: 0.68;
+}
+
+.lab-map-cell.map-overlay-access-active {
+  box-shadow: inset 0 0 0 2px rgba(255, 224, 128, 0.96);
+}
+
 .lab-map-cell.map-overlay-debug {
   outline: 1px dashed rgba(214, 151, 255, 0.72);
   outline-offset: -2px;
@@ -2130,6 +2148,46 @@ body.map-dragging .lab-map-cell {
   display: grid;
   gap: 0.45rem;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.access-policy-list,
+.door-behavior-policy,
+.door-access-policy-row,
+.access-area-row,
+.access-policy-controls,
+.door-access-authorizations {
+  grid-column: 1 / -1;
+}
+
+.door-behavior-policy {
+  justify-content: flex-start;
+}
+
+.door-behavior-policy select {
+  width: min(22rem, 100%);
+}
+
+.access-policy-list > .journal-meta {
+  grid-column: 1 / -1;
+  max-width: 52rem;
+}
+
+.policy-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.door-access-policy-row,
+.access-area-row {
+  grid-template-columns: minmax(10rem, 1.4fr) repeat(auto-fit, minmax(10rem, 1fr));
+  align-items: end;
+}
+
+.door-access-policy-row label,
+.access-area-row label {
+  display: grid;
+  gap: 0.3rem;
 }
 
 .policy-overview-row {

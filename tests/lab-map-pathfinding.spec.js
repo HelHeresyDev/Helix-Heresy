@@ -1641,6 +1641,8 @@ test('door access states block routing and show physical door data', async ({ pa
   await expect(doorActions.getByRole('button', { name: /Open Door|Close Door/ })).toHaveAttribute('title', /Reinforced Wood Door/);
 
   await doorActions.getByRole('button', { name: 'Lock Door' }).click();
+  await expect(page.locator('[data-task-row]').filter({ hasText: 'Lock' })).toHaveCount(1);
+  await skipSeconds(page, 120);
   await selectMapRoom(page, 'storageRoom');
   let roomActions = await openSelectionActions(page);
   await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeDisabled();
@@ -1657,12 +1659,14 @@ test('door access states block routing and show physical door data', async ({ pa
 
   doorActions = await selectDoorActions(page, 'door-storage-main');
   await doorActions.getByRole('button', { name: 'Unlock Door' }).click();
+  await skipSeconds(page, 120);
   await selectMapRoom(page, 'storageRoom');
   roomActions = await openSelectionActions(page);
   await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
 
   doorActions = await selectDoorActions(page, 'door-storage-main');
   await doorActions.getByRole('button', { name: 'Seal Door' }).click();
+  await skipSeconds(page, 120);
   await selectMapRoom(page, 'storageRoom');
   roomActions = await openSelectionActions(page);
   await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeDisabled();
@@ -1680,6 +1684,7 @@ test('door access states block routing and show physical door data', async ({ pa
 
   doorActions = await selectDoorActions(page, 'door-storage-main');
   await doorActions.getByRole('button', { name: 'Unseal Door' }).click();
+  await skipSeconds(page, 120);
   await selectMapRoom(page, 'storageRoom');
   roomActions = await openSelectionActions(page);
   await expect(roomActions.getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
@@ -1951,7 +1956,14 @@ test('contextual commands operate on selected doors and rooms', async ({ page })
     const state = payload.state || payload;
     return state.doors['door-storage-main'];
   }, { key: storageKey });
-  expect(changedDoor.state).toBe(initialDoor.state === 'open' ? 'closed' : 'open');
+  expect(changedDoor.state).toBe(initialDoor.state);
+  await expect(page.locator('[data-task-row]').filter({ hasText: doorCommandLabel.replace(' Door', '') })).toHaveCount(1);
+  await skipSeconds(page, 120);
+  const completedDoor = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).doors['door-storage-main'];
+  }, { key: storageKey });
+  expect(completedDoor.state).toBe(initialDoor.state === 'open' ? 'closed' : 'open');
   await page.locator('[data-selection-inspector="true"]').getByRole('button', { name: 'Close' }).click();
 
   const bedroomCell = await page.evaluate(({ key }) => {
