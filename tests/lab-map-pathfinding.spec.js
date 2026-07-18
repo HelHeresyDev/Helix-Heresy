@@ -129,7 +129,7 @@ async function selectIncidentBySource(page, sourceId) {
   return panel;
 }
 
-test('slime ai record mirrors contained baseline behavior', async ({ page }) => {
+test('slime ai record mirrors contained quiescence', async ({ page }) => {
   await startRun(page);
 
   await page.evaluate(({ key }) => {
@@ -165,15 +165,15 @@ test('slime ai record mirrors contained baseline behavior', async ({ page }) => 
   }, { key: storageKey });
   await loadSavedRun(page);
 
-  await expect(page.locator('[data-slime-ai="contained-ai"]')).toContainText('AI: Contained');
+  await expect(page.locator('[data-slime-ai="contained-ai"]')).toContainText('AI: Quiescent');
   await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Activity');
   await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('State');
-  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Contained');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Quiescent');
   await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('Intent');
-  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('rest');
+  await expect(page.locator('[data-slime-activity-panel="contained-ai"]')).toContainText('remain quiescent');
   await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('AI-001');
   await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('State');
-  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('contained');
+  await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('quiescent');
   await expect(page.locator('[data-ai-debug-panel="true"]')).toContainText('Target raw');
   const result = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -183,8 +183,8 @@ test('slime ai record mirrors contained baseline behavior', async ({ page }) => 
   }, { key: storageKey });
 
   expect(result).toMatchObject({
-    state: 'contained',
-    intent: 'rest',
+    state: 'quiescent',
+    intent: 'quiesce',
     urgency: 'low',
     target: { kind: 'container' },
   });
@@ -278,18 +278,18 @@ test('slime ai drives summarize biological pressure without executing behavior',
   });
   expect(result['drive-injured']).toMatchObject({
     dominantDrive: 'injury',
-    intent: 'rest',
+    intent: 'recover',
     urgency: 'high',
     drives: { injury: { band: 'high' } },
   });
   expect(result['drive-stressed'].drives.stress.band).toBe('high');
   expect(result['drive-stressed'].dominantDrive).toMatch(/stress|containment/);
   expect(result['drive-worker']).toMatchObject({
-    dominantDrive: 'work',
-    state: 'working',
-    intent: 'continueJob',
-    drives: { work: { band: 'moderate' } },
+    dominantDrive: '',
+    state: 'quiescent',
+    intent: 'quiesce',
   });
+  expect(result['drive-worker'].drives).not.toHaveProperty('work');
 });
 
 test('slime threat response reflects pain, stress, and hidden response traits', async ({ page }) => {
@@ -1196,7 +1196,7 @@ test('released slime movement stops if an open route closes ahead of it', async 
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
-  await skipSeconds(page, 1);
+  await page.evaluate(() => window.helixHeresyDebug.startSlimeMovementThroughDoor('door-route', 'door-menagerie-main'));
   const started = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -1209,8 +1209,7 @@ test('released slime movement stops if an open route closes ahead of it', async 
   expect(started.movement).toBeTruthy();
   expect(started.ai.intent).toBe('seekFood');
 
-  const doorActions = await selectDoorActions(page, 'door-menagerie-main');
-  await doorActions.getByRole('button', { name: 'Close Door' }).click();
+  await page.evaluate(() => window.helixHeresyDebug.setDoorPhysicalState('door-menagerie-main', 'closed'));
   const doorAfterClose = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -1244,6 +1243,9 @@ test('released slime movement stops if an open route closes ahead of it', async 
     intent: 'blocked',
     target: { kind: 'door' },
   });
+  expect(blocked.ai.failures).toEqual(expect.arrayContaining([
+    expect.objectContaining({ severity: 'harmless', reason: expect.stringContaining('door') }),
+  ]));
   expect(blocked.tasks.some((task) => /creature|slime|autonomous/i.test(task.type))).toBe(false);
 });
 
