@@ -3127,6 +3127,12 @@
   ];
 
   const dom = {};
+  const Navigation = window.HelixNavigation;
+  if (!Navigation) {
+    throw new Error("HelixNavigation must load before app.js");
+  }
+  const navigationService = new Navigation.NavigationService({ cacheLimit: 384 });
+  const movementReservations = new Navigation.ReservationTable({ capacity: 1 });
   let state;
   let geneMap;
   let uiPreferences = null;
@@ -3521,6 +3527,7 @@
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
       labMap: defaultLabMap(),
+      navigation: defaultNavigationState(),
       tileEnvironments: {},
       compartmentEnvironments: {},
       roomObservations: {},
@@ -3582,6 +3589,31 @@
       resultRepeats: {},
       events: []
     };
+  }
+
+  function defaultNavigationState() {
+    return {
+      topologyRevision: 1,
+      doorRevision: 1,
+      accessRevision: 1
+    };
+  }
+
+  function normalizeNavigationState(candidate = {}) {
+    return {
+      topologyRevision: Math.max(1, Math.floor(Number(candidate.topologyRevision) || 1)),
+      doorRevision: Math.max(1, Math.floor(Number(candidate.doorRevision) || 1)),
+      accessRevision: Math.max(1, Math.floor(Number(candidate.accessRevision) || 1))
+    };
+  }
+
+  function bumpNavigationRevision(kind = "topology") {
+    if (!state) return 0;
+    state.navigation = normalizeNavigationState(state.navigation);
+    const key = kind === "door" ? "doorRevision" : kind === "access" ? "accessRevision" : "topologyRevision";
+    state.navigation[key] += 1;
+    navigationService.clear();
+    return state.navigation[key];
   }
 
   function defaultScientist() {
@@ -4495,6 +4527,26 @@
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
       mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
+      navigationSnapshot: () => ({
+        revisions: normalizeNavigationState(state.navigation),
+        planner: navigationService.snapshot(),
+        reservations: movementReservations.snapshot(state.clock),
+        actors: [
+          { id: "scientist", roomId: scientistRoomId(), cell: scientistMapCell(), footprint: navigationFootprintForActor(state.scientist) },
+          ...(state.slimes || []).filter((slime) => slimeIsUncontained(slime) && slime.status !== "dead").map((slime) => ({
+            id: slime.id,
+            cell: objectMapCell(slime),
+            footprint: navigationFootprintForActor(slime),
+            movement: slime.autonomousMovement ? normalizeSlimeAutonomousMovement(slime.autonomousMovement) : null
+          }))
+        ]
+      }),
+      navigationPlan: (fromCell, toCell, actorId = "scientist", options = {}) => labNavigationPlanBetweenCells(fromCell, toCell, {
+        map: ensureLabMap(),
+        actor: actorId === "scientist" ? state.scientist : findSlime(actorId),
+        ignoreDoors: Boolean(options.ignoreDoors),
+        ignoreAccessPolicy: Boolean(options.ignoreAccessPolicy)
+      }),
       slimeAiSnapshot: (slimeId) => {
         const slime = findSlime(slimeId);
         return slime ? {
@@ -4544,7 +4596,8 @@
           roomId: mapDoor.roomIds.find((roomId) => roomId !== slimeEffectiveRoomId(slime)) || mapDoor.roomIds[0],
           cell: mapDoor.cell
         };
-        const started = startSlimeAutonomousMovement(slime, target, [origin, mapDoor.cell]);
+        const path = labMapPathBetweenCells(origin, mapDoor.cell, { map: ensureLabMap() });
+        const started = startSlimeAutonomousMovement(slime, target, path);
         if (started) {
           syncSlimeAi(slime);
           persist();
@@ -6941,10 +6994,12 @@
       constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
       productionProgressChanged: updateProductionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
+      scientistMovementChanged: 0,
       observationChanged: false,
       aiChanged: 0
     };
     changes.jobExpired = expireSlimes();
+    changes.scientistMovementChanged = updateScientistMovementTask();
     changes.completed = completeDueTasks();
     changes.constructionClaimed = claimNextConstructionWork();
     changes.productionClaimed = claimNextProductionWork();
@@ -6988,6 +7043,7 @@
       + changes.stockpileClaimed
       + changes.constructionProgressChanged
       + changes.skillDecayChanged
+      + changes.scientistMovementChanged
       + changes.aiChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
@@ -8042,6 +8098,7 @@
       ...cells
     ]);
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    bumpNavigationRevision("topology");
     const updates = applyRoomDesignationPolicy({ focusCells: cells, silent: true });
     const policy = roomDesignationPolicyDef();
     addEvent(`${cells.length} tile${cells.length === 1 ? "" : "s"} excavated as rough floor. ${updates
@@ -8177,6 +8234,7 @@
       }, `natural wall destroyed by ${source}`, map);
     }
     state.labMap = normalizeLabMap(map, state.rooms);
+    bumpNavigationRevision("topology");
     state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
     finalizeRoomTopologyChange();
     if (target.kind === "naturalWall" || target.kind === "constructedWall") applyRoomDesignationPolicy({ focusCells: [target.cell], silent: true });
@@ -8203,6 +8261,7 @@
         target.value.lockState = DOOR_LOCK_UNLOCKED;
         target.value.sealState = DOOR_SEAL_UNSEALED;
       }
+      bumpNavigationRevision("door");
     } else if (target.kind === "naturalWall") {
       map.terrain.naturalDamage = normalizeNaturalDamage([
         ...(map.terrain.naturalDamage || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell)),
@@ -8358,6 +8417,7 @@
       state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
       finalizeRoomTopologyChange();
     }
+    bumpNavigationRevision("topology");
     tile.status = "completed";
     tile.taskId = "";
     tile.blockedReason = "";
@@ -11832,6 +11892,7 @@
     }
     area.cells = normalizeDigCells(area.cells);
     const changed = before !== area.cells.length;
+    if (changed) bumpNavigationRevision("access");
     if (changed && options.persist !== false) persist();
     if (changed && options.render !== false) render();
     return changed;
@@ -11865,6 +11926,7 @@
     access.areas = access.areas.filter((entry) => entry.id !== area.id);
     for (const profile of access.profiles) profile.areaIds = profile.areaIds.filter((id) => id !== area.id);
     if (access.editor.activeAreaId === area.id) access.editor.activeAreaId = "";
+    bumpNavigationRevision("access");
     addEvent(`Access area deleted: ${area.name}.`);
     persist();
     render();
@@ -15419,7 +15481,7 @@
     }
     const key = mapCellKey(cell);
     const allowed = options.allowBlockedCellKeys || new Set();
-    if (options.actor && !canActorOccupyTile(options.actor, cell)) {
+    if (options.actor && !options.ignoreActorOccupancy && !canActorOccupyTile(options.actor, cell)) {
       return true;
     }
     if (allowed.has(key)) return false;
@@ -15482,7 +15544,9 @@
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "released" || samePhysicalActor(slime, excludeActor)) continue;
-      if (mapCellKey(objectMapCell(slime)) === key) occupied += slimeFloorLoadM2(slime);
+      const footprint = navigationFootprintForActor(slime);
+      const cells = Navigation.footprintCells(objectMapCell(slime), footprint, slime.navigationOrientation || footprint.orientation);
+      if (cells.some((part) => mapCellKey(part) === key)) occupied += footprint.exclusive ? MAP_TILE_AREA_M2 : slimeFloorLoadM2(slime);
     }
     for (const corpse of state.corpses || []) {
       if (corpse.containerId || corpse.storage === "drum") continue;
@@ -15497,6 +15561,172 @@
   function canActorOccupyTile(actor, cell) {
     const load = actorFloorLoadM2(actor);
     return load > 0 && tileOccupiedAreaM2(cell, { excludeActor: actor }) + load <= MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON;
+  }
+
+  function actorNavigationId(actor) {
+    if (!actor) return "anonymous";
+    if (actor === state.scientist || actor.physicalPresence) return "scientist";
+    return String(actor.id || "actor");
+  }
+
+  function slimeNavigationDimensionsM(slime) {
+    const profile = physicalProfile(slime?.genome || "");
+    if (!profile) return { width: 1, height: 1 };
+    const massScale = Math.cbrt(clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.5));
+    const volumeCm3 = Math.max(1, profile.volumeCm3 * massScale * massScale * massScale);
+    const rootCm = Math.cbrt(volumeCm3);
+    let longCm = rootCm;
+    let shortCm = rootCm;
+    if (["puddle", "flat sheet"].includes(profile.shape)) {
+      const depthCm = clamp(rootCm * (profile.shape === "puddle" ? 0.08 : 0.12), 1, 22);
+      longCm = 2 * Math.sqrt(volumeCm3 / (Math.PI * depthCm));
+      shortCm = longCm;
+    } else if (profile.shape === "worm-like") {
+      longCm = Math.cbrt(volumeCm3 * 30);
+      shortCm = Math.sqrt(volumeCm3 / (Math.PI * longCm)) * 2;
+    } else if (profile.shape === "dog-shaped") {
+      longCm = Math.cbrt(volumeCm3 * 5.5);
+      shortCm = longCm * 0.45;
+    } else if (profile.shape === "humanoid-ish") {
+      longCm = Math.cbrt(volumeCm3 * 9);
+      shortCm = longCm * 0.38;
+    } else if (profile.shape === "disc") {
+      const thicknessCm = clamp(rootCm * 0.22, 2, 40);
+      longCm = 2 * Math.sqrt(volumeCm3 / (Math.PI * thicknessCm));
+      shortCm = longCm;
+    }
+    return {
+      width: Math.max(1, Math.ceil(longCm / 100)),
+      height: Math.max(1, Math.ceil(shortCm / 100))
+    };
+  }
+
+  function navigationFootprintForActor(actor) {
+    const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
+    if (!actor || actor === state.scientist || actor.physicalPresence) {
+      return Navigation.normalizeFootprint({ width: 1, height: 1, loadM2, exclusive: false });
+    }
+    const dimensions = slimeNavigationDimensionsM(actor);
+    return Navigation.normalizeFootprint({
+      ...dimensions,
+      orientation: actor.navigationOrientation || "horizontal",
+      rotatable: true,
+      loadM2,
+      exclusive: dimensions.width > 1 || dimensions.height > 1
+    });
+  }
+
+  function actorNavigationCells(actor) {
+    const anchor = actor === state.scientist || actor?.physicalPresence ? scientistMapCell() : objectMapCell(actor);
+    const footprint = navigationFootprintForActor(actor);
+    return Navigation.footprintCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation);
+  }
+
+  function actorsSharePhysicalTile(left, right) {
+    if (!left || !right) return false;
+    const rightKeys = new Set(actorNavigationCells(right).map(mapCellKey));
+    return actorNavigationCells(left).some((cell) => rightKeys.has(mapCellKey(cell)));
+  }
+
+  function navigationFootprintCanOccupy(actor, anchor, footprint, orientation, options = {}) {
+    const map = options.map || ensureLabMap();
+    const allowed = options.allowBlockedCellKeys || new Set();
+    const blocked = options.blockedCellKeys || labMapBlockingCellKeys(map, options);
+    const parts = Navigation.footprintCells(anchor, footprint, orientation);
+    if (!parts.length) return false;
+    for (const cell of parts) {
+      const key = mapCellKey(cell);
+      if (!labMapCellIsWalkable(cell, map, options.excavatedKeys)) return false;
+      if (options.knownCellKeys && !options.knownCellKeys.has(key)) return false;
+      if (actor && !options.ignoreAccessPolicy && actorAccessCellBlockReason(actor, cell)) return false;
+      const door = labMapDoorAtCell(cell, map);
+      if (door && !doorFixtureAllowsPassage(door, options)) return false;
+      if (!options.ignoreObjects && blocked.has(key) && !allowed.has(key)) return false;
+      if (options.requireCurrentCapacity) {
+        if (footprint.exclusive) {
+          if (tileOccupiedAreaM2(cell, { excludeActor: actor }) > TILE_OCCUPANCY_EPSILON) return false;
+        } else if (actor && !canActorOccupyTile(actor, cell)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function navigationRouteCacheKey(start, end, footprint, options = {}) {
+    const revisions = normalizeNavigationState(state.navigation);
+    const blocked = options.blockedCellKeys ? [...options.blockedCellKeys].sort().join(";") : "default";
+    const allowed = options.allowBlockedCellKeys ? [...options.allowBlockedCellKeys].sort().join(";") : "";
+    return [
+      state.seed,
+      revisions.topologyRevision,
+      revisions.doorRevision,
+      revisions.accessRevision,
+      mapCellKey(start),
+      mapCellKey(end),
+      `${footprint.width}x${footprint.height}:${footprint.orientation}`,
+      actorNavigationId(options.actor),
+      options.ignoreDoors ? "door-use" : "door-open-only",
+      options.ignoreDoorSecurity ? "ignore-security" : "secure",
+      options.ignoreObjects ? "ignore-objects" : "objects",
+      options.ignoreAccessPolicy ? "ignore-access" : "access",
+      blocked,
+      allowed
+    ].join("|");
+  }
+
+  function labNavigationPlanBetweenCells(startCell, endCell, options = {}) {
+    const map = options.map || ensureLabMap();
+    const start = cleanMapCell(startCell);
+    const end = cleanMapCell(endCell);
+    const excavatedKeys = options.excavatedKeys || labMapExcavatedCellKeys(map);
+    if (!start || !end || !labMapCellIsWalkable(start, map, excavatedKeys) || !labMapCellIsWalkable(end, map, excavatedKeys)) {
+      return { found: false, path: [], steps: [], cost: Infinity, visited: 0, reason: "invalid endpoint", cached: false };
+    }
+    const allowBlockedCellKeys = new Set([
+      ...(options.allowBlockedCellKeys || []),
+      mapCellKey(start),
+      mapCellKey(end)
+    ]);
+    const blockedCellKeys = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
+    const footprint = navigationFootprintForActor(options.actor);
+    const planOptions = {
+      ...options,
+      map,
+      excavatedKeys,
+      allowBlockedCellKeys,
+      blockedCellKeys
+    };
+    const canOccupy = (cell, orientation, isGoal = false) => navigationFootprintCanOccupy(
+      options.actor,
+      cell,
+      footprint,
+      orientation,
+      { ...planOptions, requireCurrentCapacity: Boolean(isGoal && options.actor) }
+    );
+    const roughFloorKeys = new Set((map.terrain?.excavated || []).map(mapCellKey));
+    for (const cell of map.terrain?.smoothedFloors || []) roughFloorKeys.delete(mapCellKey(cell));
+    for (const entry of map.terrain?.constructedFloors || []) roughFloorKeys.delete(mapCellKey(entry.cell || entry));
+    const result = navigationService.findPath({
+      width: map.width,
+      height: map.height,
+      start,
+      goal: end,
+      footprint,
+      canOccupy,
+      stepCost: (from, to) => {
+        if (to.action === "rotate") return 0.5;
+        let cost = roughFloorKeys.has(mapCellKey(to.cell)) ? 1.15 : 1;
+        const occupied = tileOccupiedAreaM2(to.cell, { excludeActor: options.actor });
+        if (occupied > 0) cost += occupied * 2;
+        const door = labMapDoorAtCell(to.cell, map) || labMapDoorForCells(from.cell, to.cell, map);
+        const liveDoor = door ? doorFixtureState(door) : null;
+        if (liveDoor && !doorIsBreached(liveDoor) && liveDoor.state !== DOOR_STATE_OPEN) cost += 3;
+        return cost;
+      },
+      validatePath: (_path, steps) => (steps || []).every((step, index) => index === 0 || canOccupy(step.cell, step.orientation, index === steps.length - 1))
+    }, navigationRouteCacheKey(start, end, footprint, planOptions));
+    return result;
   }
 
   function nearestOpenMapCellInRoom(roomId, preferredCell = null, options = {}) {
@@ -15681,42 +15911,19 @@
   }
 
   function labMapPathBetweenCells(startCell, endCell, options = {}) {
-    const map = options.map || ensureLabMap();
-    const start = cleanMapCell(startCell);
-    const end = cleanMapCell(endCell);
-    const excavatedKeys = labMapExcavatedCellKeys(map);
-    if (!start || !end || !labMapCellIsWalkable(start, map, excavatedKeys) || !labMapCellIsWalkable(end, map, excavatedKeys)) {
-      return [];
-    }
-    const allowBlockedCellKeys = new Set([
-      ...(options.allowBlockedCellKeys || []),
-      mapCellKey(start),
-      mapCellKey(end)
-    ]);
-    const blockedCellKeys = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
-    const pathOptions = { ...options, map, excavatedKeys, allowBlockedCellKeys, blockedCellKeys };
-    if (start.x === end.x && start.y === end.y) {
-      return [start];
-    }
-    const queue = [[start]];
-    const visited = new Set([mapCellKey(start)]);
-    while (queue.length) {
-      const path = queue.shift();
-      const current = path[path.length - 1];
-      for (const next of labMapNeighborCells(current, pathOptions)) {
-        const key = mapCellKey(next);
-        if (visited.has(key)) {
-          continue;
-        }
-        const nextPath = [...path, next];
-        if (next.x === end.x && next.y === end.y) {
-          return nextPath;
-        }
-        visited.add(key);
-        queue.push(nextPath);
-      }
-    }
-    return [];
+    const plan = labNavigationPlanBetweenCells(startCell, endCell, options);
+    const path = plan.path;
+    Object.defineProperty(path, "navigationSteps", {
+      configurable: true,
+      enumerable: false,
+      value: plan.steps
+    });
+    Object.defineProperty(path, "navigationPlan", {
+      configurable: true,
+      enumerable: false,
+      value: plan
+    });
+    return path;
   }
 
   function roomPathBetween(fromRoomId, toRoomId, options = {}) {
@@ -16147,6 +16354,7 @@
       return false;
     }
     door.state = nextState;
+    bumpNavigationRevision("door");
     if (options.event !== false) {
       addEvent(`${label} ${nextState === DOOR_STATE_OPEN ? "opened" : "closed"}.`);
     }
@@ -16178,6 +16386,7 @@
       door.state = DOOR_STATE_CLOSED;
     }
     door.lockState = nextState;
+    bumpNavigationRevision("door");
     if (options.event !== false) {
       addEvent(`${label} ${nextState === DOOR_LOCK_LOCKED ? "locked" : "unlocked"}.`);
     }
@@ -16204,6 +16413,7 @@
       door.lockState = DOOR_LOCK_UNLOCKED;
     }
     door.sealState = nextState;
+    bumpNavigationRevision("door");
     if (options.event !== false) {
       addEvent(`${label} ${nextState === DOOR_SEAL_SEALED ? "sealed" : "unsealed"}.`);
     }
@@ -16224,6 +16434,7 @@
     const door = state.doors[doorId];
     if (!door) return false;
     door.accessRuleId = DOOR_ACCESS_RULE_BY_ID[ruleId] ? ruleId : DEFAULT_DOOR_ACCESS_RULE_ID;
+    bumpNavigationRevision("access");
     addEvent(`${doorActionLabel(labMapDoor(doorId))} access set to ${DOOR_ACCESS_RULE_BY_ID[door.accessRuleId].label}.`);
     persist();
     render();
@@ -16313,6 +16524,7 @@
       }
     }
     if (changed.length) {
+      bumpNavigationRevision("door");
       addEvent(`${actorLabel} door policy applied: ${changed.join(" · ")}.`);
     }
   }
@@ -18533,7 +18745,7 @@
     if (slimeIsUncontained(a) && slimeIsUncontained(b) && slimeEffectiveRoomId(a) === slimeEffectiveRoomId(b)) {
       const cellA = objectMapCell(a);
       const cellB = objectMapCell(b);
-      if (cellA && cellB && mapCellKey(cellA) === mapCellKey(cellB)) {
+      if (cellA && cellB && actorsSharePhysicalTile(a, b)) {
         return {
           kind: "tile",
           roomId: slimeEffectiveRoomId(a),
@@ -18555,7 +18767,7 @@
     }
     const slimeCell = objectMapCell(slime);
     const scientistCell = scientistMapCell();
-    if (slimeCell && scientistCell && mapCellKey(slimeCell) === mapCellKey(scientistCell)) {
+    if (slimeCell && scientistCell && actorsSharePhysicalTile(slime, state.scientist)) {
       return { kind: "tile", roomId, cell: slimeCell, label: "same tile" };
     }
     return null;
@@ -21780,13 +21992,12 @@
   }
 
   function actorsInPhysicalContact(actor) {
-    const cellKey = mapCellKey(sensoryActorCell(actor));
     const contacts = [];
-    if (actor !== state.scientist && mapCellKey(sensoryActorCell(state.scientist)) === cellKey) contacts.push(state.scientist);
+    if (actor !== state.scientist && actorsSharePhysicalTile(actor, state.scientist)) contacts.push(state.scientist);
     for (const slime of state.slimes || []) {
       if (slime === actor || slime.status === "dead") continue;
       if (actor?.containerId && slime.containerId === actor.containerId) contacts.push(slime);
-      else if (!actor?.containerId && slimeIsUncontained(slime) && mapCellKey(sensoryActorCell(slime)) === cellKey) contacts.push(slime);
+      else if (!actor?.containerId && slimeIsUncontained(slime) && actorsSharePhysicalTile(actor, slime)) contacts.push(slime);
     }
     return contacts;
   }
@@ -24991,6 +25202,10 @@
       }
     };
     state.tasks.push(task);
+    const firstMovementStep = task.data.movement?.steps?.[1];
+    if (firstMovementStep) {
+      reserveActorMovementStep(state.scientist, firstMovementStep.cell, firstMovementStep.orientation, "directMove", Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps()));
+    }
     const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
     addEvent(`Hauling started: ${container.name} from ${roomArticleName(fromRoomId)} to ${roomArticleName(room.id)} via ${mapPathSummary(haulPlan.mapPath, haulPlan.map)}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     persist();
@@ -25026,6 +25241,7 @@
         placedContainer.mapCell = plannedCell;
       }
     }
+    bumpNavigationRevision("topology");
     applyDoorTransitPolicy(task.data?.doorTransit, "Container hauling");
 
     addEvent(`Hauling complete: ${container.name} moved from ${fromLabel} to ${toLabel} via ${mapPathSummary(task.data?.mapPath || [], ensureLabMap())}.`);
@@ -30485,6 +30701,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + doorDelay), "analysis");
   }
 
+  function createScientistMovementRecord(mapPath, duration, startAt = state.clock) {
+    const footprint = navigationFootprintForActor(state.scientist);
+    const steps = (Array.isArray(mapPath.navigationSteps) && mapPath.navigationSteps.length
+      ? mapPath.navigationSteps
+      : mapPath.map((cell) => ({ cell, orientation: footprint.orientation, action: "move" })))
+      .map((step) => ({ cell: cleanMapCell(step.cell || step), orientation: String(step.orientation || footprint.orientation), action: String(step.action || "move") }))
+      .filter((step) => step.cell);
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    return {
+      steps,
+      stepIndex: 0,
+      orientation: steps[0]?.orientation || footprint.orientation,
+      segmentStartedAt: startAt,
+      segmentArriveAt: startAt + segmentSeconds,
+      startedAt: startAt,
+      estimatedArrivalAt: startAt + duration,
+      waitingFor: "",
+      waitCount: 0,
+      handledDoorIds: [],
+      topologyRevision: normalizeNavigationState(state.navigation).topologyRevision,
+      doorRevision: normalizeNavigationState(state.navigation).doorRevision
+    };
+  }
+
   function startScientistMove(toRoomId, options = {}) {
     const target = roomById(toRoomId);
     const reason = scientistMoveBlockReason(toRoomId, options);
@@ -30549,6 +30789,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         toCell,
         allowUnassignedCell: Boolean(options.allowUnassignedCell),
         mapPath,
+        mapSteps: mapPath.navigationSteps || [],
+        movement: createScientistMovementRecord(mapPath, duration),
         accessOverride: Boolean(options.accessOverride || accessReasons.length),
         accessOverrideAll: Boolean(options.accessOverrideAll),
         accessOverrideKeys: accessViolations.map((violation) => violation.key),
@@ -30565,6 +30807,181 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       render();
     }
     return task;
+  }
+
+  function normalizeScientistMovementRecord(candidate, task) {
+    const rawSteps = Array.isArray(candidate?.steps) && candidate.steps.length
+      ? candidate.steps
+      : Array.isArray(task?.data?.mapSteps) && task.data.mapSteps.length
+        ? task.data.mapSteps
+        : (task?.data?.mapPath || []).map((cell) => ({ cell, orientation: "square", action: "move" }));
+    const steps = rawSteps
+      .map((step) => ({ cell: cleanMapCell(step?.cell || step), orientation: String(step?.orientation || "square"), action: String(step?.action || "move") }))
+      .filter((step) => step.cell);
+    if (steps.length < 2) return null;
+    const stepIndex = clamp(Math.floor(Number(candidate?.stepIndex) || 0), 0, steps.length - 1);
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    const segmentStartedAt = finiteTime(candidate?.segmentStartedAt, finiteTime(task?.createdAt, state.clock));
+    return {
+      steps,
+      stepIndex,
+      orientation: String(candidate?.orientation || steps[stepIndex]?.orientation || "square"),
+      segmentStartedAt,
+      segmentArriveAt: Math.max(segmentStartedAt + 0.001, finiteTime(candidate?.segmentArriveAt, segmentStartedAt + segmentSeconds)),
+      startedAt: finiteTime(candidate?.startedAt, finiteTime(task?.createdAt, state.clock)),
+      estimatedArrivalAt: finiteTime(candidate?.estimatedArrivalAt, finiteTime(task?.dueAt, state.clock)),
+      waitingFor: String(candidate?.waitingFor || ""),
+      waitCount: Math.max(0, Math.floor(Number(candidate?.waitCount) || 0)),
+      handledDoorIds: Array.isArray(candidate?.handledDoorIds) ? [...new Set(candidate.handledDoorIds.map(String))] : [],
+      topologyRevision: Math.max(1, Math.floor(Number(candidate?.topologyRevision) || normalizeNavigationState(state.navigation).topologyRevision)),
+      doorRevision: Math.max(1, Math.floor(Number(candidate?.doorRevision) || normalizeNavigationState(state.navigation).doorRevision)),
+      completed: Boolean(candidate?.completed)
+    };
+  }
+
+  function activeScientistTravelTask() {
+    const task = firstScientistQueueTask();
+    if (!task) return null;
+    if (!["scientistMove", "doorOperation"].includes(task.type)) return null;
+    const recordedPath = taskPathCells(task).map(cleanMapCell).filter(Boolean);
+    if (recordedPath.length < 2) return null;
+    if (!task.data?.movement) {
+      task.data ||= {};
+      const current = scientistMapCell();
+      const prefix = mapCellKey(recordedPath[0]) === mapCellKey(current)
+        ? [current]
+        : labMapPathBetweenCells(current, recordedPath[0], {
+            map: ensureLabMap(),
+            actor: state.scientist,
+            ignoreDoors: true,
+            ignoreAccessPolicy: Boolean(task.data.accessOverride || task.data.accessOverrideAll)
+          });
+      if (!prefix.length) return null;
+      const path = appendMapPath(prefix, recordedPath);
+      const movementStartAt = finiteTime(task.data?.movementStartedAt, finiteTime(task.createdAt, state.clock));
+      task.data.movementStartedAt = movementStartAt;
+      task.data.movement = createScientistMovementRecord(path, Math.max(0, task.dueAt - movementStartAt), movementStartAt);
+      const firstStep = task.data.movement.steps[1];
+      if (firstStep) reserveActorMovementStep(state.scientist, firstStep.cell, firstStep.orientation, "taskMove", Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps()));
+    }
+    return task;
+  }
+
+  function replanScientistMovementTask(task, movement) {
+    const targetCell = cleanMapCell(task.data?.toCell) || taskPathCells(task).map(cleanMapCell).filter(Boolean).at(-1);
+    const plan = labNavigationPlanBetweenCells(scientistMapCell(), targetCell, {
+      map: ensureLabMap(),
+      actor: state.scientist,
+      ignoreDoors: true,
+      ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll)
+    });
+    if (!plan.found || plan.steps.length < 2) return false;
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    movement.steps = plan.steps;
+    movement.stepIndex = 0;
+    movement.orientation = plan.steps[0].orientation;
+    movement.segmentStartedAt = state.clock;
+    movement.segmentArriveAt = state.clock + segmentSeconds;
+    movement.waitCount = 0;
+    movement.waitingFor = "";
+    movement.topologyRevision = normalizeNavigationState(state.navigation).topologyRevision;
+    movement.doorRevision = normalizeNavigationState(state.navigation).doorRevision;
+    task.data.mapPath = plan.path;
+    task.data.mapSteps = plan.steps;
+    return true;
+  }
+
+  function updateScientistMovementTask() {
+    const task = activeScientistTravelTask();
+    if (!task) {
+      movementReservations.releaseActor("scientist");
+      return 0;
+    }
+    const movement = normalizeScientistMovementRecord(task.data?.movement, task);
+    if (!movement) return 0;
+    task.data.movement = movement;
+    const revisions = normalizeNavigationState(state.navigation);
+    if (movement.topologyRevision !== revisions.topologyRevision && !replanScientistMovementTask(task, movement)) {
+      task.data.blockedReason = "The walking route changed and no replacement route is available.";
+      return 1;
+    }
+    let changed = 0;
+    let safety = movement.steps.length + 2;
+    while (state.clock >= movement.segmentArriveAt && movement.stepIndex < movement.steps.length - 1 && safety > 0) {
+      safety -= 1;
+      const currentStep = movement.steps[movement.stepIndex];
+      const nextStep = movement.steps[movement.stepIndex + 1];
+      const door = labMapDoorAtCell(nextStep.cell) || labMapDoorForCells(currentStep.cell, nextStep.cell);
+      const liveDoor = door ? doorFixtureState(door) : null;
+      if (liveDoor && !doorIsBreached(liveDoor)) {
+        const securityReason = doorFixtureSecurityBlockReason(door);
+        if (securityReason) {
+          task.data.blockedReason = securityReason;
+          movement.waitingFor = securityReason;
+          return 1;
+        }
+        if (liveDoor.state !== DOOR_STATE_OPEN && !movement.handledDoorIds.includes(door.id)) {
+          if (!setDoorState("", "", DOOR_STATE_OPEN, { doorId: door.id, event: false })) {
+            task.data.blockedReason = `${doorActionLabel(door)} could not be opened.`;
+            return 1;
+          }
+          movement.handledDoorIds.push(door.id);
+          movement.doorRevision = normalizeNavigationState(state.navigation).doorRevision;
+          const operationAt = movement.segmentArriveAt;
+          movement.segmentStartedAt = operationAt;
+          movement.segmentArriveAt = operationAt + SCIENTIST_DOOR_TRANSIT_SECONDS;
+          changed += 1;
+          continue;
+        }
+      }
+      const footprint = navigationFootprintForActor(state.scientist);
+      const canEnter = navigationFootprintCanOccupy(state.scientist, nextStep.cell, footprint, nextStep.orientation, {
+        map: ensureLabMap(),
+        ignoreDoors: true,
+        ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll),
+        blockedCellKeys: labMapBlockingCellKeys(ensureLabMap()),
+        allowBlockedCellKeys: new Set([mapCellKey(currentStep.cell)]),
+        requireCurrentCapacity: true
+      });
+      const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+      const reservation = canEnter
+        ? reserveActorMovementStep(state.scientist, nextStep.cell, nextStep.orientation, "directMove", segmentSeconds)
+        : { ok: false, conflicts: [] };
+      if (!reservation.ok) {
+        const delay = Math.min(5, 1 + movement.waitCount);
+        movement.waitCount += 1;
+        movement.waitingFor = [...new Set((reservation.conflicts || []).map((entry) => entry.actorId))].filter(Boolean).join(", ") || "occupied floor";
+        movement.segmentStartedAt = state.clock;
+        movement.segmentArriveAt = state.clock + delay;
+        movement.estimatedArrivalAt += delay;
+        task.dueAt += delay;
+        changed += 1;
+        if (movement.waitCount >= 3) replanScientistMovementTask(task, movement);
+        break;
+      }
+      const scheduledArrivalAt = movement.segmentArriveAt;
+      movement.stepIndex += 1;
+      movement.orientation = nextStep.orientation;
+      movement.segmentStartedAt = scheduledArrivalAt;
+      movement.segmentArriveAt = scheduledArrivalAt + segmentSeconds;
+      movement.waitCount = 0;
+      movement.waitingFor = "";
+      state.scientist.mapCell = nextStep.cell;
+      state.scientist.roomId = labMapCellRoomId(nextStep.cell) || state.scientist.roomId;
+      const followingStep = movement.steps[movement.stepIndex + 1];
+      if (followingStep) {
+        reserveActorMovementStep(state.scientist, followingStep.cell, followingStep.orientation, "directMove", segmentSeconds);
+      }
+      changed += 1;
+    }
+    if (movement.stepIndex >= movement.steps.length - 1) {
+      movement.completed = true;
+      movementReservations.releaseActor("scientist");
+    } else if (task.dueAt <= state.clock) {
+      const remaining = movement.steps.length - 1 - movement.stepIndex;
+      task.dueAt = Math.max(state.clock + 0.001, movement.segmentArriveAt + Math.max(0, remaining - 1) * Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps()));
+    }
+    return changed;
   }
 
   function completeScientistMove(task) {
@@ -31380,6 +31797,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       CREATURE_AUTONOMOUS_MIN_SPEED_MPS,
       CREATURE_AUTONOMOUS_MAX_SPEED_MPS
     );
+    const footprint = navigationFootprintForActor(null);
+    const steps = (Array.isArray(candidate.steps) ? candidate.steps : path.map((cell) => ({ cell })))
+      .map((step) => ({
+        cell: cleanMapCell(step?.cell || step),
+        orientation: String(step?.orientation || candidate.orientation || footprint.orientation),
+        action: String(step?.action || "move")
+      }))
+      .filter((step) => step.cell);
+    if (steps.length < 2) return null;
+    const stepIndex = clamp(Math.floor(Number(candidate.stepIndex) || 0), 0, steps.length - 1);
+    const segmentSeconds = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, map.tileSizeM / speedMps);
+    const segmentStartedAt = finiteTime(candidate.segmentStartedAt, startAt);
+    const segmentArriveAt = Math.max(segmentStartedAt + 0.001, finiteTime(candidate.segmentArriveAt, segmentStartedAt + segmentSeconds));
     return {
       intent: String(candidate.intent || "wander"),
       label: String(candidate.label || "moving"),
@@ -31390,6 +31820,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       targetRoomId: cleanRoomId(candidate.targetRoomId),
       targetCell,
       path,
+      steps,
+      stepIndex,
+      orientation: steps[stepIndex]?.orientation || footprint.orientation,
+      segmentStartedAt,
+      segmentArriveAt,
+      waitCount: Math.max(0, Math.floor(Number(candidate.waitCount) || 0)),
+      waitingFor: String(candidate.waitingFor || ""),
+      topologyRevision: Math.max(1, Math.floor(Number(candidate.topologyRevision) || normalizeNavigationState(state.navigation).topologyRevision)),
+      doorRevision: Math.max(1, Math.floor(Number(candidate.doorRevision) || normalizeNavigationState(state.navigation).doorRevision)),
       distanceMeters,
       speedMps,
       baseSpeedMps,
@@ -31410,7 +31849,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
     slime.autonomousMovement = movement;
-    return Boolean(movement && state.clock < movement.arriveAt);
+    return Boolean(movement && movement.stepIndex < movement.steps.length - 1);
   }
 
   function slimeMoveSpeedMps(slime) {
@@ -31513,8 +31952,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function autonomousMovementProgress(movement) {
-    const duration = Math.max(1, movement.arriveAt - movement.startAt);
-    return clamp((state.clock - movement.startAt) / duration, 0, 1);
+    const steps = movement.steps || movement.path || [];
+    if (steps.length < 2) return 1;
+    const segmentDuration = Math.max(0.001, movement.segmentArriveAt - movement.segmentStartedAt);
+    const segmentProgress = clamp((state.clock - movement.segmentStartedAt) / segmentDuration, 0, 1);
+    return clamp((movement.stepIndex + segmentProgress) / (steps.length - 1), 0, 1);
+  }
+
+  function movementPriorityForActor(actor, intent = "move") {
+    if (["flee", "panic"].includes(intent)) return 100;
+    if (["fight", "feedAttack", "attack", "defend"].includes(intent)) return 90;
+    if (actor === state.scientist || actor?.physicalPresence) return 80;
+    if (["seekFood", "seekHabitat", "hunt"].includes(intent)) return 45;
+    if (intent === "wander") return 15;
+    return 35;
+  }
+
+  function reserveActorMovementStep(actor, cell, orientation, intent, durationSeconds) {
+    const footprint = navigationFootprintForActor(actor);
+    const cells = Navigation.footprintCells(cell, footprint, orientation);
+    movementReservations.prune(state.clock);
+    return movementReservations.tryReserve({
+      actorId: actorNavigationId(actor),
+      cells,
+      startAt: state.clock,
+      endAt: state.clock + Math.max(0.25, Number(durationSeconds) || 1),
+      loadM2: footprint.loadM2,
+      exclusive: footprint.exclusive,
+      priority: movementPriorityForActor(actor, intent),
+      preempt: true,
+      intent
+    });
   }
 
   function firstBlockedDoorOnPath(path, map = ensureLabMap(), startIndex = 0) {
@@ -31800,6 +32268,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fromRoomId = slimeEffectiveRoomId(slime);
     const fromCell = objectMapCell(slime) || nearestOpenMapCellInRoom(fromRoomId, labMapRoomAnchor(fromRoomId), { map });
     const toCell = normalizeMapCellForRoom(target.cell, target.roomId, map);
+    const knownCellKeys = slimeKnownNavigationCellKeys(slime, toCell);
     return roomPathBetween(fromRoomId, target.roomId, {
       map,
       fromCell,
@@ -31807,8 +32276,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ignoreDoors: false,
       ignoreDoorSecurity: false,
       requireReachable: true,
+      knownCellKeys,
       actor: slime
     });
+  }
+
+  function slimeKnownNavigationCellKeys(slime, targetCell = null) {
+    const current = objectMapCell(slime);
+    const known = new Set((slime?.sensory?.routeMemory?.cells || []).map(mapCellKey));
+    if (current) known.add(mapCellKey(current));
+    const target = cleanMapCell(targetCell);
+    if (target) known.add(mapCellKey(target));
+    return known;
   }
 
   function slimeCanSenseStepTo(slime, cell) {
@@ -31944,49 +32423,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function chooseAutonomousWanderTarget(slime) {
     const currentRoomId = slimeEffectiveRoomId(slime);
-    const map = ensureLabMap();
     const rng = seedRng(`${state.seed}:wander:${slime.id}:${Math.floor(state.clock / CREATURE_AUTONOMOUS_DECISION_INTERVAL)}`);
     if (rng() > CREATURE_AUTONOMOUS_WANDER_CHANCE) {
       return null;
     }
-    const roomIds = [
-      currentRoomId,
-      ...roomConnectedIds(currentRoomId)
-    ];
-    const options = [];
-    for (const roomId of roomIds) {
-      const room = labMapRoom(roomId, map);
-      if (!room) {
-        continue;
-      }
-      const cells = roomCellsSortedForPlacement(room, {
-        x: room.x + Math.floor(rng() * Math.max(1, room.width)),
-        y: room.y + Math.floor(rng() * Math.max(1, room.height))
-      }).slice(0, 8);
-      for (const cell of cells) {
-        if (labMapCellIsDoor(cell, map) || labMapCellIsPathBlocked(cell, { map, actor: slime })) {
-          continue;
-        }
-        const path = roomPathBetween(currentRoomId, roomId, {
-          map,
-          fromCell: objectMapCell(slime),
-          toCell: cell,
-          ignoreDoors: false,
-          ignoreDoorSecurity: false,
-          requireReachable: true,
-          actor: slime
-        });
-        if (path.length > 1) {
-          options.push({
-            target: { kind: "wander", id: "", roomId, cell, label: "open floor", score: 1 },
-            path,
-            value: rng()
-          });
-          break;
-        }
-      }
-    }
-    return options.sort((a, b) => b.value - a.value)[0] || null;
+    const origin = objectMapCell(slime);
+    if (!origin) return null;
+    return cardinalMapCells(origin)
+      .filter((cell) => slimeCanSenseStepTo(slime, cell))
+      .map((cell) => ({
+        target: {
+          kind: "wander",
+          id: "",
+          roomId: labMapCellRoomId(cell) || currentRoomId,
+          cell,
+          label: "locally sensed open floor",
+          score: 1
+        },
+        path: [origin, cell],
+        value: rng()
+      }))
+      .sort((a, b) => b.value - a.value)[0] || null;
   }
 
   function startSlimeAutonomousMovement(slime, target, path) {
@@ -31996,7 +32453,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = ensureLabMap();
     const distanceMeters = mapPathTravelDistanceMeters(path, map);
     const movementProfile = slimeMovementProfile(slime);
-    const duration = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, distanceMeters / movementProfile.speedMps);
+    const navigationSteps = (Array.isArray(path.navigationSteps) && path.navigationSteps.length
+      ? path.navigationSteps
+      : path.map((cell) => ({ cell, orientation: slime.navigationOrientation || navigationFootprintForActor(slime).orientation, action: "move" })))
+      .map((step) => ({ cell: cleanMapCell(step.cell || step), orientation: String(step.orientation || "square"), action: String(step.action || "move") }))
+      .filter((step) => step.cell);
+    const segmentSeconds = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, map.tileSizeM / movementProfile.speedMps);
+    const duration = Math.max(segmentSeconds, distanceMeters / movementProfile.speedMps + navigationSteps.filter((step) => step.action === "rotate").length * segmentSeconds * 0.5);
     const label = target.kind === "wander"
       ? `wandering toward ${roomName(target.roomId)}`
       : target.kind === "contamination"
@@ -32016,6 +32479,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       targetRoomId: target.roomId,
       targetCell: path[path.length - 1],
       path,
+      steps: navigationSteps,
+      stepIndex: 0,
+      orientation: navigationSteps[0]?.orientation || navigationFootprintForActor(slime).orientation,
+      segmentStartedAt: state.clock,
+      segmentArriveAt: state.clock + segmentSeconds,
+      waitCount: 0,
+      waitingFor: "",
+      topologyRevision: normalizeNavigationState(state.navigation).topologyRevision,
+      doorRevision: normalizeNavigationState(state.navigation).doorRevision,
       distanceMeters,
       speedMps: movementProfile.speedMps,
       baseSpeedMps: movementProfile.baseSpeedMps,
@@ -32026,6 +32498,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arriveAt: state.clock + duration,
       updatedAt: state.clock
     };
+    const firstStep = navigationSteps[1];
+    if (firstStep) {
+      reserveActorMovementStep(slime, firstStep.cell, firstStep.orientation, slime.autonomousMovement.intent, segmentSeconds);
+    }
     slime.roomActivity = {
       type: target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : target.kind === "threat" ? "fleeingThreat" : "seekingFood",
       label,
@@ -32056,6 +32532,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     slime.mapCell = destination;
     slime.roomId = roomId;
     slime.autonomousMovement = null;
+    movementReservations.releaseActor(actorNavigationId(slime));
     const target = {
       kind: movement.targetKind,
       id: movement.targetId,
@@ -32084,43 +32561,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
-  function updateSlimeAutonomousMovement(slime) {
-    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
-    if (!movement) {
-      slime.autonomousMovement = null;
-      return 0;
-    }
-    slime.autonomousMovement = movement;
-    const progress = autonomousMovementProgress(movement);
-    const currentIndex = clamp(Math.floor(progress * (movement.path.length - 1)), 0, movement.path.length - 1);
-    const blocked = firstBlockedDoorOnPath(movement.path, ensureLabMap(), currentIndex);
-    if (blocked) {
-      setSlimeBlockedDoorActivity(slime, blocked, {
-        kind: movement.targetKind,
-        id: movement.targetId,
-        roomId: movement.targetRoomId,
-        label: movement.targetLabel
-      });
-      return 1;
-    }
-    const previousKey = mapCellKey(objectMapCell(slime) || movement.path[0]);
-    const nextCell = movement.path[Math.min(movement.path.length - 1, currentIndex + 1)];
-    const nextDoor = nextCell ? labMapDoorAtCell(nextCell) : null;
-    if (nextDoor && !doorFixtureAllowsPassage(nextDoor)) {
-      setSlimeBlockedDoorActivity(slime, {
-        fromRoomId: slimeEffectiveRoomId(slime),
-        toRoomId: movement.targetRoomId,
-        door: nextDoor,
-        state: doorStateLabelByFixture(nextDoor)
-      }, {
-        kind: movement.targetKind,
-        id: movement.targetId,
-        roomId: movement.targetRoomId,
-        label: movement.targetLabel
-      });
-      return 1;
-    }
-    if (nextCell && !canActorOccupyTile(slime, nextCell)) {
+  function replanSlimeAutonomousMovement(slime, movement) {
+    const currentCell = objectMapCell(slime) || movement.steps?.[movement.stepIndex]?.cell || movement.path[0];
+    const targetCell = cleanMapCell(movement.targetCell) || movement.path[movement.path.length - 1];
+    const plan = labNavigationPlanBetweenCells(currentCell, targetCell, {
+      map: ensureLabMap(),
+      actor: slime,
+      ignoreDoors: false,
+      ignoreDoorSecurity: false,
+      knownCellKeys: slimeKnownNavigationCellKeys(slime, targetCell)
+    });
+    if (!plan.found || plan.steps.length < 2) return false;
+    const segmentSeconds = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, ensureLabMap().tileSizeM / movement.speedMps);
+    movement.path = plan.path;
+    movement.steps = plan.steps;
+    movement.stepIndex = 0;
+    movement.orientation = plan.steps[0].orientation;
+    movement.segmentStartedAt = state.clock;
+    movement.segmentArriveAt = state.clock + segmentSeconds;
+    movement.distanceMeters = mapPathTravelDistanceMeters(plan.path, ensureLabMap());
+    movement.startAt = state.clock;
+    movement.arriveAt = state.clock + Math.max(segmentSeconds, movement.distanceMeters / movement.speedMps);
+    movement.waitCount = 0;
+    movement.waitingFor = "";
+    movement.topologyRevision = normalizeNavigationState(state.navigation).topologyRevision;
+    movement.doorRevision = normalizeNavigationState(state.navigation).doorRevision;
+    return true;
+  }
+
+  function waitSlimeMovementForCongestion(slime, movement, conflicts = []) {
+    const delay = Math.min(5, 1 + movement.waitCount);
+    movement.waitCount += 1;
+    movement.waitingFor = [...new Set(conflicts.map((entry) => entry.actorId).filter(Boolean))].join(", ") || "occupied floor";
+    movement.segmentStartedAt = state.clock;
+    movement.segmentArriveAt = state.clock + delay;
+    movement.arriveAt += delay;
+    movement.updatedAt = state.clock;
+    slime.roomActivity = {
+      type: "blocked",
+      label: `waiting for ${movement.waitingFor}`,
+      roomId: slime.roomId || MAIN_ROOM_ID,
+      targetRoomId: movement.targetRoomId,
+      targetKind: movement.targetKind,
+      targetId: movement.targetId,
+      targetLabel: movement.targetLabel,
+      updatedAt: state.clock
+    };
+    if (movement.waitCount === 3) {
       recordSlimeIntentFailure(slime, movement.intent, {
         kind: movement.targetKind,
         id: movement.targetId,
@@ -32128,39 +32615,109 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         roomId: movement.targetRoomId,
         cell: movement.targetCell
       }, "blocked by crowded floor space");
-      slime.autonomousMovement = null;
-      slime.roomActivity = {
-        type: "blocked",
-        label: "blocked by crowded floor space",
-        roomId: slime.roomId || MAIN_ROOM_ID,
-        targetRoomId: movement.targetRoomId,
-        targetKind: movement.targetKind,
-        targetId: movement.targetId,
-        targetLabel: movement.targetLabel,
-        updatedAt: state.clock
-      };
-      return 1;
+      replanSlimeAutonomousMovement(slime, movement);
     }
-    if (state.clock >= movement.arriveAt) {
+    return 1;
+  }
+
+  function updateSlimeAutonomousMovement(slime) {
+    const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
+    if (!movement) {
+      slime.autonomousMovement = null;
+      return 0;
+    }
+    slime.autonomousMovement = movement;
+    const previousKey = mapCellKey(objectMapCell(slime) || movement.path[0]);
+    const revisions = normalizeNavigationState(state.navigation);
+    if (movement.doorRevision !== revisions.doorRevision) {
+      const remainingPath = (movement.steps || [])
+        .slice(movement.stepIndex)
+        .map((step) => step.cell);
+      const blockedDoor = firstBlockedDoorOnPath(remainingPath, ensureLabMap());
+      if (blockedDoor) {
+        setSlimeBlockedDoorActivity(slime, blockedDoor, {
+          kind: movement.targetKind,
+          id: movement.targetId,
+          roomId: movement.targetRoomId,
+          label: movement.targetLabel
+        });
+        movementReservations.releaseActor(actorNavigationId(slime));
+        return 1;
+      }
+      movement.doorRevision = revisions.doorRevision;
+    }
+    if (movement.topologyRevision !== revisions.topologyRevision && !replanSlimeAutonomousMovement(slime, movement)) {
+      movement.waitCount += 1;
+    }
+    let safety = movement.steps.length + 2;
+    while (state.clock >= movement.segmentArriveAt && movement.stepIndex < movement.steps.length - 1 && safety > 0) {
+      safety -= 1;
+      const currentStep = movement.steps[movement.stepIndex];
+      const nextStep = movement.steps[movement.stepIndex + 1];
+      const nextCell = nextStep.cell;
+      const nextDoor = labMapDoorAtCell(nextCell) || labMapDoorForCells(currentStep.cell, nextCell);
+      if (nextDoor && !doorFixtureAllowsPassage(nextDoor)) {
+        setSlimeBlockedDoorActivity(slime, {
+          fromRoomId: slimeEffectiveRoomId(slime),
+          toRoomId: movement.targetRoomId,
+          door: nextDoor,
+          state: doorStateLabelByFixture(nextDoor)
+        }, {
+          kind: movement.targetKind,
+          id: movement.targetId,
+          roomId: movement.targetRoomId,
+          label: movement.targetLabel
+        });
+        movementReservations.releaseActor(actorNavigationId(slime));
+        return 1;
+      }
+      const footprint = navigationFootprintForActor(slime);
+      const canEnter = navigationFootprintCanOccupy(slime, nextCell, footprint, nextStep.orientation, {
+        map: ensureLabMap(),
+        ignoreDoors: false,
+        ignoreDoorSecurity: false,
+        blockedCellKeys: labMapBlockingCellKeys(ensureLabMap()),
+        allowBlockedCellKeys: new Set([mapCellKey(currentStep.cell)]),
+        requireCurrentCapacity: true
+      });
+      if (!canEnter) {
+        if (movement.waitCount >= 2 && replanSlimeAutonomousMovement(slime, movement)) continue;
+        return waitSlimeMovementForCongestion(slime, movement);
+      }
+      const segmentSeconds = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, ensureLabMap().tileSizeM / movement.speedMps);
+      const reservation = reserveActorMovementStep(slime, nextCell, nextStep.orientation, movement.intent, segmentSeconds);
+      if (!reservation.ok) return waitSlimeMovementForCongestion(slime, movement, reservation.conflicts);
+      const scheduledArrivalAt = movement.segmentArriveAt;
+      movement.stepIndex += 1;
+      movement.orientation = nextStep.orientation;
+      slime.navigationOrientation = nextStep.orientation;
+      slime.mapCell = nextCell;
+      slime.roomId = labMapCellRoomId(nextCell) || slime.roomId || MAIN_ROOM_ID;
+      movement.segmentStartedAt = scheduledArrivalAt;
+      movement.segmentArriveAt = scheduledArrivalAt + segmentSeconds;
+      movement.waitCount = 0;
+      movement.waitingFor = "";
+      movement.updatedAt = state.clock;
+      const followingStep = movement.steps[movement.stepIndex + 1];
+      if (followingStep) {
+        reserveActorMovementStep(slime, followingStep.cell, followingStep.orientation, movement.intent, segmentSeconds);
+      }
+    }
+    if (movement.stepIndex >= movement.steps.length - 1) {
       arriveAtAutonomousTarget(slime, movement);
       return 1;
     }
-    const index = clamp(Math.floor(progress * (movement.path.length - 1)), 0, movement.path.length - 1);
-    const cell = movement.path[index];
-    const roomId = labMapCellRoomId(cell) || slime.roomId || MAIN_ROOM_ID;
-    slime.mapCell = cell;
-    slime.roomId = roomId;
     slime.roomActivity = {
       type: "moving",
       label: movement.label,
-      roomId,
+      roomId: slime.roomId || MAIN_ROOM_ID,
       targetRoomId: movement.targetRoomId,
       targetKind: movement.targetKind,
       targetId: movement.targetId,
       targetLabel: movement.targetLabel,
       updatedAt: state.clock
     };
-    return mapCellKey(cell) === previousKey ? 0 : 1;
+    return mapCellKey(objectMapCell(slime)) === previousKey ? 0 : 1;
   }
 
   function localAccessibleFoodTarget(slime) {
@@ -37464,6 +38021,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       source: "Current position",
       title: `Overlay: Movement - scientist in ${roomName(scientistRoomId())}.`
     }, map);
+    addMovementReservationOverlays(assignments, map, { actorId: "scientist" });
+    return assignments;
+  }
+
+  function addMovementReservationOverlays(assignments, map, options = {}) {
+    for (const reservation of movementReservations.snapshot(state.clock)) {
+      if (options.actorId && reservation.actorId !== options.actorId) continue;
+      const [x, y] = reservation.cellKey.split(",").map(Number);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      setLabMapOverlayEntry(assignments, { x, y }, {
+        overlayId: options.debug ? "debug" : "movement",
+        classNames: ["map-overlay-movement-route", "map-overlay-movement-reservation"],
+        label: `${reservation.actorId} reservation`,
+        source: `${reservation.intent}; priority ${reservation.priority}`,
+        title: `Movement reservation: ${reservation.actorId}; ${reservation.intent}; ${formatDuration(Math.max(0, reservation.endAt - state.clock))} remaining.`,
+        target: reservation.actorId === "scientist" ? { kind: "scientist" } : { kind: "slime", id: reservation.actorId }
+      }, map);
+    }
     return assignments;
   }
 
@@ -37835,7 +38410,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return accessOverlayAssignments(map);
     }
     if (normalized === "debug") {
-      return contaminationOverlayAssignments(map, { debug: true });
+      return addMovementReservationOverlays(contaminationOverlayAssignments(map, { debug: true }), map, { debug: true });
     }
     return new Map();
   }
@@ -37935,11 +38510,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (!mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options) && !mapShowsTrackedEntity("slime", slime.id)) {
           continue;
         }
-        addCell(objectMapCell(slime), "L", slimeMapObjectLabel(slime), ["living-object-cell"], {
-          kind: "slime",
-          id: slime.id,
-          label: slime.name
-        });
+        const footprint = navigationFootprintForActor(slime);
+        const anchor = objectMapCell(slime);
+        const footprintCells = Navigation.footprintCells(anchor, footprint, slime.navigationOrientation || footprint.orientation);
+        for (const cell of footprintCells) {
+          const isAnchor = mapCellKey(cell) === mapCellKey(anchor);
+          addCell(cell, isAnchor ? "L" : "l", `${slimeMapObjectLabel(slime)}; body footprint ${footprint.width}x${footprint.height}`, ["living-object-cell", ...(isAnchor ? [] : ["living-object-body-cell"])], {
+            kind: "slime",
+            id: slime.id,
+            label: slime.name
+          });
+        }
       }
     }
     for (const corpse of state.corpses || []) {
@@ -38403,6 +38984,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     cleanupCancelledTask(task);
+    if (task.type === "scientistMove") movementReservations.releaseActor("scientist");
     state.tasks = (state.tasks || []).filter((candidate) => candidate.id !== task.id);
     if (currentSelection()?.kind === "task" && currentSelection().id === task.id) {
       setSelection(null);
@@ -49884,7 +50466,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function normalizeState(candidate) {
+    navigationService.clear();
+    movementReservations.clear();
     const next = { ...defaultState(), ...candidate };
+    next.navigation = normalizeNavigationState(next.navigation);
     next.discoveries ||= {};
     next.regionNotes ||= {};
     next.genomeNotes ||= {};
