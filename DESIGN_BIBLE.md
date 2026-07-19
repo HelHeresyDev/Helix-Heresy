@@ -28,6 +28,20 @@ The Scientist
 
 The protagonist is not trying to become a god and does not understand how the gods actually function. They are simply an obsessive and brilliant scientist who wants to create increasingly sophisticated organisms. During their research they accidentally invent a machine capable of combining genetic engineering and animancy, allowing artificial creatures to be created with genuine souls. To the scientist this is merely a scientific breakthrough. To the gods it is an existential threat.
 
+The Clone Contingency
+
+The player character is a young-adult clone of the original scientist. By the end of the original scientist's life, their forbidden knowledge and accomplishments had made capture and death inevitable. They created a phylactery, prepared a younger clone in a synthesis chamber, and arranged for their soul to transfer into that body when the original died. The younger body was chosen deliberately: authorities searching for the older, publicly recognizable scientist would not immediately identify the clone when they encountered them outside the laboratory. The resemblance is still dangerous. Someone who knew the scientist when young, genetic testing, soul identification, old biometric records, or sufficiently advanced magic could expose the connection.
+
+The original scientist expected the transfer to preserve complete personal continuity. They did not know that the phylactery would preserve the soul's animantic identity while losing the memories and practiced skills encoded by the original brain. The clone therefore awakens with the same soul but without the experience that made the original accomplished. Residual magical sensitivity and damaged procedural instincts support the scientist's few level-one starting skills, but expertise must be rebuilt through actual practice. The transfer exhausts the prepared phylactery and does not provide an automatic cycle of replacement bodies.
+
+The Starting Laboratory
+
+The contingency is hidden in one of the original scientist's oldest abandoned laboratories. The site was useful because it was forgotten, disconnected from the scientist's later operations, and unlikely to appear in an investigation of their mature work. The original secretly returned only to install the phylactery, young clone, and transfer apparatus; they did not restore the rest of the laboratory or prepare it for an inexperienced successor.
+
+Everything else in the starting laboratory comes from the original scientist's formative period: primitive equipment, basic slime experiments, early samples, abandoned materials, incomplete trials, and notes written while they were still learning. Those records are historical working notes written for the original scientist and any contemporary collaborators, not tutorial messages for an amnesiac clone. They must not contain convenient warnings such as "if you are reading this, the transfer failed." The original believed they would awaken remembering how everything worked.
+
+This is why an accomplished scientist begins gameplay with basic slimes, obsolete tools, and almost no usable skill. The clone must reconstruct the original's expertise by retracing the path through their earliest work. The conspicuously advanced soul-transfer apparatus surrounded by an otherwise antiquated laboratory should reinforce both the original scientist's later power and the magnitude of their mistaken assumption about memory.
+
 Long-Term Story
 
 The laboratory begins as an illegal biotechnology operation focused on creating increasingly sophisticated lifeforms. Over time, creature intelligence increases and some creations become self-aware, form societies, develop cultures, and create belief systems. Many eventually conclude that the being who designed them, created them, and shapes their world must be divine. The scientist never intends to create a religion, but worship from their creations gradually elevates their soul. What begins as a hidden laboratory eventually becomes a rival source of divinity, culminating in a conflict between a self-made god of biotechnology and the existing divine order.
