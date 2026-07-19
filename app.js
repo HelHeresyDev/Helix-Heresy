@@ -701,7 +701,7 @@
       articleName: "the Menagerie",
       role: "livingStorage",
       roleLabel: "Living specimen storage",
-      description: "Shelved containers and quiet observation. Stored creatures here cannot work jobs.",
+      description: "Shelved containers and quiet observation. This room is not an active creature worksite.",
       geometry: {
         shape: "rectangular",
         lengthM: 14,
@@ -995,7 +995,7 @@
       role: "livingStorage",
       roleLabel: "Living specimen storage",
       nameBase: "Containment Room",
-      description: "Specimen storage and observation space. Stored creatures here cannot work jobs."
+      description: "Specimen storage and observation space. This room is not an active creature worksite."
     },
     {
       id: "corpseProcessing",
@@ -2619,7 +2619,7 @@
     }
   ];
   const SPECIMEN_HARVEST_PROCEDURE_BY_ID = Object.fromEntries(SPECIMEN_HARVEST_PROCEDURE_DEFS.map((procedure) => [procedure.id, procedure]));
-  const CREATURE_JOBS = [
+  const CREATURE_ROLES = [
     { id: "idle", label: "Idle" },
     { id: "corpse", label: "Corpse Processing" },
     { id: "disposal", label: "Waste Disposal" },
@@ -3159,7 +3159,7 @@
     { id: "living", label: "Living" },
     { id: "unknown", label: "Unknown" },
     { id: "deceased", label: "Deceased" },
-    { id: "jobs", label: "Jobs" },
+    { id: "jobs", label: "Roles" },
     { id: "lineage", label: "Lineage" },
     { id: "testing", label: "Testing" }
   ];
@@ -3250,7 +3250,7 @@
         { key: "L", label: "Living", workspaceTab: "specimens", tabKind: "creatures", tabId: "living" },
         { key: "U", label: "Unknown", workspaceTab: "specimens", tabKind: "creatures", tabId: "unknown" },
         { key: "E", label: "Deceased", workspaceTab: "specimens", tabKind: "creatures", tabId: "deceased" },
-        { key: "J", label: "Jobs", workspaceTab: "specimens", tabKind: "creatures", tabId: "jobs" },
+        { key: "J", label: "Roles", workspaceTab: "specimens", tabKind: "creatures", tabId: "jobs" },
         { key: "G", label: "Lineage", workspaceTab: "specimens", tabKind: "creatures", tabId: "lineage" },
         { key: "T", label: "Testing", workspaceTab: "specimens", tabKind: "creatures", tabId: "testing" },
         { key: "C", label: "Containers", workspaceTab: "containers" }
@@ -4203,6 +4203,7 @@
         typeId: entry.typeId,
         wardIds: [...(entry.wardIds || [])],
         roomId: starterContainerRoomId(entry, index),
+        defaultRoleId: isPitHoleTypeId(entry.typeId) ? "corpse" : "idle",
         condition: CONTAINER_CONDITION_DEFAULT,
         environment: defaultContainerEnvironment()
       }))
@@ -4230,7 +4231,7 @@
 
   function defaultPolicies() {
     return {
-      corpseProcessingTargets: Object.fromEntries(
+      corpseHandlingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [stateDef.key, stateDef.defaultTarget])
       ),
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
@@ -8742,10 +8743,10 @@
       parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
       broodId: cleanLineageId(options.broodId),
       automationExcluded: Boolean(options.automationExcluded),
-      job: "idle",
-      jobProgress: 0,
-      jobTargetCorpseId: null,
-      jobNutritionGained: 0,
+      roleId: "idle",
+      roleSource: "automatic",
+      roleKnowledge: {},
+      roleEvidence: {},
       stats: normalizeSlimeStats(options.stats || defaultSlimeStats()),
       skills: normalizeCreatureSkills(options.skills || {}),
       behaviorMemory: normalizeCreatureBehaviorMemory(options.behaviorMemory),
@@ -8774,6 +8775,7 @@
       slime.containerId = null;
       slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, slime.mapCell);
     }
+    normalizeSlimeRole(slime);
     syncSlimeAi(slime);
     state.nextSlimeNumber += 1;
     state.slimes.unshift(slime);
@@ -13929,6 +13931,9 @@
       contents: normalizePhysicalContents(candidate.contents),
       sourceLabels: normalizeResidueSourceLabels(candidate.sourceLabels || candidate.sourceLabel),
       sourceSlimeIds: idList(candidate.sourceSlimeIds),
+      processingProgress: Math.max(0, Number(candidate.processingProgress) || 0),
+      processingContributions: normalizeProcessingContributions(candidate.processingContributions),
+      processingResidueProgress: Math.max(0, Number(candidate.processingResidueProgress) || 0),
       createdAt: finiteTime(candidate.createdAt, 0),
       updatedAt: finiteTime(candidate.updatedAt, candidate.createdAt || 0)
     };
@@ -14269,12 +14274,24 @@
       contents: normalizePhysicalContents(options.contents),
       sourceLabels: normalizeResidueSourceLabels(options.sourceLabels || options.sourceLabel),
       sourceSlimeIds: idList(options.sourceSlimeIds),
+      processingProgress: Math.max(0, Number(options.processingProgress) || 0),
+      processingContributions: normalizeProcessingContributions(options.processingContributions),
+      processingResidueProgress: Math.max(0, Number(options.processingResidueProgress) || 0),
       createdAt: state.clock,
       updatedAt: state.clock
     };
     ensurePhysicalItemStacks().push(stack);
     if (!options.deferSync) syncPhysicalReadModels();
     return stack;
+  }
+
+  function normalizeProcessingContributions(candidate) {
+    const normalized = {};
+    for (const [slimeId, amount] of Object.entries(candidate || {})) {
+      const cleanId = String(slimeId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (cleanId) normalized[cleanId] = Math.max(0, Number(amount) || 0);
+    }
+    return normalized;
   }
 
   function carryPhysicalDurableTool(itemKey, toolInstanceId) {
@@ -16703,11 +16720,6 @@
     return index === -1 ? 100 + String(room?.name || "").localeCompare("zzzz") : index;
   }
 
-  function roomBlocksJobs(roomId) {
-    return roomRole(roomId) === "livingStorage";
-  }
-
-
   function roomGeometry(roomOrId) {
     const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
     return normalizeRoomGeometry(room?.geometry);
@@ -17034,35 +17046,6 @@
       return containerById(slime.containerId)?.roomId || slime.roomId || MAIN_ROOM_ID;
     }
     return slime.roomId || MAIN_ROOM_ID;
-  }
-
-  function slimeJobRoomBlockReason(slime) {
-    const roomId = slimeEffectiveRoomId(slime);
-    if (roomBlocksJobs(roomId)) {
-      return `Specimens stored in ${roomArticleName(roomId)} cannot be assigned jobs.`;
-    }
-    return "";
-  }
-
-  function jobRequiresPits(jobId) {
-    return jobId === "corpse" || jobId === "disposal";
-  }
-
-  function slimeJobSpecificBlockReason(slime, jobId) {
-    if (!slime || !jobRequiresPits(jobId)) {
-      return "";
-    }
-    if (slime.status !== "contained" || !slime.containerId) {
-      return `${creatureJobLabel(jobId)} requires the slime to be contained in a pit.`;
-    }
-    const container = containerById(slime.containerId);
-    if (!isPitHoleContainer(container)) {
-      return `${creatureJobLabel(jobId)} requires a pit container.`;
-    }
-    if ((container.roomId || PITS_ROOM_ID) !== PITS_ROOM_ID) {
-      return `${creatureJobLabel(jobId)} requires a pit container in the Pits.`;
-    }
-    return "";
   }
 
   function cleanupUseControlNote() {
@@ -17416,7 +17399,7 @@
     const confidence = predictionConfidenceFromContext({ unknownFactors, concerns, skillIds: ["analysis", "creatureLore", "creatureHandling"] });
     const range = predictionRangeFromBand(["Poor", "Acceptable", "Good", "Excellent"], "Acceptable", confidence.label, { unknownLow: "Poor", unknownHigh: "Excellent" });
     return {
-      intendedUse: creatureJobLabel(slime?.job || "idle"),
+      intendedUse: creatureRoleLabel(slimeRoleId(slime)),
       band: "Acceptable",
       range,
       confidence,
@@ -17440,9 +17423,10 @@
       };
     }
 
-    normalizeSlimeJob(slime);
-    const intendedUse = creatureJobLabel(slime.job);
-    if (slime.job === "cleanup") {
+    normalizeSlimeRole(slime);
+    const roleId = slime.roleId;
+    const intendedUse = creatureRoleLabel(roleId);
+    if (roleId === "cleanup") {
       const suitability = observedCleanupUseSuitability(slime);
       return {
         intendedUse,
@@ -17455,7 +17439,7 @@
       };
     }
 
-    if (slime.job === "corpse") {
+    if (roleId === "corpse") {
       const suitability = observedCorpseProcessingSuitability(slime);
       const concerns = [
         "free slimes still follow instincts",
@@ -17476,7 +17460,7 @@
       };
     }
 
-    if (slime.job === "disposal") {
+    if (roleId === "disposal") {
       const suitability = observedWasteDisposalSuitability(slime);
       const concerns = [
         "free slimes still follow instincts",
@@ -18278,19 +18262,6 @@
       containerId: container.id,
       cell: objectMapCell(container)
     }, { sourceLabels: [container.name] }));
-  }
-
-  function spendContainerWaste(containerOrId, amount) {
-    const container = typeof containerOrId === "string"
-      ? containerById(containerOrId)
-      : containerOrId?.id
-        ? containerById(containerOrId.id)
-        : containerOrId;
-    const units = Math.max(0, Math.trunc(Number(amount) || 0));
-    if (!container || !units) {
-      return false;
-    }
-    return spendPhysicalWaste(units, { containerId: container.id }) === units;
   }
 
   function availablePitHoleContainer() {
@@ -20154,12 +20125,7 @@
     slime.nextAutonomousDecisionAt = null;
     slime.accessibleFeedingProgress = 0;
     slime.containmentTest = normalizeContainmentTestRecord({ active: false });
-    if (container.type === "synthesis") {
-      slime.job = "idle";
-      slime.jobProgress = 0;
-      slime.jobTargetCorpseId = null;
-      slime.jobNutritionGained = 0;
-    }
+    normalizeSlimeRole(slime);
     syncSlimeAi(slime);
     observeCreatureRecord(slime);
     return true;
@@ -20184,10 +20150,7 @@
     } else {
       slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, objectMapCell(slime));
     }
-    slime.job = "idle";
-    slime.jobProgress = 0;
-    slime.jobTargetCorpseId = null;
-    slime.jobNutritionGained = 0;
+    normalizeSlimeRole(slime);
     slime.autonomousMovement = null;
     slime.nextAutonomousDecisionAt = state.clock;
     slime.accessibleFeedingProgress = 0;
@@ -22775,42 +22738,31 @@
     return "low";
   }
 
-  function slimeChoosesConsumptiveJob(slime) {
-    if (!slime || !["corpse", "disposal"].includes(slime.job) || !slimeHasFeedingNeed(slime)) {
-      return false;
-    }
-    const combat = currentSlimeCombatDecision(slime);
-    if (combat && !["none", "avoid"].includes(combat.intent)) {
-      return false;
-    }
-    const response = evaluateSlimeThreatResponse(slime);
-    return !["high", "critical"].includes(response.intensity);
-  }
-
   function slimeAiFromContainedState(slime) {
     const container = containerById(slime.containerId);
-    if (slimeChoosesConsumptiveJob(slime) && slime.job === "corpse") {
-      const target = findCorpse(slime.jobTargetCorpseId);
-      if (isCorpseProcessingTargetForSlime(slime, target)) {
+    if (slimeCanConsumeContainedMaterial(slime)) {
+      const materialTarget = containedMaterialTargetForSlime(slime);
+      const target = materialTarget?.kind === "corpse" ? findCorpse(materialTarget.id) : null;
+      if (target) {
         return {
           state: "feeding",
           intent: "feed",
           target: cleanSlimeAiTarget({ kind: "corpse", id: target.id, label: target.name, roomId: slimeEffectiveRoomId(slime) }),
-          reason: `feeding on remains in ${pitJobSiteLabel(slime)}`,
+          reason: `feeding on remains in ${container?.name || "containment"}`,
           urgency: slimeAiUrgencyFor(slime, "feeding"),
           path: [],
           nextThinkAt: null
         };
       }
     }
-    if (slimeChoosesConsumptiveJob(slime) && slime.job === "disposal") {
-      const pit = slimePitJobSite(slime);
-      if (containerWasteAmount(pit) > 0) {
+    if (slimeCanConsumeContainedMaterial(slime) && isPitHoleContainer(container)) {
+      const materialTarget = containedMaterialTargetForSlime(slime);
+      if (materialTarget?.kind === "waste") {
         return {
           state: "feeding",
           intent: "feed",
-          target: cleanSlimeAiTarget({ kind: "waste", id: pit?.id || "pit-waste", label: `Waste in ${pitJobSiteLabel(slime)}`, roomId: slimeEffectiveRoomId(slime) }),
-          reason: `feeding on waste in ${pitJobSiteLabel(slime)}`,
+          target: cleanSlimeAiTarget({ kind: "waste", id: container.id, label: `Waste in ${container.name}`, roomId: slimeEffectiveRoomId(slime) }),
+          reason: `feeding on waste in ${container.name}`,
           urgency: slimeAiUrgencyFor(slime, "feeding"),
           path: [],
           nextThinkAt: null
@@ -23449,8 +23401,9 @@
         : "Activity: unobserved";
     }
     if (!slimeIsUncontained(slime)) {
-      if (slimeChoosesConsumptiveJob(slime)) {
-        return `Activity: feeding through ${creatureJobLabel(slime.job).toLowerCase()}`;
+      const ai = slimeAiFromContainedState(slime);
+      if (ai.state === "feeding") {
+        return `Activity: ${ai.reason}`;
       }
       const container = containerById(slime.containerId);
       if (container && isContainerInTransit(container.id)) {
@@ -24819,10 +24772,7 @@
     slime.containerId = destination.id;
     slime.roomId = destination.roomId || sourceContainer.roomId || MAIN_ROOM_ID;
     slime.status = "contained";
-    slime.job = "idle";
-    slime.jobProgress = 0;
-    slime.jobTargetCorpseId = null;
-    slime.jobNutritionGained = 0;
+    normalizeSlimeRole(slime);
 
     addEvent(`${slime.name} transferred from ${sourceContainer.name} to ${destination.name} with ${method.label}.`);
     return true;
@@ -25428,12 +25378,7 @@
     }
     for (const slime of containerOccupants(container.id)) {
       slime.roomId = roomId;
-      if (roomBlocksJobs(roomId) || isContainerInTransit(container.id)) {
-        slime.job = "idle";
-        slime.jobProgress = 0;
-        slime.jobTargetCorpseId = null;
-        slime.jobNutritionGained = 0;
-      }
+      normalizeSlimeRole(slime);
     }
     for (const corpse of containerCorpses(container.id)) {
       corpse.roomId = roomId;
@@ -27141,18 +27086,6 @@
       const corpse = findCorpse(element.dataset.corpseDecay);
       if (corpse) {
         element.textContent = corpseDecayText(corpse);
-      }
-    }
-    for (const element of document.querySelectorAll("[data-job-remaining]")) {
-      const slime = findSlime(element.dataset.jobRemaining);
-      if (slime && (slime.job === "corpse" || slime.job === "disposal")) {
-        element.textContent = jobRemainingText(slime);
-      }
-    }
-    for (const element of document.querySelectorAll("[data-job-fill]")) {
-      const slime = findSlime(element.dataset.jobFill);
-      if (slime) {
-        element.style.width = `${jobProgressPercent(slime)}%`;
       }
     }
   }
@@ -29963,26 +29896,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderJobs() {
     dom.jobList.textContent = "";
     const living = state.slimes.filter((slime) => slime.status !== "dead");
-    const active = living.filter((slime) => {
-      normalizeSlimeJob(slime);
-      return slime.job !== "idle";
-    }).length;
-    const eligibleCorpses = (state.corpses || []).filter(isCorpseProcessingTarget).length;
-    const protectedCorpses = policyProtectedCorpseCount();
+    const active = living.filter((slime) => slimeRoleId(slime) !== "idle").length;
+    const pitCorpses = (state.corpses || []).filter(isCorpseProcessingCandidate).length;
     const wasteUnits = resourceAmount("waste");
     const pitWasteUnits = containerWasteTotal();
     const residueUnits = feedingResidueTotal();
     dom.jobSummary.textContent = living.length
-      ? `${active} active jobs; ${eligibleCorpses} eligible corpse${eligibleCorpses === 1 ? "" : "s"}${protectedCorpses ? `; ${protectedCorpses} protected by policy` : ""}; ${formatNumber(wasteUnits)} stockpiled Waste${pitWasteUnits ? `; ${formatNumber(pitWasteUnits)} pit Waste` : ""}${residueUnits ? `; ${formatNumber(residueUnits)} local residue` : ""}`
-      : "No living creatures available for jobs.";
+      ? `${active} designated role${active === 1 ? "" : "s"}; ${pitCorpses} corpse${pitCorpses === 1 ? "" : "s"} in pits; ${formatNumber(wasteUnits)} stockpiled Waste${pitWasteUnits ? `; ${formatNumber(pitWasteUnits)} pit Waste` : ""}${residueUnits ? `; ${formatNumber(residueUnits)} local residue` : ""}`
+      : "No living creatures available for roles.";
 
     if (!living.length) {
-      dom.jobList.append(emptyText("No living workers."));
+      dom.jobList.append(emptyText("No living creatures."));
       return;
     }
 
     for (const slime of living) {
-      normalizeSlimeJob(slime);
+      normalizeSlimeRole(slime);
+      const roleId = slime.roleId;
       const row = document.createElement("div");
       row.className = "job-row";
 
@@ -29993,79 +29923,78 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
       const meta = document.createElement("div");
       meta.className = "job-meta";
-      meta.append(chip(creatureJobLabel(slime.job)));
-      if (slime.job === "corpse") {
+      meta.append(chip(`Role: ${creatureRoleLabel(roleId)}`));
+      meta.append(chip(`Source: ${roleSourceLabel(slime)}`));
+      meta.append(chip(slimeActivityLabel(slime)));
+      meta.append(chip(`Worksite: ${roleWorksiteLabel(slime, roleId)}`));
+      if (roleId === "corpse") {
         const suitability = observedCorpseProcessingSuitability(slime);
         meta.append(chip(suitability.known ? `estimated ${suitability.band.toLowerCase()}` : "suitability unknown"));
-        const target = findCorpse(slime.jobTargetCorpseId);
-        meta.append(chip(`site ${pitJobSiteLabel(slime)}`));
-        meta.append(isCorpseProcessingTargetForSlime(slime, target) ? targetCorpseChip(target) : chip(corpseProcessingUnavailableText(slime)));
-        if (isCorpseProcessingTargetForSlime(slime, target)) {
-          const remainingChip = chip(jobRemainingText(slime));
-          remainingChip.dataset.jobRemaining = slime.id;
-          meta.append(remainingChip);
-        }
-      } else if (slime.job === "disposal") {
+        const target = physicalCorpseTargetForSlime(slime);
+        meta.append(target ? targetCorpseChip(target) : chip("no accessible corpse"));
+        if (target) meta.append(chip(`${Math.round(Number(target.consumedProgress) || 0)}% consumed`));
+      } else if (roleId === "disposal") {
         const suitability = observedWasteDisposalSuitability(slime);
         const pit = slimePitJobSite(slime);
         const localWaste = containerWasteAmount(pit);
         meta.append(chip(suitability.known ? `${suitability.band.toLowerCase()} fit` : "suitability unknown"));
-        meta.append(chip(`site ${pitJobSiteLabel(slime)}`));
         meta.append(chip(localWaste > 0 ? `${formatNumber(localWaste)} Waste in ${pitJobSiteLabel(slime)}` : `no Waste in ${pitJobSiteLabel(slime)}`));
-        if (localWaste > 0) {
-          const remainingChip = chip(jobRemainingText(slime));
-          remainingChip.dataset.jobRemaining = slime.id;
-          meta.append(remainingChip);
-        }
-      } else if (slime.job === "cleanup") {
+      } else if (roleId === "cleanup") {
         const suitability = observedCleanupUseSuitability(slime);
         meta.append(chip(`cleanup ${predictionRangeText(suitability.range).toLowerCase()}`));
         meta.append(chip(`${suitability.confidence.label.toLowerCase()} confidence`));
         meta.append(chip(slimeIsUncontained(slime) ? "following instincts" : "must be released to roam"));
-      } else {
-        const pitsReason = slimeJobSpecificBlockReason(slime, "corpse");
-        meta.append(chip(isInSynthesisTube(slime) ? "in synthesis tube" : slimeJobRoomBlockReason(slime) ? "not ready" : pitsReason ? "move to a pit for pit jobs" : canWorkJob(slime) ? "available" : "not ready"));
       }
       details.append(header, meta);
 
-      if (slime.job === "cleanup") {
+      if (roleId === "cleanup") {
         details.append(cleanupUseSuitabilityPanel(slime));
-      }
-
-      if (shouldShowJobProgress(slime)) {
-        const bar = document.createElement("div");
-        bar.className = "job-progress";
-        const fill = document.createElement("div");
-        fill.className = "job-progress-fill";
-        fill.dataset.jobFill = slime.id;
-        fill.style.width = `${jobProgressPercent(slime)}%`;
-        bar.append(fill);
-        details.append(bar);
       }
 
       const select = document.createElement("select");
       select.className = "job-select";
       select.dataset.jobSlimeId = slime.id;
-      const jobReason = jobAssignmentBlockReason(slime);
-      select.disabled = Boolean(jobReason);
-      select.title = jobReason;
-      for (const job of CREATURE_JOBS) {
+      const roleReason = roleAssignmentBlockReason(slime);
+      select.disabled = Boolean(roleReason);
+      select.title = roleReason;
+      const automaticOption = document.createElement("option");
+      automaticOption.value = "automatic";
+      automaticOption.textContent = `Use Site Default (${creatureRoleLabel(automaticRoleIdForSlime(slime))})`;
+      select.append(automaticOption);
+      for (const role of CREATURE_ROLES) {
         const option = document.createElement("option");
-        option.value = job.id;
-        option.textContent = job.label;
-        const optionReason = slimeJobSpecificBlockReason(slime, job.id);
-        option.disabled = Boolean(optionReason);
-        option.title = optionReason || (job.id === "cleanup" ? cleanupUseOptionTitle(slime) : "");
+        option.value = role.id;
+        option.textContent = role.label;
+        option.title = role.id === "cleanup" ? cleanupUseOptionTitle(slime) : "Roles record intended use; they do not command behavior.";
         select.append(option);
       }
-      select.value = slime.job;
+      select.value = slime.roleSource === "automatic" ? "automatic" : roleId;
       select.addEventListener("change", () => {
-        assignCreatureJob(slime.id, select.value);
+        assignCreatureRole(slime.id, select.value);
       });
 
       row.append(details, select);
       dom.jobList.append(row);
     }
+  }
+
+  function roleWorksiteLabel(slime, roleId = slimeRoleId(slime)) {
+    const pit = slimePitJobSite(slime);
+    if (["corpse", "disposal"].includes(roleId)) {
+      return pit?.name || "No suitable worksite";
+    }
+    if (roleId === "cleanup") {
+      return slimeIsUncontained(slime) ? roomName(slimeEffectiveRoomId(slime)) : "No suitable worksite";
+    }
+    const container = slime?.containerId ? containerById(slime.containerId) : null;
+    return container?.name || roomName(slimeEffectiveRoomId(slime));
+  }
+
+  function physicalCorpseTargetForSlime(slime) {
+    const pit = slimePitJobSite(slime);
+    if (!pit) return null;
+    return containerCorpses(pit.id)
+      .sort((a, b) => wasteTargetPriority(a) - wasteTargetPriority(b) || a.diedAt - b.diedAt)[0] || null;
   }
 
   function startNecropsy(corpse) {
@@ -30283,49 +30212,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return DUMP_SUSPICION[corpseFreshness(corpse)] || DUMP_SUSPICION.decaying;
   }
 
-  function assignCreatureJob(slimeId, jobId) {
+  function assignCreatureRole(slimeId, roleId) {
     const slime = findSlime(slimeId);
     if (!slime) {
       return;
     }
-    normalizeSlimeJob(slime);
-    const nextJob = CREATURE_JOBS.some((job) => job.id === jobId) ? jobId : "idle";
-    const jobReason = jobAssignmentBlockReason(slime);
-    if (nextJob !== "idle" && jobReason) {
-      addEvent(`${slime.name} cannot be assigned: ${jobReason}`);
+    normalizeSlimeRole(slime);
+    const reason = roleAssignmentBlockReason(slime);
+    if (reason) {
+      addEvent(`${slime.name}'s role cannot be changed: ${reason}`);
       persist();
       render();
       return;
     }
-    const jobSpecificReason = slimeJobSpecificBlockReason(slime, nextJob);
-    if (nextJob !== "idle" && jobSpecificReason) {
-      addEvent(`${slime.name} cannot be assigned: ${jobSpecificReason}`);
-      persist();
-      render();
-      return;
-    }
-    slime.job = nextJob;
-    slime.jobProgress = 0;
-    slime.jobTargetCorpseId = null;
-    if (nextJob === "corpse") {
-      assignCorpseTarget(slime, reservedCorpseTargets(slime.id));
-      addEvent(slime.jobTargetCorpseId
-        ? `${slime.name} assigned to corpse processing.`
-        : `${slime.name} assigned to corpse processing; ${corpseProcessingUnavailableText(slime)} is waiting in ${pitJobSiteLabel(slime)}.`);
-    } else if (nextJob === "disposal") {
-      ensureJobKnowledge(slime, "disposal");
-      const pit = slimePitJobSite(slime);
-      addEvent(containerWasteAmount(pit) > 0
-        ? `${slime.name} assigned to waste disposal.`
-        : `${slime.name} assigned to waste disposal; no Waste is waiting in ${pitJobSiteLabel(slime)}.`);
-    } else if (nextJob === "cleanup") {
-      ensureJobKnowledge(slime, "cleanup");
-      addEvent(`${slime.name} marked for cleanup use. It will still follow instincts; use doors to limit roaming.`);
+    if (roleId === "automatic") {
+      slime.roleSource = "automatic";
+      slime.roleId = automaticRoleIdForSlime(slime);
+      addEvent(`${slime.name} now uses the role default for its physical site: ${creatureRoleLabel(slime.roleId)}.`);
     } else {
-      addEvent(`${slime.name} set to idle.`);
+      slime.roleSource = "manual";
+      slime.roleId = cleanCreatureRoleId(roleId);
+      addEvent(`${slime.name}'s role set to ${creatureRoleLabel(slime.roleId)}. This records intended use and does not command its behavior.`);
     }
     persist();
     render();
+  }
+
+  function roleAssignmentBlockReason(slime) {
+    if (!slime || slime.status === "dead") {
+      return "no living creature is available";
+    }
+    if (isInSynthesisTube(slime)) {
+      return "specimens in the synthesis tube cannot be given roles";
+    }
+    return "";
   }
 
   function updateCreatureJobs(minutes) {
@@ -30333,7 +30253,72 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!elapsed) {
       return 0;
     }
-    return updateCorpseProcessingJobs(elapsed) + updateWasteDisposalJobs(elapsed);
+    for (const slime of state.slimes || []) {
+      normalizeSlimeRole(slime);
+    }
+    return updateContainerWasteFeeding(elapsed);
+  }
+
+  function updateContainerWasteFeeding(elapsed) {
+    let changes = 0;
+    for (const pit of pitHoleContainers()) {
+      const occupants = containerOccupants(pit.id).filter((slime) => {
+        const target = containedMaterialTargetForSlime(slime);
+        return slimeCanConsumeContainedMaterial(slime) && target?.kind === "waste";
+      });
+      if (!occupants.length) continue;
+      for (const stack of physicalWasteStacks({ containerId: pit.id })) {
+        stack.processingContributions = normalizeProcessingContributions(stack.processingContributions);
+        for (const slime of occupants) {
+          const target = containedMaterialTargetForSlime(slime);
+          if (stack.quantity <= 0 || !slimeCanConsumeContainedMaterial(slime)) break;
+          if (target?.id !== stack.id) continue;
+          const suitability = wasteDisposalSuitability(slime);
+          const duration = Math.max(1, wasteDisposalDuration(slime));
+          const contribution = elapsed / duration;
+          stack.processingProgress = Math.max(0, Number(stack.processingProgress) || 0) + contribution;
+          stack.processingContributions[slime.id] = Math.max(0, Number(stack.processingContributions[slime.id]) || 0) + contribution;
+          const nutrition = adjustedSlimeNutritionGain(slime, wasteDisposalNutritionGain(slime, suitability) * contribution);
+          if (nutrition > 0) {
+            adjustSlimeStat(slime, "nutrition", nutrition);
+            adjustSlimeStat(slime, "currentMass", nutrition * 0.1);
+          }
+          applyWasteDisposalExposure(slime, suitability, elapsed);
+          recordRoleEvidence(slime, "disposal", suitability.score < 25 ? "Hazardous" : suitability.score >= 70 ? "Good" : suitability.score >= 40 ? "Adequate" : "Poor", suitability.score < 40 ? "slow or harmful waste digestion" : "waste digestion performance");
+          changes += 1;
+          while (stack.quantity > 0 && stack.processingProgress >= 1) {
+            stack.processingProgress -= 1;
+            stack.quantity -= 1;
+            if (scientistObservesRoom(pit.roomId)) stack.knownQuantity = stack.quantity;
+            completePhysicalWasteDisposalUnit(slime, stack, pit, suitability);
+            changes += 1;
+          }
+        }
+      }
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0 || stack.knownQuantity > 0);
+    if (changes) syncPhysicalReadModels();
+    return changes;
+  }
+
+  function completePhysicalWasteDisposalUnit(slime, stack, pit, suitability) {
+    stack.processingResidueProgress = Math.max(0, Number(stack.processingResidueProgress) || 0) + (suitability.score >= 75 ? 1 : 1.5);
+    let elementalResidue = 0;
+    while (stack.processingResidueProgress >= WASTE_DISPOSAL_RESIDUE_INTERVAL) {
+      stack.processingResidueProgress -= WASTE_DISPOSAL_RESIDUE_INTERVAL;
+      elementalResidue += 1;
+    }
+    if (elementalResidue) {
+      addPhysicalQuantityToContainer("resources", "elementalResidue", elementalResidue, pit, { sourceLabel: "Waste digestion" });
+    }
+    const leftLocalResidue = applyWasteDisposalFeedingResidue(slime, suitability, elementalResidue);
+    if (suitability.score < 20 && wasteDisposalStabilityRisk(slime) >= 7) {
+      addSuspicion(WASTE_DISPOSAL_CONTAMINATION_SUSPICION);
+      recordRoleEvidence(slime, "disposal", "Hazardous", "contamination during waste digestion");
+    }
+    if (scientistObservesRoom(pit.roomId)) {
+      addEvent(`${slime.name} digested 1 Waste in ${pit.name}${elementalResidue ? `, leaving ${elementalResidue} Elemental Residue` : ""}${leftLocalResidue ? " and local residue" : ""}.`);
+    }
   }
 
   function updateFeedstockIncome(minutes) {
@@ -31414,6 +31399,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0 || stack.knownQuantity > 0);
     observeCreaturesInRoom(room.id);
+    observeRoleEvidenceInRoom(room.id);
     return observation;
   }
 
@@ -33724,165 +33710,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { key: "biomass", amount: 1, source: "corpse processing" };
   }
 
-  function addCorpseProcessingInventoryRecovery(corpse, roomId = STORAGE_ROOM_ID) {
-    const recovery = corpseProcessingInventoryRecovery(corpse);
-    return addInventoryItem(recovery.key, recovery.amount, recovery.source, roomId);
-  }
-
-  function updateCorpseProcessingJobs(elapsed) {
-    let changes = 0;
-    const workers = state.slimes.filter((slime) => {
-      normalizeSlimeJob(slime);
-      return slime.job === "corpse" && canWorkJob(slime) && slimeChoosesConsumptiveJob(slime);
-    });
-    const reserved = new Set();
-    for (const slime of workers) {
-      if (isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId)) && !reserved.has(slime.jobTargetCorpseId)) {
-        reserved.add(slime.jobTargetCorpseId);
-      } else {
-        slime.jobTargetCorpseId = null;
-        slime.jobProgress = 0;
-      }
-    }
-    for (const slime of workers) {
-      if (!slime.jobTargetCorpseId && assignCorpseTarget(slime, reserved)) {
-        changes += 1;
-      }
-      if (!slime.jobTargetCorpseId) {
-        continue;
-      }
-      let remaining = elapsed;
-      while (remaining > 0 && slime.jobTargetCorpseId && slimeChoosesConsumptiveJob(slime)) {
-        const target = findCorpse(slime.jobTargetCorpseId);
-        if (!isCorpseProcessingTargetForSlime(slime, target)) {
-          reserved.delete(slime.jobTargetCorpseId);
-          slime.jobTargetCorpseId = null;
-          slime.jobProgress = 0;
-          slime.jobNutritionGained = 0;
-          changes += 1;
-          break;
-        }
-        const suitability = corpseProcessingSuitability(slime);
-        const effects = corpseProcessingEffects(slime, target, suitability);
-        const duration = corpseProcessingDuration(slime);
-        const needed = Math.max(0, duration - slime.jobProgress);
-        if (remaining < needed) {
-          const fromProgress = slime.jobProgress;
-          slime.jobProgress += remaining;
-          applyCorpseProcessingNutrition(slime, effects, fromProgress, slime.jobProgress, duration);
-          remaining = 0;
-          changes += 1;
-          break;
-        }
-        applyCorpseProcessingNutrition(slime, effects, slime.jobProgress, duration, duration);
-        remaining -= needed;
-        const nutritionGained = slime.jobNutritionGained || 0;
-        const workRoomId = slimeEffectiveRoomId(slime);
-        const pit = slimePitJobSite(slime);
-        addCorpseProcessingInventoryRecovery(target, workRoomId);
-        removeCorpseRecord(target.id);
-        reserved.delete(target.id);
-        addResources({ biomass: CORPSE_PROCESSING_BIOMASS_GAIN }, workRoomId);
-        addResource("carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE, workRoomId);
-        if (!addContainerWaste(pit, CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target))) {
-          addWaste(CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(target), workRoomId);
-        }
-        const leftResidue = applyCorpseProcessingResidue(slime, target, suitability, effects);
-        applyCorpseProcessingEffects(slime, target, suitability, effects);
-        addEvent(`${slime.name} processed ${target.name} remains${nutritionGained ? ` after gaining ${formatNumber(nutritionGained)} Nutrition` : ""}${leftResidue ? ", leaving local residue" : ""}.`);
-        slime.jobProgress = 0;
-        slime.jobTargetCorpseId = null;
-        slime.jobNutritionGained = 0;
-        changes += 1;
-        if (!canWorkJob(slime) || !slimeChoosesConsumptiveJob(slime)) {
-          break;
-        }
-        assignCorpseTarget(slime, reserved);
-      }
-    }
-    return changes;
-  }
-
-  function updateWasteDisposalJobs(elapsed) {
-    let changes = 0;
-    const workers = state.slimes.filter((slime) => {
-      normalizeSlimeJob(slime);
-      return slime.job === "disposal" && canWorkJob(slime) && slimeChoosesConsumptiveJob(slime);
-    });
-    for (const slime of workers) {
-      const pit = slimePitJobSite(slime);
-      const pitId = pit?.id || "";
-      if (containerWasteAmount(pitId) <= 0) {
-        slime.jobProgress = 0;
-        continue;
-      }
-      const knowledge = ensureJobKnowledge(slime, "disposal");
-      const suitability = wasteDisposalSuitability(slime);
-      let remaining = elapsed;
-      while (remaining > 0 && containerWasteAmount(pitId) > 0 && canWorkJob(slime) && slimeChoosesConsumptiveJob(slime)) {
-        const duration = wasteDisposalDuration(slime);
-        const needed = Math.max(0, duration - slime.jobProgress);
-        if (needed <= 0) {
-          slime.jobProgress = 0;
-          if (!spendContainerWaste(pitId, WASTE_DISPOSAL_UNIT)) {
-            break;
-          }
-          completeWasteDisposalUnit(slime, suitability);
-          continue;
-        }
-        const step = Math.min(remaining, needed || duration);
-        if (step <= 0) {
-          break;
-        }
-        slime.jobProgress += step;
-        knowledge.observedMinutes = Math.max(0, Number(knowledge.observedMinutes) || 0) + step;
-        applyWasteDisposalExposure(slime, suitability, step);
-        observeSlowWasteDisposal(slime, suitability);
-        remaining -= step;
-        changes += 1;
-        if (!canWorkJob(slime)) {
-          break;
-        }
-        if (slime.jobProgress < duration) {
-          continue;
-        }
-        slime.jobProgress = 0;
-        if (!spendContainerWaste(pitId, WASTE_DISPOSAL_UNIT)) {
-          break;
-        }
-        completeWasteDisposalUnit(slime, suitability);
-      }
-    }
-    return changes;
-  }
-
   function nextCreatureJobEvent() {
-    const events = [];
-    for (const slime of state.slimes) {
-      normalizeSlimeJob(slime);
-      if (slime.job === "corpse" && canWorkJob(slime) && slimeChoosesConsumptiveJob(slime) && isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId))) {
-        events.push({
-          time: state.clock + Math.max(0, corpseProcessingDuration(slime) - slime.jobProgress),
-          label: `${slime.name} corpse processing`,
-          type: "job"
-        });
-      }
-      if (slime.job === "disposal" && canWorkJob(slime) && slimeChoosesConsumptiveJob(slime) && containerWasteAmount(slimePitJobSite(slime)) > 0) {
-        const completion = state.clock + Math.max(0, wasteDisposalDuration(slime) - slime.jobProgress);
-        events.push({
-          time: completion,
-          label: `${slime.name} waste disposal`,
-          type: "job"
-        });
-        const exposure = nextWasteExposureEvent(slime);
-        if (exposure) {
-          events.push(exposure);
-        }
-      }
-    }
-    return events
-      .filter((event) => Number.isFinite(event.time) && event.time >= state.clock)
-      .sort((a, b) => a.time - b.time)[0] || null;
+    return null;
   }
 
   function nextSlimeMetabolismEvent() {
@@ -33979,62 +33808,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function assignCorpseTarget(slime, reserved = reservedCorpseTargets(slime.id)) {
-    const target = chooseCorpseProcessingTarget(slime, reserved);
-    if (!target) {
-      slime.jobTargetCorpseId = null;
-      slime.jobProgress = 0;
-      return false;
-    }
-    slime.jobTargetCorpseId = target.id;
-    slime.jobProgress = 0;
-    slime.jobNutritionGained = 0;
-    reserved.add(target.id);
-    return true;
-  }
-
-  function reservedCorpseTargets(exceptSlimeId = null) {
-    const reserved = new Set();
-    for (const slime of state.slimes || []) {
-      if (slime.id === exceptSlimeId) {
-        continue;
-      }
-      normalizeSlimeJob(slime);
-      if (slime.job === "corpse" && isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId))) {
-        reserved.add(slime.jobTargetCorpseId);
-      }
-    }
-    return reserved;
-  }
-
-  function chooseCorpseProcessingTarget(slime, reserved = new Set()) {
-    const pit = slimePitJobSite(slime);
-    if (!pit) {
-      return null;
-    }
-    return containerCorpses(pit.id)
-      .filter((corpse) => isCorpseProcessingTarget(corpse) && !reserved.has(corpse.id))
-      .sort((a, b) => wasteTargetPriority(a) - wasteTargetPriority(b) || a.diedAt - b.diedAt)
-      [0] || null;
-  }
-
   function wasteTargetPriority(corpse) {
     const priority = { ruined: 0, spoiled: 1, decaying: 2, fresh: 3 };
     return priority[corpseFreshness(corpse)] ?? 4;
   }
-
-  function isCorpseProcessingTarget(corpse) {
-    if (!isCorpseProcessingCandidate(corpse)) {
-      return false;
-    }
-    return Boolean(corpseProcessingTargets()[corpseFreshness(corpse)]);
-  }
-
-  function isCorpseProcessingTargetForSlime(slime, corpse) {
-    const pit = slimePitJobSite(slime);
-    return Boolean(pit && corpse?.storage === "container" && corpse.containerId === pit.id && isCorpseProcessingTarget(corpse));
-  }
-
 
   function isCorpseProcessingCandidate(corpse) {
     if (!corpse || !CORPSE_STATE_POLICY_DEFS.some((stateDef) => stateDef.key === corpseFreshness(corpse))) {
@@ -34047,49 +33824,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
-  function policyProtectedCorpseCount(containerId = null) {
-    return (state.corpses || []).filter((corpse) => (
-      isCorpseProcessingCandidate(corpse)
-      && (!containerId || corpse.containerId === containerId)
-      && !isCorpseProcessingTarget(corpse)
-    )).length;
-  }
-
-  function corpseProcessingUnavailableText(slime = null) {
-    const pit = slime ? slimePitJobSite(slime) : null;
-    if (slime && !pit) {
-      return "no pit job site";
-    }
-    const containerId = pit?.id || null;
-    return policyProtectedCorpseCount(containerId) ? "no policy-approved corpse" : "no eligible corpse";
-  }
-
   function refreshCorpseProcessingTargets() {
     for (const slime of state.slimes || []) {
-      normalizeSlimeJob(slime);
-      if (slime.job === "corpse" && !isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId))) {
-        slime.jobTargetCorpseId = null;
-        slime.jobProgress = 0;
-        slime.jobNutritionGained = 0;
-      }
-    }
-    const reserved = reservedCorpseTargets();
-    for (const slime of state.slimes || []) {
-      if (slime.job === "corpse" && canWorkJob(slime) && !slime.jobTargetCorpseId) {
-        assignCorpseTarget(slime, reserved);
-      }
+      normalizeSlimeRole(slime);
     }
   }
 
   function removeCorpseRecord(corpseId) {
     state.corpses = (state.corpses || []).filter((corpse) => corpse.id !== corpseId);
-    for (const slime of state.slimes || []) {
-      if (slime.job === "corpse" && slime.jobTargetCorpseId === corpseId) {
-        slime.jobTargetCorpseId = null;
-        slime.jobProgress = 0;
-        slime.jobNutritionGained = 0;
-      }
-    }
     if (currentSelection()?.kind === "corpse" && currentSelection().id === corpseId) {
       setSelection(null);
     }
@@ -34114,114 +33856,76 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return data.slimeId === slimeId || data.parentAId === slimeId || data.parentBId === slimeId;
   }
 
-  function normalizeSlimeJob(slime) {
+  function cleanCreatureRoleId(value, fallback = "idle") {
+    const roleId = value === "waste" ? "corpse" : String(value || "");
+    return CREATURE_ROLES.some((role) => role.id === roleId) ? roleId : fallback;
+  }
+
+  function containerDefaultRoleId(container) {
+    if (!container || container.type === "synthesis") {
+      return "idle";
+    }
+    return cleanCreatureRoleId(container.defaultRoleId, isPitHoleContainer(container) ? "corpse" : "idle");
+  }
+
+  function automaticRoleIdForSlime(slime) {
+    return slime?.status === "contained" ? containerDefaultRoleId(containerById(slime.containerId)) : "idle";
+  }
+
+  function normalizeSlimeRole(slime) {
     if (!slime) {
       return;
     }
-    if (slime.job === "waste") {
-      slime.job = "corpse";
+    const legacyRole = cleanCreatureRoleId(slime.job, "idle");
+    const hasExplicitRole = CREATURE_ROLES.some((role) => role.id === slime.roleId);
+    slime.roleSource = slime.roleSource === "manual" || (!hasExplicitRole && legacyRole !== "idle") ? "manual" : "automatic";
+    slime.roleId = slime.roleSource === "manual"
+      ? cleanCreatureRoleId(hasExplicitRole ? slime.roleId : legacyRole)
+      : automaticRoleIdForSlime(slime);
+    slime.roleKnowledge = normalizeJobKnowledge(slime.roleKnowledge || slime.jobKnowledge);
+    slime.roleEvidence = normalizeRoleEvidence(slime.roleEvidence);
+    delete slime.job;
+    delete slime.jobProgress;
+    delete slime.jobTargetCorpseId;
+    delete slime.jobNutritionGained;
+    delete slime.jobKnowledge;
+  }
+
+  function slimeRoleId(slime) {
+    normalizeSlimeRole(slime);
+    return slime?.roleId || "idle";
+  }
+
+  function roleSourceLabel(slime) {
+    if (slime?.roleSource === "manual") {
+      return "manual";
     }
-    if (!CREATURE_JOBS.some((job) => job.id === slime.job)) {
-      slime.job = "idle";
+    const container = slime?.containerId ? containerById(slime.containerId) : null;
+    return container ? `automatic: ${container.name}` : "automatic: no site role";
+  }
+
+  function normalizeRoleEvidence(candidate) {
+    const normalized = {};
+    for (const [roleId, entries] of Object.entries(candidate || {})) {
+      const cleanRoleId = cleanCreatureRoleId(roleId, "");
+      if (!cleanRoleId) continue;
+      normalized[cleanRoleId] = (Array.isArray(entries) ? entries : [])
+        .filter((entry) => entry && typeof entry === "object")
+        .map((entry) => ({
+          roomId: cleanRoomId(entry.roomId) || MAIN_ROOM_ID,
+          containerId: cleanContainerId(entry.containerId),
+          band: String(entry.band || ""),
+          reason: String(entry.reason || "").trim(),
+          at: finiteTime(entry.at, 0),
+          observed: Boolean(entry.observed)
+        }))
+        .slice(-20);
     }
-    if (isInSynthesisTube(slime) || slimeJobRoomBlockReason(slime) || (slime.containerId && isContainerInTransit(slime.containerId))) {
-      slime.job = "idle";
-    }
-    slime.jobProgress = Math.max(0, Number(slime.jobProgress) || 0);
-    slime.jobNutritionGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
-    slime.jobTargetCorpseId ||= null;
-    slime.jobKnowledge = normalizeJobKnowledge(slime.jobKnowledge);
-    if (slime.job !== "corpse") {
-      slime.jobTargetCorpseId = null;
-      slime.jobNutritionGained = 0;
-    }
-    if (slime.job === "idle") {
-      slime.jobProgress = 0;
-      slime.jobTargetCorpseId = null;
-      slime.jobNutritionGained = 0;
-    }
+    return normalized;
   }
 
 
 
-
-  function canWorkJob(slime) {
-    return Boolean(
-      slime
-      && slime.status !== "dead"
-      && slime.mature
-      && !isInSynthesisTube(slime)
-      && !(slime.containerId && isContainerInTransit(slime.containerId))
-      && !slimeJobRoomBlockReason(slime)
-      && !slimeJobSpecificBlockReason(slime, slime.job)
-      && slimeStat(slime, "bodyIntegrity").current > 0
-    );
-  }
-
-
-
-
-
-
-  function jobAssignmentBlockReason(slime) {
-    if (!slime || slime.status === "dead") {
-      return "No living slime available.";
-    }
-    if (isInSynthesisTube(slime)) {
-      return "Specimens in the synthesis tube cannot be assigned jobs.";
-    }
-    if (slime.containerId && isContainerInTransit(slime.containerId)) {
-      return `${slime.name}'s container is being hauled.`;
-    }
-    const roomReason = slimeJobRoomBlockReason(slime);
-    if (roomReason) {
-      return roomReason;
-    }
-    if (!slime.mature) {
-      return "Immature slimes cannot be assigned jobs.";
-    }
-    if (slimeStat(slime, "bodyIntegrity").current <= 0) {
-      return "Body Integrity is too low for job assignment.";
-    }
-    return "";
-  }
-
-
-
-  function corpseProcessingDuration(slime) {
-    const score = corpseProcessingSuitability(slime).score;
-    return minutesToSeconds(Math.round(clamp(240 - score * 1.8, 45, 240)));
-  }
-
-  function jobRemainingText(slime) {
-    if (slime.job === "corpse" && corpseProcessingTimingKnown(slime)) {
-      return `${formatDuration(Math.max(0, corpseProcessingDuration(slime) - slime.jobProgress))} remaining`;
-    }
-    if (slime.job === "disposal" && wasteDisposalTimingKnown(slime)) {
-      return `${formatDuration(Math.max(0, wasteDisposalDuration(slime) - slime.jobProgress))} remaining`;
-    }
-    return slime.jobProgress > 0 ? "processing underway" : "processing";
-  }
-
-  function jobProgressPercent(slime) {
-    if (slime.job === "corpse" && isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId))) {
-      return Math.round(clamp((slime.jobProgress / corpseProcessingDuration(slime)) * 100, 0, 100));
-    }
-    if (slime.job === "disposal" && containerWasteAmount(slimePitJobSite(slime)) > 0) {
-      return Math.round(clamp((slime.jobProgress / wasteDisposalDuration(slime)) * 100, 0, 100));
-    }
-    return 0;
-  }
-
-  function shouldShowJobProgress(slime) {
-    if (slime.job === "corpse") {
-      return isCorpseProcessingTargetForSlime(slime, findCorpse(slime.jobTargetCorpseId)) && corpseProcessingTimingKnown(slime);
-    }
-    if (slime.job === "disposal") {
-      return containerWasteAmount(slimePitJobSite(slime)) > 0 && wasteDisposalTimingKnown(slime);
-    }
-    return false;
-  }
 
   function corpseProcessingSuitability(slime) {
     const evaluated = evaluateGenome(slime.genome);
@@ -34721,40 +34425,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function corpseProcessingResidueOutcome(corpse, suitability, effects) {
-    const freshness = corpseFreshness(corpse);
-    const score = Math.max(0, Number(suitability?.score) || 0);
-    if (score >= 70 && effects?.extraWaste <= 0 && (freshness === "fresh" || freshness === "decaying")) {
-      return null;
-    }
-    let typeKey = "looseBiomatter";
-    if (freshness === "spoiled") {
-      typeKey = score < 25 ? "hazardousSludge" : "contaminatedResidue";
-    } else if (freshness === "ruined") {
-      typeKey = score < 25 ? "contaminatedResidue" : "inertResidue";
-    } else if (freshness === "decaying") {
-      typeKey = score < 40 ? "contaminatedResidue" : "looseBiomatter";
-    } else if (score < 25) {
-      typeKey = "contaminatedResidue";
-    }
-    const stateAmount = { fresh: 1, decaying: 1, spoiled: 2, ruined: 1 }[freshness] || 1;
-    const amount = Math.max(1, stateAmount + Math.max(0, Number(effects?.extraWaste) || 0) + (score < 25 ? 1 : 0));
-    return { typeKey, amount };
-  }
-
-  function applyCorpseProcessingResidue(slime, corpse, suitability, effects) {
-    const outcome = corpseProcessingResidueOutcome(corpse, suitability, effects);
-    if (!outcome) {
-      return false;
-    }
-    return addFeedingResidue(outcome.typeKey, outcome.amount, {
-      slime,
-      location: feedingResidueLocationForCorpseJob(slime, corpse),
-      sourceLabel: `Corpse processing: ${corpse.name}`,
-      tags: ["corpse-processing", ...corpseWasteTags(corpse), corpseFreshness(corpse), jobSuitabilityBand(suitability.score)]
-    });
-  }
-
   function corpseProcessingEffects(slime, corpse, suitability) {
     const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     const freshness = corpseFreshness(corpse);
@@ -34781,49 +34451,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const bodyDamage = Math.max(0, Math.round(Math.max(0, 45 - suitability.score) / 15 + materialDamage));
     const extraWaste = Math.max(0, (suitability.score < 25 ? 1 : 0) + (freshness === "spoiled" ? 1 : 0) + (nutrition === 0 ? 1 : 0));
     return { nutrition, stress, bodyDamage, extraWaste };
-  }
-
-  function applyCorpseProcessingNutrition(slime, effects, fromProgress, toProgress, duration) {
-    const totalNutrition = Math.max(0, Number(effects?.nutrition) || 0);
-    const safeDuration = Math.max(1, Number(duration) || 1);
-    const start = clamp(Number(fromProgress) || 0, 0, safeDuration);
-    const end = clamp(Number(toProgress) || 0, 0, safeDuration);
-    if (!totalNutrition || end <= start) {
-      return 0;
-    }
-    const alreadyGained = Math.max(0, Number(slime.jobNutritionGained) || 0);
-    const expectedGained = totalNutrition * (end / safeDuration);
-    const rawGained = Math.max(0, Math.min(totalNutrition - alreadyGained, expectedGained - alreadyGained));
-    const gained = adjustedSlimeNutritionGain(slime, rawGained);
-    if (gained > 0) {
-      adjustSlimeStat(slime, "nutrition", gained);
-      slime.jobNutritionGained = alreadyGained + rawGained;
-    }
-    return gained;
-  }
-
-  function applyCorpseProcessingEffects(slime, corpse, suitability, effects) {
-    const knowledge = ensureJobKnowledge(slime, "corpse");
-    knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
-    if (effects.stress) {
-      adjustSlimeStat(slime, "stress", effects.stress);
-    } else if (suitability.score >= 70 && effects.nutrition >= 4) {
-      adjustSlimeStat(slime, "stress", -1);
-    }
-    if (effects.bodyDamage) {
-      adjustSlimeStat(slime, "bodyIntegrity", -effects.bodyDamage);
-      learnJobFit(slime, "corpse", suitability.score < 25 ? "Hazardous" : "Poor", `${corpseStateLabel(corpse).toLowerCase()} corpse strain`);
-      addEvent(`${slime.name} lost ${effects.bodyDamage} Body Integrity processing ${corpse.name}.`);
-    } else if (suitability.score >= 70 && knowledge.completedUnits >= 2) {
-      learnJobFit(slime, "corpse", "Good", "clean corpse processing");
-    } else if (suitability.score >= 40 && knowledge.completedUnits >= 2) {
-      learnJobFit(slime, "corpse", "Adequate", "completed corpse processing");
-    } else if (suitability.score < 25) {
-      learnJobFit(slime, "corpse", "Poor", "messy corpse processing");
-    }
-    if (effects.extraWaste) {
-      learnJobFit(slime, "corpse", "Poor", "messy corpse processing");
-    }
   }
 
   function observedWasteDisposalSuitability(slime) {
@@ -34860,8 +34487,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     knowledge.exposureLoss = Math.max(0, Number(knowledge.exposureLoss) || 0) + damage;
     knowledge.nextExposureNoticeLoss ||= WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS;
     if (knowledge.exposureLoss >= knowledge.nextExposureNoticeLoss) {
-      learnWasteDisposalFit(slime, suitability.score < 25 ? "Hazardous" : "Poor", "waste exposure");
-      recordJobObservation(slime, "disposal", "body damage from waste exposure");
+      recordRoleEvidence(slime, "disposal", suitability.score < 25 ? "Hazardous" : "Poor", "body damage from waste exposure");
       knowledge.nextExposureNoticeLoss += WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS;
     }
     return damage;
@@ -34882,19 +34508,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const badness = Math.max(0, 60 - score) / 60;
     const instability = Math.max(0, stabilityRisk - 5);
     return (badness * 0.025 + instability * 0.003) / SECONDS_PER_MINUTE;
-  }
-
-  function observeSlowWasteDisposal(slime, suitability) {
-    const knowledge = ensureJobKnowledge(slime, "disposal");
-    if (knowledge.slowObserved || suitability.score >= 50) {
-      return;
-    }
-    if ((Number(knowledge.observedMinutes) || 0) < WASTE_DISPOSAL_SLOW_OBSERVATION) {
-      return;
-    }
-    knowledge.slowObserved = true;
-    learnWasteDisposalFit(slime, "Poor", "slow waste digestion");
-    recordJobObservation(slime, "disposal", "slow waste digestion");
   }
 
   function wasteDisposalFeedingResidueOutcome(suitability, elementalResidueUnits) {
@@ -34925,44 +34538,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
-  function completeWasteDisposalUnit(slime, suitability) {
-    const knowledge = ensureJobKnowledge(slime, "disposal");
-    knowledge.completedUnits = Math.max(0, Number(knowledge.completedUnits) || 0) + 1;
-    knowledge.residueProgress = Math.max(0, Number(knowledge.residueProgress) || 0) + (suitability.score >= 75 ? 2 : 1);
-    const nutrition = wasteDisposalNutritionGain(slime, suitability);
-    const adjustedNutrition = adjustedSlimeNutritionGain(slime, nutrition);
-    if (adjustedNutrition) {
-      adjustSlimeStat(slime, "nutrition", adjustedNutrition);
-    }
-    if (suitability.score >= 60 && adjustedNutrition) {
-      adjustSlimeStat(slime, "stress", -1);
-    } else if (suitability.score < 25) {
-      adjustSlimeStat(slime, "stress", 2);
-    }
-    let residue = 0;
-    while (knowledge.residueProgress >= WASTE_DISPOSAL_RESIDUE_INTERVAL) {
-      residue += 1;
-      knowledge.residueProgress -= WASTE_DISPOSAL_RESIDUE_INTERVAL;
-    }
-    if (residue) {
-      addResource("elementalResidue", residue, slimeEffectiveRoomId(slime));
-    }
-    const leftLocalResidue = applyWasteDisposalFeedingResidue(slime, suitability, residue);
-    if (suitability.score >= 70 && knowledge.completedUnits >= 2) {
-      learnWasteDisposalFit(slime, "Good", "clean waste disposal");
-    } else if (suitability.score >= 40 && knowledge.completedUnits >= 2) {
-      learnWasteDisposalFit(slime, "Adequate", "completed waste disposal");
-    } else if (suitability.score < 25) {
-      learnWasteDisposalFit(slime, "Poor", "rough waste disposal");
-    }
-    if (suitability.score < 20 && wasteDisposalStabilityRisk(slime) >= 7) {
-      addSuspicion(WASTE_DISPOSAL_CONTAMINATION_SUSPICION);
-      learnWasteDisposalFit(slime, "Hazardous", "contamination during disposal");
-      recordJobObservation(slime, "disposal", "contamination during disposal");
-    }
-    addEvent(`${slime.name} disposed of 1 Waste${residue ? ` and left ${residue} Elemental Residue` : ""}${adjustedNutrition ? `, gaining ${formatNumber(adjustedNutrition)} Nutrition` : ""}${leftLocalResidue ? ", leaving local residue" : ""}.`);
-  }
-
   function wasteDisposalNutritionGain(slime, suitability) {
     const tags = new Set(evaluateGenome(slime.genome).traits.sustenance.meta?.tags || []);
     let base = 0;
@@ -34986,22 +34561,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Number(evaluated.traits.stability.meta?.risk) || 5;
   }
 
-  function nextWasteExposureEvent(slime) {
-    const suitability = wasteDisposalSuitability(slime);
-    const rate = wasteDisposalExposureRate(slime, suitability);
-    if (rate <= 0) {
-      return null;
-    }
-    const knowledge = ensureJobKnowledge(slime, "disposal");
-    const currentDamage = Math.max(0, Number(knowledge.exposureLoss) || 0);
-    const nextDamage = Math.max(knowledge.nextExposureNoticeLoss || WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS, currentDamage + 0.01);
-    return {
-      time: state.clock + (nextDamage - currentDamage) / rate,
-      label: `${slime.name} waste exposure`,
-      type: "job"
-    };
-  }
-
   function learnJobFit(slime, jobId, band, reason) {
     const knowledge = ensureJobKnowledge(slime, jobId);
     const rank = { Poor: 1, Adequate: 2, Good: 3, Hazardous: 4 };
@@ -35013,14 +34572,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
-  function learnWasteDisposalFit(slime, band, reason) {
-    learnJobFit(slime, "disposal", band, reason);
+  function recordRoleEvidence(slime, roleId, band, reason) {
+    if (!slime) return;
+    normalizeSlimeRole(slime);
+    const cleanRoleId = cleanCreatureRoleId(roleId, "");
+    if (!cleanRoleId) return;
+    const roomId = slimeEffectiveRoomId(slime);
+    const containerId = cleanContainerId(slime.containerId);
+    slime.roleEvidence[cleanRoleId] ||= [];
+    const entries = slime.roleEvidence[cleanRoleId];
+    const previous = entries.at(-1);
+    const shouldAdd = !previous || previous.band !== band || previous.reason !== reason || state.clock - previous.at >= SECONDS_PER_HOUR;
+    if (shouldAdd) {
+      entries.push({ roomId, containerId, band, reason, at: state.clock, observed: false });
+      if (entries.length > 20) entries.splice(0, entries.length - 20);
+    }
+    if (scientistObservesRoom(roomId)) {
+      observeRoleEvidenceInRoom(roomId);
+    }
   }
 
-  function recordJobObservation(slime, jobId, reason) {
-    const knowledge = ensureJobKnowledge(slime, jobId);
-    knowledge.lastObservation = String(reason || "").trim();
-    knowledge.lastObservedAt = state.clock;
+  function observeRoleEvidenceInRoom(roomId) {
+    for (const slime of state.slimes || []) {
+      normalizeSlimeRole(slime);
+      for (const [roleId, entries] of Object.entries(slime.roleEvidence || {})) {
+        for (const evidence of entries) {
+          if (evidence.observed || evidence.roomId !== roomId) continue;
+          evidence.observed = true;
+          learnJobFit(slime, roleId, evidence.band, evidence.reason);
+          const knowledge = ensureJobKnowledge(slime, roleId);
+          knowledge.lastObservation = evidence.reason;
+          knowledge.lastObservedAt = state.clock;
+        }
+      }
+    }
   }
 
   function jobSuitabilityBand(score) {
@@ -35036,23 +34621,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "Poor";
   }
 
-  function creatureJobLabel(jobId) {
-    return CREATURE_JOBS.find((job) => job.id === jobId)?.label || CREATURE_JOBS[0].label;
-  }
-
-  function corpseProcessingTimingKnown(slime) {
-    return ["element", "consistency", "sustenance", "behavior", "stability", "size", "shape"]
-      .every((traitKey) => slime.revealed?.[traitKey]);
-  }
-
-  function wasteDisposalTimingKnown(slime) {
-    return Boolean(ensureJobKnowledge(slime, "disposal").band);
+  function creatureRoleLabel(roleId) {
+    return CREATURE_ROLES.find((role) => role.id === roleId)?.label || CREATURE_ROLES[0].label;
   }
 
   function ensureJobKnowledge(slime, jobId) {
-    slime.jobKnowledge = normalizeJobKnowledge(slime.jobKnowledge);
-    slime.jobKnowledge[jobId] ||= {};
-    return slime.jobKnowledge[jobId];
+    slime.roleKnowledge = normalizeJobKnowledge(slime.roleKnowledge || slime.jobKnowledge);
+    slime.roleKnowledge[jobId] ||= {};
+    return slime.roleKnowledge[jobId];
   }
 
   function normalizeJobKnowledge(candidate) {
@@ -36184,12 +35760,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     compartmentReadout.textContent = `${inferred.compartments.length} inferred compartment${inferred.compartments.length === 1 ? "" : "s"}; ${unassigned} contain unassigned floor; ${purposeSuggestions} room${purposeSuggestions === 1 ? " has" : "s have"} an unambiguous purpose signal. Manual boundaries and purposes remain protected.`;
     dom.roomPolicyList?.append(compartmentReadout);
 
-    const targets = state.policies.corpseProcessingTargets;
+    const targets = state.policies.corpseHandlingTargets;
     const handling = corpseHandlingPolicy();
     const enabled = CORPSE_STATE_POLICY_DEFS.filter((stateDef) => targets[stateDef.key]).map((stateDef) => stateDef.label);
     const corpseSummary = enabled.length
-      ? `Corpse Processing targets ${enabled.join(", ").toLowerCase()} corpses.`
-      : "Corpse Processing has no automatic targets.";
+      ? `Automatic corpse handling includes ${enabled.join(", ").toLowerCase()} corpses.`
+      : "Automatic corpse handling has no selected states.";
     const handlingSummary = handling.autoMoveToDrums
       ? `Corpse handling auto-moves local remains to ${corpseHandlingDestinationLabel(handling).toLowerCase()} when space is available.`
       : "Corpses remain where they fall unless moved later.";
@@ -36246,7 +35822,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const targetTitle = document.createElement("div");
     targetTitle.className = "policy-target-title";
-    targetTitle.textContent = "Targets";
+    targetTitle.textContent = "States to move automatically";
     dom.corpsePolicyList.append(targetTitle);
 
     for (const stateDef of CORPSE_STATE_POLICY_DEFS) {
@@ -36256,9 +35832,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       input.type = "checkbox";
       input.checked = Boolean(targets[stateDef.key]);
       input.addEventListener("change", () => {
-        state.policies.corpseProcessingTargets[stateDef.key] = input.checked;
+        state.policies.corpseHandlingTargets[stateDef.key] = input.checked;
         refreshCorpseProcessingTargets();
-        addEvent(`${stateDef.label} corpses ${input.checked ? "allowed" : "protected"} by Corpse Processing policy.`);
+        addEvent(`${stateDef.label} corpses ${input.checked ? "included in" : "excluded from"} automatic corpse handling.`);
         persist();
         render();
       });
@@ -38583,7 +38159,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!slime.mature) score += 2;
     score += Math.round(clamp(slimeStat(slime, "stress").current, 0, 100) / 10);
     score += Math.round(clamp(100 - slimeStat(slime, "bodyIntegrity").current, 0, 100) / 10);
-    if (slime.job && slime.job !== "idle") score += 5;
+    if (slimeRoleId(slime) !== "idle") score += 5;
     if (slime.containmentTest?.active) score += 8;
     return score;
   }
@@ -40583,12 +40159,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }),
       openWorkspaceCommand({
         id: `slime.openJobs.${slime.id}`,
-        label: "Open Jobs",
+        label: "Open Roles",
         group: "Open Menu",
         workspaceTab: "specimens",
         tabKind: "creatures",
         tabId: "jobs",
-        description: "Open creature job assignments and progress."
+        description: "Open creature roles, actual activity, worksites, and observed performance."
       }),
       openWorkspaceCommand({
         id: `slime.openTesting.${slime.id}`,
@@ -40611,16 +40187,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => moveContainerToRoom(container.id, COLLECTION_BAY_ROOM_ID)
       }));
     }
-    for (const job of CREATURE_JOBS) {
+    commands.push(commandDef({
+      id: `slime.role.${slime.id}.automatic`,
+      label: "Use Site Default",
+      group: "Role",
+      disabledReason: slimeRoleContextBlockReason(slime, "automatic"),
+      description: "Remove the manual override and derive this creature's role from its current physical site.",
+      run: () => assignCreatureRole(slime.id, "automatic")
+    }));
+    for (const role of CREATURE_ROLES) {
       commands.push(commandDef({
-        id: `slime.job.${slime.id}.${job.id}`,
-        label: job.id === "idle" ? "Set Idle" : `Assign ${job.label}`,
-        group: "Job",
-        disabledReason: slimeJobContextBlockReason(slime, job.id),
-        description: job.id === "idle"
-          ? "Clear this creature's intended job tag."
-          : `Set intended use to ${job.label}. Jobs are intent tags; the slime still acts according to its biology and situation.`,
-        run: () => assignCreatureJob(slime.id, job.id)
+        id: `slime.role.${slime.id}.${role.id}`,
+        label: role.id === "idle" ? "Set Role: Idle" : `Set Role: ${role.label}`,
+        group: "Role",
+        disabledReason: slimeRoleContextBlockReason(slime, role.id),
+        description: `Record ${role.label} as the player's intended use. The creature still acts according to its biology and situation.`,
+        run: () => assignCreatureRole(slime.id, role.id)
       }));
     }
     if (isInSynthesisTube(slime)) {
@@ -40648,21 +40230,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
-  function slimeJobContextBlockReason(slime, jobId) {
+  function slimeRoleContextBlockReason(slime, roleId) {
     if (!slime || slime.status === "dead") {
       return "No living slime available.";
     }
-    const normalizedJobId = CREATURE_JOBS.some((job) => job.id === jobId) ? jobId : "idle";
-    normalizeSlimeJob(slime);
-    if (slime.job === normalizedJobId) {
-      return normalizedJobId === "idle"
-        ? `${slime.name} is already idle.`
-        : `${slime.name} is already assigned to ${creatureJobLabel(normalizedJobId)}.`;
+    normalizeSlimeRole(slime);
+    if (roleId === "automatic") {
+      return slime.roleSource === "automatic" ? `${slime.name} already uses its site default.` : roleAssignmentBlockReason(slime);
     }
-    if (normalizedJobId === "idle") {
-      return "";
+    const normalizedRoleId = cleanCreatureRoleId(roleId);
+    if (slime.roleSource === "manual" && slime.roleId === normalizedRoleId) {
+      return `${slime.name} already has the ${creatureRoleLabel(normalizedRoleId)} role.`;
     }
-    return jobAssignmentBlockReason(slime) || slimeJobSpecificBlockReason(slime, normalizedJobId);
+    return roleAssignmentBlockReason(slime);
   }
 
   function synthesisTubeMoveBlockReason(slime) {
@@ -40683,6 +40263,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const commands = [];
+    if (isPitHoleContainer(container)) {
+      for (const role of CREATURE_ROLES.filter((candidate) => ["idle", "corpse", "disposal"].includes(candidate.id))) {
+        commands.push(commandDef({
+          id: `container.defaultRole.${container.id}.${role.id}`,
+          label: `Default Role: ${role.label}`,
+          group: "Role Default",
+          disabledReason: containerDefaultRoleId(container) === role.id ? `${container.name} already defaults to ${role.label}.` : "",
+          description: "Creatures placed here inherit this role unless they have a manual role override.",
+          run: () => setContainerDefaultRole(container.id, role.id)
+        }));
+      }
+    }
     if (container.type !== "synthesis") {
       const action = containerAccessOpen(container) ? "close" : "open";
       const baseCost = action === "close" ? CONTAINER_INTERACTION_CLOSE_STAMINA : CONTAINER_INTERACTION_OPEN_STAMINA;
@@ -40813,13 +40405,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     commands.push(openWorkspaceCommand({
       id: `container.openRecords.${container.id}`,
-      label: isPitHoleContainer(container) ? "Open Creature Jobs" : "Open Containers",
+      label: isPitHoleContainer(container) ? "Open Creature Roles" : "Open Containers",
       group: "Open Menu",
       workspaceTab: isPitHoleContainer(container) ? "specimens" : "containers",
       tabKind: isPitHoleContainer(container) ? "creatures" : "",
       tabId: isPitHoleContainer(container) ? "jobs" : "",
       description: isPitHoleContainer(container)
-        ? "Open creature job management for pit work."
+        ? "Open creature roles, worksites, activity, and observed performance."
         : "Open the container management screen."
     }));
     commands.push(openWorkspaceCommand({
@@ -40864,6 +40456,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     return commands;
+  }
+
+  function setContainerDefaultRole(containerId, roleId) {
+    const container = containerById(containerId);
+    if (!container || !isPitHoleContainer(container)) return false;
+    container.defaultRoleId = cleanCreatureRoleId(roleId);
+    for (const slime of containerOccupants(container.id)) {
+      if (slime.roleSource !== "manual") {
+        slime.roleSource = "automatic";
+        normalizeSlimeRole(slime);
+      }
+    }
+    addEvent(`${container.name}'s default role set to ${creatureRoleLabel(container.defaultRoleId)}.`);
+    persist();
+    render();
+    return true;
   }
 
   function updateFixtureUtility(fixtureId, changes, eventText = "") {
@@ -41837,6 +41445,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Condition", containerConditionLabel(container)],
         ["Footprint", `${footprint.width} x ${footprint.height} tile${footprint.width * footprint.height === 1 ? "" : "s"}`],
         ["Wards", containerWardLabels(container.wardIds).join(", ") || "None"],
+        ...(isPitHoleContainer(container) ? [["Default role", creatureRoleLabel(containerDefaultRoleId(container))]] : []),
         ["Contents", `${containerOccupants(container.id).length} living; ${containerCorpses(container.id).length} corpse${containerCorpses(container.id).length === 1 ? "" : "s"}`]
       ];
     }
@@ -41922,7 +41531,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [
         ["State", slimeStateLabel(slime)],
         ["Location", slimeLocationLabel(slime)],
-        ["Job", creatureJobLabel(slime.job || "idle")],
+        ["Role", creatureRoleLabel(slimeRoleId(slime))],
+        ["Role source", roleSourceLabel(slime)],
         ["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")],
         ["Known traits", slimeKnownTraitSummary(slime)],
         ["Automation", slime.automationExcluded ? "Excluded from global automation" : "Follows global automation"]
@@ -46171,6 +45781,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function tryAutoMoveCorpse(corpse, options = {}) {
+    if (options.automatic && !isAutomaticCorpseHandlingTarget(corpse)) {
+      return false;
+    }
     const destination = corpseHandlingDestination();
     if (destination === "pitHole") {
       return tryMoveCorpseToPitHole(corpse, options);
@@ -46279,15 +45892,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateContainerCorpseFeeding(corpse, elapsed) {
-    if (corpse.storage !== "container" || corpse.ruined) {
+    if (corpse.storage !== "container") {
       return 0;
     }
     const occupants = containerOccupants(corpse.containerId)
-      .filter((slime) => slime.id !== corpse.specimenId);
+      .filter((slime) => {
+        const target = containedMaterialTargetForSlime(slime);
+        return slime.id !== corpse.specimenId && slimeCanConsumeContainedMaterial(slime) && target?.kind === "corpse" && target.id === corpse.id;
+      });
     if (!occupants.length) {
       return 0;
     }
 
+    corpse.processingContributions = normalizeProcessingContributions(corpse.processingContributions);
     let changes = 0;
     for (const slime of occupants) {
       const feeding = corpseFeedingRateForSlime(slime, corpse);
@@ -46302,18 +45919,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       adjustSlimeStat(slime, "nutrition", nutritionGain);
       adjustSlimeStat(slime, "currentMass", nutritionGain * 0.2);
       adjustSlimeStat(slime, "stress", -nutritionGain * 0.1);
-      corpse.consumedProgress = clamp((Number(corpse.consumedProgress) || 0) + nutritionGain * feeding.consumption, 0, 100);
+      const previousProgress = Math.max(0, Number(corpse.consumedProgress) || 0);
+      const progressGain = Math.min(100 - previousProgress, nutritionGain * feeding.consumption);
+      corpse.consumedProgress = clamp(previousProgress + progressGain, 0, 100);
+      corpse.processingContributions[slime.id] = Math.max(0, Number(corpse.processingContributions[slime.id]) || 0) + progressGain;
+      applyGradualCorpseProcessingStrain(slime, corpse, progressGain);
       const residueUnits = accumulateCorpseFeedingResidue(slime, corpse, feeding, nutritionGain);
       if (residueUnits > 0) {
         changes += residueUnits;
       }
-      if (!corpse.feedingNoticed) {
+      if (!corpse.feedingNoticed && scientistObservesRoom(slimeEffectiveRoomId(slime))) {
         corpse.feedingNoticed = true;
         addEvent(`${slime.name} began feeding on ${corpse.name} remains in ${corpseLocationLabel(corpse)}.`);
       }
       changes += 1;
       if (corpse.consumedProgress >= 100) {
-        addEvent(`${corpse.name} remains were fully consumed in ${corpseLocationLabel(corpse)}.`);
+        completePhysicalCorpseProcessing(corpse, slime);
         removeCorpseRecord(corpse.id);
         return changes + 1;
       }
@@ -46348,9 +45969,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const evaluated = evaluateGenome(slime.genome);
     const tags = new Set(evaluated.traits.sustenance.meta?.tags || []);
     const freshness = corpseFreshness(corpse);
-    let rate = 0;
-    let consumption = 3;
-    let residueRate = 0;
+    let rate = 2;
+    let consumption = 1;
+    let residueRate = 0.35;
     let residueTypeKey = corpseFeedingResidueType(freshness, false);
     if (tags.has("corpse")) {
       rate = 18;
@@ -46374,6 +45995,93 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       residueTypeKey = corpseFeedingResidueType(freshness, true);
     }
     return { rate, consumption, residueRate, residueTypeKey };
+  }
+
+  function slimeCanConsumeContainedMaterial(slime) {
+    if (!slime || slime.status === "dead" || !slimeHasFeedingNeed(slime)) {
+      return false;
+    }
+    const combat = currentSlimeCombatDecision(slime);
+    if (combat && !["none", "avoid"].includes(combat.intent)) {
+      return false;
+    }
+    return !["high", "critical"].includes(evaluateSlimeThreatResponse(slime).intensity);
+  }
+
+  function containedMaterialTargetForSlime(slime) {
+    if (!slime?.containerId || !slimeCanConsumeContainedMaterial(slime)) return null;
+    const candidates = containerCorpses(slime.containerId).map((corpse) => ({
+      kind: "corpse",
+      id: corpse.id,
+      score: corpseFeedingRateForSlime(slime, corpse).rate,
+      age: Number(corpse.diedAt) || 0
+    }));
+    if (isPitHoleContainer(containerById(slime.containerId))) {
+      for (const stack of physicalWasteStacks({ containerId: slime.containerId })) {
+        const suitability = wasteDisposalSuitability(slime);
+        candidates.push({
+          kind: "waste",
+          id: stack.id,
+          score: wasteDisposalNutritionGain(slime, suitability) > 0 ? 16 + suitability.score / 10 : 1 + suitability.score / 50,
+          age: Number(stack.createdAt) || 0
+        });
+      }
+    }
+    return candidates.sort((a, b) => b.score - a.score || a.age - b.age)[0] || null;
+  }
+
+  function applyGradualCorpseProcessingStrain(slime, corpse, progressGain) {
+    if (progressGain <= 0) return;
+    const suitability = corpseProcessingSuitability(slime);
+    const effects = corpseProcessingEffects(slime, corpse, suitability);
+    const fraction = progressGain / 100;
+    if (effects.bodyDamage) {
+      if (slimeStat(slime, "bodyIntegrity").current - effects.bodyDamage * fraction <= 0) slime.deathCause = "corpse processing strain";
+      adjustSlimeStat(slime, "bodyIntegrity", -effects.bodyDamage * fraction);
+    }
+    if (effects.stress) adjustSlimeStat(slime, "stress", effects.stress * fraction);
+    const band = effects.bodyDamage > 0 || suitability.score < 25 ? (suitability.score < 25 ? "Hazardous" : "Poor") : suitability.score >= 70 ? "Good" : "Adequate";
+    recordRoleEvidence(slime, "corpse", band, effects.bodyDamage > 0 ? `${corpseStateLabel(corpse).toLowerCase()} corpse strain` : "corpse processing performance");
+  }
+
+  function completePhysicalCorpseProcessing(corpse, completingSlime) {
+    const container = containerById(corpse.containerId);
+    if (!container || !isPitHoleContainer(container)) {
+      if (scientistObservesRoom(corpse.roomId)) addEvent(`${corpse.name} remains were fully consumed in ${corpseLocationLabel(corpse)}.`);
+      return;
+    }
+    const suitability = corpseProcessingSuitability(completingSlime);
+    const effects = corpseProcessingEffects(completingSlime, corpse, suitability);
+    addPhysicalQuantityToContainer("resources", "biomass", CORPSE_PROCESSING_BIOMASS_GAIN, container, { sourceLabel: `Processed ${corpse.name}` });
+    addPhysicalQuantityToContainer("resources", "carrionFeedstock", CARRION_FEEDSTOCK_PER_CORPSE, container, { sourceLabel: `Processed ${corpse.name}` });
+    const recovery = corpseProcessingInventoryRecovery(corpse);
+    addPhysicalQuantityToContainer("inventory", recovery.key, recovery.amount, container, { sourceLabel: recovery.source });
+    addContainerWaste(container, CORPSE_PROCESSING_WASTE_GAIN + effects.extraWaste, corpseWasteTags(corpse));
+    if (scientistObservesRoom(container.roomId)) {
+      addEvent(`${corpse.name} remains were fully consumed in ${container.name}; the transformed material remains inside the pit.`);
+    }
+  }
+
+  function addPhysicalQuantityToContainer(section, key, amount, container, options = {}) {
+    const units = section === "collectedByproducts" ? roundOutputValue(amount) : Math.max(0, Math.floor(Number(amount) || 0));
+    if (!container || units <= 0) return null;
+    const known = scientistObservesRoom(container.roomId);
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.section === section && entry.key === key && entry.containerId === container.id && entry.form === "stack");
+    if (stack) {
+      stack.quantity += units;
+      if (known) stack.knownQuantity = stack.quantity;
+      stack.updatedAt = state.clock;
+      stack.sourceLabels = normalizeResidueSourceLabels([...(stack.sourceLabels || []), options.sourceLabel]);
+      syncPhysicalReadModels();
+      return stack;
+    }
+    return createPhysicalItemStack(section, key, units, {
+      roomId: container.roomId,
+      containerId: container.id,
+      cell: objectMapCell(container),
+      fixtureId: "",
+      stockpileId: ""
+    }, { known, sourceLabel: options.sourceLabel });
   }
 
   function corpseFeedingResidueType(freshness, matched) {
@@ -48295,13 +48003,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function feedingResidueLocationForCorpseJob(slime, corpse) {
-    if (corpse?.storage === "container" && isPitHoleContainer(containerById(corpse.containerId))) {
-      return feedingResidueLocationForCorpse(corpse);
-    }
-    return feedingResidueLocationForSlime(slime);
-  }
-
   function sameFeedingResidueLocation(left, right) {
     if (!left || !right || left.type !== right.type) {
       return false;
@@ -48886,7 +48587,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       lastBreach: type === "synthesis" ? null : normalizeContainerLastBreach(candidate.lastBreach),
       mapCell: objectMapCell(candidate),
       roomOwnership: ["owned", "straddling", "unassigned"].includes(candidate.roomOwnership) ? candidate.roomOwnership : "owned",
-      roomIds: normalizeRoomConnections(candidate.roomIds)
+      roomIds: normalizeRoomConnections(candidate.roomIds),
+      defaultRoleId: type === "synthesis"
+        ? "idle"
+        : cleanCreatureRoleId(candidate.defaultRoleId, isPitHoleTypeId(typeId) ? "corpse" : "idle")
     };
   }
 
@@ -49433,9 +49137,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return normalized;
   }
 
-  function corpseProcessingTargets() {
+  function corpseHandlingTargets() {
     state.policies = normalizePolicies(state.policies);
-    return state.policies.corpseProcessingTargets;
+    return state.policies.corpseHandlingTargets;
+  }
+
+  function isAutomaticCorpseHandlingTarget(corpse) {
+    if (!corpse || !CORPSE_STATE_POLICY_DEFS.some((stateDef) => stateDef.key === corpseFreshness(corpse))) {
+      return false;
+    }
+    return Boolean(corpseHandlingTargets()[corpseFreshness(corpse)]);
   }
 
 
@@ -49498,10 +49209,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       doors,
       rooms,
       cleanup,
-      corpseProcessingTargets: Object.fromEntries(
+      corpseHandlingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
-          Boolean(candidate?.corpseProcessingTargets?.[stateDef.key] ?? fallback.corpseProcessingTargets[stateDef.key])
+          Boolean(candidate?.corpseHandlingTargets?.[stateDef.key] ?? fallback.corpseHandlingTargets[stateDef.key])
         ])
       )
     };
@@ -50692,7 +50403,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
-      normalizeSlimeJob(slime);
+      normalizeSlimeRole(slime);
     }
     next.creatureRecords = normalizeCreatureRecords(next.creatureRecords, next);
     const previousState = state;

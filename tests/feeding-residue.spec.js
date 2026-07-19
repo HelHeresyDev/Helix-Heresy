@@ -211,8 +211,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     containerId: 'basic-11',
     roomId: 'pits',
     job: 'disposal',
-    jobProgress: 999999,
-    stats: { bodyIntegrity: { current: 100, max: 100 }, nutrition: { current: 50, max: 100 } },
+    stats: { bodyIntegrity: { current: 100, max: 100 }, nutrition: { current: 20, max: 100 } },
   });
 
   await page.evaluate(({ key, slime }) => {
@@ -236,6 +235,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
       stockpileId: '', observedAt: state.clock, reservedTaskId: '', containerId: pit.id, form: 'waste',
       phase: 'sludge', tags: ['waste', 'hazardous', 'chemical'], contents: [], sourceLabels: ['test waste'],
       sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
+      processingProgress: 0.9999999, processingResidueProgress: 2.9,
     });
     state.nextResidueNumber = 1;
     state.tasks = [];
@@ -264,7 +264,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
 
   expect(result.waste).toBe(0);
   expect(result.pitWaste).toBe(0);
-  expect(result.elementalResidue).toBe(0);
+  expect(result.elementalResidue).toBeGreaterThanOrEqual(1);
   expect(result.residues).toEqual(expect.arrayContaining([
     expect.objectContaining({
       key: 'inertResidue',

@@ -14,39 +14,32 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Creature Job Autonomy and Physical Workplace Interaction
-2. Containment Breach Response, Recapture, and Emergency Lockdown
-3. Cleaning, Hauling, Maintenance, and Repair Work
-4. Tactical Combat Movement, Abilities, and Map Commands
-5. Simulation Scheduling and Performance for Hundreds of Actors
+1. Containment Breach Response, Recapture, and Emergency Lockdown
+2. Cleaning, Hauling, Maintenance, and Repair Work
+3. Tactical Combat Movement, Abilities, and Map Commands
+4. Simulation Scheduling and Performance for Hundreds of Actors
 
 ---
 
-## 1. Creature Job Autonomy and Physical Workplace Interaction
-
-Rework jobs as player intentions rather than absolute commands. Design how creatures recognize relevant workplaces and materials, travel or remain in suitable containers and pits, perform work through physical interactions, abandon unsuitable work, and reveal suitability through observed performance.
-
----
-
-## 2. Containment Breach Response, Recapture, and Emergency Lockdown
+## 1. Containment Breach Response, Recapture, and Emergency Lockdown
 
 Design tools and commands for responding to escapes and dangerous containment failures. Consider recapture, baiting, handling tools, temporary cages, emergency seals, room lockdown, evacuation, containment triage, scientist awareness, and consequences of imperfect responses.
 
 ---
 
-## 3. Cleaning, Hauling, Maintenance, and Repair Work
+## 2. Cleaning, Hauling, Maintenance, and Repair Work
 
 Design routine physical labor for moving materials, replacing receptacles, hauling corpses, cleaning residue, repairing damage, restoring seals, and maintaining equipment. Keep the scientist as the only directly controlled actor while allowing policies and future workers to perform designated labor autonomously.
 
 ---
 
-## 4. Tactical Combat Movement, Abilities, and Map Commands
+## 3. Tactical Combat Movement, Abilities, and Map Commands
 
 Design map-centric combat interactions for the scientist and creatures. Include movement, targeting, ranges, contact, elemental clashes, abilities, mana use, awareness, time slowdown or pausing, contextual commands, testing through combat, injuries, retreat, and containment during a fight.
 
 ---
 
-## 5. Simulation Scheduling and Performance for Hundreds of Actors
+## 4. Simulation Scheduling and Performance for Hundreds of Actors
 
 Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
 

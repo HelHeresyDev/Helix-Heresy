@@ -2372,7 +2372,7 @@ test('selection inspector links contained specimens from a selected container', 
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Feeding');
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Feed Organic Feedstock');
-  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Job');
+  await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Role');
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Stage Container in Collection Bay');
   await page.locator('[data-selection-inspector-tab="related"]').click();
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Basic Glass Jar 1');

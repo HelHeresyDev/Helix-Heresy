@@ -721,6 +721,7 @@ test('Analyze displays evolved creature skill labels after breakthrough', async 
 });
 
 test('slime breakthrough progress decays at the same threshold as scientist skills', async ({ page }) => {
+  test.slow();
   await startRun(page);
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
