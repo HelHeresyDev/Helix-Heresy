@@ -279,6 +279,8 @@ The first architecture pass is intentionally small and practical rather than a s
 
 The map renderer boundary now has an explicit semantic cell model. Each map cell describes its base terrain or room, door state, visible object stack, incident marker, route marker, overlay data, selection/cursor/scientist flags, click target, tooltip parts, current glyph, and future `spriteKey` / `spriteLayers`. DOM-specific classes, datasets, titles, and text are produced by a DOM adapter instead of being the shape of the map model itself. The current visual map should remain unchanged, but a future Canvas or sprite renderer should be able to consume the same semantic cells and route pointer events back through the same selection targets. Tests now cover both semantic map cells and DOM parity so future renderer work does not have to infer game meaning from CSS selectors.
 
+Map-only interactions use a scoped render path. Camera movement, zoom, selection, inspector tabs, and contextual command menus redraw the map workspace without rebuilding hidden management screens. Per-view terrain indexes such as excavated-cell membership are computed once and shared across visible cells; tile selectors must not rebuild whole-map sets inside per-cell loops. Full rendering remains appropriate after simulation or game-state changes, but navigation itself should stay independent of unrelated panels.
+
 ## Container Compatibility
 
 Containers are physical lab equipment, not generic storage slots. Current prototype containers have base types with interior dimensions, openings, open or sealed geometry, load limits, durability, comfort, drainage, environment exchange, material resistance, and optional wards. Wards modify specific problems rather than solving all containment.

@@ -229,3 +229,26 @@ test('map smoke keeps representative contextual actions selectable after navigat
   expect(selected.selection).toMatchObject({ kind: 'corpse', id: 'corpse-smoke-map' });
   expect(selected.selectedMapTarget).toMatchObject({ kind: 'corpse', id: 'corpse-smoke-map' });
 });
+
+test('map-only interactions do not rebuild hidden management panels', async ({ page }) => {
+  await startRun(page);
+
+  await page.locator('#containerList').evaluate((list) => {
+    const sentinel = document.createElement('span');
+    sentinel.dataset.mapRenderSentinel = 'true';
+    list.append(sentinel);
+  });
+
+  await page.keyboard.press('D');
+  await expect(page.locator('[data-map-render-sentinel="true"]')).toHaveCount(1);
+
+  const target = page.locator('.lab-map-cell.map-clickable-cell').first();
+  await expect(target).toBeVisible();
+  await target.click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toBeVisible();
+  await expect(page.locator('[data-map-render-sentinel="true"]')).toHaveCount(1);
+
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
+  await expect(page.locator('[data-map-render-sentinel="true"]')).toHaveCount(1);
+});

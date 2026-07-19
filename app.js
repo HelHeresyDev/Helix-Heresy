@@ -5471,7 +5471,7 @@
       persist();
     }
     if (options.render !== false) {
-      render();
+      renderMapInteraction();
     }
     return true;
   }
@@ -5603,7 +5603,7 @@
     suppressNextMapClick = changed;
     if (changed) {
       persist();
-      render();
+      renderMapInteraction();
     }
   }
 
@@ -6370,7 +6370,7 @@
       return;
     }
     persist();
-    render();
+    renderMapSelectionInteraction();
   }
 
   function selectionInspectorExpanded() {
@@ -6383,7 +6383,7 @@
       return;
     }
     persist();
-    render();
+    renderMapSelectionInteraction();
   }
 
   function openSelectionInspectorTab(tabId) {
@@ -6395,7 +6395,7 @@
       ui.mode = UI_MODE_NAVIGATION;
     }
     persist();
-    render();
+    renderMapSelectionInteraction();
   }
 
   function contextCommandMenuOpen() {
@@ -6412,7 +6412,7 @@
       return;
     }
     persist();
-    render();
+    renderMapSelectionInteraction();
   }
 
   function openContextCommandMenu(options = {}) {
@@ -6427,7 +6427,7 @@
       ui.mode = UI_MODE_NAVIGATION;
       addEvent("Select something on the map before opening contextual commands.");
       persist();
-      render();
+      renderMapSelectionInteraction();
       return false;
     }
     ui.commandMenuOpen = true;
@@ -6437,7 +6437,7 @@
       addEvent("No contextual commands for the current selection.");
     }
     persist();
-    render();
+    renderMapSelectionInteraction();
     return true;
   }
 
@@ -6513,7 +6513,7 @@
         return;
       }
       measuredMapViewportPixels = pixels;
-      render();
+      renderMapInteraction();
     });
   }
 
@@ -6525,7 +6525,7 @@
     mapViewportResizeFrame = window.requestAnimationFrame(() => {
       mapViewportResizeFrame = 0;
       if (state?.started && currentWorkspaceTab() === "map") {
-        render();
+        renderMapInteraction();
       }
     });
   }
@@ -6643,7 +6643,7 @@
       y: anchor.y - Math.floor(nextSize.height / 2)
     }, map, ui.mapZoomIndex);
     persist();
-    render();
+    renderMapInteraction();
     return true;
   }
 
@@ -6721,7 +6721,7 @@
     setUiMode(UI_MODE_NAVIGATION);
     setActiveWorkspaceTab("map");
     persist();
-    render();
+    renderMapInteraction();
   }
 
   function mapCursorMovementForKey(event) {
@@ -13200,10 +13200,10 @@
     return "Intact";
   }
 
-  function wallAllowsAttackTransmission(cell, map = ensureLabMap()) {
+  function wallAllowsAttackTransmission(cell, map = ensureLabMap(), excavatedKeys = null) {
     const wall = constructedWallAtCell(cell, map);
     if (wall) return wall.condition > 0 && wall.condition < STRUCTURE_BREACH_THRESHOLD;
-    if (!labMapCellIsExcavated(cell, map)) {
+    if (!labMapCellIsExcavated(cell, map, excavatedKeys)) {
       const damage = naturalDamageAtCell(cell, map);
       return Boolean(damage && damage.condition > 0 && damage.condition < STRUCTURE_BREACH_THRESHOLD);
     }
@@ -37282,7 +37282,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null) {
+  function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null, excavatedKeys = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}`];
@@ -37292,7 +37292,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       parts.push(`${plannedEntry.label}${plannedEntry.blockedReason ? `; blocked: ${plannedEntry.blockedReason}` : ""}`);
     } else if (roomId) {
       parts.push(roomName(roomId));
-    } else if (labMapCellIsExcavated(cell, map)) {
+    } else if (labMapCellIsExcavated(cell, map, excavatedKeys)) {
       const floor = constructedFloorAtCell(cell, map);
       const wall = constructedWallAtCell(cell, map);
       parts.push(wall ? `${materialCompositionLabel(wall.materialComposition)} constructed wall; ${structureConditionBand(wall.condition)}` : floor ? `${materialCompositionLabel(floor.materialComposition)} constructed floor; ${structureConditionBand(floor.condition)}` : "rough excavated floor");
@@ -37309,11 +37309,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
-    if (!labMapCellIsExcavated(cell, map)) {
+    if (!labMapCellIsExcavated(cell, map, excavatedKeys)) {
       const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
       parts.push(`${MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${structureConditionBand(naturalCondition)}`);
     }
-    if (wallAllowsAttackTransmission(cell, map)) parts.push("breach passes attacks and directed abilities, but not movement");
+    if (wallAllowsAttackTransmission(cell, map, excavatedKeys)) parts.push("breach passes attacks and directed abilities, but not movement");
     const rubble = rubbleAtCell(cell, map);
     if (rubble.length) parts.push(`rubble: ${rubble.flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ")}`);
     if (objectEntry?.labels?.length) {
@@ -37321,7 +37321,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (objectEntry?.classNames?.has?.("blocking-object-cell")) {
       parts.push("blocks movement");
-    } else if (labMapCellIsWalkable(cell, map)) {
+    } else if (labMapCellIsWalkable(cell, map, excavatedKeys)) {
       parts.push("walkable");
     }
     if (pathEntry) {
@@ -42221,10 +42221,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return keys;
   }
 
-  function labMapCellKnown(cell, map, knownCellKeys) {
+  function labMapCellKnown(cell, map, knownCellKeys, excavatedKeys = null) {
     return knownCellKeys === null
       || knownCellKeys?.has?.(mapCellKey(cell))
-      || labMapCellIsExcavated(cell, map);
+      || labMapCellIsExcavated(cell, map, excavatedKeys);
   }
 
   function labMapCellBaseView(roomId, excavated = false, plannedEntry = null, draftEntry = null, known = true, cell = null, map = null) {
@@ -42371,11 +42371,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     selectedTarget,
     scientistCell,
     cursorCell,
-    known
+    known,
+    excavatedKeys
   }) {
     const visible = known !== false;
     const roomId = visible ? labMapCellRoomId(cell, map) : "";
-    const excavated = visible && labMapCellIsExcavated(cell, map);
+    const excavated = visible && labMapCellIsExcavated(cell, map, excavatedKeys);
     const door = visible ? labMapDoorAtCell(cell, map) : null;
     const stateDoor = door ? doorFixtureState(door) || door : null;
     const scientistHere = visible && scientistCell.x === cell.x && scientistCell.y === cell.y;
@@ -42431,7 +42432,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const selected = visible && selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, overlayEntry: visibleOverlayEntry, scientistHere });
     const cursor = visible && Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
     const tooltipParts = visible
-      ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry)
+      ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry, excavatedKeys)
       : [`${cell.x}, ${cell.y}`, "unknown darkness"];
     if (cursor) {
       tooltipParts.push("Keyboard cursor");
@@ -42632,6 +42633,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const viewport = mapViewportForUi(map);
     const anchors = labMapAnchorAssignments(map);
     const knownCellKeys = labMapKnownCellKeys(map, { fullReveal });
+    const excavatedKeys = labMapExcavatedCellKeys(map);
     const compartmentInference = inferLabCompartments(map);
     const cells = [];
 
@@ -42639,7 +42641,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (let x = viewport.x; x < viewport.x + viewport.width; x += 1) {
         const cell = { x, y };
         const key = mapCellKey(cell);
-        const known = labMapCellKnown(cell, map, knownCellKeys);
+        const known = labMapCellKnown(cell, map, knownCellKeys, excavatedKeys);
         const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
         const cellView = buildLabMapCellView({
           cell,
@@ -42654,7 +42656,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           selectedTarget,
           scientistCell,
           cursorCell,
-          known
+          known,
+          excavatedKeys
         });
         cellView.compartmentId = compartmentInference.cellToCompartment.get(key) || "";
         cells.push(cellView);
@@ -42727,7 +42730,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       setActiveWorkspaceTab("map");
       persist();
-      render();
+      renderMapSelectionInteraction();
       return true;
     }
     setSelectedMapTarget(normalized);
@@ -43518,16 +43521,82 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
-  function renderRooms() {
-    state.rooms = normalizeRooms(state.rooms);
-    syncRoomObservationMemory();
-    observeScientistRoom();
-    refreshIncidentAlerts();
+  function renderMapSurface() {
     dom.roomList.textContent = "";
     dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
     scheduleMapViewportMeasurement();
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} mapped room${state.rooms.length === 1 ? "" : "s"}; current location: ${roomName(scientistRoomId())}${mapSummary ? `; ${mapSummary}` : ""}`;
+  }
+
+  function renderMapInteraction() {
+    if (!state?.started || currentWorkspaceTab() !== "map") {
+      render();
+      return;
+    }
+    syncSelectionState();
+    renderMapSurface();
+    renderContextCommandMenu();
+    renderMapOverlayHud();
+    syncWorkspaceShell();
+    explainDisabledButtons();
+  }
+
+  function mapGridMatchesCurrentViewport(grid) {
+    if (!grid) return false;
+    const viewport = mapViewportForUi(ensureLabMap());
+    return Number(grid.dataset.mapViewportX) === viewport.x
+      && Number(grid.dataset.mapViewportY) === viewport.y
+      && Number(grid.dataset.mapViewportWidth) === viewport.width
+      && Number(grid.dataset.mapViewportHeight) === viewport.height
+      && Number.parseFloat(grid.style.getPropertyValue("--map-tile-size")) === viewport.tilePx;
+  }
+
+  function updateMapSelectionHighlight(grid, selection = currentSelection()) {
+    for (const tile of grid?.querySelectorAll?.(".selected-map-cell") || []) {
+      tile.classList.remove("selected-map-cell");
+    }
+    if (!grid || !selection) return;
+    if (selection.kind === "room" || selection.kind === "stockpile") {
+      const roomId = selection.roomId || "";
+      for (const tile of grid.querySelectorAll("[data-map-room]")) {
+        if (tile.dataset.mapRoom === roomId) tile.classList.add("selected-map-cell");
+      }
+      return;
+    }
+    const cell = selectionMapCell(selection);
+    if (!cell) return;
+    grid.querySelector(`[data-map-x="${cell.x}"][data-map-y="${cell.y}"]`)?.classList.add("selected-map-cell");
+  }
+
+  function renderMapSelectionInteraction() {
+    if (!state?.started || currentWorkspaceTab() !== "map") {
+      render();
+      return;
+    }
+    syncSelectionState();
+    const grid = dom.roomList?.querySelector?.(".lab-map-grid");
+    if (!mapGridMatchesCurrentViewport(grid)) {
+      renderMapInteraction();
+      return;
+    }
+    updateMapSelectionHighlight(grid);
+    const nextInspector = selectionInspectorEl();
+    const currentInspector = dom.roomList?.querySelector?.('[data-selection-inspector="true"]');
+    if (currentInspector) currentInspector.replaceWith(nextInspector);
+    else dom.roomList?.append(nextInspector);
+    renderContextCommandMenu();
+    renderMapOverlayHud();
+    syncWorkspaceShell();
+    explainDisabledButtons();
+  }
+
+  function renderRooms() {
+    state.rooms = normalizeRooms(state.rooms);
+    syncRoomObservationMemory();
+    observeScientistRoom();
+    refreshIncidentAlerts();
+    renderMapSurface();
   }
 
   function biologicalCleanupActiveInRoom(roomId) {
