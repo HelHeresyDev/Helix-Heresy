@@ -252,3 +252,16 @@ test('map-only interactions do not rebuild hidden management panels', async ({ p
   await expect(page.locator('[data-context-command-panel="true"]')).toBeVisible();
   await expect(page.locator('[data-map-render-sentinel="true"]')).toHaveCount(1);
 });
+
+test('selecting a multi-tile object highlights its full footprint', async ({ page }) => {
+  await startRun(page);
+
+  const footprint = page.locator('[data-map-object-selection-keys~="container:basic-11"]');
+  expect(await footprint.count()).toBeGreaterThan(1);
+  await footprint.first().click();
+
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'container');
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-id', 'basic-11');
+  const selectedCount = await footprint.evaluateAll((tiles) => tiles.filter((tile) => tile.classList.contains('selected-map-cell')).length);
+  expect(selectedCount).toBe(await footprint.count());
+});

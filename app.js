@@ -42593,6 +42593,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset.mapTargetDoor = cellView.target.key;
       }
     }
+    if (cellView.object?.targets?.length) {
+      dataset.mapObjectSelectionKeys = [...new Set(cellView.object.targets.map(selectionKey).filter(Boolean))].join(" ");
+    }
     if (cellView.scientist) {
       classNames.push("scientist-cell");
     } else if (cellView.object) {
@@ -43564,6 +43567,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return;
     }
+    const selectedKey = selectionKey(selection);
+    let footprintMatched = false;
+    for (const tile of grid.querySelectorAll("[data-map-object-selection-keys]")) {
+      const keys = String(tile.dataset.mapObjectSelectionKeys || "").split(/\s+/);
+      if (!keys.includes(selectedKey)) continue;
+      tile.classList.add("selected-map-cell");
+      footprintMatched = true;
+    }
+    if (footprintMatched) return;
     const cell = selectionMapCell(selection);
     if (!cell) return;
     grid.querySelector(`[data-map-x="${cell.x}"][data-map-y="${cell.y}"]`)?.classList.add("selected-map-cell");
