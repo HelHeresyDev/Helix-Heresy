@@ -1374,6 +1374,10 @@
   const REMAINS_SCRAPE_STAMINA = 9;
   const LIVE_TRANSFER_DURATION = 14;
   const LIVE_TRANSFER_STAMINA = 8;
+  const RECAPTURE_BASE_DURATION = 24;
+  const RECAPTURE_STAMINA = 12;
+  const PLACE_BAIT_DURATION = 8;
+  const PLACE_BAIT_STAMINA = 4;
   const OUT_OF_CONTAINER_CONTAMINATION_FLOOR = 8;
   const OUT_OF_CONTAINER_CONTAMINATION_MOVE_THRESHOLD = 4;
   const OUT_OF_CONTAINER_CONTAMINATION_CLEAN_PER_HOUR = 10;
@@ -3418,6 +3422,8 @@
     "scientistMove",
     "doorOperation",
     "containerInteraction",
+    "recaptureSlime",
+    "placeBait",
     "collectionBayTransfer",
     "spillCleanup",
     "blackMarketTrade",
@@ -4585,6 +4591,21 @@
         }
         return started;
       },
+      relocateLooseSlime: (slimeId, cell) => {
+        const slime = findSlime(slimeId);
+        const target = cleanMapCell(cell);
+        if (!slime || !slimeIsUncontained(slime) || !target || !labMapCellIsWalkable(target)) return false;
+        slime.mapCell = target;
+        slime.roomId = labMapCellRoomId(target) || slime.roomId;
+        slime.autonomousMovement = null;
+        slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
+        slime.roomActivity = { type: "quiescent", label: "remaining quiescent", roomId: slime.roomId, updatedAt: state.clock };
+        updateSensorySystems(0);
+        refreshIncidentAlerts();
+        persist();
+        render();
+        return true;
+      },
       startSlimeMovementThroughDoor: (slimeId, doorId) => {
         const slime = findSlime(slimeId);
         const mapDoor = labMapDoor(doorId);
@@ -4626,6 +4647,28 @@
       accessControlSnapshot: () => JSON.parse(JSON.stringify(ensureAccessControl())),
       accessBlockReasons: (path, actorId = "scientist") => pathAccessBlockReasons(actorId === "scientist" ? state.scientist : findSlime(actorId), path),
       startScientistMove: (roomId, options = {}) => startScientistMove(roomId, options),
+      startSlimeRecapture: (slimeId, containerId) => startSlimeRecapture(slimeId, containerId),
+      startPlaceBait: (cell, feedstockKey) => startPlaceBait(cell, feedstockKey),
+      containmentResponseSnapshot: (slimeId = "") => {
+        const slime = slimeId ? findSlime(slimeId) : null;
+        return {
+          slime: slime ? { id: slime.id, status: slime.status, containerId: slime.containerId, cell: objectMapCell(slime) } : null,
+          incident: slime ? looseSlimeIncident(slime) : null,
+          destinations: slime ? recaptureDestinationCandidates(slime).map((container) => ({
+            id: container.id,
+            name: container.name,
+            blockReason: recaptureSlimeBlockReason(slime, container),
+            risk: recaptureRiskAssessment(slime, container, { knownOnly: true }).band
+          })) : [],
+          tasks: scientistQueueTasks().filter((task) => ["recaptureSlime", "placeBait"].includes(task.type)).map((task) => ({ ...task, data: { ...task.data } }))
+        };
+      },
+      selectMapTarget: (target) => {
+        const selection = setSelection(target, { source: "map", centerMap: true });
+        persist();
+        render();
+        return selection;
+      },
       taskStatusSnapshot: () => scientistQueueTasks().map((task) => ({ id: task.id, type: task.type, label: task.label, status: taskStatusInfo(task), data: { ...task.data } })),
       queueDoorOperation: (doorId, operation, value, options = {}) => queueDoorOperation(doorId, operation, value, options),
       materialCatalog: () => MATERIAL_DEFS.map((material) => ({ ...material, properties: { ...material.properties } })),
@@ -7176,6 +7219,16 @@
 
     if (task.type === "containerInteraction") {
       completeContainerInteraction(task);
+      return;
+    }
+
+    if (task.type === "recaptureSlime") {
+      completeSlimeRecapture(task);
+      return;
+    }
+
+    if (task.type === "placeBait") {
+      completePlaceBait(task);
       return;
     }
 
@@ -14514,6 +14567,7 @@
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
     if (stack.carriedBy === "scientist") return true;
+    if (normalizeResidueTags(stack.tags).includes("bait")) return true;
     if (stack.containerId || stack.form === "spill" || stack.form === "waste") return true;
     const designation = stack.stockpileId
       ? ensureStockpileDesignations().find((entry) => entry.id === stack.stockpileId)
@@ -20223,6 +20277,454 @@
     persist();
     render();
     return true;
+  }
+
+  function looseSlimeIncident(slime) {
+    if (!slime) return null;
+    return activeIncidentAlerts().find((incident) => incident.sourceKind === "slime" && incident.sourceId === slime.id) || null;
+  }
+
+  function exactlyObservedLooseSlimeIncident(slime) {
+    const incident = looseSlimeIncident(slime);
+    return incident && incident.perceptionPrecision === "exact" ? incident : null;
+  }
+
+  function recaptureDestinationCandidates(slime) {
+    if (!slime || !slimeIsUncontained(slime) || slime.status === "dead") return [];
+    return permanentContainers()
+      .filter(containerUsableForContainment)
+      .filter((container) => !isContainerInTransit(container.id))
+      .filter((container) => containerContentsCount(container) === 0)
+      .sort((left, right) => {
+        const leftLocal = left.roomId === slimeEffectiveRoomId(slime) ? 0 : 1;
+        const rightLocal = right.roomId === slimeEffectiveRoomId(slime) ? 0 : 1;
+        const leftFit = containerCompatibilityAssessment(slime, left, { knownOnly: true }).score;
+        const rightFit = containerCompatibilityAssessment(slime, right, { knownOnly: true }).score;
+        return leftLocal - rightLocal || leftFit - rightFit || String(left.name).localeCompare(String(right.name));
+      });
+  }
+
+  function recaptureHostilityReason(slime) {
+    if (!slime) return "No living slime selected.";
+    if (combatRecordForSlime(slime)) return `${slime.name} is actively fighting and must be subdued, trapped, or distracted first.`;
+    const intent = String(slime.roomActivity?.combatIntent || "");
+    if (["attack", "feedAttack", "fight"].includes(intent)) {
+      return `${slime.name} is actively attacking and must be subdued, trapped, or distracted first.`;
+    }
+    return "";
+  }
+
+  function recaptureRiskAssessment(slime, container, options = {}) {
+    const knownOnly = options.knownOnly !== false;
+    const revealed = slime?.revealed || {};
+    const evaluated = slime ? evaluateGenome(slime.genome) : null;
+    const profile = slime ? physicalProfile(slime.genome, evaluated) : null;
+    let score = 8;
+    const concerns = [];
+    const unknown = [];
+    const stress = slime ? slimeStat(slime, "stress").current : 0;
+    const mass = slime ? slimeStat(slime, "currentMass").current : 0;
+    score += stress * 0.22 + mass * 0.08;
+    if (!knownOnly || revealed.size) {
+      const weight = Math.max(0, Number(profile?.weightKg) || 0) * clamp(mass / 100, 0.01, 1);
+      score += Math.min(24, weight * 1.5);
+      if (weight > 8) concerns.push("substantial moving mass");
+    } else {
+      unknown.push("size and weight");
+    }
+    if (!knownOnly || revealed.consistency) {
+      if (/watery|runny|syrup|loose|mucous|foamy|slurry/i.test(profile?.consistency || "")) {
+        score += 14;
+        concerns.push("difficult-to-grip body consistency");
+      }
+    } else {
+      unknown.push("body consistency");
+    }
+    if (!knownOnly || revealed.element) {
+      const hazards = knownOnly
+        ? slimeElementalHazardProfile(slime, evaluated)?.damageTypes || []
+        : damageTypesForElementOutcome(evaluated?.traits?.element);
+      score += hazards.length * 6;
+      if (hazards.length) concerns.push("elemental contact hazard");
+    } else {
+      unknown.push("elemental contact hazard");
+    }
+    if ((!knownOnly || revealed.behavior) && /predatory|aggressive|hunting|ambush|territorial/i.test(baseOutcomeLabel(evaluated?.traits?.behavior))) {
+      score += 18;
+      concerns.push("aggressive observed behavior");
+    } else if (knownOnly && !revealed.behavior) {
+      unknown.push("behavior");
+    }
+    const fit = containerCompatibilityAssessment(slime, container, { knownOnly });
+    score += Math.min(24, Math.max(0, Number(fit.score) || 0) * 0.22);
+    const methodId = currentHandlingMethodId();
+    const methodReduction = { bareHands: 0, thickGloves: 8, longTongs: 16, hookPole: 13, scraper: 4 }[methodId] || 0;
+    score -= methodReduction + Math.min(18, skillLevel("creatureHandling") * 0.35);
+    score = clamp(Math.round(score), 0, 100);
+    const band = score < 22 ? "Routine" : score < 48 ? "Risky" : "Extremely Dangerous";
+    return { score, band, concerns, unknown, fit };
+  }
+
+  function recaptureRiskDescription(slime, container) {
+    const risk = recaptureRiskAssessment(slime, container, { knownOnly: true });
+    const details = [];
+    if (risk.concerns.length) details.push(`Known concerns: ${risk.concerns.join(", ")}.`);
+    if (risk.unknown.length) details.push(`Unknown factors: ${risk.unknown.join(", ")}.`);
+    return `${risk.band} recapture using ${currentHandlingMethod().label}. ${details.join(" ")}`.trim();
+  }
+
+  function recaptureTaskForSlime(slimeId) {
+    return scientistQueueTasks().find((task) => task.type === "recaptureSlime" && task.data?.slimeId === slimeId) || null;
+  }
+
+  function recapturePlan(slime, container, incident = exactlyObservedLooseSlimeIncident(slime), methodId = currentHandlingMethodId()) {
+    const targetCell = cleanMapCell(incident?.cell);
+    if (!slime || !container || !targetCell) return null;
+    const map = ensureLabMap();
+    const targetRoomId = roomById(incident.roomId)?.id || slimeEffectiveRoomId(slime);
+    const captureCell = methodId === "bareHands"
+      ? canActorOccupyTile(state.scientist, targetCell) ? targetCell : null
+      : nearestObjectAccessCell(targetCell, { width: 1, height: 1 }, targetRoomId, {
+          map,
+          preferredCell: scientistMapCell(),
+          actor: state.scientist,
+          ignoreAccessPolicy: true
+        });
+    const destinationCell = nearestObjectAccessCell(objectMapCell(container), containerFootprintDimensions(container), container.roomId, {
+      map,
+      preferredCell: captureCell,
+      actor: state.scientist,
+      ignoreAccessPolicy: true
+    });
+    if (!captureCell || !destinationCell) return null;
+    const toTarget = labMapPathBetweenCells(scientistMapCell(), captureCell, { map, actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+    const toDestination = labMapPathBetweenCells(captureCell, destinationCell, { map, actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+    if (!toTarget.length || !toDestination.length) return null;
+    const mapPath = appendMapPath(toTarget, toDestination);
+    const route = [scientistRoomId(), ...roomsFromMapPath(mapPath, map)]
+      .filter((roomId, index, list) => roomId && roomId !== list[index - 1]);
+    return { incident, targetCell, captureCell, destinationCell, mapPath, route };
+  }
+
+  function recaptureSlimeBlockReason(slime, container, options = {}) {
+    if (!slime || slime.status === "dead") return "No living slime selected.";
+    if (!slimeIsUncontained(slime)) return `${slime.name} is already contained.`;
+    if (scientistIsDead()) return "The scientist is dead.";
+    const existing = recaptureTaskForSlime(slime.id);
+    if (existing && existing.id !== options.taskId) return `Recapture of ${slime.name} is already queued.`;
+    const secured = Boolean(options.secured);
+    const hostility = secured ? "" : recaptureHostilityReason(slime);
+    if (hostility) return hostility;
+    const incident = secured ? looseSlimeIncident(slime) : exactlyObservedLooseSlimeIncident(slime);
+    if (!secured && !incident) return `${slime.name} is not at an exactly observed location. Search its last-known area first.`;
+    if (!secured && options.targetCell && mapCellKey(incident.cell) !== mapCellKey(options.targetCell)) {
+      return `${slime.name} moved away from the recorded capture point. Reissue the order from its new observed location.`;
+    }
+    if (!container) return "No destination container selected.";
+    if (!containerUsableForContainment(container)) return `${container.name} cannot currently hold a specimen.`;
+    if (isContainerInTransit(container.id)) return `${container.name} is being hauled.`;
+    if (containerContentsCount(container) > 0) return `${container.name} is no longer empty.`;
+    if (scientistQueueTasks().some((task) => task.type === "recaptureSlime" && task.id !== options.taskId && task.data?.destinationContainerId === container.id)) {
+      return `${container.name} is reserved for another recapture.`;
+    }
+    if (!secured && !recapturePlan(slime, container, incident, options.methodId || currentHandlingMethodId())) return "No physical route reaches both the observed creature and the destination container.";
+    const readiness = physicalStateRiskBlockReason(`recapturing ${slime.name}`)
+      || handlingMethodMissingToolReason(options.taskId ? options.methodId || currentHandlingMethodId() : currentHandlingMethodId());
+    return readiness || (options.taskId ? "" : staminaBlockReason(adjustedStaminaCost(RECAPTURE_STAMINA, ["creatureHandling"])));
+  }
+
+  function startSlimeRecapture(slimeId, destinationContainerId) {
+    const slime = findSlime(slimeId);
+    const container = containerById(destinationContainerId);
+    const reason = recaptureSlimeBlockReason(slime, container);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (!confirmPhysicalStateRiskIfNeeded(`recapturing ${slime.name}`)) return false;
+    const plan = recapturePlan(slime, container, undefined, currentHandlingMethodId());
+    const violations = pathAccessViolations(state.scientist, plan.mapPath);
+    if (violations.length) {
+      const accepted = window.confirm(`This recapture order overrides the scientist's access policy:\n\n${[...new Set(violations.map((entry) => entry.reason))].join("\n")}\n\nProceed anyway?`);
+      if (!accepted) return false;
+    }
+    const cost = adjustedStaminaCost(RECAPTURE_STAMINA, ["creatureHandling"]);
+    if (!spendStamina(cost)) return false;
+    const queueStart = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travel = mapPathTravelDistanceMeters(plan.mapPath) / scientistMoveSpeedMps();
+    const duration = adjustedSecondsDuration(travel + RECAPTURE_BASE_DURATION, "creatureHandling");
+    const recaptureMode = isPitHoleContainer(container) ? "herd" : "carry";
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "recaptureSlime",
+      label: `${recaptureMode === "herd" ? "Herd" : "Recapture"} ${slime.name} into ${container.name}`,
+      createdAt: state.clock,
+      dueAt: queueStart + duration,
+      data: {
+        slimeId: slime.id,
+        destinationContainerId: container.id,
+        incidentId: plan.incident.id,
+        targetCell: plan.targetCell,
+        captureCell: plan.captureCell,
+        toCell: plan.destinationCell,
+        roomId: container.roomId,
+        mapPath: plan.mapPath,
+        route: plan.route,
+        movement: createScientistMovementRecord(plan.mapPath, duration, queueStart),
+        doorTransit: doorTransitPlan(plan.route),
+        methodId: currentHandlingMethodId(),
+        recaptureMode,
+        staminaCost: cost,
+        accessOverride: violations.length > 0,
+        accessOverrideKeys: violations.map((entry) => entry.key)
+      }
+    };
+    state.tasks.push(task);
+    plan.incident.responseStartedAt = state.clock;
+    plan.incident.responseTaskId = task.id;
+    plan.incident.acknowledgedAt ??= state.clock;
+    plan.incident.updatedAt = state.clock;
+    addEvent(`${task.label} queued. The scientist will approach the observed creature and ${recaptureMode === "herd" ? "guide it into the selected pit" : "physically carry it to the selected container"}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completeSlimeRecapture(task) {
+    const slime = findSlime(task.data?.slimeId);
+    const container = containerById(task.data?.destinationContainerId);
+    const incident = incidentById(task.data?.incidentId);
+    if (incident?.responseTaskId === task.id) incident.responseTaskId = "";
+    const reason = recaptureSlimeBlockReason(slime, container, { taskId: task.id, targetCell: task.data?.targetCell, secured: task.data?.secured, methodId: task.data?.methodId });
+    if (reason) {
+      addEvent(`Recapture could not complete: ${reason}`);
+      return false;
+    }
+    const methodId = HANDLING_METHOD_BY_ID[task.data?.methodId] ? task.data.methodId : DEFAULT_HANDLING_METHOD;
+    const method = HANDLING_METHOD_BY_ID[methodId];
+    const recaptureMode = task.data?.recaptureMode === "herd" ? "herd" : "carry";
+    const risk = recaptureRiskAssessment(slime, container, { knownOnly: false });
+    const successChance = clamp(0.97 - risk.score * 0.008, 0.18, 0.97);
+    const success = seedRng(`${state.seed}:recapture:${task.id}:${slime.id}:${container.id}`)() <= successChance;
+    applyHandlingToolWear(methodId, container, "transferLivingSlime", { score: risk.score, damage: Math.ceil(risk.score / 22), band: risk.band }, {
+      slimes: [slime],
+      extraRisk: risk.score,
+      reason: `recapturing ${slime.name}`
+    });
+    if (!success) {
+      const damage = Math.max(1, Math.ceil(risk.score / 18));
+      damageScientistHealth(damage, `${risk.band.toLowerCase()} failed recapture of ${slime.name} with ${method.label}`);
+      adjustSlimeStat(slime, "stress", 12 + Math.ceil(risk.score / 8));
+      slime.mapCell = cleanMapCell(state.scientist.mapCell) || slime.mapCell;
+      slime.roomId = scientistRoomId();
+      slime.nextAutonomousDecisionAt = state.clock;
+      slime.roomActivity = { type: "emerging", label: "recovering from failed handling", roomId: slime.roomId, updatedAt: state.clock };
+      rememberCreatureExperience(slime, "handlingResisted", 8, "Failed recapture");
+      awardActionXp("creatureHandling", 3, emptyRevealSummary(), "Failed recapture", { outcome: "failure" });
+      addEvent(`${slime.name} resisted recapture into ${container.name}. The scientist took ${damage} Health damage; the creature remains loose.`);
+      return false;
+    }
+    const incidentalDamage = risk.score >= 55 ? Math.max(1, Math.floor((risk.score - 40) / 20)) : 0;
+    if (incidentalDamage) damageScientistHealth(incidentalDamage, `${risk.band.toLowerCase()} recapture exposure from ${slime.name}`);
+    adjustSlimeStat(slime, "stress", 8 + Math.ceil(risk.score / 10));
+    foulContainerAfterLiveTransfer(container, risk.score >= 50 ? 7 : 4);
+    assignSlimeToContainer(slime, container.id);
+    if (!containerAlwaysOpen(container)) container.isOpen = false;
+    applyDoorTransitPolicy(task.data?.doorTransit, "Recapture");
+    awardActionXp("creatureHandling", 10, emptyRevealSummary(), "Recapture", { outcome: risk.score >= 50 ? "partial" : "success" });
+    addEvent(`${slime.name} ${recaptureMode === "herd" ? "herded into" : "recaptured in"} ${container.name} with ${method.label}. Handling risk was ${risk.band}.${incidentalDamage ? ` The scientist took ${incidentalDamage} Health damage.` : ""}`);
+    return true;
+  }
+
+  function updateRecaptureCarryState(task, movement) {
+    if (task?.type !== "recaptureSlime") return 0;
+    const slime = findSlime(task.data?.slimeId);
+    if (!slime || slime.status === "dead" || !slimeIsUncontained(slime)) return 0;
+    if (!task.data.secured && mapCellKey(state.scientist.mapCell) === mapCellKey(task.data?.captureCell)) {
+      if (mapCellKey(objectMapCell(slime)) !== mapCellKey(task.data?.targetCell)) {
+        task.data.blockedReason = `${slime.name} was not at the recorded capture point when the scientist arrived.`;
+        task.data.blockedAt = state.clock;
+        return 1;
+      }
+      const hostility = recaptureHostilityReason(slime);
+      if (hostility) {
+        task.data.blockedReason = hostility;
+        task.data.blockedAt = state.clock;
+        return 1;
+      }
+      task.data.secured = true;
+      task.data.securedAt = state.clock;
+      slime.autonomousMovement = null;
+      movementReservations.releaseActor(actorNavigationId(slime));
+      slime.roomActivity = {
+        type: "restrained",
+        label: task.data?.recaptureMode === "herd" ? "being herded toward a pit" : "being carried for recapture",
+        roomId: scientistRoomId(),
+        targetKind: "container",
+        targetId: task.data.destinationContainerId,
+        targetLabel: containerById(task.data.destinationContainerId)?.name || "containment",
+        updatedAt: state.clock
+      };
+    }
+    if (task.data.secured) {
+      slime.mapCell = cleanMapCell(state.scientist.mapCell);
+      slime.roomId = scientistRoomId();
+      slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
+      return 1;
+    }
+    return 0;
+  }
+
+  function baitSourceStacks(feedstockKey) {
+    if (!FEEDSTOCK_BY_KEY[feedstockKey]) return [];
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "resources" && stack.key === feedstockKey && stack.quantity > 0)
+      .filter((stack) => !stack.reservedTaskId)
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .sort((left, right) => {
+        const leftPath = labMapPathBetweenCells(scientistMapCell(), stockpileHaulAccessCell(left), { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+        const rightPath = labMapPathBetweenCells(scientistMapCell(), stockpileHaulAccessCell(right), { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+        return leftPath.length - rightPath.length || left.observedAt - right.observedAt;
+      });
+  }
+
+  function baitPlacementTaskAtCell(cell) {
+    const key = mapCellKey(cell);
+    return scientistQueueTasks().find((task) => task.type === "placeBait" && mapCellKey(task.data?.targetCell) === key) || null;
+  }
+
+  function baitPlacementPlan(cell, feedstockKey, sourceStack = baitSourceStacks(feedstockKey)[0]) {
+    const targetCell = cleanMapCell(cell);
+    const sourceCell = sourceStack ? stockpileHaulAccessCell(sourceStack) : null;
+    if (!targetCell || !sourceCell) return null;
+    const map = ensureLabMap();
+    const toSource = labMapPathBetweenCells(scientistMapCell(), sourceCell, { map, actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+    const toTarget = labMapPathBetweenCells(sourceCell, targetCell, { map, actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+    if (!toSource.length || !toTarget.length) return null;
+    const mapPath = appendMapPath(toSource, toTarget);
+    return {
+      sourceStack,
+      sourceCell,
+      targetCell,
+      roomId: labMapCellRoomId(targetCell, map) || nearestDesignatedRoomIdForCell(targetCell),
+      mapPath,
+      route: [scientistRoomId(), ...roomsFromMapPath(mapPath, map)]
+        .filter((roomId, index, list) => roomId && roomId !== list[index - 1])
+    };
+  }
+
+  function placeBaitBlockReason(cell, feedstockKey, options = {}) {
+    const targetCell = cleanMapCell(cell);
+    const feedstock = FEEDSTOCK_BY_KEY[feedstockKey];
+    if (scientistIsDead()) return "The scientist is dead.";
+    if (!targetCell || !labMapCellIsWalkable(targetCell)) return "Bait can only be placed on excavated walkable floor.";
+    const existing = baitPlacementTaskAtCell(targetCell);
+    if (existing && existing.id !== options.taskId) return "Bait placement is already queued for this tile.";
+    if (!feedstock) return "Choose a valid feedstock.";
+    const sourceStack = options.sourceStack || ensurePhysicalItemStacks().find((stack) => stack.id === options.sourceStackId) || baitSourceStacks(feedstockKey)[0];
+    if (!sourceStack || sourceStack.quantity < 1) return `No unreserved ${feedstock.label} is physically available.`;
+    if (sourceStack.reservedTaskId && sourceStack.reservedTaskId !== options.taskId) return `${feedstock.label} is reserved for other work.`;
+    if (!baitPlacementPlan(targetCell, feedstockKey, sourceStack)) return "No physical route reaches both the feedstock and the selected tile.";
+    const readiness = physicalStateRiskBlockReason(`placing ${feedstock.label} bait`);
+    return readiness || (options.taskId ? "" : staminaBlockReason(adjustedStaminaCost(PLACE_BAIT_STAMINA, ["creatureHandling"])));
+  }
+
+  function startPlaceBait(cell, feedstockKey) {
+    const targetCell = cleanMapCell(cell);
+    const sourceStack = baitSourceStacks(feedstockKey)[0] || null;
+    const reason = placeBaitBlockReason(targetCell, feedstockKey, { sourceStack });
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const plan = baitPlacementPlan(targetCell, feedstockKey, sourceStack);
+    const violations = pathAccessViolations(state.scientist, plan.mapPath);
+    if (violations.length) {
+      const accepted = window.confirm(`This bait placement overrides the scientist's access policy:\n\n${[...new Set(violations.map((entry) => entry.reason))].join("\n")}\n\nProceed anyway?`);
+      if (!accepted) return false;
+    }
+    const cost = adjustedStaminaCost(PLACE_BAIT_STAMINA, ["creatureHandling"]);
+    if (!spendStamina(cost)) return false;
+    const queueStart = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travel = mapPathTravelDistanceMeters(plan.mapPath) / scientistMoveSpeedMps();
+    const duration = adjustedSecondsDuration(travel + PLACE_BAIT_DURATION, "creatureHandling");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "placeBait",
+      label: `Place ${FEEDSTOCK_BY_KEY[feedstockKey].label} bait at ${targetCell.x},${targetCell.y}`,
+      createdAt: state.clock,
+      dueAt: queueStart + duration,
+      data: {
+        feedstockKey,
+        sourceStackId: sourceStack.id,
+        targetCell,
+        toCell: targetCell,
+        roomId: plan.roomId,
+        mapPath: plan.mapPath,
+        route: plan.route,
+        movement: createScientistMovementRecord(plan.mapPath, duration, queueStart),
+        doorTransit: doorTransitPlan(plan.route),
+        staminaCost: cost,
+        accessOverride: violations.length > 0,
+        accessOverrideKeys: violations.map((entry) => entry.key)
+      }
+    };
+    sourceStack.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`${task.label} queued. The selected feedstock remains reserved until the scientist places it.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completePlaceBait(task) {
+    const sourceStack = ensurePhysicalItemStacks().find((stack) => stack.id === task.data?.sourceStackId);
+    const reason = placeBaitBlockReason(task.data?.targetCell, task.data?.feedstockKey, {
+      taskId: task.id,
+      sourceStackId: task.data?.sourceStackId,
+      sourceStack
+    });
+    if (reason) {
+      if (sourceStack?.reservedTaskId === task.id) sourceStack.reservedTaskId = "";
+      addEvent(`Bait placement could not complete: ${reason}`);
+      return false;
+    }
+    const feedstock = FEEDSTOCK_BY_KEY[task.data.feedstockKey];
+    sourceStack.quantity = Math.max(0, sourceStack.quantity - 1);
+    sourceStack.knownQuantity = Math.max(0, sourceStack.knownQuantity - 1);
+    sourceStack.reservedTaskId = "";
+    sourceStack.updatedAt = state.clock;
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.quantity > 0 || stack.knownQuantity > 0);
+    const tags = [...feedstock.tags, "bait", "exposed"];
+    createPhysicalItemStack("resources", feedstock.key, 1, {
+      roomId: task.data.roomId,
+      cell: task.data.targetCell,
+      fixtureId: "",
+      stockpileId: ""
+    }, { tags, sourceLabel: `Bait placed by scientist`, deferSync: true });
+    const traceId = tags.some((tag) => /hazard|toxic|poison|acid|contamin/i.test(tag)) ? "hazard" : "organic";
+    addChemicalTrace(tileEnvironmentAtCell(task.data.targetCell), traceId, 12);
+    syncPhysicalReadModels();
+    applyDoorTransitPolicy(task.data?.doorTransit, "Bait placement");
+    addEvent(`${feedstock.label} placed as physical bait at tile ${task.data.targetCell.x},${task.data.targetCell.y}. It may attract hungry creatures but does not compel them.`);
+    return true;
+  }
+
+  function baitPlacementContextCommands(cell) {
+    const targetCell = cleanMapCell(cell);
+    if (!targetCell || !labMapCellIsWalkable(targetCell)) return [];
+    return FEEDSTOCK_DEFS.map((feedstock) => commandDef({
+      id: `tile.placeBait.${targetCell.x}.${targetCell.y}.${feedstock.key}`,
+      label: `Place Bait: ${feedstock.label}`,
+      group: "Containment Response",
+      disabledReason: placeBaitBlockReason(targetCell, feedstock.key),
+      description: `Queue the scientist to retrieve one physical ${feedstock.label}, place it on this tile, and create an exposed chemical food trace. Attraction depends on the creature's hunger and biology.`,
+      run: () => startPlaceBait(targetCell, feedstock.key)
+    }));
   }
 
   function slimeStateLabel(slime) {
@@ -30827,7 +31329,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function activeScientistTravelTask() {
     const task = firstScientistQueueTask();
     if (!task) return null;
-    if (!["scientistMove", "doorOperation"].includes(task.type)) return null;
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait"].includes(task.type)) {
+      const blockedReason = taskBlockReason(task);
+      if (blockedReason) {
+        task.data ||= {};
+        task.data.blockedReason = blockedReason;
+        task.data.blockedAt ??= state.clock;
+        return null;
+      }
+      delete task.data.blockedReason;
+      delete task.data.blockedAt;
+    }
     const recordedPath = taskPathCells(task).map(cleanMapCell).filter(Boolean);
     if (recordedPath.length < 2) return null;
     if (!task.data?.movement) {
@@ -30885,6 +31398,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const movement = normalizeScientistMovementRecord(task.data?.movement, task);
     if (!movement) return 0;
     task.data.movement = movement;
+    if (updateRecaptureCarryState(task, movement) && task.data?.blockedReason) return 1;
     const revisions = normalizeNavigationState(state.navigation);
     if (movement.topologyRevision !== revisions.topologyRevision && !replanScientistMovementTask(task, movement)) {
       task.data.blockedReason = "The walking route changed and no replacement route is available.";
@@ -30953,6 +31467,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       movement.waitingFor = "";
       state.scientist.mapCell = nextStep.cell;
       state.scientist.roomId = labMapCellRoomId(nextStep.cell) || state.scientist.roomId;
+      updateRecaptureCarryState(task, movement);
+      if (task.data?.blockedReason) {
+        changed += 1;
+        break;
+      }
       const followingStep = movement.steps[movement.stepIndex + 1];
       if (followingStep) {
         reserveActorMovementStep(state.scientist, followingStep.cell, followingStep.orientation, "directMove", segmentSeconds);
@@ -38360,6 +38879,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return "The target container no longer exists.";
       }
     }
+    if (task.type === "recaptureSlime") {
+      return recaptureSlimeBlockReason(findSlime(task.data?.slimeId), containerById(task.data?.destinationContainerId), {
+        taskId: task.id,
+        targetCell: task.data?.targetCell,
+        methodId: task.data?.methodId,
+        secured: task.data?.secured
+      });
+    }
+    if (task.type === "placeBait") {
+      return placeBaitBlockReason(task.data?.targetCell, task.data?.feedstockKey, {
+        taskId: task.id,
+        sourceStackId: task.data?.sourceStackId
+      });
+    }
     if (task.type === "containerHaul" && !roomById(task.data?.toRoomId)) {
       return "The destination room no longer exists.";
     }
@@ -38533,6 +39066,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "spillCleanup") {
       const stack = physicalSpillStackById(task.data?.spillId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+    }
+    if (task.type === "placeBait") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.sourceStackId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+    }
+    if (task.type === "recaptureSlime" && task.data?.secured) {
+      const slime = findSlime(task.data?.slimeId);
+      if (slime && slime.status !== "dead" && slimeIsUncontained(slime)) {
+        slime.mapCell = cleanMapCell(state.scientist.mapCell) || slime.mapCell;
+        slime.roomId = scientistRoomId();
+        slime.roomActivity = { type: "emerging", label: "recovering from interrupted handling", roomId: slime.roomId, updatedAt: state.clock };
+        slime.nextAutonomousDecisionAt = state.clock;
+      }
     }
     const incidentId = String(task.data?.incidentId || "").trim();
     if (incidentId) {
@@ -39681,6 +40227,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
               label: `Move scientist to unassigned tile ${cell.x},${cell.y}`
             })
           }),
+          ...baitPlacementContextCommands(cell),
           ...roomDesignationContextCommands(cell),
           ...constructionContextCommands(cell)
         ];
@@ -39715,6 +40262,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           label: `Move scientist to tile ${selection.tile.x},${selection.tile.y}`
         })
       }),
+      ...baitPlacementContextCommands(selection.tile),
       openWorkspaceCommand({
         id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
         label: "Open Room Stockpiles",
@@ -39948,7 +40496,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const target = incidentFocusTarget(incident);
-    return [
+    const commands = [
       commandDef({
         id: `incident.focus.${incident.id}`,
         label: "Focus Source",
@@ -40002,6 +40550,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open the scientist task management screen."
       })
     ];
+    if (incident.sourceKind === "slime") {
+      commands.splice(2, 0, ...recaptureContextCommands(findSlime(incident.sourceId)));
+    }
+    commands.splice(2, 0, commandDef({
+      id: `incident.lockdown.${incident.id}`,
+      label: ensureAccessControl().lockdownActive ? "Lift Emergency Lockdown" : "Initiate Emergency Lockdown",
+      group: "Containment Response",
+      disabledReason: incident.status === "resolved" ? "This incident is already resolved." : "",
+      description: ensureAccessControl().lockdownActive
+        ? "Lift access restrictions. Doors remain in their current physical states."
+        : "Activate access restrictions and queue the configured physical door operations. Ordinary doors do not move remotely.",
+      danger: !ensureAccessControl().lockdownActive,
+      run: () => setAccessLockdown(!ensureAccessControl().lockdownActive)
+    }));
+    return commands;
   }
 
   function corpseContextCommands(corpse) {
@@ -40134,8 +40697,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         id: `slime.containment.${slime.id}`,
         label: slimeContainmentToggleLabel(slime),
         group: "Handling",
-        disabledReason: slimeContainmentToggleBlockReason(slime),
-        description: slime.status === "released" ? "Move the loose creature into an open container." : releaseSuitabilityTooltipText(slime),
+        disabledReason: slime.status === "released" ? "Choose a specific Recapture command and destination container." : slimeContainmentToggleBlockReason(slime),
+        description: slime.status === "released" ? "Loose creatures require a physical recapture task with a selected destination." : releaseSuitabilityTooltipText(slime),
         danger: slime.status !== "released",
         run: () => toggleSlimeContainment(slime.id)
       }),
@@ -40176,6 +40739,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open testing and research actions."
       })
     ];
+    if (slimeIsUncontained(slime) && slime.status !== "dead") {
+      commands.splice(5, 0, ...recaptureContextCommands(slime));
+    }
     const container = slime?.containerId ? containerById(slime.containerId) : null;
     if (container && container.type !== "synthesis" && !isPitHoleContainer(container)) {
       commands.push(commandDef({
@@ -40228,6 +40794,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }));
     }
     return commands;
+  }
+
+  function recaptureContextCommands(slime) {
+    if (!slime || slime.status === "dead" || !slimeIsUncontained(slime)) return [];
+    const destinations = recaptureDestinationCandidates(slime);
+    if (!destinations.length) {
+      return [commandDef({
+        id: `slime.recapture.${slime.id}.none`,
+        label: "Recapture",
+        group: "Containment Response",
+        disabledReason: "No empty usable destination container is available.",
+        description: "Recapture requires an explicit physical destination."
+      })];
+    }
+    return destinations.map((container) => commandDef({
+      id: `slime.recapture.${slime.id}.${container.id}`,
+      label: `${isPitHoleContainer(container) ? "Herd" : "Recapture"} into ${container.name}`,
+      group: "Containment Response",
+      disabledReason: recaptureSlimeBlockReason(slime, container),
+      description: `${recaptureRiskDescription(slime, container)} The scientist must reach the observed creature, control it, and ${isPitHoleContainer(container) ? "guide it into this pit" : "carry it to this container"}.`,
+      danger: recaptureRiskAssessment(slime, container, { knownOnly: true }).band === "Extremely Dangerous",
+      run: () => startSlimeRecapture(slime.id, container.id)
+    }));
   }
 
   function slimeRoleContextBlockReason(slime, roleId) {
@@ -44288,6 +44877,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "containerInteraction") {
       return "Handling";
+    }
+    if (task.type === "recaptureSlime" || task.type === "placeBait") {
+      return "Containment Response";
     }
     if (task.type === "collectionBayTransfer") {
       return "Collection";
