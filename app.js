@@ -2309,6 +2309,30 @@
   ];
   const CLEANUP_POLICY_MODE_BY_ID = Object.fromEntries(CLEANUP_POLICY_MODES.map((mode) => [mode.id, mode]));
   const CLEANUP_POLICY_DEFAULTS = { mode: "hazardous", minimumUnits: 1, priority: 4 };
+  const LABOR_CATEGORY_DEFS = [
+    { id: "hauling", label: "Hauling" },
+    { id: "cleaning", label: "Cleaning" },
+    { id: "servicing", label: "Servicing" },
+    { id: "maintenance", label: "Maintenance" },
+    { id: "repair", label: "Repair" }
+  ];
+  const LABOR_CATEGORY_BY_ID = Object.fromEntries(LABOR_CATEGORY_DEFS.map((category) => [category.id, category]));
+  const LABOR_PERMISSION_DEFAULTS = Object.fromEntries(LABOR_CATEGORY_DEFS.map((category) => [category.id, true]));
+  const SERVICE_POLICY_MODES = [
+    { id: "manual", label: "Manual only" },
+    { id: "full", label: "Replace when full" },
+    { id: "threshold", label: "Replace at threshold" }
+  ];
+  const SERVICE_POLICY_MODE_BY_ID = Object.fromEntries(SERVICE_POLICY_MODES.map((mode) => [mode.id, mode]));
+  const SERVICE_POLICY_DEFAULTS = { mode: "manual", thresholdPercent: 100, clearOverflow: false, priority: 4 };
+  const WORK_ORDER_STATUS_IDS = new Set(["open", "claimed", "blocked", "completed", "canceled"]);
+  const WORK_ORDER_HISTORY_LIMIT = 160;
+  const SCIENTIST_CARRY_MASS_KG = 25;
+  const SCIENTIST_CARRY_VOLUME_L = 80;
+  const LABOR_BASE_SECONDS = 30;
+  const LABOR_HAUL_SECONDS_PER_KG = 2;
+  const LABOR_REPAIR_SECONDS_PER_POINT = 2;
+  const LABOR_STAMINA = 4;
   const SPILL_CLEANUP_BASE_SECONDS = 45;
   const SPILL_CLEANUP_SECONDS_PER_UNIT = 8;
   const SPILL_CLEANUP_STAMINA = 4;
@@ -3172,6 +3196,7 @@
   const CREATURE_UNKNOWN_STALE_SECONDS = 2 * 60 * 60;
   const TASK_MENU_TAB_DEFS = [
     { id: "queue", label: "Queue" },
+    { id: "orders", label: "Work Orders" },
     { id: "blocked", label: "Blocked" },
     { id: "completed", label: "Completed" }
   ];
@@ -3240,6 +3265,7 @@
       label: "Tasks",
       items: [
         { key: "Q", label: "Queue", workspaceTab: "tasks", tabKind: "tasks", tabId: "queue" },
+        { key: "O", label: "Work Orders", workspaceTab: "tasks", tabKind: "tasks", tabId: "orders" },
         { key: "B", label: "Blocked", workspaceTab: "tasks", tabKind: "tasks", tabId: "blocked" },
         { key: "C", label: "Completed", workspaceTab: "tasks", tabKind: "tasks", tabId: "completed" },
         { key: "P", label: "Production Bills", workspaceTab: "production", tabKind: "production", tabId: "bills" },
@@ -3339,6 +3365,7 @@
   };
   const TASK_MENU_TAB_HOTKEYS = {
     queue: "T Q",
+    orders: "T O",
     blocked: "T B",
     completed: "T C"
   };
@@ -3432,6 +3459,7 @@
     "constructionWork",
     "productionWork",
     "toolMaintenance",
+    "laborWork",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -3570,6 +3598,7 @@
       slimes: [],
       corpses: [],
       tasks: [],
+      workOrders: [],
       taskHistory: [],
       selection: null,
       selectedSlimeId: null,
@@ -3581,6 +3610,7 @@
       nextResidueNumber: 1,
       nextIncidentNumber: 1,
       nextTaskNumber: 1,
+      nextWorkOrderNumber: 1,
       nextFixtureNumber: 1,
       nextStockpileNumber: 2,
       nextPhysicalItemStackNumber: 100,
@@ -4248,7 +4278,9 @@
         purposeMode: DEFAULT_ROOM_PURPOSE_POLICY_ID
       },
       feeding: { ...AUTO_FEED_DEFAULTS },
-      cleanup: { ...CLEANUP_POLICY_DEFAULTS }
+      cleanup: { ...CLEANUP_POLICY_DEFAULTS },
+      labor: { permissions: { ...LABOR_PERMISSION_DEFAULTS } },
+      servicing: { ...SERVICE_POLICY_DEFAULTS }
     };
   }
 
@@ -4411,9 +4443,11 @@
       "skipQueueBtn",
       "taskMenuTabs",
       "queueTaskBadge",
+      "workOrderBadge",
       "blockedTaskBadge",
       "completedTaskBadge",
       "taskList",
+      "workOrderList",
       "blockedTaskList",
       "completedTaskList",
       "productionSummary",
@@ -4669,7 +4703,36 @@
         render();
         return selection;
       },
-      taskStatusSnapshot: () => scientistQueueTasks().map((task) => ({ id: task.id, type: task.type, label: task.label, status: taskStatusInfo(task), data: { ...task.data } })),
+      taskStatusSnapshot: () => scientistQueueTasks().map((task) => ({
+        id: task.id,
+        type: task.type,
+        label: task.label,
+        createdAt: task.createdAt,
+        dueAt: task.dueAt,
+        status: taskStatusInfo(task),
+        data: { ...task.data }
+      })),
+      workOrderSnapshot: () => ensureWorkOrders().map((order) => ({ ...order, target: { ...order.target }, destination: { ...order.destination }, data: { ...order.data } })),
+      createLaborOrder: (options = {}) => {
+        const order = createWorkOrder(options);
+        claimNextLaborWork();
+        persist();
+        render();
+        return { ...order };
+      },
+      syncLaborOrders: () => {
+        const changed = syncAutomaticCollectionServiceOrders() + syncLaborTaskOrders();
+        const claimed = claimNextLaborWork();
+        persist();
+        render();
+        return { changed, claimed };
+      },
+      advanceSimulation: (seconds) => {
+        advanceTime(seconds, { quiet: true });
+        persist();
+        render();
+        return state.clock;
+      },
       queueDoorOperation: (doorId, operation, value, options = {}) => queueDoorOperation(doorId, operation, value, options),
       materialCatalog: () => MATERIAL_DEFS.map((material) => ({ ...material, properties: { ...material.properties } })),
       toolMaterialSnapshot: (itemKey) => ({
@@ -7022,6 +7085,7 @@
       socialChanged: updateSlimeSocialEffects(elapsed),
       metabolismChanged: updateSlimeMetabolism(elapsed),
       collectionChanged: updateCollectionBayAccumulation(elapsed),
+      servicingOrdersChanged: 0,
       compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
       containmentTestingChanged: updateContainmentTesting(elapsed),
       containmentIncidentChanges: updateContainmentIncidents(elapsed),
@@ -7035,6 +7099,8 @@
       stockpileClaimed: 0,
       cleanupClaimed: 0,
       productionClaimed: 0,
+      laborOrdersChanged: syncLaborTaskOrders(),
+      laborClaimed: 0,
       constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
       productionProgressChanged: updateProductionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
@@ -7045,10 +7111,13 @@
     changes.jobExpired = expireSlimes();
     changes.scientistMovementChanged = updateScientistMovementTask();
     changes.completed = completeDueTasks();
+    changes.servicingOrdersChanged = syncAutomaticCollectionServiceOrders();
     changes.constructionClaimed = claimNextConstructionWork();
     changes.productionClaimed = claimNextProductionWork();
     changes.cleanupClaimed = claimNextSpillCleanup();
     changes.stockpileClaimed = claimNextStockpileHaul();
+    changes.laborOrdersChanged += syncLaborTaskOrders();
+    changes.laborClaimed = claimNextLaborWork();
     changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
     syncRoomObservationMemory();
     changes.observationChanged = Boolean(observeScientistRoom());
@@ -7072,6 +7141,7 @@
       + changes.socialChanged
       + changes.metabolismChanged
       + changes.collectionChanged
+      + changes.servicingOrdersChanged
       + changes.compatibilityChanged
       + changes.containmentTestingChanged
       + changes.containmentIncidentChanges
@@ -7085,6 +7155,8 @@
       + changes.constructionClaimed
       + changes.cleanupClaimed
       + changes.stockpileClaimed
+      + changes.laborOrdersChanged
+      + changes.laborClaimed
       + changes.constructionProgressChanged
       + changes.skillDecayChanged
       + changes.scientistMovementChanged
@@ -7136,6 +7208,7 @@
         }
         state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
         completeTask(task);
+        finishWorkOrderForTask(task, "completed");
         recordTaskHistory(task, "completed");
         completedAny = true;
         changeCount += 1;
@@ -7269,6 +7342,10 @@
       completeToolMaintenance(task);
       return;
     }
+    if (task.type === "laborWork") {
+      completeLaborWork(task);
+      return;
+    }
 
     if (task.type === "mature") {
       const slime = findSlime(task.data.slimeId);
@@ -7365,6 +7442,569 @@
     persist();
     render();
     return task;
+  }
+
+  function cleanLaborCategory(value) {
+    return LABOR_CATEGORY_BY_ID[value] ? value : "hauling";
+  }
+
+  function laborCategoryLabel(value) {
+    return LABOR_CATEGORY_BY_ID[cleanLaborCategory(value)]?.label || "Labor";
+  }
+
+  function normalizeWorkOrder(candidate, index = 0) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const id = String(candidate.id || `work-order-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "");
+    if (!id) return null;
+    const status = WORK_ORDER_STATUS_IDS.has(candidate.status) ? candidate.status : "open";
+    return {
+      id,
+      kind: String(candidate.kind || "general").replace(/[^a-zA-Z0-9:_-]/g, "") || "general",
+      category: cleanLaborCategory(candidate.category),
+      label: String(candidate.label || "Labor order"),
+      priority: clamp(Math.floor(Number(candidate.priority) || 4), 1, 7),
+      source: ["manual", "policy", "system", "adapter"].includes(candidate.source) ? candidate.source : "manual",
+      status,
+      createdAt: finiteTime(candidate.createdAt, 0),
+      updatedAt: finiteTime(candidate.updatedAt, finiteTime(candidate.createdAt, 0)),
+      completedAt: ["completed", "canceled"].includes(status) ? finiteTime(candidate.completedAt, 0) : null,
+      claimedTaskId: ["claimed", "blocked"].includes(status) ? String(candidate.claimedTaskId || "") : "",
+      blockedReason: status === "blocked" ? String(candidate.blockedReason || "") : "",
+      progress: clamp(Number(candidate.progress) || 0, 0, 1),
+      target: candidate.target && typeof candidate.target === "object" ? clonePlainObject(candidate.target) : {},
+      destination: candidate.destination && typeof candidate.destination === "object" ? clonePlainObject(candidate.destination) : {},
+      requirements: candidate.requirements && typeof candidate.requirements === "object" ? clonePlainObject(candidate.requirements) : {},
+      data: candidate.data && typeof candidate.data === "object" ? clonePlainObject(candidate.data) : {}
+    };
+  }
+
+  function ensureWorkOrders() {
+    const orders = (Array.isArray(state.workOrders) ? state.workOrders : [])
+      .map(normalizeWorkOrder)
+      .filter(Boolean)
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
+    const active = orders.filter((order) => !["completed", "canceled"].includes(order.status));
+    const history = orders
+      .filter((order) => ["completed", "canceled"].includes(order.status))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, WORK_ORDER_HISTORY_LIMIT);
+    state.workOrders = [...active, ...history];
+    return state.workOrders;
+  }
+
+  function workOrderById(orderId) {
+    return ensureWorkOrders().find((order) => order.id === orderId) || null;
+  }
+
+  function workOrderByDedupeKey(dedupeKey) {
+    const key = String(dedupeKey || "");
+    return ensureWorkOrders().find((order) => order.data?.dedupeKey === key && !["completed", "canceled"].includes(order.status)) || null;
+  }
+
+  function createWorkOrder(options = {}) {
+    const dedupeKey = String(options.dedupeKey || "");
+    if (dedupeKey) {
+      const existing = workOrderByDedupeKey(dedupeKey);
+      if (existing) return existing;
+    }
+    const order = normalizeWorkOrder({
+      id: `work-order-${state.nextWorkOrderNumber++}`,
+      kind: options.kind,
+      category: options.category,
+      label: options.label,
+      priority: options.priority,
+      source: options.source,
+      status: options.status || "open",
+      createdAt: state.clock,
+      updatedAt: state.clock,
+      claimedTaskId: options.claimedTaskId,
+      target: options.target,
+      destination: options.destination,
+      requirements: options.requirements,
+      data: { ...(options.data || {}), dedupeKey }
+    });
+    state.workOrders.push(order);
+    return order;
+  }
+
+  function laborTaskAdapterInfo(task) {
+    if (!task) return null;
+    const definition = {
+      containerHaul: { category: "hauling", kind: "containerHaul" },
+      resourceHaul: { category: "hauling", kind: "resourceHaul" },
+      stockpileHaul: { category: "hauling", kind: "stockpileHaul" },
+      collectionBayTransfer: { category: "servicing", kind: "collectionTransfer" },
+      spillCleanup: { category: "cleaning", kind: "spillCleanup" },
+      toolMaintenance: { category: task.data?.action === "repair" ? "repair" : "maintenance", kind: "toolMaintenance" }
+    }[task.type];
+    if (!definition) return null;
+    return {
+      ...definition,
+      source: task.data?.automatic ? "policy" : "adapter",
+      priority: task.data?.priority || task.data?.stockpilePriority || 4
+    };
+  }
+
+  function syncWorkOrderForTask(task) {
+    const info = laborTaskAdapterInfo(task);
+    if (!info) return null;
+    task.data ||= {};
+    let order = workOrderById(task.data.workOrderId);
+    if (!order) {
+      order = createWorkOrder({
+        kind: info.kind,
+        category: info.category,
+        label: task.label,
+        priority: info.priority,
+        source: info.source,
+        status: "claimed",
+        claimedTaskId: task.id,
+        target: { roomId: taskTargetRoomId(task), cell: task.data?.targetCell || task.data?.toCell || null },
+        data: { adaptedTaskType: task.type, adaptedTaskId: task.id },
+        dedupeKey: `task:${task.id}`
+      });
+      task.data.workOrderId = order.id;
+    }
+    order.status = taskStatusInfo(task).id === "blocked" ? "blocked" : "claimed";
+    order.claimedTaskId = task.id;
+    order.blockedReason = order.status === "blocked" ? taskStatusInfo(task).reason : "";
+    order.updatedAt = state.clock;
+    return order;
+  }
+
+  function syncLaborTaskOrders() {
+    let changed = 0;
+    for (const task of scientistQueueTasks()) {
+      if (!laborTaskAdapterInfo(task)) continue;
+      const before = task.data?.workOrderId || "";
+      syncWorkOrderForTask(task);
+      if (!before && task.data?.workOrderId) changed += 1;
+    }
+    return changed;
+  }
+
+  function finishWorkOrderForTask(task, status = "completed") {
+    const order = workOrderById(task?.data?.workOrderId);
+    if (!order) return false;
+    if (status === "completed" && task?.type === "resourceHaul" && task.data?.continuation?.kind === "laborOrder") {
+      return true;
+    }
+    order.status = status === "canceled" ? "canceled" : "completed";
+    order.completedAt = state.clock;
+    order.updatedAt = state.clock;
+    order.progress = status === "canceled" ? order.progress : 1;
+    order.claimedTaskId = "";
+    order.blockedReason = "";
+    return true;
+  }
+
+  function setWorkOrderPriority(orderId, priority) {
+    const order = workOrderById(orderId);
+    if (!order || ["completed", "canceled"].includes(order.status)) return false;
+    order.priority = clamp(Math.floor(Number(priority) || 4), 1, 7);
+    order.updatedAt = state.clock;
+    persist();
+    render();
+    return true;
+  }
+
+  function cancelWorkOrder(orderId) {
+    const order = workOrderById(orderId);
+    if (!order || ["completed", "canceled"].includes(order.status)) return false;
+    if (order.claimedTaskId && findTask(order.claimedTaskId)) {
+      cancelTask(order.claimedTaskId, { quiet: true, noLaborClaim: true });
+    }
+    order.status = "canceled";
+    order.completedAt = state.clock;
+    order.updatedAt = state.clock;
+    order.claimedTaskId = "";
+    order.blockedReason = "";
+    addEvent(`Canceled work order: ${order.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function laborPermissions() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.labor.permissions;
+  }
+
+  function scientistLaborCategoryEnabled(category) {
+    return laborPermissions()[cleanLaborCategory(category)] !== false;
+  }
+
+  function laborPathViaCells(cells) {
+    const map = ensureLabMap();
+    let current = scientistMapCell();
+    let path = [current];
+    for (const rawCell of cells) {
+      const cell = cleanMapCell(rawCell);
+      if (!cell || mapCellKey(cell) === mapCellKey(current)) continue;
+      const segment = labMapPathBetweenCells(current, cell, { map, actor: state.scientist, ignoreDoors: true });
+      if (!segment.length) return [];
+      path = appendMapPath(path, segment);
+      current = cell;
+    }
+    return path;
+  }
+
+  function laborTargetAccessCell(cell, footprint = { width: 1, height: 1 }, roomId = "") {
+    const clean = cleanMapCell(cell);
+    if (!clean) return null;
+    if (labMapCellIsWalkable(clean) && !labMapCellIsPathBlocked(clean, { actor: state.scientist })) return clean;
+    return nearestObjectAccessCell(clean, footprint, roomId || labMapCellRoomId(clean), {
+      map: ensureLabMap(),
+      preferredCell: scientistMapCell(),
+      actor: state.scientist
+    });
+  }
+
+  function rubblePileById(rubbleId) {
+    return (ensureLabMap().terrain?.rubble || []).find((pile) => pile.id === rubbleId) || null;
+  }
+
+  function rubbleMaterialResourceKey(materialId) {
+    if (materialId === "lumber") return "lumber";
+    if (materialId === "steelPanels") return "steelPanels";
+    if (materialId === "bricks") return "bricks";
+    return "stoneBlocks";
+  }
+
+  function rubblePileMetrics(pile) {
+    return (pile?.materials || []).reduce((totals, material) => {
+      const metrics = physicalItemUnitMetrics("resources", rubbleMaterialResourceKey(material.id));
+      totals.massKg += (Number(material.amount) || 0) * metrics.massKg;
+      totals.volumeL += (Number(material.amount) || 0) * metrics.volumeL;
+      return totals;
+    }, { massKg: 0, volumeL: 0 });
+  }
+
+  function defaultRubbleDestination(pile) {
+    const primary = pile?.materials?.[0]?.id || "stone";
+    const candidate = physicalStockDestinationCandidates("resources", rubbleMaterialResourceKey(primary))[0] || null;
+    return candidate ? { roomId: candidate.roomId, cell: candidate.cell, stockpileId: candidate.designation?.id || "" } : null;
+  }
+
+  function corpseCarryMassKg(corpse) {
+    const profile = physicalProfile(corpse?.genome || "");
+    const remaining = clamp(1 - (Number(corpse?.consumedProgress) || 0) / 100, 0.05, 1);
+    return Math.max(0.1, (Number(profile?.weightKg) || 1) * remaining);
+  }
+
+  function repairMaterialComposition(order) {
+    const target = laborRepairTarget(order);
+    if (!target) return normalizeMaterialComposition(null);
+    if (target.kind === "door") return doorMaterialComposition(target.value);
+    if (target.kind === "container") return normalizeMaterialComposition(target.value.materialComposition || containerTypeDef(target.value.typeId)?.materialComposition);
+    return normalizeMaterialComposition(target.value?.materialComposition);
+  }
+
+  function repairResourceCosts(order) {
+    const composition = repairMaterialComposition(order);
+    const primary = normalizeMaterialId(composition.primary || "stone");
+    const costs = order.kind === "sealRepair" ? { rubber: 1, metalParts: 1 } : {};
+    if (order.kind !== "sealRepair") {
+      if (["wood"].includes(primary)) costs.lumber = 1;
+      else if (["iron", "steel"].includes(primary)) costs.metalParts = 1;
+      else if (["glass", "reinforcedGlass"].includes(primary)) costs.glass = 1;
+      else if (["rubber"].includes(primary)) costs.rubber = 1;
+      else costs.stoneBlocks = 1;
+    }
+    return costs;
+  }
+
+  function laborRepairTarget(order) {
+    const kind = order?.target?.kind;
+    if (kind === "door") {
+      const mapDoor = ensureLabMap().doors?.[order.target.id];
+      const value = doorFixtureState(mapDoor);
+      return value && mapDoor ? { kind, value, cell: mapDoor.cell } : null;
+    }
+    if (kind === "container") {
+      const value = containerById(order.target.id);
+      return value ? { kind, value, cell: objectMapCell(value) } : null;
+    }
+    if (kind === "fixture") {
+      const value = fixtureById(order.target.id);
+      return value ? { kind, value, cell: objectMapCell(value) } : null;
+    }
+    if (kind === "structure") {
+      const target = structuralTargetAtCell(order.target.cell);
+      return target && ["constructedWall", "constructedFloor"].includes(target.kind) ? target : null;
+    }
+    return null;
+  }
+
+  function laborRepairCondition(target) {
+    if (!target) return 100;
+    if (target.kind === "door") return doorCondition(target.value);
+    if (target.kind === "container") return containerCondition(target.value);
+    return clamp(Number(target.value?.condition) || 0, 0, 100);
+  }
+
+  function laborOrderPlan(order) {
+    if (!order) return { ok: false, reason: "Work order no longer exists." };
+    if (!scientistLaborCategoryEnabled(order.category)) return { ok: false, reason: `${laborCategoryLabel(order.category)} is disabled for the scientist.` };
+    if (scientistIsDead()) return { ok: false, reason: "The scientist is dead." };
+    if (order.kind === "rubbleHaul") {
+      const pile = rubblePileById(order.target?.id);
+      if (!pile) return { ok: false, reason: "The rubble pile no longer exists." };
+      const destination = cleanMapCell(order.destination?.cell) ? order.destination : defaultRubbleDestination(pile);
+      if (!destination?.cell) return { ok: false, reason: "No compatible material stockpile has room for this rubble." };
+      const sourceCell = laborTargetAccessCell(pile.cell);
+      const destinationCell = laborTargetAccessCell(destination.cell);
+      const mapPath = laborPathViaCells([sourceCell, destinationCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical hauling route reaches both the rubble and its destination." };
+      const metrics = rubblePileMetrics(pile);
+      const trips = Math.max(1, Math.ceil(metrics.massKg / SCIENTIST_CARRY_MASS_KG), Math.ceil(metrics.volumeL / SCIENTIST_CARRY_VOLUME_L));
+      return { ok: true, mapPath, sourceCell, destinationCell, destination, trips, massKg: metrics.massKg,
+        duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() * trips + metrics.massKg * LABOR_HAUL_SECONDS_PER_KG) };
+    }
+    if (order.kind === "corpseHaul") {
+      const corpse = findCorpse(order.target?.id);
+      if (!corpse) return { ok: false, reason: "The corpse no longer exists." };
+      const massKg = corpseCarryMassKg(corpse);
+      if (massKg > SCIENTIST_CARRY_MASS_KG) return { ok: false, reason: `The remains weigh ${formatDecimal(massKg, 1)} kg and require hauling equipment.` };
+      const sourceContainer = corpse.containerId ? containerById(corpse.containerId) : null;
+      const sourceOrigin = sourceContainer ? objectMapCell(sourceContainer) : objectMapCell(corpse);
+      const sourceCell = laborTargetAccessCell(sourceOrigin, sourceContainer ? containerFootprintDimensions(sourceContainer) : { width: 1, height: 1 }, corpse.roomId);
+      const destinationContainer = order.destination?.containerId ? containerById(order.destination.containerId) : null;
+      if (order.destination?.containerId && (!destinationContainer || !isPitHoleContainer(destinationContainer))) return { ok: false, reason: "The destination pit no longer exists." };
+      if (destinationContainer && pitHoleCorpseCount(destinationContainer) >= pitHoleCorpseCapacity(destinationContainer)) return { ok: false, reason: `${destinationContainer.name} is full.` };
+      if (order.destination?.storage === "drum" && corpse.storage !== "drum" && drummedCorpseCount() >= WASTE_DRUM_CAPACITY) return { ok: false, reason: "All Waste Drums are full." };
+      const destinationOrigin = destinationContainer ? objectMapCell(destinationContainer) : cleanMapCell(order.destination?.cell) || labMapRoomAnchor(order.destination?.roomId || PITS_ROOM_ID);
+      const destinationCell = laborTargetAccessCell(destinationOrigin, destinationContainer ? containerFootprintDimensions(destinationContainer) : { width: 1, height: 1 }, order.destination?.roomId || PITS_ROOM_ID);
+      const mapPath = laborPathViaCells([sourceCell, destinationCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches both the corpse and its destination." };
+      return { ok: true, mapPath, sourceCell, destinationCell, destinationContainer, massKg, trips: 1,
+        duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + massKg * LABOR_HAUL_SECONDS_PER_KG) };
+    }
+    if (["repair", "sealRepair"].includes(order.kind)) {
+      const target = laborRepairTarget(order);
+      if (!target) return { ok: false, reason: "The repair target no longer exists." };
+      const condition = laborRepairCondition(target);
+      const needsSeal = order.kind === "sealRepair" && (target.kind === "door" ? doorIsBreached(target.value) : target.kind === "container" && containerBreachState(target.value) !== "intact");
+      if (condition >= 100 && !needsSeal) return { ok: false, reason: "The target no longer needs repair." };
+      const roomId = target.value?.roomId || labMapCellRoomId(target.cell) || MAIN_ROOM_ID;
+      const footprint = target.kind === "fixture" ? fixtureFootprintDimensions(target.value) : target.kind === "container" ? containerFootprintDimensions(target.value) : { width: 1, height: 1 };
+      const targetCell = laborTargetAccessCell(target.cell, footprint, roomId);
+      const mapPath = laborPathViaCells([targetCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches a repair position." };
+      const costs = repairResourceCosts(order);
+      const haul = resourceHaulPlan(costs, roomId);
+      if (!haul.ok) return { ok: false, reason: haul.reason };
+      return { ok: true, mapPath, targetCell, target, roomId, costs, materialTransfers: haul.transfers,
+        duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + Math.max(1, 100 - condition) * LABOR_REPAIR_SECONDS_PER_POINT) };
+    }
+    if (order.kind === "serviceFixture") {
+      const fixture = fixtureById(order.target?.id);
+      if (!fixture) return { ok: false, reason: "The service target no longer exists." };
+      const contents = order.data?.field === "capturedAirborne" ? fixture.utility?.capturedAirborne : fixture.utility?.contents;
+      const amount = order.data?.field === "capturedAirborne" ? airborneLoadTotal(contents) : utilityContentsTotal(contents);
+      if (amount <= TILE_ENVIRONMENT_EPSILON) return { ok: false, reason: "The fixture no longer needs servicing." };
+      const roomId = labMapCellRoomId(fixture.origin) || MAIN_ROOM_ID;
+      const targetCell = laborTargetAccessCell(fixture.origin, fixtureFootprintDimensions(fixture), roomId);
+      const mapPath = laborPathViaCells([targetCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches the fixture's service point." };
+      return { ok: true, mapPath, targetCell, roomId, duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps()) };
+    }
+    if (order.kind === "collectionTransfer") {
+      const container = containerById(order.target?.id);
+      const info = collectionBayStationInfo(container);
+      if (!container || !info?.station?.material) return { ok: false, reason: "The collection station no longer exists or has no assigned output." };
+      if (!info.station.receptacle?.installed || (Number(info.station.receptacle.amount) || 0) <= 0) return { ok: false, reason: "The collection receptacle is empty or not installed." };
+      const replacementItemKey = info.station.receptacle.itemKey || collectionBayReceptacleDef(info.station.methodType).itemKey;
+      if (!replacementItemKey || availableEmptyReceptacleCount(replacementItemKey) <= 0) {
+        return { ok: false, reason: `No empty ${inventoryItemLabel(replacementItemKey || "receptacle")} is available as a replacement.` };
+      }
+      const replacementStack = physicalEmptyReceptacleStacks(replacementItemKey)
+        .sort((a, b) => a.roomId === scientistRoomId() ? -1 : b.roomId === scientistRoomId() ? 1 : a.observedAt - b.observedAt)[0];
+      if (!replacementStack) return { ok: false, reason: `No physical ${inventoryItemLabel(replacementItemKey)} stack is available.` };
+      const sourceCell = laborTargetAccessCell(replacementStack.cell || labMapRoomAnchor(replacementStack.roomId), { width: 1, height: 1 }, replacementStack.roomId);
+      const targetCell = laborTargetAccessCell(objectMapCell(container), containerFootprintDimensions(container), container.roomId);
+      const mapPath = laborPathViaCells([sourceCell, targetCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches both the replacement receptacle and collection station." };
+      return {
+        ok: true,
+        mapPath,
+        sourceCell,
+        targetCell,
+        roomId: container.roomId,
+        replacementItemKey,
+        replacementStackId: replacementStack.id,
+        duration: Math.ceil(adjustedDuration(6, "materialsScience") + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps())
+      };
+    }
+    return { ok: false, reason: "This labor order has no physical procedure yet." };
+  }
+
+  function queueLaborMaterialHaul(order, plan) {
+    const queued = queueResourceHaulForContinuation({
+      costs: plan.costs,
+      toRoomId: plan.roomId,
+      actionLabel: order.label,
+      continuation: { kind: "laborOrder", orderId: order.id }
+    });
+    if (!queued) return false;
+    const task = scientistQueueTasks().find((candidate) => candidate.type === "resourceHaul" && candidate.data?.continuation?.orderId === order.id);
+    if (!task) return false;
+    task.data.workOrderId = order.id;
+    task.data.priority = order.priority;
+    order.status = "claimed";
+    order.claimedTaskId = task.id;
+    order.updatedAt = state.clock;
+    return true;
+  }
+
+  function claimNextLaborWork() {
+    if (scientistQueueTasks().length) return 0;
+    const candidates = ensureWorkOrders()
+      .filter((order) => ["open", "blocked"].includes(order.status))
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+    for (const order of candidates) {
+      const plan = laborOrderPlan(order);
+      if (!plan.ok) {
+        order.status = "blocked";
+        order.blockedReason = plan.reason;
+        order.updatedAt = state.clock;
+        continue;
+      }
+      if (plan.materialTransfers?.length) {
+        return queueLaborMaterialHaul(order, plan) ? 1 : 0;
+      }
+      const staminaCost = adjustedStaminaCost(LABOR_STAMINA, [order.category === "repair" ? "materialsScience" : "creatureHandling"]);
+      if (scientistVital("stamina").current < staminaCost) {
+        order.status = "blocked";
+        order.blockedReason = `Not enough stamina. ${staminaCost} required.`;
+        order.updatedAt = state.clock;
+        continue;
+      }
+      spendStamina(staminaCost);
+      const task = {
+        id: `task-${state.nextTaskNumber++}`,
+        type: "laborWork",
+        label: order.label,
+        createdAt: state.clock,
+        dueAt: state.clock + Math.max(1, plan.duration || LABOR_BASE_SECONDS),
+        data: {
+          workOrderId: order.id,
+          roomId: plan.roomId || order.destination?.roomId || order.target?.roomId || "",
+          targetCell: plan.targetCell || plan.sourceCell || null,
+          toCell: plan.destinationCell || plan.targetCell || null,
+          mapPath: plan.mapPath,
+          movement: createScientistMovementRecord(plan.mapPath, Math.max(1, plan.duration || LABOR_BASE_SECONDS), state.clock),
+          route: roomsFromMapPath(plan.mapPath, ensureLabMap()),
+          doorTransit: doorTransitPlan(roomsFromMapPath(plan.mapPath, ensureLabMap())),
+          staminaCost,
+          trips: plan.trips || 1,
+          massKg: plan.massKg || 0,
+          resourceCosts: plan.costs || {},
+          resourceRoomId: plan.roomId || "",
+          replacementItemKey: plan.replacementItemKey || "",
+          replacementStackId: plan.replacementStackId || ""
+        }
+      };
+      state.tasks.push(task);
+      order.status = "claimed";
+      order.claimedTaskId = task.id;
+      order.blockedReason = "";
+      order.updatedAt = state.clock;
+      addEvent(`${order.label} claimed by the scientist at priority ${order.priority}.`);
+      return 1;
+    }
+    return 0;
+  }
+
+  function laborWorkTaskBlockReason(task) {
+    const order = workOrderById(task.data?.workOrderId);
+    if (!order) return "The work order no longer exists.";
+    const plan = laborOrderPlan(order);
+    if (!plan.ok) return plan.reason;
+    if (plan.materialTransfers?.length) return "Required repair materials are no longer at the work site.";
+    return "";
+  }
+
+  function applyRepairWork(order) {
+    const target = laborRepairTarget(order);
+    if (!target) return false;
+    const before = laborRepairCondition(target);
+    const after = Math.min(100, Math.max(STRUCTURE_BREACH_THRESHOLD + 5, before + (order.kind === "sealRepair" ? 35 : 45)));
+    if (target.kind === "door") {
+      target.value.condition = after;
+      target.value.breached = false;
+      target.value.state = DOOR_STATE_CLOSED;
+      target.value.lockState = DOOR_LOCK_UNLOCKED;
+      target.value.sealState = DOOR_SEAL_UNSEALED;
+      bumpNavigationRevision("door");
+    } else if (target.kind === "container") {
+      target.value.condition = after;
+      target.value.breachState = "intact";
+      target.value.lastBreach = null;
+    } else {
+      target.value.condition = after;
+      state.labMap = normalizeLabMap(state.labMap, state.rooms);
+      bumpNavigationRevision("topology");
+    }
+    addEvent(`${order.label} restored condition from ${formatNumber(before)}% to ${formatNumber(after)}%.`);
+    return true;
+  }
+
+  function completeLaborWork(task) {
+    const order = workOrderById(task.data?.workOrderId);
+    if (!order) return false;
+    if (order.kind === "rubbleHaul") {
+      const pile = rubblePileById(order.target.id);
+      const destination = cleanMapCell(order.destination?.cell) ? order.destination : defaultRubbleDestination(pile);
+      if (!pile || !destination?.cell) return false;
+      pile.cell = cleanMapCell(destination.cell);
+      pile.stockpileId = String(destination.stockpileId || "");
+      order.destination = { ...destination };
+      addEvent(`${order.label} completed in ${formatNumber(task.data?.trips || 1)} trip${task.data?.trips === 1 ? "" : "s"}; rubble remains physical and unprocessed.`);
+    } else if (order.kind === "corpseHaul") {
+      const corpse = findCorpse(order.target.id);
+      if (!corpse) return false;
+      const destinationContainer = order.destination?.containerId ? containerById(order.destination.containerId) : null;
+      if (destinationContainer) {
+        corpse.storage = "container";
+        corpse.containerId = destinationContainer.id;
+        corpse.roomId = destinationContainer.roomId;
+        corpse.mapCell = null;
+      } else {
+        corpse.storage = order.destination?.storage === "drum" ? "drum" : "room";
+        corpse.containerId = null;
+        corpse.roomId = order.destination?.roomId || PITS_ROOM_ID;
+        corpse.mapCell = corpse.storage === "room" ? cleanMapCell(order.destination?.cell) : null;
+      }
+      addEvent(`${corpse.name} remains hauled to ${destinationContainer?.name || (corpse.storage === "drum" ? "the Waste Drums" : roomName(corpse.roomId))}.`);
+    } else if (["repair", "sealRepair"].includes(order.kind)) {
+      if (!spendResourcesFromRoom(task.data?.resourceCosts || {}, task.data?.resourceRoomId || MAIN_ROOM_ID)) return false;
+      if (!applyRepairWork(order)) return false;
+    } else if (order.kind === "serviceFixture") {
+      if (!emptyFixtureUtilityWaste(order.target.id, order.data?.field, order.data?.label || "service waste", { quiet: true })) return false;
+    } else if (order.kind === "collectionTransfer") {
+      if (!completeCollectionBayTransfer({
+        data: {
+          containerId: order.target.id,
+          replacementItemKey: task.data?.replacementItemKey,
+          replacementStackId: task.data?.replacementStackId,
+          automatic: order.source === "policy"
+        }
+      })) return false;
+    } else {
+      return false;
+    }
+    applyDoorTransitPolicy(task.data?.doorTransit, order.label);
+    awardXp(order.category === "repair" ? "materialsScience" : "creatureHandling", 4, order.label);
+    return true;
+  }
+
+  function startLaborWorkOrder(options = {}) {
+    const order = createWorkOrder(options);
+    claimNextLaborWork();
+    persist();
+    render();
+    return order;
   }
 
   function activeConstructionOrders() {
@@ -11579,6 +12219,7 @@
         cell,
         source: String(entry?.source || "construction debris"),
         createdAt: finiteTime(entry?.createdAt, 0),
+        stockpileId: String(entry?.stockpileId || ""),
         materials
       };
     }).filter(Boolean);
@@ -14469,9 +15110,10 @@
     return Math.max(0, available - queuedReplacementReceptacleCount(itemKey));
   }
 
-  function consumeEmptyReceptacle(itemKey) {
-    const stack = physicalEmptyReceptacleStacks(itemKey)
-      .sort((a, b) => a.roomId === scientistRoomId() ? -1 : b.roomId === scientistRoomId() ? 1 : a.observedAt - b.observedAt)[0];
+  function consumeEmptyReceptacle(itemKey, stackId = "") {
+    const stacks = physicalEmptyReceptacleStacks(itemKey);
+    const stack = (stackId ? stacks.find((candidate) => candidate.id === stackId) : null)
+      || stacks.sort((a, b) => a.roomId === scientistRoomId() ? -1 : b.roomId === scientistRoomId() ? 1 : a.observedAt - b.observedAt)[0];
     if (!stack) return false;
     stack.quantity -= 1;
     stack.knownQuantity = Math.max(0, stack.knownQuantity - 1);
@@ -25863,6 +26505,15 @@
       }
       return feedSlime(slime, continuation.feedstockKey, { ...(continuation.options || {}), requireLocal: true });
     }
+    if (continuation.kind === "laborOrder") {
+      const order = workOrderById(continuation.orderId);
+      if (!order || ["completed", "canceled"].includes(order.status)) return false;
+      order.status = "open";
+      order.claimedTaskId = "";
+      order.blockedReason = "";
+      order.updatedAt = state.clock;
+      return Boolean(claimNextLaborWork());
+    }
     return false;
   }
 
@@ -26961,7 +27612,7 @@
     const amount = roundOutputValue(Number(info.station.receptacle.amount) || 0);
     const material = info.station.material || info.material;
     const replacementItemKey = task.data?.replacementItemKey || info.station.receptacle.itemKey;
-    if (!consumeEmptyReceptacle(replacementItemKey)) {
+    if (!consumeEmptyReceptacle(replacementItemKey, task.data?.replacementStackId)) {
       addEvent(`Collection Bay transfer blocked; no empty ${inventoryItemLabel(replacementItemKey)} remains.`);
       return false;
     }
@@ -26998,9 +27649,55 @@
     info.station.receptacle.itemKey = replacementItemKey;
     info.station.receptacle.installed = true;
     const drained = collectionBayDrainOverflowIntoReceptacle(info.station);
+    info.station.automaticServiceHold = Boolean(task.data?.automatic && drained > 0 && !state.policies.servicing.clearOverflow);
     claimNextStockpileHaul();
     addEvent(`Removed ${formatCollectionAmount(amount)} ${material} in a filled ${inventoryItemLabel(filled.key)} from ${info.container?.name || "Collection Bay"}${drained > 0 ? `; ${formatCollectionAmount(drained)} flowed into the replacement receptacle` : ""}.`);
     return true;
+  }
+
+  function collectionStationMeetsServicePolicy(station, policy = state.policies?.servicing) {
+    if (!station?.receptacle?.installed || !station.material || station.automaticServiceHold && !policy?.clearOverflow) return false;
+    const amount = Number(station.receptacle.amount) || 0;
+    const capacity = Number(station.receptacle.capacity) || 0;
+    if (amount <= 0 || capacity <= 0 || policy?.mode === "manual") return false;
+    const threshold = policy?.mode === "full" ? 100 : clamp(Number(policy?.thresholdPercent) || 100, 10, 100);
+    return amount / capacity * 100 >= threshold;
+  }
+
+  function syncAutomaticCollectionServiceOrders() {
+    state.policies = normalizePolicies(state.policies);
+    const policy = state.policies.servicing;
+    let changed = 0;
+    const validKeys = new Set();
+    if (policy.mode !== "manual") {
+      for (const container of collectionBayActiveContainers()) {
+        const station = collectionBayStationForContainer(container.id);
+        const dedupeKey = `policy:collection-transfer:${container.id}`;
+        if (!collectionStationMeetsServicePolicy(station, policy)) continue;
+        validKeys.add(dedupeKey);
+        if (workOrderByDedupeKey(dedupeKey)) continue;
+        createWorkOrder({
+          kind: "collectionTransfer",
+          category: "servicing",
+          label: `Transfer ${container.name} receptacle`,
+          priority: policy.priority,
+          source: "policy",
+          target: { kind: "container", id: container.id, roomId: container.roomId, cell: objectMapCell(container) },
+          dedupeKey
+        });
+        changed += 1;
+      }
+    }
+    for (const order of ensureWorkOrders()) {
+      if (order.source !== "policy" || order.kind !== "collectionTransfer" || ["completed", "canceled", "claimed"].includes(order.status)) continue;
+      if (validKeys.has(order.data?.dedupeKey)) continue;
+      order.status = "canceled";
+      order.completedAt = state.clock;
+      order.updatedAt = state.clock;
+      order.blockedReason = "";
+      changed += 1;
+    }
+    return changed;
   }
 
   function updateCollectionBayAccumulation(minutes = 0) {
@@ -31329,8 +32026,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function activeScientistTravelTask() {
     const task = firstScientistQueueTask();
     if (!task) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -36636,6 +37333,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         policyTabButton("automation", "Open Automation")
       ),
       policyOverviewRow(
+        "Scientist labor",
+        `${Object.values(laborPermissions()).filter(Boolean).length}/${LABOR_CATEGORY_DEFS.length} categories enabled`,
+        LABOR_CATEGORY_DEFS.filter((category) => scientistLaborCategoryEnabled(category.id)).map((category) => category.label).join(", ") || "All routine labor is disabled.",
+        policyTabButton("automation", "Open Automation")
+      ),
+      policyOverviewRow(
+        "Collection service",
+        SERVICE_POLICY_MODE_BY_ID[state.policies.servicing.mode]?.label || "Manual only",
+        state.policies.servicing.mode === "threshold"
+          ? `Service at ${formatNumber(state.policies.servicing.thresholdPercent)}% fill; priority ${state.policies.servicing.priority}.`
+          : `Priority ${state.policies.servicing.priority}; ${state.policies.servicing.clearOverflow ? "continue through overflow" : "one automatic swap per fill event"}.`,
+        policyTabButton("automation", "Open Automation")
+      ),
+      policyOverviewRow(
         "Automation exclusions",
         formatNumber(excluded.length),
         excluded.length ? excluded.map((slime) => slime.name).join(", ") : "No living specimens are excluded.",
@@ -36700,6 +37411,102 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     priorityLabel.append(priorityInput);
     cleanupControls.append(modeLabel, minimumLabel, priorityLabel);
     dom.automationPolicyList.append(cleanupControls);
+
+    const laborControls = document.createElement("div");
+    laborControls.className = "policy-control-list";
+    laborControls.append(textEl("strong", "Scientist labor permissions"));
+    for (const category of LABOR_CATEGORY_DEFS) {
+      const label = document.createElement("label");
+      label.className = "policy-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = scientistLaborCategoryEnabled(category.id);
+      input.addEventListener("change", () => {
+        state.policies.labor.permissions[category.id] = input.checked;
+        state.policies = normalizePolicies(state.policies);
+        claimNextLaborWork();
+        addEvent(`${category.label} work ${input.checked ? "enabled" : "disabled"} for the scientist.`);
+        persist();
+        render();
+      });
+      label.append(input, textEl("span", category.label));
+      laborControls.append(label);
+    }
+    laborControls.append(textEl("p", "Disabled categories remain visible as blocked work orders; direct player tasks retain priority over routine work."));
+    dom.automationPolicyList.append(laborControls);
+
+    const service = state.policies.servicing;
+    const serviceControls = document.createElement("div");
+    serviceControls.className = "policy-control-list";
+    const serviceModeLabel = document.createElement("label");
+    serviceModeLabel.className = "policy-field";
+    serviceModeLabel.append(textEl("span", "Collection station service"));
+    const serviceMode = document.createElement("select");
+    serviceMode.setAttribute("aria-label", "Collection station service");
+    for (const mode of SERVICE_POLICY_MODES) serviceMode.append(new Option(mode.label, mode.id));
+    serviceMode.value = service.mode;
+    serviceMode.addEventListener("change", () => {
+      state.policies.servicing.mode = serviceMode.value;
+      state.policies = normalizePolicies(state.policies);
+      syncAutomaticCollectionServiceOrders();
+      claimNextLaborWork();
+      addEvent(`Collection service policy set to ${SERVICE_POLICY_MODE_BY_ID[state.policies.servicing.mode].label}.`);
+      persist();
+      render();
+    });
+    serviceModeLabel.append(serviceMode);
+    const thresholdLabel = document.createElement("label");
+    thresholdLabel.className = "policy-field";
+    thresholdLabel.append(textEl("span", "Service at fill percent"));
+    const threshold = document.createElement("input");
+    threshold.type = "number";
+    threshold.min = "10";
+    threshold.max = "100";
+    threshold.value = String(service.thresholdPercent);
+    threshold.disabled = service.mode !== "threshold";
+    threshold.title = threshold.disabled ? "Choose threshold service to set a fill percentage." : "Create a service order when the installed receptacle reaches this fill percentage.";
+    threshold.addEventListener("change", () => {
+      state.policies.servicing.thresholdPercent = clamp(Math.floor(Number(threshold.value) || 100), 10, 100);
+      state.policies = normalizePolicies(state.policies);
+      syncAutomaticCollectionServiceOrders();
+      persist();
+      render();
+    });
+    thresholdLabel.append(threshold);
+    const servicePriorityLabel = document.createElement("label");
+    servicePriorityLabel.className = "policy-field";
+    servicePriorityLabel.append(textEl("span", "Service priority"));
+    const servicePriority = document.createElement("input");
+    servicePriority.type = "number";
+    servicePriority.min = "1";
+    servicePriority.max = "7";
+    servicePriority.value = String(service.priority);
+    servicePriority.addEventListener("change", () => {
+      state.policies.servicing.priority = clamp(Math.floor(Number(servicePriority.value) || 4), 1, 7);
+      state.policies = normalizePolicies(state.policies);
+      persist();
+      render();
+    });
+    servicePriorityLabel.append(servicePriority);
+    const clearOverflowLabel = document.createElement("label");
+    clearOverflowLabel.className = "policy-option";
+    const clearOverflow = document.createElement("input");
+    clearOverflow.type = "checkbox";
+    clearOverflow.checked = service.clearOverflow;
+    clearOverflow.addEventListener("change", () => {
+      state.policies.servicing.clearOverflow = clearOverflow.checked;
+      if (clearOverflow.checked) {
+        for (const station of Object.values(ensureCollectionBayState().stations || {})) station.automaticServiceHold = false;
+      }
+      state.policies = normalizePolicies(state.policies);
+      syncAutomaticCollectionServiceOrders();
+      claimNextLaborWork();
+      persist();
+      render();
+    });
+    clearOverflowLabel.append(clearOverflow, textEl("span", "Continue replacing receptacles until station overflow is cleared"));
+    serviceControls.append(serviceModeLabel, thresholdLabel, servicePriorityLabel, clearOverflowLabel);
+    dom.automationPolicyList.append(serviceControls);
 
     const living = (state.slimes || [])
       .filter((slime) => slime.status !== "dead")
@@ -38842,6 +39649,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (activeTrade && activeTrade.id !== task.id) {
       return "The scientist is outside the lab for a black market trade.";
     }
+    const laborAdapter = laborTaskAdapterInfo(task);
+    if (laborAdapter && !scientistLaborCategoryEnabled(laborAdapter.category)) {
+      return `${laborCategoryLabel(laborAdapter.category)} is disabled for the scientist.`;
+    }
     const doorReason = taskDoorBlockReason(task);
     if (doorReason) {
       return doorReason;
@@ -38947,6 +39758,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!tool) return "The tool is no longer available.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
     }
+    if (task.type === "laborWork") {
+      return laborWorkTaskBlockReason(task);
+    }
     return "";
   }
 
@@ -39031,7 +39845,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) {
       return;
     }
-    if (task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
+    if (task.type !== "laborWork" && task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
       addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
     }
     if (task.type === "blackMarketTrade") {
@@ -39106,6 +39920,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     cleanupCancelledTask(task);
+    finishWorkOrderForTask(task, "canceled");
     if (task.type === "scientistMove") movementReservations.releaseActor("scientist");
     state.tasks = (state.tasks || []).filter((candidate) => candidate.id !== task.id);
     if (currentSelection()?.kind === "task" && currentSelection().id === task.id) {
@@ -39115,6 +39930,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     refreshConstructionOrderBlocks();
     claimNextConstructionWork();
     if (!options.noProductionClaim) claimNextProductionWork();
+    if (!options.noLaborClaim) claimNextLaborWork();
     if (!options.quiet) addEvent(`Canceled task: ${task.label}.`);
     if (!options.quiet) {
       persist();
@@ -40199,6 +41015,98 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
+  function activeLaborOrderForDedupeKey(key) {
+    return workOrderByDedupeKey(key);
+  }
+
+  function repairTargetDescriptor(target) {
+    if (!target) return null;
+    if (target.kind === "door") return { kind: "door", id: target.value?.id || target.mapDoor?.id, cell: target.cell, label: doorTypeLabel(target.value?.typeId) };
+    if (target.kind === "container") return { kind: "container", id: target.value?.id, cell: target.cell, label: target.value?.name || "container" };
+    if (target.kind === "fixture") return { kind: "fixture", id: target.value?.id, cell: target.cell, label: target.value?.name || "fixture" };
+    if (["constructedWall", "constructedFloor"].includes(target.kind)) return { kind: "structure", cell: target.cell, label: target.kind === "constructedWall" ? "constructed wall" : "constructed floor" };
+    return null;
+  }
+
+  function repairLaborCommands(target) {
+    const descriptor = repairTargetDescriptor(target);
+    if (!descriptor) return [];
+    const condition = laborRepairCondition(target);
+    const breached = target.kind === "door" ? doorIsBreached(target.value) : target.kind === "container" ? containerBreachState(target.value) !== "intact" : false;
+    const commands = [];
+    const repairKey = `repair:${descriptor.kind}:${descriptor.id || mapCellKey(descriptor.cell)}`;
+    const existingRepair = activeLaborOrderForDedupeKey(repairKey);
+    commands.push(commandDef({
+      id: `labor.repair.${descriptor.kind}.${descriptor.id || mapCellKey(descriptor.cell)}`,
+      label: `Repair ${descriptor.label}`,
+      group: "Maintenance",
+      disabledReason: existingRepair ? "Repair is already designated." : condition >= 100 ? "This object is already at full condition." : "",
+      description: `Create a priority 4 repair order using compatible physical material. Current condition ${formatNumber(condition)}%. Materials elsewhere will be hauled first.`,
+      run: () => startLaborWorkOrder({
+        kind: "repair",
+        category: "repair",
+        label: `Repair ${descriptor.label}`,
+        priority: 4,
+        source: "manual",
+        target: descriptor,
+        dedupeKey: repairKey
+      })
+    }));
+    if (["door", "container"].includes(descriptor.kind)) {
+      const sealKey = `seal-repair:${descriptor.kind}:${descriptor.id}`;
+      const existingSeal = activeLaborOrderForDedupeKey(sealKey);
+      commands.push(commandDef({
+        id: `labor.sealRepair.${descriptor.kind}.${descriptor.id}`,
+        label: `Restore ${descriptor.label} Seal`,
+        group: "Maintenance",
+        disabledReason: existingSeal ? "Seal restoration is already designated." : breached ? "" : "The seal structure is not breached or compromised.",
+        description: "Repair the physical seal, gasket, and fittings with Rubber and Metal Parts. This restores seal integrity but does not automatically engage or lock it.",
+        run: () => startLaborWorkOrder({
+          kind: "sealRepair",
+          category: "repair",
+          label: `Restore ${descriptor.label} seal`,
+          priority: 3,
+          source: "manual",
+          target: descriptor,
+          dedupeKey: sealKey
+        })
+      }));
+    }
+    return commands;
+  }
+
+  function rubbleLaborCommands(cell) {
+    return rubbleAtCell(cell).map((pile) => {
+      const key = `rubble:${pile.id}`;
+      const existing = activeLaborOrderForDedupeKey(key);
+      const destination = defaultRubbleDestination(pile);
+      const metrics = rubblePileMetrics(pile);
+      const trips = Math.max(1, Math.ceil(metrics.massKg / SCIENTIST_CARRY_MASS_KG), Math.ceil(metrics.volumeL / SCIENTIST_CARRY_VOLUME_L));
+      return commandDef({
+        id: `labor.rubble.${pile.id}`,
+        label: "Haul Rubble",
+        group: "Labor",
+        disabledReason: existing ? "This rubble already has a work order." : destination ? "" : "No compatible material stockpile exists.",
+        description: `Move this physical rubble to the highest-priority compatible stockpile. Estimated ${formatDecimal(metrics.massKg, 1)} kg in ${formatNumber(trips)} trip${trips === 1 ? "" : "s"}; it remains unprocessed rubble.`,
+        run: () => startLaborWorkOrder({
+          kind: "rubbleHaul",
+          category: "hauling",
+          label: `Haul rubble from ${cell.x},${cell.y}`,
+          priority: 4,
+          source: "manual",
+          target: { kind: "rubble", id: pile.id, cell },
+          destination,
+          dedupeKey: key
+        })
+      });
+    });
+  }
+
+  function tileLaborContextCommands(cell) {
+    const target = structuralTargetAtCell(cell);
+    return [...rubbleLaborCommands(cell), ...repairLaborCommands(target)];
+  }
+
   function tileContextCommands(selection) {
     const roomId = selection?.roomId || labMapCellRoomId(selection?.tile);
     if (!roomId) {
@@ -40228,6 +41136,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             })
           }),
           ...baitPlacementContextCommands(cell),
+          ...tileLaborContextCommands(cell),
           ...roomDesignationContextCommands(cell),
           ...constructionContextCommands(cell)
         ];
@@ -40263,6 +41172,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         })
       }),
       ...baitPlacementContextCommands(selection.tile),
+      ...tileLaborContextCommands(selection.tile),
       openWorkspaceCommand({
         id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
         label: "Open Room Stockpiles",
@@ -40487,6 +41397,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tabId: "doors",
         description: "Open laboratory door automation and security policy settings."
       }),
+      ...repairLaborCommands({ kind: "door", value: liveDoor, cell: door.cell, mapDoor: door }),
       ...structuralDamageContextCommands(door.cell)
     ];
   }
@@ -40599,6 +41510,64 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: corpseHarvestProcedureTitle(corpse, procedure),
         danger: Boolean(procedure.corpseConsumes || procedure.corpseRuins),
         run: () => startCorpseHarvest(corpse, procedure.id)
+      }));
+    }
+    for (const pit of state.containers.filter(isPitHoleContainer)) {
+      const key = `corpse-haul:${corpse.id}:pit:${pit.id}`;
+      const existing = activeLaborOrderForDedupeKey(key);
+      commands.push(commandDef({
+        id: `corpse.haul.${corpse.id}.${pit.id}`,
+        label: `Haul to ${pit.name}`,
+        group: "Hauling",
+        disabledReason: existing
+          ? "This hauling order already exists."
+          : corpse.storage === "container" && corpse.containerId === pit.id
+            ? `The corpse is already in ${pit.name}.`
+            : pitHoleCorpseCount(pit) >= pitHoleCorpseCapacity(pit)
+              ? `${pit.name} is full.`
+              : corpseCarryMassKg(corpse) > SCIENTIST_CARRY_MASS_KG
+                ? `These remains require hauling equipment; ${formatDecimal(corpseCarryMassKg(corpse), 1)} kg exceeds hand-carry capacity.`
+                : "",
+        description: "Create a physical hauling order. Relocation does not process, harvest, or dispose of the corpse.",
+        run: () => startLaborWorkOrder({
+          kind: "corpseHaul",
+          category: "hauling",
+          label: `Haul ${corpse.name} remains to ${pit.name}`,
+          priority: 4,
+          source: "manual",
+          target: { kind: "corpse", id: corpse.id, roomId: corpse.roomId },
+          destination: { containerId: pit.id, roomId: pit.roomId },
+          dedupeKey: key
+        })
+      }));
+    }
+    {
+      const key = `corpse-haul:${corpse.id}:drums`;
+      const existing = activeLaborOrderForDedupeKey(key);
+      commands.push(commandDef({
+        id: `corpse.haul.${corpse.id}.drums`,
+        label: "Haul to Waste Drums",
+        group: "Hauling",
+        disabledReason: existing
+          ? "This hauling order already exists."
+          : corpse.storage === "drum"
+            ? "The corpse is already in the Waste Drums."
+            : drummedCorpseCount() >= WASTE_DRUM_CAPACITY
+              ? "The Waste Drums are full."
+              : corpseCarryMassKg(corpse) > SCIENTIST_CARRY_MASS_KG
+                ? `These remains require hauling equipment; ${formatDecimal(corpseCarryMassKg(corpse), 1)} kg exceeds hand-carry capacity.`
+                : "",
+        description: "Create a physical hauling order to the current Waste Drum storage. The corpse remains intact and still requires processing or disposal.",
+        run: () => startLaborWorkOrder({
+          kind: "corpseHaul",
+          category: "hauling",
+          label: `Haul ${corpse.name} remains to Waste Drums`,
+          priority: 4,
+          source: "manual",
+          target: { kind: "corpse", id: corpse.id, roomId: corpse.roomId },
+          destination: { storage: "drum", roomId: PITS_ROOM_ID, cell: labMapRoomAnchor(PITS_ROOM_ID) },
+          dedupeKey: key
+        })
       }));
     }
     commands.push(commandDef({
@@ -41032,6 +42001,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open raw collected byproduct inventory."
       }));
     }
+    commands.push(...repairLaborCommands({ kind: "container", value: container, cell: objectMapCell(container) }));
     if (debugToolsEnabled()) {
       for (const damageTypeId of ["physical", "corrosive", "heat", "electrical", "arcane", "force"]) {
         const def = damageTypeDef(damageTypeId);
@@ -41087,7 +42057,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
-  function emptyFixtureUtilityWaste(fixtureId, field, label) {
+  function emptyFixtureUtilityWaste(fixtureId, field, label, options = {}) {
     const fixture = fixtureById(fixtureId);
     if (!fixture) return false;
     const contents = field === "capturedAirborne" ? fixture.utility.capturedAirborne : fixture.utility.contents;
@@ -41100,8 +42070,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }, { phase: field === "capturedAirborne" ? "solid" : "sludge", sourceLabels: [fixture.name] });
     fixture.utility[field] = {};
     addEvent(`${fixture.name} emptied into physical ${label}; the material now requires storage or disposal.`);
-    persist();
-    render();
+    if (!options.quiet) {
+      persist();
+      render();
+    }
     return true;
   }
 
@@ -41329,26 +42301,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
       }
       if (infrastructure.role === "airFilter") {
+        const key = `service:${fixture.id}:capturedAirborne`;
         commands.push(commandDef({
           id: `fixture.utility.emptyFilter.${fixture.id}`,
           label: "Remove Spent Filter Medium",
           group: "Maintenance",
-          disabledReason: airborneLoadTotal(fixture.utility.capturedAirborne) > 0 ? "" : "The filter contains no captured material.",
-          description: "Turn captured airborne substances into physical tagged waste on this tile. This does not delete the material.",
-          run: () => emptyFixtureUtilityWaste(fixture.id, "capturedAirborne", "spent filter waste")
+          disabledReason: activeLaborOrderForDedupeKey(key) ? "Filter service is already designated." : airborneLoadTotal(fixture.utility.capturedAirborne) > 0 ? "" : "The filter contains no captured material.",
+          description: "Create a physical service order that turns captured airborne substances into tagged waste on this tile.",
+          run: () => startLaborWorkOrder({ kind: "serviceFixture", category: "servicing", label: `Service ${fixture.name}`, priority: 4, source: "manual", target: { kind: "fixture", id: fixture.id }, data: { field: "capturedAirborne", label: "spent filter waste" }, dedupeKey: key })
         }));
       }
       if (infrastructure.role === "drainSump") {
+        const key = `service:${fixture.id}:contents`;
         commands.push(commandDef({
           id: `fixture.utility.emptySump.${fixture.id}`,
           label: "Pump Out Sump",
           group: "Maintenance",
-          disabledReason: utilityContentsTotal(fixture.utility.contents) > 0 ? "" : "The sump is empty.",
-          description: "Move the sump's exact contents into physical tagged sludge on this tile for later handling.",
-          run: () => emptyFixtureUtilityWaste(fixture.id, "contents", "sump waste")
+          disabledReason: activeLaborOrderForDedupeKey(key) ? "Sump service is already designated." : utilityContentsTotal(fixture.utility.contents) > 0 ? "" : "The sump is empty.",
+          description: "Create a physical service order that pumps the sump's exact contents into tagged sludge for later handling.",
+          run: () => startLaborWorkOrder({ kind: "serviceFixture", category: "servicing", label: `Service ${fixture.name}`, priority: 4, source: "manual", target: { kind: "fixture", id: fixture.id }, data: { field: "contents", label: "sump waste" }, dedupeKey: key })
         }));
       }
     }
+    commands.push(...repairLaborCommands({ kind: "fixture", value: fixture, cell: objectMapCell(fixture) }));
     commands.push(commandDef({
       id: `fixture.access.${fixture.id}`,
       label: "Show Interaction Points",
@@ -44634,6 +45609,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.taskList.textContent = "";
     if (dom.blockedTaskList) dom.blockedTaskList.textContent = "";
     if (dom.completedTaskList) dom.completedTaskList.textContent = "";
+    if (dom.workOrderList) dom.workOrderList.textContent = "";
+    syncLaborTaskOrders();
     renderQueueShell();
     const queueTasks = scientistQueueTasks();
     const blockedTasks = queueTasks.filter((task) => taskStatusInfo(task).id === "blocked");
@@ -44667,6 +45644,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
     }
+
+    if (dom.workOrderList) {
+      const orders = ensureWorkOrders()
+        .filter((order) => !["completed", "canceled"].includes(order.status))
+        .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+      if (!orders.length) {
+        dom.workOrderList.append(emptyText("No active laboratory work orders."));
+      } else {
+        for (const order of orders) dom.workOrderList.append(workOrderRowEl(order));
+      }
+    }
   }
 
   function renderQueueShell() {
@@ -44689,6 +45677,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (dom.queueTaskBadge) dom.queueTaskBadge.textContent = String(activeTasks.length);
     if (dom.blockedTaskBadge) dom.blockedTaskBadge.textContent = String(blockedTasks.length);
     if (dom.completedTaskBadge) dom.completedTaskBadge.textContent = String(normalizeTaskHistory(state.taskHistory).length);
+    if (dom.workOrderBadge) {
+      dom.workOrderBadge.textContent = String(ensureWorkOrders().filter((order) => !["completed", "canceled"].includes(order.status)).length);
+    }
 
     for (const button of document.querySelectorAll("[data-task-menu-tab]")) {
       const tab = normalizeTaskMenuTab(button.dataset.taskMenuTab);
@@ -44702,6 +45693,60 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const tab = normalizeTaskMenuTab(panel.dataset.taskMenuPanel);
       panel.hidden = tab !== activeTab;
     }
+  }
+
+  function workOrderTargetSummary(order) {
+    if (order.kind === "rubbleHaul") return `Rubble ${order.target?.id || "pile"} to ${roomName(order.destination?.roomId || "") || "material stockpile"}`;
+    if (order.kind === "corpseHaul") {
+      const corpse = findCorpse(order.target?.id);
+      const container = containerById(order.destination?.containerId);
+      return `${corpse?.name || "Corpse"} to ${container?.name || (order.destination?.storage === "drum" ? "Waste Drums" : roomName(order.destination?.roomId || ""))}`;
+    }
+    if (["repair", "sealRepair"].includes(order.kind)) return repairTargetDescriptor(laborRepairTarget(order))?.label || "Structural target";
+    if (order.kind === "collectionTransfer") return containerById(order.target?.id)?.name || "Collection station";
+    if (order.kind === "serviceFixture") return fixtureById(order.target?.id)?.name || "Utility fixture";
+    return order.target?.roomId ? roomName(order.target.roomId) : "Labor target";
+  }
+
+  function workOrderRowEl(order) {
+    const row = document.createElement("div");
+    row.className = "task-row work-order-row";
+    row.dataset.workOrderId = order.id;
+    row.dataset.workOrderStatus = order.status;
+    const body = document.createElement("div");
+    const title = textEl("strong", order.label);
+    const meta = document.createElement("div");
+    meta.className = "task-meta";
+    const claimedTask = order.claimedTaskId ? findTask(order.claimedTaskId) : null;
+    const progress = claimedTask
+      ? clamp((state.clock - claimedTask.createdAt) / Math.max(1, claimedTask.dueAt - claimedTask.createdAt), 0, 1)
+      : order.progress;
+    meta.append(
+      taskChip(laborCategoryLabel(order.category)),
+      taskChip(titleCase(order.status)),
+      taskChip(`${formatNumber(progress * 100)}%`),
+      taskChip(order.source === "policy" ? "Policy" : order.source === "adapter" ? "Existing task" : titleCase(order.source)),
+      taskChip(workOrderTargetSummary(order))
+    );
+    if (order.blockedReason) meta.append(taskChip(`Blocked: ${order.blockedReason}`));
+    body.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    const priority = document.createElement("select");
+    priority.setAttribute("aria-label", `Priority for ${order.label}`);
+    priority.title = "Work priority: 1 is highest and 7 is lowest.";
+    for (let value = 1; value <= 7; value += 1) priority.append(new Option(`P${value}`, String(value)));
+    priority.value = String(order.priority);
+    priority.addEventListener("change", () => setWorkOrderPriority(order.id, priority.value));
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.title = "Cancel this persistent work order and its claimed scientist task, if any.";
+    cancel.addEventListener("click", () => cancelWorkOrder(order.id));
+    actions.append(priority, cancel);
+    row.append(body, actions);
+    return row;
   }
 
   function taskRowEl(task) {
@@ -44898,6 +45943,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "toolMaintenance") {
       return "Maintenance";
+    }
+    if (task.type === "laborWork") {
+      return laborCategoryLabel(workOrderById(task.data?.workOrderId)?.category || "hauling");
     }
     if (task.type === "mature") {
       return "Growth";
@@ -48544,6 +49592,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       sourceSlimes: Array.isArray(candidate?.sourceSlimes)
         ? [...new Set(candidate.sourceSlimes.map((item) => String(item || "").trim()).filter(Boolean))]
         : [],
+      automaticServiceHold: Boolean(candidate?.automaticServiceHold),
     };
   }
 
@@ -49873,6 +50922,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     cleanup.mode = CLEANUP_POLICY_MODE_BY_ID[cleanup.mode] ? cleanup.mode : CLEANUP_POLICY_DEFAULTS.mode;
     cleanup.minimumUnits = clamp(Math.floor(Number(cleanup.minimumUnits) || CLEANUP_POLICY_DEFAULTS.minimumUnits), 1, 999);
     cleanup.priority = clamp(Math.floor(Number(cleanup.priority) || CLEANUP_POLICY_DEFAULTS.priority), 1, 7);
+    const labor = {
+      permissions: Object.fromEntries(LABOR_CATEGORY_DEFS.map((category) => [
+        category.id,
+        Boolean(candidate?.labor?.permissions?.[category.id] ?? LABOR_PERMISSION_DEFAULTS[category.id])
+      ]))
+    };
+    const servicing = { ...SERVICE_POLICY_DEFAULTS, ...(candidate?.servicing || {}) };
+    servicing.mode = SERVICE_POLICY_MODE_BY_ID[servicing.mode] ? servicing.mode : SERVICE_POLICY_DEFAULTS.mode;
+    servicing.thresholdPercent = clamp(Math.floor(Number(servicing.thresholdPercent) || 100), 10, 100);
+    servicing.clearOverflow = Boolean(servicing.clearOverflow);
+    servicing.priority = clamp(Math.floor(Number(servicing.priority) || SERVICE_POLICY_DEFAULTS.priority), 1, 7);
     return {
       ...fallback,
       ...(candidate || {}),
@@ -49882,6 +50942,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       doors,
       rooms,
       cleanup,
+      labor,
+      servicing,
       corpseHandlingTargets: Object.fromEntries(
         CORPSE_STATE_POLICY_DEFS.map((stateDef) => [
           stateDef.key,
@@ -50953,6 +52015,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.tasks ||= [];
+    next.workOrders = (Array.isArray(next.workOrders) ? next.workOrders : []).map(normalizeWorkOrder).filter(Boolean);
+    next.nextWorkOrderNumber = Math.max(
+      Number(next.nextWorkOrderNumber) || 1,
+      next.workOrders.reduce((max, order) => Math.max(max, numericSuffix(order.id)), 0) + 1
+    );
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds]);

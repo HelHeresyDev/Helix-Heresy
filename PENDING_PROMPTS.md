@@ -14,32 +14,25 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Cleaning, Hauling, Maintenance, and Repair Work
-2. Vertical Excavation and Z-Layer Map Foundation
-3. Tactical Combat Movement, Abilities, and Map Commands
-4. Simulation Scheduling and Performance for Hundreds of Actors
+1. Vertical Excavation and Z-Layer Map Foundation
+2. Tactical Combat Movement, Abilities, and Map Commands
+3. Simulation Scheduling and Performance for Hundreds of Actors
 
 ---
 
-## 1. Cleaning, Hauling, Maintenance, and Repair Work
-
-Design routine physical labor for moving materials, replacing receptacles, hauling corpses, cleaning residue, repairing damage, restoring seals, and maintaining equipment. Keep the scientist as the only directly controlled actor while allowing policies and future workers to perform designated labor autonomously.
-
----
-
-## 2. Vertical Excavation and Z-Layer Map Foundation
+## 1. Vertical Excavation and Z-Layer Map Foundation
 
 Extend the underground laboratory map into multiple physical z-layers. Design upward and downward excavation, stairs, ramps, shafts, open space, ceilings, floors, vertical construction, layer navigation, camera controls, multi-level pathfinding, visibility, falling, hauling between levels, and interactions between vertical topology and rooms, utilities, fluids, gases, temperature, mana, containment, and combat. Preserve tile-level physical truth and ensure actors can only cross layers through physically valid connections.
 
 ---
 
-## 3. Tactical Combat Movement, Abilities, and Map Commands
+## 2. Tactical Combat Movement, Abilities, and Map Commands
 
 Design map-centric combat interactions for the scientist and creatures. Include movement, targeting, ranges, contact, elemental clashes, abilities, mana use, awareness, time slowdown or pausing, contextual commands, testing through combat, injuries, retreat, and containment during a fight.
 
 ---
 
-## 4. Simulation Scheduling and Performance for Hundreds of Actors
+## 3. Simulation Scheduling and Performance for Hundreds of Actors
 
 Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
 

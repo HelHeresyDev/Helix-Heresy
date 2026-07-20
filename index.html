@@ -298,11 +298,15 @@
           </div>
           <div id="taskMenuTabs" class="record-tabs task-menu-tabs" role="tablist" aria-label="Task sections">
             <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-task-menu-tab="queue">Queue <span id="queueTaskBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-task-menu-tab="orders">Work Orders <span id="workOrderBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-task-menu-tab="blocked">Blocked <span id="blockedTaskBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-task-menu-tab="completed">Completed <span id="completedTaskBadge" class="record-tab-badge">0</span></button>
           </div>
           <div class="task-menu-panel" data-task-menu-panel="queue" role="tabpanel">
             <div id="taskList" class="task-list"></div>
+          </div>
+          <div class="task-menu-panel" data-task-menu-panel="orders" role="tabpanel" hidden>
+            <div id="workOrderList" class="task-list"></div>
           </div>
           <div class="task-menu-panel" data-task-menu-panel="blocked" role="tabpanel" hidden>
             <div id="blockedTaskList" class="task-list"></div>
