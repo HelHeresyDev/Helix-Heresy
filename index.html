@@ -473,6 +473,7 @@
           <div id="debugMenuTabs" class="record-tabs debug-menu-tabs" role="tablist" aria-label="Debug sections">
             <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-debug-menu-tab="cheats">Cheats</button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-debug-menu-tab="ai">AI Debug</button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-debug-menu-tab="performance">Performance</button>
           </div>
 
           <div class="debug-menu-panel" data-debug-menu-panel="cheats" role="tabpanel">
@@ -529,6 +530,14 @@
               <div class="subpanel-title">Slime AI Debug</div>
               <p id="aiDebugSummary" class="journal-meta">Select a living sample to inspect AI internals.</p>
               <div id="aiDebugReadout" class="ai-debug-readout"></div>
+            </div>
+          </div>
+
+          <div class="debug-menu-panel" data-debug-menu-panel="performance" role="tabpanel" hidden>
+            <div class="subpanel" data-simulation-performance-panel="true">
+              <div class="subpanel-title">Simulation Performance</div>
+              <p id="simulationPerformanceSummary" class="journal-meta">No simulation samples yet.</p>
+              <div id="simulationPerformanceReadout" class="ai-debug-readout"></div>
             </div>
           </div>
         </section>
@@ -590,6 +599,7 @@
     </div>
 
     <script src="navigation.js"></script>
+    <script src="simulation-runtime.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

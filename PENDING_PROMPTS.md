@@ -14,18 +14,11 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Simulation Scheduling and Performance for Hundreds of Actors
-2. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
+1. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
 
 ---
 
-## 1. Simulation Scheduling and Performance for Hundreds of Actors
-
-Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
-
----
-
-## 2. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
+## 1. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
 
 Extend the first z-layer foundation after its core excavation, stairs, shafts, falling, pathfinding, and environment exchange are established. Design ramps, floor and ceiling construction, structural support and collapse, anchored fixture collapse, multi-layer placement previews, hauling and carrying large objects between levels, directed attacks and abilities through open shafts or breaches, vertical fluid flow, and visibility across open vertical space. Preserve the existing 4 meter layer scale and require physical connections or open space for every cross-layer interaction.
 

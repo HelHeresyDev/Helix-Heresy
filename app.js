@@ -2055,6 +2055,8 @@
     { typeId: "containmentPod", wardIds: ["sealTightening", "loadBearing"] }
   ];
   const REAL_TICK_MS = 250;
+  const AUTOSAVE_REAL_INTERVAL_MS = 10 * 60 * 1000;
+  const MANAGEMENT_RENDER_INTERVAL_MS = 1000;
   const DEFAULT_TIME_SPEED = "normal";
   const TIME_SPEEDS = [
     { id: "realtime", label: "1x", description: "real-time", secondsPerSecond: 1 },
@@ -3193,11 +3195,42 @@
   }
   const navigationService = new Navigation.NavigationService({ cacheLimit: 384 });
   const movementReservations = new Navigation.ReservationTable({ capacity: 1 });
+  const Simulation = window.HelixSimulation;
+  if (!Simulation) {
+    throw new Error("HelixSimulation must load before app.js");
+  }
+  const SIMULATION_SYSTEM_DEFS = [
+    { id: "environment", interval: 5, priority: 10 },
+    { id: "sensory", interval: 1, priority: 20 },
+    { id: "biology", interval: 30, priority: 30 },
+    { id: "actor", interval: 1, priority: 40 },
+    { id: "containment", interval: 0.25, priority: 45 },
+    { id: "tactical", interval: 0.25, priority: 50 },
+    { id: "administration", interval: 1, priority: 60 }
+  ];
+  const actorSpatialIndex = Simulation.createSpatialIndex({
+    idFor: (actor) => actor === state?.scientist ? "scientist" : actor?.id,
+    cellFor: (actor) => sensoryActorCell(actor),
+    roomFor: (actor) => slimeEffectiveRoomId(actor),
+    containerFor: (actor) => actor?.containerId
+  });
   let state;
   let geneMap;
   let uiPreferences = null;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
+  let lastAutosaveAt = Date.now();
+  let stateDirtySinceAutosave = false;
+  let lastManagementRenderAt = 0;
+  let lastSimulationChanges = null;
+  const simulationPerformance = {
+    systems: {},
+    render: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    save: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    lastAdvanceMs: 0,
+    maxAdvanceMs: 0,
+    backlog: 0
+  };
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
   const heldMapPanKeys = new Set();
@@ -3275,7 +3308,8 @@
   const DEFAULT_POLICY_MENU_TAB = "overview";
   const DEBUG_MENU_TAB_DEFS = [
     { id: "cheats", label: "Cheats" },
-    { id: "ai", label: "AI Debug" }
+    { id: "ai", label: "AI Debug" },
+    { id: "performance", label: "Performance" }
   ];
   const DEBUG_MENU_TAB_BY_ID = Object.fromEntries(DEBUG_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_DEBUG_MENU_TAB = "cheats";
@@ -3433,7 +3467,8 @@
   };
   const DEBUG_MENU_TAB_HOTKEYS = {
     cheats: "G C",
-    ai: "G I"
+    ai: "G I",
+    performance: "G P"
   };
   const MESSAGE_HISTORY_LIMIT = 240;
   const COMPACT_MESSAGE_LIMIT = 8;
@@ -3594,6 +3629,7 @@
       rooms: defaultRooms(),
       labMap: defaultLabMap(),
       navigation: defaultNavigationState(),
+      simulation: defaultSimulationState(0),
       tileEnvironments: {},
       compartmentEnvironments: {},
       roomObservations: {},
@@ -3664,6 +3700,18 @@
       topologyRevision: 1,
       doorRevision: 1,
       accessRevision: 1
+    };
+  }
+
+  function defaultSimulationState(clock = 0) {
+    return {
+      cadences: Simulation.normalizeCadenceState(SIMULATION_SYSTEM_DEFS, {}, clock)
+    };
+  }
+
+  function normalizeSimulationState(candidate = {}, clock = 0) {
+    return {
+      cadences: Simulation.normalizeCadenceState(SIMULATION_SYSTEM_DEFS, candidate?.cadences, clock)
     };
   }
 
@@ -4621,6 +4669,14 @@
           }))
         ]
       }),
+      simulationPerformanceSnapshot: () => buildSimulationPerformanceSnapshot(),
+      resetSimulationPerformance: () => {
+        simulationPerformance.systems = {};
+        for (const key of ["render", "save"]) simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
+        simulationPerformance.lastAdvanceMs = 0;
+        simulationPerformance.maxAdvanceMs = 0;
+        return buildSimulationPerformanceSnapshot();
+      },
       navigationPlan: (fromCell, toCell, actorId = "scientist", options = {}) => labNavigationPlanBetweenCells(fromCell, toCell, {
         map: ensureLabMap(),
         actor: actorId === "scientist" ? state.scientist : findSlime(actorId),
@@ -4700,7 +4756,8 @@
         slime.autonomousMovement = null;
         slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
         slime.roomActivity = { type: "quiescent", label: "remaining quiescent", roomId: slime.roomId, updatedAt: state.clock };
-        updateSensorySystems(0);
+        rebuildActorSpatialIndex();
+        updateSensorySystems(0, { force: true });
         refreshIncidentAlerts();
         persist();
         render();
@@ -5045,6 +5102,7 @@
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
       geneMap = buildGeneMap(state.seed, state.complexity);
+      rebuildActorSpatialIndex();
       syncRoomObservationMemory();
       observeScientistRoom();
       addEvent("Run initialized.");
@@ -5062,6 +5120,7 @@
       state = loaded;
       state.started = true;
       geneMap = buildGeneMap(state.seed, state.complexity);
+      rebuildActorSpatialIndex();
       prepareCorpseState();
       syncRoomObservationMemory();
       observeScientistRoom();
@@ -5456,6 +5515,9 @@
     document.addEventListener("keydown", handleKeyboardShortcut);
     document.addEventListener("keyup", handleKeyboardKeyup);
     window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("beforeunload", () => {
+      if (stateDirtySinceAutosave) persist();
+    });
 
     dom.exportFileBtn.addEventListener("click", () => {
       downloadSave();
@@ -7007,14 +7069,59 @@
     const elapsedSeconds = (now - lastTickAt) / 1000;
     lastTickAt = now;
     if (!state?.started || state.paused) {
+      maybeAutosave(now);
       return;
     }
-    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true });
+    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true, realtime: true });
     if (changed) {
+      renderSimulationChanges(lastSimulationChanges, now);
+    } else {
+      renderClockReadout();
+    }
+    maybeAutosave(now);
+  }
+
+  function renderClockReadout() {
+    if (!dom.clockReadout) return;
+    dom.clockReadout.textContent = formatClock(state.clock);
+    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : state.paused ? "Paused" : "Running";
+    dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
+    for (const element of document.querySelectorAll("[data-task-remaining]")) {
+      const task = state.tasks.find((candidate) => candidate.id === element.dataset.taskRemaining);
+      if (task) element.textContent = `${formatDuration(task.dueAt - state.clock)} remaining`;
+    }
+  }
+
+  function simulationMapNeedsRedraw(changes) {
+    if (!changes) return false;
+    if (changes.scientistMovementChanged || changes.uncontainedBehaviorChanged || changes.combatChanged
+      || changes.incidentAlertChanged || changes.containmentIncidentChanges || changes.expired || changes.jobExpired
+      || changes.corpseChanges || changes.completed || changes.constructionProgressChanged) return true;
+    const overlay = currentMapOverlayDef().id;
+    if (["contamination", "temperature", "light", "humidity", "ambientMana", "infrastructure"].includes(overlay)) {
+      return Boolean(changes.roomPropagationChanges || changes.infrastructureChanged || changes.envChanges || changes.sensoryChanged);
+    }
+    if (overlay === "movement") return Boolean(changes.scientistMovementChanged);
+    if (overlay === "combat") return Boolean(changes.combatChanged);
+    if (overlay === "incidents") return Boolean(changes.incidentAlertChanged || changes.incidentUrgencyChanged);
+    if (overlay === "resources") return Boolean(changes.feedstockChanged || changes.feedingChanged || changes.collectionChanged || changes.completed);
+    if (overlay === "construction") return Boolean(changes.constructionProgressChanged || changes.constructionClaimed || changes.completed);
+    return false;
+  }
+
+  function renderSimulationChanges(changes, now = Date.now()) {
+    const startedAt = performance.now();
+    if (currentWorkspaceTab() === "map") {
+      renderLiveReadouts();
+      if (simulationMapNeedsRedraw(changes)) renderMapInteraction();
+      else renderMapSelectionInteraction();
+    } else if (now - lastManagementRenderAt >= MANAGEMENT_RENDER_INTERVAL_MS) {
+      lastManagementRenderAt = now;
       render();
     } else {
-      renderLiveReadouts();
+      renderClockReadout();
     }
+    recordPerformanceSample(simulationPerformance.render, performance.now() - startedAt);
   }
 
   function togglePause() {
@@ -7185,64 +7292,161 @@
     };
   }
 
-  function runSimulationSystems(elapsed, options = {}) {
-    state.combat = normalizeCombatState(state.combat);
-    const routineSuspended = Boolean(state.combat.routineSuspension);
-    const changes = {
-      vitalsChanged: recoverVitals(elapsed),
-      physicalStateChanged: updateScientistPhysicalExposure(elapsed),
-      suspicionChanged: updateSuspicionDecay(),
-      roomPropagationChanges: propagateRoomEnvironmentAttributes(elapsed),
-      infrastructureChanged: updateInfrastructure(elapsed),
-      envChanges: exchangeContainerEnvironments(elapsed),
-      sensoryChanged: updateSensorySystems(elapsed),
-      habitatChanged: updateSlimeHabitatEffects(elapsed),
-      expired: expireSlimes(),
-      corpseChanges: updateCorpses(elapsed),
-      jobChanges: updateCreatureJobs(elapsed),
-      feedstockChanged: updateFeedstockIncome(elapsed),
-      feedingChanged: updateAutoFeeding(),
-      uncontainedBehaviorChanged: updateUncontainedSlimeBehavior(elapsed),
-      socialChanged: updateSlimeSocialEffects(elapsed),
-      metabolismChanged: updateSlimeMetabolism(elapsed),
-      collectionChanged: updateCollectionBayAccumulation(elapsed),
+  function emptySimulationChanges() {
+    return {
+      vitalsChanged: 0,
+      physicalStateChanged: 0,
+      suspicionChanged: 0,
+      roomPropagationChanges: 0,
+      infrastructureChanged: 0,
+      envChanges: 0,
+      sensoryChanged: 0,
+      habitatChanged: 0,
+      expired: 0,
+      corpseChanges: 0,
+      jobChanges: 0,
+      feedstockChanged: 0,
+      feedingChanged: 0,
+      uncontainedBehaviorChanged: 0,
+      socialChanged: 0,
+      metabolismChanged: 0,
+      collectionChanged: 0,
       servicingOrdersChanged: 0,
-      compatibilityChanged: updateContainerCompatibilityEffects(elapsed),
-      containmentTestingChanged: updateContainmentTesting(elapsed),
-      containmentIncidentChanges: updateContainmentIncidents(elapsed),
-      combatChanged: updateCombat(elapsed),
-      creatureSkillPracticeChanged: updateCreatureSkillPractice(elapsed),
-      incidentAlertChanged: refreshIncidentAlerts(),
-      incidentUrgencyChanged: handleIncidentUrgency(),
+      compatibilityChanged: 0,
+      containmentTestingChanged: 0,
+      containmentIncidentChanges: 0,
+      combatChanged: 0,
+      creatureSkillPracticeChanged: 0,
+      incidentAlertChanged: 0,
+      incidentUrgencyChanged: 0,
       jobExpired: 0,
       completed: 0,
       constructionClaimed: 0,
       stockpileClaimed: 0,
       cleanupClaimed: 0,
       productionClaimed: 0,
-      laborOrdersChanged: syncLaborTaskOrders(),
+      laborOrdersChanged: 0,
       laborClaimed: 0,
-      constructionProgressChanged: routineSuspended ? 0 : updateConstructionWorkProgress(options.fromClock, state.clock),
-      productionProgressChanged: routineSuspended ? 0 : updateProductionWorkProgress(options.fromClock, state.clock),
+      constructionProgressChanged: 0,
+      productionProgressChanged: 0,
       skillDecayChanged: 0,
       scientistMovementChanged: 0,
       observationChanged: false,
       aiChanged: 0
     };
-    changes.jobExpired = expireSlimes();
-    changes.scientistMovementChanged = updateScientistMovementTask();
-    changes.completed = completeDueTasks();
-    changes.servicingOrdersChanged = syncAutomaticCollectionServiceOrders();
-    changes.constructionClaimed = routineSuspended ? 0 : claimNextConstructionWork();
-    changes.productionClaimed = routineSuspended ? 0 : claimNextProductionWork();
-    changes.cleanupClaimed = routineSuspended ? 0 : claimNextSpillCleanup();
-    changes.stockpileClaimed = routineSuspended ? 0 : claimNextStockpileHaul();
-    changes.laborOrdersChanged += syncLaborTaskOrders();
-    changes.laborClaimed = routineSuspended ? 0 : claimNextLaborWork();
-    changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
-    syncRoomObservationMemory();
-    changes.observationChanged = Boolean(observeScientistRoom());
-    changes.aiChanged = syncAllSlimeAi();
+  }
+
+  function recordPerformanceSample(bucket, elapsedMs) {
+    bucket.calls = (Number(bucket.calls) || 0) + 1;
+    bucket.totalMs = (Number(bucket.totalMs) || 0) + elapsedMs;
+    bucket.lastMs = elapsedMs;
+    bucket.maxMs = Math.max(Number(bucket.maxMs) || 0, elapsedMs);
+  }
+
+  function profileSimulationSystem(id, callback) {
+    const startedAt = performance.now();
+    const result = callback();
+    const elapsedMs = performance.now() - startedAt;
+    simulationPerformance.systems[id] ||= { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
+    recordPerformanceSample(simulationPerformance.systems[id], elapsedMs);
+    return result;
+  }
+
+  function livingSimulationActors() {
+    return [
+      ...(scientistIsDead() ? [] : [state.scientist]),
+      ...(state.slimes || []).filter((slime) => slime.status !== "dead")
+    ];
+  }
+
+  function rebuildActorSpatialIndex() {
+    actorSpatialIndex.rebuild(livingSimulationActors());
+    return actorSpatialIndex;
+  }
+
+  function runSimulationSystem(id, elapsed, changes, options = {}) {
+    const fromClock = state.clock - elapsed;
+    if (id === "environment") {
+      changes.roomPropagationChanges += propagateRoomEnvironmentAttributes(elapsed);
+      changes.infrastructureChanged += updateInfrastructure(elapsed);
+      changes.envChanges += exchangeContainerEnvironments(elapsed);
+      return;
+    }
+    if (id === "sensory") {
+      rebuildActorSpatialIndex();
+      changes.sensoryChanged += updateSensorySystems(elapsed, { force: Boolean(options.forceAll) });
+      return;
+    }
+    if (id === "biology") {
+      changes.habitatChanged += updateSlimeHabitatEffects(elapsed);
+      changes.expired += expireSlimes();
+      changes.corpseChanges += updateCorpses(elapsed);
+      changes.jobChanges += updateCreatureJobs(elapsed);
+      changes.feedstockChanged += updateFeedstockIncome(elapsed);
+      changes.feedingChanged += updateAutoFeeding();
+      changes.socialChanged += updateSlimeSocialEffects(elapsed);
+      changes.metabolismChanged += updateSlimeMetabolism(elapsed);
+      changes.collectionChanged += updateCollectionBayAccumulation(elapsed);
+      changes.compatibilityChanged += updateContainerCompatibilityEffects(elapsed);
+      changes.containmentIncidentChanges += updateContainmentIncidents(elapsed);
+      changes.creatureSkillPracticeChanged += updateCreatureSkillPractice(elapsed);
+      changes.skillDecayChanged += updateSkillBreakthroughDecay(elapsed);
+      return;
+    }
+    if (id === "actor") {
+      changes.uncontainedBehaviorChanged += updateUncontainedSlimeBehavior(elapsed);
+      return;
+    }
+    if (id === "containment") {
+      changes.containmentTestingChanged += updateContainmentTesting(elapsed);
+      return;
+    }
+    if (id === "tactical") {
+      state.combat = normalizeCombatState(state.combat);
+      changes.vitalsChanged += recoverVitals(elapsed);
+      changes.physicalStateChanged += updateScientistPhysicalExposure(elapsed);
+      changes.combatChanged += updateCombat(elapsed);
+      const routineSuspended = Boolean(state.combat.routineSuspension);
+      changes.laborOrdersChanged += syncLaborTaskOrders();
+      changes.constructionProgressChanged += routineSuspended ? 0 : updateConstructionWorkProgress(fromClock, state.clock);
+      changes.productionProgressChanged += routineSuspended ? 0 : updateProductionWorkProgress(fromClock, state.clock);
+      changes.scientistMovementChanged += updateScientistMovementTask();
+      changes.completed += completeDueTasks();
+      changes.servicingOrdersChanged += syncAutomaticCollectionServiceOrders();
+      changes.constructionClaimed += routineSuspended ? 0 : claimNextConstructionWork();
+      changes.productionClaimed += routineSuspended ? 0 : claimNextProductionWork();
+      changes.cleanupClaimed += routineSuspended ? 0 : claimNextSpillCleanup();
+      changes.stockpileClaimed += routineSuspended ? 0 : claimNextStockpileHaul();
+      changes.laborOrdersChanged += syncLaborTaskOrders();
+      changes.laborClaimed += routineSuspended ? 0 : claimNextLaborWork();
+      return;
+    }
+    if (id === "administration") {
+      changes.jobExpired += expireSlimes();
+      changes.suspicionChanged += updateSuspicionDecay();
+      changes.incidentAlertChanged += refreshIncidentAlerts();
+      changes.incidentUrgencyChanged += handleIncidentUrgency();
+      syncRoomObservationMemory();
+      changes.observationChanged = Boolean(observeScientistRoom()) || changes.observationChanged;
+      changes.aiChanged += syncAllSlimeAi({ force: Boolean(options.forceAll) });
+    }
+  }
+
+  function runSimulationSystems(elapsed, options = {}) {
+    state.simulation = normalizeSimulationState(state.simulation, finiteTime(options.fromClock, state.clock - elapsed));
+    const schedule = Simulation.collectDueCadences(
+      SIMULATION_SYSTEM_DEFS,
+      state.simulation.cadences,
+      finiteTime(options.fromClock, state.clock - elapsed),
+      state.clock,
+      { force: Boolean(options.forceAll) }
+    );
+    state.simulation.cadences = schedule.state;
+    simulationPerformance.backlog = SIMULATION_SYSTEM_DEFS.filter((definition) => schedule.state[definition.id]?.nextRunAt <= state.clock).length;
+    const changes = emptySimulationChanges();
+    for (const system of schedule.due) {
+      profileSimulationSystem(system.id, () => runSimulationSystem(system.id, system.elapsed, changes, options));
+    }
     return changes;
   }
 
@@ -7289,17 +7493,23 @@
   }
 
   function advanceTime(seconds, options = {}) {
+    const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
     const fromClock = state.clock;
     state.clock += elapsed;
-    const changes = runSimulationSystems(elapsed, { fromClock });
+    const forceAll = options.forceAll == null ? !options.realtime : Boolean(options.forceAll);
+    const changes = runSimulationSystems(elapsed, { fromClock, forceAll });
+    lastSimulationChanges = changes;
+    if (options.realtime && elapsed > 0) markStateDirty();
     if (!options.quiet) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
     const changed = simulationChangeCount(changes);
     if (!options.quiet || changed) {
-      persist();
+      if (!options.realtime) persist();
     }
+    simulationPerformance.lastAdvanceMs = performance.now() - advanceStartedAt;
+    simulationPerformance.maxAdvanceMs = Math.max(simulationPerformance.maxAdvanceMs, simulationPerformance.lastAdvanceMs);
     return changed;
   }
 
@@ -20084,7 +20294,7 @@
       ? `Scientist struck ${slime.name} for ${result.damage} Body Integrity damage.`
       : `Scientist used ${action.label} on ${slime.name} for ${result.damage} ${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))} damage.`);
     expireSlimes();
-    syncAllSlimeAi();
+    syncAllSlimeAi({ force: true });
     updateCombat(0);
     refreshIncidentAlerts();
     persist();
@@ -23941,14 +24151,15 @@
   }
 
   function actorsInPhysicalContact(actor) {
-    const contacts = [];
-    if (actor !== state.scientist && actorsSharePhysicalTile(actor, state.scientist)) contacts.push(state.scientist);
-    for (const slime of state.slimes || []) {
-      if (slime === actor || slime.status === "dead") continue;
-      if (actor?.containerId && slime.containerId === actor.containerId) contacts.push(slime);
-      else if (!actor?.containerId && slimeIsUncontained(slime) && actorsSharePhysicalTile(actor, slime)) contacts.push(slime);
-    }
-    return contacts;
+    const candidates = actor?.containerId
+      ? actorSpatialIndex.recordsInContainer(actor.containerId)
+      : actorSpatialIndex.recordsInRadius(sensoryActorCell(actor), 12);
+    return candidates.filter((candidate) => {
+      if (!candidate || candidate === actor || candidate.status === "dead") return false;
+      if (actor?.containerId) return candidate.containerId === actor.containerId;
+      if (candidate !== state.scientist && !slimeIsUncontained(candidate)) return false;
+      return actorsSharePhysicalTile(actor, candidate);
+    });
   }
 
   function sensoryContactEntries(actor, sensory) {
@@ -24016,7 +24227,7 @@
       precision: "approximate",
       uncertaintyRadius: 2
     });
-    const possible = [state.scientist, ...(state.slimes || [])]
+    const possible = actorSpatialIndex.recordsInRadius(origin, 8)
       .filter((candidate) => candidate && candidate !== actor && candidate.status !== "dead" && (candidate !== state.scientist || !scientistIsDead()))
       .map((candidate) => ({ candidate, cell: sensoryActorCell(candidate), distance: mapCellDistance(origin, sensoryActorCell(candidate)) }))
       .map((entry) => ({ ...entry, transmission: sensoryBarrierTransmission(origin, entry.cell, "magic") }))
@@ -24048,7 +24259,7 @@
   function scientistVisionEntries(sensory) {
     if (!sensory.capabilities.vision) return [];
     const origin = sensoryActorCell(state.scientist);
-    return (state.slimes || []).filter((slime) => slime.status !== "dead" && slimeIsUncontained(slime))
+    return actorSpatialIndex.recordsInRadius(origin, 12).filter((slime) => slime?.genome && slime.status !== "dead" && slimeIsUncontained(slime))
       .map((slime) => ({ slime, cell: sensoryActorCell(slime) }))
       .filter(({ cell }) => cell && mapCellDistance(origin, cell) <= 12 && sensoryLineOfSight(origin, cell)
         && (mapCellDistance(origin, cell) <= 1 || (Number(tileEnvironmentAtCell(cell)?.lightLevel) || 0) >= 8))
@@ -24108,14 +24319,21 @@
     return entries.sort((a, b) => perceptionIntensityRank(b.intensity) - perceptionIntensityRank(a.intensity));
   }
 
-  function updateSensorySystems(elapsed) {
+  function updateSensorySystems(elapsed, options = {}) {
     let changes = emitChemicalSources(elapsed);
     state.scientist.sensory = normalizeSensoryState(state.scientist.sensory, "scientist");
+    const sensorySignature = (actor) => JSON.stringify((actor?.sensory?.current || []).map((entry) => [entry.key, entry.intensity, entry.direction, entry.sourceId]));
+    let before = sensorySignature(state.scientist);
     syncActorSensory(state.scientist, "scientist", deriveActorPerceptions(state.scientist, "scientist"));
+    if (before !== sensorySignature(state.scientist)) changes += 1;
     for (const slime of state.slimes || []) {
       if (slime.status === "dead") continue;
+      const interval = slimeSimulationCadenceSeconds(slime);
+      if (!options.force && state.clock < finiteTime(slime.nextSensoryUpdateAt, 0)) continue;
+      before = sensorySignature(slime);
       syncActorSensory(slime, "slime", deriveActorPerceptions(slime, "slime"));
-      changes += 1;
+      if (before !== sensorySignature(slime)) changes += 1;
+      slime.nextSensoryUpdateAt = nextStaggeredActorUpdateAt(slime, "sensory", interval);
     }
     state.sensoryEvents = (Array.isArray(state.sensoryEvents) ? state.sensoryEvents : [])
       .filter((entry) => state.clock - finiteTime(entry?.at, 0) <= SENSORY_EVENT_MAX_AGE)
@@ -24193,7 +24411,10 @@
     }
     const entries = [];
     const roomId = slimeEffectiveRoomId(slime);
-    for (const other of state.slimes || []) {
+    const candidates = slime.containerId
+      ? actorSpatialIndex.recordsInContainer(slime.containerId)
+      : actorSpatialIndex.recordsInRoom(roomId);
+    for (const other of candidates) {
       if (!other || other.id === slime.id || other.status === "dead") {
         continue;
       }
@@ -25034,12 +25255,33 @@
     return !same;
   }
 
-  function syncAllSlimeAi() {
+  function slimeSimulationCadenceSeconds(slime) {
+    if (!slime || slime.status === "dead") return 30;
+    const integrity = slimeStat(slime, "bodyIntegrity").current;
+    const stress = slimeStat(slime, "stress").current;
+    const combat = combatRecordForSlime(slime);
+    if (slimeIsUncontained(slime) || slime.autonomousMovement || combat || integrity <= 50 || stress >= 70) return 1;
+    if (slime.roleId && slime.roleId !== "idle") return 5;
+    return 30;
+  }
+
+  function nextStaggeredActorUpdateAt(slime, systemId, interval) {
+    const cadence = Math.max(0.25, Number(interval) || 1);
+    const slots = Math.max(1, Math.round(cadence * 4));
+    const offset = (stringHash(`${state.seed}:${systemId}:${slime?.id || "actor"}`) % slots) / slots * cadence;
+    return state.clock + Math.max(0.25, offset || cadence);
+  }
+
+  function syncAllSlimeAi(options = {}) {
     let changes = 0;
     for (const slime of state.slimes || []) {
+      if (slime.status === "dead") continue;
+      const interval = slimeSimulationCadenceSeconds(slime);
+      if (!options.force && state.clock < finiteTime(slime.nextAiUpdateAt, 0)) continue;
       if (syncSlimeAi(slime)) {
         changes += 1;
       }
+      slime.nextAiUpdateAt = nextStaggeredActorUpdateAt(slime, "ai", interval);
     }
     return changes;
   }
@@ -29075,6 +29317,7 @@
     renderMapOverlayHud();
     renderKnownEditor();
     renderSlimeAiDebugPanel();
+    renderSimulationPerformance();
     syncWorkspaceShell();
     refreshActionControls();
     syncSetupForm();
@@ -36989,6 +37232,74 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       testing.active ? `${testing.pressureLabel}; progress ${formatDecimal(testing.progress, 1)}` : "quiet"
     );
     dom.aiDebugReadout.append(grid);
+  }
+
+  function performanceBucketSnapshot(bucket = {}) {
+    const calls = Math.max(0, Number(bucket.calls) || 0);
+    return {
+      calls,
+      totalMs: Number(bucket.totalMs) || 0,
+      lastMs: Number(bucket.lastMs) || 0,
+      maxMs: Number(bucket.maxMs) || 0,
+      averageMs: calls ? (Number(bucket.totalMs) || 0) / calls : 0
+    };
+  }
+
+  function buildSimulationPerformanceSnapshot() {
+    const cadences = state?.simulation?.cadences || {};
+    return {
+      clock: Number(state?.clock) || 0,
+      actors: livingSimulationActors().length,
+      livingSlimes: (state?.slimes || []).filter((slime) => slime.status !== "dead").length,
+      backlog: simulationPerformance.backlog,
+      lastAdvanceMs: simulationPerformance.lastAdvanceMs,
+      maxAdvanceMs: simulationPerformance.maxAdvanceMs,
+      autosave: {
+        dirty: stateDirtySinceAutosave,
+        intervalMs: AUTOSAVE_REAL_INTERVAL_MS,
+        lastSavedRealAt: lastAutosaveAt
+      },
+      spatialIndex: actorSpatialIndex.snapshot(),
+      cadences: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, {
+        interval: definition.interval,
+        lastRunAt: cadences[definition.id]?.lastRunAt ?? state?.clock ?? 0,
+        nextRunAt: cadences[definition.id]?.nextRunAt ?? state?.clock ?? 0
+      }])),
+      systems: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, performanceBucketSnapshot(simulationPerformance.systems[definition.id])])),
+      render: performanceBucketSnapshot(simulationPerformance.render),
+      save: performanceBucketSnapshot(simulationPerformance.save)
+    };
+  }
+
+  function renderSimulationPerformance() {
+    const summary = document.getElementById("simulationPerformanceSummary");
+    const readout = document.getElementById("simulationPerformanceReadout");
+    if (!summary || !readout) return;
+    const snapshot = buildSimulationPerformanceSnapshot();
+    summary.textContent = `${snapshot.livingSlimes} living slime${snapshot.livingSlimes === 1 ? "" : "s"}; ${snapshot.backlog} overdue system${snapshot.backlog === 1 ? "" : "s"}; last advance ${formatDecimal(snapshot.lastAdvanceMs, 2)} ms.`;
+    readout.textContent = "";
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid ai-debug-grid";
+    const addRow = (label, value, note = "") => {
+      const row = document.createElement("div");
+      row.className = "slime-stat-row ai-debug-row";
+      row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+      grid.append(row);
+    };
+    addRow("Actors", String(snapshot.actors), `${snapshot.spatialIndex.occupiedCells} occupied indexed cells`);
+    addRow("Simulation advance", `${formatDecimal(snapshot.lastAdvanceMs, 2)} ms`, `max ${formatDecimal(snapshot.maxAdvanceMs, 2)} ms`);
+    addRow("Render", `${formatDecimal(snapshot.render.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.render.averageMs, 2)}; max ${formatDecimal(snapshot.render.maxMs, 2)}`);
+    addRow("Save", `${formatDecimal(snapshot.save.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.save.averageMs, 2)}; every 10 real minutes while dirty`);
+    for (const definition of SIMULATION_SYSTEM_DEFS) {
+      const sample = snapshot.systems[definition.id];
+      const cadence = snapshot.cadences[definition.id];
+      addRow(
+        titleCase(definition.id),
+        `${formatDecimal(sample.lastMs, 2)} ms`,
+        `avg ${formatDecimal(sample.averageMs, 2)}; max ${formatDecimal(sample.maxMs, 2)}; cadence ${formatDuration(cadence.interval)}`
+      );
+    }
+    readout.append(grid);
   }
 
   function renderDebugMenuTabs() {
@@ -52827,12 +53138,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function markStateDirty() {
+    stateDirtySinceAutosave = true;
+  }
+
+  function maybeAutosave(now = Date.now()) {
+    if (!stateDirtySinceAutosave || now - lastAutosaveAt < AUTOSAVE_REAL_INTERVAL_MS) return false;
+    persist();
+    return true;
+  }
+
   function persist() {
+    const startedAt = performance.now();
     try {
       ensurePhysicalObjectPlacements();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(savePayload()));
+      stateDirtySinceAutosave = false;
+      lastAutosaveAt = Date.now();
     } catch (error) {
       console.warn("Save failed", error);
+    } finally {
+      recordPerformanceSample(simulationPerformance.save, performance.now() - startedAt);
     }
   }
 
@@ -52870,6 +53196,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     movementReservations.clear();
     const next = { ...defaultState(), ...candidate };
     next.navigation = normalizeNavigationState(next.navigation);
+    next.simulation = normalizeSimulationState(next.simulation, next.clock);
     next.discoveries ||= {};
     next.regionNotes ||= {};
     next.genomeNotes ||= {};
@@ -53098,6 +53425,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.analyzedCapabilities = normalizeAnalyzedCapabilities(slime.analyzedCapabilities);
       slime.containmentTest = normalizeContainmentTestRecord(slime.containmentTest);
       slime.nextPerceptionPracticeAt = finiteTime(slime.nextPerceptionPracticeAt, 0);
+      slime.nextSensoryUpdateAt = finiteTime(slime.nextSensoryUpdateAt, 0);
+      slime.nextAiUpdateAt = finiteTime(slime.nextAiUpdateAt, 0);
       normalizeByproductExpression(slime);
       normalizeSlimeLifecycle(slime);
       normalizeSlimeRole(slime);
@@ -53106,6 +53435,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const previousState = state;
     try {
       state = next;
+      rebuildActorSpatialIndex();
       ensurePhysicalObjectPlacements();
       next.selection = normalizeSelection(next.selection)
         || normalizeSelection(next.selectedMapTarget)
@@ -53115,7 +53445,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       next.ui = normalizeUiState(next.ui, next);
       refreshConstructionOrderBlocks();
       claimNextConstructionWork();
-      syncAllSlimeAi();
+      syncAllSlimeAi({ force: true });
     } finally {
       state = previousState;
     }
