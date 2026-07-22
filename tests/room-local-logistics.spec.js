@@ -225,7 +225,7 @@ test('resource overlay and selection inspector show known room supplies', async 
 
   await selectResourceOverlayFocus(page, 'category:tools');
   await expect(storageTile).toHaveAttribute('data-map-overlay-label', /Storage Room: Tools & Supplies/);
-  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '11');
+  await expect(storageTile).toHaveAttribute('data-map-overlay-value', '12');
 
   await page.locator('[data-selection-inspector-expanded-panel="true"]').getByRole('button', { name: 'Collapse' }).click();
   await pitsTile.click();

@@ -1365,6 +1365,15 @@ body.map-dragging .lab-map-cell {
   color: #e1b75f;
 }
 
+.lab-map-cell.vertical-ramp-cell,
+.lab-map-cell.vertical-rampUp-cell,
+.lab-map-cell.vertical-rampDown-cell {
+  background: #27302b;
+  border-color: rgba(104, 200, 216, 0.72);
+  color: #c9f4ec;
+  box-shadow: inset 0 0 0 1px rgba(104, 200, 216, 0.24);
+}
+
 .lab-map-cell.smoothed-floor-cell {
   background: #2d332c;
   border-color: #444d42;
@@ -1398,6 +1407,18 @@ body.map-dragging .lab-map-cell {
   border-style: dashed;
   color: #f0b28f;
   box-shadow: inset 0 0 0 2px rgba(208, 138, 99, 0.4);
+}
+
+.lab-map-cell.structure-support-strained {
+  border-color: #d0a85c;
+  border-style: dashed;
+}
+
+.lab-map-cell.structure-support-failing,
+.lab-map-cell.structure-support-collapsing {
+  border-color: #ff8b73;
+  border-style: dashed;
+  box-shadow: inset 0 0 0 2px rgba(255, 139, 115, 0.35);
 }
 
 .lab-map-cell.rubble-object-cell {

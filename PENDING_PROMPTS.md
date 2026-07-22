@@ -14,13 +14,7 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
-
----
-
-## 1. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
-
-Extend the first z-layer foundation after its core excavation, stairs, shafts, falling, pathfinding, and environment exchange are established. Design ramps, floor and ceiling construction, structural support and collapse, anchored fixture collapse, multi-layer placement previews, hauling and carrying large objects between levels, directed attacks and abilities through open shafts or breaches, vertical fluid flow, and visibility across open vertical space. Preserve the existing 4 meter layer scale and require physical connections or open space for every cross-layer interaction.
+No prompts are currently queued. Reevaluate the current game state and add the next design prompt before beginning another implementation pass.
 
 ---
 

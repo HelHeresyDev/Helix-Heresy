@@ -86,7 +86,7 @@
     { id: "stairUp", label: "Carve Stair Up", description: "Carve a stair from this floor into the solid layer above.", implemented: true },
     { id: "stairDown", label: "Carve Stair Down", description: "Carve a stair from this floor into the solid layer below.", implemented: true },
     { id: "channelDown", label: "Channel Down", description: "Remove the floor beneath this tile and create an open shaft.", implemented: true },
-    { id: "ramp", label: "Carve Ramp", description: "Sloped vertical movement is defined but deferred until ramp footprints are modeled.", implemented: false },
+    { id: "ramp", label: "Carve Ramp", description: "Carve a compact custom-length incline to the layer above.", implemented: true },
     { id: "smoothFloor", label: "Smooth Floor", description: "Finish one rough excavated floor tile.", implemented: true },
     { id: "smoothWall", label: "Smooth Wall", description: "Finish one exposed natural rock wall tile.", implemented: true },
     { id: "build", label: "Build", description: "Place constructed walls, floors, and anchored doors.", implemented: true },
@@ -580,6 +580,7 @@
   const CONSTRUCTION_BUILD_DEFS = [
     { id: "stoneWall", label: "Stone-Block Wall", kind: "wall", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 2 }, workMinutes: 12, description: "Build an impassable stone-block wall over excavated floor." },
     { id: "stoneFloor", label: "Stone Floor", kind: "floor", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 8, description: "Lay constructed stone flooring that removes rough-floor movement penalties." },
+    { id: "stoneCeiling", label: "Stone Ceiling", kind: "ceiling", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 10, description: "Build a shared stone slab between this space and the layer above." },
     { id: "roughWoodDoor", label: "Rough Wood Door", kind: "door", materialId: "lumber", resourceCosts: { lumber: 1 }, workMinutes: 10, description: "Install a closed rough wood door anchored to at least one cardinally adjacent wall." },
     ...FIXTURE_DEFS.filter((def) => def.id !== "concealedExit").map((def) => ({
       id: `fixture:${def.id}`,
@@ -1292,6 +1293,13 @@
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.miningPick || { primary: "steel", reinforcement: "wood" },
       capabilities: { excavation: 88, masonryBreaking: 62 },
       notes: ["primary mining tool", "effective against ordinary rock and ore", "can break masonry inefficiently"]
+    },
+    foldingLadder: {
+      max: 300,
+      material: "folding steel work ladder",
+      materialComposition: { primary: "steel", lining: "rubber" },
+      capabilities: { elevatedWork: 100 },
+      notes: ["portable overhead work support", "required for constructing ceilings from below"]
     },
     masonryHammer: {
       max: 500,
@@ -2857,6 +2865,13 @@
       description: "A persistent excavation tool for cutting ordinary natural rock and ore-bearing walls."
     },
     {
+      key: "foldingLadder",
+      label: "Folding ladder",
+      category: "tools",
+      initial: 1,
+      description: "A portable steel work ladder used to reach four-meter ceiling anchors and elevated fittings."
+    },
+    {
       key: "masonryHammer",
       label: "Masonry hammer",
       category: "tools",
@@ -2973,6 +2988,7 @@
     thick: "thickGloves",
     tong: "longTongs",
     pick: "miningPick",
+    ladder: "foldingLadder",
     hammer: "masonryHammer",
     chisel: "stoneChisel",
     axe: "woodAxe",
@@ -3195,6 +3211,10 @@
   }
   const navigationService = new Navigation.NavigationService({ cacheLimit: 384 });
   const movementReservations = new Navigation.ReservationTable({ capacity: 1 });
+  const Vertical = window.HelixVerticalSystems;
+  if (!Vertical) {
+    throw new Error("HelixVerticalSystems must load before app.js");
+  }
   const Simulation = window.HelixSimulation;
   if (!Simulation) {
     throw new Error("HelixSimulation must load before app.js");
@@ -4062,6 +4082,9 @@
       buildType: DEFAULT_CONSTRUCTION_BUILD_ID,
       fixtureRotation: 0,
       fixtureMaterialPolicy: "closest",
+      rampLength: 1,
+      rampWidth: 1,
+      rampDirection: "east",
       draftCells: [],
       orders: [],
       roomDraftCells: [],
@@ -4250,7 +4273,7 @@
       ...Object.values(doors).map((door) => door.cell)
     ]);
     return {
-      version: 6,
+      version: 7,
       tileSizeM: LAB_MAP_TILE_SIZE_M,
       layerHeightM: LAB_MAP_LAYER_HEIGHT_M,
       width: LAB_MAP_DEFAULT_WIDTH,
@@ -4267,7 +4290,8 @@
         ],
         naturalDamage: [],
         rubble: [],
-        verticalConnectors: []
+        verticalConnectors: [],
+        structuralFailures: []
       },
       rooms,
       doors
@@ -4681,7 +4705,8 @@
         map: ensureLabMap(),
         actor: actorId === "scientist" ? state.scientist : findSlime(actorId),
         ignoreDoors: Boolean(options.ignoreDoors),
-        ignoreAccessPolicy: Boolean(options.ignoreAccessPolicy)
+        ignoreAccessPolicy: Boolean(options.ignoreAccessPolicy),
+        carriedLoad: options.carriedLoad || null
       }),
       verticalMapSnapshot: () => ({
         activeLayer: mapViewportForUi().z,
@@ -4689,19 +4714,72 @@
         connectors: (ensureLabMap().terrain?.verticalConnectors || []).map((entry) => ({
           ...entry,
           lowerCell: { ...entry.lowerCell },
-          upperCell: { ...entry.upperCell }
+          upperCell: { ...entry.upperCell },
+          footprintCells: (entry.footprintCells || []).map((cell) => ({ ...cell })),
+          upperCells: (entry.upperCells || []).map((cell) => ({ ...cell }))
         })),
-        excavated: (ensureLabMap().terrain?.excavated || []).map((cell) => ({ ...cell }))
+        excavated: (ensureLabMap().terrain?.excavated || []).map((cell) => ({ ...cell })),
+        failures: (ensureLabMap().terrain?.structuralFailures || []).map((failure) => ({ ...failure, cell: { ...failure.cell } }))
       }),
       setMapLayer: (z) => {
         const current = mapViewportForUi().z;
         setMapLayer(Number(z) - current);
         return mapViewportForUi().z;
       },
-      designateVerticalExcavation: (mode, cell) => {
-        if (!["stairUp", "stairDown", "channelDown"].includes(mode)) return false;
-        return createConstructionOrder(mode, [cleanMapCell(cell)], { label: constructionOrderLabel(mode, [cell]) });
+      designateVerticalExcavation: (mode, cell, options = {}) => {
+        if (!["stairUp", "stairDown", "channelDown", "ramp"].includes(mode)) return false;
+        return createConstructionOrder(mode, [cleanMapCell(cell)], options);
       },
+      designateRamp: (cell, options = {}) => createConstructionOrder("ramp", [cleanMapCell(cell)], {
+        rampLength: options.length,
+        rampWidth: options.width,
+        rampDirection: options.direction
+      }),
+      designateConstruction: (mode, cells, options = {}) => createConstructionOrder(mode, normalizeDigCells(cells), options),
+      constructionSnapshot: () => JSON.parse(JSON.stringify(normalizeConstructionState(state.construction, state))),
+      constructionFootprintSnapshot: (orderId) => {
+        const order = constructionOrderById(orderId);
+        return order ? order.tiles.flatMap((tile) => constructionOrderFootprintCells(order, tile).map((cell) => ({ ...cell }))) : [];
+      },
+      rampPlacementSnapshot: (cell, options = {}) => {
+        const ramp = rampPlacementRecord(cell, { rampLength: options.length, rampWidth: options.width, rampDirection: options.direction });
+        return { ramp, reason: rampPlacementBlockReason(cell, { rampLength: options.length, rampWidth: options.width, rampDirection: options.direction }) };
+      },
+      setRampGeometry: (options = {}) => setConstructionRampGeometry(options),
+      horizontalBoundarySnapshot: (upperCell) => {
+        const boundary = horizontalBoundaryAtCell(upperCell);
+        return boundary ? JSON.parse(JSON.stringify(boundary)) : null;
+      },
+      setExcavatedCells: (cells) => {
+        const map = ensureLabMap();
+        map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), ...normalizeDigCells(cells)]);
+        state.labMap = normalizeLabMap(map, state.rooms);
+        bumpNavigationRevision("topology");
+        persist();
+        render();
+        return true;
+      },
+      setConstructedFloor: (cell, options = {}) => {
+        const clean = cleanMapCell(cell);
+        const map = ensureLabMap();
+        if (!clean || !labMapCellIsExcavated(clean, map)) return false;
+        map.terrain.constructedFloors = normalizeConstructedSurfaces([
+          ...(map.terrain.constructedFloors || []).filter((entry) => !sameMapCell(entry.cell, clean)),
+          { cell: clean, materialId: options.materialId || "stoneBlocks", condition: options.condition ?? 100, builtAt: state.clock }
+        ]);
+        state.labMap = normalizeLabMap(map, state.rooms);
+        evaluateStructuralSupport(state.labMap);
+        persist();
+        render();
+        return true;
+      },
+      evaluateStructuralSupport: () => {
+        evaluateStructuralSupport();
+        persist();
+        render();
+        return (ensureLabMap().terrain?.structuralFailures || []).map((failure) => ({ ...failure }));
+      },
+      directedLineOfEffect: (from, to) => directedLineOfEffect(from, to),
       testScientistGravityAt: (cell) => {
         state.scientist.mapCell = cleanMapCell(cell);
         const beforeHealth = scientistVital("health").current;
@@ -4925,6 +5003,18 @@
         };
       },
       setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
+      setFixtureOrigin: (fixtureId, cell) => {
+        const fixture = fixtureById(fixtureId);
+        const clean = cleanMapCell(cell);
+        if (!fixture || !clean || !mapCellInBounds(clean, ensureLabMap())) return false;
+        fixture.origin = clean;
+        state.fixtures = normalizeFixtures(state.fixtures);
+        bumpNavigationRevision("occupancy");
+        evaluateStructuralSupport();
+        persist();
+        render();
+        return true;
+      },
       physicalStockSnapshot: () => ({
         designations: ensureStockpileDesignations().map((designation) => ({
           ...designation,
@@ -5075,6 +5165,7 @@
         };
       },
       damageStructure: (cell, amount, damageTypeId = "physical") => debugDamageStructure(cleanMapCell(cell), damageTypeId, amount),
+      sensoryLineOfSight: (from, to) => sensoryLineOfSight(from, to),
       sensorySnapshot: (actorId = "scientist") => {
         const actor = actorId === "scientist" ? state.scientist : findSlime(actorId);
         if (!actor) return null;
@@ -7096,7 +7187,7 @@
     if (!changes) return false;
     if (changes.scientistMovementChanged || changes.uncontainedBehaviorChanged || changes.combatChanged
       || changes.incidentAlertChanged || changes.containmentIncidentChanges || changes.expired || changes.jobExpired
-      || changes.corpseChanges || changes.completed || changes.constructionProgressChanged) return true;
+      || changes.corpseChanges || changes.completed || changes.constructionProgressChanged || changes.structuralChanged) return true;
     const overlay = currentMapOverlayDef().id;
     if (["contamination", "temperature", "light", "humidity", "ambientMana", "infrastructure"].includes(overlay)) {
       return Boolean(changes.roomPropagationChanges || changes.infrastructureChanged || changes.envChanges || changes.sensoryChanged);
@@ -7300,6 +7391,7 @@
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
       envChanges: 0,
+      structuralChanged: 0,
       sensoryChanged: 0,
       habitatChanged: 0,
       expired: 0,
@@ -7370,6 +7462,7 @@
       changes.roomPropagationChanges += propagateRoomEnvironmentAttributes(elapsed);
       changes.infrastructureChanged += updateInfrastructure(elapsed);
       changes.envChanges += exchangeContainerEnvironments(elapsed);
+      changes.envChanges += applyVerticalFluidFlow();
       return;
     }
     if (id === "sensory") {
@@ -7422,6 +7515,7 @@
       return;
     }
     if (id === "administration") {
+      changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.suspicionChanged += updateSuspicionDecay();
       changes.incidentAlertChanged += refreshIncidentAlerts();
@@ -7458,6 +7552,7 @@
       + changes.roomPropagationChanges
       + changes.infrastructureChanged
       + changes.envChanges
+      + changes.structuralChanged
       + changes.sensoryChanged
       + changes.habitatChanged
       + changes.feedstockChanged
@@ -8391,7 +8486,12 @@
 
   function constructionOrderFootprintCells(order, tile) {
     const def = constructionOrderFixtureDef(order);
-    return def ? fixtureFootprintCells(tile?.cell, def, order.rotation) : tile?.cell ? [tile.cell] : [];
+    if (def) return fixtureOccupiedVolumeCells(tile?.cell, def, order.rotation);
+    if (order?.mode === "ramp") return rampPlacementCells(tile?.cell, order);
+    if (constructionOrderBuildDef(order)?.kind === "ceiling" && tile?.cell) {
+      return [tile.cell, mapCellAtOffset(tile.cell, 0, 0, 1)];
+    }
+    return tile?.cell ? [tile.cell] : [];
   }
 
   function plannedFixtureAtCell(cell, exceptOrderId = "", layer = "") {
@@ -8435,6 +8535,8 @@
   function constructedThingAtCell(cell, map = ensureLabMap()) {
     const fixture = fixtureAtCell(cell);
     if (fixture && fixture.typeId !== "concealedExit") return { kind: "fixture", label: fixture.name || "fixture", value: fixture };
+    const ramp = rampAtCell(cell, map);
+    if (ramp) return { kind: "ramp", label: `${ramp.grade.toLowerCase()} ramp`, value: ramp };
     const door = labMapDoorAtCell(cell, map);
     if (door) return { kind: "door", label: "door", value: door };
     const wall = constructedWallAtCell(cell, map);
@@ -8461,6 +8563,7 @@
   function constructionOrderLabel(mode, cells, buildType = state.construction?.buildType) {
     const count = normalizeDigCells(cells).length;
     if (mode === "mine") return excavationDesignationLabel(cells);
+    if (mode === "ramp") return `Carve ${state.construction?.rampLength || 1} m x ${state.construction?.rampWidth || 1} m ${state.construction?.rampDirection || "east"} ramp`;
     if (mode === "build") {
       const def = constructionBuildDef(buildType);
       return def.kind === "fixture" ? `Place ${def.label}` : `Build ${def.label} on ${count} tile${count === 1 ? "" : "s"}`;
@@ -8489,6 +8592,9 @@
       }
       return "";
     }
+    if (mode === "ramp") {
+      return rampPlacementBlockReason(clean, { ...options, ...(options.order || {}) });
+    }
     if (mode === "smoothFloor") {
       if (!excavated) return "Only excavated floor can be smoothed as floor.";
       if (constructedFloorAtCell(clean, map)) return "Constructed flooring already finishes this tile.";
@@ -8513,6 +8619,11 @@
         if (constructedFloorAtCell(clean, map)) return "Constructed flooring already covers this tile.";
         if (constructedWallAtCell(clean, map)) return "Deconstruct the wall before laying flooring here.";
         if (labMapDoorAtCell(clean, map)) return "Deconstruct the door before laying flooring here.";
+      } else if (buildDef.kind === "ceiling") {
+        const above = mapCellAtOffset(clean, 0, 0, 1);
+        if (!labMapCellIsExcavated(above, map)) return "Natural rock already forms the ceiling above this tile.";
+        if (constructedFloorAtCell(above, map)) return "A constructed slab already separates these layers.";
+        if (verticalConnectorBetween(clean, above, map)) return "Remove the stair or ramp connection before closing this vertical boundary.";
       } else if (buildDef.kind === "door") {
         if (labMapDoorAtCell(clean, map)) return "A door already occupies this tile.";
         if (constructedWallAtCell(clean, map)) return "Deconstruct the wall before installing a door here.";
@@ -8536,9 +8647,58 @@
     return mapCellAtOffset(sourceCell, 0, 0, mode === "stairUp" ? 1 : -1);
   }
 
+  function rampPlacementRecord(sourceCell, options = {}) {
+    const length = clamp(Math.round(Number(options.rampLength ?? options.length ?? state.construction?.rampLength) || 1), 1, 64);
+    const width = clamp(Math.round(Number(options.rampWidth ?? options.width ?? state.construction?.rampWidth) || 1), 1, 16);
+    const direction = Vertical.cleanDirection(options.rampDirection ?? options.direction ?? state.construction?.rampDirection);
+    return Vertical.normalizeRamp({
+      id: options.id,
+      type: "ramp",
+      lowerCell: sourceCell,
+      direction,
+      length,
+      width,
+      materialComposition: options.materialComposition || { primary: "stone" },
+      condition: options.condition ?? 100,
+      builtAt: options.builtAt ?? state.clock
+    }, { layerHeight: ensureLabMap().layerHeightM, tileSize: ensureLabMap().tileSizeM });
+  }
+
+  function rampPlacementCells(sourceCell, options = {}) {
+    const ramp = rampPlacementRecord(sourceCell, options);
+    return ramp ? normalizeDigCells([...ramp.footprintCells, ...ramp.upperCells]) : [];
+  }
+
+  function rampPlacementBlockReason(sourceCell, options = {}) {
+    const map = state.labMap || ensureLabMap();
+    const ramp = rampPlacementRecord(sourceCell, options);
+    if (!ramp || !labMapCellIsExcavated(ramp.lowerCell, map)) return "A carved ramp must begin on existing excavated floor.";
+    const cells = [...ramp.footprintCells, ...ramp.upperCells];
+    if (cells.some((cell) => !mapCellInBounds(cell, map))) return "The complete ramp footprint must remain inside the map.";
+    const blockedKeys = labMapBlockingCellKeys(map);
+    for (const cell of cells) {
+      if (constructedWallAtCell(cell, map) || labMapDoorAtCell(cell, map) || blockedKeys.has(mapCellKey(cell))) {
+        return "A wall, door, container, or permanent fixture blocks part of the ramp footprint.";
+      }
+    }
+    const overlap = (map.terrain?.verticalConnectors || []).find((entry) => {
+      const occupied = entry.type === "ramp" ? [...(entry.footprintCells || []), ...(entry.upperCells || [])] : [entry.lowerCell, entry.upperCell];
+      const keys = new Set(occupied.map(mapCellKey));
+      return cells.some((cell) => keys.has(mapCellKey(cell)));
+    });
+    if (overlap) return "Another stair or ramp already occupies part of this vertical route.";
+    const plannedKeys = new Set(cells.map(mapCellKey));
+    const plannedOverlap = activeConstructionOrders().find((order) => order.id !== options.exceptOrderId
+      && order.tiles.some((tile) => ["planned", "queued"].includes(tile.status)
+        && constructionOrderFootprintCells(order, tile).some((cell) => plannedKeys.has(mapCellKey(cell)))));
+    if (plannedOverlap) return `${constructionModeLabel(plannedOverlap.mode)} already occupies part of this ramp footprint.`;
+    return "";
+  }
+
   function constructionTargetOccupancyBlockReason(order, tile) {
     if (!["build", "deconstruct"].includes(order?.mode)) return "";
     const keys = new Set(constructionOrderFootprintCells(order, tile).map(mapCellKey));
+    if (constructionOrderBuildDef(order)?.kind === "ceiling") keys.delete(mapCellKey(tile.cell));
     if (keys.has(mapCellKey(scientistMapCell()))) return "The scientist is standing inside the work footprint.";
     const slime = (state.slimes || []).find((entry) => entry.status === "released" && keys.has(mapCellKey(objectMapCell(entry) || {})));
     if (slime) return `${slime.name} is occupying the work tile.`;
@@ -8550,6 +8710,8 @@
   function constructionBaseWorkSeconds(order) {
     const minutes = ["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode)
       ? EXCAVATION_MINUTES_PER_TILE
+      : order?.mode === "ramp"
+        ? EXCAVATION_MINUTES_PER_TILE * Math.max(1, Number(order.rampLength) || 1) * Math.max(1, Number(order.rampWidth) || 1)
       : order?.mode === "build"
         ? constructionOrderBuildDef(order)?.workMinutes
         : order?.mode === "deconstruct" ? DECONSTRUCTION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
@@ -8558,7 +8720,7 @@
 
   function constructionTargetComposition(order, tile) {
     const map = ensureLabMap();
-    if (["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode) || order?.mode === "smoothWall") {
+    if (["mine", "stairUp", "stairDown", "channelDown", "ramp"].includes(order?.mode) || order?.mode === "smoothWall") {
       const materialCell = ["stairUp", "stairDown", "channelDown"].includes(order?.mode)
         ? verticalExcavationTargetCell(order.mode, tile.cell) : tile.cell;
       return normalizeMaterialComposition({ primary: naturalWallMaterialId(materialCell, map) });
@@ -8584,7 +8746,7 @@
   }
 
   function constructionToolRequirements(order, tile) {
-    if (["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode)) return [{ label: "solid-rock excavation", any: ["excavation"], minimum: 42 }];
+    if (["mine", "stairUp", "stairDown", "channelDown", "ramp"].includes(order?.mode)) return [{ label: "solid-rock excavation", any: ["excavation"], minimum: 42 }];
     if (["smoothFloor", "smoothWall"].includes(order?.mode)) {
       return [
         { label: "stone shaping", any: ["stoneShaping"], minimum: 42 },
@@ -8603,6 +8765,12 @@
         return [
           { label: "woodworking", any: ["woodworking"], minimum: 42 },
           { label: "assembly striking", any: ["striking"], minimum: 38 }
+        ];
+      }
+      if (def?.kind === "ceiling") {
+        return [
+          { label: "masonry construction", any: ["masonry"], minimum: 42 },
+          { label: "elevated work support", any: ["elevatedWork"], minimum: 90 }
         ];
       }
       return [{ label: "masonry construction", any: ["masonry"], minimum: 42 }];
@@ -8721,7 +8889,9 @@
         ? cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map))
       : ["stairUp", "stairDown"].includes(order.mode)
         ? [tile.cell]
-      : ["smoothFloor", "build"].includes(order.mode) && constructionOrderBuildDef(order)?.kind === "floor"
+      : order.mode === "ramp"
+        ? [tile.cell]
+      : ["smoothFloor", "build"].includes(order.mode) && ["floor", "ceiling"].includes(constructionOrderBuildDef(order)?.kind)
       ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsExcavated(cell, map))]
       : order.mode === "smoothFloor"
         ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map))]
@@ -8748,8 +8918,9 @@
       const itemCell = stack ? stockpileHaulAccessCell(stack) : null;
       if (!stack || !itemCell) return { ok: false, reason: `The reserved ${fixture.label} item is no longer physically available.`, path: [], accessCell: null };
       const toItem = labMapPathBetweenCells(toolPlan.endpoint || start, itemCell, { map, ignoreDoors: true });
-      const toWork = labMapPathBetweenCells(itemCell, best.accessCell, { map, ignoreDoors: true });
-      if (!toItem.length || !toWork.length) return { ok: false, reason: `No physical route can haul the fabricated ${fixture.label} to this placement.`, path: [], accessCell: null };
+      const load = physicalStackCarriedLoad(stack, 1);
+      const toWork = labMapPathBetweenCells(itemCell, best.accessCell, { map, ignoreDoors: true, actor: state.scientist, carriedLoad: load });
+      if (!toItem.length || !toWork.length) return { ok: false, reason: `No physical route can haul the fabricated ${fixture.label} to this placement; it may require a wider ramp or disassembly.`, path: [], accessCell: null };
       return {
         ...best,
         path: appendMapPath(appendMapPath(toolPlan.path, toItem), toWork),
@@ -9028,8 +9199,14 @@
     const buildDef = mode === "build" ? constructionBuildDef(buildType) : null;
     const rotation = buildDef?.kind === "fixture" ? normalizeFixtureRotation(options.rotation ?? state.construction.fixtureRotation) : 0;
     const materialPolicy = buildDef?.kind === "fixture" ? fixtureMaterialPolicyId(options.materialPolicy ?? state.construction.fixtureMaterialPolicy, fixtureDef(buildDef.fixtureTypeId)) : "";
-    const orderCells = buildDef?.kind === "fixture" ? cleanCells.slice(0, 1) : cleanCells;
-    const invalid = orderCells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType, order: { rotation } })).find(Boolean);
+    const orderCells = buildDef?.kind === "fixture" || mode === "ramp" ? cleanCells.slice(0, 1) : cleanCells;
+    const placementOrder = {
+      rotation,
+      rampLength: options.rampLength ?? state.construction.rampLength,
+      rampWidth: options.rampWidth ?? state.construction.rampWidth,
+      rampDirection: options.rampDirection ?? state.construction.rampDirection
+    };
+    const invalid = orderCells.map((cell) => constructionTileStaticBlockReason(mode, cell, { buildType, order: placementOrder })).find(Boolean);
     if (invalid) {
       addEvent(invalid);
       persist();
@@ -9042,6 +9219,9 @@
       buildType,
       rotation,
       materialPolicy,
+      rampLength: mode === "ramp" ? clamp(Math.round(Number(options.rampLength ?? state.construction.rampLength) || 1), 1, 64) : 0,
+      rampWidth: mode === "ramp" ? clamp(Math.round(Number(options.rampWidth ?? state.construction.rampWidth) || 1), 1, 16) : 0,
+      rampDirection: mode === "ramp" ? Vertical.cleanDirection(options.rampDirection ?? state.construction.rampDirection) : "",
       productionBillId: "",
       targetFixtureId: mode === "deconstruct" ? String(options.targetFixtureId || "") : "",
       label: constructionOrderLabel(mode, orderCells, buildType),
@@ -9097,7 +9277,7 @@
   function startExcavationDraftDesignation() {
     const mode = constructionActiveMode();
     if (mode === "cancel") return cancelConstructionOrdersAtCells(constructionDraftCells());
-    if (!["mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) {
+    if (!["mine", "stairUp", "stairDown", "channelDown", "ramp", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) {
       addEvent(`${constructionModeLabel(mode)} is not implemented yet.`);
       persist();
       render();
@@ -9143,6 +9323,7 @@
       ...cells
     ]);
     state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    evaluateStructuralSupport(state.labMap || map);
     bumpNavigationRevision("topology");
     const updates = applyRoomDesignationPolicy({ focusCells: cells, silent: true });
     const policy = roomDesignationPolicyDef();
@@ -9189,6 +9370,8 @@
     if (mapDoor) return { kind: "door", cell: clean, mapDoor, value: doorFixtureState(mapDoor) };
     const fixture = fixtureAtCell(clean);
     if (fixture) return { kind: "fixture", cell: objectMapCell(fixture), value: fixture };
+    const ramp = rampAtCell(clean, map);
+    if (ramp) return { kind: "ramp", cell: cleanMapCell(ramp.lowerCell), value: ramp };
     const wall = constructedWallAtCell(clean, map);
     if (wall) return { kind: "constructedWall", cell: clean, value: wall };
     const floor = constructedFloorAtCell(clean, map);
@@ -9268,6 +9451,9 @@
     } else if (target.kind === "constructedFloor") {
       map.terrain.constructedFloors = (map.terrain.constructedFloors || []).filter((entry) => mapCellKey(entry.cell) !== key);
       addRubblePile(target.cell, rubbleMaterialsForComposition(composition, 1), `floor destroyed by ${source}`, map);
+    } else if (target.kind === "ramp") {
+      map.terrain.verticalConnectors = (map.terrain.verticalConnectors || []).filter((entry) => entry.id !== target.value.id);
+      addRubblePile(target.cell, rubbleMaterialsForComposition(composition, Math.max(1, Number(target.value.length) * Number(target.value.width))), `ramp destroyed by ${source}`, map);
     } else if (target.kind === "naturalWall") {
       const deposit = naturalDepositAtCell(target.cell, map);
       map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), target.cell]);
@@ -9318,6 +9504,8 @@
     const destroyed = after <= 0 && target.kind !== "door";
     if (destroyed) destroyStructuralTarget(target, source, map);
     else state.labMap = normalizeLabMap(map, state.rooms);
+    evaluateStructuralSupport(state.labMap);
+    if (destroyed) applyGravityAfterTopologyChange(state.labMap);
     const stateLabel = destroyed ? "Destroyed" : structureConditionBand(after);
     addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${cell.x},${cell.y} took ${formatNumber(damage)} ${damageTypeListText(damageTypeIds.map(damageTypeDef).filter(Boolean)).toLowerCase()} damage from ${source}; ${stateLabel.toLowerCase()}.`);
     return { ok: true, destroyed, damage, before, after, state: stateLabel, targetKind: target.kind, attackTransmission: !destroyed && wallAllowsAttackTransmission(cell, state.labMap) };
@@ -9394,6 +9582,9 @@
     } else if (target.kind === "floor") {
       map.terrain.constructedFloors = (map.terrain.constructedFloors || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
       addRubblePile(cell, rubbleMaterialsForComposition(target.value.materialComposition, 1), `${target.label} deconstruction`, map);
+    } else if (target.kind === "ramp") {
+      map.terrain.verticalConnectors = (map.terrain.verticalConnectors || []).filter((entry) => entry.id !== target.value.id);
+      addRubblePile(target.value.lowerCell, rubbleMaterialsForComposition(target.value.materialComposition, Math.max(1, target.value.length * target.value.width)), `${target.label} deconstruction`, map);
     }
     return true;
   }
@@ -9424,6 +9615,23 @@
       ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
     }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "vertical stone excavation", map);
     return targetCell;
+  }
+
+  function completeRampExcavation(order, sourceCell, map) {
+    const ramp = rampPlacementRecord(sourceCell, order);
+    const excavationCells = normalizeDigCells([...ramp.footprintCells, ...ramp.upperCells]);
+    let rubbleAmount = 0;
+    for (const cell of excavationCells) {
+      if (labMapCellIsExcavated(cell, map)) continue;
+      const deposit = naturalDepositAtCell(cell, map);
+      map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), cell]);
+      map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
+      map.terrain.smoothedWalls = normalizeDigCells(map.terrain.smoothedWalls).filter((entry) => mapCellKey(entry) !== mapCellKey(cell));
+      rubbleAmount += deposit?.oreId ? 4 : 3;
+    }
+    map.terrain.verticalConnectors = normalizeVerticalConnectors([...(map.terrain.verticalConnectors || []), ramp]);
+    addRubblePile(sourceCell, { stone: Math.max(1, rubbleAmount) }, `${ramp.length} m ${ramp.grade.toLowerCase()} ramp excavation`, map);
+    return ramp;
   }
 
   function fallDestinationForCell(cell, map = ensureLabMap()) {
@@ -9492,6 +9700,182 @@
     return moved;
   }
 
+  function constructedFloorSupportKeys(map = ensureLabMap()) {
+    const floors = new Map((map.terrain?.constructedFloors || []).map((floor) => [mapCellKey(floor.cell), floor]));
+    const supported = new Set();
+    const distance = new Map();
+    const queue = [];
+    for (const [key, floor] of floors) {
+      const below = mapCellAtOffset(floor.cell, 0, 0, -1);
+      if (!labMapCellIsExcavated(below, map) || cardinalMapCells(floor.cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map))) {
+        supported.add(key);
+        distance.set(key, 0);
+        queue.push(floor.cell);
+      }
+    }
+    while (queue.length) {
+      const cell = queue.shift();
+      const currentDistance = distance.get(mapCellKey(cell)) || 0;
+      for (const neighbor of cardinalMapCells(cell)) {
+        const key = mapCellKey(neighbor);
+        const floor = floors.get(key);
+        if (!floor || supported.has(key)) continue;
+        const composition = floor.materialComposition || { primary: normalizeMaterialId(floor.materialId) };
+        const span = clamp(1 + Math.floor((compositionPropertyScore(composition, "toughness") + compositionPropertyScore(composition, "hardness")) / 40), 1, 6);
+        if (currentDistance + 1 > span) continue;
+        supported.add(key);
+        distance.set(key, currentDistance + 1);
+        queue.push(neighbor);
+      }
+    }
+    return supported;
+  }
+
+  function fixtureSupportReason(fixture, map, floorSupportKeys) {
+    const def = fixtureDef(fixture);
+    const cells = fixtureFootprintCells(fixture);
+    if (!def || def.id === "concealedExit") return "";
+    if (["wallMounted", "wallControl", "utilityAir"].includes(def.layer)) {
+      const anchored = cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map) || constructedWallAtCell(neighbor, map)));
+      return anchored ? "" : "Its wall anchors no longer reach solid rock or a constructed wall.";
+    }
+    if (def.layer === "overhead") {
+      const anchored = cells.every((cell) => {
+        const above = mapCellAtOffset(cell, 0, 0, 1);
+        return !labMapCellIsExcavated(above, map) || floorSupportKeys.has(mapCellKey(above));
+      });
+      return anchored ? "" : "Its ceiling anchors have lost structural support.";
+    }
+    const unsupported = cells.some((cell) => {
+      const floor = constructedFloorAtCell(cell, map);
+      return floor ? !floorSupportKeys.has(mapCellKey(cell)) : !labMapCellHasSupport(cell, map);
+    });
+    return unsupported ? "Its floor anchors have lost structural support." : "";
+  }
+
+  function structuralFailureIdentity(kind, cell, targetId = "") {
+    return `${kind}:${targetId || mapCellKey(cell)}`;
+  }
+
+  function evaluateStructuralSupport(map = ensureLabMap()) {
+    const now = state.clock;
+    const floorSupportKeys = constructedFloorSupportKeys(map);
+    const unsupported = [];
+    for (const floor of map.terrain?.constructedFloors || []) {
+      if (!floorSupportKeys.has(mapCellKey(floor.cell))) unsupported.push({ kind: "constructedFloor", cell: floor.cell, reason: "The slab exceeds the supported span of its material." });
+    }
+    for (const wall of map.terrain?.constructedWalls || []) {
+      const floor = constructedFloorAtCell(wall.cell, map);
+      const supported = floor ? floorSupportKeys.has(mapCellKey(wall.cell)) : labMapCellHasSupport(wall.cell, map);
+      if (!supported) unsupported.push({ kind: "constructedWall", cell: wall.cell, reason: "The wall has lost support beneath it." });
+    }
+    for (const fixture of state.fixtures || []) {
+      const reason = fixtureSupportReason(fixture, map, floorSupportKeys);
+      if (reason) unsupported.push({ kind: "fixture", targetId: fixture.id, cell: fixture.origin, reason });
+    }
+    for (const ramp of (map.terrain?.verticalConnectors || []).filter((entry) => entry.type === "ramp")) {
+      const lowerSupported = !labMapCellIsExcavated(mapCellAtOffset(ramp.lowerCell, 0, 0, -1), map) || floorSupportKeys.has(mapCellKey(ramp.lowerCell));
+      if (!lowerSupported) unsupported.push({ kind: "ramp", targetId: ramp.id, cell: ramp.lowerCell, reason: "The ramp has lost support at its lower anchorage." });
+    }
+    const previous = new Map((map.terrain?.structuralFailures || []).map((failure) => [failure.key, failure]));
+    const next = [];
+    for (const target of unsupported) {
+      const key = structuralFailureIdentity(target.kind, target.cell, target.targetId);
+      const existing = previous.get(key);
+      const failure = existing || {
+        key,
+        kind: target.kind,
+        targetId: target.targetId || "",
+        cell: cleanMapCell(target.cell),
+        status: "strained",
+        reason: target.reason,
+        detectedAt: now,
+        collapseAt: now + 120
+      };
+      const remaining = failure.collapseAt - now;
+      failure.status = remaining <= 10 ? "collapsing" : remaining <= 60 ? "failing" : "strained";
+      failure.reason = target.reason;
+      next.push(failure);
+      if (!existing && scientistObservesRoom(labMapCellRoomId(target.cell, map))) {
+        addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${target.cell.x},${target.cell.y}, Z ${target.cell.z} is strained: ${target.reason}`);
+      }
+    }
+    map.terrain.structuralFailures = normalizeStructuralFailures(next);
+    return next.length;
+  }
+
+  function damageActorsBelowCollapse(cell, amount = 15) {
+    const impact = mapCellAtOffset(cell, 0, 0, -1);
+    let changed = 0;
+    if (sameMapCell(scientistMapCell(), impact)) {
+      damageScientistHealth(amount, "falling structural debris");
+      changed += 1;
+    }
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "released" || !sameMapCell(slime.mapCell, impact)) continue;
+      applySlimeCombatDamage(slime, amount, "environment", "falling structural debris");
+      changed += 1;
+    }
+    return changed;
+  }
+
+  function structuralFailureTarget(failure, map = ensureLabMap()) {
+    if (failure.kind === "fixture") {
+      const fixture = fixtureById(failure.targetId);
+      return fixture ? { kind: "fixture", cell: fixture.origin, value: fixture } : null;
+    }
+    if (failure.kind === "ramp") {
+      const ramp = (map.terrain?.verticalConnectors || []).find((entry) => entry.id === failure.targetId);
+      return ramp ? { kind: "ramp", cell: ramp.lowerCell, value: ramp } : null;
+    }
+    if (failure.kind === "constructedFloor") {
+      const floor = constructedFloorAtCell(failure.cell, map);
+      return floor ? { kind: "constructedFloor", cell: failure.cell, value: floor } : null;
+    }
+    const wall = constructedWallAtCell(failure.cell, map);
+    return wall ? { kind: "constructedWall", cell: failure.cell, value: wall } : null;
+  }
+
+  function updateStructuralFailures() {
+    const map = ensureLabMap();
+    evaluateStructuralSupport(map);
+    const due = [...(map.terrain?.structuralFailures || [])]
+      .filter((failure) => failure.collapseAt <= state.clock)
+      .sort((a, b) => ({ constructedFloor: 0, ramp: 1, constructedWall: 2, fixture: 3 }[a.kind] || 9) - ({ constructedFloor: 0, ramp: 1, constructedWall: 2, fixture: 3 }[b.kind] || 9) || a.key.localeCompare(b.key));
+    let changed = 0;
+    for (const failure of due) {
+      const currentMap = ensureLabMap();
+      const target = structuralFailureTarget(failure, currentMap);
+      if (!target) continue;
+      if (target.kind === "constructedFloor") damageActorsBelowCollapse(target.cell);
+      const observed = scientistObservesRoom(labMapCellRoomId(target.cell, currentMap));
+      destroyStructuralTarget(target, "structural collapse", currentMap);
+      if (observed) addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${target.cell.x},${target.cell.y}, Z ${target.cell.z} collapsed.`);
+      changed += 1;
+    }
+    if (changed) {
+      applyGravityAfterTopologyChange(ensureLabMap());
+      evaluateStructuralSupport(ensureLabMap());
+      refreshIncidentAlerts();
+    }
+    return changed;
+  }
+
+  function applyVerticalFluidFlow(map = ensureLabMap()) {
+    let moved = 0;
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (stack.form !== "spill" || !stack.cell || stack.fixtureId || stack.containerId || stack.carriedBy) continue;
+      const fall = fallDestinationForCell(stack.cell, map);
+      if (!fall) continue;
+      stack.cell = fall.cell;
+      stack.roomId = labMapCellRoomId(fall.cell, map) || stack.roomId;
+      stack.sourceLabels = [...new Set([...(stack.sourceLabels || []), `fell ${formatDecimal(fall.distanceM, 0)} m through open vertical space`])];
+      moved += 1;
+    }
+    if (moved) syncPhysicalReadModels();
+    return moved;
+  }
+
   function completeConstructionWork(task) {
     const order = constructionOrderById(task.data?.constructionOrderId);
     const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
@@ -9536,6 +9920,10 @@
       topologyFocusCell = completeVerticalExcavation(order.mode, tile.cell, map);
       state.labMap = normalizeLabMap(map, state.rooms);
       applyGravityAfterTopologyChange();
+    } else if (order.mode === "ramp") {
+      const ramp = completeRampExcavation(order, tile.cell, map);
+      topologyFocusCell = ramp.upperCell;
+      state.labMap = normalizeLabMap(map, state.rooms);
     } else if (order.mode === "smoothFloor") {
       map.terrain.smoothedFloors = normalizeDigCells([...(map.terrain.smoothedFloors || []), tile.cell]);
     } else if (order.mode === "smoothWall") {
@@ -9546,6 +9934,9 @@
         map.terrain.constructedWalls = normalizeConstructedSurfaces([...(map.terrain.constructedWalls || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
       } else if (buildDef.kind === "floor") {
         map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
+      } else if (buildDef.kind === "ceiling") {
+        const boundaryCell = mapCellAtOffset(tile.cell, 0, 0, 1);
+        map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: boundaryCell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
       } else if (buildDef.kind === "door") {
         createConstructedDoor(tile.cell, buildDef, map);
       } else if (buildDef.kind === "fixture") {
@@ -9561,6 +9952,8 @@
       state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
       finalizeRoomTopologyChange();
     }
+    evaluateStructuralSupport(state.labMap);
+    applyGravityAfterTopologyChange(state.labMap);
     bumpNavigationRevision("topology");
     tile.status = "completed";
     tile.taskId = "";
@@ -9572,7 +9965,7 @@
     const remaining = order.tiles.some((entry) => ["planned", "queued"].includes(entry.status));
     if (!remaining) {
       const completedCells = order.tiles.filter((entry) => entry.status === "completed").map((entry) => entry.cell);
-      if (["mine", "stairUp", "stairDown", "channelDown"].includes(order.mode)) {
+      if (["mine", "stairUp", "stairDown", "channelDown", "ramp"].includes(order.mode)) {
         const focusCells = order.mode === "mine" ? completedCells : [topologyFocusCell];
         const updates = applyRoomDesignationPolicy({ focusCells, silent: true });
         addEvent(`${order.label} complete.${updates ? ` Room policy applied ${updates} update${updates === 1 ? "" : "s"}.` : ""}`);
@@ -11598,6 +11991,7 @@
 
   function tileEnvironmentOpenEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
     const edges = [];
+    const edgeKeys = new Set();
     const keys = new Set(Object.keys(environments));
     for (const record of Object.values(environments)) {
       for (const neighbor of [mapCellAtOffset(record.cell, 1, 0), mapCellAtOffset(record.cell, 0, 1), mapCellAtOffset(record.cell, 0, 0, 1)]) {
@@ -11606,6 +12000,8 @@
         const vertical = neighbor.z !== record.cell.z
           ? tileEnvironmentVerticalModifiers(record.cell, neighbor, map)
           : null;
+        const edgeKey = [mapCellKey(record.cell), neighborKey].sort().join("::");
+        edgeKeys.add(edgeKey);
         edges.push({
           left: record,
           right: environments[neighborKey],
@@ -11614,6 +12010,14 @@
           mana: vertical?.mana ?? 1
         });
       }
+    }
+    for (const ramp of (map.terrain?.verticalConnectors || []).filter((entry) => entry.type === "ramp")) {
+      const left = environments[mapCellKey(ramp.lowerCell)];
+      const right = environments[mapCellKey(ramp.upperCell)];
+      const key = [mapCellKey(ramp.lowerCell), mapCellKey(ramp.upperCell)].sort().join("::");
+      if (!left || !right || edgeKeys.has(key)) continue;
+      edges.push({ left, right, air: 1, temperature: 1, mana: 1 });
+      edgeKeys.add(key);
     }
     return edges;
   }
@@ -12841,11 +13245,15 @@
         ? constructionOrderAtCell(cell) ? "" : "No active order on this tile."
         : constructionTileStaticBlockReason(mode, cell);
       const def = mode === "build" ? fixtureDef(constructionBuildDef()?.fixtureTypeId) : null;
-      const footprint = def ? fixtureFootprintCells(cell, def, state.construction.fixtureRotation) : [cell];
+      const footprint = def
+        ? fixtureFootprintCells(cell, def, state.construction.fixtureRotation)
+        : mode === "ramp" ? rampPlacementCells(cell, state.construction) : [cell];
       for (const footprintCell of footprint) {
         assignments.set(mapCellKey(footprintCell), {
           mode,
-          label: def ? `Draft ${def.label} footprint` : `Draft ${constructionModeLabel(mode).toLowerCase()}`,
+          label: def ? `Draft ${def.label} footprint` : mode === "ramp"
+            ? `Draft ${state.construction.rampLength} m x ${state.construction.rampWidth} m ${state.construction.rampDirection} ramp footprint`
+            : `Draft ${constructionModeLabel(mode).toLowerCase()}`,
           valid: !reason,
           reason
         });
@@ -13005,7 +13413,7 @@
   }
 
   function constructionWorkModeActive() {
-    return ["mine", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel"].includes(constructionActiveMode());
+    return ["mine", "stairUp", "stairDown", "channelDown", "ramp", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel"].includes(constructionActiveMode());
   }
 
   function roomDesignationModeActive() {
@@ -13223,6 +13631,28 @@
     persist();
     render();
     return true;
+  }
+
+  function setConstructionRampGeometry(options = {}) {
+    state.construction = normalizeConstructionState(state.construction, state);
+    state.construction.rampLength = clamp(Math.round(Number(options.length) || state.construction.rampLength), 1, 64);
+    state.construction.rampWidth = clamp(Math.round(Number(options.width) || state.construction.rampWidth), 1, 16);
+    state.construction.rampDirection = Vertical.cleanDirection(options.direction || state.construction.rampDirection);
+    state.construction.mode = "ramp";
+    state.construction.draftCells = [];
+    const angle = Vertical.rampAngleDegrees(state.construction.rampLength, ensureLabMap().layerHeightM, ensureLabMap().tileSizeM);
+    addEvent(`Ramp designation set to ${state.construction.rampLength} m long by ${state.construction.rampWidth} m wide, ${state.construction.rampDirection}; ${Vertical.rampGradeLabel(state.construction.rampLength).toLowerCase()} (${formatDecimal(angle, 1)} degrees).`);
+    persist();
+    render();
+    return true;
+  }
+
+  function promptConstructionRampGeometry() {
+    const length = window.prompt("Ramp horizontal length in meters (1-64)", String(state.construction?.rampLength || 1));
+    if (length === null) return false;
+    const width = window.prompt("Ramp width in meters (1-16)", String(state.construction?.rampWidth || 1));
+    if (width === null) return false;
+    return setConstructionRampGeometry({ length, width });
   }
 
   function setConstructionBuildType(buildType) {
@@ -13997,6 +14427,7 @@
     }
     state.construction = normalizeConstructionState(state.construction, state);
     const fixturePlacement = constructionActiveMode() === "build" && constructionBuildDef()?.kind === "fixture";
+    const singleOriginPlacement = fixturePlacement || constructionActiveMode() === "ramp";
     const existing = fixturePlacement ? new Set() : constructionDraftCellKeys();
     const combined = [...state.construction.draftCells];
     for (const cell of additions) {
@@ -14007,7 +14438,7 @@
       existing.add(key);
       combined.push(cell);
     }
-    state.construction.draftCells = fixturePlacement ? [additions.at(-1)] : normalizeDigCells(combined);
+    state.construction.draftCells = singleOriginPlacement ? [additions.at(-1)] : normalizeDigCells(combined);
     if (!constructionWorkModeActive()) state.construction.mode = "mine";
     ensureLabMapCoversCells(state.construction.draftCells);
     ensureUiState().mapOverlay = "construction";
@@ -14229,10 +14660,19 @@
     return (Array.isArray(candidate) ? candidate : []).map((entry) => {
       const lowerCell = cleanMapCell(entry?.lowerCell);
       const upperCell = cleanMapCell(entry?.upperCell);
-      if (!lowerCell || !upperCell
-        || lowerCell.x !== upperCell.x
-        || lowerCell.y !== upperCell.y
-        || upperCell.z !== lowerCell.z + 1) return null;
+      if (!lowerCell || !upperCell || upperCell.z !== lowerCell.z + 1) return null;
+      if (entry?.type === "ramp") {
+        const ramp = Vertical.normalizeRamp(entry, {
+          layerHeight: state?.labMap?.layerHeightM || LAB_MAP_LAYER_HEIGHT_M,
+          tileSize: state?.labMap?.tileSizeM || LAB_MAP_TILE_SIZE_M
+        });
+        if (!ramp || !sameMapCell(ramp.upperCell, upperCell)) return null;
+        const key = `${mapCellKey(ramp.lowerCell)}>${mapCellKey(ramp.upperCell)}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return ramp;
+      }
+      if (lowerCell.x !== upperCell.x || lowerCell.y !== upperCell.y) return null;
       const key = `${mapCellKey(lowerCell)}>${mapCellKey(upperCell)}`;
       if (seen.has(key)) return null;
       seen.add(key);
@@ -14248,12 +14688,54 @@
   function verticalConnectorBetween(left, right, map = ensureLabMap()) {
     const a = cleanMapCell(left);
     const b = cleanMapCell(right);
-    if (!a || !b || a.x !== b.x || a.y !== b.y || Math.abs(a.z - b.z) !== 1) return null;
+    if (!a || !b || Math.abs(a.z - b.z) !== 1) return null;
     const lower = a.z < b.z ? a : b;
     const upper = a.z < b.z ? b : a;
     return (map.terrain?.verticalConnectors || []).find((entry) =>
       sameMapCell(entry.lowerCell, lower) && sameMapCell(entry.upperCell, upper)
     ) || null;
+  }
+
+  function verticalConnectorAtEndpoint(cell, map = ensureLabMap()) {
+    const clean = cleanMapCell(cell);
+    return clean ? (map.terrain?.verticalConnectors || []).find((entry) =>
+      sameMapCell(entry.lowerCell, clean) || sameMapCell(entry.upperCell, clean)
+    ) || null : null;
+  }
+
+  function rampAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.verticalConnectors || []).find((entry) => entry.type === "ramp"
+      && [...(entry.footprintCells || []), ...(entry.upperCells || [])].some((part) => mapCellKey(part) === key)) || null;
+  }
+
+  function verticalConnectorOtherEndpoint(connector, cell) {
+    if (!connector) return null;
+    if (sameMapCell(connector.lowerCell, cell)) return cleanMapCell(connector.upperCell);
+    if (sameMapCell(connector.upperCell, cell)) return cleanMapCell(connector.lowerCell);
+    return null;
+  }
+
+  function normalizeStructuralFailures(candidate) {
+    const seen = new Set();
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const kind = ["constructedFloor", "constructedWall", "fixture", "ramp"].includes(entry?.kind) ? entry.kind : "";
+      const cell = cleanMapCell(entry?.cell);
+      const targetId = String(entry?.targetId || "").replace(/[^a-zA-Z0-9:_-]/g, "");
+      const key = String(entry?.key || `${kind}:${targetId || mapCellKey(cell)}`);
+      if (!kind || !cell || seen.has(key)) return null;
+      seen.add(key);
+      return {
+        key,
+        kind,
+        targetId,
+        cell,
+        status: ["strained", "failing", "collapsing"].includes(entry?.status) ? entry.status : "strained",
+        reason: String(entry?.reason || "Support has been lost."),
+        detectedAt: finiteTime(entry?.detectedAt, state?.clock || 0),
+        collapseAt: finiteTime(entry?.collapseAt, (state?.clock || 0) + 60)
+      };
+    }).filter(Boolean);
   }
 
   function normalizeLabMap(candidate, roomsOverride = null) {
@@ -14293,7 +14775,7 @@
     const constructedWalls = normalizeConstructedSurfaces(source.terrain?.constructedWalls)
       .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
     return {
-      version: 6,
+      version: 7,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
       layerHeightM: Math.max(1, Number(source.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M),
       width,
@@ -14311,7 +14793,8 @@
         naturalDamage: normalizeNaturalDamage(source.terrain?.naturalDamage)
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
         rubble: normalizeRubblePiles(source.terrain?.rubble),
-        verticalConnectors: normalizeVerticalConnectors(source.terrain?.verticalConnectors)
+        verticalConnectors: normalizeVerticalConnectors(source.terrain?.verticalConnectors),
+        structuralFailures: normalizeStructuralFailures(source.terrain?.structuralFailures)
       },
       rooms: normalizedRooms,
       doors: normalizedDoors
@@ -14391,6 +14874,30 @@
     return (map.terrain?.constructedWalls || []).find((entry) => mapCellKey(entry.cell) === key) || null;
   }
 
+  function horizontalBoundaryAtCell(upperCell, map = ensureLabMap()) {
+    const upper = cleanMapCell(upperCell);
+    if (!upper) return null;
+    const lower = mapCellAtOffset(upper, 0, 0, -1);
+    const connector = verticalConnectorBetween(lower, upper, map);
+    const floor = constructedFloorAtCell(upper, map);
+    if (connector) return { key: Vertical.boundaryKey(upper), type: connector.type, upperCell: upper, lowerCell: lower, open: true, movement: true, attackTransmission: true };
+    const solidCell = !labMapCellIsExcavated(lower, map) ? lower : !labMapCellIsExcavated(upper, map) ? upper : null;
+    if (solidCell) return { key: Vertical.boundaryKey(upper), type: "naturalRock", upperCell: upper, lowerCell: lower, open: false, movement: false, attackTransmission: false, condition: 100, materialComposition: { primary: naturalWallMaterialId(solidCell, map) } };
+    if (!floor) return { key: Vertical.boundaryKey(upper), type: "openShaft", upperCell: upper, lowerCell: lower, open: true, movement: false, attackTransmission: true };
+    const condition = clamp(Number(floor.condition) || 0, 0, 100);
+    return {
+      key: Vertical.boundaryKey(upper),
+      type: "constructedSlab",
+      upperCell: upper,
+      lowerCell: lower,
+      open: false,
+      movement: false,
+      attackTransmission: condition > 0 && condition < STRUCTURE_BREACH_THRESHOLD,
+      condition,
+      materialComposition: normalizeMaterialComposition(floor.materialComposition, { primary: floor.materialId })
+    };
+  }
+
   function naturalDepositAtCell(cell, map = ensureLabMap()) {
     const key = mapCellKey(cell);
     return (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
@@ -14428,6 +14935,11 @@
     return (map.terrain?.rubble || []).filter((entry) => mapCellKey(entry.cell) === key);
   }
 
+  function structuralFailureAtCell(cell, map = ensureLabMap()) {
+    const key = mapCellKey(cell);
+    return (map.terrain?.structuralFailures || []).find((failure) => mapCellKey(failure.cell) === key) || null;
+  }
+
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
     return labMapCellIsExcavated(cell, map, excavatedKeys)
       && !constructedWallAtCell(cell, map)
@@ -14449,12 +14961,31 @@
     if (constructedFloorAtCell(clean, map)) return true;
     const below = mapCellAtOffset(clean, 0, 0, -1);
     if (verticalConnectorBetween(below, clean, map)) return true;
+    const endpoint = verticalConnectorAtEndpoint(clean, map);
+    if (endpoint?.type === "ramp" && sameMapCell(endpoint.upperCell, clean)) return true;
     return !labMapCellIsExcavated(below, map, excavatedKeys);
   }
 
-  function labMapVerticalNeighbors(cell, map = ensureLabMap()) {
-    return [mapCellAtOffset(cell, 0, 0, -1), mapCellAtOffset(cell, 0, 0, 1)]
-      .filter((neighbor) => verticalConnectorBetween(cell, neighbor, map));
+  function verticalConnectorTraversalBlockReason(connector, actor = null, options = {}) {
+    if (!connector) return "No physical vertical route connects these tiles.";
+    const footprint = navigationFootprintForActor(actor);
+    const load = options.carriedLoad || {};
+    if (connector.type === "ramp") return Vertical.rampTraversalBlockReason(connector, footprint, load);
+    const bodyWidth = Math.max(Number(footprint.width) || 1, Number(footprint.height) || 1);
+    if (bodyWidth > 1) return "The actor is too wide for the one-meter carved stair.";
+    if (Number(load.widthM) > 1 || Number(load.lengthM) > 2) return "The carried object cannot fit through the carved stair.";
+    if (Number(load.massKg) > 250) return "This load requires a ramp, hoist, or disassembly between levels.";
+    return "";
+  }
+
+  function labMapVerticalNeighbors(cell, map = ensureLabMap(), options = {}) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return [];
+    return (map.terrain?.verticalConnectors || []).flatMap((connector) => {
+      const other = verticalConnectorOtherEndpoint(connector, clean);
+      if (!other || verticalConnectorTraversalBlockReason(connector, options.actor, options)) return [];
+      return [other];
+    });
   }
 
   function mapCellComponents(keys, cellByKey) {
@@ -15150,6 +15681,11 @@
       knownQuantity,
       unitVolumeL: Math.max(0.001, Number(candidate.unitVolumeL) || metrics.volumeL),
       unitMassKg: Math.max(0.001, Number(candidate.unitMassKg) || metrics.massKg),
+      dimensionsM: {
+        width: Math.max(0.05, Number(candidate.dimensionsM?.width) || 0.25),
+        length: Math.max(0.05, Number(candidate.dimensionsM?.length) || 0.25),
+        height: Math.max(0.05, Number(candidate.dimensionsM?.height) || 0.25)
+      },
       roomId: cleanRoomId(candidate.roomId) || labMapCellRoomId(cell) || STORAGE_ROOM_ID,
       cell,
       fixtureId,
@@ -15493,6 +16029,11 @@
       knownQuantity: options.known === false ? 0 : amount,
       unitVolumeL: metrics.volumeL,
       unitMassKg: metrics.massKg,
+      dimensionsM: {
+        width: Math.max(0.05, Number(options.dimensionsM?.width) || 0.25),
+        length: Math.max(0.05, Number(options.dimensionsM?.length) || 0.25),
+        height: Math.max(0.05, Number(options.dimensionsM?.height) || 0.25)
+      },
       roomId: location.roomId,
       cell: cleanMapCell(location.cell) || labMapRoomAnchor(location.roomId),
       fixtureId: location.fixtureId || "",
@@ -15786,6 +16327,16 @@
     return (state.tasks || []).find((task) => task.type === "stockpileHaul") || null;
   }
 
+  function physicalStackCarriedLoad(stack, amount = 1) {
+    const quantity = Math.max(0, Number(amount) || 0);
+    return {
+      widthM: Math.max(0.05, Number(stack?.dimensionsM?.width) || 0.25),
+      lengthM: Math.max(0.05, Number(stack?.dimensionsM?.length) || 0.25),
+      heightM: Math.max(0.05, Number(stack?.dimensionsM?.height) || 0.25),
+      massKg: quantity * Math.max(0.001, Number(stack?.unitMassKg) || 1)
+    };
+  }
+
   function stockpileHaulTaskBlockReason(task) {
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
     if (!stack) return "The stored item stack no longer exists.";
@@ -15805,7 +16356,7 @@
     if (!sourceAccess || !destinationAccess) return "A storage interaction point is missing.";
     const map = ensureLabMap();
     if (!labMapPathBetweenCells(scientistMapCell(), sourceAccess, { map, ignoreDoors: true }).length) return "The scientist cannot reach the stored items.";
-    if (!labMapPathBetweenCells(sourceAccess, destinationAccess, { map, ignoreDoors: true }).length) return "No physical route reaches the destination stockpile.";
+    if (!labMapPathBetweenCells(sourceAccess, destinationAccess, { map, ignoreDoors: true, actor: state.scientist, carriedLoad: physicalStackCarriedLoad(stack, task.data.amount) }).length) return "No physical route can carry this load to the destination stockpile; it may need a wider ramp, powered haulage, or disassembly.";
     return "";
   }
 
@@ -15822,7 +16373,9 @@
     const toAccessCell = destination.accessCell || destination.cell;
     const map = ensureLabMap();
     const firstPath = fromAccessCell ? labMapPathBetweenCells(scientistMapCell(), fromAccessCell, { map, ignoreDoors: true }) : [];
-    const secondPath = fromAccessCell && toAccessCell ? labMapPathBetweenCells(fromAccessCell, toAccessCell, { map, ignoreDoors: true }) : [];
+    const carriedLoad = physicalStackCarriedLoad(stack, amount);
+    const secondPath = fromAccessCell && toAccessCell ? labMapPathBetweenCells(fromAccessCell, toAccessCell, { map, ignoreDoors: true, actor: state.scientist, carriedLoad }) : [];
+    if (!firstPath.length || !secondPath.length) return 0;
     const mapPath = [
       ...firstPath,
       ...secondPath.slice(firstPath.length && secondPath.length && mapCellKey(firstPath.at(-1)) === mapCellKey(secondPath[0]) ? 1 : 0)
@@ -16073,7 +16626,12 @@
     const output = createPhysicalItemStack("inventory", recipe.output.key, 1, physicalFallbackLocation(STORAGE_ROOM_ID), {
       craftsmanship: 50,
       materialComposition: materialOption?.composition,
-      productionBillId: bill.id
+      productionBillId: bill.id,
+      dimensionsM: {
+        width: Math.max(1, Number(def.footprint?.width) || 1),
+        length: Math.max(1, Number(def.footprint?.height) || 1),
+        height: Math.max(0.25, Number(def.heightM) || 1)
+      }
     });
     state.fabricatedFixtures.push({
       id: `fabricated-fixture-${bill.id}`,
@@ -16940,6 +17498,7 @@
       options.ignoreDoorSecurity ? "ignore-security" : "secure",
       options.ignoreObjects ? "ignore-objects" : "objects",
       options.ignoreAccessPolicy ? "ignore-access" : "access",
+      options.carriedLoad ? `${Number(options.carriedLoad.widthM) || 0}x${Number(options.carriedLoad.lengthM) || 0}:${Number(options.carriedLoad.massKg) || 0}` : "no-load",
       blocked,
       allowed
     ].join("|");
@@ -16986,12 +17545,18 @@
       canOccupy,
       neighbors: (cell) => [
         ...orthogonalMapNeighbors(cell).map((neighbor) => ({ cell: neighbor, action: "move" })),
-        ...labMapVerticalNeighbors(cell, map).map((neighbor) => ({ cell: neighbor, action: "stairs" }))
+        ...labMapVerticalNeighbors(cell, map, options).map((neighbor) => ({
+          cell: neighbor,
+          action: verticalConnectorBetween(cell, neighbor, map)?.type === "ramp" ? "ramp" : "stairs"
+        }))
       ],
       stepCost: (from, to) => {
         if (to.action === "rotate") return 0.5;
-        let cost = to.cell.z !== from.cell.z
-          ? Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M) / Math.max(0.25, Number(map.tileSizeM) || 1)
+        const verticalConnector = to.cell.z !== from.cell.z ? verticalConnectorBetween(from.cell, to.cell, map) : null;
+        let cost = verticalConnector
+          ? verticalConnector.type === "ramp"
+            ? Math.max(1, Number(verticalConnector.travelCost) || Vertical.rampTravelCost(verticalConnector.length, map.layerHeightM, map.tileSizeM)) / Math.max(0.25, Number(map.tileSizeM) || 1)
+            : Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M) / Math.max(0.25, Number(map.tileSizeM) || 1)
           : roughFloorKeys.has(mapCellKey(to.cell)) ? 1.15 : 1;
         const occupied = tileOccupiedAreaM2(to.cell, { excludeActor: options.actor });
         if (occupied > 0) cost += occupied * 2;
@@ -17161,7 +17726,7 @@
     }
     const candidates = [
       ...orthogonalMapNeighbors(cell),
-      ...labMapVerticalNeighbors(cell, map)
+      ...labMapVerticalNeighbors(cell, map, options)
     ];
     return candidates.filter((candidate) => {
       if (!labMapCellIsWalkable(candidate, map, excavatedKeys)) {
@@ -17250,7 +17815,10 @@
     return (path || []).slice(1).reduce((distance, cell, index) => {
       const previous = path[index];
       if (cleanMapCell(previous)?.z !== cleanMapCell(cell)?.z) {
-        return distance + Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M);
+        const connector = verticalConnectorBetween(previous, cell, map);
+        return distance + (connector?.type === "ramp"
+          ? Math.max(1, Number(connector.travelCost) || Vertical.rampTravelCost(connector.length, map.layerHeightM, map.tileSizeM))
+          : Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M));
       }
       const key = mapCellKey(cell);
       const finished = Boolean(constructedFloorAtCell(cell, map))
@@ -19829,19 +20397,32 @@
     const occupiedCells = (actor) => {
       const anchor = combatActorCell(actor);
       const footprint = navigationFootprintForActor(actor);
-      return anchor ? Navigation.footprintCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation) : [];
+      if (!anchor) return [];
+      return Navigation.footprintCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation)
+        .flatMap((cell) => Array.from({ length: Math.max(1, footprint.heightLayers || 1) }, (_, dz) => mapCellAtOffset(cell, 0, 0, dz)));
     };
     const leftCells = occupiedCells(leftActor);
     const rightCells = occupiedCells(rightActor);
     if (!leftCells.length || !rightCells.length) return Infinity;
-    if (leftCells[0].z !== rightCells[0].z) return Infinity;
     let distance = Infinity;
+    const map = ensureLabMap();
     for (const left of leftCells) {
       for (const right of rightCells) {
-        distance = Math.min(distance, Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y)));
+        const horizontalDistance = Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y)) * map.tileSizeM;
+        distance = Math.min(distance, Math.hypot(
+          horizontalDistance,
+          (left.z - right.z) * map.layerHeightM
+        ));
       }
     }
-    return distance * ensureLabMap().tileSizeM;
+    return distance;
+  }
+
+  function mapCellDistanceMeters3d(left, right, map = ensureLabMap()) {
+    const a = cleanMapCell(left);
+    const b = cleanMapCell(right);
+    if (!a || !b) return Infinity;
+    return Math.hypot((a.x - b.x) * map.tileSizeM, (a.y - b.y) * map.tileSizeM, (a.z - b.z) * map.layerHeightM);
   }
 
   function combatTargetCurrentCell(target) {
@@ -19870,7 +20451,6 @@
     const target = objectMapCell(slime);
     return Boolean(
       source && target
-      && scientistRoomId() === slimeEffectiveRoomId(slime)
       && (sensoryLineOfSight(source, target) || exactlyObservedLooseSlimeIncident(slime))
     );
   }
@@ -19884,19 +20464,20 @@
       if (!targetActor || targetActor.status === "dead") return { inRange: false, reason: "The target is no longer alive." };
       const actorCell = combatActorCell(actor);
       const targetCell = combatActorCell(targetActor);
-      if (!actorCell || !targetCell || actorCell.z !== targetCell.z) return { inRange: false, reason: "The target is on another z-layer." };
+      if (!actorCell || !targetCell) return { inRange: false, reason: "The target has no physical position." };
       const distanceM = combatFootprintDistanceMeters(actor, targetActor);
       if (distanceM > action.rangeM) return { inRange: false, distanceM, reason: `${targetActor.name || "The target"} is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
-      if (action.requiresLineOfEffect && !sensoryLineOfSight(actorCell, targetCell)) return { inRange: false, distanceM, reason: "No clear line of effect reaches the target." };
+      if (action.requiresLineOfEffect && !directedLineOfEffect(actorCell, targetCell)) return { inRange: false, distanceM, reason: "No open shaft, ramp, breach, or clear corridor carries line of effect to the target." };
       return { inRange: true, distanceM, reason: "" };
     }
     const cell = combatTargetCurrentCell(cleanTarget);
     const actorCell = combatActorCell(actor);
-    if (!cell || !actorCell || cell.z !== actorCell.z) return { inRange: false, reason: "The target is on another z-layer." };
-    const distanceM = Math.max(Math.abs(cell.x - actorCell.x), Math.abs(cell.y - actorCell.y)) * ensureLabMap().tileSizeM;
-    return distanceM <= action.rangeM
+    if (!cell || !actorCell) return { inRange: false, reason: "The target has no physical position." };
+    const distanceM = mapCellDistanceMeters3d(actorCell, cell);
+    const clear = !action.requiresLineOfEffect || directedLineOfEffect(actorCell, cell);
+    return distanceM <= action.rangeM && clear
       ? { inRange: true, distanceM, reason: "" }
-      : { inRange: false, distanceM, reason: `The target is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
+      : { inRange: false, distanceM, reason: distanceM > action.rangeM ? `The target is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` : "No clear line of effect reaches the target." };
   }
 
   function combatActionAccuracy(attacker, targetActor, action, sequence = 0) {
@@ -22740,6 +23321,11 @@
   }
 
   function sensoryLineOfSight(from, to) {
+    const directConnector = verticalConnectorBetween(from, to, ensureLabMap());
+    if (directConnector?.type === "ramp") {
+      return [...(directConnector.footprintCells || []), ...(directConnector.upperCells || [])]
+        .every((cell) => labMapCellIsExcavated(cell) && !constructedWallAtCell(cell));
+    }
     const cells = mapLineCells(from, to);
     if (cells.length < 2) return Boolean(cells.length);
     const map = ensureLabMap();
@@ -22755,6 +23341,33 @@
       if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
       const mapDoor = labMapDoorAtCell(cell, map);
       if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(doorForConnection(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]))) return false;
+    }
+    return true;
+  }
+
+  function directedLineOfEffect(from, to) {
+    const map = ensureLabMap();
+    const directConnector = verticalConnectorBetween(from, to, map);
+    if (directConnector?.type === "ramp") {
+      return [...(directConnector.footprintCells || []), ...(directConnector.upperCells || [])]
+        .every((cell) => labMapCellIsExcavated(cell, map) && !constructedWallAtCell(cell, map));
+    }
+    const cells = mapLineCells(from, to);
+    if (cells.length < 2) return Boolean(cells.length);
+    for (let index = 1; index < cells.length; index += 1) {
+      const left = cells[index - 1];
+      const right = cells[index];
+      if (left.z === right.z) continue;
+      const lower = left.z < right.z ? left : right;
+      const upper = left.z < right.z ? right : left;
+      if (tileEnvironmentVerticalModifiers(lower, upper, map).air < 0.12) return false;
+    }
+    for (const cell of cells.slice(1, -1)) {
+      if (wallAllowsAttackTransmission(cell, map)) continue;
+      if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
+      const mapDoor = labMapDoorAtCell(cell, map);
+      const door = mapDoor ? doorFixtureState(mapDoor) : null;
+      if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(door)) return false;
     }
     return true;
   }
@@ -39809,9 +40422,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         parts.push(`${doorTypeLabel(stateDoor.typeId)}, ${doorConditionLabel(stateDoor)}`);
       }
     }
-    const verticalDirection = labMapCellBaseView(cell, map, excavatedKeys).verticalDirection;
+    const verticalBase = labMapCellBaseView(roomId, labMapCellIsExcavated(cell, map, excavatedKeys), null, null, true, cell, map);
+    const verticalDirection = verticalBase.verticalDirection;
     if (verticalDirection === "up") parts.push(`stairs up to Z ${cell.z + 1}`);
     if (verticalDirection === "down") parts.push(`stairs down to Z ${cell.z - 1}`);
+    if (["ramp", "rampUp", "rampDown"].includes(verticalDirection) && verticalBase.ramp) {
+      parts.push(`${verticalBase.ramp.grade.toLowerCase()} ${verticalBase.ramp.length} m x ${verticalBase.ramp.width} m ramp rising ${verticalBase.ramp.direction}; ${formatDecimal(verticalBase.ramp.angleDegrees, 1)} degrees; ${structureConditionBand(verticalBase.ramp.condition)}`);
+    }
     if (verticalDirection === "shaft") parts.push(`open shaft to Z ${cell.z - 1}; unsupported actors and loose contents can fall`);
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
@@ -39823,6 +40440,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (wallAllowsAttackTransmission(cell, map, excavatedKeys)) parts.push("breach passes attacks and directed abilities, but not movement");
     const rubble = rubbleAtCell(cell, map);
     if (rubble.length) parts.push(`rubble: ${rubble.flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ")}`);
+    const structuralFailure = structuralFailureAtCell(cell, map);
+    if (structuralFailure) parts.push(`${titleCase(structuralFailure.status)} support failure; ${structuralFailure.reason}; collapse in ${formatDuration(Math.max(0, structuralFailure.collapseAt - state.clock))}`);
     if (objectEntry?.labels?.length) {
       parts.push(objectEntry.labels.join("; "));
     }
@@ -42503,6 +43122,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
       }
     }
+    if (constructionActiveMode() === "ramp") {
+      const ramp = rampPlacementRecord(clean, state.construction);
+      commands.push(commandDef({
+        id: "construction.ramp.customGeometry",
+        label: `Ramp Size: ${state.construction.rampLength} m x ${state.construction.rampWidth} m`,
+        group: "Ramp Geometry",
+        description: `${ramp.grade} ramp; ${formatDecimal(ramp.angleDegrees, 1)} degrees in geometric Debug terms. Short ramps remain deliberately playable abstractions.`,
+        run: () => promptConstructionRampGeometry()
+      }));
+      for (const length of [1, 2, 4, 8]) {
+        commands.push(commandDef({
+          id: `construction.ramp.length.${length}`,
+          label: `Length ${length} m (${Vertical.rampGradeLabel(length)})`,
+          group: "Ramp Geometry",
+          disabledReason: state.construction.rampLength === length ? `Ramp length is already ${length} m.` : "",
+          description: `Set a ${length}-tile horizontal run for one 4 m layer of rise.`,
+          run: () => setConstructionRampGeometry({ length })
+        }));
+      }
+      for (const direction of Object.keys(Vertical.DIRECTIONS)) {
+        commands.push(commandDef({
+          id: `construction.ramp.direction.${direction}`,
+          label: `Direction: ${titleCase(direction)}`,
+          group: "Ramp Direction",
+          disabledReason: state.construction.rampDirection === direction ? `Ramp direction is already ${direction}.` : "",
+          description: `The ramp rises toward the ${direction}.`,
+          run: () => setConstructionRampGeometry({ direction })
+        }));
+      }
+    }
     for (let priority = CONSTRUCTION_PRIORITY_MIN; priority <= CONSTRUCTION_PRIORITY_MAX; priority += 1) {
       commands.push(commandDef({
         id: `construction.priority.${priority}`,
@@ -45048,11 +45697,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const constructedWall = cell && map ? constructedWallAtCell(cell, map) : null;
     const constructedFloor = cell && map ? constructedFloorAtCell(cell, map) : null;
+    const structuralFailure = cell && map ? structuralFailureAtCell(cell, map) : null;
     const verticalConnector = cell && map
-      ? (map.terrain?.verticalConnectors || []).find((entry) => sameMapCell(entry.lowerCell, cell) || sameMapCell(entry.upperCell, cell)) || null
+      ? verticalConnectorAtEndpoint(cell, map)
       : null;
+    const ramp = cell && map ? rampAtCell(cell, map) : null;
     const verticalDirection = verticalConnector
-      ? sameMapCell(verticalConnector.lowerCell, cell) ? "up" : "down"
+      ? verticalConnector.type === "ramp"
+        ? sameMapCell(verticalConnector.lowerCell, cell) ? "rampUp" : "rampDown"
+        : sameMapCell(verticalConnector.lowerCell, cell) ? "up" : "down"
+      : ramp ? "ramp"
       : excavated && cell && map && !labMapCellHasSupport(cell, map) ? "shaft" : "";
     if (constructedWall) {
       return {
@@ -45061,6 +45715,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         condition: constructedWall.condition,
         state: structureConditionBand(constructedWall.condition).toLowerCase(),
         attackTransmission: constructedWall.condition > 0 && constructedWall.condition < STRUCTURE_BREACH_THRESHOLD,
+        supportStatus: structuralFailure?.status || "supported",
         spriteKey: `tile.wall.constructed.${constructedWall.materialId}.${structureConditionBand(constructedWall.condition).toLowerCase()}`
       };
     }
@@ -45073,6 +45728,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         smoothed,
         constructedFloor: constructedFloor?.materialId || "",
         verticalDirection,
+        ramp: ramp ? { id: ramp.id, grade: ramp.grade, length: ramp.length, width: ramp.width, direction: ramp.direction, angleDegrees: ramp.angleDegrees, condition: ramp.condition } : null,
+        supportStatus: structuralFailure?.status || "supported",
         spriteKey: constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
       };
     }
@@ -45083,6 +45740,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         smoothed,
         constructedFloor: constructedFloor?.materialId || "",
         verticalDirection,
+        ramp: ramp ? { id: ramp.id, grade: ramp.grade, length: ramp.length, width: ramp.width, direction: ramp.direction, angleDegrees: ramp.angleDegrees, condition: ramp.condition } : null,
+        supportStatus: structuralFailure?.status || "supported",
         spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
     }
@@ -45131,7 +45790,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (base.verticalDirection) {
       return {
-        glyph: base.verticalDirection === "up" ? "<" : base.verticalDirection === "down" ? ">" : "O",
+        glyph: base.verticalDirection === "up" ? "<" : base.verticalDirection === "down" ? ">"
+          : base.verticalDirection === "rampUp" ? "^" : base.verticalDirection === "rampDown" ? "v"
+            : base.verticalDirection === "ramp" ? "/" : "O",
         spriteKey: `tile.vertical.${base.verticalDirection}`,
         layer: "terrain"
       };
@@ -45144,10 +45805,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       };
     }
     if (base.kind === "plannedExcavation") {
-      return { glyph: ({ mine: "M", stairUp: "<", stairDown: ">", channelDown: "O", smoothFloor: "F", smoothWall: "W", build: "B", deconstruct: "D", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
+      return { glyph: ({ mine: "M", stairUp: "<", stairDown: ">", channelDown: "O", ramp: "/", smoothFloor: "F", smoothWall: "W", build: "B", deconstruct: "D", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
     }
     if (base.kind === "draftExcavation") {
-      const glyph = ({ mine: "m", stairUp: "<", stairDown: ">", channelDown: "o", smoothFloor: "f", smoothWall: "w", build: "b", deconstruct: "d", cancel: "x" }[base.mode] || "m");
+      const glyph = ({ mine: "m", stairUp: "<", stairDown: ">", channelDown: "o", ramp: "/", smoothFloor: "f", smoothWall: "w", build: "b", deconstruct: "d", cancel: "x" }[base.mode] || "m");
       return { glyph: base.valid ? glyph : "?", spriteKey: base.spriteKey, layer: "construction" };
     }
     if (base.kind === "constructedWall") {
@@ -45308,16 +45969,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
+      if (cellView.base.supportStatus && cellView.base.supportStatus !== "supported") classNames.push(`structure-support-${cellView.base.supportStatus}`);
       dataset.mapRoom = cellView.base.roomId;
+      if (cellView.base.ramp) dataset.mapRamp = cellView.base.ramp.id;
     } else if (cellView.base.kind === "floor") {
       classNames.push("floor-cell");
       if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
+      if (cellView.base.supportStatus && cellView.base.supportStatus !== "supported") classNames.push(`structure-support-${cellView.base.supportStatus}`);
       dataset.mapFloor = "true";
+      if (cellView.base.ramp) dataset.mapRamp = cellView.base.ramp.id;
     } else if (cellView.base.kind === "constructedWall") {
       classNames.push("constructed-wall-cell", `constructed-wall-${cellView.base.materialId}`, `structure-${cellView.base.state}`);
       if (cellView.base.attackTransmission) classNames.push("attack-transmitting-breach");
+      if (cellView.base.supportStatus && cellView.base.supportStatus !== "supported") classNames.push(`structure-support-${cellView.base.supportStatus}`);
       dataset.mapConstructedWall = cellView.base.materialId;
     } else if (cellView.base.kind === "unknownDark") {
       classNames.push("unknown-darkness-cell");
@@ -51876,13 +52542,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         orders.reduce((max, order) => Math.max(max, numericSuffix(order.id)), 0) + 1
       ),
       lastDigRect: normalizeDigRect(candidate?.lastDigRect),
-      mode: ["dig", "mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel", "room"].includes(candidate?.mode)
+      mode: ["dig", "mine", "stairUp", "stairDown", "channelDown", "ramp", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel", "room"].includes(candidate?.mode)
         ? candidate.mode === "dig" ? "mine" : candidate.mode
         : fallback.mode,
       priority: clamp(Math.floor(Number(candidate?.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       buildType: CONSTRUCTION_BUILD_BY_ID[candidate?.buildType] ? candidate.buildType : fallback.buildType,
       fixtureRotation: normalizeFixtureRotation(candidate?.fixtureRotation),
       fixtureMaterialPolicy: FIXTURE_MATERIAL_POLICY_BY_ID[candidate?.fixtureMaterialPolicy] ? candidate.fixtureMaterialPolicy : fallback.fixtureMaterialPolicy,
+      rampLength: clamp(Math.round(Number(candidate?.rampLength) || fallback.rampLength), 1, 64),
+      rampWidth: clamp(Math.round(Number(candidate?.rampWidth) || fallback.rampWidth), 1, 16),
+      rampDirection: Vertical.cleanDirection(candidate?.rampDirection || fallback.rampDirection),
       draftCells: normalizeDigCells(candidate?.draftCells),
       orders,
       roomDraftCells: normalizeDigCells(candidate?.roomDraftCells),
@@ -51895,7 +52564,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!candidate || typeof candidate !== "object") return null;
     const id = String(candidate.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
     const mode = candidate.mode === "dig" ? "mine" : candidate.mode;
-    if (!id || !["mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) return null;
+    if (!id || !["mine", "stairUp", "stairDown", "channelDown", "ramp", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) return null;
     const buildType = mode === "build" && CONSTRUCTION_BUILD_BY_ID[candidate.buildType]
       ? candidate.buildType
       : mode === "build" ? DEFAULT_CONSTRUCTION_BUILD_ID : "";
@@ -51925,6 +52594,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       buildType,
       rotation: normalizeFixtureRotation(candidate.rotation),
       materialPolicy: String(candidate.materialPolicy || "closest"),
+      rampLength: mode === "ramp" ? clamp(Math.round(Number(candidate.rampLength) || 1), 1, 64) : 0,
+      rampWidth: mode === "ramp" ? clamp(Math.round(Number(candidate.rampWidth) || 1), 1, 16) : 0,
+      rampDirection: mode === "ramp" ? Vertical.cleanDirection(candidate.rampDirection) : "",
       productionBillId: String(candidate.productionBillId || ""),
       targetFixtureId: mode === "deconstruct" ? String(candidate.targetFixtureId || "").replace(/[^a-zA-Z0-9:_-]/g, "") : "",
       label: String(candidate.label || CONSTRUCTION_MODE_BY_ID[mode]?.label || "Construction order"),

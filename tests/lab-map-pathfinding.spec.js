@@ -841,7 +841,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
-  expect(initial.map.version).toBe(6);
+  expect(initial.map.version).toBe(7);
   expect(initial.map.layerHeightM).toBe(4);
   expect(initial.map.width).toBe(100);
   expect(initial.map.height).toBe(100);

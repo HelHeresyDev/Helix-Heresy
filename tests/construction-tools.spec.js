@@ -46,7 +46,7 @@ test('construction tools block inadequate work retain partial progress and suppo
 
   const starterTools = await page.evaluate(() => window.helixHeresyDebug.constructionToolSnapshot());
   expect(starterTools.map((tool) => tool.itemKey).sort()).toEqual([
-    'handSaw', 'masonryHammer', 'miningPick', 'pryBar', 'shovel', 'stoneChisel', 'woodAxe',
+    'foldingLadder', 'handSaw', 'masonryHammer', 'miningPick', 'pryBar', 'shovel', 'stoneChisel', 'woodAxe',
   ]);
   expect(starterTools.every((tool) => tool.instance.roomId === 'storageRoom')).toBe(true);
   expect(starterTools.find((tool) => tool.itemKey === 'shovel').capabilities.excavation).toBeLessThan(42);
