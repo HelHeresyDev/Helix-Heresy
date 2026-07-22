@@ -14,32 +14,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Saved Map Coordinates, Bookmarks, and Camera Recall
-2. Tactical Combat Movement, Abilities, and Map Commands
-3. Simulation Scheduling and Performance for Hundreds of Actors
-4. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
+1. Simulation Scheduling and Performance for Hundreds of Actors
+2. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
 
 ---
 
-## 1. Saved Map Coordinates, Bookmarks, and Camera Recall
-
-Design Dwarf Fortress-style saved map positions for quickly returning to important laboratory locations. Bookmarks should preserve an exact `x,y,z` coordinate and may optionally preserve camera zoom, active overlay, or a player-defined name and hotkey. Distinguish static coordinate bookmarks from tracked rooms, fixtures, creatures, incidents, and other entities that may move or disappear. Include creation, overwrite, rename, reorder, deletion, keyboard recall, management UI, knowledge restrictions, invalid-location handling, save-state persistence, and behavior when the bookmarked layer or location is no longer accessible.
-
----
-
-## 2. Tactical Combat Movement, Abilities, and Map Commands
-
-Design map-centric combat interactions for the scientist and creatures. Include movement, targeting, ranges, contact, elemental clashes, abilities, mana use, awareness, time slowdown or pausing, contextual commands, testing through combat, injuries, retreat, and containment during a fight.
-
----
-
-## 3. Simulation Scheduling and Performance for Hundreds of Actors
+## 1. Simulation Scheduling and Performance for Hundreds of Actors
 
 Audit and design simulation updates for hundreds of independently acting creatures. Resolve update frequencies, event scheduling, spatial queries, inactive actor simplification, deterministic processing, render separation, profiling, save state, and tests that prevent scaling work from changing game rules.
 
 ---
 
-## 4. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
+## 2. Advanced Vertical Structures, Ramps, and Cross-Layer Interaction
 
 Extend the first z-layer foundation after its core excavation, stairs, shafts, falling, pathfinding, and environment exchange are established. Design ramps, floor and ceiling construction, structural support and collapse, anchored fixture collapse, multi-layer placement previews, hauling and carrying large objects between levels, directed attacks and abilities through open shafts or breaches, vertical fluid flow, and visibility across open vertical space. Preserve the existing 4 meter layer scale and require physical connections or open space for every cross-layer interaction.
 

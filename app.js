@@ -1208,11 +1208,34 @@
   const COMBAT_STRIKE_STAMINA = 6;
   const COMBAT_SCIENTIST_STRIKE_DAMAGE = 18;
   const COMBAT_SCIENTIST_STRIKE_STRESS = 8;
-  const COMBAT_ATTACK_INTERVAL = 30;
+  const COMBAT_SOUL_LASH_MANA = 12;
+  const COMBAT_SOUL_LASH_DAMAGE = 14;
+  const COMBAT_SOUL_LASH_RANGE_M = 5;
+  const COMBAT_DEFAULT_ATTACK_RECOVERY = 8;
   const COMBAT_CLASH_INTERVAL = 20;
   const COMBAT_AWARE_PAUSE_COOLDOWN = minutesToSeconds(10);
   const COMBAT_ACTIVE_RECORD_LIMIT = 24;
   const COMBAT_MAX_CYCLES_PER_UPDATE = 20;
+  const COMBAT_ACTION_DEFS = {
+    strike: {
+      id: "strike", label: "Strike", targetKinds: ["creature", "structure"], damageTypes: ["physical"],
+      skillId: "striking", staminaCost: COMBAT_STRIKE_STAMINA, baseDamage: COMBAT_SCIENTIST_STRIKE_DAMAGE,
+      rangeM: 1, chargeSeconds: 0, channelSeconds: 0, recoverySeconds: 2,
+      manaTiming: "none", movementInterrupts: true, damageInterrupts: false
+    },
+    guard: {
+      id: "guard", label: "Guard", targetKinds: ["self"], damageTypes: [], skillId: "guarding",
+      staminaCost: 0, baseDamage: 0, rangeM: 0, chargeSeconds: 0, channelSeconds: 0, recoverySeconds: 0,
+      manaTiming: "none", movementInterrupts: true, damageInterrupts: false
+    },
+    soulLash: {
+      id: "soulLash", label: "Soul Lash", targetKinds: ["creature"], damageTypes: ["arcane"],
+      skillId: "animancy", manaCost: COMBAT_SOUL_LASH_MANA, baseDamage: COMBAT_SOUL_LASH_DAMAGE,
+      rangeM: COMBAT_SOUL_LASH_RANGE_M, chargeSeconds: 0, channelSeconds: 0, recoverySeconds: 1,
+      manaTiming: "activation", movementInterrupts: true, damageInterrupts: false, requiresSoul: true,
+      requiresLineOfEffect: true
+    }
+  };
   const COMBAT_DAMAGE_BY_TYPE = {
     physical: 4,
     corrosive: 7,
@@ -3019,7 +3042,11 @@
     { id: "alchemy", label: "Alchemy", aliases: ["arcane chemistry"], futureEvolutions: ["Arcane Chemistry", "Toxic Alchemy", "Elemental Reagents"] },
     { id: "materialsScience", label: "Materials Science", aliases: ["materials analysis", "materials"], futureEvolutions: ["Specimen Materials", "Container Materials", "Hazard Materials"] },
     { id: "creatureLore", label: "Creature Lore", aliases: ["ethology", "behavior"], futureEvolutions: ["Behavioral Lore", "Slime Lore", "Predator Lore"] },
-    { id: "medicine", label: "Medicine", aliases: ["physiology", "anatomy"], futureEvolutions: ["Anatomy", "Pathology", "Surgery"] }
+    { id: "medicine", label: "Medicine", aliases: ["physiology", "anatomy"], futureEvolutions: ["Anatomy", "Pathology", "Surgery"] },
+    { id: "striking", label: "Striking", aliases: ["strike", "impact"], futureEvolutions: ["Brawling", "Bludgeoning", "Precision Striking"] },
+    { id: "guarding", label: "Guarding", aliases: ["guard", "defense"], futureEvolutions: ["Interposition", "Warding Stance", "Shielding"] },
+    { id: "evasion", label: "Evasion", aliases: ["dodging", "fleeing"], futureEvolutions: ["Dodging", "Footwork", "Escape"] },
+    { id: "grappling", label: "Grappling", aliases: ["grapple", "hold"], futureEvolutions: ["Restraint", "Wrestling", "Clinching"] }
   ];
   const SKILL_BY_ID = Object.fromEntries(SKILL_DEFS.map((skill) => [skill.id, skill]));
   const ANALYSIS_SPECIALIZATION_DEFS = [
@@ -4016,6 +4043,11 @@
     return {
       active: [],
       cooldowns: {},
+      actorRecoveryUntil: {},
+      pendingActions: {},
+      guarding: {},
+      nextActionNumber: 1,
+      routineSuspension: null,
       lastAwareCombatAt: null,
       lastAwareCombatKey: ""
     };
@@ -4715,6 +4747,21 @@
       accessControlSnapshot: () => JSON.parse(JSON.stringify(ensureAccessControl())),
       accessBlockReasons: (path, actorId = "scientist") => pathAccessBlockReasons(actorId === "scientist" ? state.scientist : findSlime(actorId), path),
       startScientistMove: (roomId, options = {}) => startScientistMove(roomId, options),
+      combatSnapshot: () => ({
+        ...normalizeCombatState(state.combat),
+        actions: Object.fromEntries(Object.entries(COMBAT_ACTION_DEFS).map(([id, action]) => [id, { ...action }])),
+        scientistGuarding: scientistGuarding()
+      }),
+      startScientistCombatAction: (actionId, slimeId) => beginScientistCombatAction(actionId, slimeId),
+      setScientistGuarding: (guarding) => guarding
+        ? (scientistGuarding() || startScientistGuard())
+        : (!scientistGuarding() || stopScientistGuardAndRender()),
+      cancelScientistCombatAction: () => {
+        const changed = cancelPendingScientistCombatAction();
+        persist();
+        render();
+        return changed;
+      },
       startSlimeRecapture: (slimeId, containerId) => startSlimeRecapture(slimeId, containerId),
       startPlaceBait: (cell, feedstockKey) => startPlaceBait(cell, feedstockKey),
       containmentResponseSnapshot: (slimeId = "") => {
@@ -7036,7 +7083,7 @@
   function scientistQueueTasks(tasks = state.tasks || []) {
     return [...(tasks || [])]
       .filter(isScientistQueueTask)
-      .sort((a, b) => a.dueAt - b.dueAt || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
+      .sort((a, b) => Number(Boolean(b.data?.combatPriority)) - Number(Boolean(a.data?.combatPriority)) || a.dueAt - b.dueAt || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
   }
 
   function firstScientistQueueTask() {
@@ -7139,6 +7186,8 @@
   }
 
   function runSimulationSystems(elapsed, options = {}) {
+    state.combat = normalizeCombatState(state.combat);
+    const routineSuspended = Boolean(state.combat.routineSuspension);
     const changes = {
       vitalsChanged: recoverVitals(elapsed),
       physicalStateChanged: updateScientistPhysicalExposure(elapsed),
@@ -7173,8 +7222,8 @@
       productionClaimed: 0,
       laborOrdersChanged: syncLaborTaskOrders(),
       laborClaimed: 0,
-      constructionProgressChanged: updateConstructionWorkProgress(options.fromClock, state.clock),
-      productionProgressChanged: updateProductionWorkProgress(options.fromClock, state.clock),
+      constructionProgressChanged: routineSuspended ? 0 : updateConstructionWorkProgress(options.fromClock, state.clock),
+      productionProgressChanged: routineSuspended ? 0 : updateProductionWorkProgress(options.fromClock, state.clock),
       skillDecayChanged: 0,
       scientistMovementChanged: 0,
       observationChanged: false,
@@ -7184,12 +7233,12 @@
     changes.scientistMovementChanged = updateScientistMovementTask();
     changes.completed = completeDueTasks();
     changes.servicingOrdersChanged = syncAutomaticCollectionServiceOrders();
-    changes.constructionClaimed = claimNextConstructionWork();
-    changes.productionClaimed = claimNextProductionWork();
-    changes.cleanupClaimed = claimNextSpillCleanup();
-    changes.stockpileClaimed = claimNextStockpileHaul();
+    changes.constructionClaimed = routineSuspended ? 0 : claimNextConstructionWork();
+    changes.productionClaimed = routineSuspended ? 0 : claimNextProductionWork();
+    changes.cleanupClaimed = routineSuspended ? 0 : claimNextSpillCleanup();
+    changes.stockpileClaimed = routineSuspended ? 0 : claimNextStockpileHaul();
     changes.laborOrdersChanged += syncLaborTaskOrders();
-    changes.laborClaimed = claimNextLaborWork();
+    changes.laborClaimed = routineSuspended ? 0 : claimNextLaborWork();
     changes.skillDecayChanged = updateSkillBreakthroughDecay(elapsed);
     syncRoomObservationMemory();
     changes.observationChanged = Boolean(observeScientistRoom());
@@ -7259,8 +7308,10 @@
     let completedAny = true;
     while (completedAny) {
       completedAny = false;
+      const suspensionTaskId = state.combat?.routineSuspension?.taskId || "";
       const due = state.tasks
         .filter((task) => task.dueAt <= state.clock)
+        .filter((task) => !state.combat?.routineSuspension || (suspensionTaskId && task.id === suspensionTaskId))
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         const blockedReason = taskBlockReason(task);
@@ -7280,6 +7331,9 @@
         }
         state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
         completeTask(task);
+        if (task.id === state.combat?.routineSuspension?.taskId) {
+          resumeScientistRoutineWork();
+        }
         finishWorkOrderForTask(task, "completed");
         recordTaskHistory(task, "completed");
         completedAny = true;
@@ -19516,6 +19570,214 @@
       .join("; ");
   }
 
+  function combatActionDef(actionId) {
+    return COMBAT_ACTION_DEFS[String(actionId || "")] || null;
+  }
+
+  function normalizeCombatTarget(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const kind = String(candidate.kind || "");
+    if (kind === "self") return { kind, id: String(candidate.id || "scientist"), lastKnownCell: cleanMapCell(candidate.lastKnownCell) };
+    if (kind === "creature") {
+      const id = String(candidate.id || "");
+      if (!id) return null;
+      return { kind, id, lastKnownCell: cleanMapCell(candidate.lastKnownCell || candidate.cell), observedAt: finiteTime(candidate.observedAt, state?.clock || 0) };
+    }
+    if (kind === "structure") {
+      const cell = cleanMapCell(candidate.cell || candidate.lastKnownCell);
+      return cell ? { kind, id: String(candidate.id || mapCellKey(cell)), cell, lastKnownCell: cell } : null;
+    }
+    return null;
+  }
+
+  function combatActor(actorId) {
+    return actorId === "scientist" ? state.scientist : findSlime(actorId);
+  }
+
+  function combatActorCell(actor) {
+    if (!actor) return null;
+    if (actor === state.scientist || actor?.physicalPresence) return scientistMapCell();
+    if (actor.containerId) return objectMapCell(containerById(actor.containerId));
+    return objectMapCell(actor);
+  }
+
+  function combatActorSkillLevel(actor, skillId) {
+    return actor === state.scientist || actor?.physicalPresence
+      ? skillLevel(skillId)
+      : creatureSkillLevel(actor, skillId);
+  }
+
+  function combatActorVitalPercent(actor, key) {
+    if (actor === state.scientist || actor?.physicalPresence) {
+      const vital = scientistVital(key === "bodyIntegrity" ? "health" : key);
+      return vital.max ? clamp(vital.current / vital.max * 100, 0, 100) : 0;
+    }
+    return slimeStatPercent(actor, key);
+  }
+
+  function combatFootprintDistanceMeters(leftActor, rightActor) {
+    const occupiedCells = (actor) => {
+      const anchor = combatActorCell(actor);
+      const footprint = navigationFootprintForActor(actor);
+      return anchor ? Navigation.footprintCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation) : [];
+    };
+    const leftCells = occupiedCells(leftActor);
+    const rightCells = occupiedCells(rightActor);
+    if (!leftCells.length || !rightCells.length) return Infinity;
+    if (leftCells[0].z !== rightCells[0].z) return Infinity;
+    let distance = Infinity;
+    for (const left of leftCells) {
+      for (const right of rightCells) {
+        distance = Math.min(distance, Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y)));
+      }
+    }
+    return distance * ensureLabMap().tileSizeM;
+  }
+
+  function combatTargetCurrentCell(target) {
+    const clean = normalizeCombatTarget(target);
+    if (!clean) return null;
+    if (clean.kind === "self") return combatActorCell(combatActor(clean.id));
+    if (clean.kind === "structure") return clean.cell;
+    return combatActorCell(combatActor(clean.id));
+  }
+
+  function scientistCombatTargetForSlime(slime) {
+    if (!slime) return null;
+    const record = creatureRecordForSlime(slime);
+    return normalizeCombatTarget({
+      kind: "creature",
+      id: slime.id,
+      lastKnownCell: slime.containerId ? objectMapCell(containerById(slime.containerId)) : record?.lastKnownMapCell || objectMapCell(slime),
+      observedAt: record?.lastObservedAt
+    });
+  }
+
+  function scientistHasExactCombatTarget(slime) {
+    if (!slime || slime.status === "dead") return false;
+    if (slime.containerId) return scientistObservesRoom(slimeEffectiveRoomId(slime));
+    const source = scientistMapCell();
+    const target = objectMapCell(slime);
+    return Boolean(
+      source && target
+      && scientistRoomId() === slimeEffectiveRoomId(slime)
+      && (sensoryLineOfSight(source, target) || exactlyObservedLooseSlimeIncident(slime))
+    );
+  }
+
+  function combatActionRangeInfo(actor, action, target) {
+    const cleanTarget = normalizeCombatTarget(target);
+    if (!actor || !action || !cleanTarget) return { inRange: false, reason: "No valid combat target." };
+    if (cleanTarget.kind === "self") return { inRange: true, distanceM: 0, reason: "" };
+    if (cleanTarget.kind === "creature") {
+      const targetActor = combatActor(cleanTarget.id);
+      if (!targetActor || targetActor.status === "dead") return { inRange: false, reason: "The target is no longer alive." };
+      const actorCell = combatActorCell(actor);
+      const targetCell = combatActorCell(targetActor);
+      if (!actorCell || !targetCell || actorCell.z !== targetCell.z) return { inRange: false, reason: "The target is on another z-layer." };
+      const distanceM = combatFootprintDistanceMeters(actor, targetActor);
+      if (distanceM > action.rangeM) return { inRange: false, distanceM, reason: `${targetActor.name || "The target"} is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
+      if (action.requiresLineOfEffect && !sensoryLineOfSight(actorCell, targetCell)) return { inRange: false, distanceM, reason: "No clear line of effect reaches the target." };
+      return { inRange: true, distanceM, reason: "" };
+    }
+    const cell = combatTargetCurrentCell(cleanTarget);
+    const actorCell = combatActorCell(actor);
+    if (!cell || !actorCell || cell.z !== actorCell.z) return { inRange: false, reason: "The target is on another z-layer." };
+    const distanceM = Math.max(Math.abs(cell.x - actorCell.x), Math.abs(cell.y - actorCell.y)) * ensureLabMap().tileSizeM;
+    return distanceM <= action.rangeM
+      ? { inRange: true, distanceM, reason: "" }
+      : { inRange: false, distanceM, reason: `The target is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
+  }
+
+  function combatActionAccuracy(attacker, targetActor, action, sequence = 0) {
+    const attackSkill = combatActorSkillLevel(attacker, action.skillId);
+    const perception = combatActorSkillLevel(attacker, "perception");
+    const evasion = combatActorSkillLevel(targetActor, "evasion");
+    const attackerCondition = combatActorVitalPercent(attacker, "bodyIntegrity");
+    const targetMoving = targetActor === state.scientist
+      ? Boolean(activeScientistTravelTask())
+      : Boolean(targetActor?.autonomousMovement);
+    const attackScore = 58 + attackSkill * 1.6 + perception * 0.5 + attackerCondition * 0.18;
+    const defenseScore = 24 + evasion * 1.8 + (targetMoving ? 14 : 0);
+    const rng = seedRng(`${state.seed}:combat-action:${action.id}:${attacker.id || "scientist"}:${targetActor.id || "scientist"}:${sequence}`);
+    const contest = attackScore - defenseScore + (rng() * 16 - 8);
+    return {
+      hit: contest >= 0,
+      chance: clamp(Math.round(50 + attackScore - defenseScore), 5, 95),
+      attackScore,
+      defenseScore
+    };
+  }
+
+  function combatGuardRecord(actorId) {
+    state.combat = normalizeCombatState(state.combat);
+    return state.combat.guarding[actorId] || null;
+  }
+
+  function combatGuardDamageMultiplier(actorId) {
+    return combatGuardRecord(actorId) ? 0.65 : 1;
+  }
+
+  function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
+    if (actor === state.scientist || actor?.physicalPresence) {
+      awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
+      return;
+    }
+    awardCreatureSkillXp(actor, skillId, amount, reason, { outcome });
+  }
+
+  function resolveSharedCombatAction(actorId, actionId, targetCandidate, options = {}) {
+    const actor = combatActor(actorId);
+    const baseAction = combatActionDef(actionId);
+    const action = baseAction ? {
+      ...baseAction,
+      baseDamage: Math.max(0, Number(options.baseDamage) || baseAction.baseDamage),
+      damageTypes: Array.isArray(options.damageTypes) && options.damageTypes.length ? options.damageTypes : baseAction.damageTypes
+    } : null;
+    const target = normalizeCombatTarget(targetCandidate);
+    if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
+    const range = combatActionRangeInfo(actor, action, target);
+    if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (target.kind === "structure") {
+      if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
+      const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`);
+      return { ok: Boolean(result.ok), hit: Boolean(result.ok), damage: result.ok ? action.baseDamage : 0, reason: result.reason || "" };
+    }
+    const targetActor = combatActor(target.id);
+    if (!targetActor) return { ok: false, reason: "The target is no longer present." };
+    const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
+    const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
+    if (!accuracy.hit) {
+      awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
+      if (targetActor !== state.scientist) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      return { ok: true, hit: false, damage: 0, accuracy };
+    }
+    const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
+    const guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
+    const changed = targetActor === state.scientist
+      ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`)
+      : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label);
+    awardCombatActionXp(actor, action.skillId, options.xp || 6, action.label, changed ? "success" : "failure");
+    if (combatGuardRecord(targetId)) {
+      awardCombatActionXp(targetActor, "guarding", 4, `guarding against ${action.label.toLowerCase()}`, "success");
+    }
+    return { ok: true, hit: true, damage: changed ? guardedDamage : 0, accuracy };
+  }
+
+  function normalizePendingCombatAction(candidate, actorId) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const action = combatActionDef(candidate.actionId);
+    const target = normalizeCombatTarget(candidate.target);
+    if (!action || !target) return null;
+    const startedAt = finiteTime(candidate.startedAt, state?.clock || 0);
+    return {
+      actorId: String(actorId || candidate.actorId || ""), actionId: action.id, target,
+      startedAt, releaseAt: Math.max(startedAt, finiteTime(candidate.releaseAt, startedAt + action.chargeSeconds)),
+      channelEndsAt: Math.max(startedAt, finiteTime(candidate.channelEndsAt, startedAt + action.chargeSeconds + action.channelSeconds)),
+      manaPaid: Math.max(0, Number(candidate.manaPaid) || 0), interrupted: Boolean(candidate.interrupted)
+    };
+  }
+
   function normalizeCombatRecord(candidate) {
     if (!candidate || typeof candidate !== "object") {
       return null;
@@ -19547,7 +19809,7 @@
       targetLabel: String(candidate.targetLabel || "").trim(),
       involvesScientist: Boolean(candidate.involvesScientist),
       combatIntent: cleanSlimeCombatIntent(candidate.combatIntent),
-      interval: Math.max(1, Number(candidate.interval) || COMBAT_ATTACK_INTERVAL),
+      interval: Math.max(1, Number(candidate.interval) || COMBAT_DEFAULT_ATTACK_RECOVERY),
       createdAt,
       updatedAt: finiteTime(candidate.updatedAt, createdAt)
     };
@@ -19568,9 +19830,32 @@
       }
     }
     const lastAware = Number(candidate?.lastAwareCombatAt);
+    const actorRecoveryUntil = {};
+    for (const [actorId, value] of Object.entries(candidate?.actorRecoveryUntil || {})) {
+      const time = Number(value);
+      if (actorId && Number.isFinite(time)) actorRecoveryUntil[actorId] = time;
+    }
+    const pendingActions = {};
+    for (const [actorId, value] of Object.entries(candidate?.pendingActions || {})) {
+      const action = normalizePendingCombatAction(value, actorId);
+      if (action) pendingActions[actorId] = action;
+    }
+    const guarding = {};
+    for (const [actorId, value] of Object.entries(candidate?.guarding || {})) {
+      if (!actorId || !value) continue;
+      guarding[actorId] = { startedAt: finiteTime(value.startedAt, state?.clock || 0) };
+    }
+    const suspension = candidate?.routineSuspension && typeof candidate.routineSuspension === "object"
+      ? { reason: String(candidate.routineSuspension.reason || "combat"), startedAt: finiteTime(candidate.routineSuspension.startedAt, state?.clock || 0), taskId: String(candidate.routineSuspension.taskId || "") }
+      : null;
     return {
       active,
       cooldowns,
+      actorRecoveryUntil,
+      pendingActions,
+      guarding,
+      nextActionNumber: Math.max(1, Math.floor(Number(candidate?.nextActionNumber) || 1)),
+      routineSuspension: suspension,
       lastAwareCombatAt: Number.isFinite(lastAware) ? lastAware : null,
       lastAwareCombatKey: String(candidate?.lastAwareCombatKey || "")
     };
@@ -19603,7 +19888,7 @@
 
   function combatActionCycles(record, elapsed = 0) {
     const key = combatCooldownKey(record);
-    const interval = Math.max(1, Number(record.interval) || COMBAT_ATTACK_INTERVAL);
+    const interval = Math.max(1, Number(record.interval) || COMBAT_DEFAULT_ATTACK_RECOVERY);
     const fallbackNextAt = Math.max(0, state.clock - Math.max(0, Number(elapsed) || 0));
     const nextAt = Number(state.combat.cooldowns[key]) || fallbackNextAt;
     if (state.clock < nextAt) {
@@ -19624,14 +19909,248 @@
     }
   }
 
+  function shiftTaskForRoutineSuspension(task, seconds) {
+    const delta = Math.max(0, Number(seconds) || 0);
+    if (!task || !delta) return;
+    task.dueAt += delta;
+    const movement = task.data?.movement;
+    if (movement) {
+      for (const key of ["segmentStartedAt", "segmentArriveAt", "startedAt", "estimatedArrivalAt"]) {
+        if (Number.isFinite(Number(movement[key]))) movement[key] += delta;
+      }
+    }
+    for (const key of ["movementStartedAt", "workStartedAt", "progressStartedAt"]) {
+      if (Number.isFinite(Number(task.data?.[key]))) task.data[key] += delta;
+    }
+  }
+
+  function suspendScientistRoutineWork(reason = "combat", taskId = "") {
+    state.combat = normalizeCombatState(state.combat);
+    if (state.combat.routineSuspension) return false;
+    state.combat.routineSuspension = { reason: String(reason || "combat"), startedAt: state.clock, taskId: String(taskId || "") };
+    return true;
+  }
+
+  function resumeScientistRoutineWork() {
+    state.combat = normalizeCombatState(state.combat);
+    const suspension = state.combat.routineSuspension;
+    if (!suspension) return 0;
+    const elapsed = Math.max(0, state.clock - suspension.startedAt);
+    for (const task of scientistQueueTasks()) {
+      if (task.id === suspension.taskId) continue;
+      shiftTaskForRoutineSuspension(task, elapsed);
+      if (task.type === "scientistMove") {
+        const targetCell = cleanMapCell(task.data?.toCell);
+        const plan = targetCell ? labNavigationPlanBetweenCells(scientistMapCell(), targetCell, {
+          map: ensureLabMap(), actor: state.scientist, ignoreDoors: true,
+          ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll)
+        }) : null;
+        if (plan?.found) {
+          task.data.mapPath = plan.path;
+          task.data.mapSteps = plan.steps;
+          task.data.movement = null;
+        }
+      }
+    }
+    state.combat.routineSuspension = null;
+    return elapsed;
+  }
+
+  function scientistGuarding() {
+    return Boolean(combatGuardRecord("scientist"));
+  }
+
+  function scientistInKnownCombat() {
+    return activeCombatRecords().some((record) => scientistAwareOfCombat(record));
+  }
+
+  function stopScientistGuard(options = {}) {
+    state.combat = normalizeCombatState(state.combat);
+    if (!state.combat.guarding.scientist) return false;
+    delete state.combat.guarding.scientist;
+    if (!state.combat.routineSuspension?.taskId) resumeScientistRoutineWork();
+    if (!options.quiet) addEvent("Scientist stopped guarding.");
+    return true;
+  }
+
+  function startScientistGuard() {
+    if (scientistIsDead()) {
+      addEvent("The scientist is dead.");
+      persist();
+      render();
+      return false;
+    }
+    state.combat = normalizeCombatState(state.combat);
+    if (scientistGuarding()) return stopScientistGuardAndRender();
+    cancelPendingScientistCombatAction({ quiet: true });
+    state.combat.guarding.scientist = { startedAt: state.clock };
+    suspendScientistRoutineWork("guarding");
+    awardXp("guarding", 2, "Guard");
+    addEvent("Scientist began guarding. Routine work is suspended until Guard is canceled or another direct action is issued.");
+    persist();
+    render();
+    return true;
+  }
+
+  function stopScientistGuardAndRender() {
+    const changed = stopScientistGuard();
+    persist();
+    render();
+    return changed;
+  }
+
+  function cancelPendingScientistCombatAction(options = {}) {
+    state.combat = normalizeCombatState(state.combat);
+    const pending = state.combat.pendingActions.scientist;
+    if (!pending) return false;
+    delete state.combat.pendingActions.scientist;
+    resumeScientistRoutineWork();
+    if (!options.quiet) addEvent(`${combatActionDef(pending.actionId)?.label || "Combat action"} canceled.`);
+    return true;
+  }
+
+  function scientistCombatActionBlockReason(actionId, slime = null) {
+    const action = combatActionDef(actionId);
+    if (!action) return "Unknown combat action.";
+    if (scientistIsDead()) return "The scientist is dead.";
+    state.combat = normalizeCombatState(state.combat);
+    if (state.combat.pendingActions.scientist) return `${combatActionDef(state.combat.pendingActions.scientist.actionId)?.label || "Another action"} is already being prepared.`;
+    const recoveryUntil = Number(state.combat.actorRecoveryUntil.scientist) || 0;
+    if (state.clock < recoveryUntil) return `${action.label} is recovering for ${formatDuration(recoveryUntil - state.clock)}.`;
+    if (actionId === "guard") return "";
+    if (!slime || slime.status === "dead") return "No living creature selected.";
+    if (!scientistHasExactCombatTarget(slime)) return `${slime.name}'s current position is not known exactly. Reobserve it before issuing a targeted action.`;
+    if (actionId === "strike" && slime.containerId) {
+      const container = containerById(slime.containerId);
+      if (!container || !containerAccessOpen(container)) return `${container?.name || "The container"} is closed. Open it before striking the contained creature.`;
+    }
+    if (action.requiresSoul && slime.status === "dead") return "Soul Lash requires a living, souled target.";
+    const range = combatActionRangeInfo(state.scientist, action, scientistCombatTargetForSlime(slime));
+    if (!range.inRange) return range.reason;
+    if (action.skillId === "animancy" && skillLevel("animancy") < 1) return "Soul Lash requires Animancy [Initiate].";
+    if (action.staminaCost) {
+      const cost = adjustedStaminaCost(action.staminaCost, [action.skillId]);
+      const reason = physicalStateRiskBlockReason(`${action.label.toLowerCase()}ing ${slime.name}`) || staminaBlockReason(cost);
+      if (reason) return reason;
+    }
+    if (action.manaCost) return manaBlockReason(action.manaCost);
+    return "";
+  }
+
+  function combatActionTimingText(action) {
+    if (!action) return "";
+    const parts = [];
+    if (action.chargeSeconds > 0) parts.push(`${formatDuration(action.chargeSeconds)} charge`);
+    else parts.push("instant");
+    if (action.channelSeconds > 0) parts.push(`${formatDuration(action.channelSeconds)} channel`);
+    if (action.recoverySeconds > 0) parts.push(`${formatDuration(action.recoverySeconds)} recovery`);
+    return parts.join("; ");
+  }
+
+  function beginScientistCombatAction(actionId, slimeId) {
+    const action = combatActionDef(actionId);
+    const slime = findSlime(slimeId);
+    const reason = scientistCombatActionBlockReason(actionId, slime);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    if (scientistGuarding()) stopScientistGuard({ quiet: true });
+    const target = scientistCombatTargetForSlime(slime);
+    const staminaCost = action.staminaCost ? adjustedStaminaCost(action.staminaCost, [action.skillId]) : 0;
+    if (staminaCost && !confirmPhysicalStateRiskIfNeeded(`${action.label.toLowerCase()}ing ${slime.name}`)) return false;
+    if (staminaCost && !spendStamina(staminaCost)) return false;
+    if (action.manaCost && action.manaTiming === "activation" && !spendMana(action.manaCost)) return false;
+    if (action.chargeSeconds > 0 || action.channelSeconds > 0) {
+      state.combat.pendingActions.scientist = normalizePendingCombatAction({
+        actorId: "scientist", actionId, target, startedAt: state.clock,
+        releaseAt: state.clock + action.chargeSeconds,
+        channelEndsAt: state.clock + action.chargeSeconds + action.channelSeconds,
+        manaPaid: action.manaTiming === "activation" ? action.manaCost || 0 : 0
+      }, "scientist");
+      suspendScientistRoutineWork(`preparing ${action.label}`);
+      addEvent(`Scientist began ${action.label}. ${combatActionTimingText(action)}.`);
+      persist();
+      render();
+      return true;
+    }
+    const result = resolveSharedCombatAction("scientist", actionId, target);
+    state.combat.actorRecoveryUntil.scientist = state.clock + action.recoverySeconds;
+    if (!result.ok) addEvent(`${action.label} could not resolve: ${result.reason}`);
+    else if (!result.hit) addEvent(`Scientist's ${action.label} missed ${slime.name}.`);
+    else addEvent(actionId === "strike"
+      ? `Scientist struck ${slime.name} for ${result.damage} Body Integrity damage.`
+      : `Scientist used ${action.label} on ${slime.name} for ${result.damage} ${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))} damage.`);
+    expireSlimes();
+    syncAllSlimeAi();
+    updateCombat(0);
+    refreshIncidentAlerts();
+    persist();
+    render();
+    return result.ok;
+  }
+
+  function updatePendingCombatActions() {
+    state.combat = normalizeCombatState(state.combat);
+    let changed = 0;
+    for (const [actorId, pending] of Object.entries({ ...state.combat.pendingActions })) {
+      const action = combatActionDef(pending.actionId);
+      if (!action) {
+        delete state.combat.pendingActions[actorId];
+        changed += 1;
+        continue;
+      }
+      if (action.manaCost && action.manaTiming === "gradual" && actorId === "scientist") {
+        const totalDuration = Math.max(0.001, pending.channelEndsAt - pending.startedAt);
+        const fraction = clamp((state.clock - pending.startedAt) / totalDuration, 0, 1);
+        const requiredPaid = action.manaCost * fraction;
+        const payment = Math.max(0, requiredPaid - pending.manaPaid);
+        if (payment && !spendMana(payment)) {
+          addEvent(`${action.label} collapsed while charging because the scientist lacked Mana.`);
+          delete state.combat.pendingActions[actorId];
+          resumeScientistRoutineWork();
+          changed += 1;
+          continue;
+        }
+        pending.manaPaid += payment;
+      }
+      if (state.clock < pending.channelEndsAt) continue;
+      if (action.manaCost && action.manaTiming === "release" && actorId === "scientist" && !spendMana(action.manaCost)) {
+        addEvent(`${action.label} collapsed at release because the scientist lacked Mana.`);
+        delete state.combat.pendingActions[actorId];
+        resumeScientistRoutineWork();
+        changed += 1;
+        continue;
+      }
+      const targetSlime = actorId === "scientist" && pending.target.kind === "creature" ? findSlime(pending.target.id) : null;
+      const targetMoved = targetSlime && pending.target.lastKnownCell
+        && mapCellKey(combatActorCell(targetSlime)) !== mapCellKey(pending.target.lastKnownCell);
+      const result = targetSlime && (targetMoved || !scientistHasExactCombatTarget(targetSlime))
+        ? { ok: false, reason: "The target moved or was lost after the action was prepared.", blockedAt: pending.target.lastKnownCell }
+        : resolveSharedCombatAction(actorId, action.id, pending.target);
+      const targetLabel = pending.target.kind === "creature" ? findSlime(pending.target.id)?.name || "the last-known target" : "the target";
+      addEvent(result.ok
+        ? (result.hit ? `${action.label} struck ${targetLabel} for ${result.damage} damage.` : `${action.label} missed ${targetLabel}.`)
+        : `${action.label} failed at the target's last-known position: ${result.reason}`);
+      state.combat.actorRecoveryUntil[actorId] = state.clock + action.recoverySeconds;
+      delete state.combat.pendingActions[actorId];
+      if (actorId === "scientist") resumeScientistRoutineWork();
+      changed += 1;
+    }
+    if (changed) expireSlimes();
+    return changed;
+  }
+
   function updateCombat(elapsed = 0) {
     if (!state) {
       return 0;
     }
     state.combat = normalizeCombatState(state.combat);
+    let changes = updatePendingCombatActions();
     const before = combatRecordComparable(state.combat.active);
     const records = collectCombatRecords();
-    let changes = 0;
 
     for (const record of records) {
       if (scientistAwareOfCombat(record)) {
@@ -19654,6 +20173,9 @@
 
   function collectCombatRecords() {
     const records = [];
+    for (const actorId of Object.keys(state.combat.guarding || {})) {
+      if (actorId !== "scientist") delete state.combat.guarding[actorId];
+    }
     const living = (state.slimes || []).filter((slime) => slime && slime.status !== "dead" && slimeStat(slime, "bodyIntegrity").current > 0);
     for (let i = 0; i < living.length; i += 1) {
       for (let j = i + 1; j < living.length; j += 1) {
@@ -19668,6 +20190,8 @@
         }
         const aIntent = slimeCombatAggressionInfo(a, b, contact);
         const bIntent = slimeCombatAggressionInfo(b, a, contact);
+        if (aIntent.intent === "defend") state.combat.guarding[a.id] = { startedAt: state.clock };
+        if (bIntent.intent === "defend") state.combat.guarding[b.id] = { startedAt: state.clock };
         if (aIntent.aggressive) {
           records.push(slimeAttackCombatRecord(a, b, contact, aIntent));
         }
@@ -19683,6 +20207,7 @@
         continue;
       }
       const intent = slimeCombatAggressionInfo(slime, { id: "scientist", name: "the scientist" }, contact);
+      if (intent.intent === "defend") state.combat.guarding[slime.id] = { startedAt: state.clock };
       if (intent.aggressive) {
         records.push(slimeScientistAttackRecord(slime, contact, intent));
       }
@@ -19747,6 +20272,13 @@
   function slimeCombatDamageAmount(slime, base = 3) {
     const values = slimeCombatDamageTypes(slime).map((type) => COMBAT_DAMAGE_BY_TYPE[type.id] || base);
     return Math.max(base, ...values);
+  }
+
+  function slimeCombatRecoverySeconds(slime) {
+    const speed = Math.max(0.1, slimeMoveSpeedMps(slime));
+    const striking = creatureSkillLevel(slime, "striking");
+    const conditionPenalty = (100 - slimeStatPercent(slime, "bodyIntegrity")) * 0.06;
+    return clamp(Math.round(COMBAT_DEFAULT_ATTACK_RECOVERY / speed + conditionPenalty - striking * 0.08), 3, 24);
   }
 
   function elementPairKey(a, b) {
@@ -19997,7 +20529,7 @@
       sourceLabel: attacker.name,
       targetLabel: target.name,
       combatIntent: intent.intent || intent.decision?.intent || "attack",
-      interval: COMBAT_ATTACK_INTERVAL
+      interval: slimeCombatRecoverySeconds(attacker)
     };
   }
 
@@ -20016,7 +20548,7 @@
       targetLabel: "Scientist",
       involvesScientist: true,
       combatIntent: intent.intent || intent.decision?.intent || "attack",
-      interval: COMBAT_ATTACK_INTERVAL
+      interval: slimeCombatRecoverySeconds(slime)
     };
   }
 
@@ -20059,7 +20591,7 @@
       return 0;
     }
     const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
-    const damage = slimeCombatDamageAmount(attacker, 4) * cycleCount;
+    const damagePerHit = slimeCombatDamageAmount(attacker, 4);
     const combatIntent = cleanSlimeCombatIntent(record.combatIntent || "attack");
     const targetLabel = record.targetLabel || (targetId === "scientist" ? "Scientist" : targetId);
     attacker.roomActivity = {
@@ -20072,16 +20604,24 @@
       targetLabel,
       updatedAt: state.clock
     };
-    awardCreatureSkillXp(attacker, "striking", CREATURE_PRACTICE_XP.strikingPerCycle * cycleCount, "combat attack");
-    awardCreatureDamageSkillXp(attacker, slimeCombatDamageTypes(attacker), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "combat attack", { outcome: "partial" });
+    let hits = 0;
     if (targetId === "scientist") {
-      const changed = damageScientistCombat(damage, `${attacker.name} attack (${damageTypeListText(slimeCombatDamageTypes(attacker))})`);
-      if (changed) {
+      for (let cycle = 0; cycle < cycleCount; cycle += 1) {
+        const result = resolveSharedCombatAction(attacker.id, "strike", { kind: "creature", id: "scientist", lastKnownCell: scientistMapCell() }, {
+          baseDamage: damagePerHit,
+          damageTypes: slimeCombatDamageTypes(attacker).map((type) => type.id),
+          sequence: state.combat.nextActionNumber++,
+          xp: CREATURE_PRACTICE_XP.strikingPerCycle
+        });
+        if (result.hit) hits += 1;
+      }
+      awardCreatureDamageSkillXp(attacker, slimeCombatDamageTypes(attacker), CREATURE_PRACTICE_XP.elementalPerCycle * Math.max(1, hits), "combat attack", { outcome: hits ? "partial" : "failure" });
+      if (hits) {
         attacker.lastCombatTargetId = "scientist";
         attacker.lastCombatActionAt = state.clock;
         rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, "attacked scientist");
       }
-      return changed ? 1 : 0;
+      return hits ? 1 : 0;
     }
     const target = findSlime(targetId);
     if (!target || target.status === "dead") {
@@ -20090,13 +20630,24 @@
     if (slimesAreProtectedKin(attacker, target)) {
       return 0;
     }
-    applySlimeCombatDamage(target, damage, attacker.id, `${attacker.name} attack`);
-    attacker.lastCombatTargetId = target.id;
-    attacker.lastCombatActionAt = state.clock;
-    rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, `attacked ${target.name}`);
-    addEvent(combatIntent === "feedAttack"
-      ? `${attacker.name} tried to feed on ${target.name}.`
-      : `${attacker.name} struck ${target.name}.`);
+    for (let cycle = 0; cycle < cycleCount; cycle += 1) {
+      const result = resolveSharedCombatAction(attacker.id, "strike", { kind: "creature", id: target.id, lastKnownCell: objectMapCell(target) }, {
+        baseDamage: damagePerHit,
+        damageTypes: slimeCombatDamageTypes(attacker).map((type) => type.id),
+        sequence: state.combat.nextActionNumber++,
+        xp: CREATURE_PRACTICE_XP.strikingPerCycle
+      });
+      if (result.hit) hits += 1;
+    }
+    awardCreatureDamageSkillXp(attacker, slimeCombatDamageTypes(attacker), CREATURE_PRACTICE_XP.elementalPerCycle * Math.max(1, hits), "combat attack", { outcome: hits ? "partial" : "failure" });
+    if (hits) {
+      attacker.lastCombatTargetId = target.id;
+      attacker.lastCombatActionAt = state.clock;
+      rememberCreatureExperience(attacker, "attackWorked", 5 + cycleCount, `attacked ${target.name}`);
+    }
+    addEvent(hits
+      ? (combatIntent === "feedAttack" ? `${attacker.name} tried to feed on ${target.name}.` : `${attacker.name} struck ${target.name}.`)
+      : `${attacker.name} missed ${target.name}.`);
     expireSlimes();
     return 1;
   }
@@ -20138,6 +20689,11 @@
     const health = scientistVital("health");
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
+    const pending = state.combat?.pendingActions?.scientist;
+    if (pending && combatActionDef(pending.actionId)?.damageInterrupts) {
+      cancelPendingScientistCombatAction({ quiet: true });
+      addEvent(`${combatActionDef(pending.actionId)?.label || "The prepared ability"} was interrupted by damage.`);
+    }
     addEvent(`Scientist hurt in combat: ${reason}.`);
     if (health.current <= 0 && before > 0) {
       state.runEnded = true;
@@ -20271,49 +20827,15 @@
   }
 
   function scientistStrikeBlockReason(slime) {
-    if (!slime || slime.status === "dead") {
-      return "No living slime selected.";
-    }
-    if (scientistIsDead()) {
-      return "The scientist is dead.";
-    }
-    const range = scientistStrikeRangeInfo(slime);
-    if (!range.inRange) {
-      return range.reason;
-    }
-    return physicalStateRiskBlockReason(`striking ${slime.name}`)
-      || staminaBlockReason(adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]));
+    return scientistCombatActionBlockReason("strike", slime);
   }
 
   function startScientistStrike(slimeId) {
-    const slime = findSlime(slimeId);
-    const reason = scientistStrikeBlockReason(slime);
-    if (reason) {
-      addEvent(reason);
-      persist();
-      render();
-      return false;
-    }
-    if (!confirmPhysicalStateRiskIfNeeded(`striking ${slime.name}`)) {
-      return false;
-    }
-    const cost = adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]);
-    if (!spendStamina(cost)) {
-      addEvent(`Not enough stamina. ${cost} required.`);
-      persist();
-      render();
-      return false;
-    }
-    applySlimeCombatDamage(slime, COMBAT_SCIENTIST_STRIKE_DAMAGE, "scientist", "scientist strike");
-    awardXp("creatureHandling", 6, "Strike");
-    addEvent(`Scientist struck ${slime.name} for ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage.`);
-    expireSlimes();
-    syncAllSlimeAi();
-    updateCombat(0);
-    refreshIncidentAlerts();
-    persist();
-    render();
-    return true;
+    return beginScientistCombatAction("strike", slimeId);
+  }
+
+  function startScientistSoulLash(slimeId) {
+    return beginScientistCombatAction("soulLash", slimeId);
   }
 
   function strikeStructure(cell) {
@@ -20326,22 +20848,24 @@
       return false;
     }
     const scientistCell = scientistMapCell();
-    if (scientistCell.z !== clean.z || Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) > 1) {
+    if (scientistCell.z !== clean.z || Math.max(Math.abs(scientistCell.x - clean.x), Math.abs(scientistCell.y - clean.y)) > 1) {
       addEvent("The scientist must be on or adjacent to the structure to strike it.");
       persist();
       render();
       return false;
     }
     if (!confirmPhysicalStateRiskIfNeeded(`striking the ${target.kind}`)) return false;
-    const cost = adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"]);
+    if (scientistGuarding()) stopScientistGuard({ quiet: true });
+    const cost = adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["striking"]);
     if (!spendStamina(cost)) {
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
       return false;
     }
-    applyStructuralDamage(clean, COMBAT_SCIENTIST_STRIKE_DAMAGE, ["physical"], "the scientist's strike");
-    awardXp("creatureHandling", 2, "Strike structure");
+    const result = resolveSharedCombatAction("scientist", "strike", { kind: "structure", cell: clean });
+    if (!result.ok) addEvent(result.reason || "The strike did not damage the structure.");
+    else awardXp("striking", 2, "Strike structure");
     refreshIncidentAlerts();
     persist();
     render();
@@ -32154,7 +32678,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
-    if (scientistMoveTask()) {
+    const urgent = options.urgent ?? scientistInKnownCombat();
+    const existingMoves = (state.tasks || []).filter((task) => task.type === "scientistMove");
+    if (existingMoves.length && (!urgent || existingMoves.some((task) => task.data?.combatPriority))) {
       return "The scientist is already moving.";
     }
     const fromRoomId = scientistRoomId();
@@ -32228,6 +32754,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function startScientistMove(toRoomId, options = {}) {
+    options = { ...options, urgent: options.urgent ?? scientistInKnownCombat() };
     const target = roomById(toRoomId);
     const reason = scientistMoveBlockReason(toRoomId, options);
     if (reason) {
@@ -32275,6 +32802,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
+    const pendingCombatAction = state.combat?.pendingActions?.scientist;
+    if (pendingCombatAction && combatActionDef(pendingCombatAction.actionId)?.movementInterrupts) {
+      cancelPendingScientistCombatAction({ quiet: true });
+      addEvent(`${combatActionDef(pendingCombatAction.actionId)?.label || "The prepared ability"} was canceled by movement.`);
+    }
     const duration = scientistMoveDuration(fromRoomId, target.id, { fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const route = roomRouteBetween(fromRoomId, target.id, { ignoreDoors: true, fromCell, toCell, allowUnassignedCell: options.allowUnassignedCell });
     const task = {
@@ -32298,10 +32830,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         accessOverrideKeys: accessViolations.map((violation) => violation.key),
         doorTransit: doorTransitPlan(route),
         staminaCost: cost,
-        incidentId: String(options.incidentId || "").trim()
+        incidentId: String(options.incidentId || "").trim(),
+        combatPriority: Boolean(options.urgent)
       }
     };
     state.tasks.push(task);
+    if (options.urgent) {
+      if (scientistGuarding()) stopScientistGuard({ quiet: true });
+      movementReservations.releaseActor("scientist");
+      suspendScientistRoutineWork("urgent combat movement", task.id);
+    }
     const closedDoors = task.data.doorTransit.filter((step) => step.previousState === DOOR_STATE_CLOSED).length;
     addEvent(`${options.eventLabel || "Scientist movement started"}: ${roomName(fromRoomId)} to ${target.name}${closedDoors ? "; closed doors will be opened and handled by policy" : ""}.`);
     if (!options.deferRender) {
@@ -32344,6 +32882,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function activeScientistTravelTask() {
     const task = firstScientistQueueTask();
     if (!task) return null;
+    const suspension = state.combat?.routineSuspension;
+    if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
     if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork"].includes(task.type)) return null;
     if (["recaptureSlime", "placeBait", "laborWork"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
@@ -36706,7 +37246,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const title = document.createElement("div");
     title.className = "subpanel-title";
     title.textContent = "Combat";
-    title.title = "First-pass combat uses map contact, elemental clashes, simple attacks, Body Integrity damage, and scientist Health damage.";
+    title.title = "Combat resolves map range, actor skill, condition, movement, recovery, damage type, and defensive stance through shared actor actions.";
 
     const grid = document.createElement("div");
     grid.className = "slime-stat-grid";
@@ -36745,12 +37285,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const strike = document.createElement("button");
     strike.type = "button";
     strike.dataset.strikeSlimeId = slime.id;
-    const cost = setButtonStaminaLabel(strike, "Strike", COMBAT_STRIKE_STAMINA, ["creatureHandling"], { suffix: `${COMBAT_SCIENTIST_STRIKE_DAMAGE} BI` });
+    const cost = setButtonStaminaLabel(strike, "Strike", COMBAT_STRIKE_STAMINA, ["striking"], { suffix: `${COMBAT_SCIENTIST_STRIKE_DAMAGE} BI` });
     const reason = scientistStrikeBlockReason(slime) || staminaBlockReason(cost);
     setActionButtonState(strike, Boolean(reason), reason);
-    strike.title = reason || `Strike ${slime.name}. Deals ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage and raises Stress.\n${adjustedStaminaCostBreakdown(COMBAT_STRIKE_STAMINA, ["creatureHandling"]).title}`;
+    strike.title = reason || `Strike ${slime.name}. Accuracy contests Striking and condition against the target's Evasion and movement.\n${adjustedStaminaCostBreakdown(COMBAT_STRIKE_STAMINA, ["striking"]).title}`;
     strike.addEventListener("click", () => startScientistStrike(slime.id));
-    actions.append(strike);
+    const soulLash = document.createElement("button");
+    soulLash.type = "button";
+    soulLash.dataset.soulLashSlimeId = slime.id;
+    soulLash.textContent = `Soul Lash (${COMBAT_SOUL_LASH_MANA} MANA)`;
+    const soulReason = scientistCombatActionBlockReason("soulLash", slime);
+    setActionButtonState(soulLash, Boolean(soulReason), soulReason);
+    soulLash.title = soulReason || `Instant ${COMBAT_SOUL_LASH_RANGE_M} m Animancy attack dealing ${COMBAT_SOUL_LASH_DAMAGE} Arcane damage to a living, souled target.`;
+    soulLash.addEventListener("click", () => startScientistSoulLash(slime.id));
+    actions.append(strike, soulLash);
 
     section.append(title, grid, actions);
     return section;
@@ -40245,6 +40793,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     finishWorkOrderForTask(task, "canceled");
     if (task.type === "scientistMove") movementReservations.releaseActor("scientist");
     state.tasks = (state.tasks || []).filter((candidate) => candidate.id !== task.id);
+    if (task.id === state.combat?.routineSuspension?.taskId) resumeScientistRoutineWork();
     if (currentSelection()?.kind === "task" && currentSelection().id === task.id) {
       setSelection(null);
     }
@@ -41003,6 +41552,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "room") {
       return roomContextCommands(roomById(selection.roomId));
     }
+    if (selection.kind === "scientist") {
+      return scientistContextCommands();
+    }
     if (selection.kind === "tile") {
       return tileContextCommands(selection);
     }
@@ -41061,6 +41613,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tabKind: "tasks",
         tabId: taskStatusInfo(task).id === "blocked" ? "blocked" : "queue",
         description: "Open the Tasks management screen."
+      })
+    ];
+  }
+
+  function scientistContextCommands() {
+    const pending = state.combat?.pendingActions?.scientist;
+    return [
+      commandDef({
+        id: "scientist.guard",
+        label: scientistGuarding() ? "Stop Guarding" : "Guard",
+        group: "Combat",
+        disabledReason: scientistIsDead() ? "The scientist is dead." : "",
+        description: scientistGuarding()
+          ? "Lower the guard and resume suspended routine work."
+          : "Adopt a defensive stance, reduce incoming attack damage, and suspend routine work until canceled or replaced by another direct command.",
+        run: () => scientistGuarding() ? stopScientistGuardAndRender() : startScientistGuard()
+      }),
+      commandDef({
+        id: "scientist.cancelCombatAction",
+        label: "Cancel Current Action",
+        group: "Combat",
+        disabledReason: pending ? "" : "The scientist is not charging or channeling an ability.",
+        description: pending ? `Interrupt ${combatActionDef(pending.actionId)?.label || "the current ability"} and resume routine work.` : "No interruptible combat action is active.",
+        run: () => {
+          const changed = cancelPendingScientistCombatAction();
+          persist();
+          render();
+          return changed;
+        }
       })
     ];
   }
@@ -41641,12 +42222,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const target = clean ? structuralTargetAtCell(clean) : null;
     if (!target) return [];
     const scientistCell = scientistMapCell();
-    const adjacent = scientistCell.z === clean.z && Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) <= 1;
+    const adjacent = scientistCell.z === clean.z && Math.max(Math.abs(scientistCell.x - clean.x), Math.abs(scientistCell.y - clean.y)) <= 1;
     const commands = [commandDef({
       id: `structure.strike.${clean.x}.${clean.y}`,
       label: "Strike Structure",
       group: "Combat",
-      disabledReason: adjacent ? staminaBlockReason(adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["creatureHandling"])) : "The scientist must be on or adjacent to the structure.",
+      disabledReason: adjacent ? staminaBlockReason(adjustedStaminaCost(COMBAT_STRIKE_STAMINA, ["striking"])) : "The scientist must be on or adjacent to the structure.",
       description: `Strike this ${target.kind} with physical force. Material resistance determines actual condition damage.`,
       run: () => strikeStructure(clean)
     })];
@@ -41998,9 +42579,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: "Strike",
         group: "Combat",
         disabledReason: scientistStrikeBlockReason(slime),
-        description: `Deal ${COMBAT_SCIENTIST_STRIKE_DAMAGE} Body Integrity damage and raise Stress.`,
+        description: `Attempt a Physical attack using Striking. ${combatActionTimingText(combatActionDef("strike"))}; ${COMBAT_STRIKE_STAMINA} base Stamina.`,
         danger: true,
         run: () => startScientistStrike(slime.id)
+      }),
+      commandDef({
+        id: `slime.soulLash.${slime.id}`,
+        label: `Soul Lash (${COMBAT_SOUL_LASH_MANA} MANA)`,
+        group: "Combat",
+        disabledReason: scientistCombatActionBlockReason("soulLash", slime),
+        description: `Instant Animancy attack against a living, souled target within ${COMBAT_SOUL_LASH_RANGE_M} m. Deals Arcane damage; ${combatActionTimingText(combatActionDef("soulLash"))}.`,
+        danger: true,
+        run: () => startScientistSoulLash(slime.id)
       }),
       openWorkspaceCommand({
         id: `slime.openRecord.${slime.id}`,
@@ -43177,11 +43767,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectionDetailsRows(selection) {
     if (selection.kind === "scientist") {
       const vitals = state.scientist?.vitals || {};
+      const pending = state.combat?.pendingActions?.scientist;
       return [
         ["Room", roomName(scientistRoomId())],
         ["Health", `${formatNumber(vitals.health?.current || 0)} / ${formatNumber(vitals.health?.max || DEFAULT_VITAL_MAX)}`],
         ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
-        ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`]
+        ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`],
+        ["Combat action", pending ? `${combatActionDef(pending.actionId)?.label || pending.actionId}; releases ${formatClock(pending.releaseAt)}` : scientistGuarding() ? "Guarding" : "None"],
+        ["Routine work", state.combat?.routineSuspension ? `Suspended: ${state.combat.routineSuspension.reason}` : "Available"]
       ];
     }
     if (selection.kind === "tile") {
@@ -52376,6 +52969,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.tasks ||= [];
+    if (next.combat.routineSuspension?.taskId && !next.tasks.some((task) => task.id === next.combat.routineSuspension.taskId)) {
+      next.combat.routineSuspension = null;
+    }
     next.workOrders = (Array.isArray(next.workOrders) ? next.workOrders : []).map(normalizeWorkOrder).filter(Boolean);
     next.nextWorkOrderNumber = Math.max(
       Number(next.nextWorkOrderNumber) || 1,

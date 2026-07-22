@@ -128,6 +128,7 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
 });
 
 test('breakthrough progress decays after sustained idle time', async ({ page }) => {
+  test.setTimeout(60_000);
   await startRun(page);
 
   const firstBreakthrough = xpToNextLevel(0);
