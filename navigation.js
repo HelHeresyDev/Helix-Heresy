@@ -10,10 +10,10 @@
   "use strict";
 
   const CARDINAL_DIRECTIONS = [
-    { x: 1, y: 0 },
-    { x: -1, y: 0 },
-    { x: 0, y: 1 },
-    { x: 0, y: -1 }
+    { x: 1, y: 0, z: 0 },
+    { x: -1, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+    { x: 0, y: -1, z: 0 }
   ];
 
   function finiteNumber(value, fallback = 0) {
@@ -25,27 +25,30 @@
     if (!value || !Number.isFinite(Number(value.x)) || !Number.isFinite(Number(value.y))) {
       return null;
     }
-    return { x: Math.round(Number(value.x)), y: Math.round(Number(value.y)) };
+    const z = Number.isFinite(Number(value.z)) ? Math.round(Number(value.z)) : 0;
+    return { x: Math.round(Number(value.x)), y: Math.round(Number(value.y)), z };
   }
 
   function cellKey(cell) {
-    return `${cell.x},${cell.y}`;
+    return `${cell.x},${cell.y},${Number.isFinite(Number(cell.z)) ? Math.round(Number(cell.z)) : 0}`;
   }
 
   function stateKey(cell, orientation = "square") {
-    return `${cell.x},${cell.y},${orientation}`;
+    return `${cellKey(cell)},${orientation}`;
   }
 
   function manhattan(left, right) {
-    return Math.abs(left.x - right.x) + Math.abs(left.y - right.y);
+    return Math.abs(left.x - right.x) + Math.abs(left.y - right.y) + Math.abs(left.z - right.z);
   }
 
   function normalizeFootprint(candidate = {}) {
     const width = Math.max(1, Math.ceil(finiteNumber(candidate.width, 1)));
     const height = Math.max(1, Math.ceil(finiteNumber(candidate.height, 1)));
+    const heightLayers = Math.max(1, Math.ceil(finiteNumber(candidate.heightLayers, 1)));
     return {
       width,
       height,
+      heightLayers,
       orientation: width === height ? "square" : candidate.orientation === "vertical" ? "vertical" : "horizontal",
       rotatable: width !== height && candidate.rotatable !== false,
       exclusive: Boolean(candidate.exclusive || width > 1 || height > 1),
@@ -69,7 +72,7 @@
     const cells = [];
     for (let y = 0; y < dimensions.height; y += 1) {
       for (let x = 0; x < dimensions.width; x += 1) {
-        cells.push({ x: clean.x + x, y: clean.y + y });
+        cells.push({ x: clean.x + x, y: clean.y + y, z: clean.z });
       }
     }
     return cells;
@@ -186,6 +189,12 @@
     const canOccupy = typeof options.canOccupy === "function" ? options.canOccupy : () => true;
     const stepCost = typeof options.stepCost === "function" ? options.stepCost : () => 1;
     const heuristic = typeof options.heuristic === "function" ? options.heuristic : manhattan;
+    const neighbors = typeof options.neighbors === "function"
+      ? options.neighbors
+      : (cell) => CARDINAL_DIRECTIONS.map((direction) => ({
+        cell: { x: cell.x + direction.x, y: cell.y + direction.y, z: cell.z },
+        action: "move"
+      }));
     const maxVisited = Math.max(1, Math.floor(finiteNumber(options.maxVisited, width * height * 2)));
     const inBounds = (cell, orientation) => footprintCells(cell, footprint, orientation)
       .every((part) => part.x >= 0 && part.y >= 0 && part.x < width && part.y < height);
@@ -214,7 +223,7 @@
       const current = open.pop();
       if (!current || closed.has(current.key)) continue;
       closed.add(current.key);
-      if (current.cell.x === goal.x && current.cell.y === goal.y) {
+      if (cellKey(current.cell) === cellKey(goal)) {
         const reconstructed = reconstructPath(current.key, records);
         return {
           found: true,
@@ -225,11 +234,18 @@
         };
       }
 
-      const candidates = CARDINAL_DIRECTIONS.map((direction) => ({
-        cell: { x: current.cell.x + direction.x, y: current.cell.y + direction.y },
-        orientation: current.orientation,
-        action: "move"
-      }));
+      const candidates = neighbors(current.cell, goal, footprint, current.orientation)
+        .map((candidate) => candidate?.cell ? {
+          ...candidate,
+          cell: cleanCell(candidate.cell),
+          orientation: candidate.orientation || current.orientation,
+          action: candidate.action || "move"
+        } : {
+          cell: cleanCell(candidate),
+          orientation: current.orientation,
+          action: "move"
+        })
+        .filter((candidate) => candidate.cell);
       if (footprint.rotatable) {
         candidates.push({
           cell: { ...current.cell },
@@ -240,7 +256,7 @@
 
       for (const candidate of candidates) {
         if (!inBounds(candidate.cell, candidate.orientation)) continue;
-        const isGoal = candidate.cell.x === goal.x && candidate.cell.y === goal.y;
+        const isGoal = cellKey(candidate.cell) === cellKey(goal);
         if (!canOccupy(candidate.cell, candidate.orientation, isGoal)) continue;
         const candidateKey = stateKey(candidate.cell, candidate.orientation);
         if (closed.has(candidateKey)) continue;

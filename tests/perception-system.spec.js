@@ -146,6 +146,6 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     : fixture.right.x < fixture.left.x ? 'west'
       : fixture.right.y > fixture.left.y ? 'south' : 'north';
   expect(result.first.sensory.current.some((entry) => entry.key === 'chemical:organic' && entry.direction === expectedDirection), JSON.stringify(result.first.sensory.current)).toBe(true);
-  expect(result.firstSlime.autonomousMovement?.targetCell || result.firstSlime.mapCell, JSON.stringify(result.firstSlime)).toEqual(fixture.right);
+  expect(result.firstSlime.autonomousMovement?.targetCell || result.firstSlime.mapCell, JSON.stringify(result.firstSlime)).toEqual({ ...fixture.right, z: 0 });
   expect(result.second.sensory.routeMemory.cells.length).toBeGreaterThan(0);
 });

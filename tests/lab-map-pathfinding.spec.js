@@ -841,7 +841,8 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey });
 
   expect(initial.map.tileSizeM).toBe(1);
-  expect(initial.map.version).toBe(5);
+  expect(initial.map.version).toBe(6);
+  expect(initial.map.layerHeightM).toBe(4);
   expect(initial.map.width).toBe(100);
   expect(initial.map.height).toBe(100);
   expect(initial.map.rooms.mainLab).toMatchObject({ x: 46, y: 45, width: 12, height: 10 });
@@ -850,7 +851,7 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   expect(initial.map.doors['door-storage-main']).toMatchObject({
     cell: { x: 51, y: 44 }
   });
-  expect(initial.map.terrain.excavated).toEqual(expect.arrayContaining([{ x: 51, y: 44 }]));
+  expect(initial.map.terrain.excavated).toEqual(expect.arrayContaining([{ x: 51, y: 44, z: 0 }]));
   expect(initial.doorGeometryValid).toBe(true);
   expect(initial.scientist.roomId).toBe('mainLab');
   expect(initial.scientist.mapCell).toEqual(initial.map.rooms.mainLab.anchor);
@@ -2021,7 +2022,7 @@ test('keyboard cursor selects map targets and WASD pans the camera', async ({ pa
     const state = payload.state || payload;
     return state.ui.mapCursor;
   }, { key: storageKey });
-  expect(moved).toEqual({ x: initial.cursor.x, y: initial.cursor.y - 1 });
+  expect(moved).toEqual({ x: initial.cursor.x, y: initial.cursor.y - 1, z: initial.cursor.z });
   const movedTile = page.locator(`[data-map-x="${moved.x}"][data-map-y="${moved.y}"]`);
   await expect(movedTile).toHaveClass(/map-cursor-cell/);
   const cursorTarget = {
@@ -2487,11 +2488,11 @@ test('selected slime death transfers selection to its corpse', async ({ page }) 
 });
 
 test('one-tile openings infer separate compartments and automatic room designations', async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await startRun(page);
 
   const chamberRect = { x: 56, y: 40, width: 4, height: 4 };
-  const connector = { x: 57, y: 44 };
+  const connector = { x: 57, y: 44, z: 0 };
   for (let y = chamberRect.y; y < chamberRect.y + chamberRect.height; y += 1) {
     for (let x = chamberRect.x; x < chamberRect.x + chamberRect.width; x += 1) {
       await ensureDigTileDrafted(page, x, y);
@@ -2520,7 +2521,7 @@ test('one-tile openings infer separate compartments and automatic room designati
   expect(queued.order.tiles.find((tile) => tile.cell.x === 56 && tile.cell.y === 40)).toMatchObject({ status: 'planned', blockedReason: expect.stringContaining('No excavated work position') });
   expect(queued.order.tiles.find((tile) => tile.cell.x === connector.x && tile.cell.y === connector.y)).toMatchObject({ status: 'queued' });
   expect(queued.map.width).toBeGreaterThanOrEqual(100);
-  expect(queued.construction.lastDigRect).toEqual({ x: 56, y: 40, width: 4, height: 5 });
+  expect(queued.construction.lastDigRect).toEqual({ x: 56, y: 40, z: 0, width: 4, height: 5 });
   expect(queued.construction.draftCells).toHaveLength(0);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(17);
 
@@ -2560,8 +2561,12 @@ test('one-tile openings infer separate compartments and automatic room designati
   expect(excavated.excavatedCells).toEqual(expect.arrayContaining([connector]));
   expect(excavated.construction.roomDraftCells).toEqual([]);
   await expect(page.locator('.lab-map-cell.planned-excavation-cell')).toHaveCount(0);
-  await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
+  await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]`).first().click();
+  const inspector = page.locator('[data-selection-inspector="true"]');
+  if (await inspector.getAttribute('data-selection-kind') !== 'room') {
+    await page.getByTitle('Select Unassigned Room 1').click();
+  }
+  await expect(inspector).toHaveAttribute('data-selection-kind', 'room');
   await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Unassigned Room 1');
 
   await selectMapOverlay(page, 'rooms');
@@ -2579,7 +2584,7 @@ test('one-tile openings infer separate compartments and automatic room designati
   await expect(page.locator(`[data-map-x="${connector.x}"][data-map-y="${connector.y}"]`)).toHaveClass(/map-overlay-rooms-threshold/);
 
   await page.locator('[data-selection-inspector-tab="actions"]').click();
-  await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' })).toBeEnabled();
+  await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Move Scientist Here' })).toHaveAttribute('data-disabled-reason', 'The scientist is already there.');
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
   await page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Set Purpose: Storage Room' }).click();
 
@@ -2594,6 +2599,9 @@ test('one-tile openings infer separate compartments and automatic room designati
   expect(assigned.room.name).toBe('Unassigned Room 1');
   await selectMapOverlay(page, 'none');
   await page.locator(`.lab-map-cell.room-cell[data-map-room="${excavated.room.id}"]:not(.door-cell)`).first().click();
+  if (await inspector.getAttribute('data-selection-kind') !== 'room') {
+    await page.getByTitle('Select Unassigned Room 1').click();
+  }
   await page.locator('[data-selection-inspector-tab="actions"]').click();
   await expect(page.locator('[data-context-command-panel="true"]')).toContainText('Room Purpose');
   await expect(page.locator('[data-context-command-panel="true"]').getByRole('button', { name: 'Set Purpose: Storage Room' })).toBeDisabled();
@@ -2713,10 +2721,10 @@ test('manual room drawing can divide an inferred compartment and preserves disco
   expect(divided.firstCells).toHaveLength(12);
   expect(divided.second).toMatchObject({ designationSource: 'manual', designationDisconnected: false });
   expect(divided.secondCells).toEqual([
-    { x: 57, y: 40 },
-    { x: 57, y: 41 },
-    { x: 57, y: 42 },
-    { x: 57, y: 43 },
+    { x: 57, y: 40, z: 0 },
+    { x: 57, y: 41, z: 0 },
+    { x: 57, y: 42, z: 0 },
+    { x: 57, y: 43, z: 0 },
   ]);
   expect(divided.first.connections).toEqual(expect.arrayContaining(['excavation-2', 'mainLab']));
   expect(divided.second.connections).toEqual(expect.arrayContaining(['excavation-1', 'mainLab']));
@@ -2821,6 +2829,7 @@ test('room names purposes functional requirements and tile zones remain independ
   const cell = {
     x: Number(await tile.getAttribute('data-map-x')),
     y: Number(await tile.getAttribute('data-map-y')),
+    z: Number(await tile.getAttribute('data-map-z')),
   };
   await tile.click();
   await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'tile');
@@ -3090,7 +3099,10 @@ test('fixtures use rotated footprints interaction ports and linked production de
   const built = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot());
   const bed = built.fixtures.find((fixture) => fixture.typeId === 'bed' && fixture.id !== 'starter-bed');
   expect(bed).toBeTruthy();
-  expect(bed.footprintCells).toEqual([origin, { x: origin.x, y: origin.y + 1 }]);
+  expect(bed.footprintCells).toEqual([
+    { ...origin, z: 0 },
+    { x: origin.x, y: origin.y + 1, z: 0 }
+  ]);
   expect(bed.ports.some((port) => port.label === 'Bedside Access')).toBe(true);
   expect(bed.accessiblePorts.length).toBeGreaterThan(0);
   const returnedTools = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot());

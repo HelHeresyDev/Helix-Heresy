@@ -82,13 +82,13 @@ test('typed airborne substances diffuse without losing identity or total load', 
   }, { neighbor: cells[1] });
   expect(result.atNeighbor.airborne['acid-vapor']).toBeGreaterThan(0);
   expect(result.atNeighbor.airborne['smoke-vapor']).toBeGreaterThan(0);
-  expect(result.totals['acid-vapor']).toBeCloseTo(120, 4);
-  expect(result.totals['smoke-vapor']).toBeCloseTo(60, 4);
+  expect(result.totals['acid-vapor']).toBeCloseTo(160, 4);
+  expect(result.totals['smoke-vapor']).toBeCloseTo(80, 4);
 
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(86400));
   const laterTotals = await page.evaluate(() => window.helixHeresyDebug.airborneMassSnapshot());
-  expect(laterTotals['acid-vapor']).toBeCloseTo(120, 3);
-  expect(laterTotals['smoke-vapor']).toBeCloseTo(60, 3);
+  expect(laterTotals['acid-vapor']).toBeCloseTo(160, 3);
+  expect(laterTotals['smoke-vapor']).toBeCloseTo(80, 3);
 });
 
 test('natural rock conducts temperature and mana but blocks humidity and airborne matter', async ({ page }) => {

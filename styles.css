@@ -1353,6 +1353,18 @@ body.map-dragging .lab-map-cell {
   color: #879080;
 }
 
+.lab-map-cell.vertical-connector-cell {
+  border-color: rgba(104, 200, 216, 0.68);
+  color: #bdefff;
+  box-shadow: inset 0 0 0 1px rgba(104, 200, 216, 0.2);
+}
+
+.lab-map-cell.vertical-shaft-cell {
+  background: #080a08;
+  border-style: dashed;
+  color: #e1b75f;
+}
+
 .lab-map-cell.smoothed-floor-cell {
   background: #2d332c;
   border-color: #444d42;

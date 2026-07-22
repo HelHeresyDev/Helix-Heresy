@@ -31,8 +31,37 @@ test('weighted A star chooses a longer but cheaper route', () => {
   });
 
   expect(result.found).toBe(true);
-  expect(result.path).not.toEqual(expect.arrayContaining([{ x: 2, y: 1 }]));
+  expect(result.path).not.toEqual(expect.arrayContaining([expect.objectContaining({ x: 2, y: 1 })]));
   expect(result.cost).toBeLessThan(10);
+});
+
+test('vertical routes exist only through explicit z-layer neighbors', () => {
+  const stairLower = { x: 1, y: 1, z: 0 };
+  const stairUpper = { x: 1, y: 1, z: 1 };
+  const neighbors = (cell) => {
+    const planar = [
+      { x: cell.x + 1, y: cell.y, z: cell.z },
+      { x: cell.x - 1, y: cell.y, z: cell.z },
+      { x: cell.x, y: cell.y + 1, z: cell.z },
+      { x: cell.x, y: cell.y - 1, z: cell.z },
+    ];
+    if (cell.x === 1 && cell.y === 1 && cell.z === 0) planar.push(stairUpper);
+    if (cell.x === 1 && cell.y === 1 && cell.z === 1) planar.push(stairLower);
+    return planar;
+  };
+  const result = findPath({
+    width: 3,
+    height: 3,
+    start: { x: 0, y: 1, z: 0 },
+    goal: { x: 2, y: 1, z: 1 },
+    neighbors,
+    canOccupy: (cell) => cell.x >= 0 && cell.x < 3 && cell.y >= 0 && cell.y < 3,
+    stepCost: (from, to) => from.cell.z === to.cell.z ? 1 : 4,
+  });
+
+  expect(result.found).toBe(true);
+  expect(result.path).toEqual(expect.arrayContaining([stairLower, stairUpper]));
+  expect(result.cost).toBe(6);
 });
 
 test('oriented multi-tile bodies rotate only where their full footprint fits', () => {

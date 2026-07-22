@@ -83,6 +83,10 @@
   const CONSTRUCTION_PRIORITY_MAX = 7;
   const CONSTRUCTION_MODE_DEFS = [
     { id: "mine", label: "Mine", description: "Excavate natural solid rock into rough floor.", implemented: true },
+    { id: "stairUp", label: "Carve Stair Up", description: "Carve a stair from this floor into the solid layer above.", implemented: true },
+    { id: "stairDown", label: "Carve Stair Down", description: "Carve a stair from this floor into the solid layer below.", implemented: true },
+    { id: "channelDown", label: "Channel Down", description: "Remove the floor beneath this tile and create an open shaft.", implemented: true },
+    { id: "ramp", label: "Carve Ramp", description: "Sloped vertical movement is defined but deferred until ramp footprints are modeled.", implemented: false },
     { id: "smoothFloor", label: "Smooth Floor", description: "Finish one rough excavated floor tile.", implemented: true },
     { id: "smoothWall", label: "Smooth Wall", description: "Finish one exposed natural rock wall tile.", implemented: true },
     { id: "build", label: "Build", description: "Place constructed walls, floors, and anchored doors.", implemented: true },
@@ -618,6 +622,7 @@
   const LAB_MAP_VIEWPORT_PADDING_CELLS = 2;
   const LAB_MAP_ZOOM_LEVELS = [8, 10, 12, 14, 16, 20, 24];
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
+  const LAB_MAP_LAYER_HEIGHT_M = 4;
   const LAB_MAP_PAN_PIXELS_PER_SECOND = 420;
   const LAB_MAP_FAST_PAN_PIXELS_PER_SECOND = 900;
   const LAB_MAP_DRAG_THRESHOLD_PX = 4;
@@ -870,7 +875,7 @@
   const ROOM_CORPSE_FLOOR_LOAD_M2 = 0.75;
   const ROOM_EFFECT_REFERENCE_FLOOR_AREA_M2 = 100;
   const ROOM_EFFECT_REFERENCE_VOLUME_M3 = 300;
-  const TILE_ENVIRONMENT_HEIGHT_M = 3;
+  const TILE_ENVIRONMENT_HEIGHT_M = LAB_MAP_LAYER_HEIGHT_M;
   const TILE_ENVIRONMENT_MAX_STEP_SECONDS = 300;
   const TILE_ENVIRONMENT_EPSILON = 0.0001;
   const TILE_ENVIRONMENT_AIRBORNE_PRUNE_EPSILON = 1e-12;
@@ -4165,8 +4170,9 @@
       ...Object.values(doors).map((door) => door.cell)
     ]);
     return {
-      version: 5,
+      version: 6,
       tileSizeM: LAB_MAP_TILE_SIZE_M,
+      layerHeightM: LAB_MAP_LAYER_HEIGHT_M,
       width: LAB_MAP_DEFAULT_WIDTH,
       height: LAB_MAP_DEFAULT_HEIGHT,
       terrain: {
@@ -4180,7 +4186,8 @@
           { cell: { x: 55, y: 40 }, stoneId: "limestone", oreId: "copperOre" }
         ],
         naturalDamage: [],
-        rubble: []
+        rubble: [],
+        verticalConnectors: []
       },
       rooms,
       doors
@@ -4588,6 +4595,33 @@
         ignoreDoors: Boolean(options.ignoreDoors),
         ignoreAccessPolicy: Boolean(options.ignoreAccessPolicy)
       }),
+      verticalMapSnapshot: () => ({
+        activeLayer: mapViewportForUi().z,
+        layerHeightM: ensureLabMap().layerHeightM,
+        connectors: (ensureLabMap().terrain?.verticalConnectors || []).map((entry) => ({
+          ...entry,
+          lowerCell: { ...entry.lowerCell },
+          upperCell: { ...entry.upperCell }
+        })),
+        excavated: (ensureLabMap().terrain?.excavated || []).map((cell) => ({ ...cell }))
+      }),
+      setMapLayer: (z) => {
+        const current = mapViewportForUi().z;
+        setMapLayer(Number(z) - current);
+        return mapViewportForUi().z;
+      },
+      designateVerticalExcavation: (mode, cell) => {
+        if (!["stairUp", "stairDown", "channelDown"].includes(mode)) return false;
+        return createConstructionOrder(mode, [cleanMapCell(cell)], { label: constructionOrderLabel(mode, [cell]) });
+      },
+      testScientistGravityAt: (cell) => {
+        state.scientist.mapCell = cleanMapCell(cell);
+        const beforeHealth = scientistVital("health").current;
+        const moved = applyGravityAfterTopologyChange();
+        persist();
+        render();
+        return { moved, cell: { ...state.scientist.mapCell }, beforeHealth, health: scientistVital("health").current };
+      },
       slimeAiSnapshot: (slimeId) => {
         const slime = findSlime(slimeId);
         return slime ? {
@@ -5931,6 +5965,16 @@
     if (currentWorkspaceTab() !== "map") {
       return false;
     }
+    if ((event.code === "BracketLeft" || key === "[") && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      setMapLayer(-1);
+      return true;
+    }
+    if ((event.code === "BracketRight" || key === "]") && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      setMapLayer(1);
+      return true;
+    }
     const movement = mapCursorMovementForKey(event);
     if (movement) {
       event.preventDefault();
@@ -6642,7 +6686,8 @@
     const viewport = mapViewportSizeForZoom(map, zoomIndex);
     return {
       x: clamp(Math.floor(center.x - viewport.width / 2), 0, Math.max(0, map.width - viewport.width)),
-      y: clamp(Math.floor(center.y - viewport.height / 2), 0, Math.max(0, map.height - viewport.height))
+      y: clamp(Math.floor(center.y - viewport.height / 2), 0, Math.max(0, map.height - viewport.height)),
+      z: center.z
     };
   }
 
@@ -6652,9 +6697,11 @@
     const source = candidate && typeof candidate === "object" ? candidate : fallback;
     const x = Math.round(Number(source.x));
     const y = Math.round(Number(source.y));
+    const z = Number.isFinite(Number(source.z)) ? Math.round(Number(source.z)) : fallback.z;
     return {
       x: clamp(Number.isFinite(x) ? x : fallback.x, 0, Math.max(0, map.width - viewport.width)),
-      y: clamp(Number.isFinite(y) ? y : fallback.y, 0, Math.max(0, map.height - viewport.height))
+      y: clamp(Number.isFinite(y) ? y : fallback.y, 0, Math.max(0, map.height - viewport.height)),
+      z
     };
   }
 
@@ -6671,6 +6718,7 @@
       height: size.height,
       maxX: Math.max(0, map.width - size.width),
       maxY: Math.max(0, map.height - size.height),
+      z: camera.z,
       zoomIndex,
       tilePx: size.tilePx
     };
@@ -6678,6 +6726,7 @@
 
   function mapViewportContainsCell(viewport, cell, padding = 0) {
     return Boolean(cell
+      && (Number.isFinite(Number(cell.z)) ? Math.round(Number(cell.z)) : 0) === viewport.z
       && cell.x >= viewport.x + padding
       && cell.y >= viewport.y + padding
       && cell.x < viewport.x + viewport.width - padding
@@ -6712,7 +6761,8 @@
     } else if (clean.y > maxVisibleY) {
       nextY = clean.y - viewport.height + padding + 1;
     }
-    ui.mapCamera = normalizeMapCamera({ x: nextX, y: nextY }, map, viewport.zoomIndex);
+    ui.mapCamera = normalizeMapCamera({ x: nextX, y: nextY, z: clean.z }, map, viewport.zoomIndex);
+    ui.mapCursor = { ...ui.mapCursor, z: clean.z };
     return true;
   }
 
@@ -6726,7 +6776,8 @@
     const viewport = mapViewportForUi(map, ui);
     ui.mapCamera = normalizeMapCamera({
       x: clean.x - Math.floor(viewport.width / 2),
-      y: clean.y - Math.floor(viewport.height / 2)
+      y: clean.y - Math.floor(viewport.height / 2),
+      z: clean.z
     }, map, viewport.zoomIndex);
     if (options.persist !== false) {
       persist();
@@ -6740,13 +6791,15 @@
     const oldViewport = mapViewportForUi(map, ui);
     const anchor = cleanMapCell(options.anchorCell) || {
       x: oldViewport.x + Math.floor(oldViewport.width / 2),
-      y: oldViewport.y + Math.floor(oldViewport.height / 2)
+      y: oldViewport.y + Math.floor(oldViewport.height / 2),
+      z: oldViewport.z
     };
     ui.mapZoomIndex = normalizeMapZoomIndex(oldViewport.zoomIndex + delta);
     const nextSize = mapViewportSizeForZoom(map, ui.mapZoomIndex);
     ui.mapCamera = normalizeMapCamera({
       x: anchor.x - Math.floor(nextSize.width / 2),
-      y: anchor.y - Math.floor(nextSize.height / 2)
+      y: anchor.y - Math.floor(nextSize.height / 2),
+      z: anchor.z
     }, map, ui.mapZoomIndex);
     persist();
     renderMapInteraction();
@@ -6764,7 +6817,8 @@
       mode: normalizeUiMode(candidate?.mode),
       mapCursor: {
         x: clamp(cursor.x, 0, Math.max(0, map.width - 1)),
-        y: clamp(cursor.y, 0, Math.max(0, map.height - 1))
+        y: clamp(cursor.y, 0, Math.max(0, map.height - 1)),
+        z: cursor.z
       },
       mapCamera: normalizeMapCamera(candidate?.mapCamera, map, zoomIndex, context),
       mapZoomIndex: zoomIndex,
@@ -6811,7 +6865,8 @@
     }
     ui.mapCursor = {
       x: clamp(ui.mapCursor.x, 0, Math.max(0, map.width - 1)),
-      y: clamp(ui.mapCursor.y, 0, Math.max(0, map.height - 1))
+      y: clamp(ui.mapCursor.y, 0, Math.max(0, map.height - 1)),
+      z: Number.isFinite(Number(ui.mapCursor.z)) ? Math.round(Number(ui.mapCursor.z)) : 0
     };
     return ui.mapCursor;
   }
@@ -6821,13 +6876,30 @@
     const cursor = mapCursorCell(map);
     ensureUiState().mapCursor = {
       x: clamp(cursor.x + dx, 0, Math.max(0, map.width - 1)),
-      y: clamp(cursor.y + dy, 0, Math.max(0, map.height - 1))
+      y: clamp(cursor.y + dy, 0, Math.max(0, map.height - 1)),
+      z: cursor.z
     };
     ensureMapCameraIncludesCell(ensureUiState().mapCursor);
     setUiMode(UI_MODE_NAVIGATION);
     setActiveWorkspaceTab("map");
     persist();
     renderMapInteraction();
+  }
+
+  function setMapLayer(delta, options = {}) {
+    const map = ensureLabMap();
+    const cursor = mapCursorCell(map);
+    const ui = ensureUiState();
+    const current = mapViewportForUi(map, ui).z;
+    const next = current + Math.trunc(Number(delta) || 0);
+    if (next === current) return false;
+    ui.mapCamera = normalizeMapCamera({ ...ui.mapCamera, z: next }, map, ui.mapZoomIndex);
+    ui.mapCursor = { ...cursor, z: next };
+    ui.commandMenuOpen = false;
+    ui.mode = UI_MODE_NAVIGATION;
+    if (options.persist !== false) persist();
+    renderMapInteraction();
+    return true;
   }
 
   function mapCursorMovementForKey(event) {
@@ -8143,6 +8215,16 @@
     const excavated = labMapCellIsExcavated(clean, map);
     const buildDef = constructionBuildDef(options.buildType || options.order?.buildType);
     if (mode === "mine") return excavated ? "This tile is already excavated floor." : "";
+    if (["stairUp", "stairDown", "channelDown"].includes(mode)) {
+      if (!excavated) return "Vertical excavation must begin from existing excavated space.";
+      if (constructedWallAtCell(clean, map)) return "A constructed wall blocks this vertical excavation.";
+      const target = verticalExcavationTargetCell(mode, clean);
+      if (labMapCellIsExcavated(target, map)) {
+        if (mode === "channelDown" && !labMapCellHasSupport(clean, map)) return "This tile is already an unsupported open shaft.";
+        return `The layer ${mode === "stairUp" ? "above" : "below"} is already excavated.`;
+      }
+      return "";
+    }
     if (mode === "smoothFloor") {
       if (!excavated) return "Only excavated floor can be smoothed as floor.";
       if (constructedFloorAtCell(clean, map)) return "Constructed flooring already finishes this tile.";
@@ -8183,12 +8265,11 @@
   }
 
   function cardinalMapCells(cell) {
-    return [
-      { x: cell.x + 1, y: cell.y },
-      { x: cell.x - 1, y: cell.y },
-      { x: cell.x, y: cell.y + 1 },
-      { x: cell.x, y: cell.y - 1 }
-    ];
+    return orthogonalMapNeighbors(cell);
+  }
+
+  function verticalExcavationTargetCell(mode, sourceCell) {
+    return mapCellAtOffset(sourceCell, 0, 0, mode === "stairUp" ? 1 : -1);
   }
 
   function constructionTargetOccupancyBlockReason(order, tile) {
@@ -8203,7 +8284,7 @@
   }
 
   function constructionBaseWorkSeconds(order) {
-    const minutes = order?.mode === "mine"
+    const minutes = ["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode)
       ? EXCAVATION_MINUTES_PER_TILE
       : order?.mode === "build"
         ? constructionOrderBuildDef(order)?.workMinutes
@@ -8213,8 +8294,10 @@
 
   function constructionTargetComposition(order, tile) {
     const map = ensureLabMap();
-    if (order?.mode === "mine" || order?.mode === "smoothWall") {
-      return normalizeMaterialComposition({ primary: naturalWallMaterialId(tile.cell, map) });
+    if (["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode) || order?.mode === "smoothWall") {
+      const materialCell = ["stairUp", "stairDown", "channelDown"].includes(order?.mode)
+        ? verticalExcavationTargetCell(order.mode, tile.cell) : tile.cell;
+      return normalizeMaterialComposition({ primary: naturalWallMaterialId(materialCell, map) });
     }
     if (order?.mode === "smoothFloor") {
       return normalizeMaterialComposition({ primary: naturalWallMaterialId(tile.cell, map) });
@@ -8237,7 +8320,7 @@
   }
 
   function constructionToolRequirements(order, tile) {
-    if (order?.mode === "mine") return [{ label: "solid-rock excavation", any: ["excavation"], minimum: 42 }];
+    if (["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode)) return [{ label: "solid-rock excavation", any: ["excavation"], minimum: 42 }];
     if (["smoothFloor", "smoothWall"].includes(order?.mode)) {
       return [
         { label: "stone shaping", any: ["stoneShaping"], minimum: 42 },
@@ -8370,6 +8453,10 @@
     const fixtureCandidates = fixture ? fixtureAccessCells(tile.cell, fixture, order.rotation, { map }) .map((port) => port.cell) : [];
     const candidates = fixture
       ? fixtureCandidates
+      : order.mode === "channelDown"
+        ? cardinalMapCells(tile.cell).filter((cell) => labMapCellIsWalkable(cell, map))
+      : ["stairUp", "stairDown"].includes(order.mode)
+        ? [tile.cell]
       : ["smoothFloor", "build"].includes(order.mode) && constructionOrderBuildDef(order)?.kind === "floor"
       ? [tile.cell, ...cardinalMapCells(tile.cell).filter((cell) => labMapCellIsExcavated(cell, map))]
       : order.mode === "smoothFloor"
@@ -8746,7 +8833,7 @@
   function startExcavationDraftDesignation() {
     const mode = constructionActiveMode();
     if (mode === "cancel") return cancelConstructionOrdersAtCells(constructionDraftCells());
-    if (!["mine", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) {
+    if (!["mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) {
       addEvent(`${constructionModeLabel(mode)} is not implemented yet.`);
       persist();
       render();
@@ -8986,7 +9073,7 @@
   }
 
   function createConstructedDoor(cell, buildDef, map = ensureLabMap()) {
-    const id = `door-${cell.x}-${cell.y}`;
+    const id = `door-${cell.x}-${cell.y}-${cell.z}`;
     const roomIds = roomIdsAdjacentToDoorCell(cell, map.rooms);
     map.doors[id] = normalizeLabMapDoor({ id, cell, roomIds }, id, map.rooms);
     const door = defaultDoorObject(roomIds[0], roomIds[1], id);
@@ -9047,6 +9134,100 @@
     return true;
   }
 
+  function completeVerticalExcavation(mode, sourceCell, map) {
+    const targetCell = verticalExcavationTargetCell(mode, sourceCell);
+    const deposit = naturalDepositAtCell(targetCell, map);
+    map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), targetCell]);
+    map.terrain.naturalDeposits = (map.terrain.naturalDeposits || [])
+      .filter((entry) => mapCellKey(entry.cell) !== mapCellKey(targetCell));
+    map.terrain.smoothedWalls = normalizeDigCells(map.terrain.smoothedWalls)
+      .filter((cell) => mapCellKey(cell) !== mapCellKey(targetCell));
+    if (["stairUp", "stairDown"].includes(mode)) {
+      const lowerCell = sourceCell.z < targetCell.z ? sourceCell : targetCell;
+      const upperCell = sourceCell.z < targetCell.z ? targetCell : sourceCell;
+      map.terrain.verticalConnectors = normalizeVerticalConnectors([
+        ...(map.terrain.verticalConnectors || []),
+        { type: "carvedStairs", lowerCell, upperCell }
+      ]);
+    } else {
+      map.terrain.constructedFloors = (map.terrain.constructedFloors || [])
+        .filter((entry) => mapCellKey(entry.cell) !== mapCellKey(sourceCell));
+      map.terrain.verticalConnectors = (map.terrain.verticalConnectors || [])
+        .filter((entry) => !sameMapCell(entry.lowerCell, targetCell) || !sameMapCell(entry.upperCell, sourceCell));
+    }
+    addRubblePile(sourceCell, {
+      [deposit?.stoneId || "stone"]: 3,
+      ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
+    }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "vertical stone excavation", map);
+    return targetCell;
+  }
+
+  function fallDestinationForCell(cell, map = ensureLabMap()) {
+    const start = cleanMapCell(cell);
+    if (!start || !labMapCellIsExcavated(start, map)) return null;
+    let current = start;
+    let layers = 0;
+    const searchLimit = Math.max(1, (map.terrain?.excavated || []).length + 1);
+    while (!labMapCellHasSupport(current, map) && layers < searchLimit) {
+      const below = mapCellAtOffset(current, 0, 0, -1);
+      if (!labMapCellIsExcavated(below, map)) break;
+      current = below;
+      layers += 1;
+    }
+    return layers ? { cell: current, layers, distanceM: layers * (Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M) } : null;
+  }
+
+  function applyGravityAfterTopologyChange(map = ensureLabMap()) {
+    let moved = 0;
+    const scientistFall = fallDestinationForCell(state.scientist?.mapCell, map);
+    if (scientistFall) {
+      state.scientist.mapCell = scientistFall.cell;
+      state.scientist.roomId = labMapCellRoomId(scientistFall.cell, map) || state.scientist.roomId;
+      damageScientistHealth(Math.max(1, Math.round(scientistFall.distanceM * 2)), `a ${formatDecimal(scientistFall.distanceM, 0)} m fall`);
+      addEvent(`The scientist fell ${formatDecimal(scientistFall.distanceM, 0)} m to Z ${scientistFall.cell.z}.`);
+      moved += 1;
+    }
+    for (const slime of state.slimes || []) {
+      if (slime.status !== "released") continue;
+      const fall = fallDestinationForCell(slime.mapCell, map);
+      if (!fall) continue;
+      slime.mapCell = fall.cell;
+      slime.roomId = labMapCellRoomId(fall.cell, map) || slime.roomId;
+      applySlimeCombatDamage(slime, Math.max(1, Math.round(fall.distanceM * 2.5)), "environment", `a ${formatDecimal(fall.distanceM, 0)} m fall`);
+      addEvent(`${slime.name} fell ${formatDecimal(fall.distanceM, 0)} m to Z ${fall.cell.z}.`);
+      moved += 1;
+    }
+    for (const corpse of state.corpses || []) {
+      if (corpse.containerId || corpse.storage === "drum") continue;
+      const fall = fallDestinationForCell(corpse.mapCell, map);
+      if (!fall) continue;
+      corpse.mapCell = fall.cell;
+      corpse.roomId = labMapCellRoomId(fall.cell, map) || corpse.roomId;
+      moved += 1;
+    }
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (!stack.cell || stack.fixtureId || stack.containerId || stack.carriedBy) continue;
+      const fall = fallDestinationForCell(stack.cell, map);
+      if (!fall) continue;
+      stack.cell = fall.cell;
+      stack.roomId = labMapCellRoomId(fall.cell, map) || stack.roomId;
+      moved += 1;
+    }
+    for (const rubble of map.terrain?.rubble || []) {
+      const fall = fallDestinationForCell(rubble.cell, map);
+      if (!fall) continue;
+      rubble.cell = fall.cell;
+      moved += 1;
+    }
+    if (moved) {
+      map.terrain.rubble = normalizeRubblePiles(map.terrain.rubble);
+      syncPhysicalReadModels();
+      expireSlimes();
+      bumpNavigationRevision("topology");
+    }
+    return moved;
+  }
+
   function completeConstructionWork(task) {
     const order = constructionOrderById(task.data?.constructionOrderId);
     const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
@@ -9075,6 +9256,7 @@
     }
     const map = ensureLabMap();
     map.terrain ||= { excavated: [], smoothedFloors: [], smoothedWalls: [], constructedFloors: [], constructedWalls: [], rubble: [] };
+    let topologyFocusCell = tile.cell;
     if (order.mode === "mine") {
       const deposit = naturalDepositAtCell(tile.cell, map);
       map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, tile.cell]);
@@ -9086,6 +9268,10 @@
         ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
       }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "natural stone excavation", map);
       state.labMap = normalizeLabMap(map, state.rooms);
+    } else if (["stairUp", "stairDown", "channelDown"].includes(order.mode)) {
+      topologyFocusCell = completeVerticalExcavation(order.mode, tile.cell, map);
+      state.labMap = normalizeLabMap(map, state.rooms);
+      applyGravityAfterTopologyChange();
     } else if (order.mode === "smoothFloor") {
       map.terrain.smoothedFloors = normalizeDigCells([...(map.terrain.smoothedFloors || []), tile.cell]);
     } else if (order.mode === "smoothWall") {
@@ -9118,12 +9304,13 @@
     tile.completedAt = state.clock;
     tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
     tile.workCompletedSeconds = tile.workRequiredSeconds;
-    addEvent(`${constructionModeLabel(order.mode)} completed at tile ${tile.cell.x},${tile.cell.y}.`);
+    addEvent(`${constructionModeLabel(order.mode)} completed at tile ${tile.cell.x},${tile.cell.y},${tile.cell.z}.`);
     const remaining = order.tiles.some((entry) => ["planned", "queued"].includes(entry.status));
     if (!remaining) {
       const completedCells = order.tiles.filter((entry) => entry.status === "completed").map((entry) => entry.cell);
-      if (order.mode === "mine") {
-        const updates = applyRoomDesignationPolicy({ focusCells: completedCells, silent: true });
+      if (["mine", "stairUp", "stairDown", "channelDown"].includes(order.mode)) {
+        const focusCells = order.mode === "mine" ? completedCells : [topologyFocusCell];
+        const updates = applyRoomDesignationPolicy({ focusCells, silent: true });
         addEvent(`${order.label} complete.${updates ? ` Room policy applied ${updates} update${updates === 1 ? "" : "s"}.` : ""}`);
       } else {
         addEvent(`${order.label} complete.`);
@@ -11129,19 +11316,38 @@
     return contaminationDiffusionDoorModifier(state.doors?.[mapDoor.key] || mapDoor);
   }
 
+  function tileEnvironmentVerticalModifiers(lowerCell, upperCell, map = ensureLabMap()) {
+    if (verticalConnectorBetween(lowerCell, upperCell, map) || !labMapCellHasSupport(upperCell, map)) {
+      return { air: 1, temperature: 1, mana: 1 };
+    }
+    const floor = constructedFloorAtCell(upperCell, map);
+    if (!floor) return { air: 0, temperature: 0.08, mana: 0.04 };
+    const composition = floor.materialComposition || { primary: normalizeMaterialId(floor.materialId) };
+    const porosity = compositionPropertyScore(composition, "porosity") / 100;
+    const damageLeak = Math.pow(1 - clamp(Number(floor.condition) || 0, 0, 100) / 100, 2) * 0.5;
+    return {
+      air: clamp(porosity * 0.03 + damageLeak, 0, 0.75),
+      temperature: Math.max(0.01, (100 - compositionPropertyScore(composition, "thermalResistance")) / 100) * 0.08,
+      mana: Math.max(0.005, compositionPropertyScore(composition, "arcanePermeability") / 100) * 0.04
+    };
+  }
+
   function tileEnvironmentOpenEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
     const edges = [];
     const keys = new Set(Object.keys(environments));
     for (const record of Object.values(environments)) {
-      for (const neighbor of [{ x: record.cell.x + 1, y: record.cell.y }, { x: record.cell.x, y: record.cell.y + 1 }]) {
+      for (const neighbor of [mapCellAtOffset(record.cell, 1, 0), mapCellAtOffset(record.cell, 0, 1), mapCellAtOffset(record.cell, 0, 0, 1)]) {
         const neighborKey = mapCellKey(neighbor);
         if (!keys.has(neighborKey)) continue;
+        const vertical = neighbor.z !== record.cell.z
+          ? tileEnvironmentVerticalModifiers(record.cell, neighbor, map)
+          : null;
         edges.push({
           left: record,
           right: environments[neighborKey],
-          air: tileEnvironmentAirModifier(record.cell, neighbor, map),
-          temperature: 1,
-          mana: 1
+          air: vertical?.air ?? tileEnvironmentAirModifier(record.cell, neighbor, map),
+          temperature: vertical?.temperature ?? 1,
+          mana: vertical?.mana ?? 1
         });
       }
     }
@@ -11152,9 +11358,9 @@
     const edges = [];
     const seen = new Set();
     for (const record of Object.values(environments)) {
-      for (const direction of [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }]) {
-        const barrierCell = { x: record.cell.x + direction.x, y: record.cell.y + direction.y };
-        const farCell = { x: record.cell.x + direction.x * 2, y: record.cell.y + direction.y * 2 };
+      for (const direction of [{ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: -1, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }]) {
+        const barrierCell = mapCellAtOffset(record.cell, direction.x, direction.y, direction.z);
+        const farCell = mapCellAtOffset(record.cell, direction.x * 2, direction.y * 2, direction.z * 2);
         const far = environments[mapCellKey(farCell)];
         if (!far || labMapCellIsExcavated(barrierCell, map) && !constructedWallAtCell(barrierCell, map)) continue;
         const pairKey = [mapCellKey(record.cell), mapCellKey(farCell)].sort().join("::");
@@ -11866,12 +12072,7 @@
         const cell = stack.pop();
         const roomId = labMapCellRoomId(cell, map);
         if (roomId) componentRooms.add(roomId);
-        for (const neighbor of [
-          { x: cell.x + 1, y: cell.y },
-          { x: cell.x - 1, y: cell.y },
-          { x: cell.x, y: cell.y + 1 },
-          { x: cell.x, y: cell.y - 1 }
-        ]) {
+        for (const neighbor of orthogonalMapNeighbors(cell)) {
           const key = mapCellKey(neighbor);
           if (visited.has(key) || doorCellKeys.has(key) || !floorByKey.has(key)) continue;
           visited.add(key);
@@ -12106,24 +12307,39 @@
   function cleanMapCell(candidate) {
     const x = Math.round(Number(candidate?.x));
     const y = Math.round(Number(candidate?.y));
+    const rawZ = Number(candidate?.z);
+    const z = Number.isFinite(rawZ) ? Math.round(rawZ) : 0;
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return null;
     }
-    return { x, y };
+    return { x, y, z };
+  }
+
+  function mapCellAtOffset(cell, dx = 0, dy = 0, dz = 0) {
+    const clean = cleanMapCell(cell);
+    return clean ? { x: clean.x + dx, y: clean.y + dy, z: clean.z + dz } : null;
+  }
+
+  function sameMapCell(left, right) {
+    const a = cleanMapCell(left);
+    const b = cleanMapCell(right);
+    return Boolean(a && b && a.x === b.x && a.y === b.y && a.z === b.z);
   }
 
   function clampMapCellToRect(cell, rect) {
     const clean = cleanMapCell(cell) || roomCenterCell(rect);
     return {
       x: clamp(clean.x, rect.x, rect.x + rect.width - 1),
-      y: clamp(clean.y, rect.y, rect.y + rect.height - 1)
+      y: clamp(clean.y, rect.y, rect.y + rect.height - 1),
+      z: Number.isFinite(Number(rect.z)) ? Math.round(Number(rect.z)) : clean.z
     };
   }
 
   function roomCenterCell(rect) {
     return {
       x: Math.round(rect.x + (rect.width - 1) / 2),
-      y: Math.round(rect.y + (rect.height - 1) / 2)
+      y: Math.round(rect.y + (rect.height - 1) / 2),
+      z: Number.isFinite(Number(rect.z)) ? Math.round(Number(rect.z)) : 0
     };
   }
 
@@ -12131,7 +12347,7 @@
     const cells = [];
     for (let y = rect.y; y < rect.y + rect.height; y += 1) {
       for (let x = rect.x; x < rect.x + rect.width; x += 1) {
-        cells.push({ x, y });
+        cells.push({ x, y, z: Number.isFinite(Number(rect.z)) ? Math.round(Number(rect.z)) : 0 });
       }
     }
     return cells;
@@ -12153,7 +12369,7 @@
       seen.add(key);
       cells.push(cell);
     }
-    return cells.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    return cells.sort((a, b) => (a.z - b.z) || (a.y - b.y) || (a.x - b.x));
   }
 
   function normalizeConstructedSurfaces(candidate, allowedKinds = null) {
@@ -12175,7 +12391,7 @@
         enchantmentIds: [...new Set((Array.isArray(entry?.enchantmentIds) ? entry.enchantmentIds : []).map((id) => String(id || "").replace(/[^a-zA-Z0-9_-]/g, "")).filter(Boolean))],
         builtAt: finiteTime(entry?.builtAt, 0)
       };
-    }).filter(Boolean).sort((a, b) => (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
+    }).filter(Boolean).sort((a, b) => (a.cell.z - b.cell.z) || (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
   }
 
   function normalizeNaturalDeposits(candidate) {
@@ -12236,9 +12452,11 @@
     const minY = Math.min(...ys);
     const maxX = Math.max(...xs);
     const maxY = Math.max(...ys);
+    const zValues = [...new Set(cleanCells.map((cell) => cell.z))];
     return {
       x: minX,
       y: minY,
+      ...(zValues.length === 1 ? { z: zValues[0] } : {}),
       width: maxX - minX + 1,
       height: maxY - minY + 1
     };
@@ -12250,16 +12468,12 @@
       return true;
     }
     const remaining = new Set(cleanCells.map(mapCellKey));
+    const map = state?.labMap || ensureLabMap();
     const stack = [cleanCells[0]];
     remaining.delete(mapCellKey(cleanCells[0]));
     while (stack.length) {
       const cell = stack.pop();
-      for (const neighbor of [
-        { x: cell.x + 1, y: cell.y },
-        { x: cell.x - 1, y: cell.y },
-        { x: cell.x, y: cell.y + 1 },
-        { x: cell.x, y: cell.y - 1 }
-      ]) {
+      for (const neighbor of [...orthogonalMapNeighbors(cell), ...labMapVerticalNeighbors(cell, map)]) {
         const key = mapCellKey(neighbor);
         if (!remaining.has(key)) {
           continue;
@@ -12277,6 +12491,7 @@
     }
     const x = Math.floor(Number(candidate.x));
     const y = Math.floor(Number(candidate.y));
+    const z = Number.isFinite(Number(candidate.z)) ? Math.round(Number(candidate.z)) : 0;
     const width = Math.floor(Number(candidate.width ?? candidate.w));
     const height = Math.floor(Number(candidate.height ?? candidate.h));
     if (![x, y, width, height].every(Number.isFinite)) {
@@ -12285,6 +12500,7 @@
     return {
       x,
       y,
+      z,
       width: Math.max(0, width),
       height: Math.max(0, height)
     };
@@ -12394,12 +12610,7 @@
     const openings = [];
     const openingSeen = new Set();
     for (const cell of cleanCells) {
-      for (const neighbor of [
-        { x: cell.x + 1, y: cell.y },
-        { x: cell.x - 1, y: cell.y },
-        { x: cell.x, y: cell.y + 1 },
-        { x: cell.x, y: cell.y - 1 }
-      ]) {
+      for (const neighbor of orthogonalMapNeighbors(cell)) {
         if (cellKeys.has(mapCellKey(neighbor))) {
           continue;
         }
@@ -12468,12 +12679,12 @@
     for (const room of rooms) {
       const candidates = [];
       for (let x = room.x - width + 1; x <= room.x + room.width - 1; x += 1) {
-        candidates.push({ x, y: room.y - height, width, height });
-        candidates.push({ x, y: room.y + room.height, width, height });
+        candidates.push({ x, y: room.y - height, z: room.z, width, height });
+        candidates.push({ x, y: room.y + room.height, z: room.z, width, height });
       }
       for (let y = room.y - height + 1; y <= room.y + room.height - 1; y += 1) {
-        candidates.push({ x: room.x - width, y, width, height });
-        candidates.push({ x: room.x + room.width, y, width, height });
+        candidates.push({ x: room.x - width, y, z: room.z, width, height });
+        candidates.push({ x: room.x + room.width, y, z: room.z, width, height });
       }
       for (const candidate of candidates) {
         if (!digDesignationBlockReason(candidate)) {
@@ -12481,7 +12692,7 @@
         }
       }
     }
-    return { x: map.width, y: 0, width, height };
+    return { x: map.width, y: 0, z: 0, width, height };
   }
 
   function ensureLabMapCoversRect(rect) {
@@ -13656,7 +13867,10 @@
     const cells = [];
     for (const rawCell of source) {
       const cell = cleanMapCell(rawCell);
-      if (!cell || !mapCellInRoomRect(cell, rect)) {
+      const insidePlanarBounds = cell
+        && cell.x >= rect.x && cell.x < rect.x + rect.width
+        && cell.y >= rect.y && cell.y < rect.y + rect.height;
+      if (!cell || (explicitCells ? !insidePlanarBounds : !mapCellInRoomRect(cell, rect))) {
         continue;
       }
       const key = mapCellKey(cell);
@@ -13676,7 +13890,7 @@
     if (!Array.isArray(room.cells)) {
       return mapCellInRoomRect(cell, room);
     }
-    return room.cells.some((candidate) => candidate.x === cell.x && candidate.y === cell.y);
+    return room.cells.some((candidate) => sameMapCell(candidate, cell));
   }
 
   function nearestRoomFootprintCell(cell, room) {
@@ -13685,7 +13899,7 @@
     return cells
       .map((candidate) => ({
         cell: candidate,
-        distance: Math.abs(candidate.x - clean.x) + Math.abs(candidate.y - clean.y)
+        distance: Math.abs(candidate.x - clean.x) + Math.abs(candidate.y - clean.y) + Math.abs(candidate.z - clean.z)
       }))
       .sort((a, b) => a.distance - b.distance || a.cell.y - b.cell.y || a.cell.x - b.cell.x)[0]?.cell || roomCenterCell(room);
   }
@@ -13706,10 +13920,12 @@
     );
     const x = Math.round(Number(candidate?.x ?? fallbackRect.x ?? 0));
     const y = Math.round(Number(candidate?.y ?? fallbackRect.y ?? 0));
+    const z = Math.round(Number(candidate?.z ?? fallbackRect.z ?? 0));
     const rect = {
       roomId,
       x: Number.isFinite(x) ? x : 0,
       y: Number.isFinite(y) ? y : 0,
+      z: Number.isFinite(z) ? z : 0,
       width,
       height
     };
@@ -13737,11 +13953,43 @@
       return null;
     }
     const id = cleanDoorId(candidate?.id || candidate?.key || (/^door-/.test(fallbackKey) ? fallbackKey : ""))
-      || `door-${cell.x}-${cell.y}`;
+      || `door-${cell.x}-${cell.y}-${cell.z}`;
     const roomIds = rooms
       ? roomIdsAdjacentToDoorCell(cell, rooms)
       : normalizeRoomConnections(candidate?.roomIds || doorRoomIdsFromKey(fallbackKey));
     return { id, key: id, roomIds, cell };
+  }
+
+  function normalizeVerticalConnectors(candidate) {
+    const seen = new Set();
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const lowerCell = cleanMapCell(entry?.lowerCell);
+      const upperCell = cleanMapCell(entry?.upperCell);
+      if (!lowerCell || !upperCell
+        || lowerCell.x !== upperCell.x
+        || lowerCell.y !== upperCell.y
+        || upperCell.z !== lowerCell.z + 1) return null;
+      const key = `${mapCellKey(lowerCell)}>${mapCellKey(upperCell)}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        id: String(entry?.id || `stairs-${lowerCell.x}-${lowerCell.y}-${lowerCell.z}`).replace(/[^a-zA-Z0-9_-]/g, ""),
+        type: entry?.type === "ramp" ? "ramp" : "carvedStairs",
+        lowerCell,
+        upperCell
+      };
+    }).filter(Boolean);
+  }
+
+  function verticalConnectorBetween(left, right, map = ensureLabMap()) {
+    const a = cleanMapCell(left);
+    const b = cleanMapCell(right);
+    if (!a || !b || a.x !== b.x || a.y !== b.y || Math.abs(a.z - b.z) !== 1) return null;
+    const lower = a.z < b.z ? a : b;
+    const upper = a.z < b.z ? b : a;
+    return (map.terrain?.verticalConnectors || []).find((entry) =>
+      sameMapCell(entry.lowerCell, lower) && sameMapCell(entry.upperCell, upper)
+    ) || null;
   }
 
   function normalizeLabMap(candidate, roomsOverride = null) {
@@ -13781,8 +14029,9 @@
     const constructedWalls = normalizeConstructedSurfaces(source.terrain?.constructedWalls)
       .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
     return {
-      version: 5,
+      version: 6,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
+      layerHeightM: Math.max(1, Number(source.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M),
       width,
       height,
       terrain: {
@@ -13797,7 +14046,8 @@
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
         naturalDamage: normalizeNaturalDamage(source.terrain?.naturalDamage)
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
-        rubble: normalizeRubblePiles(source.terrain?.rubble)
+        rubble: normalizeRubblePiles(source.terrain?.rubble),
+        verticalConnectors: normalizeVerticalConnectors(source.terrain?.verticalConnectors)
       },
       rooms: normalizedRooms,
       doors: normalizedDoors
@@ -13827,7 +14077,9 @@
   }
 
   function mapCellKey(cell) {
-    return `${cell.x},${cell.y}`;
+    if (!cell || !Number.isFinite(Number(cell.x)) || !Number.isFinite(Number(cell.y))) return "invalid";
+    const z = Number.isFinite(Number(cell.z)) ? Math.round(Number(cell.z)) : 0;
+    return `${Math.round(Number(cell.x))},${Math.round(Number(cell.y))},${z}`;
   }
 
   function mapCellInBounds(cell, map = ensureLabMap()) {
@@ -13835,7 +14087,10 @@
   }
 
   function mapCellInRoomRect(cell, rect) {
-    return Boolean(rect && cell && cell.x >= rect.x && cell.x < rect.x + rect.width && cell.y >= rect.y && cell.y < rect.y + rect.height);
+    return Boolean(rect && cell
+      && (Number.isFinite(Number(cell.z)) ? Math.round(Number(cell.z)) : 0) === (Number.isFinite(Number(rect.z)) ? Math.round(Number(rect.z)) : 0)
+      && cell.x >= rect.x && cell.x < rect.x + rect.width
+      && cell.y >= rect.y && cell.y < rect.y + rect.height);
   }
 
   function labMapCellRoomId(cell, map = ensureLabMap()) {
@@ -13910,16 +14165,32 @@
   }
 
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
-    return labMapCellIsExcavated(cell, map, excavatedKeys) && !constructedWallAtCell(cell, map);
+    return labMapCellIsExcavated(cell, map, excavatedKeys)
+      && !constructedWallAtCell(cell, map)
+      && labMapCellHasSupport(cell, map, excavatedKeys);
   }
 
   function orthogonalMapNeighbors(cell) {
     return [
-      { x: cell.x + 1, y: cell.y },
-      { x: cell.x - 1, y: cell.y },
-      { x: cell.x, y: cell.y + 1 },
-      { x: cell.x, y: cell.y - 1 }
+      mapCellAtOffset(cell, 1, 0),
+      mapCellAtOffset(cell, -1, 0),
+      mapCellAtOffset(cell, 0, 1),
+      mapCellAtOffset(cell, 0, -1)
     ];
+  }
+
+  function labMapCellHasSupport(cell, map = ensureLabMap(), excavatedKeys = null) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return false;
+    if (constructedFloorAtCell(clean, map)) return true;
+    const below = mapCellAtOffset(clean, 0, 0, -1);
+    if (verticalConnectorBetween(below, clean, map)) return true;
+    return !labMapCellIsExcavated(below, map, excavatedKeys);
+  }
+
+  function labMapVerticalNeighbors(cell, map = ensureLabMap()) {
+    return [mapCellAtOffset(cell, 0, 0, -1), mapCellAtOffset(cell, 0, 0, 1)]
+      .filter((neighbor) => verticalConnectorBetween(cell, neighbor, map));
   }
 
   function mapCellComponents(keys, cellByKey) {
@@ -13948,7 +14219,7 @@
 
   function compartmentBounds(cells) {
     const rect = digCellsBoundingRect(cells) || { x: 0, y: 0, width: 1, height: 1 };
-    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    return { x: rect.x, y: rect.y, z: Number.isFinite(Number(rect.z)) ? Number(rect.z) : 0, width: rect.width, height: rect.height };
   }
 
   function inferLabCompartments(map = ensureLabMap()) {
@@ -13961,10 +14232,10 @@
     for (const cell of floorCells) {
       for (const offset of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
         const square = [
-          { x: cell.x + offset[0], y: cell.y + offset[1] },
-          { x: cell.x + offset[0] + 1, y: cell.y + offset[1] },
-          { x: cell.x + offset[0], y: cell.y + offset[1] + 1 },
-          { x: cell.x + offset[0] + 1, y: cell.y + offset[1] + 1 }
+          mapCellAtOffset(cell, offset[0], offset[1]),
+          mapCellAtOffset(cell, offset[0] + 1, offset[1]),
+          mapCellAtOffset(cell, offset[0], offset[1] + 1),
+          mapCellAtOffset(cell, offset[0] + 1, offset[1] + 1)
         ];
         if (square.every((candidate) => floorKeys.has(mapCellKey(candidate)))) {
           square.forEach((candidate) => coreKeys.add(mapCellKey(candidate)));
@@ -14013,14 +14284,14 @@
     }
 
     provisional.sort((left, right) => {
-      const a = [...left.cells].sort((x, y) => (x.y - y.y) || (x.x - y.x))[0] || { x: 0, y: 0 };
-      const b = [...right.cells].sort((x, y) => (x.y - y.y) || (x.x - y.x))[0] || { x: 0, y: 0 };
-      return (a.y - b.y) || (a.x - b.x);
+      const a = normalizeDigCells(left.cells)[0] || { x: 0, y: 0, z: 0 };
+      const b = normalizeDigCells(right.cells)[0] || { x: 0, y: 0, z: 0 };
+      return (a.z - b.z) || (a.y - b.y) || (a.x - b.x);
     });
     const stableIdByProvisionalId = new Map();
     provisional.forEach((entry) => {
-      const anchor = [...entry.cells].sort((a, b) => (a.y - b.y) || (a.x - b.x))[0] || { x: 0, y: 0 };
-      stableIdByProvisionalId.set(entry.id, `compartment-${anchor.x}-${anchor.y}`);
+      const anchor = normalizeDigCells(entry.cells)[0] || { x: 0, y: 0, z: 0 };
+      stableIdByProvisionalId.set(entry.id, `compartment-${anchor.x}-${anchor.y}-${anchor.z}`);
     });
     const cellToCompartment = new Map();
     const compartments = provisional.map((entry) => {
@@ -14212,7 +14483,7 @@
     let nearest = null;
     for (const room of Object.values(map.rooms || {})) {
       for (const roomCell of room.cells || []) {
-        const distance = Math.abs(roomCell.x - clean.x) + Math.abs(roomCell.y - clean.y);
+        const distance = Math.abs(roomCell.x - clean.x) + Math.abs(roomCell.y - clean.y) + Math.abs(roomCell.z - clean.z);
         if (!nearest || distance < nearest.distance) nearest = { roomId: room.roomId, distance };
       }
     }
@@ -14239,14 +14510,17 @@
   function scientistMapCell() {
     const map = ensureLabMap();
     state.scientist = normalizeScientist(state.scientist);
-    state.scientist.mapCell = normalizeMapCellForRoom(state.scientist.mapCell, state.scientist.roomId || MAIN_ROOM_ID, map);
+    const current = cleanMapCell(state.scientist.mapCell);
+    state.scientist.mapCell = current && labMapCellIsWalkable(current, map)
+      ? current
+      : normalizeMapCellForRoom(current, state.scientist.roomId || MAIN_ROOM_ID, map);
     return state.scientist.mapCell;
   }
 
   function labMapDoorForCells(cellA, cellB, map = ensureLabMap()) {
     const a = cleanMapCell(cellA);
     const b = cleanMapCell(cellB);
-    if (!a || !b || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) {
+    if (!a || !b || a.z !== b.z || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) {
       return null;
     }
     return labMapDoorAtCell(a, map) || labMapDoorAtCell(b, map);
@@ -14255,7 +14529,7 @@
   function labMapDoorAtCell(cell, map = ensureLabMap()) {
     const clean = cleanMapCell(cell);
     return clean
-      ? Object.values(map.doors || {}).find((door) => door.cell.x === clean.x && door.cell.y === clean.y) || null
+      ? Object.values(map.doors || {}).find((door) => sameMapCell(door.cell, clean)) || null
       : null;
   }
 
@@ -14363,7 +14637,7 @@
     const ranked = pool.map(([id, option], index) => {
       const sourceRoomId = roomIds.find((roomId) => !resourceBlockReasonForRoom(option.costs || {}, roomId, { allowHaul: false })) || "";
       const sourceCell = sourceRoomId && state?.labMap ? labMapRoomAnchor(sourceRoomId) : null;
-      const distance = scientistCell && sourceCell ? Math.abs(scientistCell.x - sourceCell.x) + Math.abs(scientistCell.y - sourceCell.y) : index;
+      const distance = scientistCell && sourceCell ? Math.abs(scientistCell.x - sourceCell.x) + Math.abs(scientistCell.y - sourceCell.y) + Math.abs(scientistCell.z - sourceCell.z) : index;
       return { id, option, distance };
     }).sort((a, b) => a.distance - b.distance || (Number(b.option.score) || 0) - (Number(a.option.score) || 0));
     return { id: ranked[0].id, ...ranked[0].option };
@@ -14396,6 +14670,14 @@
     return objectFootprintCells(origin, fixtureRotatedFootprint(def, rotation));
   }
 
+  function fixtureOccupiedVolumeCells(fixtureOrOrigin, defArg = null, rotationArg = null) {
+    const fixture = fixtureOrOrigin && fixtureOrOrigin.typeId ? fixtureOrOrigin : null;
+    const def = defArg || fixtureDef(fixture);
+    const heightLayers = Math.max(1, Math.ceil((Number(fixture?.heightM ?? def?.heightM) || 2) / LAB_MAP_LAYER_HEIGHT_M));
+    return fixtureFootprintCells(fixtureOrOrigin, def, rotationArg)
+      .flatMap((cell) => Array.from({ length: heightLayers }, (_, dz) => mapCellAtOffset(cell, 0, 0, dz)));
+  }
+
   function fixturePortCells(fixtureOrOrigin, defArg = null, rotationArg = null) {
     const fixture = fixtureOrOrigin && fixtureOrOrigin.typeId ? fixtureOrOrigin : null;
     const origin = objectMapCell(fixture || fixtureOrOrigin);
@@ -14404,7 +14686,7 @@
     if (!origin || !def) return [];
     return (def.ports || []).map((port) => {
       const offset = rotateFixtureOffset(port, def.footprint, rotation);
-      return { ...port, cell: { x: origin.x + offset.x, y: origin.y + offset.y } };
+      return { ...port, cell: { x: origin.x + offset.x, y: origin.y + offset.y, z: origin.z } };
     });
   }
 
@@ -14416,7 +14698,7 @@
     const key = mapCellKey(cell);
     return (state.fixtures || []).filter((fixture) => fixture.id !== options.exceptFixtureId
       && (!options.layer || fixtureDef(fixture)?.layer === options.layer)
-      && fixtureFootprintCells(fixture).some((entry) => mapCellKey(entry) === key));
+      && fixtureOccupiedVolumeCells(fixture).some((entry) => mapCellKey(entry) === key));
   }
 
   function fixtureAtCell(cell, options = {}) {
@@ -16068,7 +16350,7 @@
     const cells = [];
     for (let y = clean.y; y < clean.y + height; y += 1) {
       for (let x = clean.x; x < clean.x + width; x += 1) {
-        cells.push({ x, y });
+        cells.push({ x, y, z: clean.z });
       }
     }
     return cells;
@@ -16118,8 +16400,8 @@
     const preferred = cleanMapCell(preferredCell) || room?.anchor || roomCenterCell(room);
     const cells = Array.isArray(room?.cells) && room.cells.length ? room.cells : rectangularRoomCells(room);
     return [...cells].sort((a, b) => {
-      const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y);
-      const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y);
+      const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y) + Math.abs(a.z - preferred.z);
+      const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y) + Math.abs(b.z - preferred.z);
       return distanceA - distanceB || a.y - b.y || a.x - b.x;
     });
   }
@@ -16172,7 +16454,7 @@
     const blocked = new Set();
     for (const fixture of state?.fixtures || []) {
       if (!fixture || excludedFixtures.has(fixture.id) || fixtureDef(fixture)?.collision !== "blocking") continue;
-      for (const cell of fixtureFootprintCells(fixture)) blocked.add(mapCellKey(cell));
+      for (const cell of fixtureOccupiedVolumeCells(fixture)) blocked.add(mapCellKey(cell));
     }
     for (const container of state?.containers || []) {
       if (!container || excludedContainers.has(container.id)) {
@@ -16317,11 +16599,18 @@
   function navigationFootprintForActor(actor) {
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
     if (!actor || actor === state.scientist || actor.physicalPresence) {
-      return Navigation.normalizeFootprint({ width: 1, height: 1, loadM2, exclusive: false });
+      const heightM = Math.max(0.1, Number(actor?.physicalPresence?.heightM) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.heightM);
+      return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: Math.ceil(heightM / LAB_MAP_LAYER_HEIGHT_M), loadM2, exclusive: false });
     }
     const dimensions = slimeNavigationDimensionsM(actor);
+    const profile = physicalProfile(actor?.genome || "");
+    const massScale = Math.cbrt(clamp(slimeStatPercent(actor, "currentMass") / 100, 0.02, 1.5));
+    const rootM = Math.cbrt(Math.max(1, Number(profile?.volumeCm3) || 1000)) / 100 * massScale;
+    const heightFactor = ["humanoid-ish", "columnar", "conical", "mushroom-shaped"].includes(profile?.shape) ? 2
+      : ["puddle", "flat sheet", "disc"].includes(profile?.shape) ? 0.2 : 1;
     return Navigation.normalizeFootprint({
       ...dimensions,
+      heightLayers: Math.max(1, Math.ceil(rootM * heightFactor / LAB_MAP_LAYER_HEIGHT_M)),
       orientation: actor.navigationOrientation || "horizontal",
       rotatable: true,
       loadM2,
@@ -16361,6 +16650,10 @@
         } else if (actor && !canActorOccupyTile(actor, cell)) {
           return false;
         }
+      }
+      for (let dz = 1; dz < footprint.heightLayers; dz += 1) {
+        const volumeCell = mapCellAtOffset(cell, 0, 0, dz);
+        if (!labMapCellIsExcavated(volumeCell, map, options.excavatedKeys) || constructedWallAtCell(volumeCell, map)) return false;
       }
     }
     return true;
@@ -16427,9 +16720,15 @@
       goal: end,
       footprint,
       canOccupy,
+      neighbors: (cell) => [
+        ...orthogonalMapNeighbors(cell).map((neighbor) => ({ cell: neighbor, action: "move" })),
+        ...labMapVerticalNeighbors(cell, map).map((neighbor) => ({ cell: neighbor, action: "stairs" }))
+      ],
       stepCost: (from, to) => {
         if (to.action === "rotate") return 0.5;
-        let cost = roughFloorKeys.has(mapCellKey(to.cell)) ? 1.15 : 1;
+        let cost = to.cell.z !== from.cell.z
+          ? Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M) / Math.max(0.25, Number(map.tileSizeM) || 1)
+          : roughFloorKeys.has(mapCellKey(to.cell)) ? 1.15 : 1;
         const occupied = tileOccupiedAreaM2(to.cell, { excludeActor: options.actor });
         if (occupied > 0) cost += occupied * 2;
         const door = labMapDoorAtCell(to.cell, map) || labMapDoorForCells(from.cell, to.cell, map);
@@ -16469,12 +16768,7 @@
     const seen = new Set();
     const adjacent = [];
     for (const cell of footprintCells) {
-      for (const candidate of [
-        { x: cell.x + 1, y: cell.y },
-        { x: cell.x - 1, y: cell.y },
-        { x: cell.x, y: cell.y + 1 },
-        { x: cell.x, y: cell.y - 1 }
-      ]) {
+      for (const candidate of orthogonalMapNeighbors(cell)) {
         const key = mapCellKey(candidate);
         if (seen.has(key) || footprintKeys.has(key) || !room || !mapCellInRoomFootprint(candidate, room)) {
           continue;
@@ -16493,8 +16787,8 @@
     const allowed = options.allowBlockedCellKeys || new Set();
     const candidates = adjacentCellsForFootprint(origin, footprint, roomId, map)
       .sort((a, b) => {
-        const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y);
-        const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y);
+        const distanceA = Math.abs(a.x - preferred.x) + Math.abs(a.y - preferred.y) + Math.abs(a.z - preferred.z);
+        const distanceB = Math.abs(b.x - preferred.x) + Math.abs(b.y - preferred.y) + Math.abs(b.z - preferred.z);
         return distanceA - distanceB || a.y - b.y || a.x - b.x;
       });
     for (const cell of candidates) {
@@ -16602,10 +16896,8 @@
       return [];
     }
     const candidates = [
-      { x: cell.x + 1, y: cell.y },
-      { x: cell.x - 1, y: cell.y },
-      { x: cell.x, y: cell.y + 1 },
-      { x: cell.x, y: cell.y - 1 }
+      ...orthogonalMapNeighbors(cell),
+      ...labMapVerticalNeighbors(cell, map)
     ];
     return candidates.filter((candidate) => {
       if (!labMapCellIsWalkable(candidate, map, excavatedKeys)) {
@@ -16691,7 +16983,11 @@
   }
 
   function mapPathTravelDistanceMeters(path, map = ensureLabMap()) {
-    return (path || []).slice(1).reduce((distance, cell) => {
+    return (path || []).slice(1).reduce((distance, cell, index) => {
+      const previous = path[index];
+      if (cleanMapCell(previous)?.z !== cleanMapCell(cell)?.z) {
+        return distance + Math.max(1, Number(map.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M);
+      }
       const key = mapCellKey(cell);
       const finished = Boolean(constructedFloorAtCell(cell, map))
         || (map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key);
@@ -19926,7 +20222,7 @@
     if (!left || !right) {
       return Infinity;
     }
-    return Math.abs(left.x - right.x) + Math.abs(left.y - right.y);
+    return Math.abs(left.x - right.x) + Math.abs(left.y - right.y) + Math.abs(left.z - right.z);
   }
 
   function distanceToFootprint(cell, origin, footprint) {
@@ -19948,7 +20244,11 @@
     }
     const scientistCell = scientistMapCell();
     if (slimeIsUncontained(slime)) {
-      const distance = mapCellDistance(scientistCell, objectMapCell(slime));
+      const slimeCell = objectMapCell(slime);
+      if (scientistCell.z !== slimeCell?.z) {
+        return { inRange: false, reason: `${slime.name} is on another z-layer.` };
+      }
+      const distance = mapCellDistance(scientistCell, slimeCell);
       return distance <= 1
         ? { inRange: true, reason: "" }
         : { inRange: false, reason: `${slime.name} is not adjacent to the scientist.` };
@@ -19961,6 +20261,9 @@
       return { inRange: false, reason: `${container.name} is closed. Open it before striking the contained slime.` };
     }
     const containerCell = objectMapCell(container);
+    if (scientistCell.z !== containerCell?.z) {
+      return { inRange: false, reason: `${container.name} is on another z-layer.` };
+    }
     const distance = distanceToFootprint(scientistCell, containerCell, containerFootprintDimensions(container));
     return distance <= 1
       ? { inRange: true, reason: "" }
@@ -20023,7 +20326,7 @@
       return false;
     }
     const scientistCell = scientistMapCell();
-    if (Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) > 1) {
+    if (scientistCell.z !== clean.z || Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) > 1) {
       addEvent("The scientist must be on or adjacent to the structure to strike it.");
       persist();
       render();
@@ -21678,7 +21981,8 @@
     const rng = seedRng(`${state?.seed || "seed"}:sensory-location:${key}:${Math.floor((state?.clock || 0) / 60)}`);
     return {
       x: clamp(source.x + Math.round((rng() * 2 - 1) * spread), 0, Math.max(0, (state?.labMap?.width || 100) - 1)),
-      y: clamp(source.y + Math.round((rng() * 2 - 1) * spread), 0, Math.max(0, (state?.labMap?.height || 100) - 1))
+      y: clamp(source.y + Math.round((rng() * 2 - 1) * spread), 0, Math.max(0, (state?.labMap?.height || 100) - 1)),
+      z: source.z
     };
   }
 
@@ -21686,20 +21990,17 @@
     const start = cleanMapCell(from);
     const end = cleanMapCell(to);
     if (!start || !end) return [];
+    const steps = Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y), Math.abs(end.z - start.z));
+    if (!steps) return [start];
     const cells = [];
-    let x = start.x;
-    let y = start.y;
-    const dx = Math.abs(end.x - start.x);
-    const sx = start.x < end.x ? 1 : -1;
-    const dy = -Math.abs(end.y - start.y);
-    const sy = start.y < end.y ? 1 : -1;
-    let error = dx + dy;
-    while (true) {
-      cells.push({ x, y });
-      if (x === end.x && y === end.y) break;
-      const doubled = 2 * error;
-      if (doubled >= dy) { error += dy; x += sx; }
-      if (doubled <= dx) { error += dx; y += sy; }
+    for (let step = 0; step <= steps; step += 1) {
+      const fraction = step / steps;
+      const cell = {
+        x: Math.round(start.x + (end.x - start.x) * fraction),
+        y: Math.round(start.y + (end.y - start.y) * fraction),
+        z: Math.round(start.z + (end.z - start.z) * fraction)
+      };
+      if (!cells.length || !sameMapCell(cells.at(-1), cell)) cells.push(cell);
     }
     return cells;
   }
@@ -21708,6 +22009,14 @@
     const cells = mapLineCells(from, to);
     if (cells.length < 2) return Boolean(cells.length);
     const map = ensureLabMap();
+    for (let index = 1; index < cells.length; index += 1) {
+      const left = cells[index - 1];
+      const right = cells[index];
+      if (left.z === right.z) continue;
+      const lower = left.z < right.z ? left : right;
+      const upper = left.z < right.z ? right : left;
+      if (tileEnvironmentVerticalModifiers(lower, upper, map).air < 0.5) return false;
+    }
     for (const cell of cells.slice(1, -1)) {
       if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
       const mapDoor = labMapDoorAtCell(cell, map);
@@ -21721,6 +22030,15 @@
     if (cells.length < 2) return cells.length ? 1 : 0;
     const map = ensureLabMap();
     let transmission = 1;
+    for (let index = 1; index < cells.length; index += 1) {
+      const left = cells[index - 1];
+      const right = cells[index];
+      if (left.z === right.z) continue;
+      const lower = left.z < right.z ? left : right;
+      const upper = left.z < right.z ? right : left;
+      const modifiers = tileEnvironmentVerticalModifiers(lower, upper, map);
+      transmission *= channel === "hearing" ? modifiers.air : modifiers.mana;
+    }
     for (const cell of cells.slice(1, -1)) {
       const mapDoor = labMapDoorAtCell(cell, map);
       if (mapDoor) {
@@ -38611,7 +38929,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null, excavatedKeys = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
-    const parts = [`${cell.x}, ${cell.y}`];
+    const parts = [`${cell.x}, ${cell.y}, Z ${cell.z}`];
     if (draftEntry) {
       parts.push(`${draftEntry.label}: ${draftEntry.reason || "ready to confirm"}`);
     } else if (plannedEntry) {
@@ -38632,6 +38950,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         parts.push(`${doorTypeLabel(stateDoor.typeId)}, ${doorConditionLabel(stateDoor)}`);
       }
     }
+    const verticalDirection = labMapCellBaseView(cell, map, excavatedKeys).verticalDirection;
+    if (verticalDirection === "up") parts.push(`stairs up to Z ${cell.z + 1}`);
+    if (verticalDirection === "down") parts.push(`stairs down to Z ${cell.z - 1}`);
+    if (verticalDirection === "shaft") parts.push(`open shaft to Z ${cell.z - 1}; unsupported actors and loose contents can fall`);
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
@@ -38902,11 +39224,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const assignments = new Map();
     if (route?.task) {
       for (const key of route.keys || []) {
-        const [x, y] = String(key).split(",").map(Number);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        const [x, y, z = 0] = String(key).split(",").map(Number);
+        if (![x, y, z].every(Number.isFinite)) {
           continue;
         }
-        setLabMapOverlayEntry(assignments, { x, y }, {
+        setLabMapOverlayEntry(assignments, { x, y, z }, {
           overlayId: "movement",
           classNames: ["map-overlay-movement-route", ...(route.selected ? ["map-overlay-movement-selected-route"] : [])],
           label: route.label || "Queued movement",
@@ -38930,9 +39252,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function addMovementReservationOverlays(assignments, map, options = {}) {
     for (const reservation of movementReservations.snapshot(state.clock)) {
       if (options.actorId && reservation.actorId !== options.actorId) continue;
-      const [x, y] = reservation.cellKey.split(",").map(Number);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      setLabMapOverlayEntry(assignments, { x, y }, {
+      const [x, y, z = 0] = reservation.cellKey.split(",").map(Number);
+      if (![x, y, z].every(Number.isFinite)) continue;
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
         overlayId: options.debug ? "debug" : "movement",
         classNames: ["map-overlay-movement-route", "map-overlay-movement-reservation"],
         label: `${reservation.actorId} reservation`,
@@ -38950,11 +39272,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const count = incidentEntry.alerts?.length || 0;
       const label = incidentEntry.alerts?.[0]?.label || "Known incident";
       const severity = incidentSeverityLabel(incidentEntry.highestSeverity);
-      const [x, y] = String(key).split(",").map(Number);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const [x, y, z = 0] = String(key).split(",").map(Number);
+      if (![x, y, z].every(Number.isFinite)) {
         continue;
       }
-      setLabMapOverlayEntry(assignments, { x, y }, {
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
         overlayId: "incidents",
         classNames: [
           "map-overlay-incident",
@@ -39163,17 +39485,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function constructionOverlayAssignments(map, plannedExcavations) {
     const assignments = new Map();
     for (const [key, plannedEntry] of plannedExcavations.entries()) {
-      const [x, y] = String(key).split(",").map(Number);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const [x, y, z = 0] = String(key).split(",").map(Number);
+      if (![x, y, z].every(Number.isFinite)) {
         continue;
       }
-      setLabMapOverlayEntry(assignments, { x, y }, {
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
         overlayId: "construction",
         classNames: ["map-overlay-construction", `map-overlay-construction-${plannedEntry.mode || "mine"}`, ...(plannedEntry.blockedReason ? ["map-overlay-construction-blocked"] : [])],
         label: plannedEntry.label || "Planned dig",
         source: "Designated",
         title: `Overlay: Construction - ${plannedEntry.label || "planned work"}.`,
-        target: { kind: "tile", tile: { x, y } }
+        target: { kind: "tile", tile: { x, y, z } }
       }, map);
     }
     for (const room of state.rooms || []) {
@@ -39227,8 +39549,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }, map);
     }
     for (const [key, draft] of roomDraftAssignments()) {
-      const [x, y] = key.split(",").map(Number);
-      setLabMapOverlayEntry(assignments, { x, y }, {
+      const [x, y, z = 0] = key.split(",").map(Number);
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
         overlayId: "rooms",
         classNames: ["map-overlay-rooms", "map-overlay-rooms-draft", ...(draft.valid ? [] : ["map-overlay-rooms-draft-invalid"])],
         label: draft.label,
@@ -39254,12 +39576,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     for (const [key, areas] of byCell) {
-      const [x, y] = key.split(",").map(Number);
+      const [x, y, z = 0] = key.split(",").map(Number);
       const forbidden = areas.some((area) => area.kind === "forbidden");
       const active = areas.some((area) => area.id === activeId);
       const assigned = areas.some((area) => profile?.areaIds.includes(area.id));
       const labels = areas.map((area) => `${area.name} (${ACCESS_AREA_KIND_BY_ID[area.kind].label}${area.emergencyOnly ? ", emergency" : ""}${profile?.areaIds.includes(area.id) ? ", assigned" : ""})`);
-      setLabMapOverlayEntry(assignments, { x, y }, {
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
         overlayId: "access",
         classNames: [
           "map-overlay-access",
@@ -39270,7 +39592,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: labels.join(" · "),
         source: active ? "Active access-area editor" : "Access policy",
         title: `Overlay: Access - ${labels.join("; ")}. Administrative access does not create a physical barrier.`,
-        target: { kind: "tile", tile: { x, y } }
+        target: { kind: "tile", tile: { x, y, z } }
       }, map);
     }
     return assignments;
@@ -39347,7 +39669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     for (const fixture of state.fixtures || []) {
       const def = fixtureDef(fixture);
-      const footprint = fixtureFootprintCells(fixture);
+      const footprint = fixtureOccupiedVolumeCells(fixture);
       const footprintDef = fixtureRotatedFootprint(def, fixture.rotation);
       const target = { kind: "fixture", id: fixture.id, label: fixture.name };
       const storageLabel = isStorageFixture(fixture)
@@ -40202,7 +40524,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Scientist";
     }
     if (selection.kind === "tile") {
-      return `Tile ${selection.tile.x},${selection.tile.y}`;
+      return `Tile ${selection.tile.x},${selection.tile.y}, Z ${selection.tile.z}`;
     }
     if (selection.kind === "room") {
       return roomById(selection.roomId)?.name || roomName(selection.roomId);
@@ -41319,7 +41641,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const target = clean ? structuralTargetAtCell(clean) : null;
     if (!target) return [];
     const scientistCell = scientistMapCell();
-    const adjacent = Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) <= 1;
+    const adjacent = scientistCell.z === clean.z && Math.abs(scientistCell.x - clean.x) + Math.abs(scientistCell.y - clean.y) <= 1;
     const commands = [commandDef({
       id: `structure.strike.${clean.x}.${clean.y}`,
       label: "Strike Structure",
@@ -43762,7 +44084,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addKnown(cell);
       for (let dy = -1; dy <= 1; dy += 1) {
         for (let dx = -1; dx <= 1; dx += 1) {
-          addKnown({ x: cell.x + dx, y: cell.y + dy });
+          addKnown(mapCellAtOffset(cell, dx, dy));
         }
       }
     };
@@ -43775,12 +44097,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addKnownWithWalls(door.cell);
     }
     for (const [key] of plannedExcavationAssignments()) {
-      const [x, y] = key.split(",").map((part) => Number(part));
-      addKnownWithWalls({ x, y });
+      const [x, y, z] = key.split(",").map((part) => Number(part));
+      addKnownWithWalls({ x, y, z });
     }
     for (const [key] of draftExcavationAssignments()) {
-      const [x, y] = key.split(",").map((part) => Number(part));
-      addKnownWithWalls({ x, y });
+      const [x, y, z] = key.split(",").map((part) => Number(part));
+      addKnownWithWalls({ x, y, z });
     }
     return keys;
   }
@@ -43822,6 +44144,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const constructedWall = cell && map ? constructedWallAtCell(cell, map) : null;
     const constructedFloor = cell && map ? constructedFloorAtCell(cell, map) : null;
+    const verticalConnector = cell && map
+      ? (map.terrain?.verticalConnectors || []).find((entry) => sameMapCell(entry.lowerCell, cell) || sameMapCell(entry.upperCell, cell)) || null
+      : null;
+    const verticalDirection = verticalConnector
+      ? sameMapCell(verticalConnector.lowerCell, cell) ? "up" : "down"
+      : excavated && cell && map && !labMapCellHasSupport(cell, map) ? "shaft" : "";
     if (constructedWall) {
       return {
         kind: "constructedWall",
@@ -43840,6 +44168,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         role: roomRole(roomId),
         smoothed,
         constructedFloor: constructedFloor?.materialId || "",
+        verticalDirection,
         spriteKey: constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
       };
     }
@@ -43849,6 +44178,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         kind: "floor",
         smoothed,
         constructedFloor: constructedFloor?.materialId || "",
+        verticalDirection,
         spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
     }
@@ -43888,13 +44218,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         layer: "object"
       };
     }
-    if (anchor) {
-      return {
-        glyph: anchor.abbreviation,
-        spriteKey: `room.anchor.${roomRole(anchor.roomId)}`,
-        layer: "roomAnchor"
-      };
-    }
     if (door) {
       return {
         glyph: door.glyph,
@@ -43902,11 +44225,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         layer: "door"
       };
     }
+    if (base.verticalDirection) {
+      return {
+        glyph: base.verticalDirection === "up" ? "<" : base.verticalDirection === "down" ? ">" : "O",
+        spriteKey: `tile.vertical.${base.verticalDirection}`,
+        layer: "terrain"
+      };
+    }
+    if (anchor) {
+      return {
+        glyph: anchor.abbreviation,
+        spriteKey: `room.anchor.${roomRole(anchor.roomId)}`,
+        layer: "roomAnchor"
+      };
+    }
     if (base.kind === "plannedExcavation") {
-      return { glyph: ({ mine: "M", smoothFloor: "F", smoothWall: "W", build: "B", deconstruct: "D", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
+      return { glyph: ({ mine: "M", stairUp: "<", stairDown: ">", channelDown: "O", smoothFloor: "F", smoothWall: "W", build: "B", deconstruct: "D", cancel: "X" }[base.mode] || "M"), spriteKey: base.spriteKey, layer: "construction" };
     }
     if (base.kind === "draftExcavation") {
-      const glyph = ({ mine: "m", smoothFloor: "f", smoothWall: "w", build: "b", deconstruct: "d", cancel: "x" }[base.mode] || "m");
+      const glyph = ({ mine: "m", stairUp: "<", stairDown: ">", channelDown: "o", smoothFloor: "f", smoothWall: "w", build: "b", deconstruct: "d", cancel: "x" }[base.mode] || "m");
       return { glyph: base.valid ? glyph : "?", spriteKey: base.spriteKey, layer: "construction" };
     }
     if (base.kind === "constructedWall") {
@@ -43943,7 +44280,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const excavated = visible && labMapCellIsExcavated(cell, map, excavatedKeys);
     const door = visible ? labMapDoorAtCell(cell, map) : null;
     const stateDoor = door ? doorFixtureState(door) || door : null;
-    const scientistHere = visible && scientistCell.x === cell.x && scientistCell.y === cell.y;
+    const scientistHere = visible && sameMapCell(scientistCell, cell);
     const visibleObjectEntry = visible ? objectEntry : null;
     const visibleIncidentEntry = visible ? incidentEntry : null;
     const visibleRouteEntry = visible ? routeEntry : null;
@@ -43994,10 +44331,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
     } : null;
     const selected = visible && selectedTargetMatchesTile(selectedTarget, { cell, roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, overlayEntry: visibleOverlayEntry, scientistHere });
-    const cursor = visible && Boolean(cursorCell && cursorCell.x === cell.x && cursorCell.y === cell.y);
+    const cursor = visible && sameMapCell(cursorCell, cell);
     const tooltipParts = visible
       ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry, excavatedKeys)
-      : [`${cell.x}, ${cell.y}`, "unknown darkness"];
+      : [`${cell.x}, ${cell.y}, Z ${cell.z}`, "unknown darkness"];
     if (cursor) {
       tooltipParts.push("Keyboard cursor");
     }
@@ -44059,15 +44396,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const classNames = ["lab-map-cell"];
     const dataset = {
       mapX: String(cellView.cell.x),
-      mapY: String(cellView.cell.y)
+      mapY: String(cellView.cell.y),
+      mapZ: String(cellView.cell.z)
     };
     if (cellView.base.kind === "room") {
       classNames.push("room-cell", `room-${cellView.base.role}`);
+      if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       dataset.mapRoom = cellView.base.roomId;
     } else if (cellView.base.kind === "floor") {
       classNames.push("floor-cell");
+      if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       dataset.mapFloor = "true";
@@ -44206,7 +44546,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     for (let y = viewport.y; y < viewport.y + viewport.height; y += 1) {
       for (let x = viewport.x; x < viewport.x + viewport.width; x += 1) {
-        const cell = { x, y };
+        const cell = { x, y, z: viewport.z };
         const key = mapCellKey(cell);
         const known = labMapCellKnown(cell, map, knownCellKeys, excavatedKeys);
         const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
@@ -44237,6 +44577,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mapWidth: map.width,
       mapHeight: map.height,
       tileSizeM: map.tileSizeM,
+      layerHeightM: map.layerHeightM,
       viewport,
       zoom: {
         index: viewport.zoomIndex,
@@ -44246,7 +44587,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         canZoomOut: viewport.zoomIndex > 0
       },
       fullReveal,
-      headerMeta: `${map.width} x ${map.height} m grid; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m`,
+      headerMeta: `${map.width} x ${map.height} m grid; Z ${viewport.z}; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m; layer = ${formatDecimal(map.layerHeightM, 0)} m`,
       cursor: cursorCell,
       cursorTarget: mapCursorTarget(),
       construction: normalizeConstructionState(state.construction, state),
@@ -44376,12 +44717,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     row.dataset.keyboardMode = mapView.mode;
     const cursorTarget = mapView.cursorTarget ? selectionLabel(mapView.cursorTarget) : "nothing";
     const cursorText = mapView.cursor
-      ? `Cursor ${mapView.cursor.x},${mapView.cursor.y} - ${cursorTarget}`
+      ? `Cursor ${mapView.cursor.x},${mapView.cursor.y},${mapView.cursor.z} - ${cursorTarget}`
       : "Cursor unavailable";
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "WASD/middle-drag pan camera; arrows move cursor; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
+      : "WASD/middle-drag pan camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
     if (accessAreaEditing()) row.append(chip(`Access area: ${activeAccessArea().name} · ${ensureAccessControl().editor.brush}`));
     else if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
     else if (constructionWorkModeActive()) row.append(chip(`${constructionModeLabel(constructionActiveMode())} mode · priority ${state.construction.priority}`));
@@ -44415,7 +44756,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     zoomIn.disabled = !mapView.zoom.canZoomIn;
     zoomIn.addEventListener("click", () => setMapZoom(1));
 
-    controls.append(zoomOut, readout, zoomIn);
+    const layerDown = document.createElement("button");
+    layerDown.type = "button";
+    layerDown.textContent = "[";
+    layerDown.title = "View layer below ([)";
+    layerDown.addEventListener("click", () => setMapLayer(-1));
+
+    const layerReadout = document.createElement("span");
+    layerReadout.dataset.mapLayerReadout = "true";
+    layerReadout.textContent = `Z ${mapView.viewport.z}`;
+
+    const layerUp = document.createElement("button");
+    layerUp.type = "button";
+    layerUp.textContent = "]";
+    layerUp.title = "View layer above (])";
+    layerUp.addEventListener("click", () => setMapLayer(1));
+
+    controls.append(zoomOut, readout, zoomIn, layerDown, layerReadout, layerUp);
     return controls;
   }
 
@@ -44425,14 +44782,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const x = Number(tile.dataset.mapX);
     const y = Number(tile.dataset.mapY);
-    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    const z = Number(tile.dataset.mapZ);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y, z: Number.isFinite(z) ? z : 0 } : null;
   }
 
   function mapWheelZoomAnchor(event, mapView) {
     const tile = event.target instanceof Element ? event.target.closest(".lab-map-cell") : null;
     return mapCellFromDomTile(tile) || {
       x: mapView.viewport.x + Math.floor(mapView.viewport.width / 2),
-      y: mapView.viewport.y + Math.floor(mapView.viewport.height / 2)
+      y: mapView.viewport.y + Math.floor(mapView.viewport.height / 2),
+      z: mapView.viewport.z
     };
   }
 
@@ -44663,6 +45022,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["WASD", "Pan the map camera."],
       ["Shift+WASD", "Pan the map camera faster."],
       ["Arrow keys", "Move the map cursor."],
+      ["[ / ]", "View the z-layer below or above."],
       ["+ / -", "Zoom the map in or out."],
       ["Mouse wheel", "Zoom the map while the cursor is over the map."],
       ["Middle drag", "Grab and pan the map."],
@@ -44740,6 +45100,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.dataset.mapViewport = "true";
     grid.dataset.mapViewportX = String(mapView.viewport.x);
     grid.dataset.mapViewportY = String(mapView.viewport.y);
+    grid.dataset.mapViewportZ = String(mapView.viewport.z);
     grid.dataset.mapViewportWidth = String(mapView.viewport.width);
     grid.dataset.mapViewportHeight = String(mapView.viewport.height);
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
@@ -50611,7 +50972,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         orders.reduce((max, order) => Math.max(max, numericSuffix(order.id)), 0) + 1
       ),
       lastDigRect: normalizeDigRect(candidate?.lastDigRect),
-      mode: ["dig", "mine", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel", "room"].includes(candidate?.mode)
+      mode: ["dig", "mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct", "cancel", "room"].includes(candidate?.mode)
         ? candidate.mode === "dig" ? "mine" : candidate.mode
         : fallback.mode,
       priority: clamp(Math.floor(Number(candidate?.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
@@ -50630,7 +50991,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!candidate || typeof candidate !== "object") return null;
     const id = String(candidate.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
     const mode = candidate.mode === "dig" ? "mine" : candidate.mode;
-    if (!id || !["mine", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) return null;
+    if (!id || !["mine", "stairUp", "stairDown", "channelDown", "smoothFloor", "smoothWall", "build", "deconstruct"].includes(mode)) return null;
     const buildType = mode === "build" && CONSTRUCTION_BUILD_BY_ID[candidate.buildType]
       ? candidate.buildType
       : mode === "build" ? DEFAULT_CONSTRUCTION_BUILD_ID : "";
