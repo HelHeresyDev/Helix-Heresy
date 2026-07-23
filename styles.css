@@ -1594,9 +1594,19 @@ body.map-dragging .lab-map-cell {
   color: var(--green);
 }
 
+.lab-map-cell.living-object-body-cell {
+  background: #192317;
+  color: rgba(117, 184, 107, 0.72);
+}
+
 .lab-map-cell.corpse-object-cell {
   background: #2d1f1d;
   color: var(--red);
+}
+
+.lab-map-cell.corpse-object-body-cell {
+  background: #271b1a;
+  color: rgba(201, 91, 91, 0.72);
 }
 
 .lab-map-cell.incident-alert-cell {

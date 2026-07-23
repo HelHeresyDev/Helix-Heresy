@@ -45,6 +45,21 @@
     const width = Math.max(1, Math.ceil(finiteNumber(candidate.width, 1)));
     const height = Math.max(1, Math.ceil(finiteNumber(candidate.height, 1)));
     const heightLayers = Math.max(1, Math.ceil(finiteNumber(candidate.heightLayers, 1)));
+    const seen = new Set();
+    const mask = [];
+    for (const part of Array.isArray(candidate.mask) ? candidate.mask : []) {
+      const x = Math.round(finiteNumber(part?.x, -1));
+      const y = Math.round(finiteNumber(part?.y, -1));
+      const key = `${x},${y}`;
+      if (x < 0 || y < 0 || x >= width || y >= height || seen.has(key)) continue;
+      seen.add(key);
+      mask.push({ x, y });
+    }
+    if (!mask.length) {
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) mask.push({ x, y });
+      }
+    }
     return {
       width,
       height,
@@ -52,7 +67,8 @@
       orientation: width === height ? "square" : candidate.orientation === "vertical" ? "vertical" : "horizontal",
       rotatable: width !== height && candidate.rotatable !== false,
       exclusive: Boolean(candidate.exclusive || width > 1 || height > 1),
-      loadM2: Math.max(0.001, finiteNumber(candidate.loadM2, 1))
+      loadM2: Math.max(0.001, finiteNumber(candidate.loadM2, 1)),
+      mask: mask.sort((left, right) => left.y - right.y || left.x - right.x)
     };
   }
 
@@ -68,14 +84,13 @@
     if (!clean) return [];
     const footprint = normalizeFootprint(footprintCandidate);
     const resolvedOrientation = orientation || footprint.orientation;
-    const dimensions = orientedDimensions(footprint, resolvedOrientation);
-    const cells = [];
-    for (let y = 0; y < dimensions.height; y += 1) {
-      for (let x = 0; x < dimensions.width; x += 1) {
-        cells.push({ x: clean.x + x, y: clean.y + y, z: clean.z });
-      }
-    }
-    return cells;
+    const vertical = resolvedOrientation === "vertical" && footprint.width !== footprint.height;
+    return footprint.mask.map((part) => {
+      const offset = vertical
+        ? { x: footprint.height - 1 - part.y, y: part.x }
+        : part;
+      return { x: clean.x + offset.x, y: clean.y + offset.y, z: clean.z };
+    });
   }
 
   class BinaryHeap {

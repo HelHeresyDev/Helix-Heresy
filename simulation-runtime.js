@@ -114,6 +114,7 @@
 
   function createSpatialIndex(options = {}) {
     const cellFor = typeof options.cellFor === "function" ? options.cellFor : (record) => record?.cell;
+    const cellsFor = typeof options.cellsFor === "function" ? options.cellsFor : (record) => [cellFor(record)];
     const roomFor = typeof options.roomFor === "function" ? options.roomFor : (record) => record?.roomId;
     const containerFor = typeof options.containerFor === "function" ? options.containerFor : (record) => record?.containerId;
     const idFor = typeof options.idFor === "function" ? options.idFor : (record) => record?.id;
@@ -148,7 +149,8 @@
         const id = String(idFor(record) || "");
         if (!id) continue;
         byId.set(id, record);
-        addTo(byCell, cellKey(cellFor(record)), record);
+        const occupiedKeys = new Set((cellsFor(record) || []).map(cellKey).filter(Boolean));
+        for (const key of occupiedKeys) addTo(byCell, key, record);
         addTo(byRoom, String(roomFor(record) || ""), record);
         addTo(byContainer, String(containerFor(record) || ""), record);
       }

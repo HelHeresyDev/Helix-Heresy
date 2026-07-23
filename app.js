@@ -3205,6 +3205,10 @@
   ];
 
   const dom = {};
+  const CreatureSpatial = window.HelixCreatureSpatial;
+  if (!CreatureSpatial) {
+    throw new Error("HelixCreatureSpatial must load before app.js");
+  }
   const Navigation = window.HelixNavigation;
   if (!Navigation) {
     throw new Error("HelixNavigation must load before app.js");
@@ -3231,6 +3235,7 @@
   const actorSpatialIndex = Simulation.createSpatialIndex({
     idFor: (actor) => actor === state?.scientist ? "scientist" : actor?.id,
     cellFor: (actor) => sensoryActorCell(actor),
+    cellsFor: (actor) => actorOccupiedVolumeCells(actor),
     roomFor: (actor) => slimeEffectiveRoomId(actor),
     containerFor: (actor) => actor?.containerId
   });
@@ -4693,6 +4698,133 @@
           }))
         ]
       }),
+      creatureFootprintSnapshot: (slimeId, massPercent = null) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return null;
+        const footprint = slimeFootprintAtMass(slime, massPercent == null ? slimeStatPercent(slime, "currentMass") : massPercent);
+        return {
+          anchor: objectMapCell(slime),
+          orientation: slime.navigationOrientation || footprint.orientation,
+          footprint,
+          floorCells: Navigation.footprintCells(objectMapCell(slime), footprint, slime.navigationOrientation || footprint.orientation),
+          volumeCells: footprintVolumeCells(objectMapCell(slime), footprint, slime.navigationOrientation || footprint.orientation),
+          pressure: normalizeSlimeSpatialPressure(slime.spatialPressure)
+        };
+      },
+      corpseFootprintSnapshot: (corpseId) => {
+        const corpse = findCorpse(corpseId);
+        if (!corpse) return null;
+        const footprint = corpseNavigationFootprint(corpse);
+        return {
+          anchor: objectMapCell(corpse),
+          orientation: corpse.navigationOrientation || footprint.orientation,
+          footprint,
+          floorCells: Navigation.footprintCells(objectMapCell(corpse), footprint, corpse.navigationOrientation || footprint.orientation),
+          volumeCells: corpseOccupiedVolumeCells(corpse)
+        };
+      },
+      createSpatialTestSlime: (options = {}) => {
+        let genome = randomGenome(seedRng(`${state.seed}:spatial-test:${state.nextSlimeNumber}`));
+        for (const [traitKey, label] of [["size", options.size], ["shape", options.shape]]) {
+          if (!label) continue;
+          const match = Object.entries(geneMap.traitMaps[traitKey] || {})
+            .find(([, outcome]) => baseOutcomeLabel(outcome) === label);
+          if (match) genome = replaceRegionCode(genome, traitKey, match[0]);
+        }
+        const slime = createSlime(genome, "Spatial test", {
+          status: "released",
+          roomId: options.roomId || MAIN_ROOM_ID,
+          mapCell: cleanMapCell(options.cell),
+          navigationOrientation: options.orientation,
+          stats: {
+            ...defaultSlimeStats(),
+            currentMass: { current: clamp(Number(options.massPercent) || 100, 2, 150), max: 150 },
+            nutrition: { current: 100, max: 100 }
+          }
+        });
+        slime.revealed.size = true;
+        slime.revealed.shape = true;
+        observeCreatureRecord(slime);
+        rebuildActorSpatialIndex();
+        persist();
+        render();
+        return { id: slime.id, genome: slime.genome, footprint: navigationFootprintForActor(slime) };
+      },
+      killSlimeForSpatialTest: (slimeId) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return null;
+        slime.deathCause = "body integrity failure";
+        setSlimeStat(slime, "bodyIntegrity", 0);
+        expireSlimes();
+        const corpse = (state.corpses || []).find((candidate) => candidate.specimenId === slimeId) || null;
+        rebuildActorSpatialIndex();
+        persist();
+        render();
+        return corpse ? { id: corpse.id, footprint: corpseNavigationFootprint(corpse) } : null;
+      },
+      findSpatialGrowthConstraintCell: (slimeId, targetMassPercent = 100) => {
+        const slime = findSlime(slimeId);
+        if (!slime || !slimeIsUncontained(slime)) return null;
+        const currentFootprint = slimeFootprintAtMass(slime);
+        const desiredFootprint = slimeFootprintAtMass(slime, targetMassPercent);
+        const fits = (cell, footprint) => {
+          const orientations = [slime.navigationOrientation || footprint.orientation];
+          if (footprint.rotatable) orientations.push(orientations[0] === "vertical" ? "horizontal" : "vertical");
+          return orientations.some((orientation) => navigationFootprintCanOccupy(slime, cell, footprint, orientation, { requireCurrentCapacity: true }));
+        };
+        return labMapRoomCells(slime.roomId).find((cell) => fits(cell, currentFootprint) && !fits(cell, desiredFootprint)) || null;
+      },
+      setSlimeMassForSpatialTest: (slimeId, massPercent, nutrition = 100) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return false;
+        setSlimeStat(slime, "currentMass", massPercent);
+        setSlimeStat(slime, "nutrition", nutrition);
+        slime.spatialPressure = normalizeSlimeSpatialPressure(null);
+        rebuildActorSpatialIndex();
+        persist();
+        render();
+        return true;
+      },
+      advanceSlimeRegrowthForSpatialTest: (slimeId, elapsedSeconds) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return null;
+        updateSlimeMassRegrowth(slime, Math.max(0, Number(elapsedSeconds) || 0));
+        observeCreatureRecord(slime);
+        persist();
+        render();
+        return {
+          mass: slimeStatPercent(slime, "currentMass"),
+          nutrition: slimeStatPercent(slime, "nutrition"),
+          stress: slimeStatPercent(slime, "stress"),
+          pressure: normalizeSlimeSpatialPressure(slime.spatialPressure),
+          footprint: navigationFootprintForActor(slime)
+        };
+      },
+      selectSlimeForSpatialTest: (slimeId) => {
+        if (!findSlime(slimeId)) return false;
+        setSelection({ kind: "slime", id: slimeId, source: "debug" });
+        persist();
+        render();
+        return true;
+      },
+      slimeSpatialKnowledgeSnapshot: (slimeId) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return null;
+        const record = creatureRecordForSlime(slime);
+        const assignments = labMapObjectAssignments(ensureLabMap(), { debug: false });
+        const projectedCells = [];
+        for (const [key, entry] of assignments.entries()) {
+          if (entry.targets?.some((target) => target.kind === "slime" && target.id === slimeId)) projectedCells.push(key);
+        }
+        return {
+          actualCell: objectMapCell(slime),
+          actualFootprint: navigationFootprintForActor(slime),
+          record: JSON.parse(JSON.stringify(record)),
+          projectedCells,
+          selectionCell: selectionMapCell({ kind: "slime", id: slimeId }),
+          selectionRoomId: selectionRoomId({ kind: "slime", id: slimeId })
+        };
+      },
       simulationPerformanceSnapshot: () => buildSimulationPerformanceSnapshot(),
       resetSimulationPerformance: () => {
         simulationPerformance.systems = {};
@@ -4829,7 +4961,13 @@
         const slime = findSlime(slimeId);
         const target = cleanMapCell(cell);
         if (!slime || !slimeIsUncontained(slime) || !target || !labMapCellIsWalkable(target)) return false;
+        const footprint = navigationFootprintForActor(slime);
+        const orientations = [slime.navigationOrientation || footprint.orientation];
+        if (footprint.rotatable) orientations.push(orientations[0] === "vertical" ? "horizontal" : "vertical");
+        const orientation = orientations.find((candidate) => navigationFootprintCanOccupy(slime, target, footprint, candidate, { requireCurrentCapacity: true }));
+        if (!orientation) return false;
         slime.mapCell = target;
+        slime.navigationOrientation = orientation;
         slime.roomId = labMapCellRoomId(target) || slime.roomId;
         slime.autonomousMovement = null;
         slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
@@ -8119,8 +8257,9 @@
 
   function corpseCarryMassKg(corpse) {
     const profile = physicalProfile(corpse?.genome || "");
+    const deathMassFraction = clamp((Number(corpse?.deathMassPercent) || 100) / 100, 0.02, 1.5);
     const remaining = clamp(1 - (Number(corpse?.consumedProgress) || 0) / 100, 0.05, 1);
-    return Math.max(0.1, (Number(profile?.weightKg) || 1) * remaining);
+    return Math.max(0.1, (Number(profile?.weightKg) || 1) * deathMassFraction * remaining);
   }
 
   function repairMaterialComposition(order) {
@@ -8199,13 +8338,23 @@
       if (massKg > SCIENTIST_CARRY_MASS_KG) return { ok: false, reason: `The remains weigh ${formatDecimal(massKg, 1)} kg and require hauling equipment.` };
       const sourceContainer = corpse.containerId ? containerById(corpse.containerId) : null;
       const sourceOrigin = sourceContainer ? objectMapCell(sourceContainer) : objectMapCell(corpse);
-      const sourceCell = laborTargetAccessCell(sourceOrigin, sourceContainer ? containerFootprintDimensions(sourceContainer) : { width: 1, height: 1 }, corpse.roomId);
+      const corpseFootprint = corpseNavigationFootprint(corpse);
+      const corpseBounds = corpse.navigationOrientation === "vertical" && corpseFootprint.width !== corpseFootprint.height
+        ? { width: corpseFootprint.height, height: corpseFootprint.width }
+        : { width: corpseFootprint.width, height: corpseFootprint.height };
+      const sourceCell = laborTargetAccessCell(sourceOrigin, sourceContainer ? containerFootprintDimensions(sourceContainer) : corpseBounds, corpse.roomId);
       const destinationContainer = order.destination?.containerId ? containerById(order.destination.containerId) : null;
       if (order.destination?.containerId && (!destinationContainer || !isPitHoleContainer(destinationContainer))) return { ok: false, reason: "The destination pit no longer exists." };
       if (destinationContainer && pitHoleCorpseCount(destinationContainer) >= pitHoleCorpseCapacity(destinationContainer)) return { ok: false, reason: `${destinationContainer.name} is full.` };
       if (order.destination?.storage === "drum" && corpse.storage !== "drum" && drummedCorpseCount() >= WASTE_DRUM_CAPACITY) return { ok: false, reason: "All Waste Drums are full." };
-      const destinationOrigin = destinationContainer ? objectMapCell(destinationContainer) : cleanMapCell(order.destination?.cell) || labMapRoomAnchor(order.destination?.roomId || PITS_ROOM_ID);
-      const destinationCell = laborTargetAccessCell(destinationOrigin, destinationContainer ? containerFootprintDimensions(destinationContainer) : { width: 1, height: 1 }, order.destination?.roomId || PITS_ROOM_ID);
+      const destinationRoomId = order.destination?.roomId || PITS_ROOM_ID;
+      let destinationOrigin = destinationContainer ? objectMapCell(destinationContainer) : cleanMapCell(order.destination?.cell) || labMapRoomAnchor(destinationRoomId);
+      if (!destinationContainer && order.destination?.storage !== "drum") {
+        destinationOrigin = nearestOpenCorpseAnchorInRoom(corpse, destinationRoomId, destinationOrigin);
+        if (!destinationOrigin) return { ok: false, reason: "No clear floor area with sufficient vertical clearance can hold these remains." };
+        order.destination = { ...order.destination, roomId: destinationRoomId, cell: destinationOrigin };
+      }
+      const destinationCell = laborTargetAccessCell(destinationOrigin, destinationContainer ? containerFootprintDimensions(destinationContainer) : corpseBounds, destinationRoomId);
       const mapPath = laborPathViaCells([sourceCell, destinationCell]);
       if (!mapPath.length) return { ok: false, reason: "No physical route reaches both the corpse and its destination." };
       return { ok: true, mapPath, sourceCell, destinationCell, destinationContainer, massKg, trips: 1,
@@ -10277,6 +10426,8 @@
       containerId: options.containerId ?? null,
       roomId: options.roomId || MAIN_ROOM_ID,
       mapCell: objectMapCell(options),
+      navigationOrientation: options.navigationOrientation === "vertical" ? "vertical" : "horizontal",
+      spatialPressure: normalizeSlimeSpatialPressure(options.spatialPressure),
       parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
       broodId: cleanLineageId(options.broodId),
       automationExcluded: Boolean(options.automationExcluded),
@@ -10310,7 +10461,7 @@
       }
     } else {
       slime.containerId = null;
-      slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, slime.mapCell);
+      slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, slime.mapCell, { actor: slime });
     }
     normalizeSlimeRole(slime);
     syncSlimeAi(slime);
@@ -11641,6 +11792,8 @@
       containerId: location.containerId,
       storage: location.storage,
       mapCell: location.mapCell || null,
+      deathMassPercent: slimeStatPercent(slime, "currentMass"),
+      navigationOrientation: slime.navigationOrientation || "horizontal",
       consumedProgress: 0,
       ruined: false,
       revealed: { ...(slime.revealed || {}) },
@@ -17244,7 +17397,7 @@
         return cell;
       }
     }
-    return nearestRoomFootprintCell(preferredCell || room.anchor, room);
+    return actorFootprint ? null : nearestRoomFootprintCell(preferredCell || room.anchor, room);
   }
 
   function containerFootprintCells(container, map = ensureLabMap()) {
@@ -17306,10 +17459,10 @@
     return blocked.has(key);
   }
 
-  function slimeFloorLoadM2(slime) {
+  function slimeFloorLoadM2(slime, massPercent = slimeStatPercent(slime, "currentMass")) {
     const profile = physicalProfile(slime?.genome || "");
     if (!profile) return 0.1;
-    const massFraction = clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.25);
+    const massFraction = clamp(Number(massPercent) / 100, 0.02, 1.25);
     const volumeM3 = Math.max(0.0001, (Number(profile.volumeCm3) || 1000) / 1000000 * massFraction);
     const shapeFactor = {
       puddle: 2.4,
@@ -17326,8 +17479,9 @@
   function corpseFloorLoadM2(corpse) {
     const profile = physicalProfile(corpse?.genome || "");
     if (!profile) return 0.08;
+    const deathMassFraction = clamp((Number(corpse?.deathMassPercent) || 100) / 100, 0.02, 1.5);
     const remaining = clamp(1 - (Number(corpse?.consumedProgress) || 0) / 100, 0.05, 1);
-    const volumeM3 = Math.max(0.0001, (Number(profile.volumeCm3) || 1000) / 1000000 * remaining);
+    const volumeM3 = Math.max(0.0001, (Number(profile.volumeCm3) || 1000) / 1000000 * deathMassFraction * remaining);
     return clamp(Math.pow(volumeM3, 2 / 3) * 1.2, 0.015, MAP_TILE_AREA_M2 * 1.5);
   }
 
@@ -17355,6 +17509,7 @@
   function tileOccupiedAreaM2(cell, options = {}) {
     const key = mapCellKey(cell);
     const excludeActor = options.excludeActor || null;
+    const excludeCorpse = options.excludeCorpse || null;
     let occupied = 0;
     if (!samePhysicalActor(state.scientist, excludeActor) && mapCellKey(state.scientist?.mapCell) === key) {
       occupied += Math.max(0, Number(state.scientist?.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -17366,8 +17521,13 @@
       if (cells.some((part) => mapCellKey(part) === key)) occupied += footprint.exclusive ? MAP_TILE_AREA_M2 : slimeFloorLoadM2(slime);
     }
     for (const corpse of state.corpses || []) {
+      if (corpse === excludeCorpse || (excludeCorpse?.id && corpse.id === excludeCorpse.id)) continue;
       if (corpse.containerId || corpse.storage === "drum") continue;
-      if (mapCellKey(objectMapCell(corpse)) === key) occupied += corpseFloorLoadM2(corpse);
+      const footprint = corpseNavigationFootprint(corpse);
+      const cells = Navigation.footprintCells(objectMapCell(corpse), footprint, corpse.navigationOrientation || footprint.orientation);
+      if (cells.some((part) => mapCellKey(part) === key)) {
+        occupied += footprint.exclusive ? MAP_TILE_AREA_M2 : corpseFloorLoadM2(corpse);
+      }
     }
     for (const stack of ensurePhysicalItemStacks()) {
       if (mapCellKey(stack.cell) === key) occupied += physicalStackFloorLoadM2(stack);
@@ -17386,36 +17546,51 @@
     return String(actor.id || "actor");
   }
 
-  function slimeNavigationDimensionsM(slime) {
+  function slimeFootprintAtMass(slime, massPercent = slimeStatPercent(slime, "currentMass")) {
     const profile = physicalProfile(slime?.genome || "");
-    if (!profile) return { width: 1, height: 1 };
-    const massScale = Math.cbrt(clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.5));
-    const volumeCm3 = Math.max(1, profile.volumeCm3 * massScale * massScale * massScale);
-    const rootCm = Math.cbrt(volumeCm3);
-    let longCm = rootCm;
-    let shortCm = rootCm;
-    if (["puddle", "flat sheet"].includes(profile.shape)) {
-      const depthCm = clamp(rootCm * (profile.shape === "puddle" ? 0.08 : 0.12), 1, 22);
-      longCm = 2 * Math.sqrt(volumeCm3 / (Math.PI * depthCm));
-      shortCm = longCm;
-    } else if (profile.shape === "worm-like") {
-      longCm = Math.cbrt(volumeCm3 * 30);
-      shortCm = Math.sqrt(volumeCm3 / (Math.PI * longCm)) * 2;
-    } else if (profile.shape === "dog-shaped") {
-      longCm = Math.cbrt(volumeCm3 * 5.5);
-      shortCm = longCm * 0.45;
-    } else if (profile.shape === "humanoid-ish") {
-      longCm = Math.cbrt(volumeCm3 * 9);
-      shortCm = longCm * 0.38;
-    } else if (profile.shape === "disc") {
-      const thicknessCm = clamp(rootCm * 0.22, 2, 40);
-      longCm = 2 * Math.sqrt(volumeCm3 / (Math.PI * thicknessCm));
-      shortCm = longCm;
-    }
-    return {
-      width: Math.max(1, Math.ceil(longCm / 100)),
-      height: Math.max(1, Math.ceil(shortCm / 100))
-    };
+    if (!profile) return Navigation.normalizeFootprint({ width: 1, height: 1, loadM2: 0.1 });
+    const massFraction = clamp(Number(massPercent) / 100, 0.02, 1.5);
+    const dimensions = slimeDimensionEstimate(profile, profile.volumeCm3 * massFraction);
+    const map = ensureLabMap();
+    const footprint = CreatureSpatial.footprintFromDimensions({
+      lengthCm: dimensions.length,
+      widthCm: dimensions.width,
+      heightCm: dimensions.height
+    }, {
+      shape: profile.shape,
+      tileSizeM: map.tileSizeM || 1,
+      layerHeightM: map.layerHeightM || LAB_MAP_LAYER_HEIGHT_M,
+      orientation: slime?.navigationOrientation || "horizontal"
+    });
+    return Navigation.normalizeFootprint({
+      ...footprint,
+      loadM2: slimeFloorLoadM2(slime, massPercent),
+      exclusive: footprint.mask.length > 1
+    });
+  }
+
+  function corpseNavigationFootprint(corpse) {
+    const profile = physicalProfile(corpse?.genome || "");
+    if (!profile) return Navigation.normalizeFootprint({ width: 1, height: 1, loadM2: corpseFloorLoadM2(corpse) });
+    const deathMassPercent = clamp(Number(corpse.deathMassPercent) || 100, 2, 150);
+    const remainingFraction = clamp(1 - (Number(corpse.consumedProgress) || 0) / 100, 0.02, 1);
+    const dimensions = slimeDimensionEstimate(profile, profile.volumeCm3 * deathMassPercent / 100 * remainingFraction);
+    const map = ensureLabMap();
+    const footprint = CreatureSpatial.footprintFromDimensions({
+      lengthCm: dimensions.length,
+      widthCm: dimensions.width,
+      heightCm: dimensions.height
+    }, {
+      shape: profile.shape,
+      tileSizeM: map.tileSizeM || 1,
+      layerHeightM: map.layerHeightM || LAB_MAP_LAYER_HEIGHT_M,
+      orientation: corpse.navigationOrientation || "horizontal"
+    });
+    return Navigation.normalizeFootprint({
+      ...footprint,
+      loadM2: corpseFloorLoadM2(corpse),
+      exclusive: footprint.mask.length > 1
+    });
   }
 
   function navigationFootprintForActor(actor) {
@@ -17424,20 +17599,14 @@
       const heightM = Math.max(0.1, Number(actor?.physicalPresence?.heightM) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.heightM);
       return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: Math.ceil(heightM / LAB_MAP_LAYER_HEIGHT_M), loadM2, exclusive: false });
     }
-    const dimensions = slimeNavigationDimensionsM(actor);
-    const profile = physicalProfile(actor?.genome || "");
-    const massScale = Math.cbrt(clamp(slimeStatPercent(actor, "currentMass") / 100, 0.02, 1.5));
-    const rootM = Math.cbrt(Math.max(1, Number(profile?.volumeCm3) || 1000)) / 100 * massScale;
-    const heightFactor = ["humanoid-ish", "columnar", "conical", "mushroom-shaped"].includes(profile?.shape) ? 2
-      : ["puddle", "flat sheet", "disc"].includes(profile?.shape) ? 0.2 : 1;
-    return Navigation.normalizeFootprint({
-      ...dimensions,
-      heightLayers: Math.max(1, Math.ceil(rootM * heightFactor / LAB_MAP_LAYER_HEIGHT_M)),
-      orientation: actor.navigationOrientation || "horizontal",
-      rotatable: true,
-      loadM2,
-      exclusive: dimensions.width > 1 || dimensions.height > 1
-    });
+    if (actor.spatialPressure?.active && actor.spatialPressure.currentFootprint) {
+      return Navigation.normalizeFootprint({
+        ...actor.spatialPressure.currentFootprint,
+        loadM2,
+        exclusive: actor.spatialPressure.currentFootprint.mask?.length > 1
+      });
+    }
+    return slimeFootprintAtMass(actor);
   }
 
   function actorNavigationCells(actor) {
@@ -17446,10 +17615,67 @@
     return Navigation.footprintCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation);
   }
 
+  function footprintVolumeCells(anchor, footprint, orientation = footprint?.orientation) {
+    const floorCells = Navigation.footprintCells(anchor, footprint, orientation);
+    const cells = [];
+    for (const floorCell of floorCells) {
+      for (let dz = 0; dz < Math.max(1, Number(footprint?.heightLayers) || 1); dz += 1) {
+        cells.push(mapCellAtOffset(floorCell, 0, 0, dz));
+      }
+    }
+    return cells;
+  }
+
+  function actorOccupiedVolumeCells(actor) {
+    const anchor = actor === state.scientist || actor?.physicalPresence ? scientistMapCell() : objectMapCell(actor);
+    const footprint = navigationFootprintForActor(actor);
+    return footprintVolumeCells(anchor, footprint, actor?.navigationOrientation || footprint.orientation);
+  }
+
+  function corpseOccupiedVolumeCells(corpse) {
+    const footprint = corpseNavigationFootprint(corpse);
+    return footprintVolumeCells(objectMapCell(corpse), footprint, corpse.navigationOrientation || footprint.orientation);
+  }
+
+  function corpseFootprintCanOccupy(corpse, anchor, orientation = corpse?.navigationOrientation || "horizontal", options = {}) {
+    const map = options.map || ensureLabMap();
+    const footprint = corpseNavigationFootprint(corpse);
+    const blocked = options.blockedCellKeys || labMapBlockingCellKeys(map, options);
+    const floorCells = Navigation.footprintCells(anchor, footprint, orientation);
+    if (!floorCells.length) return false;
+    for (const cell of floorCells) {
+      if (!labMapCellIsWalkable(cell, map) || blocked.has(mapCellKey(cell))) return false;
+      const door = labMapDoorAtCell(cell, map);
+      if (door && !doorFixtureAllowsPassage(door, options)) return false;
+      if (tileOccupiedAreaM2(cell, { excludeCorpse: corpse }) > TILE_OCCUPANCY_EPSILON) return false;
+      for (let dz = 1; dz < footprint.heightLayers; dz += 1) {
+        const volumeCell = mapCellAtOffset(cell, 0, 0, dz);
+        if (!labMapCellIsExcavated(volumeCell, map) || constructedWallAtCell(volumeCell, map)) return false;
+      }
+    }
+    return true;
+  }
+
+  function nearestOpenCorpseAnchorInRoom(corpse, roomId, preferredCell = null, options = {}) {
+    const map = options.map || ensureLabMap();
+    const room = labMapRoom(roomId, map);
+    if (!room) return null;
+    const footprint = corpseNavigationFootprint(corpse);
+    const orientations = [corpse.navigationOrientation || footprint.orientation];
+    if (footprint.rotatable) orientations.push(orientations[0] === "vertical" ? "horizontal" : "vertical");
+    for (const cell of roomCellsSortedForPlacement(room, preferredCell || room.anchor)) {
+      const orientation = orientations.find((candidate) => corpseFootprintCanOccupy(corpse, cell, candidate, { ...options, map }));
+      if (!orientation) continue;
+      corpse.navigationOrientation = orientation;
+      return cell;
+    }
+    return null;
+  }
+
   function actorsSharePhysicalTile(left, right) {
     if (!left || !right) return false;
-    const rightKeys = new Set(actorNavigationCells(right).map(mapCellKey));
-    return actorNavigationCells(left).some((cell) => rightKeys.has(mapCellKey(cell)));
+    const rightKeys = new Set(actorOccupiedVolumeCells(right).map(mapCellKey));
+    return actorOccupiedVolumeCells(left).some((cell) => rightKeys.has(mapCellKey(cell)));
   }
 
   function navigationFootprintCanOccupy(actor, anchor, footprint, orientation, options = {}) {
@@ -17469,7 +17695,7 @@
       if (options.requireCurrentCapacity) {
         if (footprint.exclusive) {
           if (tileOccupiedAreaM2(cell, { excludeActor: actor }) > TILE_OCCUPANCY_EPSILON) return false;
-        } else if (actor && !canActorOccupyTile(actor, cell)) {
+        } else if (actor && tileOccupiedAreaM2(cell, { excludeActor: actor }) + footprint.loadM2 > MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON) {
           return false;
         }
       }
@@ -17492,7 +17718,7 @@
       revisions.accessRevision,
       mapCellKey(start),
       mapCellKey(end),
-      `${footprint.width}x${footprint.height}:${footprint.orientation}`,
+      `${footprint.width}x${footprint.height}x${footprint.heightLayers}:${footprint.orientation}:${CreatureSpatial.footprintSignature(footprint)}`,
       actorNavigationId(options.actor),
       options.ignoreDoors ? "door-use" : "door-open-only",
       options.ignoreDoorSecurity ? "ignore-security" : "secure",
@@ -17578,12 +17804,25 @@
     }
     const blocked = options.blockedCellKeys || (options.ignoreObjects ? new Set() : labMapBlockingCellKeys(map, options));
     const allowed = options.allowBlockedCellKeys || new Set();
+    const actorFootprint = options.actor ? navigationFootprintForActor(options.actor) : null;
     for (const cell of roomCellsSortedForPlacement(room, preferredCell || room.anchor)) {
       const key = mapCellKey(cell);
       if (labMapCellIsDoor(cell, map)
-        || (blocked.has(key) && !allowed.has(key))
-        || options.actor && !canActorOccupyTile(options.actor, cell)) {
+        || (blocked.has(key) && !allowed.has(key))) {
         continue;
+      }
+      if (actorFootprint) {
+        const orientations = [options.actor.navigationOrientation || actorFootprint.orientation];
+        if (actorFootprint.rotatable) orientations.push(orientations[0] === "vertical" ? "horizontal" : "vertical");
+        const fittingOrientation = orientations.find((orientation) => navigationFootprintCanOccupy(options.actor, cell, actorFootprint, orientation, {
+          ...options,
+          map,
+          blockedCellKeys: blocked,
+          allowBlockedCellKeys: allowed,
+          requireCurrentCapacity: true
+        }));
+        if (!fittingOrientation) continue;
+        options.actor.navigationOrientation = fittingOrientation;
       }
       return cell;
     }
@@ -17680,14 +17919,44 @@
           slime.roomId = roomById(slime.roomId)?.id || MAIN_ROOM_ID;
           const movingCell = objectMapCell(slime);
           const movingRoomId = movingCell ? labMapCellRoomId(movingCell, map) : "";
-          if (slimeAutonomousMovementActive(slime) && movingCell && labMapCellIsWalkable(movingCell, map)) {
+          const footprint = navigationFootprintForActor(slime);
+          const currentFits = movingCell && navigationFootprintCanOccupy(slime, movingCell, footprint, slime.navigationOrientation || footprint.orientation, {
+            map,
+            blockedCellKeys: nonBlockingBlocked,
+            requireCurrentCapacity: false
+          });
+          if (movingCell && labMapCellIsWalkable(movingCell, map)) {
             if (movingRoomId) slime.roomId = movingRoomId;
             slime.mapCell = movingCell;
+            if (!currentFits) {
+              slime.spatialPressure = normalizeSlimeSpatialPressure({
+                active: true,
+                reason: "The body does not have enough clear floor area or vertical clearance and is severely compressed.",
+                since: slime.spatialPressure?.active ? slime.spatialPressure.since : state.clock,
+                desiredFootprint: slimeFootprintAtMass(slime),
+                currentFootprint: { width: 1, height: 1, heightLayers: 1, mask: [{ x: 0, y: 0 }], exclusive: false }
+              });
+            }
           } else {
-            slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, movingCell, {
+            const relocated = nearestOpenMapCellInRoom(slime.roomId, movingCell, {
               map,
-              blockedCellKeys: nonBlockingBlocked
+              blockedCellKeys: nonBlockingBlocked,
+              actor: slime
             });
+            if (relocated) {
+              slime.mapCell = relocated;
+            } else {
+              slime.mapCell = movingCell && labMapCellIsWalkable(movingCell, map)
+                ? movingCell
+                : nearestRoomFootprintCell(movingCell || labMapRoomAnchor(slime.roomId), labMapRoom(slime.roomId, map));
+              slime.spatialPressure = normalizeSlimeSpatialPressure({
+                active: true,
+                reason: "The body no longer has enough excavated floor area or vertical clearance and is severely compressed.",
+                since: state.clock,
+                desiredFootprint: footprint,
+                currentFootprint: { width: 1, height: 1, heightLayers: 1, mask: [{ x: 0, y: 0 }], exclusive: false }
+              });
+            }
           }
         } else if (slime) {
           slime.mapCell = null;
@@ -17705,12 +17974,16 @@
         }
         corpse.roomId = roomById(corpse.roomId)?.id || MAIN_ROOM_ID;
         const corpseCell = objectMapCell(corpse);
-        corpse.mapCell = corpseCell && labMapCellIsWalkable(corpseCell, map)
+        const currentFits = corpseCell && corpseFootprintCanOccupy(corpse, corpseCell, corpse.navigationOrientation, {
+          map,
+          blockedCellKeys: nonBlockingBlocked
+        });
+        corpse.mapCell = currentFits
           ? corpseCell
-          : nearestOpenMapCellInRoom(corpse.roomId, corpseCell, {
+          : nearestOpenCorpseAnchorInRoom(corpse, corpse.roomId, corpseCell, {
               map,
               blockedCellKeys: nonBlockingBlocked
-            });
+            }) || corpseCell;
       }
       return true;
     } finally {
@@ -22453,17 +22726,35 @@
     ensurePhysicalObjectPlacements();
     const previousContainer = slime.containerId ? containerById(slime.containerId) : null;
     const previousRoomId = slimeEffectiveRoomId(slime);
-    slime.status = "released";
-    slime.containerId = null;
-    slime.roomId = previousRoomId || slime.roomId || MAIN_ROOM_ID;
+    const releaseRoomId = previousRoomId || slime.roomId || MAIN_ROOM_ID;
+    let releaseCell = null;
     if (previousContainer?.mapCell) {
-      slime.mapCell = nearestObjectAccessCell(previousContainer.mapCell, containerFootprintDimensions(previousContainer), slime.roomId, {
+      const preferredCell = nearestObjectAccessCell(previousContainer.mapCell, containerFootprintDimensions(previousContainer), releaseRoomId, {
         excludeContainerIds: [previousContainer.id],
         preferredCell: scientistMapCell()
       });
+      releaseCell = nearestOpenMapCellInRoom(releaseRoomId, preferredCell, {
+        actor: slime,
+        excludeContainerIds: [previousContainer.id]
+      });
     } else {
-      slime.mapCell = nearestOpenMapCellInRoom(slime.roomId, objectMapCell(slime));
+      releaseCell = nearestOpenMapCellInRoom(releaseRoomId, objectMapCell(slime), { actor: slime });
     }
+    if (!releaseCell) {
+      slime.spatialPressure = normalizeSlimeSpatialPressure({
+        active: true,
+        reason: "No excavated space with sufficient floor area and vertical clearance is available for release.",
+        since: state.clock,
+        desiredFootprint: navigationFootprintForActor(slime),
+        currentFootprint: navigationFootprintForActor(slime)
+      });
+      return false;
+    }
+    slime.status = "released";
+    slime.containerId = null;
+    slime.roomId = releaseRoomId;
+    slime.mapCell = releaseCell;
+    slime.spatialPressure = normalizeSlimeSpatialPressure(null);
     normalizeSlimeRole(slime);
     slime.autonomousMovement = null;
     slime.nextAutonomousDecisionAt = state.clock;
@@ -22530,7 +22821,12 @@
       addEvent(`${slime.name} contained in ${container.name}.`);
     } else {
       const previousLocation = containerLabelForSlime(slime);
-      releaseSlime(slime);
+      if (!releaseSlime(slime)) {
+        addEvent(`${slime.name} could not be released: no excavated space has enough floor area and vertical clearance for its body.`);
+        persist();
+        render();
+        return false;
+      }
       addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
     }
     awardXp("creatureHandling", 5, "Creature handling");
@@ -24794,7 +25090,7 @@
       precision: "exact"
     }));
     if (actor?.genome && slimeIsUncontained(actor) && sensory.capabilities.taste) {
-      const food = localFoodTargetCandidates(actor).find((target) => mapCellKey(target.cell) === mapCellKey(origin));
+      const food = localFoodTargetCandidates(actor).find((target) => slimeContactsFoodTarget(actor, target));
       if (food) entries.push({
         key: `taste:${food.kind}:${food.id}`,
         channel: "taste",
@@ -31900,7 +32196,7 @@
       reusable
     });
     rememberCreatureExperience(slime, "containmentEscaped", reusable ? 12 : 18, result.label);
-    releaseSlime(slime);
+    const escaped = releaseSlime(slime);
     const targetContainer = containerById(containerId) || container;
     targetContainer.breachState = reusable ? "compromised" : "breached";
     targetContainer.lastBreach = lastBreach;
@@ -31928,7 +32224,7 @@
         substanceId: `breach:${result.id || "unknown"}`
       });
     }
-    addEvent(`${slime.name} escaped ${containerName}: ${result.summary} ${finalReusable ? "The container is compromised but still physically usable." : "The container is breached and cannot hold specimens until future repair or replacement."}`);
+    addEvent(`${slime.name} ${escaped ? "escaped" : "breached but remains physically trapped in"} ${containerName}: ${result.summary} ${finalReusable ? "The container is compromised but still physically usable." : "The container is breached and cannot hold specimens until future repair or replacement."}`);
     return 1;
   }
 
@@ -32065,6 +32361,10 @@
     const physicalFitPotential = activeContainmentPotentialFromPhysicalFit(physicalFit);
     if (physicalFitPotential.points) {
       addPotential(physicalFitPotential.points, physicalFitPotential.text);
+    }
+
+    if (slime.spatialPressure?.active) {
+      addPressure(18, "the slime's current body is physically constrained by its containment space.");
     }
 
     const compatibilityPotential = activeContainmentPotentialFromCompatibility(actualCompatibility, visibleCompatibility);
@@ -34116,6 +34416,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       lastKnownContainerId: cleanContainerId(candidate?.lastKnownContainerId || candidate?.containerId) || (slime.containerId || ""),
       lastKnownStatus: String(candidate?.lastKnownStatus || slime.status || "contained").trim(),
       lastKnownMapCell: cleanMapCell(candidate?.lastKnownMapCell || candidate?.mapCell) || cleanMapCell(slime.mapCell),
+      lastKnownFootprint: candidate?.lastKnownFootprint
+        ? Navigation.normalizeFootprint(candidate.lastKnownFootprint)
+        : slimeIsUncontained(slime) ? navigationFootprintForActor(slime) : null,
+      lastKnownOrientation: candidate?.lastKnownOrientation === "vertical" ? "vertical" : (slime.navigationOrientation || "horizontal"),
       lastKnownActivity: String(candidate?.lastKnownActivity || slime.roomActivity?.label || slime.status || "unknown").trim(),
       updatedAt: finiteTime(candidate?.updatedAt, lastObservedAt)
     };
@@ -34161,6 +34465,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     record.lastKnownContainerId = slime.containerId || "";
     record.lastKnownStatus = slime.status || "contained";
     record.lastKnownMapCell = cleanMapCell(slime.mapCell);
+    record.lastKnownFootprint = slimeIsUncontained(slime) ? navigationFootprintForActor(slime) : null;
+    record.lastKnownOrientation = slime.navigationOrientation || "horizontal";
     record.lastKnownActivity = slimeActivityLabel(slime);
     record.updatedAt = state.clock;
     return record;
@@ -35052,6 +35358,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { nutritionGain, massGain, residueLeft };
   }
 
+  function slimeTouchesCorpse(slime, corpse) {
+    if (!slime || !corpse) return false;
+    const slimeCells = actorOccupiedVolumeCells(slime);
+    const corpseCells = corpseOccupiedVolumeCells(corpse);
+    return slimeCells.some((slimeCell) => corpseCells.some((corpseCell) => {
+      const distance = Math.abs(slimeCell.x - corpseCell.x) + Math.abs(slimeCell.y - corpseCell.y) + Math.abs(slimeCell.z - corpseCell.z);
+      return distance <= 1;
+    }));
+  }
+
+  function corpseFeedingApproachCell(slime, corpse) {
+    const bodyCells = Navigation.footprintCells(
+      objectMapCell(corpse),
+      corpseNavigationFootprint(corpse),
+      corpse.navigationOrientation || "horizontal"
+    );
+    const bodyKeys = new Set(bodyCells.map(mapCellKey));
+    const origin = objectMapCell(slime);
+    const candidates = [];
+    const seen = new Set();
+    for (const bodyCell of bodyCells) {
+      for (const cell of orthogonalMapNeighbors(bodyCell)) {
+        const key = mapCellKey(cell);
+        if (seen.has(key) || bodyKeys.has(key)) continue;
+        seen.add(key);
+        candidates.push(cell);
+      }
+    }
+    const footprint = navigationFootprintForActor(slime);
+    return candidates
+      .filter((cell) => navigationFootprintCanOccupy(slime, cell, footprint, slime.navigationOrientation || footprint.orientation, { requireCurrentCapacity: true }))
+      .sort((left, right) => mapCellDistance(origin, left) - mapCellDistance(origin, right) || left.y - right.y || left.x - right.x)[0] || null;
+  }
+
+  function slimeContactsFoodTarget(slime, target) {
+    if (target?.kind === "corpse") return slimeTouchesCorpse(slime, findCorpse(target.id));
+    const targetCell = cleanMapCell(target?.cell);
+    return Boolean(targetCell && actorOccupiedVolumeCells(slime).some((cell) => mapCellKey(cell) === mapCellKey(targetCell)));
+  }
+
   function localFoodTargetCandidates(slime, roomId = slimeEffectiveRoomId(slime)) {
     const candidates = [];
     const addTarget = (target) => {
@@ -35076,6 +35422,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         kind: "residue",
         id: residue.id,
         roomId,
+        cell: cleanMapCell(residue.location?.cell),
         label: feedingResidueLabel(residue.typeKey),
         tags: residueFoodTags(residue),
         score: 70 + residue.amount * 8
@@ -35120,7 +35467,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         kind: "corpse",
         id: corpse.id,
         roomId: corpse.roomId || MAIN_ROOM_ID,
-        cell: objectMapCell(corpse),
+        cell: corpseFeedingApproachCell(slime, corpse) || objectMapCell(corpse),
         label: `${corpse.name} remains`,
         tags: ["corpse", "organic", "decay", corpseFreshness(corpse)],
         score: 75 + (corpseFreshness(corpse) === "fresh" ? 18 : corpseFreshness(corpse) === "spoiled" ? 6 : 10)
@@ -35296,7 +35643,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!slimeHasFeedingNeed(slime)) return null;
     const origin = objectMapCell(slime);
     const contact = localFoodTargetCandidates(slime)
-      .filter((target) => mapCellKey(target.cell) === mapCellKey(origin))
+      .filter((target) => slimeContactsFoodTarget(slime, target))
       .filter((target) => !slimeIntentFailureFor(slime, "feed", target) && !slimeIntentFailureFor(slime, "seekFood", target))
       .sort((a, b) => b.score - a.score)[0];
     if (contact) return { target: contact, path: [origin], value: contact.score };
@@ -35642,7 +35989,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const origin = objectMapCell(slime);
     return localFoodTargetCandidates(slime)
-      .filter((target) => mapCellKey(target.cell) === mapCellKey(origin))
+      .filter((target) => slimeContactsFoodTarget(slime, target))
       .filter((target) => !slimeIntentFailureFor(slime, "feed", target))
       .sort((a, b) => b.score - a.score)[0] || null;
   }
@@ -35758,7 +36105,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function feedLooseSlimeOnCorpse(slime, target, elapsed) {
     const corpse = findCorpse(target.id);
-    if (!corpse || !["room", "overflow"].includes(corpse.storage) || (corpse.roomId || MAIN_ROOM_ID) !== slimeEffectiveRoomId(slime)) {
+    if (!corpse || !["room", "overflow"].includes(corpse.storage) || (corpse.roomId || MAIN_ROOM_ID) !== slimeEffectiveRoomId(slime) || !slimeTouchesCorpse(slime, corpse)) {
       return 0;
     }
     const feeding = corpseFeedingRateForSlime(slime, corpse);
@@ -36486,12 +36833,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return hasAvailableEnvironmentalSustenance(slime);
   }
 
+  function normalizeSlimeSpatialPressure(candidate) {
+    const active = Boolean(candidate?.active);
+    return {
+      active,
+      reason: active ? String(candidate.reason || "body space is constrained") : "",
+      since: active ? finiteTime(candidate.since, state?.clock || 0) : null,
+      desiredFootprint: active && candidate.desiredFootprint ? Navigation.normalizeFootprint(candidate.desiredFootprint) : null,
+      currentFootprint: active && candidate.currentFootprint ? Navigation.normalizeFootprint(candidate.currentFootprint) : null
+    };
+  }
+
+  function updateContainedSlimeSpatialPressure(slime, elapsedSeconds = 0) {
+    const previousActive = Boolean(slime.spatialPressure?.active);
+    const container = containerById(slime.containerId);
+    if (!container || container.type === "synthesis") {
+      slime.spatialPressure = normalizeSlimeSpatialPressure(null);
+      return previousActive;
+    }
+    const profile = physicalProfile(slime.genome);
+    const currentConcerns = containerDimensionalSuitabilityConcerns(slime, container, profile, { consistencyKnown: true })
+      .filter((concern) => /current body/i.test(concern.text) && ["major", "severe"].includes(concern.severity));
+    if (!currentConcerns.length) {
+      slime.spatialPressure = normalizeSlimeSpatialPressure(null);
+      return previousActive;
+    }
+    const footprint = slimeFootprintAtMass(slime);
+    slime.spatialPressure = normalizeSlimeSpatialPressure({
+      active: true,
+      reason: currentConcerns.map((concern) => concern.text).join(" "),
+      since: previousActive ? slime.spatialPressure.since : state.clock,
+      desiredFootprint: footprint,
+      currentFootprint: footprint
+    });
+    if (elapsedSeconds > 0) {
+      adjustSlimeStat(slime, "stress", secondsToHours(elapsedSeconds) * 1.5);
+    }
+    return !previousActive || elapsedSeconds > 0;
+  }
+
   function updateSlimeMassRegrowth(slime, minutes) {
+    const containedPressureChanged = slimeIsUncontained(slime) ? false : updateContainedSlimeSpatialPressure(slime, minutes);
     const elapsedMinutes = secondsToMinutes(minutes);
     const mass = slimeStat(slime, "currentMass");
     const nutrition = slimeStat(slime, "nutrition");
     if (mass.current >= mass.max || nutrition.current <= MASS_REGROWTH_NUTRITION_FLOOR) {
-      return false;
+      return containedPressureChanged;
     }
     const evaluated = evaluateGenome(slime.genome);
     const growthMinutes = Math.max(1, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
@@ -36506,9 +36893,56 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (gain <= 0) {
       return false;
     }
-    adjustSlimeStat(slime, "currentMass", gain);
-    adjustSlimeStat(slime, "nutrition", -gain * nutritionCost);
-    return true;
+    let allowedGain = gain;
+    let resolvedOrientation = slime.navigationOrientation || "horizontal";
+    if (slimeIsUncontained(slime)) {
+      const anchor = objectMapCell(slime);
+      const canFitAtMass = (massPercent, orientation) => {
+        const footprint = slimeFootprintAtMass(slime, massPercent);
+        return navigationFootprintCanOccupy(slime, anchor, footprint, orientation, { requireCurrentCapacity: true });
+      };
+      const desiredMass = mass.current + gain;
+      const desiredFootprint = slimeFootprintAtMass(slime, desiredMass);
+      const orientations = [resolvedOrientation];
+      if (desiredFootprint.rotatable) {
+        const alternate = resolvedOrientation === "vertical" ? "horizontal" : "vertical";
+        if (!orientations.includes(alternate)) orientations.push(alternate);
+      }
+      const fittingOrientation = orientations.find((orientation) => canFitAtMass(desiredMass, orientation));
+      if (fittingOrientation) {
+        resolvedOrientation = fittingOrientation;
+      } else {
+        let low = mass.current;
+        let high = desiredMass;
+        for (let iteration = 0; iteration < 10; iteration += 1) {
+          const candidate = (low + high) / 2;
+          if (orientations.some((orientation) => canFitAtMass(candidate, orientation))) low = candidate;
+          else high = candidate;
+        }
+        allowedGain = Math.max(0, low - mass.current);
+        slime.spatialPressure = normalizeSlimeSpatialPressure({
+          active: true,
+          reason: "Growth is constrained by nearby terrain, structures, or occupied space.",
+          since: slime.spatialPressure?.active ? slime.spatialPressure.since : state.clock,
+          desiredFootprint,
+          currentFootprint: slimeFootprintAtMass(slime, mass.current + allowedGain)
+        });
+        adjustSlimeStat(slime, "stress", secondsToHours(minutes) * 2);
+      }
+    }
+    if (allowedGain > 0) {
+      adjustSlimeStat(slime, "currentMass", allowedGain);
+      adjustSlimeStat(slime, "nutrition", -allowedGain * nutritionCost);
+      slime.navigationOrientation = resolvedOrientation;
+    }
+    if (slimeIsUncontained(slime) && allowedGain >= gain - 0.001) {
+      slime.spatialPressure = normalizeSlimeSpatialPressure(null);
+    }
+    if (allowedGain > 0 || slime.spatialPressure?.active) {
+      navigationService.clear();
+      rebuildActorSpatialIndex();
+    }
+    return allowedGain > 0 || containedPressureChanged || Boolean(slime.spatialPressure?.active);
   }
 
   function updateDivisionPressure(slime, minutes, startedAtFullMass) {
@@ -37642,6 +38076,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       );
       grid.append(row);
     }
+    const footprint = navigationFootprintForActor(slime);
+    const bodySpaceRow = document.createElement("div");
+    bodySpaceRow.className = "slime-stat-row";
+    bodySpaceRow.dataset.slimeSpatialFootprint = slime.id;
+    bodySpaceRow.title = slime.spatialPressure?.active
+      ? slime.spatialPressure.reason
+      : "Physical map space derived from current mass, dimensions, shape, orientation, and layer height.";
+    bodySpaceRow.append(
+      textEl("span", "Body Space"),
+      textEl("strong", `${footprint.mask.length} floor cell${footprint.mask.length === 1 ? "" : "s"}; ${footprint.heightLayers} layer${footprint.heightLayers === 1 ? "" : "s"}`),
+      textEl("em", slime.spatialPressure?.active ? "Compressed" : (slime.navigationOrientation || footprint.orientation))
+    );
+    grid.append(bodySpaceRow);
     section.append(title, grid);
     return section;
   }
@@ -41209,15 +41656,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const slime of state.slimes || []) {
       if (slime.status !== "dead" && slimeIsUncontained(slime)) {
-        if (!mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options) && !mapShowsTrackedEntity("slime", slime.id)) {
+        const observedNow = mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options);
+        if (!observedNow && !mapShowsTrackedEntity("slime", slime.id)) {
           continue;
         }
-        const footprint = navigationFootprintForActor(slime);
-        const anchor = objectMapCell(slime);
-        const footprintCells = Navigation.footprintCells(anchor, footprint, slime.navigationOrientation || footprint.orientation);
+        const record = creatureRecordForSlime(slime);
+        const footprint = observedNow
+          ? navigationFootprintForActor(slime)
+          : Navigation.normalizeFootprint(record?.lastKnownFootprint || { width: 1, height: 1 });
+        const anchor = observedNow ? objectMapCell(slime) : cleanMapCell(record?.lastKnownMapCell);
+        const orientation = observedNow
+          ? slime.navigationOrientation || footprint.orientation
+          : record?.lastKnownOrientation || footprint.orientation;
+        const footprintCells = footprintVolumeCells(anchor, footprint, orientation);
+        const knowledgeLabel = observedNow ? "body footprint" : "last-known body footprint";
         for (const cell of footprintCells) {
           const isAnchor = mapCellKey(cell) === mapCellKey(anchor);
-          addCell(cell, isAnchor ? "L" : "l", `${slimeMapObjectLabel(slime)}; body footprint ${footprint.width}x${footprint.height}`, ["living-object-cell", ...(isAnchor ? [] : ["living-object-body-cell"])], {
+          addCell(cell, isAnchor ? "L" : "l", `${slimeMapObjectLabel(slime)}; ${knowledgeLabel} ${footprint.mask.length} floor cell${footprint.mask.length === 1 ? "" : "s"} across ${footprint.heightLayers} layer${footprint.heightLayers === 1 ? "" : "s"}`, ["living-object-cell", ...(isAnchor ? [] : ["living-object-body-cell"])], {
             kind: "slime",
             id: slime.id,
             label: slime.name
@@ -41232,11 +41687,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!mapShowsRoomOccupants(corpse.roomId || MAIN_ROOM_ID, options) && !mapShowsTrackedEntity("corpse", corpse.id)) {
         continue;
       }
-      addCell(objectMapCell(corpse), "R", `${corpse.name} remains`, ["corpse-object-cell"], {
-        kind: "corpse",
-        id: corpse.id,
-        label: `${corpse.name} remains`
-      });
+      const footprint = corpseNavigationFootprint(corpse);
+      const anchor = objectMapCell(corpse);
+      for (const cell of corpseOccupiedVolumeCells(corpse)) {
+        const isAnchor = mapCellKey(cell) === mapCellKey(anchor);
+        addCell(cell, isAnchor ? "R" : "r", `${corpse.name} remains; body footprint ${footprint.mask.length} floor cell${footprint.mask.length === 1 ? "" : "s"} across ${footprint.heightLayers} layer${footprint.heightLayers === 1 ? "" : "s"}`, ["corpse-object-cell", ...(isAnchor ? [] : ["corpse-object-body-cell"])], {
+          kind: "corpse",
+          id: corpse.id,
+          label: `${corpse.name} remains`
+        });
+      }
     }
     state.floorStockpiles = normalizeFloorStockpiles(state.floorStockpiles);
     for (const floorStockpile of state.floorStockpiles) {
@@ -42099,7 +42559,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return ensurePhysicalItemStacks().find((stack) => stack.id === selection.id)?.roomId || "";
     }
     if (selection.kind === "slime") {
-      return slimeEffectiveRoomId(findSlime(selection.id));
+      const slime = findSlime(selection.id);
+      if (slimeIsUncontained(slime) && !mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID)) {
+        return creatureRecordForSlime(slime)?.lastKnownRoomId || "";
+      }
+      return slimeEffectiveRoomId(slime);
     }
     if (selection.kind === "corpse") {
       return findCorpse(selection.id)?.roomId || "";
@@ -42147,6 +42611,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
+      if (slimeIsUncontained(slime) && !mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID)) {
+        return cleanMapCell(creatureRecordForSlime(slime)?.lastKnownMapCell);
+      }
       return slime?.containerId ? objectMapCell(containerById(slime.containerId)) : objectMapCell(slime);
     }
     if (selection.kind === "corpse") {
@@ -42181,7 +42648,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
-      return slime ? [slimeStateLabel(slime), slimeLocationLabel(slime), slimeActivityLabel(slime)].map(chip) : [];
+      if (!slime) return [];
+      if (slimeIsUncontained(slime) && !mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID)) {
+        const record = creatureRecordForSlime(slime);
+        return [
+          "Status uncertain",
+          `Last known: ${roomName(record?.lastKnownRoomId || MAIN_ROOM_ID)}`,
+          record?.lastKnownActivity || "activity unknown"
+        ].map(chip);
+      }
+      return [slimeStateLabel(slime), slimeLocationLabel(slime), slimeActivityLabel(slime)].map(chip);
     }
     if (selection.kind === "corpse") {
       const corpse = findCorpse(selection.id);
@@ -54132,6 +54608,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.lifecycleVersion = 1;
     }
     slime.splitBlocked = Boolean(slime.splitBlocked);
+    slime.navigationOrientation = slime.navigationOrientation === "vertical" ? "vertical" : "horizontal";
+    slime.spatialPressure = normalizeSlimeSpatialPressure(slime.spatialPressure);
   }
 
   function prepareCorpseState() {
@@ -54161,6 +54639,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.harvestedProcedures = normalizeHarvestedProcedures(corpse.harvestedProcedures);
       corpse.forensicReport = normalizeForensicReport(corpse.forensicReport);
       corpse.consumedProgress = clamp(Number(corpse.consumedProgress) || 0, 0, 100);
+      corpse.deathMassPercent = clamp(Number(corpse.deathMassPercent) || 100, 2, 150);
+      corpse.navigationOrientation = corpse.navigationOrientation === "vertical" ? "vertical" : "horizontal";
       corpse.feedingResidueProgress = Math.max(0, Number(corpse.feedingResidueProgress) || 0);
       corpse.storage = corpse.storage || (drumCount < WASTE_DRUM_CAPACITY ? "drum" : "overflow");
       normalizeCorpseLocation(corpse);

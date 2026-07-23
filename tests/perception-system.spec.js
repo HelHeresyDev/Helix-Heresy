@@ -70,7 +70,11 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     const view = window.helixHeresyDebug.mapViewSnapshot();
-    const empty = view.cells.filter((cell) => ['room', 'floor'].includes(cell.base.kind) && !cell.object && !cell.door && !cell.scientist);
+    const empty = view.cells.filter((cell) => cell.roomId === 'mainLab'
+      && ['room', 'floor'].includes(cell.base.kind)
+      && !cell.object
+      && !cell.door
+      && !cell.scientist);
     const emptyKeys = new Set(empty.map((cell) => `${cell.cell.x},${cell.cell.y}`));
     const left = empty.find((entry) => [
       `${entry.cell.x + 1},${entry.cell.y}`,
