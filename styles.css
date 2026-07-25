@@ -1315,6 +1315,44 @@ h2 {
   user-select: none;
 }
 
+.lab-map-canvas-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: #090a08;
+  border: 1px solid #282a22;
+  border-radius: 6px;
+  cursor: default;
+  user-select: none;
+}
+
+.lab-map-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.canvas-map-prototype-notice {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 0.65rem;
+  max-width: min(32rem, calc(100% - 1.3rem));
+  padding: 0.38rem 0.5rem;
+  background: rgba(9, 10, 8, 0.86);
+  border: 1px solid rgba(225, 183, 95, 0.48);
+  border-radius: 5px;
+  color: #d5c79e;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  pointer-events: none;
+}
+
 body.map-dragging .lab-map-grid,
 body.map-dragging .lab-map-cell {
   cursor: grabbing !important;

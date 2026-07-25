@@ -83,7 +83,12 @@ test('sampling a living specimen stores harvested material and worsens condition
     seed: context.seed,
     complexity: context.complexity,
     baseGenome: context.currentGenome,
-    traits: { element: 'acid', consistency: 'watery' },
+    traits: {
+      size: 'seedling',
+      shape: 'spherical',
+      element: 'acid',
+      consistency: 'watery',
+    },
   });
 
   await page.evaluate(({ key, genome }) => {

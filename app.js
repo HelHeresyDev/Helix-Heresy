@@ -3217,6 +3217,10 @@
   if (!MapVisualState) {
     throw new Error("HelixMapVisualState must load before app.js");
   }
+  const CanvasMapRenderer = window.HelixCanvasMapRenderer;
+  if (!CanvasMapRenderer) {
+    throw new Error("HelixCanvasMapRenderer must load before app.js");
+  }
   const Navigation = window.HelixNavigation;
   if (!Navigation) {
     throw new Error("HelixNavigation must load before app.js");
@@ -3259,11 +3263,17 @@
   const simulationPerformance = {
     systems: {},
     render: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    mapScene: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    canvasDraw: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     save: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     lastAdvanceMs: 0,
     maxAdvanceMs: 0,
     backlog: 0
   };
+  const MAP_RENDERER_DOM = "dom";
+  const MAP_RENDERER_CANVAS = "canvas";
+  let mapRendererMode = MAP_RENDERER_DOM;
+  let activeCanvasMapRenderer = null;
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
   const heldMapPanKeys = new Set();
@@ -4555,6 +4565,9 @@
       "debugMenuTabs",
       "aiDebugSummary",
       "aiDebugReadout",
+      "mapRendererStatus",
+      "mapRendererDomBtn",
+      "mapRendererCanvasBtn",
       "journalModeReadout",
       "journalContent",
       "queueToggleBtn",
@@ -4694,6 +4707,16 @@
       mapSceneSnapshot: () => buildLabMapView().scene,
       validateMapScene: () => MapVisualState.validateScene(buildLabMapView().scene),
       mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
+      mapRendererSnapshot: () => ({
+        mode: currentMapRendererMode(),
+        canvas: activeCanvasMapRenderer?.snapshot?.() || null,
+        sceneBuild: performanceBucketSnapshot(simulationPerformance.mapScene),
+        canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw)
+      }),
+      setMapRenderer: (mode) => {
+        setMapRendererMode(mode);
+        return currentMapRendererMode();
+      },
       terrainConnectivitySnapshot: (cell, options = {}) => {
         const map = ensureLabMap();
         const fullReveal = options.fullReveal !== false;
@@ -4860,7 +4883,9 @@
       simulationPerformanceSnapshot: () => buildSimulationPerformanceSnapshot(),
       resetSimulationPerformance: () => {
         simulationPerformance.systems = {};
-        for (const key of ["render", "save"]) simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
+        for (const key of ["render", "mapScene", "canvasDraw", "save"]) {
+          simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
+        }
         simulationPerformance.lastAdvanceMs = 0;
         simulationPerformance.maxAdvanceMs = 0;
         return buildSimulationPerformanceSnapshot();
@@ -5405,6 +5430,14 @@
 
     dom.debugToggleBtn?.addEventListener("click", () => {
       setDebugToolsEnabled(!debugToolsEnabled());
+    });
+
+    dom.mapRendererDomBtn?.addEventListener("click", () => {
+      setMapRendererMode(MAP_RENDERER_DOM);
+    });
+
+    dom.mapRendererCanvasBtn?.addEventListener("click", () => {
+      setMapRendererMode(MAP_RENDERER_CANVAS);
     });
 
     dom.resetUiPreferencesBtn?.addEventListener("click", () => {
@@ -6537,6 +6570,7 @@
   function resetUiPreferences() {
     uiPreferences = defaultUiPreferences();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
+    setMapRendererMode(MAP_RENDERER_DOM, { render: false });
     persistUiPreferences();
     resetRunUiToMapDefaults();
     if (state?.started) {
@@ -6548,6 +6582,42 @@
 
   function debugToolsEnabled() {
     return debugToolsSessionEnabled !== false;
+  }
+
+  function normalizeMapRendererMode(value) {
+    return value === MAP_RENDERER_CANVAS ? MAP_RENDERER_CANVAS : MAP_RENDERER_DOM;
+  }
+
+  function currentMapRendererMode() {
+    return normalizeMapRendererMode(mapRendererMode);
+  }
+
+  function destroyActiveCanvasMapRenderer() {
+    activeCanvasMapRenderer?.destroy?.();
+    activeCanvasMapRenderer = null;
+  }
+
+  function setMapRendererMode(value, options = {}) {
+    const requested = normalizeMapRendererMode(value);
+    const next = requested === MAP_RENDERER_CANVAS && debugToolsEnabled()
+      ? MAP_RENDERER_CANVAS
+      : MAP_RENDERER_DOM;
+    const changed = next !== mapRendererMode;
+    if (next !== MAP_RENDERER_CANVAS) {
+      destroyActiveCanvasMapRenderer();
+    }
+    mapRendererMode = next;
+    if (options.render !== false && state?.started) {
+      if (currentWorkspaceTab() === "map") {
+        renderMapInteraction();
+      } else {
+        renderMapSurface();
+        syncMapRendererControls();
+      }
+    } else {
+      syncMapRendererControls();
+    }
+    return changed;
   }
 
   function workspaceTabVisible(tabId) {
@@ -10430,6 +10500,7 @@
     const ui = ensureUiState();
     debugToolsSessionEnabled = Boolean(enabled);
     if (!debugToolsSessionEnabled) {
+      setMapRendererMode(MAP_RENDERER_DOM, { render: false });
       if (DEBUG_WORKSPACE_TAB_IDS.has(cleanWorkspaceTab(ui.activeWorkspaceTab))) {
         ui.activeWorkspaceTab = "map";
       }
@@ -38384,6 +38455,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function syncMapRendererControls() {
+    const mode = currentMapRendererMode();
+    if (dom.mapRendererStatus) {
+      dom.mapRendererStatus.textContent = mode === MAP_RENDERER_CANVAS
+        ? "Canvas map active. Keyboard navigation works; pointer interaction is intentionally unavailable."
+        : "DOM map active. Full current map interaction is available.";
+    }
+    if (dom.mapRendererDomBtn) {
+      dom.mapRendererDomBtn.classList.toggle("primary", mode === MAP_RENDERER_DOM);
+      dom.mapRendererDomBtn.setAttribute("aria-pressed", String(mode === MAP_RENDERER_DOM));
+    }
+    if (dom.mapRendererCanvasBtn) {
+      dom.mapRendererCanvasBtn.classList.toggle("primary", mode === MAP_RENDERER_CANVAS);
+      dom.mapRendererCanvasBtn.setAttribute("aria-pressed", String(mode === MAP_RENDERER_CANVAS));
+      const reason = debugToolsEnabled() ? "" : "Enable Debug tools to use the Canvas renderer prototype.";
+      setActionButtonState(dom.mapRendererCanvasBtn, Boolean(reason), reason);
+    }
+  }
+
   function buildSimulationPerformanceSnapshot() {
     const cadences = state?.simulation?.cadences || {};
     return {
@@ -38406,11 +38496,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }])),
       systems: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, performanceBucketSnapshot(simulationPerformance.systems[definition.id])])),
       render: performanceBucketSnapshot(simulationPerformance.render),
+      mapScene: performanceBucketSnapshot(simulationPerformance.mapScene),
+      canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw),
+      mapRenderer: {
+        mode: currentMapRendererMode(),
+        canvas: activeCanvasMapRenderer?.snapshot?.() || null
+      },
       save: performanceBucketSnapshot(simulationPerformance.save)
     };
   }
 
   function renderSimulationPerformance() {
+    syncMapRendererControls();
     const summary = document.getElementById("simulationPerformanceSummary");
     const readout = document.getElementById("simulationPerformanceReadout");
     if (!summary || !readout) return;
@@ -38428,6 +38525,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     addRow("Actors", String(snapshot.actors), `${snapshot.spatialIndex.occupiedCells} occupied indexed cells`);
     addRow("Simulation advance", `${formatDecimal(snapshot.lastAdvanceMs, 2)} ms`, `max ${formatDecimal(snapshot.maxAdvanceMs, 2)} ms`);
     addRow("Render", `${formatDecimal(snapshot.render.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.render.averageMs, 2)}; max ${formatDecimal(snapshot.render.maxMs, 2)}`);
+    addRow("Map scene build", `${formatDecimal(snapshot.mapScene.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.mapScene.averageMs, 2)}; max ${formatDecimal(snapshot.mapScene.maxMs, 2)}`);
+    addRow(
+      "Canvas draw",
+      snapshot.mapRenderer.mode === MAP_RENDERER_CANVAS ? `${formatDecimal(snapshot.canvasDraw.lastMs, 2)} ms` : "inactive",
+      `avg ${formatDecimal(snapshot.canvasDraw.averageMs, 2)}; max ${formatDecimal(snapshot.canvasDraw.maxMs, 2)}; ${snapshot.mapRenderer.canvas?.frameCount || 0} current-surface frame${snapshot.mapRenderer.canvas?.frameCount === 1 ? "" : "s"}`
+    );
     addRow("Save", `${formatDecimal(snapshot.save.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.save.averageMs, 2)}; every 10 real minutes while dirty`);
     for (const definition of SIMULATION_SYSTEM_DEFS) {
       const sample = snapshot.systems[definition.id];
@@ -47326,6 +47429,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function buildLabMapView(map = ensureLabMap()) {
+    const sceneBuildStartedAt = performance.now();
     const overlay = currentMapOverlayDef();
     const scientistCell = scientistMapCell();
     const fullReveal = mapFullRevealActive() || overlay.id === "debug";
@@ -47420,7 +47524,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     const cells = MapVisualState.cellsWithinBounds(scene.cells, viewport);
 
-    return {
+    const mapView = {
       width: viewport.width,
       height: viewport.height,
       mapWidth: map.width,
@@ -47464,6 +47568,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cells,
       legendItems: mapOverlayLegendItems(overlay.id)
     };
+    recordPerformanceSample(simulationPerformance.mapScene, performance.now() - sceneBuildStartedAt);
+    return mapView;
   }
 
   function focusMapTarget(target, options = {}) {
@@ -47572,7 +47678,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuPath = normalizeKeyboardMenuPath(ensureUiState().keyboardMenuPath);
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
-      : "WASD/middle-drag pan camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
+      : currentMapRendererMode() === MAP_RENDERER_CANVAS
+        ? "WASD pans camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; Canvas mouse controls pending; O cycles overlay; T/I/C/P/R/G open menus; ? help."
+        : "WASD/middle-drag pan camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
     if (accessAreaEditing()) row.append(chip(`Access area: ${activeAccessArea().name} · ${ensureAccessControl().editor.brush}`));
     else if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
     else if (constructionWorkModeActive()) row.append(chip(`${constructionModeLabel(constructionActiveMode())} mode · priority ${state.construction.priority}`));
@@ -47868,14 +47976,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("strong", "Keyboard"));
     const list = document.createElement("div");
     list.className = "keyboard-help-list";
+    const canvasPrototypeActive = currentMapRendererMode() === MAP_RENDERER_CANVAS;
     const entries = [
       ["WASD", "Pan the map camera."],
       ["Shift+WASD", "Pan the map camera faster."],
       ["Arrow keys", "Move the map cursor."],
       ["[ / ]", "View the z-layer below or above."],
       ["+ / -", "Zoom the map in or out."],
-      ["Mouse wheel", "Zoom the map while the cursor is over the map."],
-      ["Middle drag", "Grab and pan the map."],
+      ["Mouse wheel", canvasPrototypeActive ? "Pending for the Canvas prototype; available in DOM Map." : "Zoom the map while the cursor is over the map."],
+      ["Middle drag", canvasPrototypeActive ? "Pending for the Canvas prototype; available in DOM Map." : "Grab and pan the map."],
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["Room Mode", "Click excavated floor to toggle manual room designation tiles."],
@@ -47927,11 +48036,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+  function setMapViewportDataset(element, mapView) {
+    element.dataset.mapViewport = "true";
+    element.dataset.mapRenderer = currentMapRendererMode();
+    element.dataset.mapViewportX = String(mapView.viewport.x);
+    element.dataset.mapViewportY = String(mapView.viewport.y);
+    element.dataset.mapViewportZ = String(mapView.viewport.z);
+    element.dataset.mapViewportWidth = String(mapView.viewport.width);
+    element.dataset.mapViewportHeight = String(mapView.viewport.height);
+  }
+
+  function canvasMapSurfaceEl(mapView) {
+    const host = document.createElement("div");
+    host.className = "lab-map-canvas-host";
+    setMapViewportDataset(host, mapView);
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "lab-map-canvas";
+    canvas.dataset.canvasMap = "true";
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}. Mouse interaction is not available in this prototype renderer.`);
+    canvas.setAttribute("aria-describedby", "canvasMapPrototypeNotice");
+    host.append(canvas);
+
+    const notice = document.createElement("div");
+    notice.id = "canvasMapPrototypeNotice";
+    notice.className = "canvas-map-prototype-notice";
+    notice.textContent = "Canvas prototype: use keyboard map controls. Switch to DOM Map in Debug > Performance for mouse interaction.";
+    host.append(notice);
+
+    const renderer = CanvasMapRenderer.createRenderer(canvas, {
+      onFrame: (diagnostics) => {
+        recordPerformanceSample(simulationPerformance.canvasDraw, diagnostics.lastMs);
+      }
+    });
+    activeCanvasMapRenderer = renderer;
+    renderer.setScene(mapView.scene, { tilePx: mapView.zoom.tilePx });
+    return host;
+  }
+
   function labMapPanelEl() {
     const mapView = buildLabMapView();
     const panel = document.createElement("div");
     panel.className = "lab-map-panel subpanel";
     panel.dataset.labMapPanel = "true";
+    panel.dataset.mapRenderer = currentMapRendererMode();
 
     const header = document.createElement("div");
     header.className = "lab-map-header";
@@ -47945,14 +48094,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(keyboardHelpEl());
     }
 
+    if (currentMapRendererMode() === MAP_RENDERER_CANVAS) {
+      panel.append(canvasMapSurfaceEl(mapView));
+      return panel;
+    }
+
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
-    grid.dataset.mapViewport = "true";
-    grid.dataset.mapViewportX = String(mapView.viewport.x);
-    grid.dataset.mapViewportY = String(mapView.viewport.y);
-    grid.dataset.mapViewportZ = String(mapView.viewport.z);
-    grid.dataset.mapViewportWidth = String(mapView.viewport.width);
-    grid.dataset.mapViewportHeight = String(mapView.viewport.height);
+    setMapViewportDataset(grid, mapView);
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
     grid.addEventListener("pointerdown", (event) => handleMapDragPointerDown(event, mapView));
@@ -48300,6 +48449,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
 
   function renderMapSurface() {
+    destroyActiveCanvasMapRenderer();
     dom.roomList.textContent = "";
     dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
     scheduleMapViewportMeasurement();

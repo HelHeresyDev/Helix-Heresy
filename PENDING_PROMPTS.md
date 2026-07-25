@@ -14,78 +14,73 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Hybrid Canvas Map Renderer Prototype
-2. Canvas Camera, Zoom, Pan, and Input Parity
-3. Map Selection, Hit Testing, and Contextual Action Parity
-4. Sprite Asset Manifest and Loading Pipeline
-5. Sprite Anchors, Orientation, and Multi-Tile Scaling
-6. Render Layers, Occlusion, and Draw Order
-7. Actor Facing, Pose, and Activity States
-8. Animation Clock and Movement Interpolation
-9. Player Knowledge, Fog, and Last-Known Visuals
-10. Lighting, Environmental Tinting, and Visibility
-11. Map Effects, Hazards, and Status Indicators
-12. Glyph Fallback and Accessibility Modes
-13. Large-Population Rendering Benchmark and Culling
-14. Automated Visual Regression and Renderer-Parity Tests
+1. Canvas Camera, Zoom, Pan, and Input Parity
+2. Map Selection, Hit Testing, and Contextual Action Parity
+3. Sprite Asset Manifest and Loading Pipeline
+4. Sprite Anchors, Orientation, and Multi-Tile Scaling
+5. Render Layers, Occlusion, and Draw Order
+6. Actor Facing, Pose, and Activity States
+7. Animation Clock and Movement Interpolation
+8. Player Knowledge, Fog, and Last-Known Visuals
+9. Lighting, Environmental Tinting, and Visibility
+10. Map Effects, Hazards, and Status Indicators
+11. Glyph Fallback and Accessibility Modes
+12. Large-Population Rendering Benchmark and Culling
+13. Automated Visual Regression and Renderer-Parity Tests
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Do not remove the current DOM map renderer until the Canvas renderer has demonstrated behavioral and visual parity.
 
 ---
 
-## 1. Hybrid Canvas Map Renderer Prototype
-
-Build the first Canvas 2D map renderer against the semantic view model while retaining the current DOM renderer as a comparison implementation. Establish the render loop, viewport culling, tile drawing, placeholder sprite drawing, resizing, and renderer switching needed for gradual migration.
-
-## 2. Canvas Camera, Zoom, Pan, and Input Parity
+## 1. Canvas Camera, Zoom, Pan, and Input Parity
 
 Reproduce current map navigation in Canvas, including WASD panning, middle-mouse grab panning, wheel and keyboard zoom, z-layer changes, cursor movement, viewport persistence, focus behavior, and responsive full-screen sizing. Camera behavior should remain independent from simulation updates.
 
-## 3. Map Selection, Hit Testing, and Contextual Action Parity
+## 2. Map Selection, Hit Testing, and Contextual Action Parity
 
 Route Canvas pointer coordinates back into the existing selection and command systems. Preserve top-priority entity selection, multi-entity `Also here` handling, multi-tile highlighting, hover information, keyboard selection, inspectors, contextual commands, and player-knowledge restrictions.
 
-## 4. Sprite Asset Manifest and Loading Pipeline
+## 3. Sprite Asset Manifest and Loading Pipeline
 
 Create a stable asset manifest for terrain, fixtures, items, actors, effects, and UI-map markers. Support loading status, missing-asset fallbacks, sprite metadata, caching, future atlases, development placeholders, and asset validation without hard-coding image paths throughout game rules.
 
-## 5. Sprite Anchors, Orientation, and Multi-Tile Scaling
+## 4. Sprite Anchors, Orientation, and Multi-Tile Scaling
 
 Define how sprites attach to tile anchors, rotate or mirror, span multiple horizontal tiles, occupy multiple z-layers, and align with interaction points. Large actors and equipment must remain physically and visually consistent at every supported zoom level.
 
-## 6. Render Layers, Occlusion, and Draw Order
+## 5. Render Layers, Occlusion, and Draw Order
 
 Define deterministic ordering for terrain, floors, fluids, items, corpses, fixtures, actors, overhead structures, effects, fog, paths, alerts, cursor, and selection. Establish how tall or overlapping entities occlude each other and how the player inspects hidden objects on crowded tiles.
 
-## 7. Actor Facing, Pose, and Activity States
+## 6. Actor Facing, Pose, and Activity States
 
 Add renderer-neutral facing and pose state derived from movement, combat, feeding, quiescence, work, injury, containment pressure, and other meaningful activities. Visual states should reflect simulation behavior without creating a parallel animation-only AI system.
 
-## 8. Animation Clock and Movement Interpolation
+## 7. Animation Clock and Movement Interpolation
 
 Separate smooth visual interpolation from discrete simulation time. Support variable game speeds, pause, time skips, movement between tiles, ability charge and recovery, short reactions, and animation cancellation without allowing presentation timing to change simulation outcomes.
 
-## 9. Player Knowledge, Fog, and Last-Known Visuals
+## 8. Player Knowledge, Fog, and Last-Known Visuals
 
 Render only what the scientist currently knows. Define unexplored darkness, currently perceived entities, stale last-known positions, uncertain detections, remembered terrain, changed-but-unobserved spaces, Debug omniscience, and visual decay without leaking hidden simulation state.
 
-## 10. Lighting, Environmental Tinting, and Visibility
+## 9. Lighting, Environmental Tinting, and Visibility
 
 Translate the existing physical light and environment fields into readable map visuals. Cover darkness, local light sources, temperature and mana overlays, airborne substances, visibility limits, selected diagnostic overlays, and color treatment that does not obscure sprites or encode inaccessible information.
 
-## 11. Map Effects, Hazards, and Status Indicators
+## 10. Map Effects, Hazards, and Status Indicators
 
 Create a restrained renderer-neutral effect layer for spills, airborne hazards, fire, electricity, magic, damage, combat, structural failure, alerts, paths, and task markers. Effects should communicate important physical events without turning every continuously simulated value into visual noise.
 
-## 12. Glyph Fallback and Accessibility Modes
+## 11. Glyph Fallback and Accessibility Modes
 
 Preserve a complete glyph-based map mode alongside sprites. Add options for reduced motion, high contrast, color-independent indicators, readable zoom limits, and alternate effect intensity so the Canvas transition does not sacrifice the prototype's clarity or accessibility.
 
-## 13. Large-Population Rendering Benchmark and Culling
+## 12. Large-Population Rendering Benchmark and Culling
 
 Benchmark the Canvas renderer with large maps, hundreds of actors, multi-tile bodies, effects, overlays, and frequent simulation updates. Establish frame-time budgets, viewport culling, dirty-state rules, allocation limits, and evidence-based thresholds before considering WebGL or another rendering layer.
 
-## 14. Automated Visual Regression and Renderer-Parity Tests
+## 13. Automated Visual Regression and Renderer-Parity Tests
 
 Build deterministic screenshots and semantic parity tests for representative map states, zoom levels, z-layers, selections, overlays, knowledge states, crowded tiles, large actors, and responsive viewports. Canvas should replace the DOM map only after required interactions and visible information remain equivalent.
 
