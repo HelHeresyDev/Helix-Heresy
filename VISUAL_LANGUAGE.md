@@ -227,6 +227,22 @@ Room-purpose color, stockpile color, access color, environmental measurements, a
 
 Selection must remain visible over every material and overlay. Alerts must not rely on red alone. Element, team, condition, and danger should not compete for the same color channel when shape, outline, animation, or iconography can carry part of the meaning.
 
+## Terrain Connectivity Contract
+
+Terrain sprites and procedural shapes consume derived connectivity rather than inspecting simulation arrays or neighboring DOM nodes.
+
+- Physical layers remain independent: natural rock, floor surfaces, constructed walls, door fixtures, vertical connectors, future fluids, and management boundaries.
+- Cardinal edges use the bit order North `1`, East `2`, South `4`, and West `8`. The resulting mask classifies isolated, end, straight, corner, tee, and cross forms.
+- Diagonal masks only refine corners. They never make two tiles physically connected.
+- Each edge has an explicit relation: `joined`, `abutment`, `portal`, `transition`, `exposed`, `unknown`, or `boundary`.
+- Natural rock joins through different ore deposits. Constructed-to-natural contacts and unlike constructed materials retain seams through `abutment`.
+- Doors save a frame axis and derive the perpendicular passage axis. The frame does not rotate merely because neighboring structures later change.
+- Stairs report `up`, `down`, or `both`. Ramps report entry, middle, exit, and upper-landing segments.
+- Room and compartment boundaries are overlay data and do not alter structural masks.
+- Unknown neighbors produce capped `unknown` edges. Renderers must not infer or reveal the hidden neighbor.
+- Stable coordinate-based variation selects cosmetic variants without storing presentation state in saves.
+- Fluids will use the same relation contract when tile-level liquid state exists; this pass reserves the semantic layer without pretending fluid simulation is implemented.
+
 ## Readability Requirements
 
 At the default operational zoom, the player should be able to distinguish:
@@ -265,7 +281,6 @@ The sprite renderer must preserve all interaction and information available in g
 This specification does not yet define:
 
 - Exact sprite filenames or atlas layout
-- Terrain adjacency and autotile bitmasks
 - Canvas draw order and occlusion
 - Final animation frame counts
 - Four-way versus eight-way authored facing
