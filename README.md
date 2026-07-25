@@ -40,6 +40,7 @@ The game is currently designed for desktop play.
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
+- `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
