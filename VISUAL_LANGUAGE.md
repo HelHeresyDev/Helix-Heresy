@@ -272,6 +272,8 @@ Both the glyph renderer and future Canvas renderer consume the same transient, v
 - CSS classes, DOM datasets, Canvas objects, draw calls, image instances, and asset paths are not scene data.
 - The scene is never saved. Simulation state and observation memory remain authoritative.
 
+The first Canvas prototype is available as a transient Debug renderer while the DOM map remains the default and complete interaction surface. It draws only visible `MapScene` cells and unique entities, uses semantic presentation rules rather than CSS classes, scales its backing surface for the device pixel ratio, and redraws through invalidated animation frames. This prototype is deliberately glyph-based. It validates the renderer boundary before sprite loading, animation, pointer hit testing, or final layer composition are introduced.
+
 ## Rendering And Asset Boundaries
 
 - Simulation state does not contain Canvas objects, DOM nodes, image instances, or draw commands.

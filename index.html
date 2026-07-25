@@ -534,6 +534,15 @@
           </div>
 
           <div class="debug-menu-panel" data-debug-menu-panel="performance" role="tabpanel" hidden>
+            <div class="subpanel" data-map-renderer-debug-panel="true">
+              <div class="subpanel-title">Map Renderer Prototype</div>
+              <p id="mapRendererStatus" class="journal-meta">DOM map active.</p>
+              <div class="policy-button-row">
+                <button id="mapRendererDomBtn" type="button" aria-pressed="true">DOM Map</button>
+                <button id="mapRendererCanvasBtn" type="button" aria-pressed="false">Canvas Map</button>
+              </div>
+              <p class="journal-meta">Canvas mouse interaction is intentionally unavailable until the camera and hit-testing parity passes. Keyboard map controls remain active.</p>
+            </div>
             <div class="subpanel" data-simulation-performance-panel="true">
               <div class="subpanel-title">Simulation Performance</div>
               <p id="simulationPerformanceSummary" class="journal-meta">No simulation samples yet.</p>
@@ -601,6 +610,7 @@
     <script src="creature-spatial.js"></script>
     <script src="terrain-connectivity.js"></script>
     <script src="map-visual-state.js"></script>
+    <script src="canvas-map-renderer.js"></script>
     <script src="navigation.js"></script>
     <script src="vertical-systems.js"></script>
     <script src="simulation-runtime.js"></script>
