@@ -3213,6 +3213,10 @@
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
   }
+  const MapVisualState = window.HelixMapVisualState;
+  if (!MapVisualState) {
+    throw new Error("HelixMapVisualState must load before app.js");
+  }
   const Navigation = window.HelixNavigation;
   if (!Navigation) {
     throw new Error("HelixNavigation must load before app.js");
@@ -4687,6 +4691,8 @@
   function installDebugHooks() {
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
+      mapSceneSnapshot: () => buildLabMapView().scene,
+      validateMapScene: () => MapVisualState.validateScene(buildLabMapView().scene),
       mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
       terrainConnectivitySnapshot: (cell, options = {}) => {
         const map = ensureLabMap();
@@ -41650,7 +41656,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return;
       }
       const key = mapCellKey(cell);
-      const entry = assignments.get(key) || { symbols: [], labels: [], classNames: new Set(), targets: [] };
+      const entry = assignments.get(key) || { cell: cleanMapCell(cell), symbols: [], labels: [], classNames: new Set(), targets: [] };
       if (symbol) {
         entry.symbols.push(symbol);
       }
@@ -41786,6 +41792,273 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addCell(rubble.cell, "r", `Rubble: ${summary}; from ${rubble.source}`, ["rubble-object-cell"]);
     }
     return assignments;
+  }
+
+  function mapSceneKnowledgeForRoom(roomId, options = {}) {
+    if (options.debug) {
+      return { state: "debug", observedAt: state.clock, confidence: 1, source: "debug" };
+    }
+    if (scientistObservesRoom(roomId)) {
+      return { state: "current", observedAt: state.clock, confidence: 1, source: "direct observation" };
+    }
+    const room = roomById(roomId);
+    const observation = normalizeRoomObservation(room?.observation || state.roomObservations?.[roomId]);
+    if (!observation) {
+      return { state: "unknown", observedAt: null, confidence: 0, source: "no observation" };
+    }
+    return {
+      state: "stale",
+      observedAt: observation.observedAt,
+      confidence: roomObservationReliabilityScore(room, observation) / 100,
+      source: "room observation"
+    };
+  }
+
+  function mapSceneKnowledgeForSlime(slime, observedNow, options = {}) {
+    if (options.debug) {
+      return { state: "debug", observedAt: state.clock, confidence: 1, source: "debug" };
+    }
+    if (observedNow) {
+      return { state: "current", observedAt: state.clock, confidence: 1, source: "direct observation" };
+    }
+    const record = creatureRecordForSlime(slime);
+    return {
+      state: record ? "stale" : "unknown",
+      observedAt: record?.lastObservedAt ?? null,
+      confidence: record ? clamp(1 - creatureRecordAgeSeconds(record) / CREATURE_UNKNOWN_STALE_SECONDS, 0.15, 0.85) : 0,
+      source: record ? "creature record" : "no observation"
+    };
+  }
+
+  function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
+    const targetKey = selectionKey(target);
+    const anchorFallback = footprintCells[0] || null;
+    if (target.kind === "fixture") {
+      const fixture = fixtureById(target.id);
+      const def = fixtureDef(fixture);
+      if (!fixture || !def) return null;
+      const roomId = labMapCellRoomId(fixture.origin);
+      const knowledge = mapSceneKnowledgeForRoom(roomId, options);
+      const current = ["current", "debug"].includes(knowledge.state);
+      return {
+        id: targetKey,
+        kind: "fixture",
+        category: "fixture",
+        subtype: def.id,
+        target,
+        anchorCell: fixture.origin,
+        footprintCells,
+        orientation: fixture.rotation,
+        pose: "installed",
+        activity: current ? { id: fixture.operationalState, label: titleCase(fixture.operationalState) } : null,
+        condition: current ? { ratio: clamp(fixture.condition / 100, 0, 1), band: structureConditionBand(fixture.condition).toLowerCase() } : null,
+        knowledge,
+        visual: { key: `fixture.${def.id}`, glyph: def.glyph || "F", recipeKey: `fixture:${def.id}:${fixture.rotation}` },
+        blocking: def.collision === "blocking"
+      };
+    }
+    if (target.kind === "container") {
+      const container = containerById(target.id);
+      if (!container) return null;
+      const knowledge = mapSceneKnowledgeForRoom(container.roomId, options);
+      const current = ["current", "debug"].includes(knowledge.state);
+      return {
+        id: targetKey,
+        kind: "container",
+        category: "fixture",
+        subtype: container.typeId,
+        target,
+        anchorCell: objectMapCell(container) || anchorFallback,
+        footprintCells,
+        orientation: Number(container.rotation) || 0,
+        pose: "installed",
+        activity: current ? { id: container.accessState || "closed", label: containerAccessLabel(container) } : null,
+        condition: current ? { ratio: clamp(container.condition / 100, 0, 1), band: containerConditionLabel(container).toLowerCase() } : null,
+        knowledge,
+        visual: { key: `container.${container.typeId}`, glyph: "C", recipeKey: `container:${container.typeId}` },
+        blocking: true
+      };
+    }
+    if (target.kind === "itemStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === target.id);
+      if (!stack) return null;
+      const knowledge = scientistObservesRoom(stack.roomId) || options.debug
+        ? { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: options.debug ? "debug" : "direct observation" }
+        : { state: "stale", observedAt: stack.observedAt, confidence: 0.65, source: "inventory record" };
+      return {
+        id: targetKey,
+        kind: "itemStack",
+        category: stack.form === "spill" ? "hazard" : "item",
+        subtype: stack.form,
+        target,
+        anchorCell: stack.cell,
+        footprintCells,
+        pose: stack.form,
+        activity: null,
+        condition: null,
+        knowledge,
+        visual: {
+          key: stack.form === "spill" ? "item.spill" : stack.form === "receptacle" ? "item.receptacle" : "item.stack",
+          glyph: stack.form === "spill" ? "~" : stack.form === "receptacle" ? "v" : "P",
+          recipeKey: `item:${stack.section}:${stack.key}:${stack.form}`
+        },
+        blocking: false
+      };
+    }
+    if (target.kind === "slime") {
+      const slime = findSlime(target.id);
+      if (!slime || slime.status === "dead" || !slimeIsUncontained(slime)) return null;
+      const observedNow = mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options);
+      const record = creatureRecordForSlime(slime);
+      const knowledge = mapSceneKnowledgeForSlime(slime, observedNow, options);
+      const activity = observedNow || options.debug
+        ? { id: slime.roomActivity?.type || slime.status, label: slimeActivityLabel(slime).replace(/^Activity:\s*/i, "") }
+        : record ? { id: "lastKnown", label: record.lastKnownActivity } : null;
+      return {
+        id: targetKey,
+        kind: "slime",
+        category: "actor",
+        subtype: "slime",
+        target,
+        anchorCell: observedNow || options.debug ? objectMapCell(slime) : record?.lastKnownMapCell || anchorFallback,
+        footprintCells,
+        orientation: observedNow || options.debug ? slime.navigationOrientation : record?.lastKnownOrientation,
+        facing: null,
+        pose: activity?.id || "quiescent",
+        activity,
+        motion: observedNow || options.debug ? {
+          state: slime.autonomousMovement?.status || "stationary",
+          destination: cleanMapCell(slime.autonomousMovement?.destination)
+        } : null,
+        condition: observedNow || options.debug ? {
+          ratio: clamp(slimeStat(slime, "bodyIntegrity").current / 100, 0, 1),
+          band: slimeStatBand("bodyIntegrity", slimeStat(slime, "bodyIntegrity")).toLowerCase()
+        } : null,
+        knowledge,
+        visual: {
+          key: knowledge.state === "stale" ? "actor.slime.stale" : "actor.slime",
+          glyph: "L",
+          recipeKey: `slime:${slime.id}:${knowledge.observedAt ?? "unknown"}`
+        },
+        blocking: navigationFootprintForActor(slime).width * navigationFootprintForActor(slime).height > 1
+      };
+    }
+    if (target.kind === "corpse") {
+      const corpse = findCorpse(target.id);
+      if (!corpse || corpse.storage === "container") return null;
+      const knowledge = mapSceneKnowledgeForRoom(corpse.roomId || MAIN_ROOM_ID, options);
+      const current = ["current", "debug"].includes(knowledge.state);
+      return {
+        id: targetKey,
+        kind: "corpse",
+        category: "remains",
+        subtype: corpse.state || "corpse",
+        target,
+        anchorCell: objectMapCell(corpse) || anchorFallback,
+        footprintCells,
+        orientation: corpse.navigationOrientation || corpse.orientation || "horizontal",
+        pose: "prone",
+        activity: null,
+        condition: current ? { ratio: clamp(corpse.remainingMassRatio ?? 1, 0, 1), band: corpseStateLabel(corpse).toLowerCase() } : null,
+        knowledge,
+        visual: { key: knowledge.state === "stale" ? "corpse.remains.stale" : "corpse.remains", glyph: "R", recipeKey: `corpse:${corpse.sourceSlimeId || corpse.id}` },
+        blocking: false
+      };
+    }
+    return null;
+  }
+
+  function labMapSceneEntitySeeds(map, objectAssignments, options = {}) {
+    const grouped = new Map();
+    const add = (target, cell) => {
+      const key = selectionKey(target);
+      if (!key) return;
+      const entry = grouped.get(key) || { target, cells: [] };
+      entry.cells.push(cell);
+      grouped.set(key, entry);
+    };
+    const physicalTargetAllowed = (target, classes) => {
+      if (target.kind === "fixture") return classes.has("fixture-object-cell");
+      if (target.kind === "container") return classes.has("container-object-cell");
+      if (target.kind === "itemStack") return classes.has("physical-item-stack-cell");
+      if (target.kind === "slime") return classes.has("living-object-cell");
+      if (target.kind === "corpse") return classes.has("corpse-object-cell");
+      return false;
+    };
+    for (const entry of objectAssignments.values()) {
+      const cell = cleanMapCell(entry.cell);
+      if (!cell) continue;
+      for (const target of entry.targets || []) {
+        if (physicalTargetAllowed(target, entry.classNames)) add(target, cell);
+      }
+      if (!(entry.targets || []).some((target) => physicalTargetAllowed(target, entry.classNames)) && entry.symbols?.length) {
+        const kind = entry.classNames.has("rubble-object-cell") ? "rubble" : entry.classNames.has("floor-stockpile-object-cell") ? "materialPile" : "mapArtifact";
+        const id = `${kind}:${mapCellKey(cell)}`;
+        grouped.set(id, {
+          artifact: {
+            id,
+            kind,
+            category: "item",
+            subtype: kind,
+            anchorCell: cell,
+            footprintCells: [cell],
+            pose: "stationary",
+            knowledge: mapSceneKnowledgeForRoom(labMapCellRoomId(cell, map), options),
+            visual: { key: `item.${kind}`, glyph: entry.symbols[0] || "P", recipeKey: id },
+            blocking: false
+          }
+        });
+      }
+    }
+    const entities = [...grouped.values()].map((entry) =>
+      entry.artifact || mapSceneEntitySeedForTarget(entry.target, MapVisualState.uniqueCells(entry.cells), options)
+    ).filter(Boolean);
+    const scientistCell = scientistMapCell();
+    const scientistHealthVital = scientistVital("health");
+    const scientistHealthRatio = clamp(scientistHealthVital.current / Math.max(1, scientistHealthVital.max), 0, 1);
+    entities.push({
+      id: "scientist:scientist",
+      kind: "scientist",
+      category: "actor",
+      subtype: "human",
+      target: { kind: "scientist", id: "scientist" },
+      anchorCell: scientistCell,
+      footprintCells: footprintVolumeCells(scientistCell, navigationFootprintForActor(state.scientist), state.scientist.navigationOrientation),
+      orientation: state.scientist.navigationOrientation || "horizontal",
+      facing: null,
+      pose: scientistMoveTask() ? "moving" : "idle",
+      activity: { id: scientistMoveTask() ? "moving" : "idle", label: scientistMoveTask()?.label || "Idle" },
+      motion: scientistMoveTask() ? { state: "moving", destination: cleanMapCell(scientistMoveTask().data?.destinationCell) } : null,
+      condition: {
+        ratio: scientistHealthRatio,
+        band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy"
+      },
+      knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "self" },
+      visual: { key: "actor.scientist", glyph: "S", recipeKey: "scientist:self" },
+      blocking: false
+    });
+    for (const door of Object.values(map.doors || {})) {
+      const stateDoor = doorFixtureState(door) || door;
+      const knowledge = mapSceneKnowledgeForRoom(door.roomIds[0] || labMapCellRoomId(door.cell, map), options);
+      const current = ["current", "debug"].includes(knowledge.state);
+      entities.push({
+        id: `door:${door.key}`,
+        kind: "door",
+        category: "structure",
+        subtype: stateDoor.typeId || "door",
+        target: { kind: "door", key: door.key },
+        anchorCell: door.cell,
+        footprintCells: [door.cell],
+        orientation: door.frameAxis,
+        pose: current ? doorMapClassName(stateDoor).replace(/^door-/, "") : "remembered",
+        activity: null,
+        condition: current ? { ratio: clamp(doorCondition(stateDoor) / 100, 0, 1), band: doorConditionLabel(stateDoor).toLowerCase() } : null,
+        knowledge,
+        visual: { key: current ? `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}` : "door.remembered", glyph: current ? doorMapGlyph(stateDoor) : "d", recipeKey: `door:${stateDoor.typeId || "door"}:${door.frameAxis}` },
+        blocking: current ? stateDoor.state !== DOOR_STATE_OPEN : true
+      });
+    }
+    return entities;
   }
 
   function containerInteriorMapTargets(container) {
@@ -46588,6 +46861,54 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "object.unknown";
   }
 
+  const MAP_OBJECT_SEMANTIC_TAG_BY_CLASS = Object.freeze({
+    "fixture-object-cell": "fixture",
+    "blocking-object-cell": "blocking",
+    "fixture-access-cell": "interactionPort",
+    "physical-item-stack-cell": "itemStack",
+    "floor-stockpile-object-cell": "floorStored",
+    "spill-object-cell": "spill",
+    "container-object-cell": "container",
+    "collection-station-object-cell": "collectionStation",
+    "contained-object-cell": "contained",
+    "living-object-cell": "living",
+    "living-object-body-cell": "livingBodySegment",
+    "corpse-object-cell": "corpse",
+    "corpse-object-body-cell": "corpseBodySegment",
+    "rubble-object-cell": "rubble"
+  });
+  const MAP_OBJECT_DOM_CLASS_BY_TAG = Object.freeze(Object.fromEntries(
+    Object.entries(MAP_OBJECT_SEMANTIC_TAG_BY_CLASS).map(([className, tag]) => [tag, className])
+  ));
+
+  function mapObjectSemanticTags(classNames) {
+    return [...new Set([...(classNames || [])].map((className) => MAP_OBJECT_SEMANTIC_TAG_BY_CLASS[className]).filter(Boolean))];
+  }
+
+  function mapObjectDomClasses(tags) {
+    return [...new Set((tags || []).map((tag) => MAP_OBJECT_DOM_CLASS_BY_TAG[tag]).filter(Boolean))];
+  }
+
+  function mapOverlaySemanticStates(entry) {
+    return [...new Set([...(entry?.classNames || [])].map((className) => {
+      if (className === "map-overlay-debug-value") return "debugValue";
+      if (className === "incident-stale") return "stale";
+      if (className === "incident-acknowledged") return "acknowledged";
+      if (className === "incident-stack-cell") return "stacked";
+      return className.startsWith("map-overlay-") ? className.slice("map-overlay-".length) : "";
+    }).filter(Boolean))];
+  }
+
+  function mapOverlayDomClasses(states) {
+    return [...new Set((states || []).map((stateName) => {
+      if (stateName === "debugValue") return "map-overlay-debug-value";
+      if (stateName === "stale") return "incident-stale";
+      if (stateName === "acknowledged") return "incident-acknowledged";
+      if (stateName === "stacked") return "incident-stack-cell";
+      return `map-overlay-${stateName}`;
+    }))];
+  }
+
   function labMapCellVisualView({ base, door, object, incident, anchor }) {
     if (object) {
       return {
@@ -46677,14 +46998,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       frameAxis: door.frameAxis,
       passageAxis: door.passageAxis,
       connectivity: terrainConnectivity.door,
-      stateClass: doorMapClassName(stateDoor),
+      state: doorMapClassName(stateDoor).replace(/^door-/, ""),
       glyph: doorMapGlyph(stateDoor),
       spriteKey: `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}`
     } : null;
     const semanticObject = visibleObjectEntry ? {
       symbols: [...(visibleObjectEntry.symbols || [])],
       labels: [...(visibleObjectEntry.labels || [])],
-      styleTokens: [...(visibleObjectEntry.classNames || [])],
+      tags: mapObjectSemanticTags(visibleObjectEntry.classNames),
       targets: [...(visibleObjectEntry.targets || [])],
       blocking: Boolean(visibleObjectEntry.classNames?.has?.("blocking-object-cell")),
       spriteKey: labMapObjectSpriteKey(visibleObjectEntry)
@@ -46708,7 +47029,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       source: visibleOverlayEntry.source || "",
       value: visibleOverlayEntry.value ?? null,
       title: visibleOverlayEntry.title || "",
-      styleTokens: [...(visibleOverlayEntry.classNames || [])],
+      states: mapOverlaySemanticStates(visibleOverlayEntry),
       target: visibleOverlayEntry.target || null
     } : null;
     const anchor = anchorRoom ? {
@@ -46831,7 +47152,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (cellView.base.attackTransmission) classNames.push("attack-transmitting-breach");
     }
     if (cellView.door) {
-      classNames.push("door-cell", cellView.door.stateClass);
+      classNames.push("door-cell", `door-${cellView.door.state}`);
       dataset.mapDoor = cellView.door.key;
     }
     if (cellView.route) {
@@ -46856,7 +47177,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dataset.mapIncidentCount = String(cellView.incident.count);
     }
     if (cellView.overlay) {
-      classNames.push("map-overlay-cell", `map-overlay-${cellView.overlay.id}`, ...cellView.overlay.styleTokens);
+      classNames.push("map-overlay-cell", `map-overlay-${cellView.overlay.id}`, ...mapOverlayDomClasses(cellView.overlay.states));
       dataset.mapOverlay = cellView.overlay.id;
       if (cellView.overlay.label) {
         dataset.mapOverlayLabel = cellView.overlay.label;
@@ -46894,7 +47215,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (cellView.scientist) {
       classNames.push("scientist-cell");
     } else if (cellView.object) {
-      classNames.push("object-cell", ...cellView.object.styleTokens);
+      classNames.push("object-cell", ...mapObjectDomClasses(cellView.object.tags));
     } else if (cellView.anchor) {
       classNames.push("room-anchor");
     }
@@ -46905,6 +47226,103 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       text: cellView.visual.glyph,
       clickTarget: cellView.target
     };
+  }
+
+  function mapSceneEnvironmentAtCell(cell, roomId, known, options = {}) {
+    if (!known) {
+      return { knowledge: { state: "unknown", observedAt: null, confidence: 0, source: "unknown terrain" }, values: null, bands: null };
+    }
+    const environment = options.environments?.[mapCellKey(cell)] || null;
+    if (!environment) {
+      return { knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "solid terrain" }, values: null, bands: null };
+    }
+    const room = roomById(roomId);
+    const directlyObserved = options.debug || scientistObservesRoom(roomId) || sameMapCell(scientistMapCell(), cell);
+    if (directlyObserved) {
+      const values = {
+        temperatureC: environment.temperatureC,
+        lightLevel: environment.lightLevel,
+        humidityPercent: environment.humidity,
+        manaDensityThaumsM3: environment.manaDensity,
+        airborne: { ...environment.airborne },
+        chemicalTraces: { ...environment.chemicalTraces }
+      };
+      return {
+        knowledge: {
+          state: options.debug ? "debug" : "current",
+          observedAt: state.clock,
+          confidence: 1,
+          source: options.debug ? "debug" : "direct observation"
+        },
+        values,
+        bands: null
+      };
+    }
+    const observation = normalizeRoomObservation(room?.observation || state.roomObservations?.[roomId]);
+    if (!observation) {
+      return { knowledge: { state: "unknown", observedAt: null, confidence: 0, source: "no observation" }, values: null, bands: null };
+    }
+    return {
+      knowledge: {
+        state: "stale",
+        observedAt: observation.observedAt,
+        confidence: roomObservationReliabilityScore(room, observation) / 100,
+        source: "room observation"
+      },
+      values: observation.contaminationValue === null ? null : { contamination: observation.contaminationValue },
+      bands: {
+        exposure: observation.exposureBand,
+        contamination: observation.contaminationBand
+      }
+    };
+  }
+
+  function mapSceneEffectSeeds(visibleIncidents) {
+    const effects = [];
+    const seen = new Set();
+    for (const entry of visibleIncidents.values()) {
+      for (const incident of entry.alerts || []) {
+        if (seen.has(incident.id)) continue;
+        seen.add(incident.id);
+        const cell = incidentCell(incident.roomId, incident.cell);
+        if (!cell) continue;
+        effects.push({
+          id: `incident:${incident.id}`,
+          kind: incident.type === "combat" ? "combatIncident" : "incident",
+          cells: [cell],
+          knowledge: {
+            state: incident.status === "stale" ? "stale" : "current",
+            observedAt: incident.updatedAt ?? incident.createdAt ?? state.clock,
+            confidence: incident.status === "stale" ? 0.6 : 1,
+            source: "incident record"
+          },
+          severity: incident.severity,
+          state: incident.status,
+          visualKey: `effect.incident.${incident.type}.${incident.severity}`,
+          target: { kind: "incident", id: incident.id },
+          label: incident.label
+        });
+      }
+    }
+    return effects;
+  }
+
+  function mapSceneOverlaySeeds(overlayAssignments) {
+    const overlays = [];
+    for (const [key, entry] of overlayAssignments.entries()) {
+      const [x, y, z] = key.split(",").map(Number);
+      overlays.push({
+        id: `overlay:${entry.overlayId}:${key}`,
+        kind: entry.overlayId,
+        cells: [{ x, y, z }],
+        knowledge: { state: entry.source === "debug" ? "debug" : "current", observedAt: state.clock, confidence: 1, source: entry.source || "overlay" },
+        visualKey: `overlay.${entry.overlayId}`,
+        value: entry.value ?? null,
+        label: entry.label || "",
+        target: entry.target || null
+      });
+    }
+    return overlays;
   }
 
   function buildLabMapView(map = ensureLabMap()) {
@@ -46929,6 +47347,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const cursorCell = mapCursorCell(map);
     ensureMapCameraIncludesCell(cursorCell);
     const viewport = mapViewportForUi(map);
+    const sceneBounds = MapVisualState.overscanBounds(viewport, map, 1);
     const anchors = labMapAnchorAssignments(map);
     const knownCellKeys = labMapKnownCellKeys(map, { fullReveal });
     const excavatedKeys = labMapExcavatedCellKeys(map);
@@ -46939,10 +47358,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       excavatedKeys,
       compartmentInference
     });
-    const cells = [];
+    const sceneEnvironments = ensureTileEnvironments(map);
+    const sceneCells = [];
 
-    for (let y = viewport.y; y < viewport.y + viewport.height; y += 1) {
-      for (let x = viewport.x; x < viewport.x + viewport.width; x += 1) {
+    for (let y = sceneBounds.y; y < sceneBounds.y + sceneBounds.height; y += 1) {
+      for (let x = sceneBounds.x; x < sceneBounds.x + sceneBounds.width; x += 1) {
         const cell = { x, y, z: viewport.z };
         const key = mapCellKey(cell);
         const known = labMapCellKnown(cell, map, knownCellKeys, excavatedKeys);
@@ -46965,9 +47385,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           terrainContext
         });
         cellView.compartmentId = compartmentInference.cellToCompartment.get(key) || "";
-        cells.push(cellView);
+        cellView.environment = mapSceneEnvironmentAtCell(cell, cellView.roomId, known, {
+          map,
+          debug: fullReveal,
+          environments: sceneEnvironments
+        });
+        sceneCells.push(cellView);
       }
     }
+
+    const scene = MapVisualState.buildScene({
+      clock: state.clock,
+      perspective: { kind: fullReveal ? "debug" : "player", observerId: "scientist" },
+      viewport,
+      queryBounds: sceneBounds,
+      mapSize: {
+        width: map.width,
+        height: map.height,
+        tileSizeM: map.tileSizeM,
+        layerHeightM: map.layerHeightM
+      },
+      revisions: {
+        topology: Number(state.navigation?.topologyRevision) || 0,
+        fixtures: Number(state.navigation?.fixtureRevision) || 0,
+        doors: Number(state.navigation?.doorRevision) || 0,
+        access: Number(state.navigation?.accessRevision) || 0,
+        simulationClock: state.clock
+      },
+      cells: sceneCells,
+      entities: labMapSceneEntitySeeds(map, objectAssignments, { debug: fullReveal }),
+      effects: mapSceneEffectSeeds(visibleIncidents),
+      overlays: mapSceneOverlaySeeds(overlayAssignments),
+      selection: { target: selectedTarget }
+    });
+    const cells = MapVisualState.cellsWithinBounds(scene.cells, viewport);
 
     return {
       width: viewport.width,
@@ -47009,6 +47460,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         cell: { ...connector.cell },
         compartmentIds: [...connector.compartmentIds]
       })),
+      scene,
       cells,
       legendItems: mapOverlayLegendItems(overlay.id)
     };
