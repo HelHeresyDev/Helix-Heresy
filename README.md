@@ -4,7 +4,7 @@ Helix Heresy is a desktop-focused static browser prototype about forbidden creat
 
 The current build starts with slimes as the simplest creature type. Players edit 26-base genomes, synthesize living samples, discover traits through tests, manage slime reproduction, manage corpses and Suspicion, and assign creatures to early lab jobs.
 
-For story background, long-term systems, current design direction, and open questions, see [DESIGN_BIBLE.md](DESIGN_BIBLE.md).
+For story background, long-term systems, current design direction, and open questions, see [DESIGN_BIBLE.md](DESIGN_BIBLE.md). The approved map projection, sprite scale, modular creature assembly, and readability rules live in [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md).
 
 ## Current Prototype
 
@@ -41,6 +41,7 @@ The game is currently designed for desktop play.
 - `styles.css` - Visual design, layout, and responsive behavior.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
+- `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
 - `tests/` - Browser automation experiments and smoke tests.
