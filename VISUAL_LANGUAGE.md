@@ -257,6 +257,21 @@ At strategic zoom, the player should still be able to locate actors, serious haz
 
 Text and exact values remain in HTML inspectors, menus, tooltips, and records. The map communicates category, location, state, and urgency.
 
+## Map Scene Contract
+
+Both the glyph renderer and future Canvas renderer consume the same transient, versioned `MapScene`.
+
+- The scene covers the visible viewport plus a one-tile overscan margin.
+- Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, orientation, vertical extent, and semantic visual keys.
+- Contained occupants, stations, and other selectable relationships belong in the interaction index unless they are independently visible physical entities.
+- Entity presentation fields reserve facing, pose, activity, motion, condition, and modular recipe keys without defining final animation frames.
+- Knowledge is explicit: `current`, `stale`, `uncertain`, `unknown`, or `debug`.
+- Environment records contain values only when the perspective is permitted to know them. Stale room observations carry only remembered values and bands.
+- Incidents and combat markers are effects. Management coloration and diagnostic readings are overlays.
+- Selection identifies the semantic target and its complete selected footprint.
+- CSS classes, DOM datasets, Canvas objects, draw calls, image instances, and asset paths are not scene data.
+- The scene is never saved. Simulation state and observation memory remain authoritative.
+
 ## Rendering And Asset Boundaries
 
 - Simulation state does not contain Canvas objects, DOM nodes, image instances, or draw commands.

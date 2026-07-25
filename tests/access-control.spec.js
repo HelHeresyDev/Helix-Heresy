@@ -57,7 +57,7 @@ test('named access areas are assigned and painted through the map overlay', asyn
   const map = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
   const painted = map.cells.find((cell) => cell.cell.x === target.x && cell.cell.y === target.y);
   expect(painted.overlay).toMatchObject({ id: 'access' });
-  expect(painted.overlay.styleTokens).toContain('map-overlay-access-forbidden');
+  expect(painted.overlay.states).toContain('access-forbidden');
 });
 
 test('direct scientist movement warns and records an explicit restriction override', async ({ page }) => {
