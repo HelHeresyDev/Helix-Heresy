@@ -4,42 +4,46 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Optional visual QC environment variables:
  *
- * VISUAL_MONITOR=2
- *   Moves headed Chromium windows to the second monitor, assuming monitor 2
- *   is arranged to the right of monitor 1 in Windows display settings.
- *
- * VISUAL_WINDOW_X=2560
+ * VISUAL_WINDOW_X=1920
  * VISUAL_WINDOW_Y=0
- *   Override the headed browser window position.
- *   Use a negative X value if monitor 2 is arranged to the left.
+ *   Request a headed browser window position. Coordinates depend on the
+ *   Ubuntu display layout; use a negative X value for a monitor on the left.
  *
- * VISUAL_WINDOW_WIDTH=2560
- * VISUAL_WINDOW_HEIGHT=1440
+ * VISUAL_WINDOW_WIDTH=1600
+ * VISUAL_WINDOW_HEIGHT=1000
  *   Optional headed browser window size hints.
  *
  * VISUAL_MAXIMIZED=1
  *   Starts the headed Chromium window maximized.
  *
- * Example PowerShell:
- *   $env:VISUAL_MONITOR="2"
- *   $env:VISUAL_PAUSE_MS=8000
- *   npx playwright test tests/bedroom-doors-pass1.spec.js --project=chromium --headed
+ * Example Bash:
+ *   VISUAL_WINDOW_X=1920 VISUAL_WINDOW_Y=0 npm run test:headed -- tests/canvas-map-renderer.spec.js
+ *
+ * Some Wayland compositors may ignore requested window positions. Running
+ * VS Code under XWayland or moving the window manually remains a valid fallback.
  */
 
-const isVisualMonitorMode = process.env.VISUAL_MONITOR === '2' || Boolean(process.env.VISUAL_WINDOW_X);
-const visualWindowX = process.env.VISUAL_WINDOW_X ?? (process.env.VISUAL_MONITOR === '2' ? '2560' : '0');
+const visualWindowVariables = [
+  'VISUAL_WINDOW_X',
+  'VISUAL_WINDOW_Y',
+  'VISUAL_WINDOW_WIDTH',
+  'VISUAL_WINDOW_HEIGHT',
+  'VISUAL_MAXIMIZED',
+];
+const isVisualWindowMode = visualWindowVariables.some((name) => process.env[name] !== undefined);
+const visualWindowX = process.env.VISUAL_WINDOW_X ?? '0';
 const visualWindowY = process.env.VISUAL_WINDOW_Y ?? '0';
-const visualWindowWidth = process.env.VISUAL_WINDOW_WIDTH ?? '2560';
-const visualWindowHeight = process.env.VISUAL_WINDOW_HEIGHT ?? '1440';
+const visualWindowWidth = process.env.VISUAL_WINDOW_WIDTH ?? '1600';
+const visualWindowHeight = process.env.VISUAL_WINDOW_HEIGHT ?? '1000';
 const shouldMaximizeVisualWindow = process.env.VISUAL_MAXIMIZED !== '0';
 
 // Desktop Chrome device settings include deviceScaleFactor.
 // Playwright does not allow deviceScaleFactor when viewport is null, so visual
-// monitor mode intentionally strips viewport/deviceScaleFactor and lets the
+// visual window mode intentionally strips viewport/deviceScaleFactor and lets the
 // real headed browser window define the viewport.
 const { viewport, deviceScaleFactor, ...desktopChromeWithoutViewport } = devices['Desktop Chrome'];
 
-const visualChromiumLaunchOptions = isVisualMonitorMode
+const visualChromiumLaunchOptions = isVisualWindowMode
   ? {
       args: [
         `--window-position=${visualWindowX},${visualWindowY}`,
@@ -49,7 +53,7 @@ const visualChromiumLaunchOptions = isVisualMonitorMode
     }
   : undefined;
 
-const chromiumUse = isVisualMonitorMode
+const chromiumUse = isVisualWindowMode
   ? {
       ...desktopChromeWithoutViewport,
       viewport: null,
@@ -67,8 +71,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* Keep local browser load predictable; CI remains fully serial. */
+  workers: process.env.CI ? 1 : 4,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

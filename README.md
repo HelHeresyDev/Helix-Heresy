@@ -23,17 +23,104 @@ For story background, long-term systems, current design direction, and open ques
 
 Trait outcomes and gene mappings are intentionally hidden during normal play so they can be discovered experimentally.
 
-## Running Locally
+## Ubuntu and VS Code Setup
 
-No build step is required.
+The project is now developed on Ubuntu in Visual Studio Code. It requires Node.js
+20 or newer and npm for the automated tests; the game itself remains a static
+browser application with no build step.
 
-Open `index.html` in a browser:
+From the repository directory:
 
-```powershell
-start .\index.html
+```bash
+code .
+npm ci
+npx playwright install --with-deps chromium
 ```
 
+The final command installs Chromium and the Ubuntu system libraries used by the
+default local test suite. It may ask for the Ubuntu account password through
+`sudo`. To run the optional Firefox and WebKit projects too, install every
+Playwright browser with:
+
+```bash
+npx playwright install --with-deps
+```
+
+No VS Code extension is required. VS Code's built-in JavaScript, terminal, Git,
+and debugging support are sufficient. A Playwright testing extension is
+optional if a graphical test explorer is preferred.
+
+## Running Locally
+
+For the quickest launch, open the static page in the Ubuntu default browser:
+
+```bash
+xdg-open index.html
+```
+
+Alternatively, serve the directory from the VS Code terminal:
+
+```bash
+python3 -m http.server 8000
+```
+
+Then open `http://localhost:8000`. The local-server option is useful when
+testing browser features that are more restricted on `file://` pages. Stop the
+server with `Ctrl+C`.
+
 The game is currently designed for desktop play.
+
+## Testing
+
+Run the normal 31-test Chromium smoke suite:
+
+```bash
+npm test
+```
+
+Local Playwright runs use up to four workers so the simulation-heavy browser
+tests do not overwhelm the development machine. CI runs them serially.
+
+Run the complete 182-test Chromium regression suite before a major feature is
+merged:
+
+```bash
+npm run test:regression
+```
+
+The smoke tier covers simulation scheduling, map navigation, renderer-neutral
+scene state, Canvas behavior, terrain connectivity, and UI-state persistence.
+The regression tests remain in the repository because most protect distinct
+game systems; they are no longer part of every development check.
+
+Other useful commands are:
+
+```bash
+npm run test:smoke
+npm run test:headed
+npm run test:ui
+npm run test:all
+npm run test:report
+```
+
+`test:all` runs the complete suite in Chromium, Firefox, and WebKit and is
+reserved for cross-browser or milestone validation.
+
+Pass a smoke test filename after `--` to run a focused smoke check:
+
+```bash
+npm test -- tests/canvas-map-renderer.spec.js
+```
+
+Use `test:regression` to focus a test outside the smoke tier:
+
+```bash
+npm run test:regression -- tests/access-control.spec.js
+```
+
+The tests resolve `index.html` from the repository directory with portable Node
+paths, so they do not depend on a Windows drive letter or a particular Linux
+mount point.
 
 ## Project Files
 
@@ -47,11 +134,16 @@ The game is currently designed for desktop play.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
+- `playwright.smoke.config.js` - Fast everyday Chromium test selection.
 - `tests/` - Browser automation experiments and smoke tests.
 
 ## Saves
 
 Helix Heresy stores local progress in browser `localStorage`. Launching the game opens a new/load choice instead of automatically loading the last save. Saves can also be exported and imported as JSON files from inside the game.
+
+Browser-local saves from the former Windows installation do not automatically
+appear in a different Ubuntu browser profile. Use the game's JSON export on
+Windows and Import on Ubuntu if an old prototype save needs to be transferred.
 
 ## Development Notes
 
@@ -60,3 +152,5 @@ Helix Heresy stores local progress in browser `localStorage`. Launching the game
 - Favor small commits after meaningful feature passes or bug fixes.
 - This is a prototype, so systems may be renamed or reshaped as the design becomes clearer.
 - Do not update the changelog for every prototype tweak; reserve it for milestone-ready versions.
+- Linux paths are case-sensitive. Keep filename capitalization identical between
+  manifests, HTML references, JavaScript imports, and files on disk.
