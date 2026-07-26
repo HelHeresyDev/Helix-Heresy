@@ -3,7 +3,15 @@
   "version": "1.0.0",
   "description": "Helix Heresy is a desktop-focused static browser prototype about forbidden slime genetics, laboratory discovery, and questionable science.",
   "main": "app.js",
-  "scripts": {},
+  "scripts": {
+    "test": "playwright test --config=playwright.smoke.config.js",
+    "test:smoke": "playwright test --config=playwright.smoke.config.js",
+    "test:regression": "playwright test --project=chromium",
+    "test:all": "playwright test",
+    "test:headed": "playwright test --config=playwright.smoke.config.js --headed",
+    "test:ui": "playwright test --config=playwright.smoke.config.js --ui",
+    "test:report": "playwright show-report"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/depressedtsukasa-hub/Helix-Heresy.git"
@@ -17,6 +25,9 @@
     "url": "https://github.com/depressedtsukasa-hub/Helix-Heresy/issues"
   },
   "homepage": "https://github.com/depressedtsukasa-hub/Helix-Heresy#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
     "@playwright/test": "^1.61.0",
     "@types/node": "^25.9.3"
