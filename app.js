@@ -3221,6 +3221,14 @@
   if (!MapVisualState) {
     throw new Error("HelixMapVisualState must load before app.js");
   }
+  const SpriteAssetManifest = window.HelixSpriteAssetManifest;
+  if (!SpriteAssetManifest) {
+    throw new Error("HelixSpriteAssetManifest must load before app.js");
+  }
+  const SpriteAssets = window.HelixSpriteAssetLoader;
+  if (!SpriteAssets) {
+    throw new Error("HelixSpriteAssetLoader must load before app.js");
+  }
   const CanvasMapRenderer = window.HelixCanvasMapRenderer;
   if (!CanvasMapRenderer) {
     throw new Error("HelixCanvasMapRenderer must load before app.js");
@@ -3279,6 +3287,14 @@
   let mapRendererMode = MAP_RENDERER_DOM;
   let activeCanvasMapRenderer = null;
   let activeCanvasMapSurface = null;
+  const spriteAssetLoader = SpriteAssets.createAssetLoader(SpriteAssetManifest.manifest, {
+    baseUrl: document.baseURI
+  });
+  spriteAssetLoader.subscribe(() => {
+    activeCanvasMapRenderer?.invalidate?.();
+    renderSpriteAssetStatus();
+  });
+  void spriteAssetLoader.loadAll();
   let canvasMapPanOffset = { x: 0, y: 0 };
   let mapWheelZoomAccumulator = 0;
   let mapWheelZoomDirection = 0;
@@ -4577,6 +4593,7 @@
       "aiDebugSummary",
       "aiDebugReadout",
       "mapRendererStatus",
+      "spriteAssetStatus",
       "mapRendererDomBtn",
       "mapRendererCanvasBtn",
       "journalModeReadout",
@@ -4721,10 +4738,14 @@
       mapRendererSnapshot: () => ({
         mode: currentMapRendererMode(),
         canvas: activeCanvasMapRenderer?.snapshot?.() || null,
+        assets: spriteAssetLoader.snapshot(),
         cameraOffset: { ...canvasMapPanOffset },
         sceneBuild: performanceBucketSnapshot(simulationPerformance.mapScene),
         canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw)
       }),
+      spriteAssetSnapshot: () => spriteAssetLoader.snapshot(),
+      validateSpriteManifest: () => spriteAssetLoader.validate(),
+      retrySpriteAssets: () => spriteAssetLoader.loadAll({ retry: true }),
       canvasPointToCell: (clientX, clientY) => activeCanvasMapRenderer?.clientPointToCell?.(clientX, clientY) || null,
       canvasPointForCell: (cell) => activeCanvasMapRenderer?.pointForCell?.(cleanMapCell(cell)) || null,
       setMapRenderer: (mode) => {
@@ -38789,6 +38810,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function syncMapRendererControls() {
     const mode = currentMapRendererMode();
+    renderSpriteAssetStatus();
     if (dom.mapRendererStatus) {
       dom.mapRendererStatus.textContent = mode === MAP_RENDERER_CANVAS
         ? "Canvas map active. Navigation, semantic selection, hover, commands, and designation tools are available."
@@ -38804,6 +38826,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const reason = debugToolsEnabled() ? "" : "Enable Debug tools to use the Canvas renderer prototype.";
       setActionButtonState(dom.mapRendererCanvasBtn, Boolean(reason), reason);
     }
+  }
+
+  function renderSpriteAssetStatus() {
+    const status = document.getElementById("spriteAssetStatus");
+    if (!status) return;
+    const assets = spriteAssetLoader.snapshot();
+    const failed = assets.counts.error || 0;
+    status.textContent = `Sprite assets: ${assets.counts.ready}/${assets.total} ready; ${assets.state}${failed ? `; ${failed} failed (fallbacks active)` : ""}.`;
   }
 
   function buildSimulationPerformanceSnapshot() {
@@ -38833,6 +38863,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mapRenderer: {
         mode: currentMapRendererMode(),
         canvas: activeCanvasMapRenderer?.snapshot?.() || null,
+        assets: spriteAssetLoader.snapshot(),
         cameraOffset: { ...canvasMapPanOffset }
       },
       save: performanceBucketSnapshot(simulationPerformance.save)
@@ -38863,6 +38894,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "Canvas draw",
       snapshot.mapRenderer.mode === MAP_RENDERER_CANVAS ? `${formatDecimal(snapshot.canvasDraw.lastMs, 2)} ms` : "inactive",
       `avg ${formatDecimal(snapshot.canvasDraw.averageMs, 2)}; max ${formatDecimal(snapshot.canvasDraw.maxMs, 2)}; ${snapshot.mapRenderer.canvas?.frameCount || 0} current-surface frame${snapshot.mapRenderer.canvas?.frameCount === 1 ? "" : "s"}`
+    );
+    addRow(
+      "Sprite assets",
+      `${snapshot.mapRenderer.assets.counts.ready}/${snapshot.mapRenderer.assets.total} ready`,
+      `${snapshot.mapRenderer.assets.state}; ${snapshot.mapRenderer.assets.counts.error || 0} failed`
     );
     addRow("Save", `${formatDecimal(snapshot.save.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.save.averageMs, 2)}; every 10 real minutes while dirty`);
     for (const definition of SIMULATION_SYSTEM_DEFS) {
@@ -48466,6 +48502,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     host.append(tooltip);
 
     const renderer = CanvasMapRenderer.createRenderer(canvas, {
+      assetLoader: spriteAssetLoader,
       onFrame: (diagnostics) => {
         recordPerformanceSample(simulationPerformance.canvasDraw, diagnostics.lastMs);
       },

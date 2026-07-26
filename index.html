@@ -537,11 +537,12 @@
             <div class="subpanel" data-map-renderer-debug-panel="true">
               <div class="subpanel-title">Map Renderer Prototype</div>
               <p id="mapRendererStatus" class="journal-meta">DOM map active.</p>
+              <p id="spriteAssetStatus" class="journal-meta">Sprite assets: idle.</p>
               <div class="policy-button-row">
                 <button id="mapRendererDomBtn" type="button" aria-pressed="true">DOM Map</button>
                 <button id="mapRendererCanvasBtn" type="button" aria-pressed="false">Canvas Map</button>
               </div>
-              <p class="journal-meta">Canvas camera controls are active. Pointer selection, hover, contextual actions, and designation painting remain on the DOM map until hit-testing parity is complete.</p>
+              <p class="journal-meta">Canvas camera controls, pointer selection, hover, contextual actions, and designation painting are active. Missing sprites retain procedural or glyph fallbacks.</p>
             </div>
             <div class="subpanel" data-simulation-performance-panel="true">
               <div class="subpanel-title">Simulation Performance</div>
@@ -610,6 +611,8 @@
     <script src="creature-spatial.js"></script>
     <script src="terrain-connectivity.js"></script>
     <script src="map-visual-state.js"></script>
+    <script src="sprite-asset-manifest.js"></script>
+    <script src="sprite-asset-loader.js"></script>
     <script src="canvas-map-renderer.js"></script>
     <script src="navigation.js"></script>
     <script src="vertical-systems.js"></script>

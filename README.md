@@ -42,7 +42,10 @@ The game is currently designed for desktop play.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, knowledge state, interactions, overscan, and schema validation.
-- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with semantic styling, viewport culling, high-DPI output, and event-driven redraws.
+- `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source metadata, aliases, and category fallbacks.
+- `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
+- `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
+- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with semantic styling, sprite/fallback rendering, viewport culling, high-DPI output, and event-driven redraws.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.

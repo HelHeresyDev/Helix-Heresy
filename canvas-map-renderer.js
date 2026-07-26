@@ -198,6 +198,14 @@
     return ["object", "actor", "door", "incident"].includes(layer) ? "" : String(cell?.visual?.glyph || "");
   }
 
+  function terrainSpriteKey(cell) {
+    const layer = cell?.visual?.layer;
+    if (["object", "actor", "door", "incident"].includes(layer)) {
+      return String(cell?.base?.spriteKey || "");
+    }
+    return String(cell?.visual?.spriteKey || cell?.base?.spriteKey || "");
+  }
+
   function drawTile(ctx, x, y, size, style) {
     const inset = Math.max(0.5, Math.min(1.25, size * 0.06));
     ctx.globalAlpha = cleanNumber(style.alpha, 1);
@@ -223,6 +231,22 @@
     ctx.restore();
   }
 
+  function resolveSprite(assetLoader, semanticKey) {
+    if (!assetLoader || !semanticKey || typeof assetLoader.resolve !== "function") return null;
+    const resolved = assetLoader.resolve(semanticKey);
+    return resolved?.status === "ready" && resolved.image ? resolved : null;
+  }
+
+  function drawSprite(ctx, resolved, x, y, width, height, alpha = 1) {
+    if (!resolved?.image) return false;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(resolved.image, x, y, width, height);
+    ctx.restore();
+    return true;
+  }
+
   function tilePosition(cell, viewport, tilePx, origin) {
     return {
       x: origin.x + (cell.x - viewport.x) * tilePx,
@@ -239,11 +263,21 @@
     const cellByKey = new Map(cells.map((cell) => [cellKey(cell.cell), cell]));
     let entityCellsDrawn = 0;
     let entitiesDrawn = 0;
+    let spritesDrawn = 0;
+    let spriteFallbacks = 0;
 
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
       const style = cellStyle(cell);
       drawTile(ctx, position.x, position.y, tilePx, style);
+      const spriteKey = terrainSpriteKey(cell);
+      const sprite = resolveSprite(options.assetLoader, spriteKey);
+      if (sprite) {
+        drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, 0.55);
+        spritesDrawn += 1;
+      } else if (spriteKey) {
+        spriteFallbacks += 1;
+      }
       drawGlyph(ctx, terrainGlyph(cell), position.x, position.y, tilePx, style.text);
     }
 
@@ -276,7 +310,15 @@
         : (entity.footprintCells || []).find((cell) => visibleCellKeys.has(cellKey(cell)));
       if (anchor) {
         const position = tilePosition(anchor, viewport, tilePx, origin);
-        drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
+        const spriteKey = entity.visual?.key;
+        const sprite = resolveSprite(options.assetLoader, spriteKey);
+        if (sprite) {
+          drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, cleanNumber(style.alpha, 1));
+          spritesDrawn += 1;
+        } else {
+          if (spriteKey) spriteFallbacks += 1;
+          drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
+        }
       }
     }
 
@@ -284,13 +326,21 @@
       for (const cell of effect.cells || []) {
         if (!visibleCellKeys.has(cellKey(cell))) continue;
         const position = tilePosition(cell, viewport, tilePx, origin);
+        const spriteKey = effect.visualKey;
+        const sprite = resolveSprite(options.assetLoader, spriteKey);
+        if (sprite) {
+          drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx);
+          spritesDrawn += 1;
+        } else if (spriteKey) {
+          spriteFallbacks += 1;
+        }
         ctx.save();
         ctx.strokeStyle = effect.severity === "critical" || effect.severity === "serious" ? "#ff8b73" : "#e1b75f";
         ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
         if (effect.knowledge?.state === "stale") ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
         ctx.strokeRect(position.x + 2, position.y + 2, Math.max(0, tilePx - 4), Math.max(0, tilePx - 4));
         ctx.restore();
-        if (!cellByKey.get(cellKey(cell))?.visual?.glyph) {
+        if (!sprite && !cellByKey.get(cellKey(cell))?.visual?.glyph) {
           drawGlyph(ctx, "A", position.x, position.y, tilePx, "#ffd0c6");
         }
       }
@@ -310,7 +360,13 @@
       }
     }
 
-    return { cellsDrawn: cells.length, entitiesDrawn, entityCellsDrawn };
+    return {
+      cellsDrawn: cells.length,
+      entitiesDrawn,
+      entityCellsDrawn,
+      spritesDrawn,
+      spriteFallbacks
+    };
   }
 
   function createRenderer(canvas, options = {}) {
@@ -335,7 +391,9 @@
       devicePixelRatio: 1,
       cellsDrawn: 0,
       entitiesDrawn: 0,
-      entityCellsDrawn: 0
+      entityCellsDrawn: 0,
+      spritesDrawn: 0,
+      spriteFallbacks: 0
     };
 
     function snapshot() {
@@ -347,7 +405,8 @@
           tilePx: Math.max(4, cleanNumber(presentation.tilePx, 14)),
           origin: presentationOrigin(presentation),
           includeOverscan: Boolean(presentation.includeOverscan)
-        }
+        },
+        assets: options.assetLoader?.snapshot?.() || null
       };
     }
 
@@ -371,7 +430,11 @@
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.fillStyle = "#090a08";
       context.fillRect(0, 0, cssWidth, cssHeight);
-      const counts = renderScene(context, scene, { ...presentation, tilePx });
+      const counts = renderScene(context, scene, {
+        ...presentation,
+        tilePx,
+        assetLoader: options.assetLoader
+      });
       const elapsedMs = performance.now() - startedAt;
       diagnostics.frameCount += 1;
       diagnostics.lastMs = elapsedMs;
@@ -383,9 +446,12 @@
       diagnostics.cellsDrawn = counts.cellsDrawn;
       diagnostics.entitiesDrawn = counts.entitiesDrawn;
       diagnostics.entityCellsDrawn = counts.entityCellsDrawn;
+      diagnostics.spritesDrawn = counts.spritesDrawn;
+      diagnostics.spriteFallbacks = counts.spriteFallbacks;
       canvas.dataset.canvasFrameCount = String(diagnostics.frameCount);
       canvas.dataset.canvasCellsDrawn = String(counts.cellsDrawn);
       canvas.dataset.canvasEntitiesDrawn = String(counts.entitiesDrawn);
+      canvas.dataset.canvasSpritesDrawn = String(counts.spritesDrawn);
       options.onFrame?.(snapshot());
     }
 
