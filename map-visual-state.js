@@ -188,10 +188,11 @@
     const cell = cleanCell(candidate?.cell);
     if (!cell) return null;
     const primaryTarget = cleanTarget(candidate?.target);
+    const interactionTargets = candidate?.interactionTargets || [];
     const objectTargets = candidate?.object?.targets || [];
     const overlayTarget = candidate?.overlay?.target;
-    const targets = primaryTarget || objectTargets.length || overlayTarget
-      ? uniqueTargets([primaryTarget, ...objectTargets, overlayTarget])
+    const targets = primaryTarget || interactionTargets.length || objectTargets.length || overlayTarget
+      ? uniqueTargets([primaryTarget, ...interactionTargets, ...objectTargets, overlayTarget])
       : [];
     return {
       ...candidate,
@@ -203,6 +204,21 @@
         targets
       }
     };
+  }
+
+  function sceneCellAt(scene, candidate, options = {}) {
+    const cell = cleanCell(candidate);
+    if (!cell || !scene) return null;
+    if (options.visibleOnly !== false && !cellInBounds(cell, scene.viewport)) return null;
+    const key = cellKey(cell);
+    return (scene.cells || []).find((entry) => entry.key === key) || null;
+  }
+
+  function interactionAtCell(scene, candidate, options = {}) {
+    const cell = cleanCell(candidate);
+    if (!cell || !scene || !sceneCellAt(scene, cell, options)) return null;
+    const key = cellKey(cell);
+    return (scene.interactionIndex || []).find((entry) => entry.key === key) || null;
   }
 
   function normalizeEffect(candidate, index = 0) {
@@ -352,6 +368,8 @@
     cellInBounds,
     cellsWithinBounds,
     cleanEntity,
+    sceneCellAt,
+    interactionAtCell,
     buildScene,
     validateScene
   };

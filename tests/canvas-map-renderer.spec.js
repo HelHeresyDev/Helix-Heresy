@@ -19,6 +19,19 @@ async function openRendererDebug(page) {
   await page.locator('[data-debug-menu-tab="performance"]').click();
 }
 
+async function canvasPointForCell(page, cell) {
+  return page.evaluate((targetCell) => {
+    const host = document.querySelector('.lab-map-canvas-host');
+    const point = window.helixHeresyDebug.canvasPointForCell(targetCell);
+    if (!host || !point) return null;
+    const rect = host.getBoundingClientRect();
+    return {
+      x: rect.left + point.x + point.width / 2,
+      y: rect.top + point.y + point.height / 2,
+    };
+  }, cell);
+}
+
 test('Canvas helpers cull overscan and derive presentation from semantic state', () => {
   const scene = {
     viewport: { x: 10, y: 10, z: 0, width: 2, height: 1 },
@@ -86,7 +99,7 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
   await expect(canvas).toBeVisible();
   await expect(page.locator('.lab-map-grid')).toHaveCount(0);
   await expect(canvas).toHaveAttribute('data-canvas-frame-count', /[1-9]\d*/);
-  await expect(page.locator('#canvasMapPrototypeNotice')).toContainText('camera controls are active');
+  await expect(page.locator('#canvasMapPrototypeNotice')).toContainText('selection, tooltips, contextual commands');
 
   const result = await page.evaluate(() => {
     const canvas = document.querySelector('canvas[data-canvas-map="true"]');
@@ -126,6 +139,158 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
   expect(result.diagnostics.canvasDraw.calls).toBeGreaterThan(0);
   expect(result.diagnostics.sceneBuild.calls).toBeGreaterThan(0);
+});
+
+test('Canvas hit testing selects full semantic footprints and opens existing contextual commands', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('canvas'));
+  const target = await page.evaluate(() => {
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    return scene.entities.find((entity) =>
+      entity.target
+      && entity.footprintCells.length > 1
+      && entity.footprintCells.every((cell) =>
+        cell.z === scene.viewport.z
+        && cell.x >= scene.viewport.x
+        && cell.x < scene.viewport.x + scene.viewport.width
+        && cell.y >= scene.viewport.y
+        && cell.y < scene.viewport.y + scene.viewport.height
+      )
+    );
+  });
+  expect(target).toBeTruthy();
+  const clickedCell = target.footprintCells.at(-1);
+  const point = await canvasPointForCell(page, clickedCell);
+  expect(point).toBeTruthy();
+  await page.mouse.click(point.x, point.y);
+
+  const result = await page.evaluate(() => {
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    return {
+      selection: view.scene.selection,
+      cursor: view.cursor,
+    };
+  });
+  expect(result.selection.target).toMatchObject(target.target);
+  expect(result.selection.cells).toEqual(expect.arrayContaining(target.footprintCells));
+  expect(result.cursor).toEqual(clickedCell);
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', target.target.kind);
+
+  await page.mouse.move(point.x + 1, point.y + 1);
+  const tooltip = page.locator('[data-canvas-map-tooltip="true"]');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).not.toHaveText('');
+
+  await page.locator('[data-command-menu-trigger="true"]').first().click();
+  await expect(page.locator('[data-context-command-menu="true"]')).toBeVisible();
+  await expect(page.locator('[data-context-command-panel="true"]')).not.toContainText('No contextual commands');
+});
+
+test('Canvas construction selection and access-area drag painting use the same map cells as DOM tools', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('canvas'));
+
+  const rockCells = await page.evaluate(() => {
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    const candidates = view.cells.filter((cell) => cell.known && cell.base.kind === 'solidEarth');
+    for (const cell of candidates) {
+      const neighbor = candidates.find((entry) =>
+        entry.cell.z === cell.cell.z
+        && entry.cell.x === cell.cell.x + 1
+        && entry.cell.y === cell.cell.y
+      );
+      if (neighbor) return [cell.cell, neighbor.cell];
+    }
+    return [];
+  });
+  expect(rockCells).toHaveLength(2);
+  const firstRock = await canvasPointForCell(page, rockCells[0]);
+  await page.mouse.click(firstRock.x, firstRock.y);
+  await page.locator('[data-command-menu-trigger="true"]').first().click();
+  await page.getByRole('button', { name: 'Add Dig Tile', exact: true }).click();
+  const secondRock = await canvasPointForCell(page, rockCells[1]);
+  await page.mouse.click(secondRock.x, secondRock.y);
+  const construction = await page.evaluate(() => window.helixHeresyDebug.constructionSnapshot());
+  expect(construction.draftCells).toEqual(expect.arrayContaining(rockCells));
+
+  await page.locator('[data-workspace-tab="policies"]').click();
+  await page.locator('[data-policy-menu-tab="access"]').click();
+  page.once('dialog', (dialog) => dialog.accept('Canvas Hazard'));
+  await page.getByRole('button', { name: 'New Forbidden Area' }).click();
+  await expect(page.locator('.lab-map-canvas-host')).toBeVisible();
+
+  const paintCells = await page.evaluate(() => {
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    const candidates = view.cells.filter((cell) =>
+      cell.known
+      && ['room', 'floor'].includes(cell.base.kind)
+      && !cell.scientist
+      && !cell.object
+      && !cell.door
+    );
+    for (const cell of candidates) {
+      const neighbor = candidates.find((entry) =>
+        entry.cell.z === cell.cell.z
+        && entry.cell.x === cell.cell.x + 1
+        && entry.cell.y === cell.cell.y
+      );
+      if (neighbor) return [cell.cell, neighbor.cell];
+    }
+    return [];
+  });
+  expect(paintCells).toHaveLength(2);
+  const paintStart = await canvasPointForCell(page, paintCells[0]);
+  const paintEnd = await canvasPointForCell(page, paintCells[1]);
+  await page.mouse.move(paintStart.x, paintStart.y);
+  await page.mouse.down();
+  await page.mouse.move(paintEnd.x, paintEnd.y, { steps: 4 });
+  await page.mouse.up();
+  const access = await page.evaluate(() => window.helixHeresyDebug.accessControlSnapshot());
+  expect(access.areas[0].cells).toEqual(expect.arrayContaining(paintCells));
+});
+
+test('Canvas room designation drag uses the active paint or erase brush', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('canvas'));
+  const roomCell = await page.evaluate(() => {
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    return view.cells.find((cell) =>
+      cell.known
+      && cell.base.kind === 'room'
+      && !cell.scientist
+      && !cell.object
+      && !cell.door
+    ).cell;
+  });
+  const roomPoint = await canvasPointForCell(page, roomCell);
+  await page.mouse.click(roomPoint.x, roomPoint.y);
+  await page.locator('[data-command-menu-trigger="true"]').first().click();
+  await page.getByRole('button', { name: 'Edit Room Tiles', exact: true }).click();
+  await page.locator('[data-command-menu-trigger="true"]').first().click();
+  await page.getByRole('button', { name: 'Erase Tiles', exact: true }).click();
+
+  const eraseCells = await page.evaluate(() => {
+    const draft = window.helixHeresyDebug.constructionSnapshot().roomDraftCells;
+    for (const cell of draft) {
+      const neighbor = draft.find((entry) =>
+        entry.z === cell.z
+        && entry.x === cell.x + 1
+        && entry.y === cell.y
+      );
+      if (neighbor) return [cell, neighbor];
+    }
+    return [];
+  });
+  expect(eraseCells).toHaveLength(2);
+  const eraseStart = await canvasPointForCell(page, eraseCells[0]);
+  const eraseEnd = await canvasPointForCell(page, eraseCells[1]);
+  await page.mouse.move(eraseStart.x, eraseStart.y);
+  await page.mouse.down();
+  await page.mouse.move(eraseEnd.x, eraseEnd.y, { steps: 4 });
+  await page.mouse.up();
+
+  const remaining = await page.evaluate(() => window.helixHeresyDebug.constructionSnapshot().roomDraftCells);
+  expect(remaining).not.toEqual(expect.arrayContaining(eraseCells));
 });
 
 test('Canvas redraws after keyboard camera movement and the renderer resets on reload', async ({ page }) => {
