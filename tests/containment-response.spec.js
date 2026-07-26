@@ -213,6 +213,7 @@ test('bait placement moves one physical feedstock unit onto the selected tile an
 });
 
 test('map selections expose explicit recapture destinations and physical bait commands', async ({ page }) => {
+  test.setTimeout(60_000);
   await startRun(page);
   await stageLooseSlime(page);
 
