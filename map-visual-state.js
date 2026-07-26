@@ -9,7 +9,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState() {
   "use strict";
 
-  const SCENE_VERSION = 1;
+  const SCENE_VERSION = 2;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
 
   function cleanCell(candidate) {
@@ -62,6 +62,30 @@
     };
     if (candidate?.source) result.source = String(candidate.source);
     return result;
+  }
+
+  function cleanOrientation(candidate) {
+    const explicitTurns = candidate && typeof candidate === "object" && !Array.isArray(candidate);
+    const raw = explicitTurns ? candidate : { quarterTurns: candidate };
+    const requested = raw.quarterTurns;
+    let quarterTurns = 0;
+    if (Number.isFinite(Number(requested))) {
+      const numeric = Number(requested);
+      const turns = explicitTurns ? Math.round(numeric) : Math.round(numeric / 90);
+      quarterTurns = ((turns % 4) + 4) % 4;
+    } else {
+      const named = String(requested || "").toLowerCase();
+      quarterTurns = {
+        vertical: 1,
+        east: 1,
+        south: 2,
+        west: 3
+      }[named] || 0;
+    }
+    return {
+      quarterTurns,
+      mirrored: Boolean(raw.mirrored)
+    };
   }
 
   function uniqueCells(candidates) {
@@ -144,7 +168,7 @@
       anchorCell: anchor,
       footprintCells: footprint.length ? footprint : [anchor],
       bounds: boundsForCells(footprint.length ? footprint : [anchor]),
-      orientation: candidate?.orientation ?? null,
+      orientation: cleanOrientation(candidate?.orientation),
       facing: candidate?.facing ?? null,
       pose: String(candidate?.pose || "default"),
       activity: candidate?.activity ? { ...candidate.activity } : null,
@@ -341,6 +365,12 @@
       else if (ids.has(entity.id)) errors.push(`Duplicate scene entity ID: ${entity.id}.`);
       ids.add(entity.id);
       if (!entity.footprintCells?.length) errors.push(`Scene entity ${entity.id || "unknown"} has no footprint.`);
+      if (!Number.isInteger(entity.orientation?.quarterTurns)
+        || entity.orientation.quarterTurns < 0
+        || entity.orientation.quarterTurns > 3
+        || typeof entity.orientation?.mirrored !== "boolean") {
+        errors.push(`Scene entity ${entity.id || "unknown"} has invalid orientation.`);
+      }
       if (!KNOWLEDGE_STATES.includes(entity.knowledge?.state)) {
         errors.push(`Scene entity ${entity.id || "unknown"} has invalid knowledge.`);
       }
@@ -362,6 +392,7 @@
     cleanTarget,
     targetKey,
     cleanKnowledge,
+    cleanOrientation,
     uniqueCells,
     boundsForCells,
     overscanBounds,

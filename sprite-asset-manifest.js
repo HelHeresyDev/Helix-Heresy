@@ -9,7 +9,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixSpriteAssetManifest() {
   "use strict";
 
-  const MANIFEST_VERSION = 1;
+  const MANIFEST_VERSION = 2;
   const ASSET_CATEGORIES = Object.freeze([
     "terrain",
     "fixture",
@@ -32,7 +32,12 @@
           path: "assets/sprites/placeholders/terrain-rock-natural.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "none"
+        },
         variants: [],
         placeholder: true
       },
@@ -44,7 +49,30 @@
           path: "assets/sprites/placeholders/fixture-door-closed.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "quarterTurns",
+          mirror: "none"
+        },
+        variants: [],
+        placeholder: true
+      },
+      {
+        key: "fixture.basicWorkbench",
+        category: "fixture",
+        source: {
+          type: "image",
+          path: "assets/sprites/placeholders/fixture-workbench-2x1.png"
+        },
+        sourceSize: { width: 1254, height: 1254 },
+        sourceRect: { x: 0, y: 313, width: 1254, height: 627 },
+        logicalSize: { width: 2, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "quarterTurns",
+          mirror: "none"
+        },
         variants: [],
         placeholder: true
       },
@@ -56,7 +84,12 @@
           path: "assets/sprites/placeholders/item-stack.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "none"
+        },
         variants: [],
         placeholder: true
       },
@@ -68,7 +101,29 @@
           path: "assets/sprites/placeholders/actor-slime-radial.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "horizontal"
+        },
+        variants: [],
+        placeholder: true
+      },
+      {
+        key: "actor.slime.large",
+        category: "actor",
+        source: {
+          type: "image",
+          path: "assets/sprites/placeholders/actor-slime-large-2x2.png"
+        },
+        sourceSize: { width: 1254, height: 1254 },
+        logicalSize: { width: 2, height: 2, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "horizontal"
+        },
         variants: [],
         placeholder: true
       },
@@ -80,7 +135,12 @@
           path: "assets/sprites/placeholders/effect-hazard-pulse.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "none"
+        },
         variants: [],
         placeholder: true
       },
@@ -92,7 +152,12 @@
           path: "assets/sprites/placeholders/marker-incident.png"
         },
         sourceSize: { width: 1254, height: 1254 },
-        logicalSize: { width: 1, height: 1 },
+        logicalSize: { width: 1, height: 1, layers: 1 },
+        placement: {
+          anchorTile: { x: 0, y: 0, z: 0 },
+          rotation: "none",
+          mirror: "none"
+        },
         variants: ["stack"],
         placeholder: true
       }

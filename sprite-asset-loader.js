@@ -15,6 +15,8 @@
   const CATEGORIES = Object.freeze(["terrain", "fixture", "item", "actor", "effect", "marker"]);
   const SOURCE_TYPES = new Set(["image", "atlas"]);
   const FALLBACK_TYPES = new Set(["glyph", "procedural"]);
+  const ROTATION_MODES = new Set(["none", "quarterTurns"]);
+  const MIRROR_MODES = new Set(["none", "horizontal"]);
   const SAFE_KEY = /^[a-z][a-z0-9]*(?:[.-][a-zA-Z0-9]+)*$/;
 
   function positiveInteger(value) {
@@ -26,6 +28,10 @@
     if (!path || path.startsWith("/") || path.startsWith("\\") || path.includes("..")) return false;
     if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return false;
     return !path.includes("\\");
+  }
+
+  function nonnegativeInteger(value) {
+    return Number.isInteger(Number(value)) && Number(value) >= 0;
   }
 
   function validateManifest(candidate) {
@@ -55,8 +61,44 @@
       if (!positiveInteger(entry?.sourceSize?.width) || !positiveInteger(entry?.sourceSize?.height)) {
         errors.push(`${label} must declare positive source dimensions.`);
       }
-      if (!positiveInteger(entry?.logicalSize?.width) || !positiveInteger(entry?.logicalSize?.height)) {
-        errors.push(`${label} must declare positive logical tile dimensions.`);
+      const logicalSize = entry?.logicalSize;
+      if (!positiveInteger(logicalSize?.width)
+        || !positiveInteger(logicalSize?.height)
+        || !positiveInteger(logicalSize?.layers)) {
+        errors.push(`${label} must declare positive logical tile and layer dimensions.`);
+      }
+      const sourceRect = entry?.sourceRect;
+      if (sourceRect !== undefined) {
+        if (!nonnegativeInteger(sourceRect?.x)
+          || !nonnegativeInteger(sourceRect?.y)
+          || !positiveInteger(sourceRect?.width)
+          || !positiveInteger(sourceRect?.height)
+          || Number(sourceRect.x) + Number(sourceRect.width) > Number(entry?.sourceSize?.width)
+          || Number(sourceRect.y) + Number(sourceRect.height) > Number(entry?.sourceSize?.height)) {
+          errors.push(`${label} source rectangle must fit inside its declared source dimensions.`);
+        }
+      }
+      const anchor = entry?.placement?.anchorTile;
+      const supportsQuarterTurns = entry?.placement?.rotation === "quarterTurns";
+      const anchorWidth = supportsQuarterTurns
+        ? Math.min(Number(logicalSize?.width), Number(logicalSize?.height))
+        : Number(logicalSize?.width);
+      const anchorHeight = supportsQuarterTurns
+        ? Math.min(Number(logicalSize?.width), Number(logicalSize?.height))
+        : Number(logicalSize?.height);
+      if (!nonnegativeInteger(anchor?.x)
+        || !nonnegativeInteger(anchor?.y)
+        || !nonnegativeInteger(anchor?.z)
+        || Number(anchor.x) >= anchorWidth
+        || Number(anchor.y) >= anchorHeight
+        || Number(anchor.z) >= Number(logicalSize?.layers)) {
+        errors.push(`${label} anchor tile must fit every supported oriented logical rectangle.`);
+      }
+      if (!ROTATION_MODES.has(String(entry?.placement?.rotation || ""))) {
+        errors.push(`${label} has an invalid rotation mode.`);
+      }
+      if (!MIRROR_MODES.has(String(entry?.placement?.mirror || ""))) {
+        errors.push(`${label} has an invalid mirror mode.`);
       }
       if (!Array.isArray(entry?.variants) || entry.variants.some((variant) => !SAFE_KEY.test(String(variant)))) {
         errors.push(`${label} variants must be an array of semantic keys.`);
@@ -303,6 +345,8 @@
     LOAD_STATES,
     ENTRY_STATES,
     CATEGORIES,
+    ROTATION_MODES,
+    MIRROR_MODES,
     validateManifest,
     inferredCategory,
     createAssetLoader

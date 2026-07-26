@@ -237,12 +237,159 @@
     return resolved?.status === "ready" && resolved.image ? resolved : null;
   }
 
+  function spriteSourceRect(entry) {
+    const sourceSize = entry?.sourceSize || {};
+    const rect = entry?.sourceRect || {};
+    return {
+      x: Math.max(0, cleanNumber(rect.x)),
+      y: Math.max(0, cleanNumber(rect.y)),
+      width: Math.max(1, cleanNumber(rect.width, sourceSize.width || 1)),
+      height: Math.max(1, cleanNumber(rect.height, sourceSize.height || 1))
+    };
+  }
+
   function drawSprite(ctx, resolved, x, y, width, height, alpha = 1) {
     if (!resolved?.image) return false;
+    const source = spriteSourceRect(resolved.entry);
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(resolved.image, x, y, width, height);
+    ctx.drawImage(
+      resolved.image,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+      x,
+      y,
+      width,
+      height
+    );
+    ctx.restore();
+    return true;
+  }
+
+  function cleanOrientation(candidate) {
+    const quarterTurns = Math.round(cleanNumber(candidate?.quarterTurns));
+    return {
+      quarterTurns: ((quarterTurns % 4) + 4) % 4,
+      mirrored: Boolean(candidate?.mirrored)
+    };
+  }
+
+  function orientedLogicalSize(entry, orientation = {}) {
+    const logical = entry?.logicalSize || {};
+    const clean = cleanOrientation(orientation);
+    const rotated = clean.quarterTurns % 2 === 1;
+    return {
+      width: Math.max(1, cleanNumber(rotated ? logical.height : logical.width, 1)),
+      height: Math.max(1, cleanNumber(rotated ? logical.width : logical.height, 1)),
+      layers: Math.max(1, cleanNumber(logical.layers, 1))
+    };
+  }
+
+  function entityBounds(entity) {
+    if (entity?.bounds) {
+      return {
+        x: cleanNumber(entity.bounds.x),
+        y: cleanNumber(entity.bounds.y),
+        z: cleanNumber(entity.bounds.z),
+        width: Math.max(1, cleanNumber(entity.bounds.width, 1)),
+        height: Math.max(1, cleanNumber(entity.bounds.height, 1)),
+        depth: Math.max(1, cleanNumber(entity.bounds.depth, 1))
+      };
+    }
+    const cells = entity?.footprintCells || [];
+    if (!cells.length) return null;
+    const xs = cells.map((cell) => cleanNumber(cell.x));
+    const ys = cells.map((cell) => cleanNumber(cell.y));
+    const zs = cells.map((cell) => cleanNumber(cell.z));
+    return {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      z: Math.min(...zs),
+      width: Math.max(...xs) - Math.min(...xs) + 1,
+      height: Math.max(...ys) - Math.min(...ys) + 1,
+      depth: Math.max(...zs) - Math.min(...zs) + 1
+    };
+  }
+
+  function spritePlacement(entity, resolved) {
+    const entry = resolved?.entry;
+    const anchorCell = entity?.anchorCell;
+    if (!entry || !anchorCell) return { matches: false, reason: "missing sprite entry or entity anchor" };
+    const orientation = cleanOrientation(entity.orientation);
+    const logical = entry.logicalSize || {};
+    const placement = entry.placement || {};
+    const nonSquare = cleanNumber(logical.width, 1) !== cleanNumber(logical.height, 1);
+    if (orientation.quarterTurns && placement.rotation !== "quarterTurns" && nonSquare) {
+      return { matches: false, reason: "asset does not support the requested quarter-turn rotation" };
+    }
+    if (orientation.mirrored && placement.mirror !== "horizontal") {
+      return { matches: false, reason: "asset does not support horizontal mirroring" };
+    }
+    const effectiveOrientation = {
+      quarterTurns: placement.rotation === "quarterTurns" ? orientation.quarterTurns : 0,
+      mirrored: placement.mirror === "horizontal" && orientation.mirrored
+    };
+    const size = orientedLogicalSize(entry, effectiveOrientation);
+    const anchor = placement.anchorTile || { x: 0, y: 0, z: 0 };
+    const expected = {
+      x: cleanNumber(anchorCell.x) - cleanNumber(anchor.x),
+      y: cleanNumber(anchorCell.y) - cleanNumber(anchor.y),
+      z: cleanNumber(anchorCell.z) - cleanNumber(anchor.z),
+      width: size.width,
+      height: size.height,
+      depth: size.layers
+    };
+    const actual = entityBounds(entity);
+    const matches = Boolean(actual
+      && actual.x === expected.x
+      && actual.y === expected.y
+      && actual.z === expected.z
+      && actual.width === expected.width
+      && actual.height === expected.height
+      && actual.depth === expected.depth);
+    return {
+      matches,
+      reason: matches
+        ? ""
+        : `asset expects ${expected.width}x${expected.height}x${expected.depth} at ${expected.x},${expected.y},${expected.z}; footprint is ${actual?.width || 0}x${actual?.height || 0}x${actual?.depth || 0} at ${actual?.x || 0},${actual?.y || 0},${actual?.z || 0}`,
+      orientation: effectiveOrientation,
+      canonicalSize: {
+        width: Math.max(1, cleanNumber(logical.width, 1)),
+        height: Math.max(1, cleanNumber(logical.height, 1))
+      },
+      bounds: expected,
+      source: spriteSourceRect(entry)
+    };
+  }
+
+  function drawPlacedSprite(ctx, resolved, placement, viewport, tilePx, origin, alpha = 1) {
+    if (!resolved?.image || !placement?.matches) return false;
+    const x = origin.x + (placement.bounds.x - viewport.x) * tilePx;
+    const y = origin.y + (placement.bounds.y - viewport.y) * tilePx;
+    const width = placement.bounds.width * tilePx;
+    const height = placement.bounds.height * tilePx;
+    const canonicalWidth = placement.canonicalSize.width * tilePx;
+    const canonicalHeight = placement.canonicalSize.height * tilePx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.translate(x + width / 2, y + height / 2);
+    ctx.rotate(placement.orientation.quarterTurns * Math.PI / 2);
+    if (placement.orientation.mirrored) ctx.scale(-1, 1);
+    ctx.drawImage(
+      resolved.image,
+      placement.source.x,
+      placement.source.y,
+      placement.source.width,
+      placement.source.height,
+      -canonicalWidth / 2,
+      -canonicalHeight / 2,
+      canonicalWidth,
+      canonicalHeight
+    );
     ctx.restore();
     return true;
   }
@@ -265,6 +412,9 @@
     let entitiesDrawn = 0;
     let spritesDrawn = 0;
     let spriteFallbacks = 0;
+    let multiTileSpritesDrawn = 0;
+    let spritePlacementMismatches = 0;
+    const placementWarnings = [];
 
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
@@ -305,16 +455,36 @@
       }
       if (!visible) continue;
       entitiesDrawn += 1;
-      const anchor = inViewport(entity.anchorCell, viewport)
+      const glyphAnchor = inViewport(entity.anchorCell, viewport)
         ? entity.anchorCell
         : (entity.footprintCells || []).find((cell) => visibleCellKeys.has(cellKey(cell)));
-      if (anchor) {
-        const position = tilePosition(anchor, viewport, tilePx, origin);
+      if (glyphAnchor) {
+        const position = tilePosition(glyphAnchor, viewport, tilePx, origin);
         const spriteKey = entity.visual?.key;
         const sprite = resolveSprite(options.assetLoader, spriteKey);
         if (sprite) {
-          drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, cleanNumber(style.alpha, 1));
-          spritesDrawn += 1;
+          const placement = spritePlacement(entity, sprite);
+          if (drawPlacedSprite(
+            ctx,
+            sprite,
+            placement,
+            viewport,
+            tilePx,
+            origin,
+            cleanNumber(style.alpha, 1)
+          )) {
+            spritesDrawn += 1;
+            if (placement.bounds.width > 1 || placement.bounds.height > 1 || placement.bounds.depth > 1) {
+              multiTileSpritesDrawn += 1;
+            }
+          } else {
+            spriteFallbacks += 1;
+            spritePlacementMismatches += 1;
+            if (placementWarnings.length < 8) {
+              placementWarnings.push(`${entity.id} (${sprite.resolvedKey}): ${placement.reason}`);
+            }
+            drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
+          }
         } else {
           if (spriteKey) spriteFallbacks += 1;
           drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
@@ -365,7 +535,10 @@
       entitiesDrawn,
       entityCellsDrawn,
       spritesDrawn,
-      spriteFallbacks
+      spriteFallbacks,
+      multiTileSpritesDrawn,
+      spritePlacementMismatches,
+      placementWarnings
     };
   }
 
@@ -393,7 +566,10 @@
       entitiesDrawn: 0,
       entityCellsDrawn: 0,
       spritesDrawn: 0,
-      spriteFallbacks: 0
+      spriteFallbacks: 0,
+      multiTileSpritesDrawn: 0,
+      spritePlacementMismatches: 0,
+      placementWarnings: []
     };
 
     function snapshot() {
@@ -448,6 +624,9 @@
       diagnostics.entityCellsDrawn = counts.entityCellsDrawn;
       diagnostics.spritesDrawn = counts.spritesDrawn;
       diagnostics.spriteFallbacks = counts.spriteFallbacks;
+      diagnostics.multiTileSpritesDrawn = counts.multiTileSpritesDrawn;
+      diagnostics.spritePlacementMismatches = counts.spritePlacementMismatches;
+      diagnostics.placementWarnings = counts.placementWarnings;
       canvas.dataset.canvasFrameCount = String(diagnostics.frameCount);
       canvas.dataset.canvasCellsDrawn = String(counts.cellsDrawn);
       canvas.dataset.canvasEntitiesDrawn = String(counts.entitiesDrawn);
@@ -515,6 +694,8 @@
     cellToScreen,
     cellStyle,
     entityStyle,
+    orientedLogicalSize,
+    spritePlacement,
     renderScene,
     createRenderer
   };

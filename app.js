@@ -38900,6 +38900,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       `${snapshot.mapRenderer.assets.counts.ready}/${snapshot.mapRenderer.assets.total} ready`,
       `${snapshot.mapRenderer.assets.state}; ${snapshot.mapRenderer.assets.counts.error || 0} failed`
     );
+    addRow(
+      "Sprite placement",
+      snapshot.mapRenderer.mode === MAP_RENDERER_CANVAS
+        ? `${snapshot.mapRenderer.canvas?.multiTileSpritesDrawn || 0} multi-tile drawn`
+        : "inactive",
+      `${snapshot.mapRenderer.canvas?.spritePlacementMismatches || 0} footprint mismatch${snapshot.mapRenderer.canvas?.spritePlacementMismatches === 1 ? "" : "es"}`
+    );
     addRow("Save", `${formatDecimal(snapshot.save.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.save.averageMs, 2)}; every 10 real minutes while dirty`);
     for (const definition of SIMULATION_SYSTEM_DEFS) {
       const sample = snapshot.systems[definition.id];
@@ -42302,6 +42309,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function slimeMapSpriteKey(footprintCells, knowledgeState = "current") {
+    const bounds = MapVisualState.boundsForCells(footprintCells);
+    const baseKey = bounds?.width === 2 && bounds?.height === 2 && bounds?.depth === 1
+      ? "actor.slime.large"
+      : "actor.slime";
+    return knowledgeState === "stale" ? `${baseKey}.stale` : baseKey;
+  }
+
   function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
     const targetKey = selectionKey(target);
     const anchorFallback = footprintCells[0] || null;
@@ -42408,7 +42423,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         } : null,
         knowledge,
         visual: {
-          key: knowledge.state === "stale" ? "actor.slime.stale" : "actor.slime",
+          key: slimeMapSpriteKey(footprintCells, knowledge.state),
           glyph: "L",
           recipeKey: `slime:${slime.id}:${knowledge.observedAt ?? "unknown"}`
         },

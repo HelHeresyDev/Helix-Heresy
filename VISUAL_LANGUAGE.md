@@ -262,7 +262,7 @@ Text and exact values remain in HTML inspectors, menus, tooltips, and records. T
 Both the glyph renderer and future Canvas renderer consume the same transient, versioned `MapScene`.
 
 - The scene covers the visible viewport plus a one-tile overscan margin.
-- Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, orientation, vertical extent, and semantic visual keys.
+- Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, normalized quarter-turn physical orientation, vertical extent, and semantic visual keys.
 - Contained occupants, stations, and other selectable relationships belong in the interaction index unless they are independently visible physical entities.
 - Entity presentation fields reserve facing, pose, activity, motion, condition, and modular recipe keys without defining final animation frames.
 - Knowledge is explicit: `current`, `stale`, `uncertain`, `unknown`, or `debug`.
@@ -274,12 +274,14 @@ Both the glyph renderer and future Canvas renderer consume the same transient, v
 
 The first Canvas prototype is available as a transient Debug renderer while the DOM map remains the default fallback. It draws visible and one-tile overscan `MapScene` cells plus unique entities, uses semantic presentation rules rather than CSS classes, scales its backing surface for the device pixel ratio, and redraws through invalidated animation frames. Camera navigation updates the persistent Canvas in place. Tile-aligned shared camera state is combined with a transient pixel offset for smooth WASD and grab panning; wheel zoom remains discrete and preserves the pointed map area, and responsive resizing preserves the viewed center. Shared coordinate transforms account for the active origin and zoom. Canvas pointer interaction resolves only through the scene's ordered, knowledge-filtered interaction index: it selects semantic targets by physical cell masks, highlights complete visible footprints, updates the keyboard cursor, exposes crowded-cell alternatives through HTML inspectors, and never alpha-tests artwork or queries hidden simulation entities. Delayed HTML tooltips consume the scene's semantic tooltip text. Room and access painters support Canvas left-drag input, construction retains click-to-toggle designation, middle drag remains camera movement, and overscan cells are not interactive. A small generated placeholder set now exercises semantic image resolution for terrain, fixtures, items, actors, effects, and markers; all unresolved or failed keys retain the glyph/procedural presentation.
 
+Authored entity sprites declare complete logical dimensions in horizontal tiles and vertical layers, plus an integer tile-anchor offset expressed in the oriented output rectangle and aligned to the scene entity's anchor cell. Physical orientation is normalized at the `MapScene` boundary into zero through three clockwise quarter turns and an independent mirror flag; actor facing remains a separate deferred concept. Rotation occurs inside the oriented logical rectangle at every zoom level. The renderer draws a multi-tile sprite only when its oriented dimensions, anchor, and layer count exactly match the authoritative footprint bounds. Otherwise the full procedural footprint and anchor glyph remain visible and diagnostics report the mismatch. Current tall assets repeat only on selected layers they physically occupy; cross-layer silhouettes and occlusion remain deferred.
+
 ## Rendering And Asset Boundaries
 
 - Simulation state does not contain Canvas objects, DOM nodes, image instances, or draw commands.
 - A discovery-aware visual selector creates the visual recipe from authoritative state and observation records.
 - The asset manifest resolves semantic module keys into images and metadata.
-- The manifest owns repository-relative image paths, source dimensions, logical tile dimensions, aliases, and category fallbacks; `MapScene` carries only semantic keys.
+- The manifest owns repository-relative image paths, source rectangles, logical tile/layer dimensions, integer tile anchors, transform capabilities, aliases, and category fallbacks; `MapScene` carries only semantic keys.
 - Image loading is asynchronous and cached. Its `idle`, `loading`, `ready`, `partial`, and `error` diagnostics never block simulation startup.
 - The renderer assembles procedural geometry and authored raster modules into an offscreen surface.
 - The result is cached until relevant recipe inputs change.

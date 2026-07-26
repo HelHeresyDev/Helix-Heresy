@@ -62,9 +62,13 @@ test('scene model deduplicates entities while retaining footprint and interactio
   });
 
   expect(scene.entities).toHaveLength(1);
+  expect(VisualState.cleanOrientation(90)).toEqual({ quarterTurns: 1, mirrored: false });
+  expect(VisualState.cleanOrientation({ quarterTurns: 2, mirrored: true }))
+    .toEqual({ quarterTurns: 2, mirrored: true });
   expect(scene.entities[0]).toMatchObject({
     id: 'container:jar-1',
     selected: true,
+    orientation: { quarterTurns: 0, mirrored: false },
     footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
   });
   expect(scene.cells.every((cell) => cell.entityIds.includes('container:jar-1'))).toBe(true);
@@ -126,7 +130,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(1);
+  expect(result.version).toBe(2);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);

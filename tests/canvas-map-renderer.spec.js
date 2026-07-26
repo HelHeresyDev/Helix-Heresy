@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const CanvasRenderer = require('../canvas-map-renderer.js');
+const SpriteManifest = require('../sprite-asset-manifest.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -82,6 +83,43 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     stroke: '#75b86b',
     dashed: true,
     alpha: 0.62,
+  });
+
+  const workbench = SpriteManifest.manifest.assets.find((entry) => entry.key === 'fixture.basicWorkbench');
+  const resolved = { entry: workbench, image: {} };
+  const placements = [0, 1, 2, 3].map((quarterTurns) => {
+    const rotated = quarterTurns % 2 === 1;
+    return CanvasRenderer.spritePlacement({
+      id: `workbench-${quarterTurns}`,
+      anchorCell: { x: 4, y: 7, z: 0 },
+      bounds: { x: 4, y: 7, z: 0, width: rotated ? 1 : 2, height: rotated ? 2 : 1, depth: 1 },
+      orientation: { quarterTurns, mirrored: false },
+    }, resolved);
+  });
+  expect(placements.every((placement) => placement.matches)).toBe(true);
+  expect(placements.map((placement) => placement.bounds)).toEqual([
+    { x: 4, y: 7, z: 0, width: 2, height: 1, depth: 1 },
+    { x: 4, y: 7, z: 0, width: 1, height: 2, depth: 1 },
+    { x: 4, y: 7, z: 0, width: 2, height: 1, depth: 1 },
+    { x: 4, y: 7, z: 0, width: 1, height: 2, depth: 1 },
+  ]);
+  expect(placements[0].source).toEqual({ x: 0, y: 313, width: 1254, height: 627 });
+  expect(CanvasRenderer.spritePlacement({
+    anchorCell: { x: 4, y: 7, z: 0 },
+    bounds: { x: 4, y: 7, z: 0, width: 1, height: 1, depth: 1 },
+    orientation: { quarterTurns: 0, mirrored: false },
+  }, resolved)).toMatchObject({
+    matches: false,
+    reason: expect.stringContaining('asset expects 2x1x1'),
+  });
+  const largeSlime = SpriteManifest.manifest.assets.find((entry) => entry.key === 'actor.slime.large');
+  expect(CanvasRenderer.spritePlacement({
+    anchorCell: { x: 8, y: 9, z: 0 },
+    bounds: { x: 8, y: 9, z: 0, width: 2, height: 2, depth: 1 },
+    orientation: { quarterTurns: 0, mirrored: true },
+  }, { entry: largeSlime, image: {} })).toMatchObject({
+    matches: true,
+    orientation: { quarterTurns: 0, mirrored: true },
   });
 });
 
