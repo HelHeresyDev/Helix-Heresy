@@ -631,6 +631,7 @@
   const CANVAS_MAP_ORIGIN_PX = 6;
   const MAP_WHEEL_ZOOM_THRESHOLD = 40;
   const MAP_WHEEL_ZOOM_COOLDOWN_MS = 90;
+  const CANVAS_MAP_HOVER_DELAY_MS = 180;
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
@@ -3291,6 +3292,8 @@
   let mapPanCarryY = 0;
   let mapPanShiftHeld = false;
   let mapDragState = null;
+  let canvasMapPointerState = null;
+  let canvasMapHoverTimer = 0;
   let roomPaintState = null;
   let accessPaintState = null;
   let suppressNextMapClick = false;
@@ -4723,6 +4726,7 @@
         canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw)
       }),
       canvasPointToCell: (clientX, clientY) => activeCanvasMapRenderer?.clientPointToCell?.(clientX, clientY) || null,
+      canvasPointForCell: (cell) => activeCanvasMapRenderer?.pointForCell?.(cleanMapCell(cell)) || null,
       setMapRenderer: (mode) => {
         setMapRendererMode(mode);
         return currentMapRendererMode();
@@ -6131,6 +6135,7 @@
       return;
     }
     event.preventDefault();
+    clearCanvasMapHover();
     endMapDrag({ persist: false });
     mapDragState = {
       pointerId: event.pointerId,
@@ -6209,6 +6214,207 @@
     if (options.persist !== false && state?.started) {
       persist();
     }
+  }
+
+  function canvasMapCellFromPointer(event, surface = activeCanvasMapSurface) {
+    return surface?.renderer?.clientPointToCell?.(event.clientX, event.clientY) || null;
+  }
+
+  function canvasMapSurfaceIndexes(mapView) {
+    return {
+      cellIndex: new Map((mapView?.scene?.cells || []).map((entry) => [entry.key, entry])),
+      interactionIndex: new Map((mapView?.scene?.interactionIndex || []).map((entry) => [entry.key, entry]))
+    };
+  }
+
+  function canvasMapSceneCell(cell, surface = activeCanvasMapSurface) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !MapVisualState.cellInBounds(clean, surface?.mapView?.scene?.viewport)) return null;
+    return surface?.cellIndex?.get(mapCellKey(clean)) || null;
+  }
+
+  function canvasMapInteraction(cell, surface = activeCanvasMapSurface) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !MapVisualState.cellInBounds(clean, surface?.mapView?.scene?.viewport)) return null;
+    return surface?.interactionIndex?.get(mapCellKey(clean)) || null;
+  }
+
+  function clearCanvasMapHover(options = {}) {
+    if (canvasMapHoverTimer) {
+      window.clearTimeout(canvasMapHoverTimer);
+      canvasMapHoverTimer = 0;
+    }
+    const surface = activeCanvasMapSurface;
+    if (!surface) return;
+    if (surface.tooltip) surface.tooltip.hidden = true;
+    if (options.keepCell !== true) surface.hoverCellKey = "";
+  }
+
+  function positionCanvasMapTooltip(surface, clientX, clientY) {
+    if (!surface?.tooltip || surface.tooltip.hidden) return;
+    const rect = surface.host.getBoundingClientRect();
+    const gap = 12;
+    surface.tooltip.style.left = `${clientX - rect.left + gap}px`;
+    surface.tooltip.style.top = `${clientY - rect.top + gap}px`;
+    window.requestAnimationFrame(() => {
+      if (surface !== activeCanvasMapSurface || surface.tooltip.hidden) return;
+      const maxLeft = Math.max(6, rect.width - surface.tooltip.offsetWidth - 6);
+      const maxTop = Math.max(6, rect.height - surface.tooltip.offsetHeight - 6);
+      surface.tooltip.style.left = `${clamp(clientX - rect.left + gap, 6, maxLeft)}px`;
+      surface.tooltip.style.top = `${clamp(clientY - rect.top + gap, 6, maxTop)}px`;
+    });
+  }
+
+  function scheduleCanvasMapHover(event, surface = activeCanvasMapSurface) {
+    if (!surface || canvasMapPointerState || mapDragState?.active) {
+      clearCanvasMapHover();
+      return;
+    }
+    const cell = canvasMapCellFromPointer(event, surface);
+    const cellView = canvasMapSceneCell(cell, surface);
+    if (!cellView) {
+      clearCanvasMapHover();
+      return;
+    }
+    const key = cellView.key;
+    if (surface.hoverCellKey === key && !surface.tooltip.hidden) {
+      positionCanvasMapTooltip(surface, event.clientX, event.clientY);
+      return;
+    }
+    clearCanvasMapHover();
+    surface.hoverCellKey = key;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    canvasMapHoverTimer = window.setTimeout(() => {
+      canvasMapHoverTimer = 0;
+      if (surface !== activeCanvasMapSurface || surface.hoverCellKey !== key || canvasMapPointerState || mapDragState?.active) return;
+      const latestCell = canvasMapSceneCell(cell, surface);
+      if (!latestCell) return;
+      surface.tooltip.textContent = latestCell.tooltip?.text || `Tile ${cell.x}, ${cell.y}, Z ${cell.z}`;
+      surface.tooltip.hidden = false;
+      positionCanvasMapTooltip(surface, clientX, clientY);
+    }, CANVAS_MAP_HOVER_DELAY_MS);
+  }
+
+  function canvasMapEditingMode() {
+    if (accessAreaEditing()) return "access";
+    if (roomDesignationModeActive()) return "room";
+    if (constructionWorkModeActive()) return "construction";
+    return "selection";
+  }
+
+  function applyCanvasMapPaintCell(cell, mode) {
+    const cellView = canvasMapSceneCell(cell);
+    if (!cellView?.known) return false;
+    if (mode === "access") {
+      if (accessAreaCellBlockReason(cell)) return false;
+      return applyAccessAreaBrush(cell, { persist: false, render: false });
+    }
+    if (mode === "room") {
+      if (roomDesignationCellBlockReason(cell)) return false;
+      return applyRoomDesignationBrush(cell, { persist: false, render: false });
+    }
+    return false;
+  }
+
+  function selectCanvasMapCell(cell) {
+    const interaction = canvasMapInteraction(cell);
+    const target = interaction?.primaryTarget || interaction?.targets?.[0] || null;
+    if (!target) return false;
+    ensureUiState().mapCursor = { ...cell };
+    return focusMapTarget(target, {
+      keepWorkspace: true,
+      source: "map",
+      resetInspectorTab: true,
+      resetInspectorExpanded: true,
+      resetCommandMenu: true
+    });
+  }
+
+  function handleCanvasMapConstructionClick(cell) {
+    if (!constructionWorkModeActive()) return false;
+    const cellView = canvasMapSceneCell(cell);
+    if (!cellView?.known) return false;
+    if (constructionActiveMode() !== "cancel" && constructionDraftCellAddBlockReason(cell)) return false;
+    const changed = toggleConstructionDraftCell(cell, { persist: false, render: false });
+    if (changed) {
+      persist();
+      refreshActiveCanvasMapSurface();
+    }
+    return true;
+  }
+
+  function handleCanvasMapPointerDown(event, surface = activeCanvasMapSurface) {
+    if (event.button !== 0 || !surface || !state?.started || currentWorkspaceTab() !== "map") return;
+    const cell = canvasMapCellFromPointer(event, surface);
+    const cellView = canvasMapSceneCell(cell, surface);
+    if (!cellView) return;
+    clearCanvasMapHover();
+    const editingMode = canvasMapEditingMode();
+    const paintMode = ["access", "room"].includes(editingMode)
+      && cellView.known
+      && !(editingMode === "access" ? accessAreaCellBlockReason(cell) : roomDesignationCellBlockReason(cell))
+      ? editingMode
+      : "";
+    canvasMapPointerState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startCellKey: cellView.key,
+      mode: paintMode || (editingMode === "construction" ? "construction" : "selection"),
+      changed: false,
+      moved: false,
+      visited: new Set()
+    };
+    surface.host.setPointerCapture?.(event.pointerId);
+    if (paintMode) {
+      event.preventDefault();
+      canvasMapPointerState.visited.add(cellView.key);
+      canvasMapPointerState.changed = applyCanvasMapPaintCell(cell, paintMode);
+      if (canvasMapPointerState.changed) refreshActiveCanvasMapSurface();
+    }
+  }
+
+  function handleCanvasMapPointerMove(event, surface = activeCanvasMapSurface) {
+    const pointer = canvasMapPointerState;
+    if (!pointer || event.pointerId !== pointer.pointerId) {
+      scheduleCanvasMapHover(event, surface);
+      return;
+    }
+    if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) >= LAB_MAP_DRAG_THRESHOLD_PX) {
+      pointer.moved = true;
+    }
+    if (!["access", "room"].includes(pointer.mode) || !(event.buttons & 1)) return;
+    event.preventDefault();
+    const cell = canvasMapCellFromPointer(event, surface);
+    const cellView = canvasMapSceneCell(cell, surface);
+    if (!cellView || pointer.visited.has(cellView.key)) return;
+    pointer.visited.add(cellView.key);
+    const changed = applyCanvasMapPaintCell(cell, pointer.mode);
+    pointer.changed = changed || pointer.changed;
+    if (changed) refreshActiveCanvasMapSurface();
+  }
+
+  function endCanvasMapPointer(event, options = {}) {
+    const pointer = canvasMapPointerState;
+    if (!pointer || event.pointerId !== pointer.pointerId) return false;
+    const surface = activeCanvasMapSurface;
+    const cell = canvasMapCellFromPointer(event, surface);
+    const cellView = canvasMapSceneCell(cell, surface);
+    canvasMapPointerState = null;
+    if (surface?.host?.hasPointerCapture?.(event.pointerId)) {
+      surface.host.releasePointerCapture(event.pointerId);
+    }
+    if (["access", "room"].includes(pointer.mode)) {
+      if (pointer.changed) {
+        persist();
+        refreshActiveCanvasMapSurface();
+      }
+      return true;
+    }
+    if (options.cancelled || pointer.moved || !cellView || cellView.key !== pointer.startCellKey) return false;
+    if (pointer.mode === "construction" && handleCanvasMapConstructionClick(cell)) return true;
+    return selectCanvasMapCell(cell);
   }
 
   function handleRoomPaintPointerDown(event) {
@@ -6690,6 +6896,8 @@
   }
 
   function destroyActiveCanvasMapRenderer() {
+    clearCanvasMapHover();
+    canvasMapPointerState = null;
     activeCanvasMapRenderer?.destroy?.();
     activeCanvasMapRenderer = null;
     activeCanvasMapSurface = null;
@@ -14789,7 +14997,7 @@
     return constructionTileStaticBlockReason(mode, clean, { buildType: state.construction.buildType });
   }
 
-  function addConstructionDraftCells(cells) {
+  function addConstructionDraftCells(cells, options = {}) {
     const additions = normalizeDigCells(cells);
     if (!additions.length) {
       addEvent("Select at least one valid tile to add to the construction draft.");
@@ -14824,12 +15032,12 @@
     ensureLabMapCoversCells(state.construction.draftCells);
     ensureUiState().mapOverlay = "construction";
     setActiveWorkspaceTab("map");
-    persist();
-    render();
+    if (options.persist !== false) persist();
+    if (options.render !== false) render();
     return true;
   }
 
-  function removeConstructionDraftCell(cell) {
+  function removeConstructionDraftCell(cell, options = {}) {
     const clean = cleanMapCell(cell);
     if (!clean) {
       return false;
@@ -14837,20 +15045,20 @@
     state.construction = normalizeConstructionState(state.construction, state);
     state.construction.draftCells = state.construction.draftCells
       .filter((draftCell) => mapCellKey(draftCell) !== mapCellKey(clean));
-    persist();
-    render();
+    if (options.persist !== false) persist();
+    if (options.render !== false) render();
     return true;
   }
 
-  function toggleConstructionDraftCell(cell) {
+  function toggleConstructionDraftCell(cell, options = {}) {
     const clean = cleanMapCell(cell);
     if (!clean) {
       return false;
     }
     if (constructionDraftCellKeys().has(mapCellKey(clean))) {
-      return removeConstructionDraftCell(clean);
+      return removeConstructionDraftCell(clean, options);
     }
-    return addConstructionDraftCells([clean]);
+    return addConstructionDraftCells([clean], options);
   }
 
   function clearConstructionDraft() {
@@ -38583,7 +38791,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const mode = currentMapRendererMode();
     if (dom.mapRendererStatus) {
       dom.mapRendererStatus.textContent = mode === MAP_RENDERER_CANVAS
-        ? "Canvas map active. Camera input works; pointer selection and designation tools remain on the DOM map."
+        ? "Canvas map active. Navigation, semantic selection, hover, commands, and designation tools are available."
         : "DOM map active. Full current map interaction is available.";
     }
     if (dom.mapRendererDomBtn) {
@@ -43295,33 +43503,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const key = mapCellKey(clean);
-    const targets = [];
+    const knownCellKeys = labMapKnownCellKeys(map, { fullReveal: mapFullRevealActive() });
+    if (!labMapCellKnown(clean, map, knownCellKeys, labMapExcavatedCellKeys(map))) {
+      return [];
+    }
     const showIncidentTargets = currentMapOverlayDef().id === "incidents" || trackedMapSelection()?.kind === "incident";
     const incidentEntry = showIncidentTargets ? labMapIncidentAssignments(map).get(key) : null;
-    for (const incident of incidentEntry?.alerts || []) {
-      targets.push({ kind: "incident", id: incident.id });
-    }
     const scientistCell = scientistMapCell();
-    if (scientistCell && mapCellKey(scientistCell) === key) {
-      targets.push({ kind: "scientist" });
-    }
+    const scientistHere = Boolean(scientistCell && mapCellKey(scientistCell) === key);
     const objectEntry = labMapObjectAssignments(map).get(key);
-    for (const target of objectEntry?.targets || []) {
-      targets.push(target);
-    }
     const roomId = labMapCellRoomId(clean, map);
+    let overlayEntry = null;
     if (currentMapOverlayDef().id === "resources" && roomId && resourceOverlayReadingForRoom(roomId, currentResourceOverlayFocusDef())) {
       const focus = currentResourceOverlayFocusDef();
-      targets.push({ kind: "stockpile", id: `${roomId}:${focus.id}`, roomId, focusId: focus.id });
+      overlayEntry = { target: { kind: "stockpile", id: `${roomId}:${focus.id}`, roomId, focusId: focus.id } };
     }
-    const door = labMapDoorAtCell(clean, map);
-    if (door) {
-      targets.push({ kind: "door", key: door.key, roomIds: door.roomIds });
-    }
-    if (roomId) {
-      targets.push({ kind: "room", roomId });
-    }
-    targets.push({ kind: "tile", tile: clean });
+    const targets = mapTileInteractionTargets({
+      roomId,
+      door: labMapDoorAtCell(clean, map),
+      objectEntry,
+      incidentEntry,
+      overlayEntry,
+      plannedEntry: plannedExcavationAssignments().get(key) || null,
+      scientistHere,
+      cell: clean
+    });
     const seen = new Set();
     return targets
       .map((target) => normalizeSelection({ ...target, source: "inspector" }))
@@ -43350,6 +43556,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ...containerCorpses(container.id).map((corpse) => ({ kind: "corpse", id: corpse.id })),
         { kind: "room", roomId: container.roomId }
       ];
+      return rows;
     }
     if (selection.kind === "fixture") {
       const fixture = fixtureById(selection.id);
@@ -46659,6 +46866,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return cell ? { kind: "tile", tile: cell } : null;
   }
 
+  function mapTileInteractionTargets(context) {
+    const primary = mapTileClickTarget(context);
+    const incidents = [...(context.incidentEntry?.alerts || [])]
+      .sort((a, b) => incidentSeverityRank(b.severity) - incidentSeverityRank(a.severity) || a.createdAt - b.createdAt)
+      .map((incident) => ({ kind: "incident", id: incident.id }));
+    return [
+      primary,
+      ...incidents,
+      context.scientistHere ? { kind: "scientist" } : null,
+      ...(context.objectEntry?.targets || []),
+      context.door ? { kind: "door", key: context.door.key, roomIds: context.door.roomIds } : null,
+      context.overlayEntry?.target || null,
+      context.plannedEntry?.task?.id ? { kind: "task", id: context.plannedEntry.task.id } : null,
+      context.roomId ? { kind: "room", roomId: context.roomId } : null,
+      context.cell ? { kind: "tile", tile: context.cell } : null
+    ].filter(Boolean);
+  }
+
   function labMapAnchorAssignments(map) {
     const anchors = new Map();
     for (const room of Object.values(map.rooms || {})) {
@@ -47217,7 +47442,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const visiblePlannedEntry = visible ? plannedEntry : null;
     const visibleDraftEntry = visible ? draftEntry : null;
     const visibleOverlayEntry = visible ? overlayEntry : null;
-    const clickTarget = visible ? mapTileClickTarget({ roomId, door, objectEntry: visibleObjectEntry, incidentEntry: visibleIncidentEntry, overlayEntry: visibleOverlayEntry, plannedEntry: visiblePlannedEntry, scientistHere, cell }) : null;
+    const interactionContext = {
+      roomId,
+      door,
+      objectEntry: visibleObjectEntry,
+      incidentEntry: visibleIncidentEntry,
+      overlayEntry: visibleOverlayEntry,
+      plannedEntry: visiblePlannedEntry,
+      scientistHere,
+      cell
+    };
+    const clickTarget = visible ? mapTileClickTarget(interactionContext) : null;
+    const interactionTargets = visible ? mapTileInteractionTargets(interactionContext) : [];
     const base = labMapCellBaseView(roomId, excavated, visiblePlannedEntry, visibleDraftEntry, visible, cell, map);
     const terrainConnectivity = terrainConnectivityViewAtCell(cell, terrainContext);
     const semanticDoor = door ? {
@@ -47323,6 +47559,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         parts: tooltipParts,
         text: labMapCellTooltipText(tooltipParts)
       },
+      interactionTargets,
       target: clickTarget
     };
   }
@@ -47804,7 +48041,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
       : currentMapRendererMode() === MAP_RENDERER_CANVAS
-        ? "WASD/middle-drag pan camera; wheel or +/- zoom; arrows move cursor; [/] change layer; Enter selects; Canvas pointer selection pending; O cycles overlay; T/I/C/P/R/G open menus; ? help."
+        ? "WASD/middle-drag pan camera; wheel or +/- zoom; click or Enter selects; hover inspects; arrows move cursor; [/] change layer; O cycles overlay; T/I/C/P/R/G open menus; ? help."
         : "WASD/middle-drag pan camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
     if (accessAreaEditing()) row.append(chip(`Access area: ${activeAccessArea().name} · ${ensureAccessControl().editor.brush}`));
     else if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
@@ -48136,6 +48373,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ["+ / -", "Zoom the map in or out."],
       ["Mouse wheel", "Zoom the map around the tile beneath the pointer."],
       ["Middle drag", "Grab and pan the map."],
+      ["Hover", "Inspect the known contents of a map tile."],
+      ["Left click", "Select the highest-priority known target and move the keyboard cursor."],
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["Room Mode", "Click excavated floor to toggle manual room designation tiles."],
@@ -48216,8 +48455,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const notice = document.createElement("div");
     notice.id = "canvasMapPrototypeNotice";
     notice.className = "canvas-map-prototype-notice";
-    notice.textContent = "Canvas prototype: camera controls are active. Switch to DOM Map in Debug > Performance for pointer selection and designation tools.";
+    notice.textContent = "Canvas prototype: map navigation, selection, tooltips, contextual commands, and designation tools are active.";
     host.append(notice);
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "canvas-map-tooltip";
+    tooltip.dataset.canvasMapTooltip = "true";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.hidden = true;
+    host.append(tooltip);
 
     const renderer = CanvasMapRenderer.createRenderer(canvas, {
       onFrame: (diagnostics) => {
@@ -48226,11 +48472,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       onResize: () => scheduleMapViewportMeasurement()
     });
     activeCanvasMapRenderer = renderer;
-    activeCanvasMapSurface = { host, canvas, renderer, mapView, panel: null };
+    activeCanvasMapSurface = {
+      host,
+      canvas,
+      renderer,
+      tooltip,
+      hoverCellKey: "",
+      mapView,
+      ...canvasMapSurfaceIndexes(mapView),
+      panel: null
+    };
     host.addEventListener("pointerdown", (event) => {
       host.focus({ preventScroll: true });
       handleMapDragPointerDown(event, activeCanvasMapSurface?.mapView || mapView);
+      handleCanvasMapPointerDown(event, activeCanvasMapSurface);
     });
+    host.addEventListener("pointermove", (event) => handleCanvasMapPointerMove(event, activeCanvasMapSurface));
+    host.addEventListener("pointerup", (event) => endCanvasMapPointer(event));
+    host.addEventListener("pointercancel", (event) => endCanvasMapPointer(event, { cancelled: true }));
+    host.addEventListener("pointerleave", () => clearCanvasMapHover());
     host.addEventListener("mousedown", suppressMapMiddleButtonDefault);
     host.addEventListener("auxclick", suppressMapMiddleButtonDefault);
     host.addEventListener("wheel", (event) => {
@@ -48625,6 +48885,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const mapView = buildLabMapView();
     surface.mapView = mapView;
+    Object.assign(surface, canvasMapSurfaceIndexes(mapView));
     setMapViewportDataset(surface.host, mapView);
     surface.host.setAttribute("aria-label", `Interactive Canvas laboratory map at Z ${mapView.viewport.z}`);
     surface.canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);

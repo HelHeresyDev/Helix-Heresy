@@ -21,6 +21,12 @@ test('scene model deduplicates entities while retaining footprint and interactio
       cell: { x: 1, y: 1, z: 0 },
       known: true,
       target: { kind: 'container', id: 'jar-1' },
+      interactionTargets: [
+        { kind: 'container', id: 'jar-1' },
+        { kind: 'slime', id: 'slime-1' },
+        { kind: 'room', roomId: 'mainLab' },
+        { kind: 'tile', tile: { x: 1, y: 1, z: 0 } },
+      ],
       object: {
         targets: [
           { kind: 'container', id: 'jar-1' },
@@ -65,7 +71,13 @@ test('scene model deduplicates entities while retaining footprint and interactio
   expect(scene.interactionIndex[0].targets).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: 'container', id: 'jar-1' }),
     expect.objectContaining({ kind: 'slime', id: 'slime-1' }),
+    expect.objectContaining({ kind: 'room', roomId: 'mainLab' }),
+    expect.objectContaining({ kind: 'tile', tile: { x: 1, y: 1, z: 0 } }),
   ]));
+  expect(VisualState.sceneCellAt(scene, { x: 1, y: 1, z: 0 })).toBe(scene.cells[0]);
+  expect(VisualState.interactionAtCell(scene, { x: 1, y: 1, z: 0 })).toBe(scene.interactionIndex[0]);
+  expect(VisualState.sceneCellAt(scene, { x: 0, y: 1, z: 0 })).toBeNull();
+  expect(VisualState.interactionAtCell(scene, { x: 0, y: 1, z: 0 })).toBeNull();
   expect(scene.entities.some((entity) => entity.id === 'slime:slime-1')).toBe(false);
   expect(scene.selection.cells).toHaveLength(2);
   expect(VisualState.validateScene(scene)).toEqual([]);

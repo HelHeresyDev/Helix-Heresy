@@ -1359,6 +1359,25 @@ h2 {
   pointer-events: none;
 }
 
+.canvas-map-tooltip {
+  position: absolute;
+  z-index: 6;
+  max-width: min(24rem, calc(100% - 1rem));
+  padding: 0.42rem 0.52rem;
+  background: rgba(12, 14, 11, 0.94);
+  border: 1px solid #596158;
+  border-radius: 4px;
+  color: #e4e7de;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.canvas-map-tooltip[hidden] {
+  display: none;
+}
+
 body.map-dragging .lab-map-grid,
 body.map-dragging .lab-map-cell,
 body.map-dragging .lab-map-canvas-host {
