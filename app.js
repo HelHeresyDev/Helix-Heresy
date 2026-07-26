@@ -628,6 +628,9 @@
   const LAB_MAP_FAST_PAN_PIXELS_PER_SECOND = 900;
   const LAB_MAP_DRAG_THRESHOLD_PX = 4;
   const LAB_MAP_GRID_GAP_PX = 0;
+  const CANVAS_MAP_ORIGIN_PX = 6;
+  const MAP_WHEEL_ZOOM_THRESHOLD = 40;
+  const MAP_WHEEL_ZOOM_COOLDOWN_MS = 90;
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
@@ -3274,6 +3277,11 @@
   const MAP_RENDERER_CANVAS = "canvas";
   let mapRendererMode = MAP_RENDERER_DOM;
   let activeCanvasMapRenderer = null;
+  let activeCanvasMapSurface = null;
+  let canvasMapPanOffset = { x: 0, y: 0 };
+  let mapWheelZoomAccumulator = 0;
+  let mapWheelZoomDirection = 0;
+  let mapWheelZoomLastAppliedAt = 0;
   let objectPlacementInProgress = false;
   let activeWorkspaceTab = "map";
   const heldMapPanKeys = new Set();
@@ -4710,9 +4718,11 @@
       mapRendererSnapshot: () => ({
         mode: currentMapRendererMode(),
         canvas: activeCanvasMapRenderer?.snapshot?.() || null,
+        cameraOffset: { ...canvasMapPanOffset },
         sceneBuild: performanceBucketSnapshot(simulationPerformance.mapScene),
         canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw)
       }),
+      canvasPointToCell: (clientX, clientY) => activeCanvasMapRenderer?.clientPointToCell?.(clientX, clientY) || null,
       setMapRenderer: (mode) => {
         setMapRendererMode(mode);
         return currentMapRendererMode();
@@ -5860,6 +5870,7 @@
     event.preventDefault();
     if (!heldMapPanKeys.size) {
       stopMapPanLoop();
+      settleCanvasMapPanOffset({ persist: false });
       persist();
     }
   }
@@ -5900,7 +5911,11 @@
     if (!wasHeld) {
       const delta = mapPanDeltaForKey(panKey);
       const step = mapPanShiftHeld ? 3 : 1;
-      panMapCamera(delta.dx * step, delta.dy * step, { persist: false, render: true });
+      if (currentMapRendererMode() === MAP_RENDERER_CANVAS) {
+        panCanvasMapByPixels(delta.dx * step * mapDragTileSpan(), delta.dy * step * mapDragTileSpan(), { render: true });
+      } else {
+        panMapCamera(delta.dx * step, delta.dy * step, { persist: false, render: true });
+      }
     }
     startMapPanLoop();
     return true;
@@ -5932,6 +5947,7 @@
     mapPanShiftHeld = false;
     stopMapPanLoop();
     if (state?.started) {
+      settleCanvasMapPanOffset({ persist: false });
       persist();
     }
   }
@@ -5979,18 +5995,27 @@
     mapPanLastFrameAt = now;
     const vector = mapPanVectorFromHeldKeys();
     if (vector) {
-      const cells = mapPanCellsPerSecond() * elapsedSeconds;
-      mapPanCarryX += vector.dx * cells;
-      mapPanCarryY += vector.dy * cells;
-      const stepX = mapPanIntegerStep(mapPanCarryX);
-      const stepY = mapPanIntegerStep(mapPanCarryY);
-      if (stepX || stepY) {
-        if (panMapCamera(stepX, stepY, { persist: false, render: true })) {
-          mapPanCarryX -= stepX;
-          mapPanCarryY -= stepY;
-        } else {
-          mapPanCarryX = 0;
-          mapPanCarryY = 0;
+      if (currentMapRendererMode() === MAP_RENDERER_CANVAS) {
+        const pixelsPerSecond = mapPanShiftHeld ? LAB_MAP_FAST_PAN_PIXELS_PER_SECOND : LAB_MAP_PAN_PIXELS_PER_SECOND;
+        panCanvasMapByPixels(
+          vector.dx * pixelsPerSecond * elapsedSeconds,
+          vector.dy * pixelsPerSecond * elapsedSeconds,
+          { render: true }
+        );
+      } else {
+        const cells = mapPanCellsPerSecond() * elapsedSeconds;
+        mapPanCarryX += vector.dx * cells;
+        mapPanCarryY += vector.dy * cells;
+        const stepX = mapPanIntegerStep(mapPanCarryX);
+        const stepY = mapPanIntegerStep(mapPanCarryY);
+        if (stepX || stepY) {
+          if (panMapCamera(stepX, stepY, { persist: false, render: true })) {
+            mapPanCarryX -= stepX;
+            mapPanCarryY -= stepY;
+          } else {
+            mapPanCarryX = 0;
+            mapPanCarryY = 0;
+          }
         }
       }
     }
@@ -6014,9 +6039,75 @@
       persist();
     }
     if (options.render !== false) {
-      renderMapInteraction();
+      renderMapNavigationInteraction();
     }
     return true;
+  }
+
+  function canvasMapPresentation(mapView = null) {
+    const view = mapView || activeCanvasMapSurface?.mapView || buildLabMapView();
+    return {
+      tilePx: Number(view?.zoom?.tilePx) || mapViewportForUi(ensureLabMap()).tilePx,
+      origin: {
+        x: CANVAS_MAP_ORIGIN_PX - canvasMapPanOffset.x,
+        y: CANVAS_MAP_ORIGIN_PX - canvasMapPanOffset.y
+      },
+      includeOverscan: true
+    };
+  }
+
+  function canvasMapPixelStep(value, tileSpan) {
+    if (value >= tileSpan) return Math.floor(value / tileSpan);
+    if (value <= -tileSpan) return Math.ceil(value / tileSpan);
+    return 0;
+  }
+
+  function panCanvasMapByPixels(dx, dy, options = {}) {
+    if (currentMapRendererMode() !== MAP_RENDERER_CANVAS || !activeCanvasMapRenderer) {
+      return panMapCamera(
+        mapPanIntegerStep((Number(dx) || 0) / mapDragTileSpan()),
+        mapPanIntegerStep((Number(dy) || 0) / mapDragTileSpan()),
+        options
+      );
+    }
+    const tileSpan = mapDragTileSpan(activeCanvasMapSurface?.mapView);
+    canvasMapPanOffset.x += Number(dx) || 0;
+    canvasMapPanOffset.y += Number(dy) || 0;
+    const stepX = canvasMapPixelStep(canvasMapPanOffset.x, tileSpan);
+    const stepY = canvasMapPixelStep(canvasMapPanOffset.y, tileSpan);
+    let cameraChanged = false;
+    if (stepX || stepY) {
+      const before = mapViewportForUi(ensureLabMap());
+      cameraChanged = panMapCamera(stepX, stepY, { persist: false, render: false });
+      const after = mapViewportForUi(ensureLabMap());
+      const movedX = after.x - before.x;
+      const movedY = after.y - before.y;
+      canvasMapPanOffset.x -= movedX * tileSpan;
+      canvasMapPanOffset.y -= movedY * tileSpan;
+      if (movedX !== stepX) canvasMapPanOffset.x = 0;
+      if (movedY !== stepY) canvasMapPanOffset.y = 0;
+    }
+    if (options.render !== false) {
+      if (cameraChanged) refreshActiveCanvasMapSurface();
+      else activeCanvasMapRenderer.setPresentation(canvasMapPresentation(activeCanvasMapSurface?.mapView));
+    }
+    return cameraChanged || Boolean(dx) || Boolean(dy);
+  }
+
+  function settleCanvasMapPanOffset(options = {}) {
+    if (currentMapRendererMode() !== MAP_RENDERER_CANVAS || (!canvasMapPanOffset.x && !canvasMapPanOffset.y)) {
+      return false;
+    }
+    const tileSpan = mapDragTileSpan(activeCanvasMapSurface?.mapView);
+    const stepX = Math.abs(canvasMapPanOffset.x) >= tileSpan / 2 ? Math.sign(canvasMapPanOffset.x) : 0;
+    const stepY = Math.abs(canvasMapPanOffset.y) >= tileSpan / 2 ? Math.sign(canvasMapPanOffset.y) : 0;
+    const cameraChanged = stepX || stepY
+      ? panMapCamera(stepX, stepY, { persist: false, render: false })
+      : false;
+    canvasMapPanOffset = { x: 0, y: 0 };
+    if (options.render !== false) refreshActiveCanvasMapSurface();
+    if (options.persist !== false && state?.started) persist();
+    return cameraChanged;
   }
 
   function mapDragTileSpan(mapView = null) {
@@ -6050,7 +6141,8 @@
       carryX: 0,
       carryY: 0,
       active: false,
-      tileSpan: mapDragTileSpan(mapView)
+      tileSpan: mapDragTileSpan(mapView),
+      renderer: currentMapRendererMode()
     };
     document.addEventListener("pointermove", handleMapDragPointerMove, { passive: false });
     document.addEventListener("pointerup", handleMapDragPointerEnd, { passive: false });
@@ -6075,6 +6167,10 @@
     const deltaY = event.clientY - mapDragState.lastY;
     mapDragState.lastX = event.clientX;
     mapDragState.lastY = event.clientY;
+    if (mapDragState.renderer === MAP_RENDERER_CANVAS) {
+      panCanvasMapByPixels(-deltaX, -deltaY, { render: true });
+      return;
+    }
     mapDragState.carryX += -deltaX / mapDragState.tileSpan;
     mapDragState.carryY += -deltaY / mapDragState.tileSpan;
     const stepX = mapPanIntegerStep(mapDragState.carryX);
@@ -6109,6 +6205,7 @@
     document.removeEventListener("pointercancel", handleMapDragPointerEnd);
     mapDragState = null;
     setMapDragCursor(false);
+    settleCanvasMapPanOffset({ persist: false });
     if (options.persist !== false && state?.started) {
       persist();
     }
@@ -6595,6 +6692,8 @@
   function destroyActiveCanvasMapRenderer() {
     activeCanvasMapRenderer?.destroy?.();
     activeCanvasMapRenderer = null;
+    activeCanvasMapSurface = null;
+    canvasMapPanOffset = { x: 0, y: 0 };
   }
 
   function setMapRendererMode(value, options = {}) {
@@ -7092,8 +7191,8 @@
     }
     mapViewportMeasureFrame = window.requestAnimationFrame(() => {
       mapViewportMeasureFrame = 0;
-      const grid = dom.roomList?.querySelector?.(".lab-map-grid");
-      const pixels = elementContentPixels(grid);
+      const surface = dom.roomList?.querySelector?.('[data-map-viewport="true"]');
+      const pixels = elementContentPixels(surface);
       if (!pixels || pixels.width < 100 || pixels.height < 100) {
         return;
       }
@@ -7102,20 +7201,37 @@
         && Math.abs(measuredMapViewportPixels.height - pixels.height) <= 1) {
         return;
       }
+      const map = ensureLabMap();
+      const ui = ensureUiState();
+      const oldViewport = mapViewportForUi(map, ui);
+      const hadMeasurement = Boolean(measuredMapViewportPixels);
+      const center = {
+        x: oldViewport.x + oldViewport.width / 2,
+        y: oldViewport.y + oldViewport.height / 2,
+        z: oldViewport.z
+      };
       measuredMapViewportPixels = pixels;
-      renderMapInteraction();
+      const nextSize = mapViewportSizeForZoom(map, ui.mapZoomIndex);
+      ui.mapCamera = hadMeasurement
+        ? normalizeMapCamera({
+          x: Math.floor(center.x - nextSize.width / 2),
+          y: Math.floor(center.y - nextSize.height / 2),
+          z: center.z
+        }, map, ui.mapZoomIndex)
+        : normalizeMapCamera(ui.mapCamera, map, ui.mapZoomIndex);
+      canvasMapPanOffset = { x: 0, y: 0 };
+      renderMapNavigationInteraction();
     });
   }
 
   function handleMapViewportResize() {
-    measuredMapViewportPixels = null;
     if (mapViewportResizeFrame) {
       window.cancelAnimationFrame(mapViewportResizeFrame);
     }
     mapViewportResizeFrame = window.requestAnimationFrame(() => {
       mapViewportResizeFrame = 0;
       if (state?.started && currentWorkspaceTab() === "map") {
-        renderMapInteraction();
+        scheduleMapViewportMeasurement();
       }
     });
   }
@@ -7234,15 +7350,22 @@
       y: oldViewport.y + Math.floor(oldViewport.height / 2),
       z: oldViewport.z
     };
+    const requestedAnchorFractionX = Number(options.anchorFraction?.x);
+    const requestedAnchorFractionY = Number(options.anchorFraction?.y);
+    const anchorFraction = {
+      x: clamp(Number.isFinite(requestedAnchorFractionX) ? requestedAnchorFractionX : 0.5, 0, 1),
+      y: clamp(Number.isFinite(requestedAnchorFractionY) ? requestedAnchorFractionY : 0.5, 0, 1)
+    };
+    canvasMapPanOffset = { x: 0, y: 0 };
     ui.mapZoomIndex = normalizeMapZoomIndex(oldViewport.zoomIndex + delta);
     const nextSize = mapViewportSizeForZoom(map, ui.mapZoomIndex);
     ui.mapCamera = normalizeMapCamera({
-      x: anchor.x - Math.floor(nextSize.width / 2),
-      y: anchor.y - Math.floor(nextSize.height / 2),
+      x: anchor.x - Math.floor(nextSize.width * anchorFraction.x),
+      y: anchor.y - Math.floor(nextSize.height * anchorFraction.y),
       z: anchor.z
     }, map, ui.mapZoomIndex);
     persist();
-    renderMapInteraction();
+    renderMapNavigationInteraction();
     return true;
   }
 
@@ -7333,12 +7456,13 @@
     const current = mapViewportForUi(map, ui).z;
     const next = current + Math.trunc(Number(delta) || 0);
     if (next === current) return false;
+    canvasMapPanOffset = { x: 0, y: 0 };
     ui.mapCamera = normalizeMapCamera({ ...ui.mapCamera, z: next }, map, ui.mapZoomIndex);
     ui.mapCursor = { ...cursor, z: next };
     ui.commandMenuOpen = false;
     ui.mode = UI_MODE_NAVIGATION;
     if (options.persist !== false) persist();
-    renderMapInteraction();
+    renderMapNavigationInteraction();
     return true;
   }
 
@@ -38459,7 +38583,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const mode = currentMapRendererMode();
     if (dom.mapRendererStatus) {
       dom.mapRendererStatus.textContent = mode === MAP_RENDERER_CANVAS
-        ? "Canvas map active. Keyboard navigation works; pointer interaction is intentionally unavailable."
+        ? "Canvas map active. Camera input works; pointer selection and designation tools remain on the DOM map."
         : "DOM map active. Full current map interaction is available.";
     }
     if (dom.mapRendererDomBtn) {
@@ -38500,7 +38624,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw),
       mapRenderer: {
         mode: currentMapRendererMode(),
-        canvas: activeCanvasMapRenderer?.snapshot?.() || null
+        canvas: activeCanvasMapRenderer?.snapshot?.() || null,
+        cameraOffset: { ...canvasMapPanOffset }
       },
       save: performanceBucketSnapshot(simulationPerformance.save)
     };
@@ -47679,7 +47804,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const menuHint = menuPath
       ? `Key path ${keyboardMenuDef(menuPath).key}: ${keyboardMenuOptionsText(menuPath)}.`
       : currentMapRendererMode() === MAP_RENDERER_CANVAS
-        ? "WASD pans camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; Canvas mouse controls pending; O cycles overlay; T/I/C/P/R/G open menus; ? help."
+        ? "WASD/middle-drag pan camera; wheel or +/- zoom; arrows move cursor; [/] change layer; Enter selects; Canvas pointer selection pending; O cycles overlay; T/I/C/P/R/G open menus; ? help."
         : "WASD/middle-drag pan camera; arrows move cursor; [/] change layer; +/- zoom; Enter selects; O cycles overlay; B opens Black Market; T/I/C/P/R/G open menus; ? help.";
     if (accessAreaEditing()) row.append(chip(`Access area: ${activeAccessArea().name} · ${ensureAccessControl().editor.brush}`));
     else if (roomDesignationModeActive()) row.append(chip("Room designation mode"));
@@ -47751,6 +47876,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       y: mapView.viewport.y + Math.floor(mapView.viewport.height / 2),
       z: mapView.viewport.z
     };
+  }
+
+  function handleMapWheelZoom(event, mapView, anchorCell = null) {
+    event.preventDefault();
+    const direction = Math.sign(Number(event.deltaY) || 0);
+    if (!direction) return false;
+    if (direction !== mapWheelZoomDirection) {
+      mapWheelZoomAccumulator = 0;
+      mapWheelZoomDirection = direction;
+    }
+    mapWheelZoomAccumulator += Math.abs(Number(event.deltaY) || 0);
+    const now = performance.now();
+    if (mapWheelZoomAccumulator < MAP_WHEEL_ZOOM_THRESHOLD
+      || (mapWheelZoomLastAppliedAt > 0 && now - mapWheelZoomLastAppliedAt < MAP_WHEEL_ZOOM_COOLDOWN_MS)) {
+      return false;
+    }
+    mapWheelZoomAccumulator = 0;
+    mapWheelZoomLastAppliedAt = now;
+    const anchor = cleanMapCell(anchorCell) || mapWheelZoomAnchor(event, mapView);
+    setMapZoom(direction < 0 ? 1 : -1, {
+      anchorCell: anchor,
+      anchorFraction: {
+        x: clamp((anchor.x - mapView.viewport.x + 0.5) / Math.max(1, mapView.viewport.width), 0, 1),
+        y: clamp((anchor.y - mapView.viewport.y + 0.5) / Math.max(1, mapView.viewport.height), 0, 1)
+      }
+    });
+    return true;
   }
 
   function mapOverlayLegendItems(overlayId) {
@@ -47976,15 +48128,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("strong", "Keyboard"));
     const list = document.createElement("div");
     list.className = "keyboard-help-list";
-    const canvasPrototypeActive = currentMapRendererMode() === MAP_RENDERER_CANVAS;
     const entries = [
       ["WASD", "Pan the map camera."],
       ["Shift+WASD", "Pan the map camera faster."],
       ["Arrow keys", "Move the map cursor."],
       ["[ / ]", "View the z-layer below or above."],
       ["+ / -", "Zoom the map in or out."],
-      ["Mouse wheel", canvasPrototypeActive ? "Pending for the Canvas prototype; available in DOM Map." : "Zoom the map while the cursor is over the map."],
-      ["Middle drag", canvasPrototypeActive ? "Pending for the Canvas prototype; available in DOM Map." : "Grab and pan the map."],
+      ["Mouse wheel", "Zoom the map around the tile beneath the pointer."],
+      ["Middle drag", "Grab and pan the map."],
       ["Enter", "Select the cursor target."],
       ["Dig Mode", "Click solid earth to toggle draft excavation tiles."],
       ["Room Mode", "Click excavated floor to toggle manual room designation tiles."],
@@ -48049,29 +48200,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function canvasMapSurfaceEl(mapView) {
     const host = document.createElement("div");
     host.className = "lab-map-canvas-host";
+    host.tabIndex = 0;
+    host.setAttribute("role", "region");
+    host.setAttribute("aria-label", `Interactive Canvas laboratory map at Z ${mapView.viewport.z}`);
     setMapViewportDataset(host, mapView);
 
     const canvas = document.createElement("canvas");
     canvas.className = "lab-map-canvas";
     canvas.dataset.canvasMap = "true";
     canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}. Mouse interaction is not available in this prototype renderer.`);
+    canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);
     canvas.setAttribute("aria-describedby", "canvasMapPrototypeNotice");
     host.append(canvas);
 
     const notice = document.createElement("div");
     notice.id = "canvasMapPrototypeNotice";
     notice.className = "canvas-map-prototype-notice";
-    notice.textContent = "Canvas prototype: use keyboard map controls. Switch to DOM Map in Debug > Performance for mouse interaction.";
+    notice.textContent = "Canvas prototype: camera controls are active. Switch to DOM Map in Debug > Performance for pointer selection and designation tools.";
     host.append(notice);
 
     const renderer = CanvasMapRenderer.createRenderer(canvas, {
       onFrame: (diagnostics) => {
         recordPerformanceSample(simulationPerformance.canvasDraw, diagnostics.lastMs);
-      }
+      },
+      onResize: () => scheduleMapViewportMeasurement()
     });
     activeCanvasMapRenderer = renderer;
-    renderer.setScene(mapView.scene, { tilePx: mapView.zoom.tilePx });
+    activeCanvasMapSurface = { host, canvas, renderer, mapView, panel: null };
+    host.addEventListener("pointerdown", (event) => {
+      host.focus({ preventScroll: true });
+      handleMapDragPointerDown(event, activeCanvasMapSurface?.mapView || mapView);
+    });
+    host.addEventListener("mousedown", suppressMapMiddleButtonDefault);
+    host.addEventListener("auxclick", suppressMapMiddleButtonDefault);
+    host.addEventListener("wheel", (event) => {
+      const activeView = activeCanvasMapSurface?.mapView || mapView;
+      const anchor = renderer.clientPointToCell(event.clientX, event.clientY);
+      handleMapWheelZoom(event, activeView, anchor);
+    }, { passive: false });
+    renderer.setScene(mapView.scene, canvasMapPresentation(mapView));
     return host;
   }
 
@@ -48086,6 +48253,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     header.className = "lab-map-header";
     const title = textEl("strong", "Lab Blueprint");
     const meta = textEl("span", mapView.headerMeta);
+    meta.dataset.mapHeaderMeta = "true";
     header.append(title, meta);
     panel.append(header);
     panel.append(keyboardStatusEl(mapView));
@@ -48096,6 +48264,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     if (currentMapRendererMode() === MAP_RENDERER_CANVAS) {
       panel.append(canvasMapSurfaceEl(mapView));
+      if (activeCanvasMapSurface) activeCanvasMapSurface.panel = panel;
       return panel;
     }
 
@@ -48116,8 +48285,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.addEventListener("mousedown", suppressMapMiddleButtonDefault);
     grid.addEventListener("auxclick", suppressMapMiddleButtonDefault);
     grid.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      setMapZoom(event.deltaY < 0 ? 1 : -1, { anchorCell: mapWheelZoomAnchor(event, mapView) });
+      handleMapWheelZoom(event, mapView);
     }, { passive: false });
     for (const cellView of mapView.cells) {
       const domCell = labMapCellDomModel(cellView);
@@ -48448,6 +48616,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
+  function refreshActiveCanvasMapSurface() {
+    const surface = activeCanvasMapSurface;
+    if (currentMapRendererMode() !== MAP_RENDERER_CANVAS
+      || !surface?.host?.isConnected
+      || !surface.renderer) {
+      return false;
+    }
+    const mapView = buildLabMapView();
+    surface.mapView = mapView;
+    setMapViewportDataset(surface.host, mapView);
+    surface.host.setAttribute("aria-label", `Interactive Canvas laboratory map at Z ${mapView.viewport.z}`);
+    surface.canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);
+    surface.renderer.setScene(mapView.scene, canvasMapPresentation(mapView));
+    if (surface.panel) {
+      surface.panel.dataset.mapRenderer = MAP_RENDERER_CANVAS;
+      const meta = surface.panel.querySelector('[data-map-header-meta="true"]');
+      if (meta) meta.textContent = mapView.headerMeta;
+      const status = surface.panel.querySelector("[data-keyboard-mode]");
+      if (status) status.replaceWith(keyboardStatusEl(mapView));
+      const controls = surface.panel.querySelector('[data-map-zoom-controls="true"]');
+      if (controls) controls.replaceWith(mapZoomControlsEl(mapView));
+    }
+    return true;
+  }
+
   function renderMapSurface() {
     destroyActiveCanvasMapRenderer();
     dom.roomList.textContent = "";
@@ -48465,6 +48658,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     syncSelectionState();
     renderMapSurface();
     renderContextCommandMenu();
+    renderMapOverlayHud();
+    syncWorkspaceShell();
+    explainDisabledButtons();
+  }
+
+  function renderMapNavigationInteraction() {
+    if (!state?.started || currentWorkspaceTab() !== "map") {
+      render();
+      return;
+    }
+    if (currentMapRendererMode() !== MAP_RENDERER_CANVAS || !refreshActiveCanvasMapSurface()) {
+      renderMapInteraction();
+      return;
+    }
     renderMapOverlayHud();
     syncWorkspaceShell();
     explainDisabledButtons();
@@ -48512,6 +48719,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     syncSelectionState();
+    if (currentMapRendererMode() === MAP_RENDERER_CANVAS && refreshActiveCanvasMapSurface()) {
+      const nextInspector = selectionInspectorEl();
+      const currentInspector = dom.roomList?.querySelector?.('[data-selection-inspector="true"]');
+      if (currentInspector) currentInspector.replaceWith(nextInspector);
+      else dom.roomList?.append(nextInspector);
+      renderContextCommandMenu();
+      renderMapOverlayHud();
+      syncWorkspaceShell();
+      explainDisabledButtons();
+      return;
+    }
     const grid = dom.roomList?.querySelector?.(".lab-map-grid");
     if (!mapGridMatchesCurrentViewport(grid)) {
       renderMapInteraction();

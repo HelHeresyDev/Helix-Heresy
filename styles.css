@@ -1326,8 +1326,14 @@ h2 {
   background: #090a08;
   border: 1px solid #282a22;
   border-radius: 6px;
-  cursor: default;
+  cursor: grab;
+  touch-action: none;
   user-select: none;
+}
+
+.lab-map-canvas-host:focus-visible {
+  outline: 2px solid #68c8d8;
+  outline-offset: -2px;
 }
 
 .lab-map-canvas {
@@ -1354,7 +1360,8 @@ h2 {
 }
 
 body.map-dragging .lab-map-grid,
-body.map-dragging .lab-map-cell {
+body.map-dragging .lab-map-cell,
+body.map-dragging .lab-map-canvas-host {
   cursor: grabbing !important;
 }
 

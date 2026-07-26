@@ -63,6 +63,44 @@
     return (scene?.cells || []).filter((entry) => inViewport(entry.cell, scene.viewport));
   }
 
+  function renderCells(scene, options = {}) {
+    if (!options.includeOverscan) return visibleCells(scene);
+    const layer = cleanNumber(scene?.viewport?.z);
+    return (scene?.cells || []).filter((entry) => cleanNumber(entry?.cell?.z) === layer);
+  }
+
+  function presentationOrigin(options = {}) {
+    return {
+      x: cleanNumber(options.origin?.x, 6),
+      y: cleanNumber(options.origin?.y, 6)
+    };
+  }
+
+  function screenToCell(scene, point, options = {}) {
+    if (!scene?.viewport || !point) return null;
+    const tilePx = Math.max(1, cleanNumber(options.tilePx, 14));
+    const origin = presentationOrigin(options);
+    const x = Math.floor((cleanNumber(point.x) - origin.x) / tilePx) + cleanNumber(scene.viewport.x);
+    const y = Math.floor((cleanNumber(point.y) - origin.y) / tilePx) + cleanNumber(scene.viewport.y);
+    const z = cleanNumber(scene.viewport.z);
+    const mapWidth = Math.max(1, cleanNumber(scene.mapSize?.width, scene.viewport.x + scene.viewport.width));
+    const mapHeight = Math.max(1, cleanNumber(scene.mapSize?.height, scene.viewport.y + scene.viewport.height));
+    if (x < 0 || y < 0 || x >= mapWidth || y >= mapHeight) return null;
+    return { x, y, z };
+  }
+
+  function cellToScreen(scene, cell, options = {}) {
+    if (!scene?.viewport || !cell || cleanNumber(cell.z) !== cleanNumber(scene.viewport.z)) return null;
+    const tilePx = Math.max(1, cleanNumber(options.tilePx, 14));
+    const origin = presentationOrigin(options);
+    return {
+      x: origin.x + (cleanNumber(cell.x) - cleanNumber(scene.viewport.x)) * tilePx,
+      y: origin.y + (cleanNumber(cell.y) - cleanNumber(scene.viewport.y)) * tilePx,
+      width: tilePx,
+      height: tilePx
+    };
+  }
+
   function withStyle(base, changes = {}) {
     return { ...base, ...changes };
   }
@@ -195,8 +233,8 @@
   function renderScene(ctx, scene, options = {}) {
     const viewport = scene?.viewport || { x: 0, y: 0, z: 0, width: 1, height: 1 };
     const tilePx = Math.max(4, cleanNumber(options.tilePx, 14));
-    const origin = options.origin || { x: 6, y: 6 };
-    const cells = visibleCells(scene);
+    const origin = presentationOrigin(options);
+    const cells = renderCells(scene, options);
     const visibleCellKeys = new Set(cells.map((cell) => cellKey(cell.cell)));
     const cellByKey = new Map(cells.map((cell) => [cellKey(cell.cell), cell]));
     let entityCellsDrawn = 0;
@@ -304,7 +342,12 @@
       return {
         ...diagnostics,
         averageMs: diagnostics.frameCount ? diagnostics.totalMs / diagnostics.frameCount : 0,
-        pending: Boolean(frameId)
+        pending: Boolean(frameId),
+        presentation: {
+          tilePx: Math.max(4, cleanNumber(presentation.tilePx, 14)),
+          origin: presentationOrigin(presentation),
+          includeOverscan: Boolean(presentation.includeOverscan)
+        }
       };
     }
 
@@ -328,7 +371,7 @@
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.fillStyle = "#090a08";
       context.fillRect(0, 0, cssWidth, cssHeight);
-      const counts = renderScene(context, scene, { ...presentation, tilePx, origin: { x: 6, y: 6 } });
+      const counts = renderScene(context, scene, { ...presentation, tilePx });
       const elapsedMs = performance.now() - startedAt;
       diagnostics.frameCount += 1;
       diagnostics.lastMs = elapsedMs;
@@ -353,8 +396,26 @@
 
     function setScene(nextScene, nextPresentation = {}) {
       scene = nextScene;
-      presentation = { ...nextPresentation };
+      presentation = { ...presentation, ...nextPresentation };
       invalidate();
+    }
+
+    function setPresentation(nextPresentation = {}) {
+      presentation = { ...presentation, ...nextPresentation };
+      invalidate();
+    }
+
+    function clientPointToCell(clientX, clientY) {
+      if (!scene) return null;
+      const rect = canvas.getBoundingClientRect();
+      return screenToCell(scene, {
+        x: cleanNumber(clientX) - rect.left,
+        y: cleanNumber(clientY) - rect.top
+      }, presentation);
+    }
+
+    function pointForCell(cell) {
+      return cellToScreen(scene, cell, presentation);
     }
 
     function destroy() {
@@ -366,11 +427,14 @@
     }
 
     if (typeof ResizeObserver === "function") {
-      resizeObserver = new ResizeObserver(() => invalidate());
+      resizeObserver = new ResizeObserver(() => {
+        options.onResize?.();
+        invalidate();
+      });
       resizeObserver.observe(canvas);
     }
 
-    return { setScene, invalidate, destroy, snapshot };
+    return { setScene, setPresentation, clientPointToCell, pointForCell, invalidate, destroy, snapshot };
   }
 
   function rootDevicePixelRatio() {
@@ -380,6 +444,9 @@
   return {
     RENDERER_VERSION,
     visibleCells,
+    renderCells,
+    screenToCell,
+    cellToScreen,
     cellStyle,
     entityStyle,
     renderScene,
