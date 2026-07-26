@@ -36,6 +36,7 @@ function fakeImageFactory(calls, errorKey = '') {
 }
 
 test('development sprite manifest is valid and covers every asset category', () => {
+  expect(Manifest.manifest.version).toBe(2);
   expect(SpriteAssets.validateManifest(Manifest.manifest)).toEqual([]);
   expect(new Set(Manifest.manifest.assets.map((entry) => entry.category))).toEqual(
     new Set(SpriteAssets.CATEGORIES)
@@ -46,6 +47,9 @@ test('development sprite manifest is valid and covers every asset category', () 
   invalid.assets[1].key = invalid.assets[0].key;
   invalid.assets[1].source.path = '../outside.png';
   invalid.assets[1].sourceSize.width = 0;
+  invalid.assets[1].sourceRect = { x: 1200, y: 0, width: 100, height: 100 };
+  invalid.assets[1].placement.anchorTile.x = 2;
+  invalid.assets[1].placement.rotation = 'diagonal';
   delete invalid.categoryFallbacks.actor;
 
   const errors = SpriteAssets.validateManifest(invalid);
@@ -53,6 +57,9 @@ test('development sprite manifest is valid and covers every asset category', () 
     expect.stringContaining('duplicates semantic key'),
     expect.stringContaining('safe relative source path'),
     expect.stringContaining('positive source dimensions'),
+    expect.stringContaining('source rectangle'),
+    expect.stringContaining('anchor tile'),
+    expect.stringContaining('rotation mode'),
     expect.stringContaining('category actor needs'),
   ]));
 });
@@ -68,18 +75,18 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
 
   expect(loader.snapshot()).toMatchObject({
     state: 'idle',
-    total: 6,
-    counts: { idle: 6, loading: 0, ready: 0, error: 0 },
+    total: Manifest.manifest.assets.length,
+    counts: { idle: Manifest.manifest.assets.length, loading: 0, ready: 0, error: 0 },
   });
   await loader.loadAll();
   await loader.loadAll();
 
   expect(loader.snapshot()).toMatchObject({
     state: 'ready',
-    counts: { idle: 0, loading: 0, ready: 6, error: 0 },
+    counts: { idle: 0, loading: 0, ready: Manifest.manifest.assets.length, error: 0 },
   });
-  expect(calls).toHaveLength(6);
-  expect(new Set(calls).size).toBe(6);
+  expect(calls).toHaveLength(Manifest.manifest.assets.length);
+  expect(new Set(calls).size).toBe(Manifest.manifest.assets.length);
   expect(states).toContain('loading');
   expect(states.at(-1)).toBe('ready');
   expect(loader.resolve('actor.slime')).toMatchObject({
@@ -89,6 +96,11 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
   });
   expect(loader.resolve('actor.slime.stale')).toMatchObject({
     resolvedKey: 'actor.slime',
+    resolution: 'base',
+    status: 'ready',
+  });
+  expect(loader.resolve('actor.slime.large.stale')).toMatchObject({
+    resolvedKey: 'actor.slime.large',
     resolution: 'base',
     status: 'ready',
   });
@@ -114,7 +126,7 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
 
   expect(failedLoader.snapshot()).toMatchObject({
     state: 'partial',
-    counts: { idle: 0, loading: 0, ready: 5, error: 1 },
+    counts: { idle: 0, loading: 0, ready: Manifest.manifest.assets.length - 1, error: 1 },
   });
   expect(failedLoader.snapshot().errors).toEqual([
     expect.stringContaining('item.stack: Failed to load'),
@@ -140,15 +152,55 @@ test('browser loads declared images and Canvas reports authored sprites', async 
   await expect.poll(() => page.evaluate(() =>
     window.helixHeresyDebug.mapRendererSnapshot().canvas?.spritesDrawn || 0
   )).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() =>
+    window.helixHeresyDebug.mapRendererSnapshot().canvas?.multiTileSpritesDrawn || 0
+  )).toBeGreaterThan(0);
 
-  const snapshot = await page.evaluate(() =>
-    window.helixHeresyDebug.mapRendererSnapshot()
-  );
-  expect(snapshot.assets).toMatchObject({
-    state: 'ready',
-    total: 6,
-    counts: { ready: 6, error: 0 },
+  const snapshot = await page.evaluate(() => {
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    return {
+      renderer: window.helixHeresyDebug.mapRendererSnapshot(),
+      workbench: scene.entities.find((entity) => entity.subtype === 'basicWorkbench'),
+    };
   });
-  expect(snapshot.canvas.assets.state).toBe('ready');
-  expect(snapshot.canvas.spritesDrawn).toBeGreaterThan(0);
+  expect(snapshot.workbench).toMatchObject({
+    bounds: { width: 2, height: 1, depth: 1 },
+    orientation: { quarterTurns: 0, mirrored: false },
+    visual: { key: 'fixture.basicWorkbench' },
+  });
+  expect(snapshot.renderer.assets).toMatchObject({
+    state: 'ready',
+    total: Manifest.manifest.assets.length,
+    counts: { ready: Manifest.manifest.assets.length, error: 0 },
+  });
+  expect(snapshot.renderer.canvas.assets.state).toBe('ready');
+  expect(snapshot.renderer.canvas.spritesDrawn).toBeGreaterThan(0);
+  expect(snapshot.renderer.canvas.multiTileSpritesDrawn).toBeGreaterThan(0);
+
+  const largeSlime = await page.evaluate(() => {
+    const scientist = window.helixHeresyDebug.navigationSnapshot().actors
+      .find((actor) => actor.id === 'scientist');
+    const created = window.helixHeresyDebug.createSpatialTestSlime({
+      size: 'wardrobe-sized',
+      shape: 'spherical',
+      roomId: 'mainLab',
+      cell: scientist.cell,
+      massPercent: 100,
+    });
+    const entity = window.helixHeresyDebug.mapSceneSnapshot().entities
+      .find((candidate) => candidate.id === `slime:${created.id}`);
+    return { created, entity };
+  });
+  expect(largeSlime.created.footprint).toMatchObject({
+    width: 2,
+    height: 2,
+    heightLayers: 1,
+  });
+  expect(largeSlime.entity).toMatchObject({
+    bounds: { width: 2, height: 2, depth: 1 },
+    visual: { key: 'actor.slime.large' },
+  });
+  await expect.poll(() => page.evaluate(() =>
+    window.helixHeresyDebug.mapRendererSnapshot().canvas?.multiTileSpritesDrawn || 0
+  )).toBeGreaterThan(1);
 });
