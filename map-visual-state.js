@@ -9,7 +9,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState() {
   "use strict";
 
-  const SCENE_VERSION = 2;
+  const SCENE_VERSION = 3;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
 
   function cleanCell(candidate) {
@@ -179,7 +179,8 @@
         key: String(candidate?.visual?.key || "object.unknown"),
         glyph: String(candidate?.visual?.glyph ?? "?"),
         recipeKey: String(candidate?.visual?.recipeKey || ""),
-        variant: Number.isFinite(Number(candidate?.visual?.variant)) ? Number(candidate.visual.variant) : null
+        variant: Number.isFinite(Number(candidate?.visual?.variant)) ? Number(candidate.visual.variant) : null,
+        layer: String(candidate?.visual?.layer || "")
       },
       blocking: Boolean(candidate?.blocking),
       tooltip: {
@@ -255,6 +256,7 @@
       knowledge: cleanKnowledge(candidate?.knowledge),
       severity: String(candidate?.severity || ""),
       state: String(candidate?.state || ""),
+      plane: ["ground", "world", "alert"].includes(candidate?.plane) ? candidate.plane : "world",
       visualKey: String(candidate?.visualKey || "effect.unknown"),
       target: cleanTarget(candidate?.target),
       label: String(candidate?.label || "")

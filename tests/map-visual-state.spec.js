@@ -56,7 +56,14 @@ test('scene model deduplicates entities while retaining footprint and interactio
       anchorCell: { x: 1, y: 1, z: 0 },
       footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
       knowledge: { state: 'current' },
-      visual: { key: 'container.jar', glyph: 'C' },
+      visual: { key: 'container.jar', glyph: 'C', layer: 'wallMounted' },
+    }],
+    effects: [{
+      id: 'incident:test',
+      kind: 'incident',
+      cell: { x: 1, y: 1, z: 0 },
+      plane: 'alert',
+      knowledge: { state: 'current' },
     }],
     selection: { target: { kind: 'container', id: 'jar-1' } },
   });
@@ -69,8 +76,10 @@ test('scene model deduplicates entities while retaining footprint and interactio
     id: 'container:jar-1',
     selected: true,
     orientation: { quarterTurns: 0, mirrored: false },
+    visual: { layer: 'wallMounted' },
     footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
   });
+  expect(scene.effects[0].plane).toBe('alert');
   expect(scene.cells.every((cell) => cell.entityIds.includes('container:jar-1'))).toBe(true);
   expect(scene.interactionIndex[0].targets).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: 'container', id: 'jar-1' }),
@@ -130,7 +139,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(2);
+  expect(result.version).toBe(3);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);

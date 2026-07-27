@@ -3221,6 +3221,10 @@
   if (!MapVisualState) {
     throw new Error("HelixMapVisualState must load before app.js");
   }
+  const MapRenderOrder = window.HelixMapRenderOrder;
+  if (!MapRenderOrder) {
+    throw new Error("HelixMapRenderOrder must load before app.js");
+  }
   const SpriteAssetManifest = window.HelixSpriteAssetManifest;
   if (!SpriteAssetManifest) {
     throw new Error("HelixSpriteAssetManifest must load before app.js");
@@ -3309,6 +3313,7 @@
   let mapPanShiftHeld = false;
   let mapDragState = null;
   let canvasMapPointerState = null;
+  let canvasMapLastSelectionCell = null;
   let canvasMapHoverTimer = 0;
   let roomPaintState = null;
   let accessPaintState = null;
@@ -6340,8 +6345,19 @@
 
   function selectCanvasMapCell(cell) {
     const interaction = canvasMapInteraction(cell);
-    const target = interaction?.primaryTarget || interaction?.targets?.[0] || null;
+    const targets = interaction?.targets || [];
+    const cellKey = mapCellKey(cell);
+    let target = targets[0] || interaction?.primaryTarget || null;
+    const current = currentSelection();
+    if (targets.length > 1
+      && current?.source === "map"
+      && mapCellKey(canvasMapLastSelectionCell) === cellKey) {
+      const selectedKey = selectionKey(current);
+      const selectedIndex = targets.findIndex((candidate) => selectionKey(candidate) === selectedKey);
+      if (selectedIndex >= 0) target = targets[(selectedIndex + 1) % targets.length];
+    }
     if (!target) return false;
+    canvasMapLastSelectionCell = { ...cell };
     ensureUiState().mapCursor = { ...cell };
     return focusMapTarget(target, {
       keepWorkspace: true,
@@ -7708,8 +7724,12 @@
     return deltas[event.key] || null;
   }
 
-  function mapCursorTarget() {
-    const target = selectableTargetsAtCell(mapCursorCell())[0] || null;
+  function mapCursorTarget(scene = null) {
+    const target = selectableTargetsAtCell(
+      mapCursorCell(),
+      ensureLabMap(),
+      scene || activeCanvasMapSurface?.mapView?.scene || null
+    )[0] || null;
     return target ? { ...target, source: "keyboard" } : null;
   }
 
@@ -38907,6 +38927,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : "inactive",
       `${snapshot.mapRenderer.canvas?.spritePlacementMismatches || 0} footprint mismatch${snapshot.mapRenderer.canvas?.spritePlacementMismatches === 1 ? "" : "es"}`
     );
+    addRow(
+      "Render order",
+      snapshot.mapRenderer.mode === MAP_RENDERER_CANVAS
+        ? `${Object.keys(snapshot.mapRenderer.canvas?.renderPassCounts || {}).length} active passes`
+        : "inactive",
+      `${snapshot.mapRenderer.canvas?.fadedOccludersDrawn || 0} faded; ${snapshot.mapRenderer.canvas?.overheadCutawaysDrawn || 0} cut away; ${snapshot.mapRenderer.canvas?.tallSlicesDrawn || 0} tall slices`
+    );
     addRow("Save", `${formatDecimal(snapshot.save.lastMs, 2)} ms`, `avg ${formatDecimal(snapshot.save.averageMs, 2)}; every 10 real minutes while dirty`);
     for (const definition of SIMULATION_SYSTEM_DEFS) {
       const sample = snapshot.systems[definition.id];
@@ -42340,7 +42367,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         activity: current ? { id: fixture.operationalState, label: titleCase(fixture.operationalState) } : null,
         condition: current ? { ratio: clamp(fixture.condition / 100, 0, 1), band: structureConditionBand(fixture.condition).toLowerCase() } : null,
         knowledge,
-        visual: { key: `fixture.${def.id}`, glyph: def.glyph || "F", recipeKey: `fixture:${def.id}:${fixture.rotation}` },
+        visual: {
+          key: `fixture.${def.id}`,
+          glyph: def.glyph || "F",
+          recipeKey: `fixture:${def.id}:${fixture.rotation}`,
+          layer: def.layer
+        },
         blocking: def.collision === "blocking"
       };
     }
@@ -43548,7 +43580,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return [];
   }
 
-  function selectableTargetsAtCell(cell, map = ensureLabMap()) {
+  function selectableTargetsAtCell(
+    cell,
+    map = ensureLabMap(),
+    scene = activeCanvasMapSurface?.mapView?.scene || null
+  ) {
     const clean = cleanMapCell(cell);
     if (!mapCellInBounds(clean, map)) {
       return [];
@@ -43579,8 +43615,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       scientistHere,
       cell: clean
     });
+    const sceneTargets = scene ? MapRenderOrder.targetsAtCell(scene, clean) : [];
+    const orderedTargets = sceneTargets.length
+      ? sceneTargets
+      : MapRenderOrder.orderInteractionTargets(scene, targets);
     const seen = new Set();
-    return targets
+    return orderedTargets
       .map((target) => normalizeSelection({ ...target, source: "inspector" }))
       .filter(Boolean)
       .filter((target) => {
@@ -46688,16 +46728,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .slice(0, 4);
   }
 
+  function selectionInspectorMapCell(selection) {
+    const clickedCell = cleanMapCell(canvasMapLastSelectionCell);
+    const scene = activeCanvasMapSurface?.mapView?.scene;
+    const selectedKey = selectionKey(selection);
+    if (currentMapRendererMode() === MAP_RENDERER_CANVAS
+      && selection?.source === "map"
+      && clickedCell
+      && MapRenderOrder.targetsAtCell(scene, clickedCell)
+        .some((target) => selectionKey(target) === selectedKey)) {
+      return clickedCell;
+    }
+    return selectionMapCell(selection);
+  }
+
   function selectionCompactAlsoHereEl(selection) {
-    const cell = selectionMapCell(selection);
+    const cell = selectionInspectorMapCell(selection);
     if (!cell) {
       return null;
     }
     const currentKey = selectionKey(selection);
     const seen = new Set([currentKey]);
     const targets = [
-      ...selectionRelatedTargets(selection),
-      ...selectableTargetsAtCell(cell)
+      ...selectableTargetsAtCell(cell),
+      ...selectionRelatedTargets(selection)
     ]
       .map((target) => normalizeSelection({ ...target, source: "inspector" }))
       .filter(Boolean)
@@ -46708,8 +46762,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         seen.add(key);
         return true;
-      })
-      .slice(0, 5);
+      });
     if (!targets.length) {
       return null;
     }
@@ -46719,9 +46772,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     row.append(textEl("span", "Also here"));
     const links = document.createElement("div");
     links.className = "selection-link-list";
-    for (const target of targets) {
+    for (const [index, target] of targets.entries()) {
       const link = selectionLink(target);
       if (link) {
+        link.dataset.selectionAlsoHereKey = selectionKey(target);
+        link.dataset.selectionAlsoHereOrder = String(index);
         links.append(link);
       }
     }
@@ -47814,6 +47869,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           },
           severity: incident.severity,
           state: incident.status,
+          plane: "alert",
           visualKey: `effect.incident.${incident.type}.${incident.severity}`,
           target: { kind: "incident", id: incident.id },
           label: incident.label
@@ -47935,6 +47991,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       overlays: mapSceneOverlaySeeds(overlayAssignments),
       selection: { target: selectedTarget }
     });
+    MapRenderOrder.orderSceneInteractions(scene);
     const cells = MapVisualState.cellsWithinBounds(scene.cells, viewport);
 
     const mapView = {
@@ -47955,7 +48012,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       fullReveal,
       headerMeta: `${map.width} x ${map.height} m grid; Z ${viewport.z}; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m; layer = ${formatDecimal(map.layerHeightM, 0)} m`,
       cursor: cursorCell,
-      cursorTarget: mapCursorTarget(),
+      cursorTarget: mapCursorTarget(scene),
       construction: normalizeConstructionState(state.construction, state),
       mode: ensureUiState().mode,
       overlay,
