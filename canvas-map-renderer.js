@@ -236,8 +236,18 @@
     ctx.restore();
   }
 
-  function resolveSprite(assetLoader, semanticKey) {
+  function resolveSprite(assetLoader, semanticKey, fallbackKeys = []) {
     if (!assetLoader || !semanticKey || typeof assetLoader.resolve !== "function") return null;
+    const keys = [semanticKey, ...(fallbackKeys || [])].filter(Boolean);
+    if (keys.length > 1) {
+      for (const key of keys) {
+        const candidate = assetLoader.resolve(key);
+        if (candidate?.status === "ready" && candidate.image
+          && ["exact", "alias"].includes(candidate.resolution)) {
+          return candidate;
+        }
+      }
+    }
     const resolved = assetLoader.resolve(semanticKey);
     return resolved?.status === "ready" && resolved.image ? resolved : null;
   }
@@ -474,6 +484,85 @@
     ctx.restore();
   }
 
+  function actorCueModel(entity) {
+    const actor = entity?.category === "actor" || ["slime", "scientist", "creature"].includes(entity?.kind);
+    if (!actor) return null;
+    const poseMarks = {
+      moving: ">",
+      working: "+",
+      feeding: "o",
+      attacking: "!",
+      guarded: "D",
+      fleeing: ">>",
+      quiescent: ".",
+      strained: "=",
+      recovering: "+"
+    };
+    const conditionMarks = {
+      injured: "/",
+      critical: "!!",
+      compressed: "=",
+      stressed: "^",
+      uncertain: "?"
+    };
+    return {
+      facing: ["north", "east", "south", "west"].includes(entity?.facing) ? entity.facing : "none",
+      pose: String(entity?.pose || "idle"),
+      poseMark: poseMarks[entity?.pose] || "",
+      conditionMarks: (entity?.condition?.cues || []).map((cue) => conditionMarks[cue]).filter(Boolean)
+    };
+  }
+
+  function drawActorStateCues(ctx, entity, position, tilePx, alpha = 1) {
+    const cue = actorCueModel(entity);
+    if (!cue || tilePx < 8) return false;
+    const x = position.x;
+    const y = position.y;
+    const center = { x: x + tilePx / 2, y: y + tilePx / 2 };
+    const edge = tilePx * 0.16;
+    const half = Math.max(1.5, tilePx * 0.09);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, Math.max(0.35, alpha));
+    if (cue.facing !== "none") {
+      const point = {
+        north: { x: center.x, y: y + edge },
+        east: { x: x + tilePx - edge, y: center.y },
+        south: { x: center.x, y: y + tilePx - edge },
+        west: { x: x + edge, y: center.y }
+      }[cue.facing];
+      ctx.fillStyle = "#e9f4c7";
+      ctx.beginPath();
+      if (cue.facing === "north" || cue.facing === "south") {
+        const direction = cue.facing === "north" ? -1 : 1;
+        ctx.moveTo(point.x, point.y + direction * half);
+        ctx.lineTo(point.x - half, point.y - direction * half);
+        ctx.lineTo(point.x + half, point.y - direction * half);
+      } else {
+        const direction = cue.facing === "west" ? -1 : 1;
+        ctx.moveTo(point.x + direction * half, point.y);
+        ctx.lineTo(point.x - direction * half, point.y - half);
+        ctx.lineTo(point.x - direction * half, point.y + half);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.31))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+    ctx.textBaseline = "bottom";
+    if (cue.poseMark) {
+      ctx.fillStyle = "#f0d989";
+      ctx.textAlign = "left";
+      ctx.fillText(cue.poseMark, x + tilePx * 0.1, y + tilePx * 0.94, tilePx * 0.38);
+    }
+    if (cue.conditionMarks.length) {
+      ctx.fillStyle = cue.conditionMarks.includes("!!") ? "#ff8b73" : "#ffd0c6";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText(cue.conditionMarks.slice(0, 2).join(""), x + tilePx * 0.92, y + tilePx * 0.06, tilePx * 0.5);
+    }
+    ctx.restore();
+    return true;
+  }
+
   function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, assetLoader) {
     let cellsDrawn = 0;
     let spritesDrawn = 0;
@@ -583,7 +672,7 @@
       if (glyphAnchor) {
         const position = tilePosition(glyphAnchor, viewport, tilePx, origin);
         const spriteKey = entity.visual?.key;
-        const sprite = resolveSprite(options.assetLoader, spriteKey);
+        const sprite = resolveSprite(options.assetLoader, spriteKey, entity.visual?.fallbackKeys);
         if (sprite) {
           const placement = spritePlacement(entity, sprite);
           if (drawPlacedSprite(
@@ -627,6 +716,13 @@
             cleanNumber(style.alpha, 1) * alphaMultiplier
           );
         }
+        drawActorStateCues(
+          ctx,
+          entity,
+          position,
+          tilePx,
+          cleanNumber(style.alpha, 1) * alphaMultiplier
+        );
       }
     };
 
@@ -864,6 +960,7 @@
     cellToScreen,
     cellStyle,
     entityStyle,
+    actorCueModel,
     orientedLogicalSize,
     spritePlacement,
     renderScene,

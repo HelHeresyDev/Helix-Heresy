@@ -1,15 +1,19 @@
 (function attachHelixMapVisualState(root, factory) {
-  const api = factory();
+  const actorVisualState = typeof module === "object" && module.exports
+    ? require("./actor-visual-state.js")
+    : root?.HelixActorVisualState;
+  const api = factory(actorVisualState);
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.HelixMapVisualState = api;
   }
-}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState() {
+}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState(ActorVisualState) {
   "use strict";
 
-  const SCENE_VERSION = 3;
+  if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
+  const SCENE_VERSION = 4;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
 
   function cleanCell(candidate) {
@@ -159,28 +163,43 @@
     const target = cleanTarget(candidate?.target);
     const id = String(candidate?.id || targetKey(target) || `scene-entity-${index + 1}`);
     const knowledge = cleanKnowledge(candidate?.knowledge);
+    const category = String(candidate?.category || "object");
+    const kind = String(candidate?.kind || target?.kind || "object");
+    const actor = category === "actor" || ["slime", "scientist", "creature"].includes(kind);
+    const activity = actor && candidate?.activity
+      ? ActorVisualState.normalizeActivity(candidate.activity)
+      : candidate?.activity ? { ...candidate.activity } : null;
+    const condition = candidate?.condition ? { ...candidate.condition } : null;
+    if (condition && actor) {
+      condition.cues = (candidate.condition?.cues || candidate.conditionCues || [])
+        .map(String)
+        .filter((cue) => ActorVisualState.CONDITION_CUES.includes(cue));
+    }
     return {
       id,
-      kind: String(candidate?.kind || target?.kind || "object"),
-      category: String(candidate?.category || "object"),
+      kind,
+      category,
       subtype: String(candidate?.subtype || ""),
       target,
       anchorCell: anchor,
       footprintCells: footprint.length ? footprint : [anchor],
       bounds: boundsForCells(footprint.length ? footprint : [anchor]),
       orientation: cleanOrientation(candidate?.orientation),
-      facing: candidate?.facing ?? null,
-      pose: String(candidate?.pose || "default"),
-      activity: candidate?.activity ? { ...candidate.activity } : null,
+      facing: actor ? ActorVisualState.cleanFacing(candidate?.facing) : null,
+      pose: actor ? ActorVisualState.cleanPose(candidate?.pose) : String(candidate?.pose || "default"),
+      activity,
       motion: candidate?.motion ? { ...candidate.motion } : null,
-      condition: candidate?.condition ? { ...candidate.condition } : null,
+      condition,
       knowledge,
       visual: {
         key: String(candidate?.visual?.key || "object.unknown"),
         glyph: String(candidate?.visual?.glyph ?? "?"),
         recipeKey: String(candidate?.visual?.recipeKey || ""),
         variant: Number.isFinite(Number(candidate?.visual?.variant)) ? Number(candidate.visual.variant) : null,
-        layer: String(candidate?.visual?.layer || "")
+        layer: String(candidate?.visual?.layer || ""),
+        fallbackKeys: Array.isArray(candidate?.visual?.fallbackKeys)
+          ? [...new Set(candidate.visual.fallbackKeys.map(String).filter(Boolean))]
+          : []
       },
       blocking: Boolean(candidate?.blocking),
       tooltip: {
@@ -375,6 +394,20 @@
       }
       if (!KNOWLEDGE_STATES.includes(entity.knowledge?.state)) {
         errors.push(`Scene entity ${entity.id || "unknown"} has invalid knowledge.`);
+      }
+      if (entity.category === "actor" || ["slime", "scientist", "creature"].includes(entity.kind)) {
+        if (!ActorVisualState.FACING_DIRECTIONS.includes(entity.facing)) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid facing.`);
+        }
+        if (!ActorVisualState.POSES.includes(entity.pose)) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid pose.`);
+        }
+        if (!ActorVisualState.ACTIVITY_FAMILIES.includes(entity.activity?.family || "idle")) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid activity family.`);
+        }
+        if ((entity.condition?.cues || []).some((cue) => !ActorVisualState.CONDITION_CUES.includes(cue))) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid condition cues.`);
+        }
       }
     }
     for (const cell of scene?.cells || []) {

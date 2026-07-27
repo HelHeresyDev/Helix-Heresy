@@ -264,7 +264,7 @@ Both the glyph renderer and future Canvas renderer consume the same transient, v
 - The scene covers the visible viewport plus a one-tile overscan margin.
 - Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, normalized quarter-turn physical orientation, vertical extent, and semantic visual keys.
 - Contained occupants, stations, and other selectable relationships belong in the interaction index unless they are independently visible physical entities.
-- Entity presentation fields reserve semantic physical layer, facing, pose, activity, motion, condition, and modular recipe keys without defining final animation frames.
+- Entity presentation fields carry semantic physical layer, four-way actor facing, canonical pose, activity family, motion, independent condition cues, and modular recipe keys without defining animation frames.
 - Knowledge is explicit: `current`, `stale`, `uncertain`, `unknown`, or `debug`.
 - Environment records contain values only when the perspective is permitted to know them. Stale room observations carry only remembered values and bands.
 - Incidents and combat markers are effects. Management coloration and diagnostic readings are overlays.
@@ -274,7 +274,19 @@ Both the glyph renderer and future Canvas renderer consume the same transient, v
 
 The first Canvas prototype is available as a transient Debug renderer while the DOM map remains the default fallback. It draws visible and one-tile overscan `MapScene` cells plus unique entities, uses semantic presentation rules rather than CSS classes, scales its backing surface for the device pixel ratio, and redraws through invalidated animation frames. Camera navigation updates the persistent Canvas in place. Tile-aligned shared camera state is combined with a transient pixel offset for smooth WASD and grab panning; wheel zoom remains discrete and preserves the pointed map area, and responsive resizing preserves the viewed center. Shared coordinate transforms account for the active origin and zoom. Canvas pointer interaction resolves only through the scene's ordered, knowledge-filtered interaction index: it selects semantic targets by physical cell masks, highlights complete visible footprints, updates the keyboard cursor, cycles repeated clicks through crowded-cell targets from topmost to bottommost, exposes that same order through the HTML inspector, and never alpha-tests artwork or queries hidden simulation entities. The inspector preserves the exact clicked footprint cell instead of silently switching to a multi-tile subject's anchor. Delayed HTML tooltips consume the scene's semantic tooltip text. Room and access painters support Canvas left-drag input, construction retains click-to-toggle designation, middle drag remains camera movement, and overscan cells are not interactive. A small generated placeholder set now exercises semantic image resolution for terrain, fixtures, items, actors, effects, and markers; all unresolved or failed keys retain the glyph/procedural presentation.
 
-Authored entity sprites declare complete logical dimensions in horizontal tiles and vertical layers, plus an integer tile-anchor offset expressed in the oriented output rectangle and aligned to the scene entity's anchor cell. Physical orientation is normalized at the `MapScene` boundary into zero through three clockwise quarter turns and an independent mirror flag; actor facing remains a separate deferred concept. Rotation occurs inside the oriented logical rectangle at every zoom level. The renderer draws a multi-tile sprite only when its oriented dimensions, anchor, and layer count exactly match the authoritative footprint bounds. Otherwise the full procedural footprint and anchor glyph remain visible and diagnostics report the mismatch. Tall assets draw normally on their anchor layer; other occupied layers use a translucent crossed slice instead of repeating the complete sprite.
+Authored entity sprites declare complete logical dimensions in horizontal tiles and vertical layers, plus an integer tile-anchor offset expressed in the oriented output rectangle and aligned to the scene entity's anchor cell. Physical orientation is normalized at the `MapScene` boundary into zero through three clockwise quarter turns and an independent mirror flag. Actor facing is separately normalized to North, East, South, West, or `none`; it never changes collision, footprint rotation, or navigation. Rotation occurs inside the oriented logical rectangle at every zoom level. The renderer draws a multi-tile sprite only when its oriented dimensions, anchor, and layer count exactly match the authoritative footprint bounds. Otherwise the full procedural footprint and anchor glyph remain visible and diagnostics report the mismatch. Tall assets draw normally on their anchor layer; other occupied layers use a translucent crossed slice instead of repeating the complete sprite.
+
+## Actor State Contract
+
+Actor visuals consume simulation behavior through `actor-visual-state.js`; they do not run a presentation-only behavior system.
+
+- Facing prefers a current combat target, then the next movement cell, then an interaction target, then the last observed facing. Symmetric or unknown actors may use `none`; humanoids default South when no direction exists.
+- The canonical primary poses are `idle`, `moving`, `working`, `feeding`, `attacking`, `guarded`, `fleeing`, `quiescent`, `strained`, `recovering`, and `prone`.
+- Pose precedence is terminal state, combat response, containment strain, feeding, work, movement, recovery, quiescence, then idle.
+- Activity retains its exact simulation ID and readable label while also declaring the broad family `idle`, `movement`, `work`, `feeding`, `combat`, `containment`, `recovery`, or `terminal`.
+- Injury, critical condition, compression, stress, and uncertainty are independent condition cues. They do not replace a meaningful active pose.
+- Current state is derived. Only observation memory stores last-known facing, pose, activity, and condition cues for later knowledge-safe rendering.
+- Canvas draws restrained static direction, pose, and condition marks. Transition timing, interpolation, loops, and reactions belong to the animation clock rather than this state contract.
 
 ## Render Order And Occlusion
 
@@ -314,7 +326,6 @@ This specification does not yet define:
 
 - Final production sprite filenames or atlas packing
 - Final animation frame counts
-- Four-way versus eight-way authored facing
 - Exact fog, lighting, and environmental shader treatment
 - Final authored cross-layer slice artwork for tall bodies
 - Final swatch values

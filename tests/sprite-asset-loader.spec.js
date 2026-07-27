@@ -198,7 +198,17 @@ test('browser loads declared images and Canvas reports authored sprites', async 
   });
   expect(largeSlime.entity).toMatchObject({
     bounds: { width: 2, height: 2, depth: 1 },
-    visual: { key: 'actor.slime.large' },
+    facing: expect.stringMatching(/^(north|east|south|west|none)$/),
+    pose: expect.stringMatching(/^(idle|moving|working|feeding|attacking|guarded|fleeing|quiescent|strained|recovering|prone)$/),
+    activity: {
+      family: expect.stringMatching(/^(idle|movement|work|feeding|combat|containment|recovery|terminal)$/),
+      source: 'simulation',
+    },
+    condition: { cues: expect.any(Array) },
+    visual: {
+      key: expect.stringMatching(/^actor\.slime\.large\.pose\./),
+      fallbackKeys: expect.arrayContaining(['actor.slime.large']),
+    },
   });
   await expect.poll(() => page.evaluate(() =>
     window.helixHeresyDebug.mapRendererSnapshot().canvas?.multiTileSpritesDrawn || 0

@@ -98,6 +98,19 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     dashed: true,
     alpha: 0.62,
   });
+  expect(CanvasRenderer.actorCueModel({
+    kind: 'slime',
+    category: 'actor',
+    facing: 'west',
+    pose: 'attacking',
+    condition: { cues: ['critical', 'compressed'] },
+  })).toEqual({
+    facing: 'west',
+    pose: 'attacking',
+    poseMark: '!',
+    conditionMarks: ['!!', '='],
+  });
+  expect(CanvasRenderer.actorCueModel({ kind: 'fixture', category: 'fixture' })).toBeNull();
 
   const workbench = SpriteManifest.manifest.assets.find((entry) => entry.key === 'fixture.basicWorkbench');
   const resolved = { entry: workbench, image: {} };

@@ -47,7 +47,8 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 - `styles.css` - Visual design, layout, and responsive behavior.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
-- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, normalized physical orientation, knowledge state, interactions, overscan, and schema validation.
+- `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
+- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, separate physical orientation and actor facing, knowledge state, interactions, overscan, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.

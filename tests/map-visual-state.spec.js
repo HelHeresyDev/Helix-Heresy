@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const VisualState = require('../map-visual-state.js');
+const ActorVisualState = require('../actor-visual-state.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -15,7 +16,96 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
+function expectActorVisualStateContract() {
+  const cases = [
+    {
+      input: {
+        anchorCell: { x: 4, y: 4 },
+        activity: { id: 'combatAttack', label: 'attacking target', combatIntent: 'attack' },
+        combatTargetCell: { x: 7, y: 4 },
+        condition: { ratio: 0.2, stress: 80 },
+      },
+      expected: { facing: 'east', pose: 'attacking', family: 'combat', cues: ['critical', 'stressed'] },
+    },
+    {
+      input: {
+        anchorCell: { x: 4, y: 4 },
+        previousFacing: 'east',
+        activity: { id: 'moving', label: 'moving' },
+        motion: { state: 'moving', nextCell: { x: 5, y: 5 } },
+      },
+      expected: { facing: 'east', pose: 'moving', family: 'movement', cues: [] },
+    },
+    {
+      input: {
+        activity: { id: 'containment.press', label: 'pressing against containment' },
+        containment: { active: true, method: 'press' },
+      },
+      expected: { facing: 'none', pose: 'strained', family: 'containment', cues: ['compressed'] },
+    },
+    {
+      input: {
+        activity: { id: 'feedingCorpse', label: 'feeding on remains' },
+        condition: { ratio: 0.4 },
+      },
+      expected: { facing: 'none', pose: 'feeding', family: 'feeding', cues: ['injured'] },
+    },
+    {
+      input: {
+        activity: { id: 'physicalDiagnostic', label: 'Run tissue assay' },
+      },
+      expected: { facing: 'none', pose: 'working', family: 'work', cues: [] },
+    },
+    {
+      input: {
+        activity: { id: 'quiescent', label: 'quiescent while recovering' },
+        condition: { ratio: 0.2 },
+      },
+      expected: { facing: 'none', pose: 'recovering', family: 'recovery', cues: ['critical'] },
+    },
+  ];
+
+  for (const { input, expected } of cases) {
+    const result = ActorVisualState.deriveActorVisualState(input);
+    expect(result).toMatchObject({
+      facing: expected.facing,
+      pose: expected.pose,
+      activity: { family: expected.family },
+      conditionCues: expected.cues,
+    });
+  }
+
+  expect(ActorVisualState.spriteKeyCandidates('actor.slime', {
+    facing: 'west',
+    pose: 'feeding',
+  })).toEqual([
+    'actor.slime.pose.feeding.facing.west',
+    'actor.slime.pose.feeding',
+    'actor.slime.facing.west',
+    'actor.slime',
+  ]);
+  const entity = VisualState.cleanEntity({
+    id: 'actor-1',
+    kind: 'slime',
+    category: 'actor',
+    anchorCell: { x: 2, y: 3 },
+    orientation: 'vertical',
+    facing: 'west',
+    pose: 'feeding',
+    activity: { id: 'feedingWaste', label: 'feeding on waste' },
+    condition: { cues: ['injured', 'not-a-cue'] },
+  });
+  expect(entity).toMatchObject({
+    orientation: { quarterTurns: 1, mirrored: false },
+    facing: 'west',
+    pose: 'feeding',
+    activity: { family: 'feeding' },
+    condition: { cues: ['injured'] },
+  });
+}
+
 test('scene model deduplicates entities while retaining footprint and interaction references', () => {
+  expectActorVisualStateContract();
   const cells = [
     {
       cell: { x: 1, y: 1, z: 0 },
@@ -139,7 +229,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(3);
+  expect(result.version).toBe(4);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);
