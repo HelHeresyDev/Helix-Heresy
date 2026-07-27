@@ -4,6 +4,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const VisualState = require('../map-visual-state.js');
 const ActorVisualState = require('../actor-visual-state.js');
+const AnimationClock = require('../animation-clock.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -17,6 +18,58 @@ async function startRun(page) {
 }
 
 function expectActorVisualStateContract() {
+  let realTimeMs = 1000;
+  const clock = AnimationClock.createClock({
+    now: () => realTimeMs,
+    gameTime: 10,
+    timeline: { revision: 1, speed: 60, paused: false },
+  });
+  realTimeMs = 1100;
+  expect(clock.sample()).toMatchObject({ gameTime: 16, revision: 1, speed: 60, paused: false });
+  clock.setSnapshot({ gameTime: 16, timeline: { revision: 1, speed: 60, paused: true } });
+  realTimeMs = 1300;
+  expect(clock.sample().gameTime).toBe(16);
+
+  const motion = {
+    id: 'actor-1:segment-1',
+    state: 'moving',
+    intent: 'move',
+    fromCell: { x: 2, y: 3, z: 0 },
+    toCell: { x: 3, y: 3, z: 0 },
+    segmentStartedAt: 10,
+    segmentArriveAt: 12,
+    revision: '1:1:0',
+  };
+  expect(AnimationClock.sampleMotion(motion, 11, {
+    speed: 1,
+    knowledgeState: 'current',
+  })).toMatchObject({
+    interpolated: true,
+    active: true,
+    progress: 0.5,
+    offset: { x: 0.5, y: 0 },
+  });
+  expect(AnimationClock.sampleMotion(motion, 11, {
+    speed: 300,
+    knowledgeState: 'current',
+  })).toMatchObject({ interpolated: false, active: false, offset: { x: 0, y: 0 } });
+  expect(AnimationClock.sampleMotion(motion, 11, {
+    speed: 1,
+    knowledgeState: 'stale',
+  })).toMatchObject({ interpolated: false, active: false });
+  expect(AnimationClock.sampleMotion(motion, 11, {
+    speed: 1,
+    knowledgeState: 'current',
+    discontinuity: true,
+  })).toMatchObject({ interpolated: false, active: false });
+  expect(AnimationClock.sampleAction({
+    id: 'attack-1',
+    kind: 'attack',
+    startedAt: 10,
+    activeAt: 11,
+    endsAt: 13,
+  }, 10.5)).toMatchObject({ phase: 'charge', progress: 0.5, active: true });
+
   const cases = [
     {
       input: {
@@ -93,6 +146,8 @@ function expectActorVisualStateContract() {
     facing: 'west',
     pose: 'feeding',
     activity: { id: 'feedingWaste', label: 'feeding on waste' },
+    motion,
+    action: { id: 'attack-1', kind: 'attack', startedAt: 10, activeAt: 11, endsAt: 13 },
     condition: { cues: ['injured', 'not-a-cue'] },
   });
   expect(entity).toMatchObject({
@@ -100,6 +155,8 @@ function expectActorVisualStateContract() {
     facing: 'west',
     pose: 'feeding',
     activity: { family: 'feeding' },
+    motion: { id: 'actor-1:segment-1', fromCell: { x: 2, y: 3, z: 0 }, toCell: { x: 3, y: 3, z: 0 } },
+    action: { id: 'attack-1', kind: 'attack', startedAt: 10, activeAt: 11, endsAt: 13 },
     condition: { cues: ['injured'] },
   });
 }
@@ -137,6 +194,8 @@ test('scene model deduplicates entities while retaining footprint and interactio
     },
   ];
   const scene = VisualState.buildScene({
+    clock: 42,
+    timeline: { revision: 7, mode: 'skip', paused: true, speed: 60 },
     viewport: { x: 1, y: 1, z: 0, width: 2, height: 1 },
     cells,
     entities: [{
@@ -159,6 +218,7 @@ test('scene model deduplicates entities while retaining footprint and interactio
   });
 
   expect(scene.entities).toHaveLength(1);
+  expect(scene.timeline).toEqual({ revision: 7, mode: 'skip', paused: true, speed: 60 });
   expect(VisualState.cleanOrientation(90)).toEqual({ quarterTurns: 1, mirrored: false });
   expect(VisualState.cleanOrientation({ quarterTurns: 2, mirrored: true }))
     .toEqual({ quarterTurns: 2, mirrored: true });
@@ -229,7 +289,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(4);
+  expect(result.version).toBe(5);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);

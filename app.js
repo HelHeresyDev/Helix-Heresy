@@ -3221,6 +3221,10 @@
   if (!ActorVisualState) {
     throw new Error("HelixActorVisualState must load before app.js");
   }
+  const AnimationClock = window.HelixAnimationClock;
+  if (!AnimationClock) {
+    throw new Error("HelixAnimationClock must load before app.js");
+  }
   const MapVisualState = window.HelixMapVisualState;
   if (!MapVisualState) {
     throw new Error("HelixMapVisualState must load before app.js");
@@ -3276,6 +3280,8 @@
   let uiPreferences = null;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
+  let animationTimelineRevision = 1;
+  let animationTimelineMode = "load";
   let lastAutosaveAt = Date.now();
   let stateDirtySinceAutosave = false;
   let lastManagementRenderAt = 0;
@@ -5071,6 +5077,7 @@
         slime.navigationOrientation = orientation;
         slime.roomId = labMapCellRoomId(target) || slime.roomId;
         slime.autonomousMovement = null;
+        markAnimationDiscontinuity("relocation");
         slime.nextAutonomousDecisionAt = state.clock + CREATURE_AUTONOMOUS_DECISION_INTERVAL;
         slime.roomActivity = { type: "quiescent", label: "remaining quiescent", roomId: slime.roomId, updatedAt: state.clock };
         rebuildActorSpatialIndex();
@@ -5431,6 +5438,7 @@
       next.economy = defaultEconomyState(next.seed);
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
+      markAnimationDiscontinuity("new-run");
       geneMap = buildGeneMap(state.seed, state.complexity);
       rebuildActorSpatialIndex();
       syncRoomObservationMemory();
@@ -5448,6 +5456,7 @@
         return;
       }
       state = loaded;
+      markAnimationDiscontinuity("load");
       state.started = true;
       geneMap = buildGeneMap(state.seed, state.complexity);
       rebuildActorSpatialIndex();
@@ -5606,6 +5615,7 @@
         return;
       }
       state = defaultState();
+      markAnimationDiscontinuity("new-run");
       geneMap = buildGeneMap(state.seed, state.complexity);
       setActiveWorkspaceTab("map", { scroll: false });
       syncSetupForm();
@@ -6086,7 +6096,8 @@
         x: CANVAS_MAP_ORIGIN_PX - canvasMapPanOffset.x,
         y: CANVAS_MAP_ORIGIN_PX - canvasMapPanOffset.y
       },
-      includeOverscan: true
+      includeOverscan: true,
+      reducedMotion: Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
     };
   }
 
@@ -6250,6 +6261,10 @@
     return surface?.renderer?.clientPointToCell?.(event.clientX, event.clientY) || null;
   }
 
+  function canvasMapEntityFromPointer(event, surface = activeCanvasMapSurface) {
+    return surface?.renderer?.clientPointTarget?.(event.clientX, event.clientY) || null;
+  }
+
   function canvasMapSurfaceIndexes(mapView) {
     return {
       cellIndex: new Map((mapView?.scene?.cells || []).map((entry) => [entry.key, entry])),
@@ -6372,6 +6387,22 @@
     });
   }
 
+  function selectCanvasMapEntityHit(hit) {
+    if (!hit?.target) return false;
+    const anchorCell = cleanMapCell(hit.anchorCell);
+    if (anchorCell) {
+      canvasMapLastSelectionCell = { ...anchorCell };
+      ensureUiState().mapCursor = { ...anchorCell };
+    }
+    return focusMapTarget(hit.target, {
+      keepWorkspace: true,
+      source: "map",
+      resetInspectorTab: true,
+      resetInspectorExpanded: true,
+      resetCommandMenu: true
+    });
+  }
+
   function handleCanvasMapConstructionClick(cell) {
     if (!constructionWorkModeActive()) return false;
     const cellView = canvasMapSceneCell(cell);
@@ -6392,6 +6423,9 @@
     if (!cellView) return;
     clearCanvasMapHover();
     const editingMode = canvasMapEditingMode();
+    const entityHit = editingMode === "selection"
+      ? canvasMapEntityFromPointer(event, surface)
+      : null;
     const paintMode = ["access", "room"].includes(editingMode)
       && cellView.known
       && !(editingMode === "access" ? accessAreaCellBlockReason(cell) : roomDesignationCellBlockReason(cell))
@@ -6402,6 +6436,7 @@
       startX: event.clientX,
       startY: event.clientY,
       startCellKey: cellView.key,
+      startEntityId: entityHit?.entityId || "",
       mode: paintMode || (editingMode === "construction" ? "construction" : "selection"),
       changed: false,
       moved: false,
@@ -6442,6 +6477,7 @@
     const surface = activeCanvasMapSurface;
     const cell = canvasMapCellFromPointer(event, surface);
     const cellView = canvasMapSceneCell(cell, surface);
+    const entityHit = canvasMapEntityFromPointer(event, surface);
     canvasMapPointerState = null;
     if (surface?.host?.hasPointerCapture?.(event.pointerId)) {
       surface.host.releasePointerCapture(event.pointerId);
@@ -6453,7 +6489,13 @@
       }
       return true;
     }
-    if (options.cancelled || pointer.moved || !cellView || cellView.key !== pointer.startCellKey) return false;
+    if (options.cancelled || pointer.moved) return false;
+    if (pointer.mode === "selection"
+      && pointer.startEntityId
+      && entityHit?.entityId === pointer.startEntityId) {
+      return selectCanvasMapEntityHit(entityHit);
+    }
+    if (!cellView || cellView.key !== pointer.startCellKey) return false;
     if (pointer.mode === "construction" && handleCanvasMapConstructionClick(cell)) return true;
     return selectCanvasMapCell(cell);
   }
@@ -7772,15 +7814,36 @@
     return runContextCommand(command);
   }
 
-  function tick() {
-    const now = Date.now();
+  function animationTimelineSnapshot() {
+    return AnimationClock.normalizeTimeline({
+      revision: animationTimelineRevision,
+      mode: animationTimelineMode,
+      paused: Boolean(state?.paused),
+      speed: currentTimeSpeed().secondsPerSecond
+    });
+  }
+
+  function markAnimationDiscontinuity(mode = "discontinuity") {
+    animationTimelineRevision += 1;
+    animationTimelineMode = String(mode || "discontinuity");
+    activeCanvasMapRenderer?.invalidate?.();
+  }
+
+  function commitRealtimeElapsed(now = Date.now()) {
     const elapsedSeconds = (now - lastTickAt) / 1000;
     lastTickAt = now;
+    if (!state?.started || state.paused || elapsedSeconds <= 0) return 0;
+    animationTimelineMode = "running";
+    return advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true, realtime: true });
+  }
+
+  function tick() {
+    const now = Date.now();
+    const changed = commitRealtimeElapsed(now);
     if (!state?.started || state.paused) {
       maybeAutosave(now);
       return;
     }
-    const changed = advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true, realtime: true });
     if (changed) {
       renderSimulationChanges(lastSimulationChanges, now);
     } else {
@@ -7833,16 +7896,20 @@
   }
 
   function togglePause() {
+    const now = Date.now();
+    if (!state.paused) commitRealtimeElapsed(now);
     state.paused = !state.paused;
-    lastTickAt = Date.now();
+    lastTickAt = now;
     persist();
     render();
   }
 
   function setTimeSpeed(speedId) {
+    const now = Date.now();
+    if (!state.paused) commitRealtimeElapsed(now);
     const speed = TIME_SPEEDS.find((candidate) => candidate.id === speedId) || timeSpeedById(DEFAULT_TIME_SPEED);
     state.timeSpeed = speed.id;
-    lastTickAt = Date.now();
+    lastTickAt = now;
     persist();
     render();
   }
@@ -8207,6 +8274,9 @@
   function advanceTime(seconds, options = {}) {
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (elapsed > 0 && !options.realtime) {
+      markAnimationDiscontinuity(options.timelineMode || "skip");
+    }
     const fromClock = state.clock;
     state.clock += elapsed;
     const forceAll = options.forceAll == null ? !options.realtime : Boolean(options.forceAll);
@@ -42460,6 +42530,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function actorSceneMotion(actorId, movement, options = {}) {
+    if (!movement?.steps?.length) return null;
+    const stepIndex = clamp(Math.floor(Number(movement.stepIndex) || 0), 0, movement.steps.length - 1);
+    const fromStep = movement.steps[stepIndex];
+    const toStep = movement.steps[Math.min(stepIndex + 1, movement.steps.length - 1)];
+    const fromCell = cleanMapCell(fromStep?.cell);
+    const toCell = cleanMapCell(toStep?.cell);
+    if (!fromCell || !toCell || stepIndex >= movement.steps.length - 1) return null;
+    if (options.requireObservedEndpoint && !options.debug) {
+      const endpointRoomId = labMapCellRoomId(toCell);
+      if (endpointRoomId && !mapShowsRoomOccupants(endpointRoomId, options)) return null;
+    }
+    const rotating = toStep?.action === "rotate" || sameMapCell(fromCell, toCell);
+    return AnimationClock.normalizeMotion({
+      id: `${actorId}:${movement.startedAt ?? movement.startAt ?? 0}:${movement.segmentStartedAt}:${stepIndex}`,
+      state: movement.waitingFor ? "waiting" : rotating ? "rotating" : "moving",
+      intent: movement.intent || "move",
+      fromCell,
+      toCell,
+      fromOrientation: fromStep?.orientation || movement.orientation,
+      toOrientation: toStep?.orientation || movement.orientation,
+      segmentStartedAt: movement.segmentStartedAt,
+      segmentArriveAt: movement.segmentArriveAt,
+      revision: `${movement.topologyRevision || 0}:${movement.doorRevision || 0}:${stepIndex}`
+    });
+  }
+
   function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
     const targetKey = selectionKey(target);
     const anchorFallback = footprintCells[0] || null;
@@ -42567,6 +42664,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const motion = current && slime.autonomousMovement
         ? normalizeSlimeAutonomousMovement(slime.autonomousMovement)
         : null;
+      const sceneMotion = current
+        ? actorSceneMotion(`slime:${slime.id}`, motion, { ...options, requireObservedEndpoint: true })
+        : null;
       const baseSpriteKey = slimeMapSpriteKey(footprintCells);
       const spriteVisual = actorSpriteVisual(baseSpriteKey, actorState);
       return {
@@ -42581,12 +42681,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         facing: actorState.facing,
         pose: actorState.pose,
         activity: actorState.activity,
-        motion: motion ? {
-          state: motion.stepIndex < motion.steps.length - 1 ? "moving" : "stationary",
-          intent: motion.intent,
-          nextCell: cleanMapCell(motion.steps[Math.min(motion.stepIndex + 1, motion.steps.length - 1)]?.cell),
-          destination: cleanMapCell(motion.targetCell)
-        } : null,
+        motion: sceneMotion,
         condition: current ? {
           ratio: clamp(slimeStat(slime, "bodyIntegrity").current / 100, 0, 1),
           band: slimeStatBand("bodyIntegrity", slimeStat(slime, "bodyIntegrity")).toLowerCase(),
@@ -42676,6 +42771,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistHealthRatio = clamp(scientistHealthVital.current / Math.max(1, scientistHealthVital.max), 0, 1);
     const scientistMovement = scientistMoveTask();
     const scientistTask = scientistMovement || scientistQueueTasks()[0] || null;
+    const scientistMovementRecord = scientistMovement
+      ? normalizeScientistMovementRecord(scientistMovement.data?.movement, scientistMovement)
+      : null;
+    const scientistSceneMotion = actorSceneMotion("scientist:scientist", scientistMovementRecord);
     const scientistActorState = ActorVisualState.deriveActorVisualState({
       anchorCell: scientistCell,
       defaultFacing: "south",
@@ -42710,7 +42809,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       facing: scientistActorState.facing,
       pose: scientistActorState.pose,
       activity: scientistActorState.activity,
-      motion: scientistMovement ? { state: "moving", intent: "move", destination: cleanMapCell(scientistMovement.data?.destinationCell) } : null,
+      motion: scientistSceneMotion,
       condition: {
         ratio: scientistHealthRatio,
         band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy",
@@ -48133,6 +48232,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const scene = MapVisualState.buildScene({
       clock: state.clock,
+      timeline: animationTimelineSnapshot(),
       perspective: { kind: fullReveal ? "debug" : "player", observerId: "scientist" },
       viewport,
       queryBounds: sceneBounds,
@@ -56643,6 +56743,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       try {
         const payload = JSON.parse(String(reader.result));
         state = normalizeState(payload.state || payload);
+        markAnimationDiscontinuity("import");
         resetRunUiToMapDefaults(state);
         geneMap = buildGeneMap(state.seed, state.complexity);
         prepareCorpseState();

@@ -2,18 +2,22 @@
   const renderOrder = typeof module === "object" && module.exports
     ? require("./map-render-order.js")
     : root?.HelixMapRenderOrder;
-  const api = factory(renderOrder);
+  const animationClock = typeof module === "object" && module.exports
+    ? require("./animation-clock.js")
+    : root?.HelixAnimationClock;
+  const api = factory(renderOrder, animationClock);
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.HelixCanvasMapRenderer = api;
   }
-}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixCanvasMapRenderer(RenderOrder) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixCanvasMapRenderer(RenderOrder, AnimationClock) {
   "use strict";
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
-  const RENDERER_VERSION = 2;
+  if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
+  const RENDERER_VERSION = 3;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -194,6 +198,17 @@
       return withStyle(style, { stroke: "#ff8b73" });
     }
     return style;
+  }
+
+  function entityMotionSample(entity, options = {}) {
+    return AnimationClock.sampleMotion(entity?.motion, options.presentationTime, {
+      speed: options.speed,
+      paused: options.paused,
+      reducedMotion: options.reducedMotion,
+      discontinuity: !["running", "paused"].includes(String(options.timelineMode || "running")),
+      knowledgeState: entity?.knowledge?.state,
+      minInterpolationMs: AnimationClock.MIN_INTERPOLATION_MS
+    });
   }
 
   function terrainGlyph(cell) {
@@ -380,10 +395,10 @@
     };
   }
 
-  function drawPlacedSprite(ctx, resolved, placement, viewport, tilePx, origin, alpha = 1) {
+  function drawPlacedSprite(ctx, resolved, placement, viewport, tilePx, origin, alpha = 1, offset = null) {
     if (!resolved?.image || !placement?.matches) return false;
-    const x = origin.x + (placement.bounds.x - viewport.x) * tilePx;
-    const y = origin.y + (placement.bounds.y - viewport.y) * tilePx;
+    const x = origin.x + (placement.bounds.x - viewport.x + cleanNumber(offset?.x)) * tilePx;
+    const y = origin.y + (placement.bounds.y - viewport.y + cleanNumber(offset?.y)) * tilePx;
     const width = placement.bounds.width * tilePx;
     const height = placement.bounds.height * tilePx;
     const canonicalWidth = placement.canonicalSize.width * tilePx;
@@ -409,10 +424,10 @@
     return true;
   }
 
-  function tilePosition(cell, viewport, tilePx, origin) {
+  function tilePosition(cell, viewport, tilePx, origin, offset = null) {
     return {
-      x: origin.x + (cell.x - viewport.x) * tilePx,
-      y: origin.y + (cell.y - viewport.y) * tilePx
+      x: origin.x + (cell.x - viewport.x + cleanNumber(offset?.x)) * tilePx,
+      y: origin.y + (cell.y - viewport.y + cleanNumber(offset?.y)) * tilePx
     };
   }
 
@@ -607,6 +622,10 @@
     let tallSlicesDrawn = 0;
     let fadedOccludersDrawn = 0;
     let overheadCutawaysDrawn = 0;
+    let activeAnimations = 0;
+    let interpolatedEntities = 0;
+    const entityHitRegions = [];
+    const entityMotionSamples = new Map();
     const placementWarnings = [];
     const renderPassCounts = {};
     const countPass = (pass, amount = 1) => {
@@ -644,10 +663,14 @@
 
     const drawEntity = (entity) => {
       const style = entityStyle(entity);
+      const motionSample = entityMotionSample(entity, options);
+      entityMotionSamples.set(entity.id, motionSample);
+      if (motionSample.active) activeAnimations += 1;
+      if (motionSample.interpolated) interpolatedEntities += 1;
       const layerMode = RenderOrder.entityLayerMode(entity, viewport.z);
       const faded = occluderIds.has(entity.id);
       const cutaway = cutawayIds.has(entity.id);
-      const alphaMultiplier = cutaway ? 0.22 : faded ? 0.32 : 1;
+      const alphaMultiplier = (cutaway ? 0.22 : faded ? 0.32 : 1) * motionSample.opacity;
       const visibleFootprint = (entity.footprintCells || []).filter((cell) => visibleCellKeys.has(cellKey(cell)));
       if (!visibleFootprint.length || layerMode === "hidden") return;
       if (faded) fadedOccludersDrawn += 1;
@@ -656,7 +679,7 @@
       for (const cell of visibleFootprint) {
         if (!visibleCellKeys.has(cellKey(cell))) continue;
         entityCellsDrawn += 1;
-        const position = tilePosition(cell, viewport, tilePx, origin);
+        const position = tilePosition(cell, viewport, tilePx, origin, motionSample.offset);
         drawEntityCell(ctx, position, tilePx, style, {
           alphaMultiplier,
           slice: layerMode === "slice",
@@ -670,7 +693,7 @@
         ? entity.anchorCell
         : visibleFootprint[0];
       if (glyphAnchor) {
-        const position = tilePosition(glyphAnchor, viewport, tilePx, origin);
+        const position = tilePosition(glyphAnchor, viewport, tilePx, origin, motionSample.offset);
         const spriteKey = entity.visual?.key;
         const sprite = resolveSprite(options.assetLoader, spriteKey, entity.visual?.fallbackKeys);
         if (sprite) {
@@ -682,7 +705,8 @@
             viewport,
             tilePx,
             origin,
-            cleanNumber(style.alpha, 1) * alphaMultiplier
+            cleanNumber(style.alpha, 1) * alphaMultiplier,
+            motionSample.offset
           )) {
             spritesDrawn += 1;
             if (placement.bounds.width > 1 || placement.bounds.height > 1 || placement.bounds.depth > 1) {
@@ -723,6 +747,21 @@
           tilePx,
           cleanNumber(style.alpha, 1) * alphaMultiplier
         );
+      }
+      const bounds = entityBounds(entity);
+      if (bounds
+        && entity.category === "actor"
+        && entity.target
+        && ["current", "debug"].includes(entity.knowledge?.state)) {
+        entityHitRegions.push({
+          entityId: entity.id,
+          target: entity.target,
+          anchorCell: entity.anchorCell,
+          x: origin.x + (bounds.x - viewport.x + motionSample.offset.x) * tilePx,
+          y: origin.y + (bounds.y - viewport.y + motionSample.offset.y) * tilePx,
+          width: bounds.width * tilePx,
+          height: bounds.height * tilePx
+        });
       }
     };
 
@@ -768,12 +807,19 @@
     drawEffectsAtPass(RenderOrder.RENDER_PASSES.alert);
 
     const selectedCellKeys = new Set((scene?.selection?.cells || []).map(cellKey));
+    const selectedMotion = entityMotionSamples.get(scene?.selection?.entityId);
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
       if (cell.selected || selectedCellKeys.has(cellKey(cell.cell))) {
+        const selectionPosition = selectedMotion
+          ? tilePosition(cell.cell, viewport, tilePx, origin, selectedMotion.offset)
+          : position;
+        ctx.save();
+        ctx.globalAlpha = selectedMotion?.opacity ?? 1;
         ctx.strokeStyle = "#68c8d8";
         ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
-        ctx.strokeRect(position.x + 1, position.y + 1, Math.max(0, tilePx - 2), Math.max(0, tilePx - 2));
+        ctx.strokeRect(selectionPosition.x + 1, selectionPosition.y + 1, Math.max(0, tilePx - 2), Math.max(0, tilePx - 2));
+        ctx.restore();
         countPass(RenderOrder.RENDER_PASSES.selection);
       }
       if (cell.cursor) {
@@ -796,6 +842,10 @@
       tallSlicesDrawn,
       fadedOccludersDrawn,
       overheadCutawaysDrawn,
+      activeAnimations,
+      animationActive: activeAnimations > 0,
+      interpolatedEntities,
+      entityHitRegions,
       renderPassCounts
     };
   }
@@ -811,6 +861,13 @@
     let frameId = 0;
     let destroyed = false;
     let resizeObserver = null;
+    let entityHitRegions = [];
+    const now = typeof options.now === "function"
+      ? options.now
+      : () => typeof performance === "object" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    const presentationClock = AnimationClock.createClock({ now });
     const diagnostics = {
       version: RENDERER_VERSION,
       frameCount: 0,
@@ -831,6 +888,8 @@
       tallSlicesDrawn: 0,
       fadedOccludersDrawn: 0,
       overheadCutawaysDrawn: 0,
+      activeAnimations: 0,
+      interpolatedEntities: 0,
       renderPassCounts: {}
     };
 
@@ -844,14 +903,18 @@
           origin: presentationOrigin(presentation),
           includeOverscan: Boolean(presentation.includeOverscan)
         },
+        timeline: presentationClock.snapshot(),
         assets: options.assetLoader?.snapshot?.() || null
       };
     }
 
-    function draw() {
+    function draw(realTimeMs) {
       frameId = 0;
       if (destroyed || !scene) return;
-      const startedAt = performance.now();
+      const startedAt = now();
+      const clockSample = presentationClock.sample(
+        Number.isFinite(Number(realTimeMs)) ? Number(realTimeMs) : startedAt
+      );
       const rect = canvas.getBoundingClientRect();
       const tilePx = Math.max(4, cleanNumber(presentation.tilePx, 14));
       const fallbackWidth = cleanNumber(scene.viewport?.width, 1) * tilePx + 12;
@@ -871,9 +934,13 @@
       const counts = renderScene(context, scene, {
         ...presentation,
         tilePx,
-        assetLoader: options.assetLoader
+        assetLoader: options.assetLoader,
+        presentationTime: clockSample.gameTime,
+        speed: clockSample.speed,
+        paused: clockSample.paused,
+        timelineMode: clockSample.mode
       });
-      const elapsedMs = performance.now() - startedAt;
+      const elapsedMs = now() - startedAt;
       diagnostics.frameCount += 1;
       diagnostics.lastMs = elapsedMs;
       diagnostics.maxMs = Math.max(diagnostics.maxMs, elapsedMs);
@@ -892,12 +959,16 @@
       diagnostics.tallSlicesDrawn = counts.tallSlicesDrawn;
       diagnostics.fadedOccludersDrawn = counts.fadedOccludersDrawn;
       diagnostics.overheadCutawaysDrawn = counts.overheadCutawaysDrawn;
+      diagnostics.activeAnimations = counts.activeAnimations;
+      diagnostics.interpolatedEntities = counts.interpolatedEntities;
       diagnostics.renderPassCounts = counts.renderPassCounts;
+      entityHitRegions = counts.entityHitRegions;
       canvas.dataset.canvasFrameCount = String(diagnostics.frameCount);
       canvas.dataset.canvasCellsDrawn = String(counts.cellsDrawn);
       canvas.dataset.canvasEntitiesDrawn = String(counts.entitiesDrawn);
       canvas.dataset.canvasSpritesDrawn = String(counts.spritesDrawn);
       options.onFrame?.(snapshot());
+      if (counts.animationActive) invalidate();
     }
 
     function invalidate() {
@@ -908,6 +979,10 @@
     function setScene(nextScene, nextPresentation = {}) {
       scene = nextScene;
       presentation = { ...presentation, ...nextPresentation };
+      presentationClock.setSnapshot({
+        gameTime: scene?.clock,
+        timeline: scene?.timeline
+      });
       invalidate();
     }
 
@@ -929,6 +1004,21 @@
       return cellToScreen(scene, cell, presentation);
     }
 
+    function clientPointTarget(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const x = cleanNumber(clientX) - rect.left;
+      const y = cleanNumber(clientY) - rect.top;
+      return [...entityHitRegions].reverse().find((entry) =>
+        x >= entry.x && x < entry.x + entry.width
+        && y >= entry.y && y < entry.y + entry.height
+      ) || null;
+    }
+
+    function pointForEntity(entityId) {
+      const region = entityHitRegions.find((entry) => entry.entityId === entityId);
+      return region ? { ...region } : null;
+    }
+
     function destroy() {
       destroyed = true;
       if (frameId) window.cancelAnimationFrame(frameId);
@@ -945,7 +1035,17 @@
       resizeObserver.observe(canvas);
     }
 
-    return { setScene, setPresentation, clientPointToCell, pointForCell, invalidate, destroy, snapshot };
+    return {
+      setScene,
+      setPresentation,
+      clientPointToCell,
+      clientPointTarget,
+      pointForCell,
+      pointForEntity,
+      invalidate,
+      destroy,
+      snapshot
+    };
   }
 
   function rootDevicePixelRatio() {
@@ -960,6 +1060,7 @@
     cellToScreen,
     cellStyle,
     entityStyle,
+    entityMotionSample,
     actorCueModel,
     orientedLogicalSize,
     spritePlacement,

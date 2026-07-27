@@ -2,18 +2,22 @@
   const actorVisualState = typeof module === "object" && module.exports
     ? require("./actor-visual-state.js")
     : root?.HelixActorVisualState;
-  const api = factory(actorVisualState);
+  const animationClock = typeof module === "object" && module.exports
+    ? require("./animation-clock.js")
+    : root?.HelixAnimationClock;
+  const api = factory(actorVisualState, animationClock);
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.HelixMapVisualState = api;
   }
-}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState(ActorVisualState) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixMapVisualState(ActorVisualState, AnimationClock) {
   "use strict";
 
   if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
-  const SCENE_VERSION = 4;
+  if (!AnimationClock) throw new Error("Map visual state requires the animation-clock contract.");
+  const SCENE_VERSION = 5;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
 
   function cleanCell(candidate) {
@@ -188,7 +192,8 @@
       facing: actor ? ActorVisualState.cleanFacing(candidate?.facing) : null,
       pose: actor ? ActorVisualState.cleanPose(candidate?.pose) : String(candidate?.pose || "default"),
       activity,
-      motion: candidate?.motion ? { ...candidate.motion } : null,
+      motion: AnimationClock.normalizeMotion(candidate?.motion),
+      action: AnimationClock.normalizeAction(candidate?.action),
       condition,
       knowledge,
       visual: {
@@ -348,6 +353,7 @@
     return {
       version: SCENE_VERSION,
       clock: Number.isFinite(Number(options.clock)) ? Number(options.clock) : 0,
+      timeline: AnimationClock.normalizeTimeline(options.timeline),
       perspective: {
         kind: options.perspective?.kind === "debug" ? "debug" : "player",
         observerId: String(options.perspective?.observerId || "scientist")
@@ -407,6 +413,12 @@
         }
         if ((entity.condition?.cues || []).some((cue) => !ActorVisualState.CONDITION_CUES.includes(cue))) {
           errors.push(`Scene actor ${entity.id || "unknown"} has invalid condition cues.`);
+        }
+        if (entity.motion && !AnimationClock.normalizeMotion(entity.motion)) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid motion.`);
+        }
+        if (entity.action && !AnimationClock.normalizeAction(entity.action)) {
+          errors.push(`Scene actor ${entity.id || "unknown"} has invalid action.`);
         }
       }
     }

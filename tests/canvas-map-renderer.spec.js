@@ -111,6 +111,62 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     conditionMarks: ['!!', '='],
   });
   expect(CanvasRenderer.actorCueModel({ kind: 'fixture', category: 'fixture' })).toBeNull();
+  const movingActor = {
+    id: 'moving-actor',
+    kind: 'slime',
+    category: 'actor',
+    anchorCell: { x: 0, y: 0, z: 0 },
+    footprintCells: [{ x: 0, y: 0, z: 0 }],
+    bounds: { x: 0, y: 0, z: 0, width: 1, height: 1, depth: 1 },
+    knowledge: { state: 'current' },
+    target: { kind: 'slime', id: 'moving-actor' },
+    visual: { key: '', glyph: 'L', layer: '' },
+    motion: {
+      id: 'moving-actor:1',
+      state: 'moving',
+      intent: 'move',
+      fromCell: { x: 0, y: 0, z: 0 },
+      toCell: { x: 1, y: 0, z: 0 },
+      segmentStartedAt: 0,
+      segmentArriveAt: 2,
+      revision: '1',
+    },
+  };
+  expect(CanvasRenderer.entityMotionSample(movingActor, {
+    presentationTime: 1,
+    speed: 1,
+  })).toMatchObject({
+    interpolated: true,
+    active: true,
+    progress: 0.5,
+    offset: { x: 0.5, y: 0 },
+  });
+  const movingResult = CanvasRenderer.renderScene(recordingContext(), {
+    viewport: { x: 0, y: 0, z: 0, width: 2, height: 1 },
+    cells: [
+      { key: '0,0,0', cell: { x: 0, y: 0, z: 0 }, base: { kind: 'floor' }, visual: {} },
+      { key: '1,0,0', cell: { x: 1, y: 0, z: 0 }, base: { kind: 'floor' }, visual: {} },
+    ],
+    entities: [movingActor],
+    effects: [],
+    selection: { entityId: 'moving-actor', cells: [{ x: 0, y: 0, z: 0 }] },
+  }, {
+    tilePx: 20,
+    presentationTime: 1,
+    speed: 1,
+  });
+  expect(movingResult).toMatchObject({
+    activeAnimations: 1,
+    animationActive: true,
+    interpolatedEntities: 1,
+    entityHitRegions: [{
+      entityId: 'moving-actor',
+      x: 16,
+      y: 6,
+      width: 20,
+      height: 20,
+    }],
+  });
 
   const workbench = SpriteManifest.manifest.assets.find((entry) => entry.key === 'fixture.basicWorkbench');
   const resolved = { entry: workbench, image: {} };
@@ -294,7 +350,7 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(2);
+  expect(result.diagnostics.canvas.version).toBe(3);
   expect(result.diagnostics.canvas.renderPassCounts.terrain).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.fixture).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);
