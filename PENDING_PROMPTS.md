@@ -14,43 +14,38 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Animation Clock and Movement Interpolation
-2. Player Knowledge, Fog, and Last-Known Visuals
-3. Lighting, Environmental Tinting, and Visibility
-4. Map Effects, Hazards, and Status Indicators
-5. Glyph Fallback and Accessibility Modes
-6. Large-Population Rendering Benchmark and Culling
-7. Automated Visual Regression and Renderer-Parity Tests
+1. Player Knowledge, Fog, and Last-Known Visuals
+2. Lighting, Environmental Tinting, and Visibility
+3. Map Effects, Hazards, and Status Indicators
+4. Glyph Fallback and Accessibility Modes
+5. Large-Population Rendering Benchmark and Culling
+6. Automated Visual Regression and Renderer-Parity Tests
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Do not remove the current DOM map renderer until the Canvas renderer has demonstrated behavioral and visual parity.
 
 ---
 
-## 1. Animation Clock and Movement Interpolation
-
-Separate smooth visual interpolation from discrete simulation time. Support variable game speeds, pause, time skips, movement between tiles, ability charge and recovery, short reactions, and animation cancellation without allowing presentation timing to change simulation outcomes.
-
-## 2. Player Knowledge, Fog, and Last-Known Visuals
+## 1. Player Knowledge, Fog, and Last-Known Visuals
 
 Render only what the scientist currently knows. Define unexplored darkness, currently perceived entities, stale last-known positions, uncertain detections, remembered terrain, changed-but-unobserved spaces, Debug omniscience, and visual decay without leaking hidden simulation state.
 
-## 3. Lighting, Environmental Tinting, and Visibility
+## 2. Lighting, Environmental Tinting, and Visibility
 
 Translate the existing physical light and environment fields into readable map visuals. Cover darkness, local light sources, temperature and mana overlays, airborne substances, visibility limits, selected diagnostic overlays, and color treatment that does not obscure sprites or encode inaccessible information.
 
-## 4. Map Effects, Hazards, and Status Indicators
+## 3. Map Effects, Hazards, and Status Indicators
 
 Create a restrained renderer-neutral effect layer for spills, airborne hazards, fire, electricity, magic, damage, combat, structural failure, alerts, paths, and task markers. Effects should communicate important physical events without turning every continuously simulated value into visual noise.
 
-## 5. Glyph Fallback and Accessibility Modes
+## 4. Glyph Fallback and Accessibility Modes
 
 Preserve a complete glyph-based map mode alongside sprites. Add options for reduced motion, high contrast, color-independent indicators, readable zoom limits, and alternate effect intensity so the Canvas transition does not sacrifice the prototype's clarity or accessibility.
 
-## 6. Large-Population Rendering Benchmark and Culling
+## 5. Large-Population Rendering Benchmark and Culling
 
 Benchmark the Canvas renderer with large maps, hundreds of actors, multi-tile bodies, effects, overlays, and frequent simulation updates. Establish frame-time budgets, viewport culling, dirty-state rules, allocation limits, and evidence-based thresholds before considering WebGL or another rendering layer.
 
-## 7. Automated Visual Regression and Renderer-Parity Tests
+## 6. Automated Visual Regression and Renderer-Parity Tests
 
 Build deterministic screenshots and semantic parity tests for representative map states, zoom levels, z-layers, selections, overlays, knowledge states, crowded tiles, large actors, and responsive viewports. Canvas should replace the DOM map only after required interactions and visible information remain equivalent.
 

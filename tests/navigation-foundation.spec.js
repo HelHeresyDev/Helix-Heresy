@@ -166,15 +166,33 @@ test('scientist movement occupies intermediate tiles before arrival', async ({ p
   const intermediate = await page.evaluate(() => {
     const snapshot = window.helixHeresyDebug.navigationSnapshot();
     const task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'scientistMove');
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
     return {
       cell: snapshot.actors.find((actor) => actor.id === 'scientist').cell,
       movement: task?.data?.movement,
       reservations: snapshot.reservations,
+      sceneMotion: scene.entities.find((entity) => entity.id === 'scientist:scientist')?.motion,
+      timeline: scene.timeline,
     };
   });
   expect(intermediate.cell).not.toEqual(started.before);
   expect(intermediate.movement.stepIndex).toBeGreaterThan(0);
   expect(intermediate.movement.completed).toBe(false);
+  expect(intermediate.sceneMotion).toMatchObject({
+    id: expect.stringContaining('scientist:scientist:'),
+    state: expect.stringMatching(/^(moving|waiting|rotating)$/),
+    intent: 'move',
+    fromCell: expect.objectContaining({ x: expect.any(Number), y: expect.any(Number), z: expect.any(Number) }),
+    toCell: expect.objectContaining({ x: expect.any(Number), y: expect.any(Number), z: expect.any(Number) }),
+    segmentStartedAt: expect.any(Number),
+    segmentArriveAt: expect.any(Number),
+    revision: expect.any(String),
+  });
+  expect(intermediate.timeline).toMatchObject({
+    mode: 'skip',
+    paused: true,
+    speed: expect.any(Number),
+  });
   expect(intermediate.reservations).toEqual(expect.arrayContaining([
     expect.objectContaining({ actorId: 'scientist' }),
   ]));

@@ -48,12 +48,13 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
-- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, separate physical orientation and actor facing, knowledge state, interactions, overscan, and schema validation.
+- `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
+- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, separate physical orientation and actor facing, knowledge state, animation timelines, interactions, overscan, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
-- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, occlusion treatment, anchored multi-tile sprites, semantic fallbacks, viewport culling, and event-driven redraws.
+- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, occlusion treatment, anchored multi-tile sprites, knowledge-safe movement interpolation, semantic fallbacks, viewport culling, and conditional animation-frame redraws.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
