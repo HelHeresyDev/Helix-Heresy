@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const CanvasRenderer = require('../canvas-map-renderer.js');
+const RenderOrder = require('../map-render-order.js');
 const SpriteManifest = require('../sprite-asset-manifest.js');
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -31,6 +32,19 @@ async function canvasPointForCell(page, cell) {
       y: rect.top + point.y + point.height / 2,
     };
   }, cell);
+}
+
+function recordingContext() {
+  return new Proxy({}, {
+    get(target, property) {
+      if (!(property in target)) target[property] = () => {};
+      return target[property];
+    },
+    set(target, property, value) {
+      target[property] = value;
+      return true;
+    },
+  });
 }
 
 test('Canvas helpers cull overscan and derive presentation from semantic state', () => {
@@ -121,6 +135,111 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     matches: true,
     orientation: { quarterTurns: 0, mirrored: true },
   });
+
+  const layeredEntities = [
+    { id: 'actor-south', category: 'actor', bounds: { x: 1, y: 4, z: 0, width: 1, height: 1 } },
+    { id: 'overhead', category: 'fixture', visual: { layer: 'overhead' }, bounds: { x: 1, y: 1, z: 0, width: 1, height: 1 } },
+    { id: 'item', category: 'item', bounds: { x: 1, y: 3, z: 0, width: 1, height: 1 } },
+    { id: 'actor-north', category: 'actor', bounds: { x: 1, y: 2, z: 0, width: 1, height: 1 } },
+    { id: 'fixture', category: 'fixture', bounds: { x: 1, y: 2, z: 0, width: 1, height: 1 } },
+    { id: 'remains', category: 'remains', bounds: { x: 1, y: 2, z: 0, width: 1, height: 1 } },
+    { id: 'spill', category: 'hazard', bounds: { x: 1, y: 2, z: 0, width: 1, height: 1 } },
+  ];
+  expect(RenderOrder.orderedEntities(layeredEntities).map((entity) => entity.id)).toEqual([
+    'spill',
+    'item',
+    'remains',
+    'fixture',
+    'actor-north',
+    'actor-south',
+    'overhead',
+  ]);
+
+  const occupiedCell = { x: 2, y: 2, z: 1 };
+  const occlusionScene = {
+    viewport: { x: 2, y: 2, z: 1, width: 1, height: 1 },
+    cells: [{
+      key: '2,2,1',
+      cell: occupiedCell,
+      base: { kind: 'floor' },
+      visual: { glyph: '', layer: 'base' },
+      planned: { taskId: 'planned-test' },
+      cursor: true,
+    }],
+    entities: [
+      {
+        id: 'tall-actor',
+        kind: 'slime',
+        category: 'actor',
+        selected: true,
+        anchorCell: { x: 2, y: 2, z: 0 },
+        footprintCells: [{ x: 2, y: 2, z: 0 }, occupiedCell],
+        bounds: { x: 2, y: 2, z: 0, width: 1, height: 1, depth: 2 },
+        knowledge: { state: 'current' },
+        target: { kind: 'slime', id: 'tall-actor' },
+        visual: { key: '', glyph: 'L', layer: '' },
+      },
+      {
+        id: 'ceiling-duct',
+        kind: 'fixture',
+        category: 'fixture',
+        selected: false,
+        anchorCell: occupiedCell,
+        footprintCells: [occupiedCell],
+        bounds: { x: 2, y: 2, z: 1, width: 1, height: 1, depth: 1 },
+        knowledge: { state: 'current' },
+        target: { kind: 'fixture', id: 'ceiling-duct' },
+        visual: { key: '', glyph: 'D', layer: 'overhead' },
+      },
+    ],
+    effects: [{
+      id: 'known-alert',
+      plane: 'alert',
+      cells: [occupiedCell],
+      severity: 'serious',
+      knowledge: { state: 'current' },
+      visualKey: '',
+      target: { kind: 'incident', id: 'known-alert' },
+    }],
+    selection: { entityId: 'tall-actor', cells: [occupiedCell] },
+  };
+  expect(RenderOrder.entityLayerMode(occlusionScene.entities[0], 1)).toBe('slice');
+  expect([...RenderOrder.selectedOccluderIds(occlusionScene)]).toEqual(['ceiling-duct']);
+  expect([...RenderOrder.cutawayEntityIds(occlusionScene)]).toEqual(['ceiling-duct']);
+  expect([...RenderOrder.cutawayEntityIds({
+    ...occlusionScene,
+    entities: occlusionScene.entities.map((entity) => ({
+      ...entity,
+      selected: entity.id === 'ceiling-duct',
+    })),
+  })]).toEqual([]);
+  expect(RenderOrder.orderInteractionTargets(occlusionScene, [
+    { kind: 'tile', tile: occupiedCell },
+    { kind: 'slime', id: 'tall-actor' },
+    { kind: 'corpse', id: 'contained-remains' },
+    { kind: 'fixture', id: 'ceiling-duct' },
+    { kind: 'incident', id: 'known-alert' },
+  ]).map(RenderOrder.targetKey)).toEqual([
+    'incident:known-alert',
+    'fixture:ceiling-duct',
+    'slime:tall-actor',
+    'corpse:contained-remains',
+    'tile:2,2,1',
+  ]);
+  expect(CanvasRenderer.renderScene(recordingContext(), occlusionScene)).toMatchObject({
+    tallSlicesDrawn: 1,
+    fadedOccludersDrawn: 1,
+    overheadCutawaysDrawn: 1,
+    renderPassCounts: {
+      terrain: 1,
+      path: 1,
+      actor: 1,
+      overhead: 1,
+      alert: 1,
+      selection: 1,
+      cursor: 1,
+    },
+  });
 });
 
 test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', async ({ page }) => {
@@ -162,6 +281,10 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
+  expect(result.diagnostics.canvas.version).toBe(2);
+  expect(result.diagnostics.canvas.renderPassCounts.terrain).toBeGreaterThan(0);
+  expect(result.diagnostics.canvas.renderPassCounts.fixture).toBeGreaterThan(0);
+  expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);
   expect(result.diagnostics.canvasDraw.calls).toBeGreaterThan(0);
   expect(result.diagnostics.sceneBuild.calls).toBeGreaterThan(0);
 });
@@ -171,21 +294,28 @@ test('Canvas hit testing selects full semantic footprints and opens existing con
   await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('canvas'));
   const target = await page.evaluate(() => {
     const scene = window.helixHeresyDebug.mapSceneSnapshot();
-    return scene.entities.find((entity) =>
-      entity.target
-      && entity.footprintCells.length > 1
-      && entity.footprintCells.every((cell) =>
+    for (const entity of scene.entities) {
+      if (!entity.target || entity.footprintCells.length <= 1 || !entity.footprintCells.every((cell) =>
         cell.z === scene.viewport.z
         && cell.x >= scene.viewport.x
         && cell.x < scene.viewport.x + scene.viewport.width
         && cell.y >= scene.viewport.y
         && cell.y < scene.viewport.y + scene.viewport.height
-      )
-    );
+      )) continue;
+      const clickedCell = entity.footprintCells.at(-1);
+      const interaction = scene.interactionIndex.find((entry) =>
+        entry.key === window.HelixMapVisualState.cellKey(clickedCell)
+      );
+      if (interaction?.targets?.length > 1
+        && window.HelixMapRenderOrder.targetKey(interaction.targets[0])
+          === window.HelixMapRenderOrder.targetKey(entity.target)) {
+        return { entity, clickedCell, orderedTargets: interaction.targets };
+      }
+    }
+    return null;
   });
   expect(target).toBeTruthy();
-  const clickedCell = target.footprintCells.at(-1);
-  const point = await canvasPointForCell(page, clickedCell);
+  const point = await canvasPointForCell(page, target.clickedCell);
   expect(point).toBeTruthy();
   await page.mouse.click(point.x, point.y);
 
@@ -196,10 +326,14 @@ test('Canvas hit testing selects full semantic footprints and opens existing con
       cursor: view.cursor,
     };
   });
-  expect(result.selection.target).toMatchObject(target.target);
-  expect(result.selection.cells).toEqual(expect.arrayContaining(target.footprintCells));
-  expect(result.cursor).toEqual(clickedCell);
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', target.target.kind);
+  expect(result.selection.target).toMatchObject(target.entity.target);
+  expect(result.selection.cells).toEqual(expect.arrayContaining(target.entity.footprintCells));
+  expect(result.cursor).toEqual(target.clickedCell);
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', target.entity.target.kind);
+  const alsoHereKeys = await page.locator('[data-selection-also-here-key]').evaluateAll((links) =>
+    links.map((link) => link.dataset.selectionAlsoHereKey)
+  );
+  expect(alsoHereKeys[0]).toBe(RenderOrder.targetKey(target.orderedTargets[1]));
 
   await page.mouse.move(point.x + 1, point.y + 1);
   const tooltip = page.locator('[data-canvas-map-tooltip="true"]');
@@ -209,6 +343,13 @@ test('Canvas hit testing selects full semantic footprints and opens existing con
   await page.locator('[data-command-menu-trigger="true"]').first().click();
   await expect(page.locator('[data-context-command-menu="true"]')).toBeVisible();
   await expect(page.locator('[data-context-command-panel="true"]')).not.toContainText('No contextual commands');
+  await page.locator('[data-context-command-menu="true"]').getByRole('button', { name: 'Close', exact: true }).click();
+
+  await page.mouse.click(point.x, point.y);
+  const cycledSelection = await page.evaluate(() =>
+    window.helixHeresyDebug.mapSceneSnapshot().selection.target
+  );
+  expect(RenderOrder.targetKey(cycledSelection)).toBe(RenderOrder.targetKey(target.orderedTargets[1]));
 });
 
 test('Canvas construction selection and access-area drag painting use the same map cells as DOM tools', async ({ page }) => {

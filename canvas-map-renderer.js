@@ -1,15 +1,19 @@
 (function attachHelixCanvasMapRenderer(root, factory) {
-  const api = factory();
+  const renderOrder = typeof module === "object" && module.exports
+    ? require("./map-render-order.js")
+    : root?.HelixMapRenderOrder;
+  const api = factory(renderOrder);
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.HelixCanvasMapRenderer = api;
   }
-}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixCanvasMapRenderer() {
+}(typeof globalThis !== "undefined" ? globalThis : this, function createHelixCanvasMapRenderer(RenderOrder) {
   "use strict";
 
-  const RENDERER_VERSION = 1;
+  if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
+  const RENDERER_VERSION = 2;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -175,7 +179,6 @@
       };
       style = withStyle(style, doorStyles[cell.door.state] || ENTITY_STYLES.door);
     }
-    if (cell?.route) style = withStyle(style, { fill: "#26332d", stroke: cell.route.selected ? "#f0d989" : "#75b86b" });
     return style;
   }
 
@@ -195,7 +198,9 @@
 
   function terrainGlyph(cell) {
     const layer = cell?.visual?.layer;
-    return ["object", "actor", "door", "incident"].includes(layer) ? "" : String(cell?.visual?.glyph || "");
+    return ["object", "actor", "door", "incident", "construction"].includes(layer)
+      ? ""
+      : String(cell?.visual?.glyph || "");
   }
 
   function terrainSpriteKey(cell) {
@@ -401,20 +406,124 @@
     };
   }
 
+  function drawRoute(ctx, cell, position, tilePx) {
+    if (!cell?.route) return false;
+    ctx.save();
+    ctx.globalAlpha = 0.78;
+    ctx.strokeStyle = cell.route.selected ? "#f0d989" : "#75b86b";
+    ctx.lineWidth = Math.max(1.5, tilePx * 0.12);
+    ctx.setLineDash(cell.route.selected ? [] : [Math.max(2, tilePx * 0.22), Math.max(1, tilePx * 0.12)]);
+    ctx.beginPath();
+    ctx.moveTo(position.x + tilePx * 0.16, position.y + tilePx / 2);
+    ctx.lineTo(position.x + tilePx * 0.84, position.y + tilePx / 2);
+    ctx.stroke();
+    ctx.restore();
+    return true;
+  }
+
+  function drawDesignation(ctx, cell, position, tilePx) {
+    if (!cell?.planned && !cell?.draft
+      && !["plannedExcavation", "draftExcavation"].includes(cell?.base?.kind)) {
+      return false;
+    }
+    const invalid = cell?.draft && !cell.draft.valid;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = invalid ? "#c96b4f" : cell?.draft ? "#759653" : "#b78f4d";
+    ctx.lineWidth = Math.max(1.25, tilePx * 0.08);
+    ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.1)]);
+    ctx.strokeRect(
+      position.x + tilePx * 0.12,
+      position.y + tilePx * 0.12,
+      tilePx * 0.76,
+      tilePx * 0.76
+    );
+    ctx.restore();
+    drawGlyph(
+      ctx,
+      cell?.visual?.glyph || (invalid ? "?" : "M"),
+      position.x,
+      position.y,
+      tilePx,
+      invalid ? "#ffb8a8" : "#e1b75f",
+      0.9
+    );
+    return true;
+  }
+
+  function drawEntityCell(ctx, position, tilePx, style, options = {}) {
+    const alpha = cleanNumber(style.alpha, 0.88) * cleanNumber(options.alphaMultiplier, 1);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = style.fill;
+    ctx.fillRect(position.x + 1, position.y + 1, Math.max(1, tilePx - 2), Math.max(1, tilePx - 2));
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = Math.max(1, tilePx * 0.055);
+    ctx.setLineDash(options.slice || options.cutaway || style.dashed
+      ? [Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]
+      : []);
+    ctx.strokeRect(position.x + 1.5, position.y + 1.5, Math.max(0, tilePx - 3), Math.max(0, tilePx - 3));
+    if (options.slice) {
+      ctx.beginPath();
+      ctx.moveTo(position.x + tilePx * 0.2, position.y + tilePx * 0.2);
+      ctx.lineTo(position.x + tilePx * 0.8, position.y + tilePx * 0.8);
+      ctx.moveTo(position.x + tilePx * 0.8, position.y + tilePx * 0.2);
+      ctx.lineTo(position.x + tilePx * 0.2, position.y + tilePx * 0.8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, assetLoader) {
+    let cellsDrawn = 0;
+    let spritesDrawn = 0;
+    let spriteFallbacks = 0;
+    for (const cell of effect.cells || []) {
+      if (!visibleCellKeys.has(cellKey(cell))) continue;
+      cellsDrawn += 1;
+      const position = tilePosition(cell, viewport, tilePx, origin);
+      const spriteKey = effect.visualKey;
+      const sprite = resolveSprite(assetLoader, spriteKey);
+      if (sprite) {
+        drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx);
+        spritesDrawn += 1;
+      } else if (spriteKey) {
+        spriteFallbacks += 1;
+      }
+      ctx.save();
+      ctx.strokeStyle = effect.severity === "critical" || effect.severity === "serious" ? "#ff8b73" : "#e1b75f";
+      ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
+      if (effect.knowledge?.state === "stale") {
+        ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
+      }
+      ctx.strokeRect(position.x + 2, position.y + 2, Math.max(0, tilePx - 4), Math.max(0, tilePx - 4));
+      ctx.restore();
+      if (!sprite) drawGlyph(ctx, "A", position.x, position.y, tilePx, "#ffd0c6");
+    }
+    return { cellsDrawn, spritesDrawn, spriteFallbacks };
+  }
+
   function renderScene(ctx, scene, options = {}) {
     const viewport = scene?.viewport || { x: 0, y: 0, z: 0, width: 1, height: 1 };
     const tilePx = Math.max(4, cleanNumber(options.tilePx, 14));
     const origin = presentationOrigin(options);
     const cells = renderCells(scene, options);
     const visibleCellKeys = new Set(cells.map((cell) => cellKey(cell.cell)));
-    const cellByKey = new Map(cells.map((cell) => [cellKey(cell.cell), cell]));
     let entityCellsDrawn = 0;
     let entitiesDrawn = 0;
     let spritesDrawn = 0;
     let spriteFallbacks = 0;
     let multiTileSpritesDrawn = 0;
     let spritePlacementMismatches = 0;
+    let tallSlicesDrawn = 0;
+    let fadedOccludersDrawn = 0;
+    let overheadCutawaysDrawn = 0;
     const placementWarnings = [];
+    const renderPassCounts = {};
+    const countPass = (pass, amount = 1) => {
+      const name = RenderOrder.passName(pass);
+      renderPassCounts[name] = (renderPassCounts[name] || 0) + amount;
+    };
 
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
@@ -430,34 +539,47 @@
       }
       drawGlyph(ctx, terrainGlyph(cell), position.x, position.y, tilePx, style.text);
     }
+    countPass(RenderOrder.RENDER_PASSES.terrain, cells.length);
 
-    const categoryOrder = { structure: 1, fixture: 2, item: 3, remains: 4, hazard: 5, actor: 6 };
-    const entities = [...(scene?.entities || [])]
+    const entities = RenderOrder.orderedEntities((scene?.entities || [])
       .filter((entity) => (entity.footprintCells || []).some((cell) => visibleCellKeys.has(cellKey(cell))))
-      .sort((left, right) => (categoryOrder[left.category] || 3) - (categoryOrder[right.category] || 3) || left.id.localeCompare(right.id));
-    for (const entity of entities) {
+    );
+    const effects = [...(scene?.effects || [])]
+      .filter((effect) => (effect.cells || []).some((cell) => visibleCellKeys.has(cellKey(cell))))
+      .sort((left, right) => RenderOrder.compareRenderKeys(
+        RenderOrder.effectRenderKey(left),
+        RenderOrder.effectRenderKey(right)
+      ));
+    const occluderIds = RenderOrder.selectedOccluderIds(scene);
+    const cutawayIds = RenderOrder.cutawayEntityIds(scene);
+
+    const drawEntity = (entity) => {
       const style = entityStyle(entity);
-      let visible = false;
-      for (const cell of entity.footprintCells || []) {
+      const layerMode = RenderOrder.entityLayerMode(entity, viewport.z);
+      const faded = occluderIds.has(entity.id);
+      const cutaway = cutawayIds.has(entity.id);
+      const alphaMultiplier = cutaway ? 0.22 : faded ? 0.32 : 1;
+      const visibleFootprint = (entity.footprintCells || []).filter((cell) => visibleCellKeys.has(cellKey(cell)));
+      if (!visibleFootprint.length || layerMode === "hidden") return;
+      if (faded) fadedOccludersDrawn += 1;
+      if (cutaway) overheadCutawaysDrawn += 1;
+      if (layerMode === "slice") tallSlicesDrawn += 1;
+      for (const cell of visibleFootprint) {
         if (!visibleCellKeys.has(cellKey(cell))) continue;
-        visible = true;
         entityCellsDrawn += 1;
         const position = tilePosition(cell, viewport, tilePx, origin);
-        ctx.save();
-        ctx.globalAlpha = cleanNumber(style.alpha, 0.88);
-        ctx.fillStyle = style.fill;
-        ctx.fillRect(position.x + 1, position.y + 1, Math.max(1, tilePx - 2), Math.max(1, tilePx - 2));
-        ctx.strokeStyle = style.stroke;
-        ctx.lineWidth = Math.max(1, tilePx * 0.055);
-        ctx.setLineDash(style.dashed ? [Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)] : []);
-        ctx.strokeRect(position.x + 1.5, position.y + 1.5, Math.max(0, tilePx - 3), Math.max(0, tilePx - 3));
-        ctx.restore();
+        drawEntityCell(ctx, position, tilePx, style, {
+          alphaMultiplier,
+          slice: layerMode === "slice",
+          cutaway
+        });
       }
-      if (!visible) continue;
       entitiesDrawn += 1;
+      countPass(RenderOrder.entityPass(entity));
+      if (layerMode === "slice") return;
       const glyphAnchor = inViewport(entity.anchorCell, viewport)
         ? entity.anchorCell
-        : (entity.footprintCells || []).find((cell) => visibleCellKeys.has(cellKey(cell)));
+        : visibleFootprint[0];
       if (glyphAnchor) {
         const position = tilePosition(glyphAnchor, viewport, tilePx, origin);
         const spriteKey = entity.visual?.key;
@@ -471,7 +593,7 @@
             viewport,
             tilePx,
             origin,
-            cleanNumber(style.alpha, 1)
+            cleanNumber(style.alpha, 1) * alphaMultiplier
           )) {
             spritesDrawn += 1;
             if (placement.bounds.width > 1 || placement.bounds.height > 1 || placement.bounds.depth > 1) {
@@ -483,50 +605,86 @@
             if (placementWarnings.length < 8) {
               placementWarnings.push(`${entity.id} (${sprite.resolvedKey}): ${placement.reason}`);
             }
-            drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
+            drawGlyph(
+              ctx,
+              entity.visual?.glyph || "?",
+              position.x,
+              position.y,
+              tilePx,
+              style.text,
+              cleanNumber(style.alpha, 1) * alphaMultiplier
+            );
           }
         } else {
           if (spriteKey) spriteFallbacks += 1;
-          drawGlyph(ctx, entity.visual?.glyph || "?", position.x, position.y, tilePx, style.text, cleanNumber(style.alpha, 1));
+          drawGlyph(
+            ctx,
+            entity.visual?.glyph || "?",
+            position.x,
+            position.y,
+            tilePx,
+            style.text,
+            cleanNumber(style.alpha, 1) * alphaMultiplier
+          );
         }
       }
-    }
+    };
 
-    for (const effect of scene?.effects || []) {
-      for (const cell of effect.cells || []) {
-        if (!visibleCellKeys.has(cellKey(cell))) continue;
-        const position = tilePosition(cell, viewport, tilePx, origin);
-        const spriteKey = effect.visualKey;
-        const sprite = resolveSprite(options.assetLoader, spriteKey);
-        if (sprite) {
-          drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx);
-          spritesDrawn += 1;
-        } else if (spriteKey) {
-          spriteFallbacks += 1;
-        }
-        ctx.save();
-        ctx.strokeStyle = effect.severity === "critical" || effect.severity === "serious" ? "#ff8b73" : "#e1b75f";
-        ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
-        if (effect.knowledge?.state === "stale") ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
-        ctx.strokeRect(position.x + 2, position.y + 2, Math.max(0, tilePx - 4), Math.max(0, tilePx - 4));
-        ctx.restore();
-        if (!sprite && !cellByKey.get(cellKey(cell))?.visual?.glyph) {
-          drawGlyph(ctx, "A", position.x, position.y, tilePx, "#ffd0c6");
-        }
+    const drawEffectsAtPass = (pass) => {
+      for (const effect of effects.filter((candidate) => RenderOrder.effectPass(candidate) === pass)) {
+        const counts = drawEffect(
+          ctx,
+          effect,
+          visibleCellKeys,
+          viewport,
+          tilePx,
+          origin,
+          options.assetLoader
+        );
+        spritesDrawn += counts.spritesDrawn;
+        spriteFallbacks += counts.spriteFallbacks;
+        countPass(pass, counts.cellsDrawn);
       }
-    }
+    };
+    const drawEntitiesAtPass = (pass) => {
+      for (const entity of entities.filter((candidate) => RenderOrder.entityPass(candidate) === pass)) {
+        drawEntity(entity);
+      }
+    };
 
+    drawEffectsAtPass(RenderOrder.RENDER_PASSES.ground);
+    drawEntitiesAtPass(RenderOrder.RENDER_PASSES.ground);
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
-      if (cell.selected || (scene?.selection?.cells || []).some((selected) => cellKey(selected) === cellKey(cell.cell))) {
+      if (drawRoute(ctx, cell, position, tilePx)) countPass(RenderOrder.RENDER_PASSES.path);
+      if (drawDesignation(ctx, cell, position, tilePx)) countPass(RenderOrder.RENDER_PASSES.path);
+    }
+    for (const pass of [
+      RenderOrder.RENDER_PASSES.item,
+      RenderOrder.RENDER_PASSES.remains,
+      RenderOrder.RENDER_PASSES.fixture,
+      RenderOrder.RENDER_PASSES.actor,
+      RenderOrder.RENDER_PASSES.overhead
+    ]) {
+      drawEntitiesAtPass(pass);
+    }
+    drawEffectsAtPass(RenderOrder.RENDER_PASSES.effect);
+    drawEffectsAtPass(RenderOrder.RENDER_PASSES.alert);
+
+    const selectedCellKeys = new Set((scene?.selection?.cells || []).map(cellKey));
+    for (const cell of cells) {
+      const position = tilePosition(cell.cell, viewport, tilePx, origin);
+      if (cell.selected || selectedCellKeys.has(cellKey(cell.cell))) {
         ctx.strokeStyle = "#68c8d8";
         ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
         ctx.strokeRect(position.x + 1, position.y + 1, Math.max(0, tilePx - 2), Math.max(0, tilePx - 2));
+        countPass(RenderOrder.RENDER_PASSES.selection);
       }
       if (cell.cursor) {
         ctx.strokeStyle = "#f0d989";
         ctx.lineWidth = Math.max(1.5, tilePx * 0.08);
         ctx.strokeRect(position.x + 3, position.y + 3, Math.max(0, tilePx - 6), Math.max(0, tilePx - 6));
+        countPass(RenderOrder.RENDER_PASSES.cursor);
       }
     }
 
@@ -538,7 +696,11 @@
       spriteFallbacks,
       multiTileSpritesDrawn,
       spritePlacementMismatches,
-      placementWarnings
+      placementWarnings,
+      tallSlicesDrawn,
+      fadedOccludersDrawn,
+      overheadCutawaysDrawn,
+      renderPassCounts
     };
   }
 
@@ -569,7 +731,11 @@
       spriteFallbacks: 0,
       multiTileSpritesDrawn: 0,
       spritePlacementMismatches: 0,
-      placementWarnings: []
+      placementWarnings: [],
+      tallSlicesDrawn: 0,
+      fadedOccludersDrawn: 0,
+      overheadCutawaysDrawn: 0,
+      renderPassCounts: {}
     };
 
     function snapshot() {
@@ -627,6 +793,10 @@
       diagnostics.multiTileSpritesDrawn = counts.multiTileSpritesDrawn;
       diagnostics.spritePlacementMismatches = counts.spritePlacementMismatches;
       diagnostics.placementWarnings = counts.placementWarnings;
+      diagnostics.tallSlicesDrawn = counts.tallSlicesDrawn;
+      diagnostics.fadedOccludersDrawn = counts.fadedOccludersDrawn;
+      diagnostics.overheadCutawaysDrawn = counts.overheadCutawaysDrawn;
+      diagnostics.renderPassCounts = counts.renderPassCounts;
       canvas.dataset.canvasFrameCount = String(diagnostics.frameCount);
       canvas.dataset.canvasCellsDrawn = String(counts.cellsDrawn);
       canvas.dataset.canvasEntitiesDrawn = String(counts.entitiesDrawn);

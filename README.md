@@ -29,11 +29,17 @@ No build step is required.
 
 Open `index.html` in a browser:
 
-```powershell
-start .\index.html
+```bash
+xdg-open index.html
 ```
 
-The game is currently designed for desktop play.
+Alternatively, serve the folder from VS Code's integrated Ubuntu terminal:
+
+```bash
+python3 -m http.server 8000
+```
+
+Then open `http://localhost:8000`. The game is currently designed for desktop play.
 
 ## Project Files
 
@@ -42,10 +48,11 @@ The game is currently designed for desktop play.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, normalized physical orientation, knowledge state, interactions, overscan, and schema validation.
+- `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
-- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with anchored multi-tile sprites, quarter-turn transforms, semantic fallbacks, viewport culling, high-DPI output, and event-driven redraws.
+- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, occlusion treatment, anchored multi-tile sprites, semantic fallbacks, viewport culling, and event-driven redraws.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
