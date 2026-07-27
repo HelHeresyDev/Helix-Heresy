@@ -3217,6 +3217,10 @@
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
   }
+  const ActorVisualState = window.HelixActorVisualState;
+  if (!ActorVisualState) {
+    throw new Error("HelixActorVisualState must load before app.js");
+  }
   const MapVisualState = window.HelixMapVisualState;
   if (!MapVisualState) {
     throw new Error("HelixMapVisualState must load before app.js");
@@ -34931,6 +34935,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? finiteTime(slime.createdAt, clock)
       : clock;
     const lastObservedAt = finiteTime(candidate?.lastObservedAt ?? candidate?.observedAt, fallbackObservedAt);
+    const fallbackVisual = candidate
+      ? ActorVisualState.deriveActorVisualState({
+          activity: {
+            id: candidate.lastKnownActivityId || "lastKnown",
+            family: candidate.lastKnownActivityFamily,
+            label: candidate.lastKnownActivity || "activity unknown",
+            source: "observation"
+          },
+          previousFacing: candidate.lastKnownFacing,
+          defaultFacing: "none"
+        })
+      : slimeActorVisualState(slime);
     return {
       specimenId: slime.id,
       name: String(candidate?.name || slime.name || slime.id).trim(),
@@ -34944,6 +34960,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : slimeIsUncontained(slime) ? navigationFootprintForActor(slime) : null,
       lastKnownOrientation: candidate?.lastKnownOrientation === "vertical" ? "vertical" : (slime.navigationOrientation || "horizontal"),
       lastKnownActivity: String(candidate?.lastKnownActivity || slime.roomActivity?.label || slime.status || "unknown").trim(),
+      lastKnownActivityId: String(candidate?.lastKnownActivityId || fallbackVisual.activity.id || "idle"),
+      lastKnownActivityFamily: String(candidate?.lastKnownActivityFamily || fallbackVisual.activity.family || "idle"),
+      lastKnownFacing: ActorVisualState.cleanFacing(candidate?.lastKnownFacing, fallbackVisual.facing),
+      lastKnownPose: ActorVisualState.cleanPose(candidate?.lastKnownPose, fallbackVisual.pose),
+      lastKnownConditionCues: (candidate?.lastKnownConditionCues || fallbackVisual.conditionCues || [])
+        .map(String)
+        .filter((cue) => ActorVisualState.CONDITION_CUES.includes(cue)),
       updatedAt: finiteTime(candidate?.updatedAt, lastObservedAt)
     };
   }
@@ -34990,7 +35013,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     record.lastKnownMapCell = cleanMapCell(slime.mapCell);
     record.lastKnownFootprint = slimeIsUncontained(slime) ? navigationFootprintForActor(slime) : null;
     record.lastKnownOrientation = slime.navigationOrientation || "horizontal";
-    record.lastKnownActivity = slimeActivityLabel(slime);
+    const visualState = slimeActorVisualState(slime, { previousFacing: record.lastKnownFacing });
+    record.lastKnownActivity = visualState.activity.label;
+    record.lastKnownActivityId = visualState.activity.id;
+    record.lastKnownActivityFamily = visualState.activity.family;
+    record.lastKnownFacing = visualState.facing;
+    record.lastKnownPose = visualState.pose;
+    record.lastKnownConditionCues = [...visualState.conditionCues];
     record.updatedAt = state.clock;
     return record;
   }
@@ -42336,12 +42365,99 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function slimeMapSpriteKey(footprintCells, knowledgeState = "current") {
+  function slimeMapSpriteKey(footprintCells) {
     const bounds = MapVisualState.boundsForCells(footprintCells);
-    const baseKey = bounds?.width === 2 && bounds?.height === 2 && bounds?.depth === 1
+    return bounds?.width === 2 && bounds?.height === 2 && bounds?.depth === 1
       ? "actor.slime.large"
       : "actor.slime";
-    return knowledgeState === "stale" ? `${baseKey}.stale` : baseKey;
+  }
+
+  function slimeActorActivityTargetCell(slime) {
+    const committed = cleanMapCell(slime?.ai?.commitment?.target?.cell);
+    if (committed) return committed;
+    const activity = slime?.roomActivity || {};
+    const targetKind = String(activity.targetKind || "");
+    const targetId = String(activity.targetId || "");
+    if (targetKind === "self") return objectMapCell(slime);
+    if (["slime", "creature", "target"].includes(targetKind)) {
+      const targetSlime = findSlime(targetId);
+      if (targetSlime) return objectMapCell(targetSlime);
+    }
+    if (targetKind === "scientist") return scientistMapCell();
+    if (targetKind === "corpse") return objectMapCell(findCorpse(targetId));
+    if (["physicalStack", "itemStack"].includes(targetKind)) {
+      return cleanMapCell(ensurePhysicalItemStacks().find((entry) => entry.id === targetId)?.cell);
+    }
+    if (targetKind === "fixture") return cleanMapCell(fixtureById(targetId)?.origin);
+    if (targetKind === "container") return objectMapCell(containerById(targetId));
+    return null;
+  }
+
+  function slimeActorVisualState(slime, options = {}) {
+    if (!slime) {
+      return ActorVisualState.deriveActorVisualState({
+        activity: { id: "idle", label: "Idle", source: "simulation" },
+        defaultFacing: "none"
+      });
+    }
+    const uncontained = slimeIsUncontained(slime);
+    const movement = uncontained ? normalizeSlimeAutonomousMovement(slime.autonomousMovement) : null;
+    const nextStep = movement?.steps?.[Math.min(movement.stepIndex + 1, movement.steps.length - 1)]?.cell || null;
+    const containment = !uncontained && slime.containerId
+      ? containmentTestRecordForSlime(slime)
+      : null;
+    const activity = containment?.active
+      ? {
+          id: `containment.${containment.method}`,
+          label: containment.activity,
+          combatIntent: containment.method === "attack" ? "attack" : "",
+          source: "simulation"
+        }
+      : {
+          id: slime.roomActivity?.type || (uncontained ? slime.status : "quiescent"),
+          label: String(slime.roomActivity?.label || (uncontained ? slime.status : "quiescent")),
+          combatIntent: slime.roomActivity?.combatIntent || "",
+          target: slime.roomActivity?.targetKind ? {
+            kind: slime.roomActivity.targetKind,
+            id: slime.roomActivity.targetId || "",
+            label: slime.roomActivity.targetLabel || ""
+          } : null,
+          source: "simulation"
+        };
+    const targetCell = uncontained ? slimeActorActivityTargetCell(slime) : null;
+    const bodyIntegrity = slimeStat(slime, "bodyIntegrity");
+    return ActorVisualState.deriveActorVisualState({
+      anchorCell: objectMapCell(slime),
+      previousFacing: options.previousFacing,
+      defaultFacing: "none",
+      activity,
+      combatIntent: activity.combatIntent,
+      combatTargetCell: targetCell,
+      movementTargetCell: nextStep,
+      activityTargetCell: targetCell,
+      motion: movement ? {
+        state: movement.stepIndex < movement.steps.length - 1 ? "moving" : "stationary",
+        intent: movement.intent,
+        nextCell: cleanMapCell(nextStep),
+        destination: cleanMapCell(movement.targetCell)
+      } : null,
+      containment,
+      condition: {
+        ratio: clamp(bodyIntegrity.current / Math.max(1, bodyIntegrity.max || 100), 0, 1),
+        band: slimeStatBand("bodyIntegrity", bodyIntegrity).toLowerCase(),
+        stress: slimeStat(slime, "stress").current
+      },
+      dead: slime.status === "dead",
+      knowledge: options.knowledge
+    });
+  }
+
+  function actorSpriteVisual(baseKey, actorState) {
+    const keys = ActorVisualState.spriteKeyCandidates(baseKey, actorState);
+    return {
+      key: keys[0] || baseKey,
+      fallbackKeys: keys.slice(1)
+    };
   }
 
   function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
@@ -42430,34 +42546,57 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const observedNow = mapShowsRoomOccupants(slime.roomId || MAIN_ROOM_ID, options);
       const record = creatureRecordForSlime(slime);
       const knowledge = mapSceneKnowledgeForSlime(slime, observedNow, options);
-      const activity = observedNow || options.debug
-        ? { id: slime.roomActivity?.type || slime.status, label: slimeActivityLabel(slime).replace(/^Activity:\s*/i, "") }
-        : record ? { id: "lastKnown", label: record.lastKnownActivity } : null;
+      const current = observedNow || options.debug;
+      const actorState = current
+        ? slimeActorVisualState(slime, { previousFacing: record?.lastKnownFacing, knowledge })
+        : ActorVisualState.deriveActorVisualState({
+            activity: record ? {
+              id: record.lastKnownActivityId,
+              family: record.lastKnownActivityFamily,
+              label: record.lastKnownActivity,
+              source: "observation"
+            } : { id: "idle", label: "Activity unknown", source: "observation" },
+            previousFacing: record?.lastKnownFacing,
+            defaultFacing: "none",
+            knowledge
+          });
+      if (!current && record) {
+        actorState.pose = ActorVisualState.cleanPose(record.lastKnownPose, actorState.pose);
+        actorState.conditionCues = [...(record.lastKnownConditionCues || [])];
+      }
+      const motion = current && slime.autonomousMovement
+        ? normalizeSlimeAutonomousMovement(slime.autonomousMovement)
+        : null;
+      const baseSpriteKey = slimeMapSpriteKey(footprintCells);
+      const spriteVisual = actorSpriteVisual(baseSpriteKey, actorState);
       return {
         id: targetKey,
         kind: "slime",
         category: "actor",
         subtype: "slime",
         target,
-        anchorCell: observedNow || options.debug ? objectMapCell(slime) : record?.lastKnownMapCell || anchorFallback,
+        anchorCell: current ? objectMapCell(slime) : record?.lastKnownMapCell || anchorFallback,
         footprintCells,
-        orientation: observedNow || options.debug ? slime.navigationOrientation : record?.lastKnownOrientation,
-        facing: null,
-        pose: activity?.id || "quiescent",
-        activity,
-        motion: observedNow || options.debug ? {
-          state: slime.autonomousMovement?.status || "stationary",
-          destination: cleanMapCell(slime.autonomousMovement?.destination)
+        orientation: current ? slime.navigationOrientation : record?.lastKnownOrientation,
+        facing: actorState.facing,
+        pose: actorState.pose,
+        activity: actorState.activity,
+        motion: motion ? {
+          state: motion.stepIndex < motion.steps.length - 1 ? "moving" : "stationary",
+          intent: motion.intent,
+          nextCell: cleanMapCell(motion.steps[Math.min(motion.stepIndex + 1, motion.steps.length - 1)]?.cell),
+          destination: cleanMapCell(motion.targetCell)
         } : null,
-        condition: observedNow || options.debug ? {
+        condition: current ? {
           ratio: clamp(slimeStat(slime, "bodyIntegrity").current / 100, 0, 1),
-          band: slimeStatBand("bodyIntegrity", slimeStat(slime, "bodyIntegrity")).toLowerCase()
-        } : null,
+          band: slimeStatBand("bodyIntegrity", slimeStat(slime, "bodyIntegrity")).toLowerCase(),
+          cues: actorState.conditionCues
+        } : { cues: actorState.conditionCues },
         knowledge,
         visual: {
-          key: slimeMapSpriteKey(footprintCells, knowledge.state),
+          ...spriteVisual,
           glyph: "L",
-          recipeKey: `slime:${slime.id}:${knowledge.observedAt ?? "unknown"}`
+          recipeKey: `slime:${slime.id}:${knowledge.observedAt ?? "unknown"}:${actorState.pose}:${actorState.facing}`
         },
         blocking: navigationFootprintForActor(slime).width * navigationFootprintForActor(slime).height > 1
       };
@@ -42535,6 +42674,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistCell = scientistMapCell();
     const scientistHealthVital = scientistVital("health");
     const scientistHealthRatio = clamp(scientistHealthVital.current / Math.max(1, scientistHealthVital.max), 0, 1);
+    const scientistMovement = scientistMoveTask();
+    const scientistTask = scientistMovement || scientistQueueTasks()[0] || null;
+    const scientistActorState = ActorVisualState.deriveActorVisualState({
+      anchorCell: scientistCell,
+      defaultFacing: "south",
+      activity: {
+        id: scientistTask?.type || "idle",
+        label: scientistTask?.label || "Idle",
+        source: "simulation"
+      },
+      movementTargetCell: cleanMapCell(scientistMovement?.data?.destinationCell),
+      activityTargetCell: cleanMapCell(scientistTask?.data?.destinationCell || scientistTask?.data?.targetCell),
+      motion: scientistMovement ? {
+        state: "moving",
+        intent: "move",
+        destination: cleanMapCell(scientistMovement.data?.destinationCell)
+      } : null,
+      condition: {
+        ratio: scientistHealthRatio,
+        band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy"
+      },
+      dead: scientistHealthRatio <= 0
+    });
+    const scientistSpriteVisual = actorSpriteVisual("actor.scientist", scientistActorState);
     entities.push({
       id: "scientist:scientist",
       kind: "scientist",
@@ -42544,16 +42707,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       anchorCell: scientistCell,
       footprintCells: footprintVolumeCells(scientistCell, navigationFootprintForActor(state.scientist), state.scientist.navigationOrientation),
       orientation: state.scientist.navigationOrientation || "horizontal",
-      facing: null,
-      pose: scientistMoveTask() ? "moving" : "idle",
-      activity: { id: scientistMoveTask() ? "moving" : "idle", label: scientistMoveTask()?.label || "Idle" },
-      motion: scientistMoveTask() ? { state: "moving", destination: cleanMapCell(scientistMoveTask().data?.destinationCell) } : null,
+      facing: scientistActorState.facing,
+      pose: scientistActorState.pose,
+      activity: scientistActorState.activity,
+      motion: scientistMovement ? { state: "moving", intent: "move", destination: cleanMapCell(scientistMovement.data?.destinationCell) } : null,
       condition: {
         ratio: scientistHealthRatio,
-        band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy"
+        band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy",
+        cues: scientistActorState.conditionCues
       },
       knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "self" },
-      visual: { key: "actor.scientist", glyph: "S", recipeKey: "scientist:self" },
+      visual: { ...scientistSpriteVisual, glyph: "S", recipeKey: `scientist:self:${scientistActorState.pose}:${scientistActorState.facing}` },
       blocking: false
     });
     for (const door of Object.values(map.doors || {})) {
