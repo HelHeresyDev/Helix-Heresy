@@ -1440,6 +1440,41 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(highlightedAlerts).toBeGreaterThan(0);
   const stackedAlerts = await page.locator('.lab-map-cell.incident-stack-cell').count();
   expect(stackedAlerts).toBeGreaterThan(0);
+  const effectPresentation = await page.evaluate(() => {
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    const dom = window.helixHeresyDebug.mapDomSnapshot();
+    return {
+      spill: scene.effects.find((effect) => effect.sourceId === 'residue-alert'),
+      stackedAlert: scene.effects.find((effect) => effect.kind === 'incident' && effect.stackCount > 1),
+      compromisedContainer: scene.entities.find((entity) =>
+        entity.kind === 'container'
+        && entity.statusCues.some((cue) => cue.id === 'containment-compromised')
+      ),
+      spillDom: dom.find((cell) => cell.dataset.mapEffectKinds?.includes('hazardousSpill')),
+    };
+  });
+  expect(effectPresentation.spill).toMatchObject({
+    kind: 'hazardousSpill',
+    plane: 'ground',
+    severity: 'serious',
+    intensityBand: 'medium',
+    damageTags: expect.arrayContaining(['toxic']),
+    target: null,
+  });
+  expect(effectPresentation.stackedAlert).toMatchObject({
+    plane: 'alert',
+    stackCount: expect.any(Number),
+    target: { kind: 'incident' },
+  });
+  expect(effectPresentation.stackedAlert.stackCount).toBeGreaterThan(1);
+  expect(effectPresentation.compromisedContainer.statusCues).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'containment-compromised', severity: 'serious' }),
+  ]));
+  expect(effectPresentation.spillDom.classNames).toEqual(expect.arrayContaining([
+    'map-effect-cell',
+    'map-effect-ground',
+    'map-effect-hazardousspill',
+  ]));
 
   const tasks = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -1480,6 +1515,25 @@ test('spatial incidents appear as map alerts with manual response controls', asy
   expect(response.task.data.toRoomId).toBe('mainLab');
   expect(Math.abs(response.task.data.toCell.x - response.incident.cell.x) + Math.abs(response.task.data.toCell.y - response.incident.cell.y)).toBeLessThanOrEqual(1);
   expect(response.incident.responseTaskId).toBe(response.task.id);
+  const responseMarker = await page.evaluate((taskId) => {
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    const effect = scene.effects.find((candidate) =>
+      candidate.kind === 'taskMarker'
+      && [candidate.target, ...(candidate.relatedTargets || [])].some((target) => target?.id === taskId)
+    );
+    const interaction = effect
+      ? scene.interactionIndex.find((entry) => entry.key === effect.cells.map((cell) => `${cell.x},${cell.y},${cell.z}`)[0])
+      : null;
+    return { effect, interaction };
+  }, response.task.id);
+  expect(responseMarker.effect).toMatchObject({
+    kind: 'taskMarker',
+    plane: 'alert',
+    state: expect.stringMatching(/^(active|urgent)$/),
+  });
+  expect(responseMarker.interaction.targets).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: 'task', id: response.task.id }),
+  ]));
   await expect(page.locator('.lab-map-cell.queued-path-cell')).toHaveCount(0);
   await selectMapOverlay(page, 'movement');
   expect(await page.locator('.lab-map-cell.queued-path-cell').count()).toBeGreaterThan(0);

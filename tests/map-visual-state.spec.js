@@ -263,13 +263,27 @@ test('scene model deduplicates entities while retaining footprint and interactio
       footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
       knowledge: { state: 'current' },
       visual: { key: 'container.jar', glyph: 'C', layer: 'wallMounted' },
+      statusCues: [
+        { id: 'routine', severity: 'routine', label: 'Routine', glyph: '.' },
+        { id: 'damaged', severity: 'warning', label: 'Damaged', glyph: '!' },
+        { id: 'breached', severity: 'critical', label: 'Breached', glyph: '!' },
+      ],
     }],
     effects: [{
       id: 'incident:test',
       kind: 'incident',
+      sourceId: 'test-source',
       cell: { x: 1, y: 1, z: 0 },
       plane: 'alert',
       knowledge: { state: 'current' },
+      intensityBand: 'high',
+      damageTags: ['toxic', 'corrosive', 'toxic'],
+      timing: { startAt: 40, activeAt: 41, endAt: 50 },
+      uncertaintyRadius: 2,
+      stackCount: 3,
+      glyph: '!',
+      target: { kind: 'incident', id: 'test' },
+      relatedTargets: [{ kind: 'task', id: 'response' }],
     }],
     selection: { target: { kind: 'container', id: 'jar-1' } },
   });
@@ -284,15 +298,31 @@ test('scene model deduplicates entities while retaining footprint and interactio
     selected: true,
     orientation: { quarterTurns: 0, mirrored: false },
     visual: { layer: 'wallMounted' },
+    statusCues: [
+      { id: 'breached', severity: 'critical', label: 'Breached', glyph: '!' },
+      { id: 'damaged', severity: 'warning', label: 'Damaged', glyph: '!' },
+    ],
     footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
   });
-  expect(scene.effects[0].plane).toBe('alert');
+  expect(scene.effects[0]).toMatchObject({
+    plane: 'alert',
+    sourceId: 'test-source',
+    intensityBand: 'high',
+    damageTags: ['toxic', 'corrosive'],
+    timing: { startAt: 40, activeAt: 41, endAt: 50 },
+    uncertaintyRadius: 2,
+    stackCount: 3,
+    glyph: '!',
+  });
+  expect(scene.cells[0].effectIds).toEqual(['incident:test']);
   expect(scene.cells.every((cell) => cell.entityIds.includes('container:jar-1'))).toBe(true);
   expect(scene.interactionIndex[0].targets).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: 'container', id: 'jar-1' }),
     expect.objectContaining({ kind: 'slime', id: 'slime-1' }),
     expect.objectContaining({ kind: 'room', roomId: 'mainLab' }),
     expect.objectContaining({ kind: 'tile', tile: { x: 1, y: 1, z: 0 } }),
+    expect.objectContaining({ kind: 'incident', id: 'test' }),
+    expect.objectContaining({ kind: 'task', id: 'response' }),
   ]));
   expect(VisualState.sceneCellAt(scene, { x: 1, y: 1, z: 0 })).toBe(scene.cells[0]);
   expect(VisualState.interactionAtCell(scene, { x: 1, y: 1, z: 0 })).toBe(scene.interactionIndex[0]);
@@ -346,7 +376,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(7);
+  expect(result.version).toBe(8);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);

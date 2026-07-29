@@ -17,9 +17,12 @@
 
   if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
   if (!AnimationClock) throw new Error("Map visual state requires the animation-clock contract.");
-  const SCENE_VERSION = 7;
+  const SCENE_VERSION = 8;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
   const KNOWLEDGE_TIERS = Object.freeze(["current", "recent", "aged", "archived", "unknown"]);
+  const EFFECT_PLANES = Object.freeze(["ground", "world", "alert"]);
+  const EFFECT_INTENSITY_BANDS = Object.freeze(["trace", "low", "medium", "high", "extreme"]);
+  const STATUS_SEVERITIES = Object.freeze(["routine", "advisory", "warning", "serious", "critical"]);
 
   function cleanCell(candidate) {
     if (!candidate || !Number.isFinite(Number(candidate.x)) || !Number.isFinite(Number(candidate.y))) return null;
@@ -182,6 +185,13 @@
         .map(String)
         .filter((cue) => ActorVisualState.CONDITION_CUES.includes(cue));
     }
+    const statusCues = (candidate?.statusCues || [])
+      .map((cue, cueIndex) => cleanStatusCue(cue, cueIndex))
+      .filter(Boolean)
+      .sort((left, right) =>
+        STATUS_SEVERITIES.indexOf(right.severity) - STATUS_SEVERITIES.indexOf(left.severity)
+        || left.id.localeCompare(right.id))
+      .slice(0, 2);
     return {
       id,
       kind,
@@ -198,6 +208,7 @@
       motion: AnimationClock.normalizeMotion(candidate?.motion),
       action: AnimationClock.normalizeAction(candidate?.action),
       condition,
+      statusCues,
       knowledge,
       visual: {
         key: String(candidate?.visual?.key || "object.unknown"),
@@ -216,6 +227,20 @@
       },
       relatedTargets: (candidate?.relatedTargets || []).map(cleanTarget).filter(Boolean),
       selected: false
+    };
+  }
+
+  function cleanStatusCue(candidate, index = 0) {
+    if (!candidate) return null;
+    const raw = typeof candidate === "string" ? { id: candidate, label: candidate } : candidate;
+    const id = String(raw.id || `status-${index + 1}`).trim();
+    if (!id) return null;
+    const requestedSeverity = String(raw.severity || "advisory").toLowerCase();
+    return {
+      id,
+      severity: STATUS_SEVERITIES.includes(requestedSeverity) ? requestedSeverity : "advisory",
+      label: String(raw.label || id),
+      glyph: String(raw.glyph || "!").slice(0, 2)
     };
   }
 
@@ -277,16 +302,35 @@
   function normalizeEffect(candidate, index = 0) {
     const cells = uniqueCells(candidate?.cells || [candidate?.cell]);
     if (!cells.length) return null;
+    const requestedIntensity = String(candidate?.intensityBand || candidate?.intensity || "medium").toLowerCase();
+    const startAt = Number(candidate?.timing?.startAt ?? candidate?.startAt);
+    const activeAt = Number(candidate?.timing?.activeAt ?? candidate?.activeAt);
+    const endAt = Number(candidate?.timing?.endAt ?? candidate?.endAt);
+    const timing = Number.isFinite(startAt) || Number.isFinite(activeAt) || Number.isFinite(endAt)
+      ? {
+          startAt: Number.isFinite(startAt) ? startAt : null,
+          activeAt: Number.isFinite(activeAt) ? activeAt : Number.isFinite(startAt) ? startAt : null,
+          endAt: Number.isFinite(endAt) ? endAt : null
+        }
+      : null;
     return {
       id: String(candidate?.id || `effect-${index + 1}`),
       kind: String(candidate?.kind || "effect"),
+      sourceId: String(candidate?.sourceId || ""),
       cells,
       knowledge: cleanKnowledge(candidate?.knowledge),
       severity: String(candidate?.severity || ""),
       state: String(candidate?.state || ""),
-      plane: ["ground", "world", "alert"].includes(candidate?.plane) ? candidate.plane : "world",
+      plane: EFFECT_PLANES.includes(candidate?.plane) ? candidate.plane : "world",
+      intensityBand: EFFECT_INTENSITY_BANDS.includes(requestedIntensity) ? requestedIntensity : "medium",
+      damageTags: [...new Set((candidate?.damageTags || []).map(String).filter(Boolean))],
+      timing,
+      uncertaintyRadius: Math.max(0, Number(candidate?.uncertaintyRadius) || 0),
+      stackCount: Math.max(1, Math.floor(Number(candidate?.stackCount) || 1)),
+      glyph: String(candidate?.glyph || "").slice(0, 3),
       visualKey: String(candidate?.visualKey || "effect.unknown"),
       target: cleanTarget(candidate?.target),
+      relatedTargets: uniqueTargets(candidate?.relatedTargets),
       label: String(candidate?.label || "")
     };
   }
@@ -330,12 +374,32 @@
         entityIdsByCell.get(key).push(entity.id);
       }
     }
+    const effects = (options.effects || []).map(normalizeEffect).filter(Boolean)
+      .filter((effect) => effect.cells.some((cell) => cellInBounds(cell, queryBounds)));
+    const effectIdsByCell = new Map();
+    const effectTargetsByCell = new Map();
+    for (const effect of effects) {
+      for (const effectCell of effect.cells) {
+        const key = cellKey(effectCell);
+        if (!effectIdsByCell.has(key)) effectIdsByCell.set(key, []);
+        effectIdsByCell.get(key).push(effect.id);
+        const targets = uniqueTargets([effect.target, ...(effect.relatedTargets || [])]);
+        if (!targets.length) continue;
+        if (!effectTargetsByCell.has(key)) effectTargetsByCell.set(key, []);
+        effectTargetsByCell.get(key).push(...targets);
+      }
+    }
     const cells = [];
     const interactionIndex = [];
     for (const candidate of options.cells || []) {
       const cell = normalizeCellView(candidate);
       if (!cell) continue;
       cell.entityIds = [...(entityIdsByCell.get(cell.key) || [])];
+      cell.effectIds = [...(effectIdsByCell.get(cell.key) || [])];
+      cell.interaction.targets = uniqueTargets([
+        ...(cell.interaction.targets || []),
+        ...(effectTargetsByCell.get(cell.key) || [])
+      ]);
       cells.push(cell);
       if (cell.interaction.primaryTarget || cell.interaction.targets.length) {
         interactionIndex.push({
@@ -346,8 +410,6 @@
         });
       }
     }
-    const effects = (options.effects || []).map(normalizeEffect).filter(Boolean)
-      .filter((effect) => effect.cells.some((cell) => cellInBounds(cell, queryBounds)));
     const overlays = (options.overlays || []).map(normalizeOverlay).filter(Boolean)
       .filter((overlay) => overlay.cells.some((cell) => cellInBounds(cell, queryBounds)));
     const selectedEntity = uniqueEntities.find((entity) => entity.selected) || null;
@@ -405,6 +467,10 @@
       if (!KNOWLEDGE_STATES.includes(entity.knowledge?.state)) {
         errors.push(`Scene entity ${entity.id || "unknown"} has invalid knowledge.`);
       }
+      if ((entity.statusCues || []).length > 2
+        || (entity.statusCues || []).some((cue) => !STATUS_SEVERITIES.includes(cue.severity))) {
+        errors.push(`Scene entity ${entity.id || "unknown"} has invalid status cues.`);
+      }
       if (entity.category === "actor" || ["slime", "scientist", "creature"].includes(entity.kind)) {
         if (!ActorVisualState.FACING_DIRECTIONS.includes(entity.facing)) {
           errors.push(`Scene actor ${entity.id || "unknown"} has invalid facing.`);
@@ -435,6 +501,20 @@
         if (!ids.has(entityId)) errors.push(`Cell ${cell.key} references missing entity ${entityId}.`);
       }
     }
+    const effectIds = new Set();
+    for (const effect of scene?.effects || []) {
+      if (!effect.id) errors.push("Every scene effect requires an ID.");
+      else if (effectIds.has(effect.id)) errors.push(`Duplicate scene effect ID: ${effect.id}.`);
+      effectIds.add(effect.id);
+      if (!EFFECT_PLANES.includes(effect.plane)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid plane.`);
+      if (!EFFECT_INTENSITY_BANDS.includes(effect.intensityBand)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid intensity.`);
+      if (!KNOWLEDGE_STATES.includes(effect.knowledge?.state)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid knowledge.`);
+    }
+    for (const cell of scene?.cells || []) {
+      for (const effectId of cell.effectIds || []) {
+        if (!effectIds.has(effectId)) errors.push(`Cell ${cell.key} references missing effect ${effectId}.`);
+      }
+    }
     return errors;
   }
 
@@ -442,6 +522,9 @@
     SCENE_VERSION,
     KNOWLEDGE_STATES,
     KNOWLEDGE_TIERS,
+    EFFECT_PLANES,
+    EFFECT_INTENSITY_BANDS,
+    STATUS_SEVERITIES,
     cleanCell,
     cellKey,
     cleanTarget,
@@ -454,6 +537,8 @@
     cellInBounds,
     cellsWithinBounds,
     cleanEntity,
+    cleanStatusCue,
+    normalizeEffect,
     sceneCellAt,
     interactionAtCell,
     buildScene,

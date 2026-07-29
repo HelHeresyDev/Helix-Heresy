@@ -4766,7 +4766,10 @@
       mapViewSnapshot: () => buildLabMapView(),
       mapSceneSnapshot: () => buildLabMapView().scene,
       validateMapScene: () => MapVisualState.validateScene(buildLabMapView().scene),
-      mapDomSnapshot: () => buildLabMapView().cells.map(labMapCellDomModel),
+      mapDomSnapshot: () => {
+        const view = buildLabMapView();
+        return view.cells.map((cell) => labMapCellDomModel(cell, view.scene));
+      },
       mapKnowledgeSnapshot: () => ({
         observations: normalizeMapCellObservations(state.mapCellObservations),
         perceivedCellKeys: [...scientistPerceivedMapCellKeys(ensureLabMap())]
@@ -42821,6 +42824,57 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
+  function sceneStatusCue(id, severity, label, glyph = "!") {
+    return { id, severity, label, glyph };
+  }
+
+  function fixtureSceneStatusCues(fixture) {
+    const cues = [];
+    const condition = clamp(Number(fixture?.condition) || 0, 0, 100);
+    if (condition < STRUCTURE_BREACH_THRESHOLD) {
+      cues.push(sceneStatusCue("breached", "critical", "Breached", "!"));
+    } else if (condition < 50) {
+      cues.push(sceneStatusCue("damaged", "warning", "Damaged", "!"));
+    }
+    const utilityStatus = String(fixture?.utility?.status || "");
+    const statusCue = {
+      unpowered: sceneStatusCue("unpowered", "warning", "Unpowered", "×"),
+      blocked: sceneStatusCue("blocked", "serious", "Blocked", "×"),
+      saturated: sceneStatusCue("saturated", "warning", "Saturated", "~"),
+      full: sceneStatusCue("full", "warning", "Full", "■"),
+      impaired: sceneStatusCue("impaired", "warning", "Impaired", "!")
+    }[utilityStatus];
+    if (statusCue) cues.push(statusCue);
+    return cues;
+  }
+
+  function containerSceneStatusCues(container) {
+    const cues = [];
+    if (container?.breachState === "breached") {
+      cues.push(sceneStatusCue("containment-breached", "critical", "Containment breached", "!"));
+    } else if (container?.breachState === "compromised") {
+      cues.push(sceneStatusCue("containment-compromised", "serious", "Containment compromised", "!"));
+    }
+    const condition = clamp(Number(container?.condition) || 0, 0, 100);
+    if (condition < STRUCTURE_BREACH_THRESHOLD) {
+      cues.push(sceneStatusCue("damaged", "critical", "Critically damaged", "!"));
+    } else if (condition < 50) {
+      cues.push(sceneStatusCue("damaged", "warning", "Damaged", "!"));
+    }
+    return cues;
+  }
+
+  function doorSceneStatusCues(door) {
+    const cues = [];
+    const condition = doorCondition(door);
+    if (doorIsBreached(door)) {
+      cues.push(sceneStatusCue("breached", "critical", "Breached", "!"));
+    } else if (condition < 50) {
+      cues.push(sceneStatusCue("damaged", "warning", "Damaged", "!"));
+    }
+    return cues;
+  }
+
   function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
     const targetKey = selectionKey(target);
     const anchorFallback = footprintCells[0] || null;
@@ -42843,6 +42897,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pose: "installed",
         activity: current ? { id: fixture.operationalState, label: titleCase(fixture.operationalState) } : null,
         condition: current ? { ratio: clamp(fixture.condition / 100, 0, 1), band: structureConditionBand(fixture.condition).toLowerCase() } : null,
+        statusCues: current ? fixtureSceneStatusCues(fixture) : [],
         knowledge,
         visual: {
           key: `fixture.${def.id}`,
@@ -42870,6 +42925,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pose: "installed",
         activity: current ? { id: container.accessState || "closed", label: containerAccessLabel(container) } : null,
         condition: current ? { ratio: clamp(container.condition / 100, 0, 1), band: containerConditionLabel(container).toLowerCase() } : null,
+        statusCues: current ? containerSceneStatusCues(container) : [],
         knowledge,
         visual: { key: `container.${container.typeId}`, glyph: "C", recipeKey: `container:${container.typeId}` },
         blocking: true
@@ -42890,6 +42946,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pose: stack.form,
         activity: null,
         condition: null,
+        statusCues: [],
         knowledge,
         visual: {
           key: stack.form === "spill" ? "item.spill" : stack.form === "receptacle" ? "item.receptacle" : "item.stack",
@@ -42983,6 +43040,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pose: "prone",
         activity: null,
         condition: current ? { ratio: clamp(corpse.remainingMassRatio ?? 1, 0, 1), band: corpseStateLabel(corpse).toLowerCase() } : null,
+        statusCues: [],
         knowledge,
         visual: { key: knowledge.state === "stale" ? "corpse.remains.stale" : "corpse.remains", glyph: "R", recipeKey: `corpse:${corpse.sourceSlimeId || corpse.id}` },
         blocking: false
@@ -43101,6 +43159,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         band: scientistHealthRatio <= 0 ? "dead" : scientistHealthRatio <= 0.25 ? "critical" : scientistHealthRatio <= 0.5 ? "injured" : "healthy",
         cues: scientistActorState.conditionCues
       },
+      statusCues: [],
       knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "self" },
       visual: { ...scientistSpriteVisual, glyph: "S", recipeKey: `scientist:self:${scientistActorState.pose}:${scientistActorState.facing}` },
       blocking: false
@@ -43125,6 +43184,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         pose: current ? doorMapClassName(stateDoor).replace(/^door-/, "") : "remembered",
         activity: null,
         condition: current ? { ratio: clamp(doorCondition(stateDoor) / 100, 0, 1), band: doorConditionLabel(stateDoor).toLowerCase() } : null,
+        statusCues: current ? doorSceneStatusCues(stateDoor) : [],
         knowledge,
         visual: { key: current ? `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}` : "door.remembered", glyph: current ? doorMapGlyph(stateDoor) : "d", recipeKey: `door:${stateDoor.typeId || "door"}:${door.frameAxis}` },
         blocking: current ? stateDoor.state !== DOOR_STATE_OPEN : true
@@ -48507,7 +48567,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function labMapCellDomModel(cellView) {
+  function labMapCellDomModel(cellView, scene = null) {
     const knowledgeState = MapVisualState.KNOWLEDGE_STATES.includes(cellView.knowledge?.state)
       ? cellView.knowledge.state
       : cellView.known === false ? "unknown" : "current";
@@ -48518,6 +48578,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mapZ: String(cellView.cell.z),
       mapKnowledge: knowledgeState
     };
+    const effects = (cellView.effectIds || [])
+      .map((effectId) => scene?.effects?.find((effect) => effect.id === effectId))
+      .filter(Boolean);
+    const statusCues = (cellView.entityIds || [])
+      .flatMap((entityId) => {
+        const entity = scene?.entities?.find((candidate) => candidate.id === entityId);
+        return entity && mapCellKey(entity.anchorCell) === cellView.key ? entity.statusCues || [] : [];
+      })
+      .sort((left, right) =>
+        MapVisualState.STATUS_SEVERITIES.indexOf(right.severity) - MapVisualState.STATUS_SEVERITIES.indexOf(left.severity)
+        || left.id.localeCompare(right.id))
+      .slice(0, 2);
+    if (effects.length) {
+      classNames.push("map-effect-cell");
+      dataset.mapEffectKinds = [...new Set(effects.map((effect) => effect.kind))].join(" ");
+      dataset.mapEffectCount = String(effects.reduce((total, effect) => total + effect.stackCount, 0));
+      for (const effect of effects) {
+        classNames.push(
+          `map-effect-${overlayClassPart(effect.plane)}`,
+          `map-effect-${overlayClassPart(effect.kind)}`,
+          `map-effect-severity-${overlayClassPart(effect.severity || "routine")}`,
+          `map-effect-state-${overlayClassPart(effect.state || "active")}`
+        );
+        if (effect.knowledge?.state === "uncertain") classNames.push("map-effect-uncertain");
+        if (effect.knowledge?.state === "stale") classNames.push("map-effect-stale");
+      }
+    }
+    if (statusCues.length) {
+      classNames.push("map-status-cell");
+      dataset.mapStatusCues = statusCues.map((cue) => cue.id).join(" ");
+      dataset.mapStatusCount = String(statusCues.length);
+      for (const cue of statusCues) {
+        classNames.push(`map-status-${overlayClassPart(cue.id)}`, `map-status-severity-${overlayClassPart(cue.severity)}`);
+      }
+    }
     if (cellView.knowledge?.tier) classNames.push(`knowledge-tier-${cellView.knowledge.tier}`);
     if (["current", "debug"].includes(knowledgeState) && cellView.lighting?.band) {
       classNames.push(`lighting-${overlayClassPart(cellView.lighting.band)}`);
@@ -48644,8 +48739,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return {
       classNames,
       dataset,
-      title: cellView.tooltip.text,
+      title: [
+        cellView.tooltip.text,
+        ...effects.map((effect) => effect.label),
+        ...statusCues.map((cue) => cue.label)
+      ].filter(Boolean).join("\n"),
       text: cellView.visual.glyph,
+      effectMarkers: effects
+        .filter((effect) => !["incident", "combatIncident"].includes(effect.kind))
+        .map((effect) => ({
+          kind: effect.kind,
+          plane: effect.plane,
+          severity: effect.severity,
+          state: effect.state,
+          glyph: effect.glyph || (effect.plane === "ground" ? "~" : effect.plane === "alert" ? "!" : "*"),
+          stackCount: effect.stackCount,
+          label: effect.label
+        })),
+      statusMarkers: statusCues.map((cue) => ({ ...cue })),
       clickTarget: cellView.target
     };
   }
@@ -48738,39 +48849,214 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function mapSceneEffectSeeds(visibleIncidents) {
+  function mapEffectIntensityBand(amount) {
+    const value = Math.max(0, Number(amount) || 0);
+    if (value <= 0.5) return "trace";
+    if (value <= 1) return "low";
+    if (value <= 3) return "medium";
+    if (value <= 8) return "high";
+    return "extreme";
+  }
+
+  function spillEffectDamageTags(stack) {
+    const tags = new Set();
+    for (const tag of normalizeResidueTags(stack?.tags)) {
+      const damageId = normalizeDamageTypeId(tag);
+      if (DAMAGE_TYPE_BY_ID[damageId]) tags.add(damageId);
+    }
+    if (spillIsHazardous(stack) && !tags.size) tags.add("toxic");
+    return [...tags];
+  }
+
+  function mapSceneSpillEffectSeeds(map, options = {}) {
     const effects = [];
-    const seen = new Set();
-    for (const entry of visibleIncidents.values()) {
-      for (const incident of entry.alerts || []) {
-        if (seen.has(incident.id)) continue;
-        seen.add(incident.id);
-        const cell = incidentCell(incident.roomId, incident.cell);
-        if (!cell) continue;
-        const uncertain = incident.perceptionPrecision && incident.perceptionPrecision !== "exact";
-        effects.push({
-          id: `incident:${incident.id}`,
-          kind: incident.type === "combat" ? "combatIncident" : "incident",
-          cells: [cell],
-          knowledge: {
-            state: uncertain ? "uncertain" : incident.status === "stale" ? "stale" : "current",
-            observedAt: incident.updatedAt ?? incident.createdAt ?? state.clock,
-            confidence: uncertain
-              ? 1 / (1 + Math.max(1, Number(incident.uncertaintyRadius) || 1))
-              : incident.status === "stale" ? 0.6 : 1,
-            source: uncertain ? incident.perceptionChannel || "uncertain detection" : "incident record"
-          },
-          uncertaintyRadius: uncertain ? Math.max(1, Number(incident.uncertaintyRadius) || 1) : 0,
-          severity: incident.severity,
-          state: incident.status,
-          plane: "alert",
-          visualKey: `effect.incident.${incident.type}.${incident.severity}`,
-          target: { kind: "incident", id: incident.id },
-          label: incident.label
-        });
-      }
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (stack.form !== "spill" || !stack.cell || stack.containerId || stack.fixtureId || stack.carriedBy
+        || stack.quantity <= TILE_ENVIRONMENT_EPSILON) continue;
+      const knowledge = mapSceneKnowledgeForRoom(stack.roomId, { ...options, map, cell: stack.cell });
+      if (!["current", "debug"].includes(knowledge.state)) continue;
+      const hazardous = spillIsHazardous(stack);
+      effects.push({
+        id: `spill:${stack.id}`,
+        kind: hazardous ? "hazardousSpill" : "spill",
+        sourceId: stack.id,
+        cells: [stack.cell],
+        knowledge,
+        severity: hazardous ? "serious" : "routine",
+        state: "persistent",
+        plane: "ground",
+        intensityBand: mapEffectIntensityBand(stack.quantity),
+        damageTags: spillEffectDamageTags(stack),
+        glyph: "~",
+        visualKey: hazardous ? "effect.spill.hazardous" : "effect.spill.residue",
+        label: `${physicalStackLabel(stack)} spill`
+      });
     }
     return effects;
+  }
+
+  function mapSceneStructuralEffectSeeds(map, options = {}) {
+    const effects = [];
+    for (const failure of map.terrain?.structuralFailures || []) {
+      const knowledge = mapSceneKnowledgeForRoom(labMapCellRoomId(failure.cell, map), {
+        ...options,
+        map,
+        cell: failure.cell
+      });
+      if (!["current", "debug"].includes(knowledge.state)) continue;
+      const severity = failure.status === "collapsing" ? "critical"
+        : failure.status === "failing" ? "serious"
+          : "warning";
+      effects.push({
+        id: `structural-failure:${failure.key}`,
+        kind: "structuralFailure",
+        sourceId: failure.key,
+        cells: [failure.cell],
+        knowledge,
+        severity,
+        state: failure.status,
+        plane: "world",
+        intensityBand: failure.status === "collapsing" ? "extreme" : failure.status === "failing" ? "high" : "medium",
+        damageTags: ["physical"],
+        timing: { startAt: failure.detectedAt, activeAt: failure.detectedAt, endAt: failure.collapseAt },
+        glyph: "^",
+        visualKey: `effect.structure.${failure.status}`,
+        label: `${titleCase(failure.kind.replace(/([A-Z])/g, " $1"))} ${failure.status}`
+      });
+    }
+    return effects;
+  }
+
+  function mapScenePendingActionEffectSeeds() {
+    const pending = state.combat?.pendingActions?.scientist;
+    const action = combatActionDef(pending?.actionId);
+    const cell = scientistMapCell();
+    if (!pending || !action || !cell) return [];
+    const damageTags = (action.damageTypes || []).map((entry) => normalizeDamageTypeId(entry)).filter((entry) => DAMAGE_TYPE_BY_ID[entry]);
+    const kind = damageTags.includes("electrical") ? "electricity"
+      : damageTags.includes("heat") ? "fire"
+        : damageTags.some((tag) => ["arcane", "radiant", "shadow", "force"].includes(tag)) ? "magic"
+          : "combatAction";
+    return [{
+      id: `action:scientist:${pending.actionId}`,
+      kind,
+      sourceId: "scientist",
+      cells: [cell],
+      knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "self" },
+      severity: "advisory",
+      state: state.clock < pending.releaseAt ? "charging" : "active",
+      plane: "world",
+      intensityBand: "high",
+      damageTags,
+      timing: { startAt: pending.startedAt, activeAt: pending.releaseAt, endAt: pending.channelEndsAt },
+      glyph: "*",
+      visualKey: `effect.${kind}.active`,
+      label: `${action.label} ${state.clock < pending.releaseAt ? "charging" : "active"}`
+    }];
+  }
+
+  function mapSceneTaskEffectSeeds() {
+    const queue = scientistQueueTasks();
+    const selected = currentSelection();
+    const nextTask = queue[0] || null;
+    const candidates = queue.flatMap((task) => {
+      const status = taskStatusInfo(task);
+      const selectedTask = selected?.kind === "task" && selected.id === task.id;
+      const urgent = Boolean(task.data?.combatPriority);
+      if (!selectedTask && task.id !== nextTask?.id && status.id !== "blocked" && !urgent) return [];
+      const cell = taskTargetCell(task);
+      if (!cell) return [];
+      return [{
+        task,
+        cell,
+        status,
+        selected: selectedTask,
+        urgent,
+        priority: urgent ? 5 : status.id === "blocked" ? 4 : selectedTask ? 3 : status.id === "active" ? 2 : 1
+      }];
+    });
+    const byCell = new Map();
+    for (const entry of candidates) {
+      const key = mapCellKey(entry.cell);
+      if (!byCell.has(key)) byCell.set(key, []);
+      byCell.get(key).push(entry);
+    }
+    return [...byCell.entries()].map(([key, entries]) => {
+      entries.sort((left, right) => right.priority - left.priority || left.task.createdAt - right.task.createdAt || left.task.id.localeCompare(right.task.id));
+      const primary = entries[0];
+      const severity = primary.urgent ? "serious" : primary.status.id === "blocked" ? "warning" : "advisory";
+      return {
+        id: `task-marker:${key}`,
+        kind: "taskMarker",
+        sourceId: primary.task.id,
+        cells: [primary.cell],
+        knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "player task" },
+        severity,
+        state: primary.urgent ? "urgent" : primary.status.id,
+        plane: "alert",
+        intensityBand: primary.urgent || primary.status.id === "blocked" ? "high" : "medium",
+        stackCount: entries.length,
+        glyph: primary.urgent ? "!" : primary.status.id === "blocked" ? "×" : "T",
+        visualKey: `effect.task.${primary.urgent ? "urgent" : primary.status.id}`,
+        target: { kind: "task", id: primary.task.id },
+        relatedTargets: entries.slice(1).map((entry) => ({ kind: "task", id: entry.task.id })),
+        label: entries.length > 1 ? `${primary.task.label} and ${entries.length - 1} more task${entries.length === 2 ? "" : "s"}` : primary.task.label
+      };
+    });
+  }
+
+  function mapSceneIncidentEffectSeeds(visibleIncidents) {
+    const effects = [];
+    for (const entry of visibleIncidents.values()) {
+      const incidents = [...(entry.alerts || [])]
+        .sort((left, right) => incidentSeverityRank(right.severity) - incidentSeverityRank(left.severity)
+          || finiteTime(left.createdAt, 0) - finiteTime(right.createdAt, 0)
+          || left.id.localeCompare(right.id));
+      const incident = incidents[0];
+      if (!incident) continue;
+      const cell = incidentCell(incident.roomId, incident.cell);
+      if (!cell) continue;
+      const uncertain = incidents.some((candidate) => candidate.perceptionPrecision && candidate.perceptionPrecision !== "exact");
+      const stale = incidents.every((candidate) => candidate.status === "stale");
+      const uncertaintyRadius = uncertain
+        ? Math.max(1, ...incidents.map((candidate) => Number(candidate.uncertaintyRadius) || 0))
+        : 0;
+      effects.push({
+        id: `incident-stack:${mapCellKey(cell)}`,
+        kind: incident.type === "combat" ? "combatIncident" : "incident",
+        sourceId: incident.sourceId,
+        cells: [cell],
+        knowledge: {
+          state: uncertain ? "uncertain" : stale ? "stale" : "current",
+          observedAt: Math.max(...incidents.map((candidate) => finiteTime(candidate.updatedAt ?? candidate.createdAt, state.clock))),
+          confidence: uncertain ? 1 / (1 + uncertaintyRadius) : stale ? 0.6 : 1,
+          source: uncertain ? incident.perceptionChannel || "uncertain detection" : "incident record"
+        },
+        uncertaintyRadius,
+        stackCount: incidents.length,
+        severity: incident.severity,
+        state: stale ? "stale" : incident.status,
+        plane: "alert",
+        intensityBand: ["serious", "critical"].includes(incident.severity) ? "high" : "medium",
+        glyph: incident.type === "combat" ? "!" : "A",
+        visualKey: `effect.incident.${incident.type}.${incident.severity}`,
+        target: { kind: "incident", id: incident.id },
+        relatedTargets: incidents.slice(1).map((candidate) => ({ kind: "incident", id: candidate.id })),
+        label: incidents.length > 1 ? `${incident.label} and ${incidents.length - 1} more alert${incidents.length === 2 ? "" : "s"}` : incident.label
+      });
+    }
+    return effects;
+  }
+
+  function mapSceneEffectSeeds(visibleIncidents, options = {}) {
+    const map = options.map || ensureLabMap();
+    return [
+      ...mapSceneSpillEffectSeeds(map, options),
+      ...mapSceneStructuralEffectSeeds(map, options),
+      ...mapScenePendingActionEffectSeeds(),
+      ...mapSceneTaskEffectSeeds(),
+      ...mapSceneIncidentEffectSeeds(visibleIncidents)
+    ];
   }
 
   function mapSceneOverlaySeeds(overlayAssignments) {
@@ -48921,7 +49207,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         debug: fullReveal,
         perceivedCellKeys
       }),
-      effects: mapSceneEffectSeeds(visibleIncidents),
+      effects: mapSceneEffectSeeds(visibleIncidents, {
+        map,
+        debug: fullReveal,
+        perceivedCellKeys
+      }),
       overlays: mapSceneOverlaySeeds(knowledgeFilteredOverlays),
       selection: { target: selectedTarget }
     });
@@ -49591,13 +49881,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handleMapWheelZoom(event, mapView);
     }, { passive: false });
     for (const cellView of mapView.cells) {
-      const domCell = labMapCellDomModel(cellView);
+      const domCell = labMapCellDomModel(cellView, mapView.scene);
       const tile = document.createElement("div");
       tile.className = domCell.classNames.join(" ");
       tile.title = domCell.title;
-      tile.textContent = domCell.text;
+      const cellGlyph = document.createElement("span");
+      cellGlyph.className = "map-cell-glyph";
+      cellGlyph.textContent = domCell.text;
+      tile.append(cellGlyph);
       for (const [key, value] of Object.entries(domCell.dataset)) {
         tile.dataset[key] = value;
+      }
+      for (const marker of domCell.effectMarkers) {
+        const effectMarker = document.createElement("span");
+        effectMarker.className = [
+          "map-cell-effect-marker",
+          `map-cell-effect-${overlayClassPart(marker.plane)}`,
+          `map-cell-effect-${overlayClassPart(marker.kind)}`,
+          `map-cell-effect-severity-${overlayClassPart(marker.severity || "routine")}`
+        ].join(" ");
+        effectMarker.textContent = marker.stackCount > 1 ? `${marker.glyph}${marker.stackCount}` : marker.glyph;
+        effectMarker.title = marker.label;
+        effectMarker.setAttribute("aria-hidden", "true");
+        tile.append(effectMarker);
+      }
+      for (const [markerIndex, marker] of domCell.statusMarkers.entries()) {
+        const statusMarker = document.createElement("span");
+        statusMarker.className = `map-cell-status-marker map-cell-status-${overlayClassPart(marker.severity)}`;
+        statusMarker.textContent = marker.glyph;
+        statusMarker.title = marker.label;
+        statusMarker.dataset.statusIndex = String(markerIndex);
+        statusMarker.setAttribute("aria-hidden", "true");
+        tile.append(statusMarker);
       }
       tile.addEventListener("click", () => {
         if (suppressNextMapClick) {
