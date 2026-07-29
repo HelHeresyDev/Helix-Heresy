@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 4;
+  const RENDERER_VERSION = 5;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -641,6 +641,155 @@
     return true;
   }
 
+  function drawEntityStatusCues(ctx, entity, position, tilePx, alpha = 1) {
+    const cues = (entity?.statusCues || []).slice(0, 2);
+    if (!cues.length) return false;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.23))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    cues.forEach((cue, index) => {
+      const radius = Math.max(3, tilePx * 0.16);
+      const x = position.x + tilePx - radius - index * radius * 1.65;
+      const y = position.y + tilePx - radius;
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(18, 19, 15, 0.94)";
+      ctx.strokeStyle = ["serious", "critical"].includes(cue.severity) ? "#ff8b73" : "#e1b75f";
+      ctx.lineWidth = Math.max(1, tilePx * 0.045);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillText(cue.glyph || "!", x, y + tilePx * 0.015, radius * 1.5);
+    });
+    ctx.restore();
+    return true;
+  }
+
+  function effectColor(effect) {
+    const damageTags = new Set(effect?.damageTags || []);
+    if (effect?.kind === "fire" || damageTags.has("heat")) return "#ff9c56";
+    if (effect?.kind === "electricity" || damageTags.has("electrical")) return "#9ed8ff";
+    if (effect?.kind === "magic" || [...damageTags].some((tag) => ["arcane", "radiant", "shadow", "force"].includes(tag))) return "#cbb0ff";
+    if (effect?.kind === "hazardousSpill" || ["serious", "critical"].includes(effect?.severity)) return "#ff8b73";
+    if (effect?.plane === "ground") return "#9fbd96";
+    return "#e1b75f";
+  }
+
+  function effectAlpha(effect) {
+    const knowledgeAlpha = effect?.knowledge?.state === "stale" ? 0.52
+      : effect?.knowledge?.state === "uncertain" ? 0.68
+        : 1;
+    const intensityAlpha = {
+      trace: 0.4,
+      low: 0.52,
+      medium: 0.68,
+      high: 0.84,
+      extreme: 1
+    }[effect?.intensityBand] || 0.68;
+    return knowledgeAlpha * intensityAlpha;
+  }
+
+  function drawGroundEffect(ctx, effect, position, tilePx, color) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, tilePx * 0.05);
+    ctx.beginPath();
+    ctx.ellipse(
+      position.x + tilePx * 0.5,
+      position.y + tilePx * 0.72,
+      tilePx * 0.38,
+      tilePx * 0.2,
+      -0.08,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+    if (effect.kind === "hazardousSpill") {
+      ctx.beginPath();
+      ctx.moveTo(position.x + tilePx * 0.24, position.y + tilePx * 0.58);
+      ctx.lineTo(position.x + tilePx * 0.72, position.y + tilePx * 0.82);
+      ctx.moveTo(position.x + tilePx * 0.32, position.y + tilePx * 0.82);
+      ctx.lineTo(position.x + tilePx * 0.68, position.y + tilePx * 0.58);
+      ctx.stroke();
+    }
+  }
+
+  function drawWorldEffect(ctx, effect, position, tilePx, color) {
+    const centerX = position.x + tilePx * 0.5;
+    const centerY = position.y + tilePx * 0.48;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Math.max(1.25, tilePx * 0.07);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (effect.kind === "electricity") {
+      ctx.beginPath();
+      ctx.moveTo(centerX - tilePx * 0.18, centerY - tilePx * 0.34);
+      ctx.lineTo(centerX + tilePx * 0.04, centerY - tilePx * 0.08);
+      ctx.lineTo(centerX - tilePx * 0.02, centerY + tilePx * 0.02);
+      ctx.lineTo(centerX + tilePx * 0.2, centerY + tilePx * 0.34);
+      ctx.stroke();
+      return;
+    }
+    if (effect.kind === "fire") {
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - tilePx * 0.34);
+      ctx.quadraticCurveTo(centerX + tilePx * 0.28, centerY, centerX, centerY + tilePx * 0.34);
+      ctx.quadraticCurveTo(centerX - tilePx * 0.28, centerY, centerX, centerY - tilePx * 0.34);
+      ctx.fill();
+      return;
+    }
+    if (effect.kind === "magic") {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, tilePx * 0.28, 0, Math.PI * 2);
+      ctx.stroke();
+      drawGlyph(ctx, effect.glyph || "*", position.x, position.y, tilePx, color);
+      return;
+    }
+    if (effect.kind === "structuralFailure") {
+      ctx.beginPath();
+      ctx.moveTo(centerX - tilePx * 0.32, centerY - tilePx * 0.25);
+      ctx.lineTo(centerX - tilePx * 0.06, centerY - tilePx * 0.02);
+      ctx.lineTo(centerX - tilePx * 0.22, centerY + tilePx * 0.3);
+      ctx.moveTo(centerX + tilePx * 0.24, centerY - tilePx * 0.3);
+      ctx.lineTo(centerX + tilePx * 0.04, centerY);
+      ctx.lineTo(centerX + tilePx * 0.3, centerY + tilePx * 0.25);
+      ctx.stroke();
+      return;
+    }
+    drawGlyph(ctx, effect.glyph || "*", position.x, position.y, tilePx, color);
+  }
+
+  function drawAlertEffect(ctx, effect, position, tilePx, color) {
+    const centerX = position.x + tilePx * 0.5;
+    const centerY = position.y + tilePx * 0.5;
+    if (effect.uncertaintyRadius > 0) {
+      ctx.save();
+      ctx.setLineDash([Math.max(2, tilePx * 0.22), Math.max(1, tilePx * 0.14)]);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, tilePx * 0.055);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, (effect.uncertaintyRadius + 0.5) * tilePx, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    const radius = tilePx * 0.34;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = "rgba(25, 18, 14, 0.82)";
+    ctx.lineWidth = Math.max(1.5, tilePx * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - radius);
+    ctx.lineTo(centerX + radius, centerY);
+    ctx.lineTo(centerX, centerY + radius);
+    ctx.lineTo(centerX - radius, centerY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    drawGlyph(ctx, effect.glyph || "!", position.x, position.y, tilePx, color);
+  }
+
   function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, assetLoader) {
     let cellsDrawn = 0;
     let spritesDrawn = 0;
@@ -658,14 +807,36 @@
         spriteFallbacks += 1;
       }
       ctx.save();
-      ctx.strokeStyle = effect.severity === "critical" || effect.severity === "serious" ? "#ff8b73" : "#e1b75f";
-      ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
-      if (effect.knowledge?.state === "stale") {
+      const color = effectColor(effect);
+      ctx.globalAlpha = effectAlpha(effect);
+      if (["stale", "uncertain"].includes(effect.knowledge?.state)) {
         ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
       }
-      ctx.strokeRect(position.x + 2, position.y + 2, Math.max(0, tilePx - 4), Math.max(0, tilePx - 4));
+      if (!sprite) {
+        if (effect.plane === "ground") drawGroundEffect(ctx, effect, position, tilePx, color);
+        else if (effect.plane === "alert") drawAlertEffect(ctx, effect, position, tilePx, color);
+        else drawWorldEffect(ctx, effect, position, tilePx, color);
+      } else if (effect.plane === "alert" && effect.uncertaintyRadius > 0) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, tilePx * 0.055);
+        ctx.beginPath();
+        ctx.arc(
+          position.x + tilePx * 0.5,
+          position.y + tilePx * 0.5,
+          (effect.uncertaintyRadius + 0.5) * tilePx,
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+      }
+      if (effect.stackCount > 1) {
+        ctx.fillStyle = color;
+        ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.24))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+        ctx.textAlign = "right";
+        ctx.textBaseline = "top";
+        ctx.fillText(String(effect.stackCount), position.x + tilePx * 0.94, position.y + tilePx * 0.04, tilePx * 0.4);
+      }
       ctx.restore();
-      if (!sprite) drawGlyph(ctx, "A", position.x, position.y, tilePx, "#ffd0c6");
     }
     return { cellsDrawn, spritesDrawn, spriteFallbacks };
   }
@@ -810,6 +981,13 @@
           );
         }
         drawActorStateCues(
+          ctx,
+          entity,
+          position,
+          tilePx,
+          cleanNumber(style.alpha, 1) * alphaMultiplier
+        );
+        drawEntityStatusCues(
           ctx,
           entity,
           position,
@@ -1135,6 +1313,8 @@
     entityStyle,
     entityMotionSample,
     actorCueModel,
+    effectColor,
+    effectAlpha,
     orientedLogicalSize,
     spritePlacement,
     renderScene,

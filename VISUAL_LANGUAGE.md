@@ -286,10 +286,10 @@ Both the glyph renderer and future Canvas renderer consume the same transient, v
 - The scene covers the visible viewport plus a one-tile overscan margin.
 - Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, normalized quarter-turn physical orientation, vertical extent, and semantic visual keys.
 - Contained occupants, stations, and other selectable relationships belong in the interaction index unless they are independently visible physical entities.
-- Entity presentation fields carry semantic physical layer, four-way actor facing, canonical pose, activity family, motion, independent condition cues, and modular recipe keys without defining animation frames.
+- Entity presentation fields carry semantic physical layer, four-way actor facing, canonical pose, activity family, motion, independent actor condition cues, at most two severity-ranked equipment status cues, and modular recipe keys without defining animation frames.
 - Knowledge is explicit: `current`, `stale`, `uncertain`, `unknown`, or `debug`.
 - Environment records contain values only when the perspective is permitted to know them. Stale room observations carry only remembered values and bands.
-- Incidents and combat markers are effects. Management coloration and diagnostic readings are overlays.
+- Effects carry a stable source, ground/world/alert plane, affected cells, knowledge, severity, intensity band, optional damage tags and timing, uncertainty, stack count, semantic visual key, and optional interaction targets. Management coloration and diagnostic readings are overlays.
 - Selection identifies the semantic target and its complete selected footprint.
 - CSS classes, DOM datasets, Canvas objects, draw calls, image instances, and asset paths are not scene data.
 - The scene is never saved. Simulation state and observation memory remain authoritative.
@@ -333,6 +333,20 @@ The shared render-order policy is renderer-neutral and deterministic. The ascend
 - Overhead fixtures remain in their physical pass but become a restrained cutaway where they overlap the cursor or selected footprint.
 - Ground and world effects have separate semantic planes. Alerts render above fog only after knowledge filtering, so their ordering cannot reveal an unknown event.
 - Crowded-cell target order is derived from the same visible render keys. Independently visible targets precede contained or related records, and repeated Canvas clicks cycle through the known list.
+
+## Effects, Hazards, And Status Indicators
+
+Effects communicate discrete physical state and actionable information rather than decorating every continuous simulation value.
+
+- Ground effects include known physical spills and surface hazards. The physical stack remains the sole item target; its effect is a non-interactive decoration.
+- World effects include known structural failure and authoritative timed abilities. Fire, electricity, magic, and damage-tag styles exist as procedural or glyph fallbacks but appear only when simulation state actually supplies them.
+- Alert effects include current, stale, or uncertain incidents plus the selected/next, urgent, or blocked task endpoint. Player-authored task markers remain known; physical hazards still obey perception.
+- Multiple incidents or tasks on one cell collapse to one highest-priority marker with a count. Every related target remains in the scene interaction index.
+- Uncertain alerts use an area ring and reduced confidence instead of an exact-looking hidden location. Stale alerts are subdued and dashed.
+- Current fixtures, containers, and doors may carry at most two status cues ordered by criticality. Breach and serious blockage outrank power, capacity, impairment, and damage warnings. Routine switched-off state stays textual.
+- Actors retain their separate pose and condition-cue grammar. Status badges do not replace injury, stress, compression, movement, work, feeding, guarding, or combat poses.
+- Selection and cursor remain above every effect. Shape, glyph, pattern, and placement carry meaning alongside color so later accessibility modes can strengthen the same contract.
+- Static presentation is the default. A later authoritative timed effect may request restrained event-driven animation, but effects do not create a permanent frame loop.
 
 ## Rendering And Asset Boundaries
 

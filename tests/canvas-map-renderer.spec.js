@@ -118,6 +118,13 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     conditionMarks: ['!!', '='],
   });
   expect(CanvasRenderer.actorCueModel({ kind: 'fixture', category: 'fixture' })).toBeNull();
+  expect(CanvasRenderer.effectColor({ kind: 'fire', damageTags: ['heat'] })).toBe('#ff9c56');
+  expect(CanvasRenderer.effectColor({ kind: 'electricity', damageTags: ['electrical'] })).toBe('#9ed8ff');
+  expect(CanvasRenderer.effectColor({ kind: 'magic', damageTags: ['arcane'] })).toBe('#cbb0ff');
+  expect(CanvasRenderer.effectAlpha({
+    intensityBand: 'high',
+    knowledge: { state: 'uncertain' },
+  })).toBeCloseTo(0.5712);
   const movingActor = {
     id: 'moving-actor',
     kind: 'slime',
@@ -266,17 +273,46 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
         knowledge: { state: 'current' },
         target: { kind: 'fixture', id: 'ceiling-duct' },
         visual: { key: '', glyph: 'D', layer: 'overhead' },
+        statusCues: [{ id: 'unpowered', severity: 'warning', label: 'Unpowered', glyph: '×' }],
       },
     ],
-    effects: [{
-      id: 'known-alert',
-      plane: 'alert',
-      cells: [occupiedCell],
-      severity: 'serious',
-      knowledge: { state: 'current' },
-      visualKey: '',
-      target: { kind: 'incident', id: 'known-alert' },
-    }],
+    effects: [
+      {
+        id: 'known-alert',
+        plane: 'alert',
+        cells: [occupiedCell],
+        severity: 'serious',
+        intensityBand: 'high',
+        uncertaintyRadius: 2,
+        stackCount: 3,
+        glyph: '!',
+        knowledge: { state: 'uncertain' },
+        visualKey: '',
+        target: { kind: 'incident', id: 'known-alert' },
+      },
+      {
+        id: 'hazardous-spill',
+        kind: 'hazardousSpill',
+        plane: 'ground',
+        cells: [occupiedCell],
+        severity: 'serious',
+        intensityBand: 'medium',
+        damageTags: ['toxic'],
+        knowledge: { state: 'current' },
+        visualKey: '',
+      },
+      {
+        id: 'active-magic',
+        kind: 'magic',
+        plane: 'world',
+        cells: [occupiedCell],
+        severity: 'advisory',
+        intensityBand: 'high',
+        damageTags: ['arcane'],
+        knowledge: { state: 'current' },
+        visualKey: '',
+      },
+    ],
     selection: { entityId: 'tall-actor', cells: [occupiedCell] },
   };
   expect(RenderOrder.entityLayerMode(occlusionScene.entities[0], 1)).toBe('slice');
@@ -309,8 +345,10 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     renderPassCounts: {
       terrain: 1,
       path: 1,
+      ground: 1,
       actor: 1,
       overhead: 1,
+      effect: 1,
       alert: 1,
       selection: 1,
       cursor: 1,
@@ -357,7 +395,7 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(4);
+  expect(result.diagnostics.canvas.version).toBe(5);
   expect(result.diagnostics.canvas.renderPassCounts.terrain).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.fixture).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);
