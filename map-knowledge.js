@@ -12,6 +12,12 @@
   const RECENT_OBSERVATION_SECONDS = 15 * 60;
   const AGED_OBSERVATION_SECONDS = 2 * 60 * 60;
   const DEFAULT_VISION_RANGE_TILES = 12;
+  const LIGHT_VISIBILITY_BANDS = Object.freeze([
+    Object.freeze({ id: "dark", label: "Dark", min: 0, range: 1 }),
+    Object.freeze({ id: "dim", label: "Dim", min: 20, range: 4 }),
+    Object.freeze({ id: "lit", label: "Lit", min: 45, range: 8 }),
+    Object.freeze({ id: "bright", label: "Bright", min: 75, range: DEFAULT_VISION_RANGE_TILES })
+  ]);
 
   function finiteNumber(value, fallback = 0) {
     const number = Number(value);
@@ -32,6 +38,25 @@
   function cellKey(candidate) {
     const cell = cleanCell(candidate);
     return cell ? `${cell.x},${cell.y},${cell.z}` : "";
+  }
+
+  function lightVisibilityBand(value) {
+    const light = Math.max(0, Math.min(100, finiteNumber(value)));
+    for (let index = LIGHT_VISIBILITY_BANDS.length - 1; index >= 0; index -= 1) {
+      if (light >= LIGHT_VISIBILITY_BANDS[index].min) return LIGHT_VISIBILITY_BANDS[index];
+    }
+    return LIGHT_VISIBILITY_BANDS[0];
+  }
+
+  function visualRangeForLight(value) {
+    return lightVisibilityBand(value).range;
+  }
+
+  function canVisuallyPerceive(options = {}) {
+    const distance = Math.max(0, finiteNumber(options.distance, Number.POSITIVE_INFINITY));
+    if (distance <= 1 && options.contact !== false) return true;
+    if (!options.vision || !options.lineOfSight) return false;
+    return distance <= visualRangeForLight(options.lightLevel);
   }
 
   function cloneJson(candidate, fallback = null) {
@@ -178,8 +203,12 @@
     RECENT_OBSERVATION_SECONDS,
     AGED_OBSERVATION_SECONDS,
     DEFAULT_VISION_RANGE_TILES,
+    LIGHT_VISIBILITY_BANDS,
     cleanCell,
     cellKey,
+    lightVisibilityBand,
+    visualRangeForLight,
+    canVisuallyPerceive,
     cloneJson,
     normalizeObservation,
     normalizeObservations,

@@ -1200,7 +1200,7 @@ h2 {
   top: calc(var(--management-top-offset) + 7.5rem);
   right: 1.5rem;
   left: auto;
-  z-index: 28;
+  z-index: 17;
 }
 
 .map-overlay-menu-shell {
@@ -1418,6 +1418,34 @@ body.map-dragging .lab-map-canvas-host {
 .lab-map-cell.knowledge-current,
 .lab-map-cell.knowledge-debug {
   opacity: 1;
+}
+
+.lab-map-cell.lighting-dark {
+  filter: brightness(0.56) saturate(0.72);
+}
+
+.lab-map-cell.lighting-dim {
+  filter: brightness(0.78) saturate(0.86);
+}
+
+.lab-map-cell.lighting-lit {
+  filter: brightness(1.02) sepia(0.04);
+}
+
+.lab-map-cell.lighting-bright {
+  filter: brightness(1.14) sepia(0.12) saturate(1.08);
+}
+
+.lab-map-cell.atmosphere-airborne-haze {
+  background-image: radial-gradient(circle at 30% 34%, rgba(181, 184, 164, 0.2) 0 4%, transparent 5%),
+    radial-gradient(circle at 72% 68%, rgba(181, 184, 164, 0.16) 0 4%, transparent 5%);
+}
+
+.lab-map-cell.atmosphere-airborne-dense {
+  background-image: radial-gradient(circle at 24% 28%, rgba(201, 197, 174, 0.28) 0 5%, transparent 6%),
+    radial-gradient(circle at 70% 25%, rgba(201, 197, 174, 0.22) 0 5%, transparent 6%),
+    radial-gradient(circle at 48% 58%, rgba(201, 197, 174, 0.25) 0 5%, transparent 6%),
+    radial-gradient(circle at 78% 76%, rgba(201, 197, 174, 0.2) 0 5%, transparent 6%);
 }
 
 .lab-map-cell.unknown-darkness-cell {
@@ -1835,6 +1863,17 @@ body.map-dragging .lab-map-canvas-host {
 .lab-map-cell.map-overlay-light-bright {
   background: #45412a;
   border-color: rgba(245, 221, 126, 0.82);
+}
+
+.lab-map-cell.map-overlay-environment-stale {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0,
+    transparent 4px,
+    rgba(220, 218, 198, 0.12) 4px,
+    rgba(220, 218, 198, 0.12) 6px
+  );
+  border-style: dashed;
 }
 
 .lab-map-cell.map-overlay-infrastructure {

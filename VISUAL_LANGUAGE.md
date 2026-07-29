@@ -213,7 +213,7 @@ Last-known visuals must be stored or derived from an observation snapshot. The r
 
 The implemented cell-memory model is sparse save data rather than a saved `MapScene`. A cell observation records its coordinate, first and last observation times, source, and a semantic snapshot of remembered terrain, connectivity, door state, room anchor, and rememberable static objects. Dynamic hidden item, corpse, and actor state is not copied into terrain memory. Creature records separately retain last-known body location, footprint, orientation, facing, pose, activity, and broad condition cues.
 
-Current perception is recomputed from the scientist's same-z position, sensory capability, twelve-tile visual range, and physical line of sight. Walls and nontransparent doors occlude cells. Lighting remains a later refinement of this perception query rather than a reason to expose a hidden cell. Each z-layer has independent knowledge.
+Current perception is recomputed from the scientist's same-z position, sensory capability, tile lighting, and physical line of sight. Dark permits contact range, Dim permits four tiles, Lit permits eight, and Bright permits twelve. Walls and nontransparent doors occlude cells. Map perception, creature vision, and exact incident perception use this same rule. Darkness returns an explored but unperceived cell to its saved memory rather than erasing it, and each z-layer has independent knowledge.
 
 Remembered observations age in game time:
 
@@ -240,6 +240,14 @@ The base palette should be dark and desaturated without collapsing known space i
 Room-purpose color, stockpile color, access color, environmental measurements, and other management abstractions appear through overlays. They do not permanently tint ordinary terrain.
 
 Selection must remain visible over every material and overlay. Alerts must not rely on red alone. Element, team, condition, and danger should not compete for the same color channel when shape, outline, animation, or iconography can carry part of the meaning.
+
+## Lighting And Environmental Treatment
+
+Physical lighting is always part of the ordinary world view. Active fixtures and the scientist's physical carried hand lamp contribute to the authoritative tile field with distance falloff. Solid barriers and closed intact doors block it; open stairs, ramps, and shafts transmit it vertically with additional falloff. The current prototype uses semantic `neutral`, `warm`, `cold`, and `arcane` spectra, with the starter oil and hand lamps using `warm`.
+
+Both renderers consume semantic lighting from `MapScene`. Dark and Dim cells reduce material and subject brightness, Lit cells preserve the base palette, and Bright cells receive a restrained highlight. Atmosphere, alerts, cursor, and selection remain separate channels so lighting cannot hide actionable UI. Known dense airborne mixtures may add a static identity-free haze pattern; individual substance identities remain unavailable without Debug or an appropriate future instrument.
+
+Temperature, humidity, ambient mana, light, and aggregate airborne contamination are mutually exclusive diagnostic overlays. Ordinary current readings expose descriptive bands rather than exact values. A saved room observation may project its last band across remembered cells using desaturation, hatching, and an age-bearing tooltip; unknown cells remain blank and hidden current state is never recomputed into a stale overlay. Debug may expose the underlying exact values and airborne identities.
 
 ## Terrain Connectivity Contract
 
@@ -353,8 +361,8 @@ This specification does not yet define:
 
 - Final production sprite filenames or atlas packing
 - Final animation frame counts
-- Final authored fog, lighting, and environmental shader treatment
+- Final authored fog and production-quality lighting/environment shader artwork beyond the implemented semantic treatment
 - Final authored cross-layer slice artwork for tall bodies
 - Final swatch values
 
-Those decisions belong to the corresponding pending prompts and should conform to this visual language.
+Those decisions belong to later production-art and accessibility work and should conform to this visual language.

@@ -17,7 +17,7 @@
 
   if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
   if (!AnimationClock) throw new Error("Map visual state requires the animation-clock contract.");
-  const SCENE_VERSION = 6;
+  const SCENE_VERSION = 7;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
   const KNOWLEDGE_TIERS = Object.freeze(["current", "recent", "aged", "archived", "unknown"]);
 

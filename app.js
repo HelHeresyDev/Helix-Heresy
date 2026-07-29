@@ -3622,32 +3622,32 @@
     {
       id: "none",
       label: "None",
-      description: "Base blueprint only."
+      description: "Physical terrain, local lighting, and visible airborne haze without a diagnostic overlay."
     },
     {
       id: "contamination",
       label: "Contamination",
-      description: "Observed contamination only. Unobserved rooms stay blank unless debug is active."
+      description: "Known aggregate airborne contamination bands. Exact substance identities remain diagnostic information."
     },
     {
       id: "temperature",
       label: "Temperature",
-      description: "Observed tile temperature in degrees Celsius."
+      description: "Known temperature bands; remembered readings are visibly marked stale."
     },
     {
       id: "light",
       label: "Light",
-      description: "Observed tile illumination produced by physical light sources and blocked by solid geometry."
+      description: "Known illumination bands produced by physical sources and blocked by solid geometry."
     },
     {
       id: "humidity",
       label: "Humidity",
-      description: "Observed tile relative humidity."
+      description: "Known relative-humidity bands; remembered readings are visibly marked stale."
     },
     {
       id: "ambientMana",
       label: "Ambient Mana",
-      description: "Observed ambient mana density in thaums per cubic meter."
+      description: "Known ambient-mana bands; remembered readings are visibly marked stale."
     },
     {
       id: "infrastructure",
@@ -3823,10 +3823,21 @@
     return state.navigation[key];
   }
 
+  const SCIENTIST_DEFAULT_CARRIED_LIGHT = Object.freeze({
+    id: "starter-hand-lamp",
+    label: "Hand lamp",
+    enabled: true,
+    condition: 100,
+    intensity: 60,
+    radius: 4,
+    spectrum: "warm"
+  });
+
   function defaultScientist() {
     return {
       roomId: MAIN_ROOM_ID,
       mapCell: scientistDefaultMapCell(MAIN_ROOM_ID),
+      carriedLight: { ...SCIENTIST_DEFAULT_CARRIED_LIGHT },
       physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
       physicalState: defaultScientistPhysicalState(),
       vitals: {
@@ -5299,6 +5310,26 @@
           scientistFits: canActorOccupyTile(state.scientist, cell)
         })
       }),
+      lightingSnapshot: (cell = null) => {
+        const map = ensureLabMap();
+        ensurePhysicalLightingCurrent(map);
+        const target = cleanMapCell(cell) || scientistMapCell();
+        const lightLevel = perceptionLightLevelAtCell(target, map);
+        return {
+          cell: target,
+          lightLevel,
+          band: MapKnowledge.lightVisibilityBand(lightLevel),
+          carriedLight: { ...normalizeScientistCarriedLight(state.scientist?.carriedLight) }
+        };
+      },
+      setScientistCarriedLight: (changes = {}) => {
+        state.scientist.carriedLight = normalizeScientistCarriedLight({ ...state.scientist.carriedLight, ...changes });
+        physicalLightingSignature = "";
+        ensurePhysicalLightingCurrent();
+        persist();
+        render();
+        return { ...state.scientist.carriedLight };
+      },
       tileEnvironmentSnapshot: (cell = null) => {
         const map = ensureLabMap();
         const environments = ensureTileEnvironments(map);
@@ -12995,6 +13026,30 @@
     return 0;
   }
 
+  function utilityPowerAvailability(fixture, context) {
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    if (!infrastructure?.powerModes?.length) return 1;
+    if (!utilityFixtureEnabled(fixture)) return 0;
+    if (fixture.utility.powerMode === "fuel") return fixture.utility.fuel > 0 ? 1 : 0;
+    if (fixture.utility.powerMode === "electric") {
+      const component = utilityComponentForFixture(fixture, "electricity", context);
+      return component?.fixtures?.some((candidate) =>
+        fixtureInfrastructureDef(candidate)?.role === "electricSource"
+        && utilityFixtureEnabled(candidate)
+        && candidate.utility.fuel > 0
+      ) ? 1 : 0;
+    }
+    if (fixture.utility.powerMode === "mana") {
+      const component = utilityComponentForFixture(fixture, "mana", context);
+      return component?.fixtures?.some((candidate) =>
+        fixtureInfrastructureDef(candidate)?.role === "manaSource"
+        && utilityFixtureEnabled(candidate)
+        && candidate.utility.storedMana > 0
+      ) ? 1 : 0;
+    }
+    return 0;
+  }
+
   function utilityThermostatAvailable(fixture) {
     const roomId = labMapCellRoomId(fixture?.origin);
     return Boolean(roomId && (state.fixtures || []).some((candidate) => fixtureInfrastructureDef(candidate)?.role === "thermostat"
@@ -13016,53 +13071,150 @@
     return true;
   }
 
-  function addFixtureLight(fixture, intensity, radius, environments, map = ensureLabMap()) {
-    const origins = fixtureEnvironmentRecords(fixture, map, environments).map((record) => record.cell);
+  function lightPropagationNeighbors(cell, map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
+    const neighbors = cardinalMapCells(cell)
+      .filter((neighbor) => environments[mapCellKey(neighbor)])
+      .map((neighbor) => ({ cell: neighbor, cost: 1 }));
+    const verticalKeys = new Set();
+    for (const connector of verticalConnectorsAtCell(cell, map)) {
+      const other = verticalConnectorOtherEndpoint(connector, cell);
+      if (!other || !environments[mapCellKey(other)]) continue;
+      verticalKeys.add(mapCellKey(other));
+      neighbors.push({ cell: other, cost: 2 });
+    }
+    for (const offset of [-1, 1]) {
+      const other = mapCellAtOffset(cell, 0, 0, offset);
+      if (!environments[mapCellKey(other)] || verticalKeys.has(mapCellKey(other))) continue;
+      const upper = offset > 0 ? other : cell;
+      if (horizontalBoundaryAtCell(upper, map)?.open) neighbors.push({ cell: other, cost: 2 });
+    }
+    return neighbors;
+  }
+
+  function addLightFromOrigins(origins, intensity, radius, environments, map = ensureLabMap()) {
     if (!origins.length) return 0;
-    const queue = origins.map((cell) => ({ cell, distance: 0 }));
-    const visited = new Set(origins.map(mapCellKey));
-    let changes = 0;
-    while (queue.length) {
-      const { cell, distance } = queue.shift();
-      const record = environments[mapCellKey(cell)];
-      if (!record) continue;
-      const contribution = Math.max(0, intensity * (1 - distance / Math.max(1, radius + 1)));
-      if (contribution > 0) {
-        record.lightLevel = clamp(record.lightLevel + contribution, 0, 100);
-        changes += 1;
-      }
-      if (distance >= radius) continue;
-      for (const neighbor of cardinalMapCells(cell)) {
-        const key = mapCellKey(neighbor);
-        if (visited.has(key) || !environments[key] || !lightPassesBetween(cell, neighbor, map)) continue;
-        visited.add(key);
-        queue.push({ cell: neighbor, distance: distance + 1 });
+    const lightRadius = Math.max(0, Math.floor(Number(radius) || 0));
+    const distanceBuckets = Array.from({ length: lightRadius + 1 }, () => []);
+    const bestDistance = new Map();
+    const illuminated = new Set();
+    for (const cell of origins) {
+      const key = mapCellKey(cell);
+      if (!environments[key] || bestDistance.has(key)) continue;
+      bestDistance.set(key, 0);
+      distanceBuckets[0].push(cell);
+    }
+    for (let distance = 0; distance <= lightRadius; distance += 1) {
+      const bucket = distanceBuckets[distance];
+      while (bucket.length) {
+        const cell = bucket.pop();
+        const key = mapCellKey(cell);
+        if (bestDistance.get(key) !== distance) continue;
+        const record = environments[key];
+        if (!record) continue;
+        const contribution = Math.max(0, intensity * (1 - distance / Math.max(1, lightRadius + 1)));
+        if (contribution > 0) {
+          record.lightLevel = clamp(record.lightLevel + contribution, 0, 100);
+          illuminated.add(key);
+        }
+        if (distance >= lightRadius) continue;
+        for (const neighbor of lightPropagationNeighbors(cell, map, environments)) {
+          const neighborKey = mapCellKey(neighbor.cell);
+          const nextDistance = distance + neighbor.cost;
+          if (nextDistance > lightRadius
+            || nextDistance >= (bestDistance.get(neighborKey) ?? Number.POSITIVE_INFINITY)
+            || !lightPassesBetween(cell, neighbor.cell, map)) continue;
+          bestDistance.set(neighborKey, nextDistance);
+          distanceBuckets[nextDistance].push(neighbor.cell);
+        }
       }
     }
-    return changes;
+    return illuminated.size;
+  }
+
+  function addFixtureLight(fixture, intensity, radius, environments, map = ensureLabMap()) {
+    const origins = fixtureEnvironmentRecords(fixture, map, environments).map((record) => record.cell);
+    return addLightFromOrigins(origins, intensity, radius, environments, map);
+  }
+
+  let physicalLightingSignature = "";
+
+  function currentPhysicalLightingSignature(map = ensureLabMap()) {
+    const carried = normalizeScientistCarriedLight(state.scientist?.carriedLight);
+    const fixtures = (state.fixtures || [])
+      .filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "light")
+      .map((fixture) => [
+        fixture.id,
+        mapCellKey(fixture.origin),
+        fixture.condition,
+        fixture.operationalState,
+        fixture.utility?.enabled,
+        fixture.utility?.powerMode,
+        Math.round((Number(fixture.utility?.fuel) || 0) * 1000),
+        fixture.utility?.storedMana
+      ].join(","))
+      .sort()
+      .join("|");
+    return [
+      state.seed,
+      mapCellKey(cleanMapCell(state.scientist?.mapCell)),
+      carried.enabled,
+      carried.condition,
+      carried.intensity,
+      carried.radius,
+      carried.spectrum,
+      Number(state.navigation?.topologyRevision) || 0,
+      Number(state.navigation?.doorRevision) || 0,
+      fixtures
+    ].join(":");
   }
 
   function updateInfrastructureLighting(elapsedHours, context, map = ensureLabMap()) {
     const environments = ensureTileEnvironments(map);
+    const updateStatuses = elapsedHours > 0;
+    const previousLevels = new Map(Object.entries(environments).map(([key, record]) => [key, Number(record.lightLevel) || 0]));
     for (const record of Object.values(environments)) record.lightLevel = 0;
     let changes = 0;
     for (const fixture of state.fixtures || []) {
       const infrastructure = fixtureInfrastructureDef(fixture);
       if (infrastructure?.role !== "light") continue;
       if (!utilityFixtureEnabled(fixture)) {
-        changes += utilitySetStatus(fixture, "disabled", "Switched off or damaged.");
+        if (updateStatuses) changes += utilitySetStatus(fixture, "disabled", "Switched off or damaged.");
         continue;
       }
-      const power = consumeUtilityPower(fixture, elapsedHours, Number(infrastructure.manaPerHour) || 1, context);
+      const power = updateStatuses
+        ? consumeUtilityPower(fixture, elapsedHours, Number(infrastructure.manaPerHour) || 1, context)
+        : utilityPowerAvailability(fixture, context);
       if (power <= 0) {
-        changes += utilitySetStatus(fixture, "unpowered", `${UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Selected source"} is unavailable.`);
+        if (updateStatuses) changes += utilitySetStatus(fixture, "unpowered", `${UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Selected source"} is unavailable.`);
         continue;
       }
       const illuminatedTiles = addFixtureLight(fixture, (Number(infrastructure.light) || 80) * power, Number(infrastructure.lightRadius) || 6, environments, map);
-      changes += utilitySetStatus(fixture, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Power supply is insufficient." : `Illuminating ${illuminatedTiles} nearby tile${illuminatedTiles === 1 ? "" : "s"}.`);
-      changes += illuminatedTiles;
+      if (updateStatuses) {
+        changes += utilitySetStatus(fixture, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Power supply is insufficient." : `Illuminating ${illuminatedTiles} nearby tile${illuminatedTiles === 1 ? "" : "s"}.`);
+      }
     }
+    state.scientist = normalizeScientist(state.scientist);
+    const carried = state.scientist.carriedLight;
+    const scientistCell = cleanMapCell(state.scientist.mapCell);
+    if (scientistCell && carried.enabled && carried.condition > 0) {
+      addLightFromOrigins(
+        [scientistCell],
+        carried.intensity * carried.condition / 100,
+        carried.radius,
+        environments,
+        map
+      );
+    }
+    if (Object.entries(environments).some(([key, record]) =>
+      Math.abs((previousLevels.get(key) || 0) - (Number(record.lightLevel) || 0)) > 0.001)) changes += 1;
+    physicalLightingSignature = currentPhysicalLightingSignature(map);
     return changes;
+  }
+
+  function ensurePhysicalLightingCurrent(map = ensureLabMap()) {
+    if (physicalLightingSignature === currentPhysicalLightingSignature(map)) return false;
+    updateInfrastructureLighting(0, utilityNetworkContext(), map);
+    return true;
   }
 
   function updateInfrastructureHeating(elapsedHours, context) {
@@ -20477,12 +20629,9 @@
     const sourceCell = cleanMapCell(candidate.cell);
     if (!scientistCell || !sourceCell) return null;
     const distance = mapCellDistance(scientistCell, sourceCell);
-    if (distance <= 1 && sensory.capabilities.contact) {
-      return { channel: "contact", precision: "exact", uncertaintyRadius: 0, perceivedCell: sourceCell };
-    }
-    const sourceLight = Number(tileEnvironmentAtCell(sourceCell)?.lightLevel) || 0;
-    if (sensory.capabilities.vision && distance <= 12 && sensoryLineOfSight(scientistCell, sourceCell) && (sourceLight >= 8 || distance <= 1)) {
-      return { channel: "vision", precision: "exact", uncertaintyRadius: 0, perceivedCell: sourceCell };
+    const exactPerception = scientistExactPerceptionAtCell(sourceCell, { sensory, origin: scientistCell });
+    if (exactPerception) {
+      return { channel: exactPerception.channel, precision: "exact", uncertaintyRadius: 0, perceivedCell: sourceCell };
     }
     const matching = sensory.current.find((entry) =>
       (candidate.sourceId && entry.sourceId === candidate.sourceId)
@@ -25778,8 +25927,7 @@
     const origin = sensoryActorCell(state.scientist);
     return actorSpatialIndex.recordsInRadius(origin, 12).filter((slime) => slime?.genome && slime.status !== "dead" && slimeIsUncontained(slime))
       .map((slime) => ({ slime, cell: sensoryActorCell(slime) }))
-      .filter(({ cell }) => cell && mapCellDistance(origin, cell) <= 12 && sensoryLineOfSight(origin, cell)
-        && (mapCellDistance(origin, cell) <= 1 || (Number(tileEnvironmentAtCell(cell)?.lightLevel) || 0) >= 8))
+      .filter(({ cell }) => cell && scientistExactPerceptionAtCell(cell, { sensory, origin })?.channel === "vision")
       .map(({ slime, cell }) => ({
         key: `vision:slime:${slime.id}`,
         channel: "vision",
@@ -34982,6 +35130,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const residueActorIds = roomObservationCreatureIds(room.id, (slime) =>
       slime.roomActivity?.type === "leavingResidue"
     );
+    const environmentAttributes = roomEnvironmentAttributes(room.id);
+    const environmentBands = Object.fromEntries(
+      ["temperature", "light", "humidity", "ambientMana"].map((attributeKey) => [
+        attributeKey,
+        roomAttributeBand(attributeKey, environmentAttributes[attributeKey]?.current).label
+      ])
+    );
     return {
       observedAt: state.clock,
       exposureScore: Math.round(exposureScore),
@@ -34991,6 +35146,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       unknownFactors: factors.unknownFactors,
       contaminationValue: Math.round(contaminationValue * 10) / 10,
       contaminationBand: roomAttributeBand("contamination", contaminationValue).label,
+      environmentBands,
       crowdingLabel: roomCrowdingLabel(room.id),
       freeCreatureCount: freeCreatureIds.length,
       freeCreatureIds,
@@ -41747,7 +41903,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         bandLabel: band.label,
         sourceLabel: "Debug",
         title: `Debug contamination: ${formatDecimal(value, 1)} / 100 (${band.label}); ignores observation.`,
-        revealValue: true
+        revealValue: true,
+        knowledge: { state: "debug", observedAt: state.clock, confidence: 1, source: "debug" }
       };
     }
     if (scientistObservesRoom(room.id)) {
@@ -41756,7 +41913,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         value: observation.contaminationValue,
         bandLabel: observation.contaminationBand,
         sourceLabel: "Current observation",
-        title: `Overlay: Contamination - current observation: ${observation.contaminationBand}. Reliability: High.`
+        title: `Overlay: Contamination - current observation: ${observation.contaminationBand}. Reliability: High.`,
+        knowledge: { state: "current", observedAt: observation.observedAt, confidence: 1, source: "room observation" }
       };
     }
     const observation = normalizeRoomObservation(room.observation || state.roomObservations?.[room.id]);
@@ -41768,7 +41926,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       value: observation.contaminationValue,
       bandLabel: observation.contaminationBand,
       sourceLabel: "Previous observation",
-      title: `Overlay: Contamination - previous observation: ${observation.contaminationBand} at ${formatClock(observation.observedAt)}. Reliability: ${reliability}; current state may have changed.`
+      title: `Overlay: Contamination - previous observation: ${observation.contaminationBand} at ${formatClock(observation.observedAt)}. Reliability: ${reliability}; current state may have changed.`,
+      knowledge: {
+        state: "stale",
+        observedAt: observation.observedAt,
+        confidence: roomObservationReliabilityScore(room, observation) / 100,
+        source: "room observation"
+      }
     };
   }
 
@@ -41793,7 +41957,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: `${room.name}: ${reading.bandLabel}`,
         source: reading.sourceLabel,
         title: reading.title,
-        value: reading.revealValue ? formatDecimal(reading.value, 1) : null
+        value: reading.revealValue ? formatDecimal(reading.value, 1) : null,
+        knowledge: reading.knowledge,
+        scope: "roomObservation"
       }, map);
     }
     return assignments;
@@ -41804,9 +41970,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const def = ROOM_ATTRIBUTE_BY_KEY[attributeKey];
     if (!def) return assignments;
     const environments = ensureTileEnvironments(map);
+    const perceivedCellKeys = options.perceivedCellKeys instanceof Set ? options.perceivedCellKeys : new Set();
     for (const record of Object.values(environments)) {
       const roomId = labMapCellRoomId(record.cell, map);
-      if (!options.debug && (!roomId || !scientistObservesRoom(roomId))) continue;
+      const key = mapCellKey(record.cell);
+      if (!options.debug && !perceivedCellKeys.has(key)) continue;
       const attributes = tileEnvironmentAttributes(record, roomById(roomId)?.attributes);
       const value = Number(attributes[attributeKey]?.current) || 0;
       const band = roomAttributeBand(attributeKey, value);
@@ -41824,12 +41992,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ],
         label: `${def.label}: ${band.label}`,
         source: options.debug ? "Debug tile field" : "Current observation",
-        title: attributeKey === "contamination"
-          ? `Airborne hazard: ${roomAttributeMeasurementText(attributeKey, value, { debug: options.debug })}; ${substanceText}.`
-          : `${def.label}: ${roomAttributeMeasurementText(attributeKey, value, { debug: options.debug })} (${band.label}).`,
+        title: options.debug
+          ? attributeKey === "contamination"
+            ? `Airborne hazard: ${roomAttributeMeasurementText(attributeKey, value, { debug: true })}; ${substanceText}.`
+            : `${def.label}: ${roomAttributeMeasurementText(attributeKey, value, { debug: true })} (${band.label}).`
+          : `${def.label}: ${band.label}. Exact measurements require an appropriate instrument.`,
         value: options.debug ? formatDecimal(value, 2) : null,
+        knowledge: {
+          state: options.debug ? "debug" : "current",
+          observedAt: state.clock,
+          confidence: 1,
+          source: options.debug ? "debug tile field" : "direct observation"
+        },
         target: { kind: "tile", tile: { ...record.cell } }
       }, map);
+    }
+    if (!options.debug) {
+      for (const room of state.rooms || []) {
+        const observation = normalizeRoomObservation(room.observation || state.roomObservations?.[room.id]);
+        const bandLabel = observation?.environmentBands?.[attributeKey];
+        if (!bandLabel) continue;
+        const reliability = roomObservationReliabilityLabel(roomObservationReliabilityScore(room, observation));
+        for (const cell of labMapRoomCells(room.id, map)) {
+          const key = mapCellKey(cell);
+          if (perceivedCellKeys.has(key) || !options.observations?.[key]) continue;
+          setLabMapOverlayEntry(assignments, cell, {
+            overlayId: options.overlayId || attributeKey,
+            classNames: [
+              `map-overlay-${overlayClassPart(attributeKey)}`,
+              `map-overlay-${overlayClassPart(attributeKey)}-${overlayClassPart(bandLabel)}`,
+              "map-overlay-environment-stale"
+            ],
+            label: `${def.label}: ${bandLabel} (remembered)`,
+            source: "Previous room observation",
+            title: `${def.label}: remembered ${bandLabel} band at ${formatClock(observation.observedAt)}. Reliability: ${reliability}; current conditions may differ.`,
+            value: null,
+            knowledge: {
+              state: "stale",
+              observedAt: observation.observedAt,
+              confidence: roomObservationReliabilityScore(room, observation) / 100,
+              source: "room observation"
+            },
+            target: { kind: "tile", tile: { ...cell } }
+          }, map);
+        }
+      }
     }
     return assignments;
   }
@@ -42246,7 +42453,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return contaminationOverlayAssignments(map);
     }
     if (["temperature", "light", "humidity", "ambientMana"].includes(normalized)) {
-      return tileEnvironmentOverlayAssignments(map, normalized);
+      return tileEnvironmentOverlayAssignments(map, normalized, context);
     }
     if (normalized === "infrastructure") {
       return infrastructureOverlayAssignments(map);
@@ -46422,11 +46629,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "scientist") {
       const vitals = state.scientist?.vitals || {};
       const pending = state.combat?.pendingActions?.scientist;
+      const carriedLight = normalizeScientistCarriedLight(state.scientist?.carriedLight);
       return [
         ["Room", roomName(scientistRoomId())],
         ["Health", `${formatNumber(vitals.health?.current || 0)} / ${formatNumber(vitals.health?.max || DEFAULT_VITAL_MAX)}`],
         ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
         ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`],
+        ["Carried light", `${carriedLight.label}; ${carriedLight.enabled && carriedLight.condition > 0 ? `on, warm, ${carriedLight.radius} m nominal radius` : "off or damaged"}`],
         ["Combat action", pending ? `${combatActionDef(pending.actionId)?.label || pending.actionId}; releases ${formatClock(pending.releaseAt)}` : scientistGuarding() ? "Guarding" : "None"],
         ["Routine work", state.combat?.routineSuspension ? `Suspended: ${state.combat.routineSuspension.reason}` : "Available"]
       ];
@@ -47386,6 +47595,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   let scientistMapPerceptionCache = { signature: "", keys: new Set() };
 
+  function perceptionLightLevelAtCell(candidate, map = ensureLabMap(), options = {}) {
+    const cell = cleanMapCell(candidate);
+    if (!cell) return 0;
+    if (options.ensureLighting !== false) ensurePhysicalLightingCurrent(map);
+    const environments = options.environments || ensureTileEnvironments(map);
+    const direct = constructedWallAtCell(cell, map) ? null : environments[mapCellKey(cell)] || null;
+    if (direct) return Number(direct.lightLevel) || 0;
+    return Math.max(0, ...cardinalMapCells(cell)
+      .map((neighbor) => (Number(environments[mapCellKey(neighbor)]?.lightLevel) || 0) * 0.85));
+  }
+
+  function scientistExactPerceptionAtCell(candidate, options = {}) {
+    if (scientistIsDead()) return null;
+    const cell = cleanMapCell(candidate);
+    const origin = cleanMapCell(options.origin) || scientistMapCell();
+    if (!cell || !origin || cell.z !== origin.z) return null;
+    const sensory = options.sensory || normalizeSensoryState(state.scientist.sensory, "scientist");
+    const distance = mapCellDistance(origin, cell);
+    const lightLevel = perceptionLightLevelAtCell(cell, options.map || ensureLabMap(), {
+      ensureLighting: options.lightingCurrent !== true,
+      environments: options.environments
+    });
+    if (distance <= 1 && sensory.capabilities.contact) {
+      return { channel: "contact", distance, lightLevel, lightBand: MapKnowledge.lightVisibilityBand(lightLevel).id };
+    }
+    if (!sensory.capabilities.vision || distance > MapKnowledge.visualRangeForLight(lightLevel)
+      || !sensoryLineOfSight(origin, cell)) return null;
+    return {
+      channel: "vision",
+      distance,
+      lightLevel,
+      lightBand: MapKnowledge.lightVisibilityBand(lightLevel).id
+    };
+  }
+
   function scientistPerceivesMapCell(candidate) {
     if (scientistIsDead()) return false;
     const cell = cleanMapCell(candidate);
@@ -47393,9 +47637,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!cell || !origin || cell.z !== origin.z) return false;
     state.scientist.sensory = normalizeSensoryState(state.scientist.sensory, "scientist");
     const sensory = state.scientist.sensory;
-    const radius = sensory.capabilities.vision ? MapKnowledge.DEFAULT_VISION_RANGE_TILES : 1;
-    return mapCellDistance(origin, cell) <= radius
-      && (sameMapCell(origin, cell) || sensory.capabilities.vision && sensoryLineOfSight(origin, cell));
+    return Boolean(scientistExactPerceptionAtCell(cell, { sensory, origin }));
   }
 
   function scientistPerceivedMapCellKeys(map = ensureLabMap()) {
@@ -47404,14 +47646,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const sensory = state.scientist.sensory;
     const origin = scientistMapCell();
     if (!origin) return new Set();
+    ensurePhysicalLightingCurrent(map);
+    const environments = ensureTileEnvironments(map);
     const signature = [
       state.seed,
-      state.clock,
       mapCellKey(origin),
       map.width,
       map.height,
       Number(state.navigation?.topologyRevision) || 0,
       Number(state.navigation?.doorRevision) || 0,
+      physicalLightingSignature,
       sensory.capabilities.vision ? "vision" : "contact"
     ].join(":");
     if (scientistMapPerceptionCache.signature === signature) {
@@ -47421,10 +47665,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       origin,
       width: map.width,
       height: map.height,
-      radius: sensory.capabilities.vision ? MapKnowledge.DEFAULT_VISION_RANGE_TILES : 1,
+      radius: sensory.capabilities.vision
+        ? Math.max(...MapKnowledge.LIGHT_VISIBILITY_BANDS.map((band) => band.range))
+        : 1,
       distance: mapCellDistance,
-      canSee: (from, to) => sameMapCell(from, to)
-        || sensory.capabilities.vision && sensoryLineOfSight(from, to)
+      canSee: (from, to) => Boolean(scientistExactPerceptionAtCell(to, {
+        sensory,
+        origin: from,
+        map,
+        environments,
+        lightingCurrent: true
+      }))
     });
     scientistMapPerceptionCache = { signature, keys };
     return keys;
@@ -48103,7 +48354,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const visibleRouteEntry = routeEntry || null;
     const visiblePlannedEntry = plannedEntry || null;
     const visibleDraftEntry = draftEntry || null;
-    const visibleOverlayEntry = currentKnowledge ? overlayEntry : null;
+    const visibleOverlayEntry = currentKnowledge
+      || memory && (overlayEntry?.knowledge?.state === "stale" || overlayEntry?.scope === "roomObservation")
+      ? overlayEntry
+      : null;
     const interactionContext = {
       roomId: currentKnowledge ? roomId : "",
       door,
@@ -48162,6 +48416,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       value: visibleOverlayEntry.value ?? null,
       title: visibleOverlayEntry.title || "",
       states: mapOverlaySemanticStates(visibleOverlayEntry),
+      knowledge: visibleOverlayEntry.knowledge || null,
       target: visibleOverlayEntry.target || null
     } : null;
     const anchor = currentKnowledge && anchorRoom ? {
@@ -48186,6 +48441,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             roomId ? `Remembered ${roomName(roomId)}` : `Remembered ${titleCase(base.kind || "terrain")}`,
             semanticDoor ? `Remembered ${semanticDoor.state || "door"} door` : "",
             ...(semanticObject?.labels || []).map((label) => `Remembered ${label}`),
+            visibleOverlayEntry?.title || "",
             Number.isFinite(Number(cellKnowledge.observedAt)) ? `Last observed ${formatClock(cellKnowledge.observedAt)}` : ""
           ].filter(Boolean)
         : [`${cell.x}, ${cell.y}, Z ${cell.z}`, playerAuthored ? "player-authored plan" : "unexplored darkness"];
@@ -48256,13 +48512,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? cellView.knowledge.state
       : cellView.known === false ? "unknown" : "current";
     const classNames = ["lab-map-cell", `knowledge-${knowledgeState}`];
-    if (cellView.knowledge?.tier) classNames.push(`knowledge-tier-${cellView.knowledge.tier}`);
     const dataset = {
       mapX: String(cellView.cell.x),
       mapY: String(cellView.cell.y),
       mapZ: String(cellView.cell.z),
       mapKnowledge: knowledgeState
     };
+    if (cellView.knowledge?.tier) classNames.push(`knowledge-tier-${cellView.knowledge.tier}`);
+    if (["current", "debug"].includes(knowledgeState) && cellView.lighting?.band) {
+      classNames.push(`lighting-${overlayClassPart(cellView.lighting.band)}`);
+      dataset.mapLightingBand = cellView.lighting.band;
+      dataset.mapLightingSpectrum = cellView.lighting.spectrum || "neutral";
+    }
+    if (cellView.atmosphere?.visible) {
+      classNames.push("atmosphere-airborne", `atmosphere-airborne-${overlayClassPart(cellView.atmosphere.band)}`);
+      dataset.mapAtmosphere = cellView.atmosphere.band;
+    }
     if (cellView.base.kind === "room") {
       classNames.push("room-cell", `room-${cellView.base.role}`);
       if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
@@ -48394,15 +48659,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "solid terrain" }, values: null, bands: null };
     }
     const room = roomById(roomId);
-    const directlyObserved = options.debug || options.current || sameMapCell(scientistMapCell(), cell);
+    const directlyObserved = options.debug || options.current;
     if (directlyObserved) {
-      const values = {
-        temperatureC: environment.temperatureC,
-        lightLevel: environment.lightLevel,
-        humidityPercent: environment.humidity,
-        manaDensityThaumsM3: environment.manaDensity,
-        airborne: { ...environment.airborne },
-        chemicalTraces: { ...environment.chemicalTraces }
+      const contamination = clamp(airborneLoadTotal(environment.airborne), 0, 100);
+      const values = options.debug ? {
+          temperatureC: environment.temperatureC,
+          lightLevel: environment.lightLevel,
+          humidityPercent: environment.humidity,
+          manaDensityThaumsM3: environment.manaDensity,
+          airborne: { ...environment.airborne },
+          chemicalTraces: { ...environment.chemicalTraces }
+        } : null;
+      const bands = {
+        temperature: roomAttributeBand("temperature", environment.temperatureC).label,
+        light: roomAttributeBand("light", environment.lightLevel).label,
+        humidity: roomAttributeBand("humidity", environment.humidity).label,
+        ambientMana: roomAttributeBand("ambientMana", environment.manaDensity).label,
+        contamination: roomAttributeBand("contamination", contamination).label
+      };
+      const airborneBand = contamination >= 55 ? "dense" : contamination >= 30 ? "haze" : contamination >= 8 ? "trace" : "clear";
+      const atmosphere = {
+        kind: "airborne",
+        band: airborneBand,
+        visible: airborneBand === "haze" || airborneBand === "dense",
+        identityKnown: Boolean(options.debug)
       };
       return {
         knowledge: {
@@ -48412,7 +48692,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           source: options.debug ? "debug" : "direct observation"
         },
         values,
-        bands: null
+        bands,
+        atmosphere
       };
     }
     const observation = normalizeRoomObservation(room?.observation || state.roomObservations?.[roomId]);
@@ -48426,11 +48707,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         confidence: roomObservationReliabilityScore(room, observation) / 100,
         source: "room observation"
       },
-      values: observation.contaminationValue === null ? null : { contamination: observation.contaminationValue },
+      values: null,
       bands: {
         exposure: observation.exposureBand,
-        contamination: observation.contaminationBand
-      }
+        contamination: observation.contaminationBand,
+        ...(observation.environmentBands || {})
+      },
+      atmosphere: null
+    };
+  }
+
+  function mapSceneLightingAtCell(cell, knowledge, map = ensureLabMap(), environments = null, solid = false) {
+    if (!["current", "debug"].includes(knowledge?.state)) {
+      return {
+        band: knowledge?.state === "stale" ? "remembered" : "unknown",
+        intensity: knowledge?.state === "stale" ? 0.32 : 0,
+        spectrum: "neutral"
+      };
+    }
+    const level = solid
+      ? Math.max(0, ...cardinalMapCells(cell)
+        .map((neighbor) => (Number(environments?.[mapCellKey(neighbor)]?.lightLevel) || 0) * 0.85))
+      : Number(environments?.[mapCellKey(cell)]?.lightLevel) || 0;
+    const band = MapKnowledge.lightVisibilityBand(level);
+    return {
+      band: band.id,
+      intensity: clamp(level / 100, 0, 1),
+      visualRangeTiles: band.range,
+      spectrum: level > 0 ? "warm" : "neutral"
     };
   }
 
@@ -48477,7 +48781,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         id: `overlay:${entry.overlayId}:${key}`,
         kind: entry.overlayId,
         cells: [{ x, y, z }],
-        knowledge: { state: entry.source === "debug" ? "debug" : "current", observedAt: state.clock, confidence: 1, source: entry.source || "overlay" },
+        knowledge: entry.knowledge || { state: entry.source === "debug" ? "debug" : "current", observedAt: state.clock, confidence: 1, source: entry.source || "overlay" },
         visualKey: `overlay.${entry.overlayId}`,
         value: entry.value ?? null,
         label: entry.label || "",
@@ -48510,11 +48814,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       incidentAssignments: visibleIncidents,
       plannedExcavations,
       route,
-      resourceFocus
+      resourceFocus,
+      perceivedCellKeys,
+      observations,
+      debug: fullReveal
     });
     const knowledgeFilteredOverlays = new Map([...overlayAssignments.entries()].filter(([key]) =>
       fullReveal
       || perceivedCellKeys.has(key)
+      || overlayAssignments.get(key)?.knowledge?.state === "stale" && observations[key]
+      || overlayAssignments.get(key)?.scope === "roomObservation" && observations[key]
       || ["movement", "construction"].includes(overlay.id)
     ));
     const cursorCell = mapCursorCell(map);
@@ -48576,6 +48885,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           current,
           environments: sceneEnvironments
         });
+        cellView.lighting = mapSceneLightingAtCell(
+          cell,
+          knowledge,
+          map,
+          sceneEnvironments,
+          cellView.base?.kind === "constructedWall"
+        );
+        cellView.atmosphere = current || fullReveal ? cellView.environment?.atmosphere || null : null;
         sceneCells.push(cellView);
       }
     }
@@ -48882,31 +49199,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "! = breached"
     ];
     const overlayLegends = {
-      none: ["Base blueprint only.", ...base],
+      none: ["Base blueprint only, with physical local light and visible dense airborne haze.", ...base],
       contamination: [
         "Known: observed and remembered room contamination only.",
         "Clean, low, tainted, fouled, and hazardous bands use the latest available observation.",
         "Unobserved rooms stay blank unless Debug is active."
       ],
       temperature: [
-        "Known: observed tile temperature in degrees Celsius.",
+        "Known: current or remembered temperature bands; stale readings are hatched.",
         "Heat transfers through air and conducts slowly through surrounding material.",
-        "Unobserved rooms stay blank."
+        "Exact values require an appropriate instrument; unknown cells stay blank."
       ],
       light: [
-        "Known: observed tile illumination from operating physical light sources.",
+        "Known: current or remembered Dark, Dim, Lit, and Bright bands.",
         "Intensity falls with distance; solid rock, walls, and closed doors block propagation.",
-        "Multiple light sources add together."
+        "Open vertical connections pass reduced light; multiple sources add together."
       ],
       humidity: [
-        "Known: observed relative humidity by tile.",
+        "Known: current or remembered relative-humidity bands; stale readings are hatched.",
         "Humidity moves with leaking and open air; liquid wetness is not simulated yet.",
-        "Unobserved rooms stay blank."
+        "Exact values require an appropriate instrument; unknown cells stay blank."
       ],
       ambientMana: [
-        "Known: observed mana density in thaums/m³.",
+        "Known: current or remembered ambient-mana bands; stale readings are hatched.",
         "Mana crosses open air and permeable materials at its own rate.",
-        "Unobserved rooms stay blank."
+        "Exact values require an appropriate instrument; unknown cells stay blank."
       ],
       infrastructure: [
         "Physical utility layers: air, drainage, electricity, mana, and local operating devices.",
@@ -54980,6 +55297,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const contaminationValue = Number.isFinite(Number(candidate.contaminationValue))
       ? Math.round(Number(candidate.contaminationValue) * 10) / 10
       : null;
+    const environmentBands = {};
+    for (const attributeKey of ["temperature", "light", "humidity", "ambientMana"]) {
+      const label = String(candidate.environmentBands?.[attributeKey] || "").trim();
+      if (label) environmentBands[attributeKey] = label;
+    }
     return {
       observedAt,
       exposureScore,
@@ -54989,6 +55311,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       unknownFactors,
       contaminationValue,
       contaminationBand: String(candidate.contaminationBand || "Unknown"),
+      environmentBands,
       crowdingLabel: String(candidate.crowdingLabel || "Unknown"),
       freeCreatureCount: Math.max(0, Math.floor(Number(candidate.freeCreatureCount) || freeCreatureIds.length || 0)),
       freeCreatureIds,
@@ -56960,6 +57283,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function normalizeScientistCarriedLight(candidate) {
+    const fallback = SCIENTIST_DEFAULT_CARRIED_LIGHT;
+    return {
+      id: String(candidate?.id || fallback.id),
+      label: String(candidate?.label || fallback.label),
+      enabled: candidate?.enabled === undefined ? fallback.enabled : Boolean(candidate.enabled),
+      condition: clamp(Number.isFinite(Number(candidate?.condition)) ? Number(candidate.condition) : fallback.condition, 0, 100),
+      intensity: clamp(Number.isFinite(Number(candidate?.intensity)) ? Number(candidate.intensity) : fallback.intensity, 0, 100),
+      radius: clamp(Math.round(Number.isFinite(Number(candidate?.radius)) ? Number(candidate.radius) : fallback.radius), 0, 12),
+      spectrum: ["neutral", "warm", "cold", "arcane"].includes(candidate?.spectrum) ? candidate.spectrum : fallback.spectrum
+    };
+  }
+
   function scientistFloorLoadM2() {
     state.scientist = normalizeScientist(state.scientist);
     return Math.max(0, Number(state.scientist.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -56975,6 +57311,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientist = {
       roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       mapCell: cleanMapCell(candidate?.mapCell) || fallback.mapCell || scientistDefaultMapCell(candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
+      carriedLight: normalizeScientistCarriedLight(candidate?.carriedLight),
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       physicalState: normalizeScientistPhysicalState(candidate?.physicalState),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },

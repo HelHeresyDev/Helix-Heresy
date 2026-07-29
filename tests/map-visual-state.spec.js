@@ -171,6 +171,32 @@ function expectActorVisualStateContract() {
   expect(visibleKeys.has('2,2,-1')).toBe(true);
   expect(visibleKeys.has('1,2,-1')).toBe(true);
   expect(visibleKeys.has('3,2,-1')).toBe(false);
+  expect(MapKnowledge.LIGHT_VISIBILITY_BANDS.map(({ id, range }) => [id, range])).toEqual([
+    ['dark', 1],
+    ['dim', 4],
+    ['lit', 8],
+    ['bright', 12],
+  ]);
+  expect(MapKnowledge.canVisuallyPerceive({
+    distance: 4,
+    lightLevel: 20,
+    vision: true,
+    lineOfSight: true,
+    contact: false,
+  })).toBe(true);
+  expect(MapKnowledge.canVisuallyPerceive({
+    distance: 5,
+    lightLevel: 20,
+    vision: true,
+    lineOfSight: true,
+    contact: false,
+  })).toBe(false);
+  expect(MapKnowledge.canVisuallyPerceive({
+    distance: 1,
+    lightLevel: 0,
+    vision: false,
+    lineOfSight: false,
+  })).toBe(true);
   const remembered = MapKnowledge.normalizeObservation({
     cell: { x: 1, y: 2, z: -1 },
     firstObservedAt: 10,
@@ -320,7 +346,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(6);
+  expect(result.version).toBe(7);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);
@@ -341,7 +367,10 @@ test('player perspective withholds environmental values for unknown cells', asyn
   const result = await page.evaluate(() => {
     const scene = window.helixHeresyDebug.mapSceneSnapshot();
     const unknown = scene.cells.find((cell) => cell.environment?.knowledge?.state === 'unknown');
-    const observed = scene.cells.find((cell) => cell.environment?.knowledge?.state === 'current');
+    const observed = scene.cells.find((cell) =>
+      cell.environment?.knowledge?.state === 'current'
+      && cell.environment?.bands?.temperature
+    );
     const mapKnowledge = window.helixHeresyDebug.mapKnowledgeSnapshot();
     const cellKnowledgeStates = [...new Set(scene.cells.map((cell) => cell.knowledge.state))];
     const stale = scene.cells.find((cell) => cell.knowledge.state === 'stale');
@@ -349,9 +378,16 @@ test('player perspective withholds environmental values for unknown cells', asyn
     const currentKeys = scene.cells
       .filter((cell) => cell.knowledge.state === 'current')
       .map((cell) => cell.key);
+    const currentLightingBands = [...new Set(scene.cells
+      .filter((cell) => cell.knowledge.state === 'current')
+      .map((cell) => cell.lighting?.band)
+      .filter(Boolean))];
     const domKnowledgeClasses = window.helixHeresyDebug.mapDomSnapshot()
       .flatMap((cell) => cell.classNames)
       .filter((name) => name.startsWith('knowledge-'));
+    const domLightingClasses = window.helixHeresyDebug.mapDomSnapshot()
+      .flatMap((cell) => cell.classNames)
+      .filter((name) => name.startsWith('lighting-'));
     let staleDoorPreserved = null;
     if (staleDoor) {
       const rememberedState = staleDoor.door.state;
@@ -373,6 +409,9 @@ test('player perspective withholds environmental values for unknown cells', asyn
       currentKeysArePerceived: currentKeys.every((key) => mapKnowledge.perceivedCellKeys.includes(key)),
       observationCount: Object.keys(mapKnowledge.observations).length,
       domKnowledgeClasses,
+      domLightingClasses,
+      currentLightingBands,
+      observedEnvironmentJson: JSON.stringify(observed?.environment),
       staleDoorPreserved,
     };
   });
@@ -384,9 +423,18 @@ test('player perspective withholds environmental values for unknown cells', asyn
   });
   expect(result.observedEnvironment).toMatchObject({
     knowledge: { state: 'current', confidence: 1 },
-    values: expect.any(Object),
-    bands: null,
+    values: null,
+    bands: expect.objectContaining({
+      temperature: expect.any(String),
+      light: expect.any(String),
+      humidity: expect.any(String),
+      ambientMana: expect.any(String),
+      contamination: expect.any(String),
+    }),
   });
+  expect(result.observedEnvironmentJson).not.toContain('chemicalTraces');
+  expect(result.observedEnvironmentJson).not.toContain('"airborne":');
+  expect(result.currentLightingBands.length).toBeGreaterThan(0);
   expect(result.knowledgeStates).not.toContain('debug');
   expect(result.cellKnowledgeStates).toEqual(expect.arrayContaining(['current', 'stale', 'unknown']));
   expect(result.staleBaseKind).not.toBe('unknownDark');
@@ -398,6 +446,7 @@ test('player perspective withholds environmental values for unknown cells', asyn
     'knowledge-stale',
     'knowledge-unknown',
   ]));
+  expect(result.domLightingClasses.some((name) => ['lighting-dark', 'lighting-dim', 'lighting-lit', 'lighting-bright'].includes(name))).toBe(true);
 });
 
 test('contained slime remains an interaction target without becoming a map entity', async ({ page }) => {
