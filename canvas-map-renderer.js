@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 3;
+  const RENDERER_VERSION = 4;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -113,6 +113,39 @@
     return { ...base, ...changes };
   }
 
+  function mixColor(left, right, ratio = 0) {
+    const parse = (value) => {
+      const match = /^#([0-9a-f]{6})$/i.exec(String(value || ""));
+      if (!match) return null;
+      const number = Number.parseInt(match[1], 16);
+      return [(number >> 16) & 255, (number >> 8) & 255, number & 255];
+    };
+    const a = parse(left);
+    const b = parse(right);
+    if (!a || !b) return left;
+    const amount = Math.max(0, Math.min(1, cleanNumber(ratio)));
+    const mixed = a.map((channel, index) => Math.round(channel + (b[index] - channel) * amount));
+    return `#${mixed.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+  }
+
+  function lightingStyle(cell, style, strength = 1) {
+    const lighting = cell?.lighting;
+    if (!lighting || ["unknown", "remembered"].includes(lighting.band)) return style;
+    const scale = Math.max(0, Math.min(1, cleanNumber(strength, 1)));
+    const treatment = {
+      dark: { color: "#030503", fill: 0.62, stroke: 0.38, text: 0.2 },
+      dim: { color: "#080b08", fill: 0.28, stroke: 0.16, text: 0.08 },
+      lit: { color: lighting.spectrum === "warm" ? "#6b5a2f" : "#5a6258", fill: 0.06, stroke: 0.04, text: 0 },
+      bright: { color: lighting.spectrum === "warm" ? "#d1aa55" : "#b8c2b5", fill: 0.14, stroke: 0.1, text: 0.04 }
+    }[lighting.band];
+    if (!treatment) return style;
+    return withStyle(style, {
+      fill: mixColor(style.fill, treatment.color, treatment.fill * scale),
+      stroke: mixColor(style.stroke, treatment.color, treatment.stroke * scale),
+      text: mixColor(style.text, treatment.color, treatment.text * scale)
+    });
+  }
+
   function overlayStyle(cell, style) {
     const overlay = cell?.overlay;
     if (!overlay) return style;
@@ -173,6 +206,7 @@
     if (base.blockedReason) style = withStyle(style, { fill: "#2d2020", stroke: "#c96b4f" });
     if (base.state === "damaged" || base.state === "breached") style = withStyle(style, { stroke: "#d08a63", dashed: base.state === "breached" });
     style = overlayStyle(cell, style);
+    style = lightingStyle(cell, style, cell?.overlay ? 0.55 : 1);
     if (cell?.door) {
       const doorStyles = {
         open: { fill: "#26281f", stroke: "#e1b75f", text: "#e1b75f" },
@@ -261,6 +295,23 @@
     ctx.textBaseline = "middle";
     ctx.fillText(String(glyph), x + size / 2, y + size / 2 + size * 0.025, size * 0.92);
     ctx.restore();
+  }
+
+  function drawAtmosphere(ctx, cell, position, tilePx) {
+    if (!cell?.atmosphere?.visible) return false;
+    const dense = cell.atmosphere.band === "dense";
+    ctx.save();
+    ctx.globalAlpha = dense ? 0.24 : 0.14;
+    ctx.fillStyle = dense ? "#b9b49b" : "#a5aa96";
+    const radius = Math.max(0.7, tilePx * 0.045);
+    const points = dense ? [[0.24, 0.28], [0.7, 0.25], [0.48, 0.58], [0.78, 0.76]] : [[0.3, 0.34], [0.72, 0.68]];
+    for (const [x, y] of points) {
+      ctx.beginPath();
+      ctx.arc(position.x + tilePx * x, position.y + tilePx * y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return true;
   }
 
   function resolveSprite(assetLoader, semanticKey, fallbackKeys = []) {
@@ -625,6 +676,7 @@
     const origin = presentationOrigin(options);
     const cells = renderCells(scene, options);
     const visibleCellKeys = new Set(cells.map((cell) => cellKey(cell.cell)));
+    const cellsByKey = new Map(cells.map((cell) => [cellKey(cell.cell), cell]));
     let entityCellsDrawn = 0;
     let entitiesDrawn = 0;
     let spritesDrawn = 0;
@@ -677,7 +729,9 @@
     const cutawayIds = RenderOrder.cutawayEntityIds(scene);
 
     const drawEntity = (entity) => {
-      const style = entityStyle(entity);
+      const anchorLightingCell = cellsByKey.get(cellKey(entity.anchorCell))
+        || (entity.footprintCells || []).map((cell) => cellsByKey.get(cellKey(cell))).find(Boolean);
+      const style = lightingStyle(anchorLightingCell, entityStyle(entity), 0.42);
       const motionSample = entityMotionSample(entity, options);
       entityMotionSamples.set(entity.id, motionSample);
       if (motionSample.active) activeAnimations += 1;
@@ -819,6 +873,10 @@
       drawEntitiesAtPass(pass);
     }
     drawEffectsAtPass(RenderOrder.RENDER_PASSES.effect);
+    for (const cell of cells) {
+      const position = tilePosition(cell.cell, viewport, tilePx, origin);
+      if (drawAtmosphere(ctx, cell, position, tilePx)) countPass(RenderOrder.RENDER_PASSES.effect);
+    }
     drawEffectsAtPass(RenderOrder.RENDER_PASSES.alert);
 
     const selectedCellKeys = new Set((scene?.selection?.cells || []).map(cellKey));

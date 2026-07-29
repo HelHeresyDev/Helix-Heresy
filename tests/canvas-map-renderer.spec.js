@@ -357,7 +357,7 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(3);
+  expect(result.diagnostics.canvas.version).toBe(4);
   expect(result.diagnostics.canvas.renderPassCounts.terrain).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.fixture).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);

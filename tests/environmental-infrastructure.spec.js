@@ -38,6 +38,16 @@ test('starter utilities are physical fixtures and the oil lamp lights nearby til
   expect(result.current.utility.status).toBe('operating');
   expect(Math.max(...result.nearby.map((record) => record.lightLevel))).toBeGreaterThan(0);
   expect(new Set(result.nearby.map((record) => record.lightLevel)).size).toBeGreaterThan(1);
+  const scientistLight = await page.evaluate(() => window.helixHeresyDebug.lightingSnapshot());
+  expect(scientistLight.carriedLight).toMatchObject({
+    id: 'starter-hand-lamp',
+    label: 'Hand lamp',
+    enabled: true,
+    spectrum: 'warm',
+    radius: 4,
+  });
+  expect(scientistLight.lightLevel).toBeGreaterThan(0);
+  expect(['dark', 'dim', 'lit', 'bright']).toContain(scientistLight.band.id);
 
   await page.evaluate((fixtureId) => {
     window.helixHeresyDebug.setFixtureUtility(fixtureId, { powerMode: 'electric' });
