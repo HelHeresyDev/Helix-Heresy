@@ -183,6 +183,12 @@
       };
       style = withStyle(style, doorStyles[cell.door.state] || ENTITY_STYLES.door);
     }
+    if (cell?.knowledge?.state === "stale") {
+      style = withStyle(style, {
+        alpha: cell.knowledge.tier === "archived" ? 0.48 : cell.knowledge.tier === "aged" ? 0.58 : 0.68,
+        dashed: true
+      });
+    }
     return style;
   }
 
@@ -212,6 +218,9 @@
   }
 
   function terrainGlyph(cell) {
+    if (cell?.knowledge?.state === "stale") {
+      return String(cell?.visual?.glyph || "");
+    }
     const layer = cell?.visual?.layer;
     return ["object", "actor", "door", "incident", "construction"].includes(layer)
       ? ""
@@ -219,6 +228,9 @@
   }
 
   function terrainSpriteKey(cell) {
+    if (cell?.knowledge?.state === "stale") {
+      return String(cell?.visual?.spriteKey || cell?.base?.spriteKey || "");
+    }
     const layer = cell?.visual?.layer;
     if (["object", "actor", "door", "incident"].includes(layer)) {
       return String(cell?.base?.spriteKey || "");
@@ -640,12 +652,15 @@
       const spriteKey = terrainSpriteKey(cell);
       const sprite = resolveSprite(options.assetLoader, spriteKey);
       if (sprite) {
-        drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, 0.55);
+        drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, 0.55 * cleanNumber(style.alpha, 1));
         spritesDrawn += 1;
       } else if (spriteKey) {
         spriteFallbacks += 1;
       }
+      const priorAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = cleanNumber(style.alpha, 1);
       drawGlyph(ctx, terrainGlyph(cell), position.x, position.y, tilePx, style.text);
+      ctx.globalAlpha = priorAlpha;
     }
     countPass(RenderOrder.RENDER_PASSES.terrain, cells.length);
 

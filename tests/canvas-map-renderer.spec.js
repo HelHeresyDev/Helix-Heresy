@@ -89,6 +89,13 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     fill: '#3b1d1d',
     stroke: '#e8685b',
   });
+  expect(CanvasRenderer.cellStyle({
+    base: { kind: 'floor' },
+    knowledge: { state: 'stale', tier: 'archived' },
+  })).toMatchObject({
+    dashed: true,
+    alpha: 0.48,
+  });
   expect(CanvasRenderer.entityStyle({
     kind: 'slime',
     knowledge: { state: 'stale' },

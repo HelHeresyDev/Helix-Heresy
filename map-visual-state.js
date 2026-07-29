@@ -17,8 +17,9 @@
 
   if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
   if (!AnimationClock) throw new Error("Map visual state requires the animation-clock contract.");
-  const SCENE_VERSION = 5;
+  const SCENE_VERSION = 6;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
+  const KNOWLEDGE_TIERS = Object.freeze(["current", "recent", "aged", "archived", "unknown"]);
 
   function cleanCell(candidate) {
     if (!candidate || !Number.isFinite(Number(candidate.x)) || !Number.isFinite(Number(candidate.y))) return null;
@@ -69,6 +70,8 @@
         : state === "current" || state === "debug" ? 1 : state === "unknown" ? 0 : null
     };
     if (candidate?.source) result.source = String(candidate.source);
+    const tier = String(candidate?.tier || "");
+    if (KNOWLEDGE_TIERS.includes(tier)) result.tier = tier;
     return result;
   }
 
@@ -247,6 +250,7 @@
       ...candidate,
       key: cellKey(cell),
       cell,
+      knowledge: cleanKnowledge(candidate?.knowledge, candidate?.known === false ? "unknown" : "current"),
       entityIds: [],
       interaction: {
         primaryTarget,
@@ -423,6 +427,9 @@
       }
     }
     for (const cell of scene?.cells || []) {
+      if (!KNOWLEDGE_STATES.includes(cell.knowledge?.state)) {
+        errors.push(`Scene cell ${cell.key || "unknown"} has invalid knowledge.`);
+      }
       if (!cleanCell(cell.cell)) errors.push("Scene contains an invalid cell.");
       for (const entityId of cell.entityIds || []) {
         if (!ids.has(entityId)) errors.push(`Cell ${cell.key} references missing entity ${entityId}.`);
@@ -434,6 +441,7 @@
   return {
     SCENE_VERSION,
     KNOWLEDGE_STATES,
+    KNOWLEDGE_TIERS,
     cleanCell,
     cellKey,
     cleanTarget,
