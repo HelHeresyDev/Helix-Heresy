@@ -359,6 +359,13 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
 test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', async ({ page }) => {
   await startRun(page);
   await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
+  const accessibility = page.locator('[data-map-accessibility-controls="true"]');
+  await accessibility.locator('summary').click();
+  await accessibility.locator('[data-map-accessibility-preference="mapVisualMode"]').selectOption('glyphs');
+  await accessibility.locator('[data-map-accessibility-preference="mapContrast"]').selectOption('high');
+  await accessibility.locator('[data-map-accessibility-preference="mapEffectIntensity"]').selectOption('strong');
+  await accessibility.locator('[data-map-accessibility-preference="mapMarkerScale"]').selectOption('1.25');
+  await accessibility.locator('summary').click();
 
   await openRendererDebug(page);
   await expect(page.locator('#mapRendererDomBtn')).toHaveAttribute('aria-pressed', 'true');
@@ -395,7 +402,14 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(5);
+  expect(result.diagnostics.canvas.version).toBe(6);
+  expect(result.diagnostics.canvas.spritesDrawn).toBe(0);
+  expect(result.diagnostics.canvas.presentation).toMatchObject({
+    glyphMode: true,
+    highContrast: true,
+    effectIntensity: 'strong',
+    markerScale: 1.25,
+  });
   expect(result.diagnostics.canvas.renderPassCounts.terrain).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.fixture).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);

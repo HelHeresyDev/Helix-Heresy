@@ -767,7 +767,18 @@ test('lab blueprint stores room footprints and queues scientist movement with ma
   }, { key: storageKey, prefsKey: preferencesKey });
   expect(debugOffState).toEqual({
     hasSavedDebugFlag: false,
-    preferenceKeys: ['version', 'compactFeedVisible', 'compactFeedFades', 'compactMessageLimit'],
+    preferenceKeys: [
+      'version',
+      'compactFeedVisible',
+      'compactFeedFades',
+      'compactMessageLimit',
+      'mapVisualMode',
+      'mapMotion',
+      'mapContrast',
+      'mapEffectIntensity',
+      'mapMinimumTilePx',
+      'mapMarkerScale',
+    ],
     activeWorkspaceTab: 'map',
   });
   await page.reload();

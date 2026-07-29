@@ -88,14 +88,33 @@ test('importing a save resets transient UI to the map defaults', async ({ page }
 test('reset UI preferences restores defaults and current map view', async ({ page }) => {
   await startRun(page);
 
-  await page.evaluate(({ prefsKey }) => {
-    window.localStorage.setItem(prefsKey, JSON.stringify({
-      version: 1,
-      compactFeedVisible: false,
-      compactFeedFades: false,
-      compactMessageLimit: 1,
-    }));
-  }, { prefsKey: preferencesKey });
+  const accessibility = page.locator('[data-map-accessibility-controls="true"]');
+  await accessibility.locator('summary').click();
+  await accessibility.locator('[data-map-accessibility-preference="mapVisualMode"]').selectOption('glyphs');
+  await accessibility.locator('[data-map-accessibility-preference="mapMotion"]').selectOption('reduced');
+  await accessibility.locator('[data-map-accessibility-preference="mapContrast"]').selectOption('high');
+  await accessibility.locator('[data-map-accessibility-preference="mapEffectIntensity"]').selectOption('reduced');
+  await accessibility.locator('[data-map-accessibility-preference="mapMinimumTilePx"]').selectOption('16');
+  await accessibility.locator('[data-map-accessibility-preference="mapMarkerScale"]').selectOption('1.5');
+
+  await expect(page.locator('[data-lab-map-panel="true"]')).toHaveAttribute('data-map-visual-mode', 'glyphs');
+  await expect(page.locator('[data-lab-map-panel="true"]')).toHaveAttribute('data-map-contrast', 'high');
+  await expect(page.locator('[data-lab-map-panel="true"]')).toHaveAttribute('data-map-effect-intensity', 'reduced');
+  await expect(page.locator('[data-map-zoom-controls="true"]')).toContainText('16px tiles');
+  await expect(page.locator('[data-map-zoom-controls="true"] button').first()).toBeDisabled();
+  await expect(page.locator('html')).toHaveAttribute('data-reduced-motion', 'true');
+  await expect(page.locator('[data-map-assistive-status="true"]')).toContainText('Map cursor');
+
+  const accessibilityPrefs = await page.evaluate(({ prefsKey }) =>
+    JSON.parse(window.localStorage.getItem(prefsKey) || '{}'), { prefsKey: preferencesKey });
+  expect(accessibilityPrefs).toMatchObject({
+    mapVisualMode: 'glyphs',
+    mapMotion: 'reduced',
+    mapContrast: 'high',
+    mapEffectIntensity: 'reduced',
+    mapMinimumTilePx: 16,
+    mapMarkerScale: 1.5,
+  });
 
   await selectMapOverlay(page, 'resources');
   await page.locator('[data-workspace-tab="log"]').click();
@@ -126,6 +145,12 @@ test('reset UI preferences restores defaults and current map view', async ({ pag
       compactFeedVisible: true,
       compactFeedFades: true,
       compactMessageLimit: 8,
+      mapVisualMode: 'sprites',
+      mapMotion: 'system',
+      mapContrast: 'standard',
+      mapEffectIntensity: 'standard',
+      mapMinimumTilePx: 8,
+      mapMarkerScale: 1,
     },
     ui: {
       mode: 'navigation',

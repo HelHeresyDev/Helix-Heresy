@@ -22,6 +22,7 @@ For story background, long-term systems, current design direction, and open ques
 - Saved player map knowledge with light-aware line-of-sight perception, a physical carried hand lamp, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
 - Knowledge-safe physical lighting and selected temperature, humidity, ambient-mana, light, and aggregate airborne-contamination overlays shared by the DOM and Canvas renderers.
 - Renderer-neutral ground, world, and alert effects for known spills, structural failures, active abilities, incidents, and actionable task endpoints, with severity-ranked equipment status cues.
+- Persistent map accessibility controls for glyph-first rendering, reduced motion, high contrast, effect intensity, readable zoom floors, and scalable markers. Color-independent shapes and glyphs remain active in every mode.
 - Automatic, manual, and disabled journal modes.
 
 Trait outcomes and gene mappings are intentionally hidden during normal play so they can be discovered experimentally.
@@ -58,7 +59,7 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
-- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, knowledge-safe movement interpolation, procedural fallbacks, viewport culling, and conditional animation-frame redraws.
+- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, viewport culling, and conditional animation-frame redraws.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.

@@ -365,7 +365,11 @@ The approved long-term renderer remains hybrid: Canvas for the physical map and 
 
 ## Accessibility And Fallback
 
-The existing glyph map remains a supported fallback rather than disposable scaffolding. Canvas movement already respects the operating system's reduced-motion preference; later passes should add explicit high contrast, color-independent indicators, readable minimum zoom, scalable map markers, and adjustable effect intensity.
+The existing DOM glyph map remains a supported fallback rather than disposable scaffolding. Canvas also has a glyph-first presentation that deliberately skips sprite drawing while preserving procedural terrain, semantic entity glyphs, actor and equipment cues, effects, selection, and interaction.
+
+The renderer-independent HTML accessibility panel persists local preferences for sprite-with-fallback or glyph-first map style, reduced motion, standard or high contrast, reduced/standard/strong effect intensity, 8/12/16-pixel minimum tile size, and 100/125/150-percent marker scale. Operating-system reduced-motion and forced-color settings take precedence. A readable zoom floor clamps every zoom input consistently. Reduced effects retain a minimum visibility for serious hazards.
+
+Color is never the sole signal. Routes, designations, hazards, effects, equipment status, stale or uncertain knowledge, selection, and cursor state retain distinct glyphs, shapes, patterns, line styles, placement, or outlines. The map exposes one polite assistive description for the keyboard cursor's coordinates, known cell details, and selectable target rather than adding every tile to the tab order.
 
 The sprite renderer must preserve all interaction and information available in glyph mode. Visual richness may add atmosphere and recognition, but it may not remove textual identification or keyboard operation.
 

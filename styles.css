@@ -1154,6 +1154,69 @@ h2 {
   font-size: 0.78rem;
 }
 
+.map-accessibility-controls {
+  position: absolute;
+  top: 5.5rem;
+  right: 0.45rem;
+  z-index: 12;
+  max-width: calc(100% - 0.9rem);
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  background: rgba(10, 12, 9, 0.74);
+  border: 1px solid rgba(87, 92, 75, 0.72);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.map-accessibility-controls[open] {
+  width: min(46rem, calc(100% - 0.9rem));
+  max-height: calc(100% - 6rem);
+  overflow: auto;
+  background: rgba(10, 12, 9, 0.97);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.52);
+}
+
+.map-accessibility-controls summary {
+  width: fit-content;
+  color: #e9efe2;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.map-accessibility-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.map-accessibility-fields label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.map-accessibility-fields select {
+  width: 100%;
+}
+
+.map-accessibility-note {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
+.screen-reader-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .map-zoom-controls {
   justify-content: flex-start;
   padding: 0.25rem 0;
@@ -1453,6 +1516,7 @@ body.map-dragging .lab-map-canvas-host {
   position: relative;
   z-index: 2;
   color: inherit;
+  transform: scale(var(--map-marker-scale, 1));
 }
 
 .lab-map-cell.lighting-dark .map-cell-glyph {
@@ -1485,6 +1549,7 @@ body.map-dragging .lab-map-canvas-host {
   place-items: center;
   pointer-events: none;
   text-shadow: 0 1px 2px #000, 0 0 3px #000;
+  transform: scale(var(--map-marker-scale, 1));
 }
 
 .map-cell-effect-marker {
@@ -1573,6 +1638,59 @@ body.map-dragging .lab-map-canvas-host {
 
 .map-cell-status-warning {
   color: #f0d989;
+}
+
+.lab-map-panel[data-map-effect-intensity="reduced"] .map-cell-effect-marker {
+  opacity: 0.58;
+}
+
+.lab-map-panel[data-map-effect-intensity="reduced"] .map-cell-effect-severity-serious,
+.lab-map-panel[data-map-effect-intensity="reduced"] .map-cell-effect-severity-critical {
+  opacity: 0.86;
+}
+
+.lab-map-panel[data-map-effect-intensity="strong"] .map-cell-effect-marker {
+  filter: brightness(1.28) contrast(1.12);
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-grid,
+.lab-map-panel[data-map-contrast="high"] .lab-map-canvas-host {
+  background: #000;
+  border-color: #fff;
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-cell {
+  border-color: rgba(255, 255, 255, 0.58);
+  filter: contrast(1.38);
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-cell.unknown-darkness-cell {
+  border-color: #262626;
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-cell.knowledge-stale {
+  opacity: 0.82;
+  border-style: dashed;
+}
+
+.lab-map-panel[data-map-contrast="high"] .map-cell-glyph {
+  filter: brightness(1.5) contrast(1.3);
+}
+
+.lab-map-panel[data-map-contrast="high"] .map-cell-effect-marker,
+.lab-map-panel[data-map-contrast="high"] .map-cell-status-marker {
+  background: #000;
+  text-shadow: 0 0 2px #000, 0 0 4px #000;
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-cell.selected-map-cell {
+  border-color: #5cffff;
+  box-shadow: 0 0 0 2px #5cffff, inset 0 0 0 1px #000;
+}
+
+.lab-map-panel[data-map-contrast="high"] .lab-map-cell.map-cursor-cell {
+  outline: 2px dashed #fff36a;
+  outline-offset: -3px;
 }
 
 .lab-map-cell.unknown-darkness-cell {
@@ -3626,6 +3744,33 @@ body.map-dragging .lab-map-canvas-host {
   .message-feed[data-feed-fade="true"]:not(.message-feed-empty) {
     animation: none;
     opacity: 1;
+  }
+}
+
+html[data-reduced-motion="true"] .message-feed[data-feed-fade="true"]:not(.message-feed-empty),
+html[data-reduced-motion="true"] .entity-focus-target {
+  animation: none;
+  opacity: 1;
+}
+
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (max-width: 900px) {
+  .map-accessibility-fields {
+    grid-template-columns: repeat(2, minmax(9rem, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .map-accessibility-fields {
+    grid-template-columns: 1fr;
   }
 }
 
