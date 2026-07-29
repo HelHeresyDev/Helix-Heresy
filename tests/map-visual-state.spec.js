@@ -5,6 +5,7 @@ const { pathToFileURL } = require('url');
 const VisualState = require('../map-visual-state.js');
 const ActorVisualState = require('../actor-visual-state.js');
 const AnimationClock = require('../animation-clock.js');
+const MapKnowledge = require('../map-knowledge.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -159,6 +160,36 @@ function expectActorVisualStateContract() {
     action: { id: 'attack-1', kind: 'attack', startedAt: 10, activeAt: 11, endsAt: 13 },
     condition: { cues: ['injured'] },
   });
+
+  const visibleKeys = MapKnowledge.perceivedCellKeys({
+    origin: { x: 2, y: 2, z: -1 },
+    width: 6,
+    height: 6,
+    radius: 2,
+    canSee: (_from, cell) => cell.x <= 2,
+  });
+  expect(visibleKeys.has('2,2,-1')).toBe(true);
+  expect(visibleKeys.has('1,2,-1')).toBe(true);
+  expect(visibleKeys.has('3,2,-1')).toBe(false);
+  const remembered = MapKnowledge.normalizeObservation({
+    cell: { x: 1, y: 2, z: -1 },
+    firstObservedAt: 10,
+    lastObservedAt: 20,
+    source: 'vision',
+    snapshot: { base: { kind: 'floor' } },
+  });
+  expect(MapKnowledge.knowledgeForObservation(remembered, 21)).toMatchObject({
+    state: 'stale',
+    tier: 'recent',
+    observedAt: 20,
+  });
+  expect(MapKnowledge.knowledgeForObservation(remembered, 20 + MapKnowledge.AGED_OBSERVATION_SECONDS + 1))
+    .toMatchObject({ state: 'stale', tier: 'archived' });
+  expect(MapKnowledge.knowledgeForObservation(null, 100)).toMatchObject({
+    state: 'unknown',
+    tier: 'unknown',
+    confidence: 0,
+  });
 }
 
 test('scene model deduplicates entities while retaining footprint and interaction references', () => {
@@ -289,7 +320,7 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   });
 
   expect(result.errors).toEqual([]);
-  expect(result.version).toBe(5);
+  expect(result.version).toBe(6);
   expect(result.perspective.kind).toBe('debug');
   expect(result.sceneCellCount).toBeGreaterThan(result.visibleCellCount);
   expect(result.visibleCellCount).toBe(result.viewport.width * result.viewport.height);
@@ -311,11 +342,38 @@ test('player perspective withholds environmental values for unknown cells', asyn
     const scene = window.helixHeresyDebug.mapSceneSnapshot();
     const unknown = scene.cells.find((cell) => cell.environment?.knowledge?.state === 'unknown');
     const observed = scene.cells.find((cell) => cell.environment?.knowledge?.state === 'current');
+    const mapKnowledge = window.helixHeresyDebug.mapKnowledgeSnapshot();
+    const cellKnowledgeStates = [...new Set(scene.cells.map((cell) => cell.knowledge.state))];
+    const stale = scene.cells.find((cell) => cell.knowledge.state === 'stale');
+    const staleDoor = scene.cells.find((cell) => cell.knowledge.state === 'stale' && cell.door);
+    const currentKeys = scene.cells
+      .filter((cell) => cell.knowledge.state === 'current')
+      .map((cell) => cell.key);
+    const domKnowledgeClasses = window.helixHeresyDebug.mapDomSnapshot()
+      .flatMap((cell) => cell.classNames)
+      .filter((name) => name.startsWith('knowledge-'));
+    let staleDoorPreserved = null;
+    if (staleDoor) {
+      const rememberedState = staleDoor.door.state;
+      window.helixHeresyDebug.setDoorPhysicalState(
+        staleDoor.door.key,
+        rememberedState === 'open' ? 'closed' : 'open'
+      );
+      const after = window.helixHeresyDebug.mapSceneSnapshot().cells
+        .find((cell) => cell.key === staleDoor.key);
+      staleDoorPreserved = after?.door?.state === rememberedState;
+    }
     return {
       perspective: scene.perspective.kind,
       unknownEnvironment: unknown?.environment,
       observedEnvironment: observed?.environment,
       knowledgeStates: [...new Set(scene.entities.map((entity) => entity.knowledge.state))],
+      cellKnowledgeStates,
+      staleBaseKind: stale?.base?.kind,
+      currentKeysArePerceived: currentKeys.every((key) => mapKnowledge.perceivedCellKeys.includes(key)),
+      observationCount: Object.keys(mapKnowledge.observations).length,
+      domKnowledgeClasses,
+      staleDoorPreserved,
     };
   });
 
@@ -330,6 +388,16 @@ test('player perspective withholds environmental values for unknown cells', asyn
     bands: null,
   });
   expect(result.knowledgeStates).not.toContain('debug');
+  expect(result.cellKnowledgeStates).toEqual(expect.arrayContaining(['current', 'stale', 'unknown']));
+  expect(result.staleBaseKind).not.toBe('unknownDark');
+  expect(result.currentKeysArePerceived).toBe(true);
+  expect(result.observationCount).toBeGreaterThan(0);
+  expect(result.staleDoorPreserved).toBe(true);
+  expect(result.domKnowledgeClasses).toEqual(expect.arrayContaining([
+    'knowledge-current',
+    'knowledge-stale',
+    'knowledge-unknown',
+  ]));
 });
 
 test('contained slime remains an interaction target without becoming a map entity', async ({ page }) => {

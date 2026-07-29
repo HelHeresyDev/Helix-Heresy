@@ -211,6 +211,20 @@ The normal renderer represents player knowledge, not omniscient state.
 
 Last-known visuals must be stored or derived from an observation snapshot. The renderer must not rebuild stale appearance from the creature's current hidden genome, mass, condition, or location.
 
+The implemented cell-memory model is sparse save data rather than a saved `MapScene`. A cell observation records its coordinate, first and last observation times, source, and a semantic snapshot of remembered terrain, connectivity, door state, room anchor, and rememberable static objects. Dynamic hidden item, corpse, and actor state is not copied into terrain memory. Creature records separately retain last-known body location, footprint, orientation, facing, pose, activity, and broad condition cues.
+
+Current perception is recomputed from the scientist's same-z position, sensory capability, twelve-tile visual range, and physical line of sight. Walls and nontransparent doors occlude cells. Lighting remains a later refinement of this perception query rather than a reason to expose a hidden cell. Each z-layer has independent knowledge.
+
+Remembered observations age in game time:
+
+- Recent: up to fifteen minutes since observation
+- Aged: over fifteen minutes and up to two hours
+- Archived: over two hours
+
+Terrain remains remembered at every age, with progressively quieter presentation. A changed but unobserved cell continues to draw its saved snapshot with no covert indication that the simulation has changed. Reobserving the cell atomically replaces that snapshot. Player-authored routes, excavation plans, room drafts, and other designations remain visible over unknown or stale space because they are player knowledge.
+
+Uncertain sensory incidents carry an approximate perceived cell, uncertainty radius, source channel, and reduced confidence. They render as markers or regions rather than exact hidden subjects. A stale creature projection is a selectable record at its saved footprint, but physical commands still require reacquisition through the existing exact-observation rules. Debug bypasses the observation boundary explicitly and labels its scene cells and entities as Debug knowledge.
+
 ## Palette And Contrast
 
 The base palette should be dark and desaturated without collapsing known space into black.
@@ -339,7 +353,7 @@ This specification does not yet define:
 
 - Final production sprite filenames or atlas packing
 - Final animation frame counts
-- Exact fog, lighting, and environmental shader treatment
+- Final authored fog, lighting, and environmental shader treatment
 - Final authored cross-layer slice artwork for tall bodies
 - Final swatch values
 

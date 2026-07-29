@@ -1400,6 +1400,26 @@ body.map-dragging .lab-map-canvas-host {
   font-weight: 700;
 }
 
+.lab-map-cell.knowledge-stale {
+  filter: saturate(0.48) brightness(0.78);
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.lab-map-cell.knowledge-stale.knowledge-tier-aged {
+  opacity: 0.62;
+}
+
+.lab-map-cell.knowledge-stale.knowledge-tier-archived {
+  filter: saturate(0.25) brightness(0.62);
+  opacity: 0.5;
+}
+
+.lab-map-cell.knowledge-current,
+.lab-map-cell.knowledge-debug {
+  opacity: 1;
+}
+
 .lab-map-cell.unknown-darkness-cell {
   background: #030403;
   border-color: #050605;

@@ -19,6 +19,7 @@ For story background, long-term systems, current design direction, and open ques
 - Corpse handling with waste drums, decay states, necropsy, dumping, Suspicion, and policy-driven Corpse Processing jobs.
 - Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments that can affect slime condition stats.
 - Scientist stamina, mana, skills, XP/resource cheats, timed tasks, speed controls, skip controls, and keyboard shortcuts.
+- Saved player map knowledge with line-of-sight perception, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
 - Automatic, manual, and disabled journal modes.
 
 Trait outcomes and gene mappings are intentionally hidden during normal play so they can be discovered experimentally.
@@ -49,6 +50,7 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
+- `map-knowledge.js` - Sparse saved cell observations, same-layer perception queries, last-observed age tiers, and knowledge records for current, stale, unknown, and Debug map presentation.
 - `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, separate physical orientation and actor facing, knowledge state, animation timelines, interactions, overscan, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
