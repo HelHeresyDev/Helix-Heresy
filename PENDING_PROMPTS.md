@@ -14,23 +14,18 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Glyph Fallback and Accessibility Modes
-2. Large-Population Rendering Benchmark and Culling
-3. Automated Visual Regression and Renderer-Parity Tests
+1. Large-Population Rendering Benchmark and Culling
+2. Automated Visual Regression and Renderer-Parity Tests
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Do not remove the current DOM map renderer until the Canvas renderer has demonstrated behavioral and visual parity.
 
 ---
 
-## 1. Glyph Fallback and Accessibility Modes
-
-Preserve a complete glyph-based map mode alongside sprites. Add options for reduced motion, high contrast, color-independent indicators, readable zoom limits, and alternate effect intensity so the Canvas transition does not sacrifice the prototype's clarity or accessibility.
-
-## 2. Large-Population Rendering Benchmark and Culling
+## 1. Large-Population Rendering Benchmark and Culling
 
 Benchmark the Canvas renderer with large maps, hundreds of actors, multi-tile bodies, effects, overlays, and frequent simulation updates. Establish frame-time budgets, viewport culling, dirty-state rules, allocation limits, and evidence-based thresholds before considering WebGL or another rendering layer.
 
-## 3. Automated Visual Regression and Renderer-Parity Tests
+## 2. Automated Visual Regression and Renderer-Parity Tests
 
 Build deterministic screenshots and semantic parity tests for representative map states, zoom levels, z-layers, selections, overlays, knowledge states, crowded tiles, large actors, and responsive viewports. Canvas should replace the DOM map only after required interactions and visible information remain equivalent.
 

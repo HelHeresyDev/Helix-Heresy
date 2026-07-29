@@ -632,6 +632,12 @@
   const MAP_WHEEL_ZOOM_THRESHOLD = 40;
   const MAP_WHEEL_ZOOM_COOLDOWN_MS = 90;
   const CANVAS_MAP_HOVER_DELAY_MS = 180;
+  const MAP_VISUAL_MODES = ["sprites", "glyphs"];
+  const MAP_MOTION_MODES = ["system", "reduced"];
+  const MAP_CONTRAST_MODES = ["standard", "high"];
+  const MAP_EFFECT_INTENSITIES = ["reduced", "standard", "strong"];
+  const MAP_MINIMUM_TILE_SIZES = [8, 12, 16];
+  const MAP_MARKER_SCALES = [1, 1.25, 1.5];
   const LAB_MAP_ROOM_RECTS = {
     [MAIN_ROOM_ID]: { x: 46, y: 45, width: 12, height: 10 },
     [MENAGERIE_ROOM_ID]: { x: 32, y: 46, width: 14, height: 8 },
@@ -3329,6 +3335,7 @@
   let canvasMapPointerState = null;
   let canvasMapLastSelectionCell = null;
   let canvasMapHoverTimer = 0;
+  let mapAccessibilityPanelOpen = false;
   let roomPaintState = null;
   let accessPaintState = null;
   let suppressNextMapClick = false;
@@ -4237,7 +4244,13 @@
       version: PREFERENCES_VERSION,
       compactFeedVisible: true,
       compactFeedFades: true,
-      compactMessageLimit: COMPACT_MESSAGE_LIMIT
+      compactMessageLimit: COMPACT_MESSAGE_LIMIT,
+      mapVisualMode: "sprites",
+      mapMotion: "system",
+      mapContrast: "standard",
+      mapEffectIntensity: "standard",
+      mapMinimumTilePx: 8,
+      mapMarkerScale: 1
     };
   }
 
@@ -4481,6 +4494,8 @@
     cacheDom();
     ensureInventoryPanel();
     uiPreferences = loadUiPreferences();
+    applyAccessibilityDocumentPreferences();
+    installAccessibilityMediaListeners();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
     persistUiPreferences();
     populateTimeSpeedSelect();
@@ -4776,6 +4791,7 @@
       }),
       mapRendererSnapshot: () => ({
         mode: currentMapRendererMode(),
+        accessibility: mapAccessibilityPresentation(),
         canvas: activeCanvasMapRenderer?.snapshot?.() || null,
         assets: spriteAssetLoader.snapshot(),
         cameraOffset: { ...canvasMapPanOffset },
@@ -6134,6 +6150,7 @@
 
   function canvasMapPresentation(mapView = null) {
     const view = mapView || activeCanvasMapSurface?.mapView || buildLabMapView();
+    const accessibility = mapAccessibilityPresentation();
     return {
       tilePx: Number(view?.zoom?.tilePx) || mapViewportForUi(ensureLabMap()).tilePx,
       origin: {
@@ -6141,7 +6158,11 @@
         y: CANVAS_MAP_ORIGIN_PX - canvasMapPanOffset.y
       },
       includeOverscan: true,
-      reducedMotion: Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
+      glyphMode: accessibility.visualMode === "glyphs",
+      reducedMotion: accessibility.reducedMotion,
+      highContrast: accessibility.highContrast,
+      effectIntensity: accessibility.effectIntensity,
+      markerScale: accessibility.markerScale
     };
   }
 
@@ -6949,6 +6970,8 @@
 
   function normalizeUiPreferences(candidate = {}) {
     const defaults = defaultUiPreferences();
+    const minimumTilePx = Number(candidate?.mapMinimumTilePx);
+    const markerScale = Number(candidate?.mapMarkerScale);
     return {
       version: PREFERENCES_VERSION,
       compactFeedVisible: candidate?.compactFeedVisible === undefined
@@ -6961,8 +6984,70 @@
         Math.round(Number(candidate?.compactMessageLimit) || defaults.compactMessageLimit),
         1,
         20
-      )
+      ),
+      mapVisualMode: MAP_VISUAL_MODES.includes(candidate?.mapVisualMode)
+        ? candidate.mapVisualMode
+        : defaults.mapVisualMode,
+      mapMotion: MAP_MOTION_MODES.includes(candidate?.mapMotion)
+        ? candidate.mapMotion
+        : defaults.mapMotion,
+      mapContrast: MAP_CONTRAST_MODES.includes(candidate?.mapContrast)
+        ? candidate.mapContrast
+        : defaults.mapContrast,
+      mapEffectIntensity: MAP_EFFECT_INTENSITIES.includes(candidate?.mapEffectIntensity)
+        ? candidate.mapEffectIntensity
+        : defaults.mapEffectIntensity,
+      mapMinimumTilePx: MAP_MINIMUM_TILE_SIZES.includes(minimumTilePx)
+        ? minimumTilePx
+        : defaults.mapMinimumTilePx,
+      mapMarkerScale: MAP_MARKER_SCALES.includes(markerScale)
+        ? markerScale
+        : defaults.mapMarkerScale
     };
+  }
+
+  function mediaPreferenceMatches(query) {
+    try {
+      return Boolean(window.matchMedia?.(query)?.matches);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function mapAccessibilityPresentation() {
+    const prefs = normalizeUiPreferences(uiPreferences);
+    return {
+      visualMode: prefs.mapVisualMode,
+      reducedMotion: prefs.mapMotion === "reduced"
+        || mediaPreferenceMatches("(prefers-reduced-motion: reduce)"),
+      highContrast: prefs.mapContrast === "high"
+        || mediaPreferenceMatches("(forced-colors: active)"),
+      effectIntensity: prefs.mapEffectIntensity,
+      minimumTilePx: prefs.mapMinimumTilePx,
+      markerScale: prefs.mapMarkerScale
+    };
+  }
+
+  function applyAccessibilityDocumentPreferences() {
+    const presentation = mapAccessibilityPresentation();
+    document.documentElement.dataset.reducedMotion = String(presentation.reducedMotion);
+    document.documentElement.dataset.mapContrast = presentation.highContrast ? "high" : "standard";
+  }
+
+  function installAccessibilityMediaListeners() {
+    for (const query of ["(prefers-reduced-motion: reduce)", "(forced-colors: active)"]) {
+      const media = window.matchMedia?.(query);
+      media?.addEventListener?.("change", () => {
+        applyAccessibilityDocumentPreferences();
+        if (state?.started && currentWorkspaceTab() === "map") renderMapInteraction();
+      });
+    }
+  }
+
+  function minimumMapZoomIndex() {
+    const minimumTilePx = mapAccessibilityPresentation().minimumTilePx;
+    const index = LAB_MAP_ZOOM_LEVELS.findIndex((tilePx) => tilePx >= minimumTilePx);
+    return index >= 0 ? index : 0;
   }
 
   function loadUiPreferences() {
@@ -6999,6 +7084,8 @@
 
   function resetUiPreferences() {
     uiPreferences = defaultUiPreferences();
+    mapAccessibilityPanelOpen = false;
+    applyAccessibilityDocumentPreferences();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
     setMapRendererMode(MAP_RENDERER_DOM, { render: false });
     persistUiPreferences();
@@ -7472,7 +7559,11 @@
 
   function normalizeMapZoomIndex(value) {
     const index = Math.round(Number(value));
-    return clamp(Number.isFinite(index) ? index : LAB_MAP_DEFAULT_ZOOM_INDEX, 0, LAB_MAP_ZOOM_LEVELS.length - 1);
+    return clamp(
+      Number.isFinite(index) ? index : LAB_MAP_DEFAULT_ZOOM_INDEX,
+      minimumMapZoomIndex(),
+      LAB_MAP_ZOOM_LEVELS.length - 1
+    );
   }
 
   function mapZoomTilePx(zoomIndex = LAB_MAP_DEFAULT_ZOOM_INDEX) {
@@ -49231,7 +49322,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         tilePx: viewport.tilePx,
         label: `${viewport.tilePx}px tiles`,
         canZoomIn: viewport.zoomIndex < LAB_MAP_ZOOM_LEVELS.length - 1,
-        canZoomOut: viewport.zoomIndex > 0
+        canZoomOut: viewport.zoomIndex > minimumMapZoomIndex()
       },
       fullReveal,
       headerMeta: `${map.width} x ${map.height} m grid; Z ${viewport.z}; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m; layer = ${formatDecimal(map.layerHeightM, 0)} m`,
@@ -49361,6 +49452,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return mode === UI_MODE_COMMAND ? "Command mode" : "Navigation mode";
   }
 
+  function mapAssistiveDescription(mapView) {
+    const cursor = cleanMapCell(mapView?.cursor);
+    if (!cursor) return "Map cursor unavailable.";
+    const cellView = mapView.cells.find((cell) => mapCellKey(cell.cell) === mapCellKey(cursor));
+    const domModel = cellView ? labMapCellDomModel(cellView, mapView.scene) : null;
+    const target = mapView.cursorTarget ? selectionLabel(mapView.cursorTarget) : "nothing selectable";
+    const detail = domModel?.title || cellView?.tooltip?.text || "No known map detail.";
+    return `Map cursor ${cursor.x}, ${cursor.y}, ${cursor.z}. ${target}. ${detail}`;
+  }
+
+  function mapAssistiveStatusEl(mapView) {
+    const status = document.createElement("div");
+    status.id = "mapAssistiveStatus";
+    status.className = "screen-reader-only";
+    status.dataset.mapAssistiveStatus = "true";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.setAttribute("aria-atomic", "true");
+    status.textContent = mapAssistiveDescription(mapView);
+    return status;
+  }
+
   function keyboardStatusEl(mapView) {
     const row = document.createElement("div");
     row.className = "keyboard-status-row";
@@ -49384,6 +49497,106 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       textEl("span", mapView.mode === UI_MODE_COMMAND ? "1-9 choose commands; Esc cancels." : menuHint)
     );
     return row;
+  }
+
+  function mapAccessibilitySelect(labelText, preferenceKey, options, value) {
+    const label = document.createElement("label");
+    const text = textEl("span", labelText);
+    const select = document.createElement("select");
+    select.dataset.mapAccessibilityPreference = preferenceKey;
+    select.setAttribute("aria-label", labelText);
+    for (const [optionValue, optionLabel] of options) {
+      const option = document.createElement("option");
+      option.value = String(optionValue);
+      option.textContent = optionLabel;
+      select.append(option);
+    }
+    select.value = String(value);
+    select.addEventListener("change", () => {
+      mapAccessibilityPanelOpen = Boolean(select.closest("details")?.open);
+      setMapAccessibilityPreference(preferenceKey, select.value);
+    });
+    label.append(text, select);
+    return label;
+  }
+
+  function setMapAccessibilityPreference(preferenceKey, value) {
+    const next = { ...normalizeUiPreferences(uiPreferences) };
+    if (preferenceKey === "mapMinimumTilePx") next[preferenceKey] = Number(value);
+    else if (preferenceKey === "mapMarkerScale") next[preferenceKey] = Number(value);
+    else next[preferenceKey] = value;
+    uiPreferences = normalizeUiPreferences(next);
+    persistUiPreferences();
+    applyAccessibilityDocumentPreferences();
+    if (!state?.started) return;
+    const ui = ensureUiState();
+    const minimumZoomIndex = minimumMapZoomIndex();
+    if (ui.mapZoomIndex < minimumZoomIndex) {
+      setMapZoom(minimumZoomIndex - ui.mapZoomIndex);
+      return;
+    }
+    renderMapInteraction();
+  }
+
+  function mapAccessibilityControlsEl() {
+    const prefs = normalizeUiPreferences(uiPreferences);
+    const details = document.createElement("details");
+    details.className = "map-accessibility-controls";
+    details.dataset.mapAccessibilityControls = "true";
+    details.open = mapAccessibilityPanelOpen;
+    details.addEventListener("toggle", () => {
+      mapAccessibilityPanelOpen = details.open;
+    });
+
+    const summary = document.createElement("summary");
+    summary.textContent = "Display & Accessibility";
+    const fields = document.createElement("div");
+    fields.className = "map-accessibility-fields";
+    fields.append(
+      mapAccessibilitySelect("Map style", "mapVisualMode", [
+        ["sprites", "Sprites with glyph fallbacks"],
+        ["glyphs", "Glyph-first"]
+      ], prefs.mapVisualMode),
+      mapAccessibilitySelect("Motion", "mapMotion", [
+        ["system", "Follow system"],
+        ["reduced", "Reduced"]
+      ], prefs.mapMotion),
+      mapAccessibilitySelect("Contrast", "mapContrast", [
+        ["standard", "Standard"],
+        ["high", "High"]
+      ], prefs.mapContrast),
+      mapAccessibilitySelect("Effect intensity", "mapEffectIntensity", [
+        ["reduced", "Reduced"],
+        ["standard", "Standard"],
+        ["strong", "Strong"]
+      ], prefs.mapEffectIntensity),
+      mapAccessibilitySelect("Minimum tile size", "mapMinimumTilePx", [
+        [8, "Strategic · 8px"],
+        [12, "Readable · 12px"],
+        [16, "Large · 16px"]
+      ], prefs.mapMinimumTilePx),
+      mapAccessibilitySelect("Marker size", "mapMarkerScale", [
+        [1, "100%"],
+        [1.25, "125%"],
+        [1.5, "150%"]
+      ], prefs.mapMarkerScale)
+    );
+    const note = textEl(
+      "p",
+      "Color-independent glyphs and shapes remain active in every mode. Reduced effects never hide serious hazards."
+    );
+    note.className = "map-accessibility-note";
+    details.append(summary, fields, note);
+    return details;
+  }
+
+  function setMapAccessibilityDataset(element) {
+    const presentation = mapAccessibilityPresentation();
+    element.dataset.mapVisualMode = presentation.visualMode;
+    element.dataset.mapReducedMotion = String(presentation.reducedMotion);
+    element.dataset.mapContrast = presentation.highContrast ? "high" : "standard";
+    element.dataset.mapEffectIntensity = presentation.effectIntensity;
+    element.style.setProperty("--map-marker-scale", String(presentation.markerScale));
   }
 
   function mapZoomControlsEl(mapView) {
@@ -49766,6 +49979,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     element.dataset.mapViewportZ = String(mapView.viewport.z);
     element.dataset.mapViewportWidth = String(mapView.viewport.width);
     element.dataset.mapViewportHeight = String(mapView.viewport.height);
+    setMapAccessibilityDataset(element);
   }
 
   function canvasMapSurfaceEl(mapView) {
@@ -49781,7 +49995,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     canvas.dataset.canvasMap = "true";
     canvas.setAttribute("role", "img");
     canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);
-    canvas.setAttribute("aria-describedby", "canvasMapPrototypeNotice");
+    canvas.setAttribute("aria-describedby", "canvasMapPrototypeNotice mapAssistiveStatus");
     host.append(canvas);
 
     const notice = document.createElement("div");
@@ -49841,6 +50055,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.className = "lab-map-panel subpanel";
     panel.dataset.labMapPanel = "true";
     panel.dataset.mapRenderer = currentMapRendererMode();
+    setMapAccessibilityDataset(panel);
 
     const header = document.createElement("div");
     header.className = "lab-map-header";
@@ -49849,7 +50064,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     meta.dataset.mapHeaderMeta = "true";
     header.append(title, meta);
     panel.append(header);
+    panel.append(mapAccessibilityControlsEl());
     panel.append(keyboardStatusEl(mapView));
+    panel.append(mapAssistiveStatusEl(mapView));
     panel.append(mapZoomControlsEl(mapView));
     if (mapView.keyboardHelpOpen) {
       panel.append(keyboardHelpEl());
@@ -49863,6 +50080,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const grid = document.createElement("div");
     grid.className = "lab-map-grid";
+    grid.tabIndex = 0;
+    grid.setAttribute("role", "region");
+    grid.setAttribute("aria-label", `Interactive glyph laboratory map at Z ${mapView.viewport.z}`);
+    grid.setAttribute("aria-describedby", "mapAssistiveStatus");
     setMapViewportDataset(grid, mapView);
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
@@ -50254,8 +50475,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (meta) meta.textContent = mapView.headerMeta;
       const status = surface.panel.querySelector("[data-keyboard-mode]");
       if (status) status.replaceWith(keyboardStatusEl(mapView));
+      const assistiveStatus = surface.panel.querySelector('[data-map-assistive-status="true"]');
+      if (assistiveStatus) assistiveStatus.replaceWith(mapAssistiveStatusEl(mapView));
       const controls = surface.panel.querySelector('[data-map-zoom-controls="true"]');
       if (controls) controls.replaceWith(mapZoomControlsEl(mapView));
+      setMapAccessibilityDataset(surface.panel);
     }
     return true;
   }

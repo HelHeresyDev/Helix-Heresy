@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 5;
+  const RENDERER_VERSION = 6;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -146,6 +146,15 @@
     });
   }
 
+  function highContrastStyle(style, enabled = false) {
+    if (!enabled || !style) return style;
+    return withStyle(style, {
+      fill: mixColor(style.fill, "#000000", 0.48),
+      stroke: mixColor(style.stroke, "#ffffff", 0.5),
+      text: style.text === "transparent" ? style.text : mixColor(style.text, "#ffffff", 0.42)
+    });
+  }
+
   function overlayStyle(cell, style) {
     const overlay = cell?.overlay;
     if (!overlay) return style;
@@ -191,7 +200,7 @@
     return style;
   }
 
-  function cellStyle(cell) {
+  function cellStyle(cell, options = {}) {
     const base = cell?.base || {};
     let style = BASE_STYLES[base.kind] || BASE_STYLES.solidEarth;
     if (base.kind === "room") {
@@ -223,21 +232,21 @@
         dashed: true
       });
     }
-    return style;
+    return highContrastStyle(style, options.highContrast);
   }
 
-  function entityStyle(entity) {
+  function entityStyle(entity, options = {}) {
     const style = ENTITY_STYLES[entity?.kind] || ENTITY_STYLES[entity?.category] || ENTITY_STYLES.mapArtifact;
     if (entity?.knowledge?.state === "stale") {
-      return withStyle(style, { alpha: 0.62, dashed: true });
+      return highContrastStyle(withStyle(style, { alpha: 0.62, dashed: true }), options.highContrast);
     }
     if (entity?.knowledge?.state === "uncertain") {
-      return withStyle(style, { alpha: 0.48, dashed: true });
+      return highContrastStyle(withStyle(style, { alpha: 0.48, dashed: true }), options.highContrast);
     }
     if (entity?.condition?.band === "critical" || entity?.condition?.band === "breached") {
-      return withStyle(style, { stroke: "#ff8b73" });
+      return highContrastStyle(withStyle(style, { stroke: "#ff8b73" }), options.highContrast);
     }
-    return style;
+    return highContrastStyle(style, options.highContrast);
   }
 
   function entityMotionSample(entity, options = {}) {
@@ -285,12 +294,12 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawGlyph(ctx, glyph, x, y, size, color, alpha = 1) {
+  function drawGlyph(ctx, glyph, x, y, size, color, alpha = 1, markerScale = 1) {
     if (!glyph || color === "transparent") return;
     ctx.save();
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha *= alpha;
     ctx.fillStyle = color;
-    ctx.font = `700 ${Math.max(6, Math.floor(size * 0.48))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+    ctx.font = `700 ${Math.max(6, Math.floor(size * 0.48 * cleanNumber(markerScale, 1)))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(String(glyph), x + size / 2, y + size / 2 + size * 0.025, size * 0.92);
@@ -591,14 +600,15 @@
     };
   }
 
-  function drawActorStateCues(ctx, entity, position, tilePx, alpha = 1) {
+  function drawActorStateCues(ctx, entity, position, tilePx, alpha = 1, markerScale = 1) {
     const cue = actorCueModel(entity);
     if (!cue || tilePx < 8) return false;
+    const scale = Math.max(1, cleanNumber(markerScale, 1));
     const x = position.x;
     const y = position.y;
     const center = { x: x + tilePx / 2, y: y + tilePx / 2 };
     const edge = tilePx * 0.16;
-    const half = Math.max(1.5, tilePx * 0.09);
+    const half = Math.max(1.5, tilePx * 0.09 * scale);
     ctx.save();
     ctx.globalAlpha = Math.min(1, Math.max(0.35, alpha));
     if (cue.facing !== "none") {
@@ -624,7 +634,7 @@
       ctx.closePath();
       ctx.fill();
     }
-    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.31))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.31 * scale))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
     ctx.textBaseline = "bottom";
     if (cue.poseMark) {
       ctx.fillStyle = "#f0d989";
@@ -641,16 +651,17 @@
     return true;
   }
 
-  function drawEntityStatusCues(ctx, entity, position, tilePx, alpha = 1) {
+  function drawEntityStatusCues(ctx, entity, position, tilePx, alpha = 1, markerScale = 1) {
     const cues = (entity?.statusCues || []).slice(0, 2);
     if (!cues.length) return false;
+    const scale = Math.max(1, cleanNumber(markerScale, 1));
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.23))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+    ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.23 * scale))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     cues.forEach((cue, index) => {
-      const radius = Math.max(3, tilePx * 0.16);
+      const radius = Math.max(3, tilePx * 0.16 * scale);
       const x = position.x + tilePx - radius - index * radius * 1.65;
       const y = position.y + tilePx - radius;
       ctx.beginPath();
@@ -677,7 +688,7 @@
     return "#e1b75f";
   }
 
-  function effectAlpha(effect) {
+  function effectAlpha(effect, options = {}) {
     const knowledgeAlpha = effect?.knowledge?.state === "stale" ? 0.52
       : effect?.knowledge?.state === "uncertain" ? 0.68
         : 1;
@@ -688,7 +699,13 @@
       high: 0.84,
       extreme: 1
     }[effect?.intensityBand] || 0.68;
-    return knowledgeAlpha * intensityAlpha;
+    const presentationMultiplier = {
+      reduced: 0.58,
+      standard: 1,
+      strong: 1.24
+    }[options.effectIntensity] || 1;
+    const minimum = ["serious", "critical"].includes(effect?.severity) ? 0.66 : 0.2;
+    return Math.min(1, Math.max(minimum, knowledgeAlpha * intensityAlpha * presentationMultiplier));
   }
 
   function drawGroundEffect(ctx, effect, position, tilePx, color) {
@@ -790,7 +807,7 @@
     drawGlyph(ctx, effect.glyph || "!", position.x, position.y, tilePx, color);
   }
 
-  function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, assetLoader) {
+  function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, options = {}) {
     let cellsDrawn = 0;
     let spritesDrawn = 0;
     let spriteFallbacks = 0;
@@ -799,16 +816,16 @@
       cellsDrawn += 1;
       const position = tilePosition(cell, viewport, tilePx, origin);
       const spriteKey = effect.visualKey;
-      const sprite = resolveSprite(assetLoader, spriteKey);
+      const sprite = options.glyphMode ? null : resolveSprite(options.assetLoader, spriteKey);
       if (sprite) {
         drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx);
         spritesDrawn += 1;
-      } else if (spriteKey) {
+      } else if (spriteKey && !options.glyphMode) {
         spriteFallbacks += 1;
       }
       ctx.save();
       const color = effectColor(effect);
-      ctx.globalAlpha = effectAlpha(effect);
+      ctx.globalAlpha = effectAlpha(effect, options);
       if (["stale", "uncertain"].includes(effect.knowledge?.state)) {
         ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
       }
@@ -829,9 +846,19 @@
         );
         ctx.stroke();
       }
+      drawGlyph(
+        ctx,
+        effect.glyph || "!",
+        position.x,
+        position.y,
+        tilePx,
+        color,
+        1,
+        options.markerScale
+      );
       if (effect.stackCount > 1) {
         ctx.fillStyle = color;
-        ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.24))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+        ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.24 * cleanNumber(options.markerScale, 1)))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
         ctx.textAlign = "right";
         ctx.textBaseline = "top";
         ctx.fillText(String(effect.stackCount), position.x + tilePx * 0.94, position.y + tilePx * 0.04, tilePx * 0.4);
@@ -870,19 +897,19 @@
 
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
-      const style = cellStyle(cell);
+      const style = cellStyle(cell, options);
       drawTile(ctx, position.x, position.y, tilePx, style);
       const spriteKey = terrainSpriteKey(cell);
-      const sprite = resolveSprite(options.assetLoader, spriteKey);
+      const sprite = options.glyphMode ? null : resolveSprite(options.assetLoader, spriteKey);
       if (sprite) {
         drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx, 0.55 * cleanNumber(style.alpha, 1));
         spritesDrawn += 1;
-      } else if (spriteKey) {
+      } else if (spriteKey && !options.glyphMode) {
         spriteFallbacks += 1;
       }
       const priorAlpha = ctx.globalAlpha;
       ctx.globalAlpha = cleanNumber(style.alpha, 1);
-      drawGlyph(ctx, terrainGlyph(cell), position.x, position.y, tilePx, style.text);
+      drawGlyph(ctx, terrainGlyph(cell), position.x, position.y, tilePx, style.text, 1, options.markerScale);
       ctx.globalAlpha = priorAlpha;
     }
     countPass(RenderOrder.RENDER_PASSES.terrain, cells.length);
@@ -902,7 +929,10 @@
     const drawEntity = (entity) => {
       const anchorLightingCell = cellsByKey.get(cellKey(entity.anchorCell))
         || (entity.footprintCells || []).map((cell) => cellsByKey.get(cellKey(cell))).find(Boolean);
-      const style = lightingStyle(anchorLightingCell, entityStyle(entity), 0.42);
+      const style = highContrastStyle(
+        lightingStyle(anchorLightingCell, entityStyle(entity), 0.42),
+        options.highContrast
+      );
       const motionSample = entityMotionSample(entity, options);
       entityMotionSamples.set(entity.id, motionSample);
       if (motionSample.active) activeAnimations += 1;
@@ -935,7 +965,9 @@
       if (glyphAnchor) {
         const position = tilePosition(glyphAnchor, viewport, tilePx, origin, motionSample.offset);
         const spriteKey = entity.visual?.key;
-        const sprite = resolveSprite(options.assetLoader, spriteKey, entity.visual?.fallbackKeys);
+        const sprite = options.glyphMode
+          ? null
+          : resolveSprite(options.assetLoader, spriteKey, entity.visual?.fallbackKeys);
         if (sprite) {
           const placement = spritePlacement(entity, sprite);
           if (drawPlacedSprite(
@@ -965,11 +997,12 @@
               position.y,
               tilePx,
               style.text,
-              cleanNumber(style.alpha, 1) * alphaMultiplier
+              cleanNumber(style.alpha, 1) * alphaMultiplier,
+              options.markerScale
             );
           }
         } else {
-          if (spriteKey) spriteFallbacks += 1;
+          if (spriteKey && !options.glyphMode) spriteFallbacks += 1;
           drawGlyph(
             ctx,
             entity.visual?.glyph || "?",
@@ -977,7 +1010,8 @@
             position.y,
             tilePx,
             style.text,
-            cleanNumber(style.alpha, 1) * alphaMultiplier
+            cleanNumber(style.alpha, 1) * alphaMultiplier,
+            options.markerScale
           );
         }
         drawActorStateCues(
@@ -985,14 +1019,16 @@
           entity,
           position,
           tilePx,
-          cleanNumber(style.alpha, 1) * alphaMultiplier
+          cleanNumber(style.alpha, 1) * alphaMultiplier,
+          options.markerScale
         );
         drawEntityStatusCues(
           ctx,
           entity,
           position,
           tilePx,
-          cleanNumber(style.alpha, 1) * alphaMultiplier
+          cleanNumber(style.alpha, 1) * alphaMultiplier,
+          options.markerScale
         );
       }
       const bounds = entityBounds(entity);
@@ -1021,7 +1057,7 @@
           viewport,
           tilePx,
           origin,
-          options.assetLoader
+          options
         );
         spritesDrawn += counts.spritesDrawn;
         spriteFallbacks += counts.spriteFallbacks;
@@ -1067,15 +1103,15 @@
           : position;
         ctx.save();
         ctx.globalAlpha = selectedMotion?.opacity ?? 1;
-        ctx.strokeStyle = "#68c8d8";
-        ctx.lineWidth = Math.max(1.5, tilePx * 0.09);
+        ctx.strokeStyle = options.highContrast ? "#5cffff" : "#68c8d8";
+        ctx.lineWidth = Math.max(options.highContrast ? 2.25 : 1.5, tilePx * (options.highContrast ? 0.13 : 0.09));
         ctx.strokeRect(selectionPosition.x + 1, selectionPosition.y + 1, Math.max(0, tilePx - 2), Math.max(0, tilePx - 2));
         ctx.restore();
         countPass(RenderOrder.RENDER_PASSES.selection);
       }
       if (cell.cursor) {
-        ctx.strokeStyle = "#f0d989";
-        ctx.lineWidth = Math.max(1.5, tilePx * 0.08);
+        ctx.strokeStyle = options.highContrast ? "#fff36a" : "#f0d989";
+        ctx.lineWidth = Math.max(options.highContrast ? 2.25 : 1.5, tilePx * (options.highContrast ? 0.12 : 0.08));
         ctx.strokeRect(position.x + 3, position.y + 3, Math.max(0, tilePx - 6), Math.max(0, tilePx - 6));
         countPass(RenderOrder.RENDER_PASSES.cursor);
       }
@@ -1152,7 +1188,14 @@
         presentation: {
           tilePx: Math.max(4, cleanNumber(presentation.tilePx, 14)),
           origin: presentationOrigin(presentation),
-          includeOverscan: Boolean(presentation.includeOverscan)
+          includeOverscan: Boolean(presentation.includeOverscan),
+          glyphMode: Boolean(presentation.glyphMode),
+          reducedMotion: Boolean(presentation.reducedMotion),
+          highContrast: Boolean(presentation.highContrast),
+          effectIntensity: ["reduced", "strong"].includes(presentation.effectIntensity)
+            ? presentation.effectIntensity
+            : "standard",
+          markerScale: Math.max(1, cleanNumber(presentation.markerScale, 1))
         },
         timeline: presentationClock.snapshot(),
         assets: options.assetLoader?.snapshot?.() || null
@@ -1180,7 +1223,7 @@
         canvas.height = backingHeight;
       }
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      context.fillStyle = "#090a08";
+      context.fillStyle = presentation.highContrast ? "#000000" : "#090a08";
       context.fillRect(0, 0, cssWidth, cssHeight);
       const counts = renderScene(context, scene, {
         ...presentation,
