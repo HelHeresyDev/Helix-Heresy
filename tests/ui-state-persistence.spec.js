@@ -11,7 +11,10 @@ const preferencesKey = 'helix-heresy-v1-preferences';
 
 async function startRun(page) {
   await page.goto(appUrl);
-  await page.evaluate(() => window.localStorage.clear());
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
+  });
   await page.reload();
   await page.locator('#setupForm button[type="submit"]').click();
 }
@@ -109,6 +112,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
     JSON.parse(window.localStorage.getItem(prefsKey) || '{}'), { prefsKey: preferencesKey });
   expect(accessibilityPrefs).toMatchObject({
     mapVisualMode: 'glyphs',
+    mapRendererMode: 'dom',
     mapMotion: 'reduced',
     mapContrast: 'high',
     mapEffectIntensity: 'reduced',
@@ -128,6 +132,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
   await expect(page.locator('#debugToggleBtn')).toHaveText('Debug On');
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
+  await expect(page.locator('canvas[data-canvas-map="true"]')).toBeVisible();
 
   const resetState = await page.evaluate(({ key, prefsKey }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -146,6 +151,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
       compactFeedFades: true,
       compactMessageLimit: 8,
       mapVisualMode: 'sprites',
+      mapRendererMode: 'canvas',
       mapMotion: 'system',
       mapContrast: 'standard',
       mapEffectIntensity: 'standard',

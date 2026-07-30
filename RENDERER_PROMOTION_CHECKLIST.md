@@ -1,6 +1,6 @@
 # Renderer Promotion Checklist
 
-Canvas remains an optional Debug renderer and the DOM glyph map remains the default fallback. Passing this checklist makes Canvas eligible for a separate default-renderer decision; it does not automatically switch the default or authorize removal of the DOM renderer.
+Canvas is the trial default renderer. The DOM Compatibility Map remains a persistent player-facing fallback, and this checklist governs the later decision to finalize Canvas promotion; it does not authorize removal of the DOM renderer.
 
 ## Automated Gates
 
@@ -11,7 +11,8 @@ Canvas remains an optional Debug renderer and the DOM glyph map remains the defa
 - [x] Chromium-on-Ubuntu screenshot baselines are committed and checked without automatic updates.
 - [x] Existing Canvas pointer, camera, designation, contextual-command, accessibility, and persistence tests remain active.
 - [x] The large-population benchmark retains strict offscreen-count and idle-frame invariants and reports its advisory frame budgets.
-- [x] The Chromium correctness suite remains 185 tests.
+- [x] Renderer choice persists as a UI preference independent of saves, and Canvas failures automatically switch to DOM with a visible explanation.
+- [x] The focused Chromium correctness suite remains 150 tests, including a 14-test smoke tier.
 
 ## Human and Release Gates
 
@@ -19,7 +20,7 @@ Canvas remains an optional Debug renderer and the DOM glyph map remains the defa
 - [ ] Canvas has been used as the default renderer for a dedicated manual soak pass covering ordinary play, not only synthetic fixtures.
 - [ ] Any intentional screenshot change has an explanation in the commit that updates its baseline.
 - [ ] Known visual differences are documented as intentional, accessible, and information-equivalent.
-- [ ] A separate decision explicitly approves changing the default renderer.
+- [ ] A separate decision explicitly approves final Canvas promotion after the trial.
 
 ## Baseline Policy
 
