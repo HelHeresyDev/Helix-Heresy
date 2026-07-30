@@ -62,7 +62,7 @@ async function stageContainmentSlime(page, options) {
     container.environment.contamination = { current: options.contamination ?? 0, baseline: 0, recoveryPerHour: 0 };
     state.started = true;
     state.paused = true;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.clock = 0;
     state.tasks = [];
     state.selectedSlimeId = options.slimeId;

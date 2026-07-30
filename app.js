@@ -2075,13 +2075,11 @@
   const REAL_TICK_MS = 250;
   const AUTOSAVE_REAL_INTERVAL_MS = 10 * 60 * 1000;
   const MANAGEMENT_RENDER_INTERVAL_MS = 1000;
-  const DEFAULT_TIME_SPEED = "normal";
+  const DEFAULT_TIME_SPEED = "realtime";
   const TIME_SPEEDS = [
-    { id: "realtime", label: "1x", description: "real-time", secondsPerSecond: 1 },
-    { id: "normal", label: "60x", description: "1 min/sec", secondsPerSecond: 60 },
-    { id: "fast", label: "300x", description: "5 min/sec", secondsPerSecond: 300 },
-    { id: "very-fast", label: "1800x", description: "30 min/sec", secondsPerSecond: 1800 },
-    { id: "hourly", label: "3600x", description: "1 hr/sec", secondsPerSecond: 3600 }
+    { id: "realtime", label: "1x", description: "real time", secondsPerSecond: 1 },
+    { id: "fast", label: "5x", description: "5 sec/sec", secondsPerSecond: 5 },
+    { id: "very-fast", label: "10x", description: "10 sec/sec", secondsPerSecond: 10 }
   ];
   const MAX_SKILL_LEVEL = 320;
   const SKILL_BREAKTHROUGH_LEVELS = new Set([0, 50, 100, 150, 200, 250, 300]);
