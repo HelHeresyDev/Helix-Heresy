@@ -1264,7 +1264,7 @@
       };
     }
 
-    function draw(realTimeMs) {
+    function drawFrame(realTimeMs) {
       frameId = 0;
       if (destroyed || !scene) return;
       const invalidationReasons = [...pendingInvalidationReasons];
@@ -1334,6 +1334,20 @@
       canvas.dataset.canvasSpritesDrawn = String(counts.spritesDrawn);
       options.onFrame?.(snapshot());
       if (counts.animationActive) invalidate("animation");
+    }
+
+    function draw(realTimeMs) {
+      try {
+        drawFrame(realTimeMs);
+      } catch (error) {
+        frameId = 0;
+        pendingInvalidationReasons.clear();
+        if (typeof options.onError === "function") {
+          options.onError(error);
+          return;
+        }
+        throw error;
+      }
     }
 
     function invalidate(reason = "manual") {

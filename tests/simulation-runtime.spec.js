@@ -9,7 +9,10 @@ const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 
 async function startRun(page) {
   await page.goto(appUrl);
-  await page.evaluate(() => window.localStorage.clear());
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
+  });
   await page.reload();
   await page.locator('#setupForm button[type="submit"]').click();
 }

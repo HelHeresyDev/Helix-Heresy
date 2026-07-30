@@ -3308,7 +3308,9 @@
   };
   const MAP_RENDERER_DOM = "dom";
   const MAP_RENDERER_CANVAS = "canvas";
-  let mapRendererMode = MAP_RENDERER_DOM;
+  let mapRendererMode = MAP_RENDERER_CANVAS;
+  let mapRendererFallbackNotice = "";
+  let handlingCanvasMapFailure = false;
   let activeCanvasMapRenderer = null;
   let activeCanvasMapSurface = null;
   let activeMapParityFixtureRoot = null;
@@ -4247,6 +4249,7 @@
       compactFeedFades: true,
       compactMessageLimit: COMPACT_MESSAGE_LIMIT,
       mapVisualMode: "sprites",
+      mapRendererMode: MAP_RENDERER_CANVAS,
       mapMotion: "system",
       mapContrast: "standard",
       mapEffectIntensity: "standard",
@@ -4495,6 +4498,7 @@
     cacheDom();
     ensureInventoryPanel();
     uiPreferences = loadUiPreferences();
+    mapRendererMode = normalizeMapRendererMode(uiPreferences.mapRendererMode);
     applyAccessibilityDocumentPreferences();
     installAccessibilityMediaListeners();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
@@ -4795,6 +4799,7 @@
       }),
       mapRendererSnapshot: () => ({
         mode: currentMapRendererMode(),
+        fallbackNotice: mapRendererFallbackNotice,
         accessibility: mapAccessibilityPresentation(),
         canvas: activeCanvasMapRenderer?.snapshot?.() || null,
         assets: spriteAssetLoader.snapshot(),
@@ -4815,6 +4820,7 @@
         setMapRendererMode(mode);
         return currentMapRendererMode();
       },
+      simulateCanvasMapFailure: () => handleCanvasMapFailure(new Error("Simulated Canvas map failure.")),
       terrainConnectivitySnapshot: (cell, options = {}) => {
         const map = ensureLabMap();
         const fullReveal = options.fullReveal !== false;
@@ -5551,14 +5557,6 @@
 
     dom.debugToggleBtn?.addEventListener("click", () => {
       setDebugToolsEnabled(!debugToolsEnabled());
-    });
-
-    dom.mapRendererDomBtn?.addEventListener("click", () => {
-      setMapRendererMode(MAP_RENDERER_DOM);
-    });
-
-    dom.mapRendererCanvasBtn?.addEventListener("click", () => {
-      setMapRendererMode(MAP_RENDERER_CANVAS);
     });
 
     dom.runMapPopulationBenchmarkBtn?.addEventListener("click", () => {
@@ -7000,6 +6998,9 @@
       mapVisualMode: MAP_VISUAL_MODES.includes(candidate?.mapVisualMode)
         ? candidate.mapVisualMode
         : defaults.mapVisualMode,
+      mapRendererMode: normalizeMapRendererMode(candidate?.mapRendererMode === undefined
+        ? defaults.mapRendererMode
+        : candidate.mapRendererMode),
       mapMotion: MAP_MOTION_MODES.includes(candidate?.mapMotion)
         ? candidate.mapMotion
         : defaults.mapMotion,
@@ -7099,7 +7100,7 @@
     mapAccessibilityPanelOpen = false;
     applyAccessibilityDocumentPreferences();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
-    setMapRendererMode(MAP_RENDERER_DOM, { render: false });
+    setMapRendererMode(uiPreferences.mapRendererMode, { render: false });
     persistUiPreferences();
     resetRunUiToMapDefaults();
     if (state?.started) {
@@ -7131,15 +7132,20 @@
   }
 
   function setMapRendererMode(value, options = {}) {
-    const requested = normalizeMapRendererMode(value);
-    const next = requested === MAP_RENDERER_CANVAS && debugToolsEnabled()
-      ? MAP_RENDERER_CANVAS
-      : MAP_RENDERER_DOM;
+    const next = normalizeMapRendererMode(value);
     const changed = next !== mapRendererMode;
     if (next !== MAP_RENDERER_CANVAS) {
       destroyActiveCanvasMapRenderer();
     }
     mapRendererMode = next;
+    if (options.persistPreference) {
+      uiPreferences = normalizeUiPreferences({
+        ...uiPreferences,
+        mapRendererMode: next
+      });
+      persistUiPreferences();
+    }
+    if (options.clearFallbackNotice !== false) mapRendererFallbackNotice = "";
     if (options.render !== false && state?.started) {
       if (currentWorkspaceTab() === "map") {
         renderMapInteraction();
@@ -7151,6 +7157,28 @@
       syncMapRendererControls();
     }
     return changed;
+  }
+
+  function handleCanvasMapFailure(error, options = {}) {
+    if (currentMapRendererMode() !== MAP_RENDERER_CANVAS || handlingCanvasMapFailure) return false;
+    handlingCanvasMapFailure = true;
+    console.error("Canvas map renderer failed; using DOM compatibility map.", error);
+    mapRendererFallbackNotice = "Canvas map could not render and was switched to the DOM Compatibility Map. You can retry Canvas Map from Display & Accessibility.";
+    setMapRendererMode(MAP_RENDERER_DOM, {
+      render: false,
+      persistPreference: true,
+      clearFallbackNotice: false
+    });
+    if (state?.started) {
+      addEvent(mapRendererFallbackNotice);
+      persist();
+    }
+    handlingCanvasMapFailure = false;
+    if (options.render !== false && state?.started) {
+      if (currentWorkspaceTab() === "map") renderMapInteraction();
+      else render();
+    }
+    return true;
   }
 
   function workspaceTabVisible(tabId) {
@@ -11095,7 +11123,6 @@
     debugToolsSessionEnabled = Boolean(enabled);
     if (!debugToolsSessionEnabled) {
       observeScientistMapCells({ source: "direct observation", force: true });
-      setMapRendererMode(MAP_RENDERER_DOM, { render: false });
       if (DEBUG_WORKSPACE_TAB_IDS.has(cleanWorkspaceTab(ui.activeWorkspaceTab))) {
         ui.activeWorkspaceTab = "map";
       }
@@ -49747,6 +49774,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     persistUiPreferences();
     applyAccessibilityDocumentPreferences();
     if (!state?.started) return;
+    if (preferenceKey === "mapRendererMode") {
+      mapRendererFallbackNotice = "";
+      setMapRendererMode(uiPreferences.mapRendererMode);
+      return;
+    }
     const ui = ensureUiState();
     const minimumZoomIndex = minimumMapZoomIndex();
     if (ui.mapZoomIndex < minimumZoomIndex) {
@@ -49771,6 +49803,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fields = document.createElement("div");
     fields.className = "map-accessibility-fields";
     fields.append(
+      mapAccessibilitySelect("Map renderer", "mapRendererMode", [
+        ["canvas", "Canvas Map"],
+        ["dom", "DOM Compatibility Map"]
+      ], prefs.mapRendererMode),
       mapAccessibilitySelect("Map style", "mapVisualMode", [
         ["sprites", "Sprites with glyph fallbacks"],
         ["glyphs", "Glyph-first"]
@@ -49801,7 +49837,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     const note = textEl(
       "p",
-      "Color-independent glyphs and shapes remain active in every mode. Reduced effects never hide serious hazards."
+      "Canvas is the trial default. The DOM Compatibility Map remains available here. Color-independent glyphs and shapes remain active in every mode."
     );
     note.className = "map-accessibility-note";
     details.append(summary, fields, note);
@@ -50212,14 +50248,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     canvas.className = "lab-map-canvas";
     canvas.dataset.canvasMap = "true";
     canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);
+    canvas.setAttribute("aria-label", `Canvas laboratory map at Z ${mapView.viewport.z}.`);
     canvas.setAttribute("aria-describedby", "canvasMapPrototypeNotice mapAssistiveStatus");
     host.append(canvas);
 
     const notice = document.createElement("div");
     notice.id = "canvasMapPrototypeNotice";
     notice.className = "canvas-map-prototype-notice";
-    notice.textContent = "Canvas prototype: map navigation, selection, tooltips, contextual commands, and designation tools are active.";
+    notice.textContent = "Canvas map: navigation, selection, tooltips, contextual commands, and designation tools are active.";
     host.append(notice);
 
     const tooltip = document.createElement("div");
@@ -50234,7 +50270,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       onFrame: (diagnostics) => {
         recordPerformanceSample(simulationPerformance.canvasDraw, diagnostics.lastMs);
       },
-      onResize: () => scheduleMapViewportMeasurement()
+      onResize: () => scheduleMapViewportMeasurement(),
+      onError: (error) => handleCanvasMapFailure(error)
     });
     activeCanvasMapRenderer = renderer;
     activeCanvasMapSurface = {
@@ -50291,9 +50328,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
 
     if (currentMapRendererMode() === MAP_RENDERER_CANVAS) {
-      panel.append(canvasMapSurfaceEl(mapView));
-      if (activeCanvasMapSurface) activeCanvasMapSurface.panel = panel;
-      return panel;
+      try {
+        panel.append(canvasMapSurfaceEl(mapView));
+        if (activeCanvasMapSurface) activeCanvasMapSurface.panel = panel;
+        return panel;
+      } catch (error) {
+        handleCanvasMapFailure(error, { render: false });
+        panel.dataset.mapRenderer = MAP_RENDERER_DOM;
+        const rendererSelect = panel.querySelector('[data-map-accessibility-preference="mapRendererMode"]');
+        if (rendererSelect) rendererSelect.value = MAP_RENDERER_DOM;
+        const keyboardStatus = panel.querySelector("[data-keyboard-mode]");
+        if (keyboardStatus) keyboardStatus.replaceWith(keyboardStatusEl(mapView));
+      }
+    }
+
+    if (mapRendererFallbackNotice) {
+      const fallback = textEl("p", mapRendererFallbackNotice);
+      fallback.className = "map-renderer-fallback-notice";
+      fallback.dataset.mapRendererFallbackNotice = "true";
+      fallback.setAttribute("role", "status");
+      panel.append(fallback);
     }
 
     const grid = document.createElement("div");
@@ -50634,8 +50688,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     Object.assign(surface, canvasMapSurfaceIndexes(mapView));
     setMapViewportDataset(surface.host, mapView);
     surface.host.setAttribute("aria-label", `Interactive Canvas laboratory map at Z ${mapView.viewport.z}`);
-    surface.canvas.setAttribute("aria-label", `Canvas prototype of the laboratory map at Z ${mapView.viewport.z}.`);
-    surface.renderer.setScene(mapView.scene, canvasMapPresentation(mapView));
+    surface.canvas.setAttribute("aria-label", `Canvas laboratory map at Z ${mapView.viewport.z}.`);
+    try {
+      surface.renderer.setScene(mapView.scene, canvasMapPresentation(mapView));
+    } catch (error) {
+      handleCanvasMapFailure(error, { render: false });
+      return false;
+    }
     if (surface.panel) {
       surface.panel.dataset.mapRenderer = MAP_RENDERER_CANVAS;
       const meta = surface.panel.querySelector('[data-map-header-meta="true"]');

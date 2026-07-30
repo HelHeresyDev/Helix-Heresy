@@ -9,9 +9,15 @@ const SpriteManifest = require('../sprite-asset-manifest.js');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 
-async function startRun(page) {
+async function startRun(page, options = {}) {
+  const renderer = options.renderer === undefined ? 'dom' : options.renderer;
   await page.goto(appUrl);
-  await page.evaluate(() => window.localStorage.clear());
+  await page.evaluate((preferredRenderer) => {
+    window.localStorage.clear();
+    if (preferredRenderer) {
+      window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: preferredRenderer }));
+    }
+  }, renderer);
   await page.reload();
   await page.locator('#setupForm button[type="submit"]').click();
 }
@@ -459,25 +465,30 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
   });
 });
 
-test('@smoke renderer parity fixtures pass semantic and visual gates before the Debug Canvas switch', async ({ page }) => {
-  await startRun(page);
+test('@smoke Canvas is the default with persistent DOM rollback and renderer parity gates', async ({ page }) => {
+  await startRun(page, { renderer: null });
+  const canvas = page.locator('canvas[data-canvas-map="true"]');
+  await expect(canvas).toBeVisible();
+  const defaultPreference = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem('helix-heresy-v1-preferences') || '{}').mapRendererMode);
+  expect(defaultPreference).toBe('canvas');
+
   await verifyMapRendererParityFixtures(page);
-  await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
   const accessibility = page.locator('[data-map-accessibility-controls="true"]');
   await accessibility.locator('summary').click();
+  const rendererControl = accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]');
+  await expect(rendererControl).toHaveValue('canvas');
+  await rendererControl.selectOption('dom');
+  await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
+  await expect(accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]')).toHaveValue('dom');
+  await accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]').selectOption('canvas');
+  await expect(canvas).toBeVisible();
   await accessibility.locator('[data-map-accessibility-preference="mapVisualMode"]').selectOption('glyphs');
   await accessibility.locator('[data-map-accessibility-preference="mapContrast"]').selectOption('high');
   await accessibility.locator('[data-map-accessibility-preference="mapEffectIntensity"]').selectOption('strong');
   await accessibility.locator('[data-map-accessibility-preference="mapMarkerScale"]').selectOption('1.25');
   await accessibility.locator('summary').click();
 
-  await openRendererDebug(page);
-  await expect(page.locator('#mapRendererDomBtn')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#mapRendererCanvasBtn').click();
-  await expect(page.locator('#mapRendererCanvasBtn')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('[data-workspace-tab="map"]').click();
-
-  const canvas = page.locator('canvas[data-canvas-map="true"]');
   await expect(canvas).toBeVisible();
   await expect(page.locator('.lab-map-grid')).toHaveCount(0);
   await expect(canvas).toHaveAttribute('data-canvas-frame-count', /[1-9]\d*/);
@@ -525,6 +536,24 @@ test('@smoke renderer parity fixtures pass semantic and visual gates before the 
   expect(result.diagnostics.canvas.renderPassCounts.actor).toBeGreaterThan(0);
   expect(result.diagnostics.canvasDraw.calls).toBeGreaterThan(0);
   expect(result.diagnostics.sceneBuild.calls).toBeGreaterThan(0);
+  await page.evaluate(() => window.helixHeresyDebug.simulateCanvasMapFailure());
+  await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
+  await expect(page.locator('[data-map-renderer-fallback-notice="true"]')).toContainText('switched to the DOM Compatibility Map');
+  const fallbackPreference = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem('helix-heresy-v1-preferences') || '{}').mapRendererMode);
+  expect(fallbackPreference).toBe('dom');
+
+  await accessibility.locator('summary').click();
+  await accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]').selectOption('canvas');
+  await expect(canvas).toBeVisible();
+  await expect(page.locator('[data-map-renderer-fallback-notice="true"]')).toHaveCount(0);
+  const retryPreference = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem('helix-heresy-v1-preferences') || '{}').mapRendererMode);
+  expect(retryPreference).toBe('canvas');
+
+  await page.locator('#debugToggleBtn').click();
+  await expect(page.locator('#debugToggleBtn')).toHaveText('Debug Off');
+  await expect(canvas).toBeVisible();
 });
 
 test('Canvas hit testing selects full semantic footprints and opens existing contextual commands', async ({ page }) => {
@@ -832,7 +861,9 @@ test('performance panel reports scene-build and Canvas-draw costs separately', a
   await expect(page.locator('#simulationPerformanceReadout')).toContainText('Canvas draw');
   await expect(page.locator('#simulationPerformanceReadout')).toContainText('current-surface frame');
 
-  await page.locator('#mapRendererDomBtn').click();
   await page.locator('[data-workspace-tab="map"]').click();
+  const accessibility = page.locator('[data-map-accessibility-controls="true"]');
+  await accessibility.locator('summary').click();
+  await accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]').selectOption('dom');
   await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
 });
