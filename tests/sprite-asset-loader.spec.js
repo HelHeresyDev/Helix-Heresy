@@ -35,7 +35,7 @@ function fakeImageFactory(calls, errorKey = '') {
   };
 }
 
-test('development sprite manifest is valid and covers every asset category', () => {
+test('@smoke development sprite manifest is valid and covers every asset category', () => {
   expect(Manifest.manifest.version).toBe(2);
   expect(SpriteAssets.validateManifest(Manifest.manifest)).toEqual([]);
   expect(new Set(Manifest.manifest.assets.map((entry) => entry.category))).toEqual(

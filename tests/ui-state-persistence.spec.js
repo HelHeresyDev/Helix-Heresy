@@ -23,7 +23,7 @@ async function selectMapOverlay(page, overlayId) {
   await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
 }
 
-test('importing a save resets transient UI to the map defaults', async ({ page }, testInfo) => {
+test('@smoke importing a save resets transient UI to the map defaults', async ({ page }, testInfo) => {
   await startRun(page);
 
   const importPayload = await page.evaluate(({ key }) => {
@@ -85,7 +85,7 @@ test('importing a save resets transient UI to the map defaults', async ({ page }
   });
 });
 
-test('reset UI preferences restores defaults and current map view', async ({ page }) => {
+test('@smoke reset UI preferences restores defaults and current map view', async ({ page }) => {
   await startRun(page);
 
   const accessibility = page.locator('[data-map-accessibility-controls="true"]');

@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const storageKey = 'helix-heresy-v1-save';
@@ -66,9 +67,21 @@ test('chemical traces are physical, diffuse, decay, and create bounded memory', 
 
 test('blind slime follows a local chemical gradient without gaining sight or hearing', async ({ page }) => {
   await startRun(page);
-  const fixture = await page.evaluate(({ key }) => {
+  const genomeContext = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
+    return { seed: state.seed, complexity: state.complexity || 'clean', currentGenome: state.currentGenome };
+  }, { key: storageKey });
+  const genome = genomeForTraits({
+    ...genomeContext,
+    baseGenome: genomeContext.currentGenome,
+    traits: { sustenance: 'organic feeder', behavior: 'idle pooling', stability: 'placid', element: 'none' },
+  });
+  const fixture = await page.evaluate(({ key, genome }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const room = state.rooms.find((entry) => entry.id === 'mainLab');
+    room.attributes.contamination.current = 0;
     const view = window.helixHeresyDebug.mapViewSnapshot();
     const empty = view.cells.filter((cell) => cell.roomId === 'mainLab'
       && ['room', 'floor'].includes(cell.base.kind)
@@ -96,7 +109,7 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     state.slimes = [{
       id: 'gradient-slime',
       name: 'GRADIENT-SLIME',
-      genome: state.currentGenome,
+      genome,
       source: 'Perception fixture',
       createdAt: 0,
       deathAt: 100000,
@@ -128,13 +141,14 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return { left: left.cell, right };
-  }, { key: storageKey });
+  }, { key: storageKey, genome });
   await loadSavedRun(page);
 
   const result = await page.evaluate(({ left, right }) => {
     window.helixHeresyDebug.setTileEnvironment(left, { chemicalTraces: { organic: 1 } });
     window.helixHeresyDebug.setTileEnvironment(right, { chemicalTraces: { organic: 35 } });
-    window.helixHeresyDebug.advanceSimulation(1);
+    // Cover the full deterministic AI cadence range before inspecting movement.
+    window.helixHeresyDebug.advanceSimulation(3);
     const first = window.helixHeresyDebug.sensorySnapshot('gradient-slime');
     const firstPayload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
     const firstSlime = (firstPayload.state || firstPayload).slimes.find((entry) => entry.id === 'gradient-slime');

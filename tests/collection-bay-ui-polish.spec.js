@@ -325,7 +325,7 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
   expect(pageErrors).toEqual([]);
 });
 
-test('Collection Bay transfer creates a filled physical vessel and installs a replacement', async ({ page }) => {
+test('@smoke Collection Bay transfer creates a filled physical vessel and installs a replacement', async ({ page }) => {
   const consoleIssues = [];
   const pageErrors = [];
   page.on('console', (message) => {

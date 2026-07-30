@@ -48,13 +48,14 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 For development and automation on Ubuntu, install a current Node.js LTS release, run `npm install`, and use VS Code's integrated terminal. No VS Code extension is required. Run the Chromium correctness suite and map benchmark with:
 
 ```bash
+npm run test:smoke
 npm test
 npm run test:visual
 npm run benchmark:map
 npm run benchmark:map:full
 ```
 
-The correctness command uses four Chromium workers to avoid overcommitting the Ubuntu desktop. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+The 14-test smoke command is the quick cross-system check for routine iteration. The 150-test correctness command is the focused Chromium regression suite and uses four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
 
 ## Project Files
 
@@ -79,7 +80,7 @@ The correctness command uses four Chromium workers to avoid overcommitting the U
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
-- `tests/` - Browser automation experiments and smoke tests.
+- `tests/` - Tagged Playwright smoke coverage and focused browser regression suites.
 
 ## Saves
 

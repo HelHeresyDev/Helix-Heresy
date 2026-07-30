@@ -459,7 +459,7 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
   });
 });
 
-test('renderer parity fixtures pass semantic and visual gates before the Debug Canvas switch', async ({ page }) => {
+test('@smoke renderer parity fixtures pass semantic and visual gates before the Debug Canvas switch', async ({ page }) => {
   await startRun(page);
   await verifyMapRendererParityFixtures(page);
   await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();

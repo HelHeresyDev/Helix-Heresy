@@ -14,7 +14,7 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
-test('cadence scheduling is stable and preserves accumulated elapsed time', () => {
+test('@smoke cadence scheduling is stable and preserves accumulated elapsed time', () => {
   const definitions = [
     { id: 'sensory', interval: 1, priority: 20 },
     { id: 'tactical', interval: 0.25, priority: 10 },

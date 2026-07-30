@@ -89,7 +89,7 @@ async function seedRoomCorpse(page) {
   await loadSavedRun(page);
 }
 
-test('map smoke keeps the large blueprint visible through keyboard pan and zoom', async ({ page }) => {
+test('@smoke map keeps the large blueprint visible through keyboard pan and zoom', async ({ page }) => {
   await startRun(page);
 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
@@ -168,7 +168,7 @@ test('map smoke keeps the large blueprint visible through keyboard pan and zoom'
   expect(afterNavigation.selectedMapTarget).toEqual(beforePan.selectedMapTarget);
 });
 
-test('map smoke keeps representative contextual actions selectable after navigation', async ({ page }) => {
+test('@smoke map keeps representative contextual actions selectable after navigation', async ({ page }) => {
   await startRun(page);
   await seedRoomCorpse(page);
 
@@ -230,7 +230,7 @@ test('map smoke keeps representative contextual actions selectable after navigat
   expect(selected.selectedMapTarget).toMatchObject({ kind: 'corpse', id: 'corpse-smoke-map' });
 });
 
-test('map-only interactions do not rebuild hidden management panels', async ({ page }) => {
+test('@smoke map-only interactions do not rebuild hidden management panels', async ({ page }) => {
   await startRun(page);
 
   await page.locator('#containerList').evaluate((list) => {
@@ -253,7 +253,7 @@ test('map-only interactions do not rebuild hidden management panels', async ({ p
   await expect(page.locator('[data-map-render-sentinel="true"]')).toHaveCount(1);
 });
 
-test('selecting a multi-tile object highlights its full footprint', async ({ page }) => {
+test('@smoke selecting a multi-tile object highlights its full footprint', async ({ page }) => {
   await startRun(page);
 
   const footprint = page.locator('[data-map-object-selection-keys~="container:basic-11"]');
