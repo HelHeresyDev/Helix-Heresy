@@ -19,7 +19,7 @@ async function startRun(page) {
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
-test('weighted A star chooses a longer but cheaper route', () => {
+test('@smoke weighted A star chooses a longer but cheaper route', () => {
   const expensive = new Set(['1,1', '2,1', '3,1']);
   const result = findPath({
     width: 5,

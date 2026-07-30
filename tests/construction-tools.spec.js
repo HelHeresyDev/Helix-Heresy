@@ -40,7 +40,7 @@ async function finishTask(page, text) {
   await row.getByRole('button', { name: 'Finish' }).click();
 }
 
-test('construction tools block inadequate work retain partial progress and support basic repair', async ({ page }) => {
+test('@smoke construction tools block inadequate work retain partial progress and support basic repair', async ({ page }) => {
   test.setTimeout(90_000);
   await startRun(page);
 

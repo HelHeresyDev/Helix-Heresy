@@ -5,6 +5,7 @@
   "main": "app.js",
   "scripts": {
     "test": "playwright test --project=chromium --workers=4",
+    "test:smoke": "playwright test --project=chromium --workers=4 --grep \"@smoke\"",
     "test:visual": "playwright test tests/canvas-map-renderer.spec.js --project=chromium --grep \"renderer parity fixtures\"",
     "test:visual:update": "playwright test tests/canvas-map-renderer.spec.js --project=chromium --grep \"renderer parity fixtures\" --update-snapshots",
     "benchmark:map": "node scripts/run-map-benchmark.js",

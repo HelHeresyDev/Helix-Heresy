@@ -59,7 +59,7 @@ test('black market starts with contacts, deals, and a concealed exit', async ({ 
   expect(state.economy.blackMarketReputation).toBe(0);
 });
 
-test('queued black market trade sells collected byproduct and updates economy state', async ({ page }) => {
+test('@smoke queued black market trade sells collected byproduct and updates economy state', async ({ page }) => {
   await startRun(page);
   const deal = await firstOpenDeal(page);
 

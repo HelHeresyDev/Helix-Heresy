@@ -148,7 +148,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
   expect(result.frostIntegrity).toBeLessThan(100);
 });
 
-test('scientist strike damages body integrity and can create a combat corpse', async ({ page }) => {
+test('@smoke scientist strike damages body integrity and can create a combat corpse', async ({ page }) => {
   await startRun(page);
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
