@@ -84,7 +84,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
       },
     });
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.selectedSlimeId = 'flame-contact';
     state.slimes = [
       {
@@ -250,7 +250,7 @@ test('starving hunting slime feed-attacks a contacted scientist', async ({ page 
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.clock = 0;
     state.selectedSlimeId = 'feed-attacker';
     state.scientist.vitals.health = { current: 100, max: 100 };
@@ -342,7 +342,7 @@ test('injured placid slime flees contact instead of attacking', async ({ page })
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.clock = 100;
     state.selectedSlimeId = 'fleeing-slime';
     state.scientist.vitals.health = { current: 100, max: 100 };

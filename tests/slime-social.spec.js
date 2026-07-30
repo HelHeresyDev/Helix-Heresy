@@ -47,7 +47,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
     const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
     const roomId = jar.roomId;
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.clock = 0;
     state.selectedSlimeId = 'kin-child-a';
     const makeSlime = ({ id, name, parentIds = [], broodId = '' }) => ({
@@ -136,7 +136,7 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
     const jar = (state.containers || []).find((container) => container.id === 'basic-1') || state.containers?.[0];
     const roomId = jar.roomId;
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.clock = 0;
     state.selectedSlimeId = 'stranger-a';
     const makeSlime = (id, name) => ({

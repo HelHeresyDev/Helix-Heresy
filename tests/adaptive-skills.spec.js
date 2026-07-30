@@ -202,7 +202,7 @@ test('slime combat practice stores hidden component skills and pain memory', asy
       },
     });
     state.paused = false;
-    state.timeSpeed = 'normal';
+    state.timeSpeed = 'realtime';
     state.selectedSlimeId = 'flame-skill';
     state.slimes = [
       makeSlime('flame-skill', 'FLAME-SKILL', flameGenome),

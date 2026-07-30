@@ -43,6 +43,7 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
       debugEnabled: false,
       keyboardHelpOpen: true,
     };
+    state.timeSpeed = 'hourly';
     state.selection = { kind: 'room', roomId: 'storageRoom', source: 'fixture' };
     state.selectedMapTarget = { kind: 'room', roomId: 'storageRoom', source: 'fixture' };
     state.selectedSlimeId = 'ghost-selection';
@@ -55,6 +56,8 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
+  await expect(page.locator('#timeSpeedSelect')).toHaveValue('realtime');
+  await expect(page.locator('#speedReadout')).toHaveText('Speed 1x');
 
   await page.locator('[data-workspace-tab="log"]').click();
   await expect(page.locator('#messageFilterSelect')).toHaveValue('all');
@@ -90,6 +93,24 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
 
 test('@smoke reset UI preferences restores defaults and current map view', async ({ page }) => {
   await startRun(page);
+
+  const timeSpeeds = await page.locator('#timeSpeedSelect option').evaluateAll((options) =>
+    options.map((option) => ({ value: option.value, label: option.textContent })));
+  expect(timeSpeeds).toEqual([
+    { value: 'realtime', label: '1x (real time)' },
+    { value: 'fast', label: '5x (5 sec/sec)' },
+    { value: 'very-fast', label: '10x (10 sec/sec)' },
+  ]);
+  await expect(page.locator('#timeSpeedSelect')).toHaveValue('realtime');
+  await expect(page.locator('#speedReadout')).toHaveText('Speed 1x');
+  expect(await page.evaluate(() => window.helixHeresyDebug.mapSceneSnapshot().timeline.speed)).toBe(1);
+  await page.locator('#timeSpeedSelect').selectOption('fast');
+  await expect(page.locator('#speedReadout')).toHaveText('Speed 5x');
+  expect(await page.evaluate(() => window.helixHeresyDebug.mapSceneSnapshot().timeline.speed)).toBe(5);
+  await page.locator('#timeSpeedSelect').selectOption('very-fast');
+  await expect(page.locator('#speedReadout')).toHaveText('Speed 10x');
+  expect(await page.evaluate(() => window.helixHeresyDebug.mapSceneSnapshot().timeline.speed)).toBe(10);
+  await page.locator('#timeSpeedSelect').selectOption('realtime');
 
   const accessibility = page.locator('[data-map-accessibility-controls="true"]');
   await accessibility.locator('summary').click();
