@@ -45,6 +45,16 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`. The game is currently designed for desktop play.
 
+For development and automation on Ubuntu, install a current Node.js LTS release, run `npm install`, and use VS Code's integrated terminal. No VS Code extension is required. Run the Chromium correctness suite and map benchmark with:
+
+```bash
+npm test
+npm run benchmark:map
+npm run benchmark:map:full
+```
+
+The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+
 ## Project Files
 
 - `index.html` - Page structure and UI panels.
@@ -54,12 +64,14 @@ Then open `http://localhost:8000`. The game is currently designed for desktop pl
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
 - `map-knowledge.js` - Sparse saved cell observations, light-aware same-layer perception queries, last-observed age tiers, and knowledge records for current, stale, unknown, and Debug map presentation.
-- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, effect planes, severity-ranked status cues, knowledge-filtered lighting/environment state, animation timelines, interactions, overscan, and schema validation.
+- `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, effect planes, severity-ranked status cues, knowledge-filtered lighting/environment state, animation timelines, interactions, overscan, pre-normalization culling, optional chunked spatial queries, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
-- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, viewport culling, and conditional animation-frame redraws.
+- `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, cached viewport draw plans, invalidation diagnostics, and conditional animation-frame redraws.
+- `map-population-benchmark.js` and `benchmarks/` - Deterministic representative, dense, and mostly-offscreen population fixtures measured in a real browser Canvas.
+- `scripts/run-map-benchmark.js` - Quick/full benchmark CLI with stage timings, advisory budgets, and structural invariant checks.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.

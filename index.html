@@ -549,6 +549,14 @@
               <p id="simulationPerformanceSummary" class="journal-meta">No simulation samples yet.</p>
               <div id="simulationPerformanceReadout" class="ai-debug-readout"></div>
             </div>
+            <div class="subpanel" data-map-population-benchmark-panel="true">
+              <div class="subpanel-title">Map Population Benchmark</div>
+              <p id="mapPopulationBenchmarkStatus" class="journal-meta">Deterministic quick benchmark has not run.</p>
+              <div class="policy-button-row">
+                <button id="runMapPopulationBenchmarkBtn" type="button">Run Quick Benchmark</button>
+              </div>
+              <div id="mapPopulationBenchmarkReadout" class="ai-debug-readout"></div>
+            </div>
           </div>
         </section>
 
@@ -618,6 +626,7 @@
     <script src="sprite-asset-manifest.js"></script>
     <script src="sprite-asset-loader.js"></script>
     <script src="canvas-map-renderer.js"></script>
+    <script src="map-population-benchmark.js"></script>
     <script src="navigation.js"></script>
     <script src="vertical-systems.js"></script>
     <script src="simulation-runtime.js"></script>
