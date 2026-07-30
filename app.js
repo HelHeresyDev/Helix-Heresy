@@ -29279,6 +29279,15 @@
   }
 
   function resourceHaulDuration(transfers, options = {}) {
+    const movementPath = Array.isArray(options.movementPath) ? options.movementPath : [];
+    if (movementPath.length) {
+      const handlingSeconds = (transfers || []).reduce(
+        (total, transfer) => total + resourceHaulTripCount(transfer) * RESOURCE_HAUL_HANDLING_SECONDS_PER_TRIP,
+        0
+      );
+      const travelSeconds = mapPathTravelDistanceMeters(movementPath, options.map || ensureLabMap()) / RESOURCE_HAUL_SPEED_MPS;
+      return Math.max(1, Math.round(handlingSeconds + travelSeconds));
+    }
     const mapPaths = Array.isArray(options.mapPaths) ? options.mapPaths : [];
     const map = options.map || ensureLabMap();
     const duration = (transfers || []).reduce((total, transfer, index) => {
@@ -29294,6 +29303,51 @@
       return total + handlingSeconds + travelSeconds;
     }, 0);
     return Math.max(1, Math.round(duration));
+  }
+
+  function resourceHaulMovementPlan(transfers, options = {}) {
+    const map = options.map || ensureLabMap();
+    const actor = options.actor || state.scientist;
+    let currentCell = cleanMapCell(options.startCell) || scientistMapCell();
+    let movementPath = currentCell ? [currentCell] : [];
+    const mapPaths = [];
+    const transferMapPaths = [];
+    for (const transfer of transfers || []) {
+      const outbound = roomPathBetween(transfer.fromRoomId, transfer.toRoomId, {
+        map,
+        actor,
+        ignoreDoors: true,
+        ignoreAccessPolicy: true
+      });
+      if (outbound.length < 2) {
+        return { ok: false, reason: `No physical hauling route exists from ${roomArticleName(transfer.fromRoomId)} to ${roomArticleName(transfer.toRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [] };
+      }
+      transferMapPaths.push(outbound);
+      const approach = labMapPathBetweenCells(currentCell, outbound[0], {
+        map,
+        actor,
+        ignoreDoors: true,
+        ignoreAccessPolicy: true
+      });
+      if (!approach.length) {
+        return { ok: false, reason: `The scientist cannot reach the materials in ${roomArticleName(transfer.fromRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [] };
+      }
+      if (approach.length > 1) mapPaths.push(approach);
+      movementPath = appendMapPath(movementPath, approach);
+      const trips = resourceHaulTripCount(transfer);
+      for (let trip = 0; trip < trips; trip += 1) {
+        mapPaths.push(outbound);
+        movementPath = appendMapPath(movementPath, outbound);
+        currentCell = outbound.at(-1);
+        if (trip < trips - 1) {
+          const returnPath = [...outbound].reverse();
+          mapPaths.push(returnPath);
+          movementPath = appendMapPath(movementPath, returnPath);
+          currentCell = returnPath.at(-1);
+        }
+      }
+    }
+    return { ok: true, reason: "", movementPath, mapPaths, transferMapPaths };
   }
 
   function resourceHaulTransferText(transfers) {
@@ -29341,9 +29395,17 @@
       return false;
     }
     const routes = plan.transfers.map((transfer) => roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
-    const mapPaths = plan.transfers.map((transfer) => roomPathBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
+    const movementPlan = resourceHaulMovementPlan(plan.transfers, { startCell: scientistMapCell(), map: ensureLabMap() });
+    if (!movementPlan.ok) {
+      const stamina = scientistVital("stamina");
+      stamina.current = Math.min(stamina.max, stamina.current + cost);
+      addEvent(movementPlan.reason);
+      persist();
+      render();
+      return false;
+    }
     const doorTransit = routes.flatMap((route) => doorTransitPlan(route));
-    const duration = resourceHaulDuration(plan.transfers, { mapPaths, map: ensureLabMap() });
+    const duration = resourceHaulDuration(plan.transfers, { movementPath: movementPlan.movementPath, map: ensureLabMap() });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "resourceHaul",
@@ -29356,7 +29418,15 @@
         continuation,
         staminaCost: cost,
         routes,
-        mapPaths,
+        fromCell: movementPlan.movementPath[0],
+        toCell: movementPlan.movementPath.at(-1),
+        mapPath: movementPlan.movementPath,
+        mapPaths: movementPlan.mapPaths,
+        transferMapPaths: movementPlan.transferMapPaths,
+        movement: createScientistMovementRecord(movementPlan.movementPath, duration, state.clock, {
+          intent: "haul",
+          speedMps: RESOURCE_HAUL_SPEED_MPS
+        }),
         pacingVersion: ACTIVE_TASK_PACING_VERSION,
         doorTransit
       }
@@ -34830,17 +34900,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return adjustedSecondsDuration(Math.max(SCIENTIST_MOVE_MIN_DURATION, travelSeconds + doorDelay), "analysis");
   }
 
-  function createScientistMovementRecord(mapPath, duration, startAt = state.clock) {
+  function createScientistMovementRecord(mapPath, duration, startAt = state.clock, options = {}) {
     const footprint = navigationFootprintForActor(state.scientist);
     const steps = (Array.isArray(mapPath.navigationSteps) && mapPath.navigationSteps.length
       ? mapPath.navigationSteps
       : mapPath.map((cell) => ({ cell, orientation: footprint.orientation, action: "move" })))
       .map((step) => ({ cell: cleanMapCell(step.cell || step), orientation: String(step.orientation || footprint.orientation), action: String(step.action || "move") }))
       .filter((step) => step.cell);
-    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    const speedMps = Math.max(0.1, Number(options.speedMps) || scientistMoveSpeedMps());
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / speedMps);
     return {
       steps,
       stepIndex: 0,
+      intent: String(options.intent || "move"),
+      speedMps,
       orientation: steps[0]?.orientation || footprint.orientation,
       segmentStartedAt: startAt,
       segmentArriveAt: startAt + segmentSeconds,
@@ -34961,11 +35034,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .filter((step) => step.cell);
     if (steps.length < 2) return null;
     const stepIndex = clamp(Math.floor(Number(candidate?.stepIndex) || 0), 0, steps.length - 1);
-    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    const speedMps = Math.max(0.1, Number(candidate?.speedMps) || scientistMoveSpeedMps());
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / speedMps);
     const segmentStartedAt = finiteTime(candidate?.segmentStartedAt, finiteTime(task?.createdAt, state.clock));
     return {
       steps,
       stepIndex,
+      intent: String(candidate?.intent || (task?.type === "resourceHaul" ? "haul" : "move")),
+      speedMps,
       orientation: String(candidate?.orientation || steps[stepIndex]?.orientation || "square"),
       segmentStartedAt,
       segmentArriveAt: Math.max(segmentStartedAt + 0.001, finiteTime(candidate?.segmentArriveAt, segmentStartedAt + segmentSeconds)),
@@ -34985,8 +35061,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -34997,10 +35073,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       delete task.data.blockedReason;
       delete task.data.blockedAt;
     }
+    if (!task.data?.movement) {
+      task.data ||= {};
+      if (task.type === "resourceHaul") {
+        const plan = resourceHaulMovementPlan(task.data.transfers, { startCell: scientistMapCell(), map: ensureLabMap() });
+        if (!plan.ok) {
+          task.data.blockedReason = plan.reason;
+          task.data.blockedAt ??= state.clock;
+          return null;
+        }
+        task.data.fromCell = plan.movementPath[0];
+        task.data.toCell = plan.movementPath.at(-1);
+        task.data.mapPath = plan.movementPath;
+        task.data.mapPaths = plan.mapPaths;
+        task.data.transferMapPaths = plan.transferMapPaths;
+        const movementStartAt = state.clock;
+        const duration = resourceHaulDuration(task.data.transfers, { movementPath: plan.movementPath, map: ensureLabMap() });
+        task.data.movementStartedAt = movementStartAt;
+        task.data.movement = createScientistMovementRecord(plan.movementPath, duration, movementStartAt, {
+          intent: "haul",
+          speedMps: RESOURCE_HAUL_SPEED_MPS
+        });
+        task.dueAt = Math.max(task.dueAt, movementStartAt + duration);
+      }
+    }
     const recordedPath = taskPathCells(task).map(cleanMapCell).filter(Boolean);
     if (recordedPath.length < 2) return null;
     if (!task.data?.movement) {
-      task.data ||= {};
       const current = scientistMapCell();
       const prefix = mapCellKey(recordedPath[0]) === mapCellKey(current)
         ? [current]
@@ -35030,7 +35129,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll)
     });
     if (!plan.found || plan.steps.length < 2) return false;
-    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+    const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / Math.max(0.1, Number(movement.speedMps) || scientistMoveSpeedMps()));
     movement.steps = plan.steps;
     movement.stepIndex = 0;
     movement.orientation = plan.steps[0].orientation;
@@ -35098,7 +35197,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         allowBlockedCellKeys: new Set([mapCellKey(currentStep.cell)]),
         requireCurrentCapacity: true
       });
-      const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps());
+      const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / Math.max(0.1, Number(movement.speedMps) || scientistMoveSpeedMps()));
       const reservation = canEnter
         ? reserveActorMovementStep(state.scientist, nextStep.cell, nextStep.orientation, "directMove", segmentSeconds)
         : { ok: false, conflicts: [] };
@@ -35139,7 +35238,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       movementReservations.releaseActor("scientist");
     } else if (task.dueAt <= state.clock) {
       const remaining = movement.steps.length - 1 - movement.stepIndex;
-      task.dueAt = Math.max(state.clock + 0.001, movement.segmentArriveAt + Math.max(0, remaining - 1) * Math.max(0.25, ensureLabMap().tileSizeM / scientistMoveSpeedMps()));
+      task.dueAt = Math.max(state.clock + 0.001, movement.segmentArriveAt + Math.max(0, remaining - 1) * Math.max(0.25, ensureLabMap().tileSizeM / Math.max(0.1, Number(movement.speedMps) || scientistMoveSpeedMps())));
     }
     return changed;
   }
@@ -43338,8 +43437,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistCell = scientistMapCell();
     const scientistHealthVital = scientistVital("health");
     const scientistHealthRatio = clamp(scientistHealthVital.current / Math.max(1, scientistHealthVital.max), 0, 1);
-    const scientistMovement = scientistMoveTask();
-    const scientistTask = scientistMovement || scientistQueueTasks()[0] || null;
+    const scientistTask = scientistQueueTasks()[0] || null;
+    const scientistMovement = scientistTask?.data?.movement ? scientistTask : null;
     const scientistMovementRecord = scientistMovement
       ? normalizeScientistMovementRecord(scientistMovement.data?.movement, scientistMovement)
       : null;
@@ -43352,12 +43451,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: scientistTask?.label || "Idle",
         source: "simulation"
       },
-      movementTargetCell: cleanMapCell(scientistMovement?.data?.destinationCell),
-      activityTargetCell: cleanMapCell(scientistTask?.data?.destinationCell || scientistTask?.data?.targetCell),
+      movementTargetCell: cleanMapCell(scientistMovementRecord?.steps?.[Math.min((scientistMovementRecord?.stepIndex || 0) + 1, (scientistMovementRecord?.steps?.length || 1) - 1)]?.cell),
+      activityTargetCell: taskTargetCell(scientistTask),
       motion: scientistMovement ? {
         state: "moving",
-        intent: "move",
-        destination: cleanMapCell(scientistMovement.data?.destinationCell)
+        intent: scientistMovementRecord?.intent || "move",
+        destination: cleanMapCell(scientistMovementRecord?.steps?.at(-1)?.cell)
       } : null,
       condition: {
         ratio: scientistHealthRatio,

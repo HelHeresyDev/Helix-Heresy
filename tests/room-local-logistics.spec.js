@@ -97,7 +97,38 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.storageBiomass).toBe(50);
   expect(logisticsState.taskTypes).toEqual(['resourceHaul']);
   expect(logisticsState.taskDurations[0]).toBeGreaterThan(20);
-  expect(logisticsState.taskDurations[0]).toBeLessThan(60);
+  expect(logisticsState.taskDurations[0]).toBeLessThan(90);
+
+  const initialHaulMovement = await page.evaluate(() => {
+    const navigation = window.helixHeresyDebug.navigationSnapshot();
+    const task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'resourceHaul');
+    return {
+      cell: navigation.actors.find((actor) => actor.id === 'scientist').cell,
+      movement: task?.data?.movement,
+    };
+  });
+  expect(initialHaulMovement.movement).toMatchObject({ intent: 'haul', speedMps: 0.75, stepIndex: 0 });
+  expect(initialHaulMovement.movement.steps.length).toBeGreaterThan(2);
+
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(2));
+  const movingHaul = await page.evaluate(({ key }) => {
+    const navigation = window.helixHeresyDebug.navigationSnapshot();
+    const task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'resourceHaul');
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      cell: navigation.actors.find((actor) => actor.id === 'scientist').cell,
+      movement: task?.data?.movement,
+      motion: scene.entities.find((entity) => entity.id === 'scientist:scientist')?.motion,
+      storageBiomass: state.roomStockpiles?.storageRoom?.resources?.biomass || 0,
+    };
+  }, { key: storageKey });
+  expect(movingHaul.cell).not.toEqual(initialHaulMovement.cell);
+  expect(movingHaul.movement.stepIndex).toBeGreaterThan(0);
+  expect(movingHaul.movement.completed).toBe(false);
+  expect(movingHaul.motion).toMatchObject({ intent: 'haul', state: expect.stringMatching(/^(moving|waiting|rotating)$/) });
+  expect(movingHaul.storageBiomass).toBe(50);
 
   await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -111,7 +142,38 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   const migratedHaul = await page.evaluate(() =>
     window.helixHeresyDebug.taskStatusSnapshot().find((task) => task.type === 'resourceHaul'));
   expect(migratedHaul.data.pacingVersion).toBe(2);
-  expect(migratedHaul.dueAt - migratedHaul.createdAt).toBeLessThan(60);
+  expect(migratedHaul.dueAt - migratedHaul.createdAt).toBeLessThan(90);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.type === 'resourceHaul');
+    task.data.transfers[0].amount = 50;
+    delete task.data.movement;
+    delete task.data.mapPath;
+    delete task.data.transferMapPaths;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
+  const multiTripHaul = await page.evaluate(() =>
+    window.helixHeresyDebug.taskStatusSnapshot().find((task) => task.type === 'resourceHaul'));
+  expect(multiTripHaul.data.movement.intent).toBe('haul');
+  expect(multiTripHaul.data.mapPaths.length).toBeGreaterThanOrEqual(4);
+  expect(multiTripHaul.data.movement.steps.length).toBeGreaterThan(initialHaulMovement.movement.steps.length);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.type === 'resourceHaul');
+    task.data.transfers[0].amount = 10;
+    delete task.data.movement;
+    delete task.data.mapPath;
+    delete task.data.transferMapPaths;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
   await page.locator('#queueToggleBtn').click();
   await expect(haulTask).toBeVisible();
 
@@ -129,6 +191,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       storageBiomass: state.roomStockpiles?.storageRoom?.resources?.biomass || 0,
       taskTypes: (state.tasks || []).map((task) => task.type),
       taskDurations: (state.tasks || []).map((task) => task.dueAt - task.createdAt),
+      scientistRoomId: state.scientist?.roomId,
     };
   }, { key: storageKey });
 
@@ -138,6 +201,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.taskTypes).toEqual(['synthesize']);
   expect(logisticsState.taskDurations[0]).toBeGreaterThan(0);
   expect(logisticsState.taskDurations[0]).toBeLessThanOrEqual(8);
+  expect(logisticsState.scientistRoomId).toBe('mainLab');
 
   await synthTask.getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-task-menu-tab="completed"]').click();
