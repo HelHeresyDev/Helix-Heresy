@@ -121,6 +121,16 @@ test('@smoke reset UI preferences restores defaults and current map view', async
   });
 
   await selectMapOverlay(page, 'resources');
+  await page.locator('[data-workspace-tab="containers"]').click();
+  const containersPanel = page.locator('[data-workspace-panel="containers"]');
+  const scrolledTop = await containersPanel.evaluate((panel) => {
+    panel.scrollTop = Math.min(600, panel.scrollHeight - panel.clientHeight);
+    return panel.scrollTop;
+  });
+  expect(scrolledTop).toBeGreaterThan(0);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
+  await expect.poll(() => containersPanel.evaluate((panel) => panel.scrollTop)).toBe(scrolledTop);
+
   await page.locator('[data-workspace-tab="log"]').click();
   await page.locator('#messageFilterSelect').selectOption('combat');
   await page.locator('#debugToggleBtn').click();
