@@ -14,15 +14,9 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Automated Visual Regression and Renderer-Parity Tests
+No prompts are currently queued.
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Do not remove the current DOM map renderer until the Canvas renderer has demonstrated behavioral and visual parity.
-
----
-
-## 1. Automated Visual Regression and Renderer-Parity Tests
-
-Build deterministic screenshots and semantic parity tests for representative map states, zoom levels, z-layers, selections, overlays, knowledge states, crowded tiles, large actors, and responsive viewports. Canvas should replace the DOM map only after required interactions and visible information remain equivalent.
 
 ---
 
