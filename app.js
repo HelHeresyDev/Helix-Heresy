@@ -5246,7 +5246,7 @@
       advanceSimulation: (seconds) => {
         advanceTime(seconds, { quiet: true });
         persist();
-        render();
+        render({ preserveWorkspaceScroll: true });
         return state.clock;
       },
       queueDoorOperation: (doorId, operation, value, options = {}) => queueDoorOperation(doorId, operation, value, options),
@@ -5457,7 +5457,7 @@
       advanceSimulation: (seconds) => {
         advanceTime(Math.max(0, Number(seconds) || 0), { quiet: true });
         persist();
-        render();
+        render({ preserveWorkspaceScroll: true });
         return true;
       },
       damageTool: (itemKey, amount) => {
@@ -8063,7 +8063,7 @@
       else renderMapSelectionInteraction();
     } else if (now - lastManagementRenderAt >= MANAGEMENT_RENDER_INTERVAL_MS) {
       lastManagementRenderAt = now;
-      render();
+      render({ preserveWorkspaceScroll: true });
     } else {
       renderClockReadout();
     }
@@ -31086,7 +31086,39 @@
     return `${traitKey}|${codes.map((item) => `${item.region}:${item.code}`).sort().join("|")}`;
   }
 
-  function render() {
+  function captureWorkspaceScroll() {
+    const tab = currentWorkspaceTab();
+    const panels = [...document.querySelectorAll("[data-workspace-panel]")]
+      .filter((panel) => cleanWorkspaceTab(panel.dataset.workspacePanel) === tab);
+    const targets = panels
+      .flatMap((panel) => [panel, ...panel.querySelectorAll("*")])
+      .filter((element) => element.scrollTop !== 0 || element.scrollLeft !== 0)
+      .map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }));
+    const scrollingElement = document.scrollingElement;
+    return {
+      tab,
+      targets,
+      documentTop: scrollingElement?.scrollTop || 0,
+      documentLeft: scrollingElement?.scrollLeft || 0
+    };
+  }
+
+  function restoreWorkspaceScroll(snapshot) {
+    if (!snapshot || currentWorkspaceTab() !== snapshot.tab) return;
+    for (const position of snapshot.targets) {
+      if (!position.element.isConnected) continue;
+      position.element.scrollTop = position.top;
+      position.element.scrollLeft = position.left;
+    }
+    const scrollingElement = document.scrollingElement;
+    if (scrollingElement) {
+      scrollingElement.scrollTop = snapshot.documentTop;
+      scrollingElement.scrollLeft = snapshot.documentLeft;
+    }
+  }
+
+  function render(options = {}) {
+    const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
     syncSelectionState();
     renderLiveReadouts();
     dom.sequenceInput.value = state.currentGenome;
@@ -31121,6 +31153,7 @@
     refreshActionControls();
     syncSetupForm();
     explainDisabledButtons();
+    restoreWorkspaceScroll(scrollSnapshot);
   }
 
   function renderLiveReadouts() {
