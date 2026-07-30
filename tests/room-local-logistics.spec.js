@@ -78,6 +78,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   await expect(haulTask).toBeVisible();
   await expect(haulTask).toContainText('Step 1: haul materials');
   await expect(haulTask).toContainText('Step 2: Synthesize slime');
+  await expect(haulTask).toContainText(/\d+s remaining/);
 
   let logisticsState = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -87,6 +88,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       mainBiomass: state.roomStockpiles?.mainLab?.resources?.biomass || 0,
       storageBiomass: state.roomStockpiles?.storageRoom?.resources?.biomass || 0,
       taskTypes: (state.tasks || []).map((task) => task.type),
+      taskDurations: (state.tasks || []).map((task) => task.dueAt - task.createdAt),
     };
   }, { key: storageKey });
 
@@ -94,6 +96,24 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.mainBiomass).toBe(0);
   expect(logisticsState.storageBiomass).toBe(50);
   expect(logisticsState.taskTypes).toEqual(['resourceHaul']);
+  expect(logisticsState.taskDurations[0]).toBeGreaterThan(20);
+  expect(logisticsState.taskDurations[0]).toBeLessThan(60);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.type === 'resourceHaul');
+    task.dueAt = task.createdAt + 982;
+    delete task.data.pacingVersion;
+    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+  }, { key: storageKey });
+  await loadSavedRun(page);
+  const migratedHaul = await page.evaluate(() =>
+    window.helixHeresyDebug.taskStatusSnapshot().find((task) => task.type === 'resourceHaul'));
+  expect(migratedHaul.data.pacingVersion).toBe(2);
+  expect(migratedHaul.dueAt - migratedHaul.createdAt).toBeLessThan(60);
+  await page.locator('#queueToggleBtn').click();
+  await expect(haulTask).toBeVisible();
 
   await haulTask.getByRole('button', { name: 'Finish' }).click();
 
@@ -108,6 +128,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       mainBiomass: state.roomStockpiles?.mainLab?.resources?.biomass || 0,
       storageBiomass: state.roomStockpiles?.storageRoom?.resources?.biomass || 0,
       taskTypes: (state.tasks || []).map((task) => task.type),
+      taskDurations: (state.tasks || []).map((task) => task.dueAt - task.createdAt),
     };
   }, { key: storageKey });
 
@@ -115,6 +136,8 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.mainBiomass).toBe(0);
   expect(logisticsState.storageBiomass).toBe(40);
   expect(logisticsState.taskTypes).toEqual(['synthesize']);
+  expect(logisticsState.taskDurations[0]).toBeGreaterThan(0);
+  expect(logisticsState.taskDurations[0]).toBeLessThanOrEqual(8);
 
   await synthTask.getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-task-menu-tab="completed"]').click();
