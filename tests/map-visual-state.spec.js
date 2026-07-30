@@ -250,45 +250,72 @@ test('scene model deduplicates entities while retaining footprint and interactio
       },
     },
   ];
+  const entitySeeds = [{
+    id: 'container:jar-1',
+    kind: 'container',
+    target: { kind: 'container', id: 'jar-1' },
+    anchorCell: { x: 1, y: 1, z: 0 },
+    footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
+    knowledge: { state: 'current' },
+    visual: { key: 'container.jar', glyph: 'C', layer: 'wallMounted' },
+    statusCues: [
+      { id: 'routine', severity: 'routine', label: 'Routine', glyph: '.' },
+      { id: 'damaged', severity: 'warning', label: 'Damaged', glyph: '!' },
+      { id: 'breached', severity: 'critical', label: 'Breached', glyph: '!' },
+    ],
+  }, {
+    id: 'offscreen-tall-body',
+    kind: 'slime',
+    category: 'actor',
+    anchorCell: { x: 80, y: 80, z: 0 },
+    footprintCells: [{ x: 80, y: 80, z: 0 }, { x: 80, y: 80, z: 1 }],
+    bounds: { x: 80, y: 80, z: 0, width: 1, height: 1, depth: 2 },
+    knowledge: { state: 'current' },
+  }];
+  const effectSeeds = [{
+    id: 'incident:test',
+    kind: 'incident',
+    sourceId: 'test-source',
+    cell: { x: 1, y: 1, z: 0 },
+    plane: 'alert',
+    knowledge: { state: 'current' },
+    intensityBand: 'high',
+    damageTags: ['toxic', 'corrosive', 'toxic'],
+    timing: { startAt: 40, activeAt: 41, endAt: 50 },
+    uncertaintyRadius: 2,
+    stackCount: 3,
+    glyph: '!',
+    target: { kind: 'incident', id: 'test' },
+    relatedTargets: [{ kind: 'task', id: 'response' }],
+  }, {
+    id: 'offscreen-effect',
+    kind: 'spill',
+    cell: { x: 90, y: 90, z: 0 },
+    plane: 'ground',
+    knowledge: { state: 'current' },
+  }];
+  const entityQuery = VisualState.createSpatialQuery(entitySeeds, { chunkSize: 8 });
+  const effectQuery = VisualState.createSpatialQuery(effectSeeds, { chunkSize: 8 });
   const scene = VisualState.buildScene({
     clock: 42,
     timeline: { revision: 7, mode: 'skip', paused: true, speed: 60 },
     viewport: { x: 1, y: 1, z: 0, width: 2, height: 1 },
     cells,
-    entities: [{
-      id: 'container:jar-1',
-      kind: 'container',
-      target: { kind: 'container', id: 'jar-1' },
-      anchorCell: { x: 1, y: 1, z: 0 },
-      footprintCells: [{ x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }],
-      knowledge: { state: 'current' },
-      visual: { key: 'container.jar', glyph: 'C', layer: 'wallMounted' },
-      statusCues: [
-        { id: 'routine', severity: 'routine', label: 'Routine', glyph: '.' },
-        { id: 'damaged', severity: 'warning', label: 'Damaged', glyph: '!' },
-        { id: 'breached', severity: 'critical', label: 'Breached', glyph: '!' },
-      ],
-    }],
-    effects: [{
-      id: 'incident:test',
-      kind: 'incident',
-      sourceId: 'test-source',
-      cell: { x: 1, y: 1, z: 0 },
-      plane: 'alert',
-      knowledge: { state: 'current' },
-      intensityBand: 'high',
-      damageTags: ['toxic', 'corrosive', 'toxic'],
-      timing: { startAt: 40, activeAt: 41, endAt: 50 },
-      uncertaintyRadius: 2,
-      stackCount: 3,
-      glyph: '!',
-      target: { kind: 'incident', id: 'test' },
-      relatedTargets: [{ kind: 'task', id: 'response' }],
-    }],
+    entities: entitySeeds,
+    effects: effectSeeds,
+    spatialQueries: { entities: entityQuery, effects: effectQuery },
     selection: { target: { kind: 'container', id: 'jar-1' } },
   });
 
   expect(scene.entities).toHaveLength(1);
+  expect(scene.culling).toMatchObject({
+    entities: { input: 2, visible: 1, culled: 1, indexed: true },
+    effects: { input: 2, visible: 1, culled: 1, indexed: true },
+  });
+  expect(entityQuery.snapshot()).toMatchObject({ records: 2, queries: 1, candidatesExamined: 1 });
+  expect(VisualState.candidateIntersectsBounds(entitySeeds[1], {
+    x: 80, y: 80, z: 1, width: 1, height: 1,
+  })).toBe(true);
   expect(scene.timeline).toEqual({ revision: 7, mode: 'skip', paused: true, speed: 60 });
   expect(VisualState.cleanOrientation(90)).toEqual({ quarterTurns: 1, mirrored: false });
   expect(VisualState.cleanOrientation({ quarterTurns: 2, mirrored: true }))

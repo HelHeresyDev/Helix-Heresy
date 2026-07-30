@@ -4643,6 +4643,9 @@
       "spriteAssetStatus",
       "mapRendererDomBtn",
       "mapRendererCanvasBtn",
+      "runMapPopulationBenchmarkBtn",
+      "mapPopulationBenchmarkStatus",
+      "mapPopulationBenchmarkReadout",
       "journalModeReadout",
       "journalContent",
       "queueToggleBtn",
@@ -4801,6 +4804,7 @@
       spriteAssetSnapshot: () => spriteAssetLoader.snapshot(),
       validateSpriteManifest: () => spriteAssetLoader.validate(),
       retrySpriteAssets: () => spriteAssetLoader.loadAll({ retry: true }),
+      runMapPopulationBenchmark: () => runMapPopulationBenchmark(),
       canvasPointToCell: (clientX, clientY) => activeCanvasMapRenderer?.clientPointToCell?.(clientX, clientY) || null,
       canvasPointForCell: (cell) => activeCanvasMapRenderer?.pointForCell?.(cleanMapCell(cell)) || null,
       setMapRenderer: (mode) => {
@@ -5551,6 +5555,10 @@
 
     dom.mapRendererCanvasBtn?.addEventListener("click", () => {
       setMapRendererMode(MAP_RENDERER_CANVAS);
+    });
+
+    dom.runMapPopulationBenchmarkBtn?.addEventListener("click", () => {
+      runMapPopulationBenchmark();
     });
 
     dom.resetUiPreferencesBtn?.addEventListener("click", () => {
@@ -39260,6 +39268,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       },
       save: performanceBucketSnapshot(simulationPerformance.save)
     };
+  }
+
+  async function runMapPopulationBenchmark() {
+    if (!window.HelixMapPopulationBenchmark || !dom.mapPopulationBenchmarkStatus) return null;
+    const button = dom.runMapPopulationBenchmarkBtn;
+    if (button) button.disabled = true;
+    dom.mapPopulationBenchmarkStatus.textContent = "Running deterministic quick benchmark…";
+    if (dom.mapPopulationBenchmarkReadout) dom.mapPopulationBenchmarkReadout.textContent = "";
+    try {
+      const canvas = document.createElement("canvas");
+      const report = await window.HelixMapPopulationBenchmark.run(canvas, { mode: "quick" });
+      const representative = report.scenarios.representative;
+      const dense = report.scenarios.dense;
+      dom.mapPopulationBenchmarkStatus.textContent = report.valid
+        ? "Structural invariants passed. Timing budgets are advisory."
+        : "A structural benchmark invariant failed.";
+      if (dom.mapPopulationBenchmarkReadout) {
+        const rows = [
+          ["Representative", `${formatDecimal(representative.stagesMs.drawP95, 2)} ms draw p95`, `${representative.population.visibleEntities}/${representative.population.entities} actors visible`],
+          ["Dense", `${formatDecimal(dense.stagesMs.drawP95, 2)} ms draw p95`, `${dense.population.visibleEntities}/${dense.population.entities} actors visible`],
+          ["Offscreen scale", report.invariants.offscreenScalePreservesVisibleCounts ? "stable" : "failed", "visible draw counts match representative"],
+          ["Idle frames", report.invariants.idleSchedulesNoFrames ? "stable" : "failed", `${report.invariants.idleFrameCount} frames before idle`]
+        ];
+        const grid = document.createElement("div");
+        grid.className = "slime-stat-grid ai-debug-grid";
+        for (const [label, value, note] of rows) {
+          const row = document.createElement("div");
+          row.className = "slime-stat-row ai-debug-row";
+          row.append(textEl("span", label), textEl("strong", value), textEl("em", note));
+          grid.append(row);
+        }
+        dom.mapPopulationBenchmarkReadout.append(grid);
+      }
+      return report;
+    } catch (error) {
+      dom.mapPopulationBenchmarkStatus.textContent = `Benchmark failed: ${error?.message || error}`;
+      return null;
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   function renderSimulationPerformance() {

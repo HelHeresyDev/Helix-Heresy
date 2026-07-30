@@ -166,6 +166,124 @@
     return (cells || []).filter((entry) => cellInBounds(entry.cell || entry, bounds));
   }
 
+  function candidateCells(candidate) {
+    if (!candidate || typeof candidate !== "object") return [];
+    return uniqueCells(
+      candidate.footprintCells
+      || candidate.footprint
+      || candidate.cells
+      || [candidate.anchorCell || candidate.cell]
+    );
+  }
+
+  function rawCellInArea(cell, area) {
+    const x = Number(cell?.x);
+    const y = Number(cell?.y);
+    const z = Number.isFinite(Number(cell?.z)) ? Math.round(Number(cell.z)) : 0;
+    return Number.isFinite(x) && Number.isFinite(y)
+      && z === area.z
+      && Math.round(x) >= area.x && Math.round(x) < area.x + area.width
+      && Math.round(y) >= area.y && Math.round(y) < area.y + area.height;
+  }
+
+  function candidateIntersectsArea(candidate, area) {
+    const explicit = candidate?.bounds;
+    if (explicit && Number.isFinite(Number(explicit.x)) && Number.isFinite(Number(explicit.y))) {
+      const x = Math.round(Number(explicit.x));
+      const y = Math.round(Number(explicit.y));
+      const z = Math.round(Number(explicit.z) || 0);
+      const width = Math.max(1, Math.round(Number(explicit.width) || 1));
+      const height = Math.max(1, Math.round(Number(explicit.height) || 1));
+      const depth = Math.max(1, Math.round(Number(explicit.depth) || 1));
+      return area.z >= z && area.z < z + depth
+        && x < area.x + area.width && x + width > area.x
+        && y < area.y + area.height && y + height > area.y;
+    }
+    const cells = candidate?.footprintCells || candidate?.footprint || candidate?.cells;
+    if (cells) {
+      for (const cell of cells) {
+        if (rawCellInArea(cell, area)) return true;
+      }
+      return false;
+    }
+    return rawCellInArea(candidate?.anchorCell || candidate?.cell, area);
+  }
+
+  function candidateIntersectsBounds(candidate, bounds) {
+    return candidateIntersectsArea(candidate, cleanBounds(bounds));
+  }
+
+  function createSpatialQuery(records = [], options = {}) {
+    const chunkSize = Math.max(1, Math.floor(Number(options.chunkSize) || 16));
+    const source = Array.isArray(records) ? records : [];
+    const chunks = new Map();
+    const recordChunkKeys = (record) => {
+      const bounds = record?.bounds || boundsForCells(candidateCells(record));
+      if (!bounds) return [];
+      const left = Math.floor(bounds.x / chunkSize);
+      const right = Math.floor((bounds.x + Math.max(1, bounds.width) - 1) / chunkSize);
+      const top = Math.floor(bounds.y / chunkSize);
+      const bottom = Math.floor((bounds.y + Math.max(1, bounds.height) - 1) / chunkSize);
+      const keys = [];
+      for (let y = top; y <= bottom; y += 1) {
+        for (let x = left; x <= right; x += 1) keys.push(`${x},${y}`);
+      }
+      return keys;
+    };
+    source.forEach((record, index) => {
+      for (const key of recordChunkKeys(record)) {
+        if (!chunks.has(key)) chunks.set(key, []);
+        chunks.get(key).push(index);
+      }
+    });
+    let queries = 0;
+    let candidatesExamined = 0;
+    return {
+      query(bounds) {
+        queries += 1;
+        const area = cleanBounds(bounds);
+        const left = Math.floor(area.x / chunkSize);
+        const right = Math.floor((area.x + area.width - 1) / chunkSize);
+        const top = Math.floor(area.y / chunkSize);
+        const bottom = Math.floor((area.y + area.height - 1) / chunkSize);
+        const indices = new Set();
+        for (let y = top; y <= bottom; y += 1) {
+          for (let x = left; x <= right; x += 1) {
+            for (const index of chunks.get(`${x},${y}`) || []) indices.add(index);
+          }
+        }
+        candidatesExamined += indices.size;
+        return [...indices].map((index) => source[index])
+          .filter((record) => candidateIntersectsArea(record, area));
+      },
+      snapshot() {
+        return {
+          chunkSize,
+          records: source.length,
+          chunks: chunks.size,
+          queries,
+          candidatesExamined
+        };
+      }
+    };
+  }
+
+  function queryCandidates(records, bounds, spatialQuery = null) {
+    const source = Array.isArray(records) ? records : [];
+    const area = cleanBounds(bounds);
+    const visible = spatialQuery && typeof spatialQuery.query === "function"
+      ? spatialQuery.query(area)
+      : source.filter((record) => candidateIntersectsArea(record, area));
+    return {
+      records: visible,
+      input: source.length,
+      visible: visible.length,
+      culled: Math.max(0, source.length - visible.length),
+      indexed: Boolean(spatialQuery && typeof spatialQuery.query === "function"),
+      query: spatialQuery?.snapshot?.() || null
+    };
+  }
+
   function cleanEntity(candidate, index = 0) {
     const footprint = uniqueCells(candidate?.footprintCells || candidate?.footprint || [candidate?.anchorCell]);
     const anchor = cleanCell(candidate?.anchorCell) || footprint[0] || null;
@@ -355,7 +473,22 @@
     const queryBounds = cleanBounds(options.queryBounds, viewport);
     const selectedTarget = cleanTarget(options.selection?.target || options.selection);
     const selectedKey = targetKey(selectedTarget);
-    const entities = (options.entities || [])
+    const entityCandidates = queryCandidates(
+      options.entities,
+      queryBounds,
+      options.spatialQueries?.entities
+    );
+    const effectCandidates = queryCandidates(
+      options.effects,
+      queryBounds,
+      options.spatialQueries?.effects
+    );
+    const overlayCandidates = queryCandidates(
+      options.overlays,
+      queryBounds,
+      options.spatialQueries?.overlays
+    );
+    const entities = entityCandidates.records
       .map(cleanEntity)
       .filter(Boolean)
       .filter((entity) => entityIntersectsBounds(entity, queryBounds));
@@ -374,7 +507,7 @@
         entityIdsByCell.get(key).push(entity.id);
       }
     }
-    const effects = (options.effects || []).map(normalizeEffect).filter(Boolean)
+    const effects = effectCandidates.records.map(normalizeEffect).filter(Boolean)
       .filter((effect) => effect.cells.some((cell) => cellInBounds(cell, queryBounds)));
     const effectIdsByCell = new Map();
     const effectTargetsByCell = new Map();
@@ -410,7 +543,7 @@
         });
       }
     }
-    const overlays = (options.overlays || []).map(normalizeOverlay).filter(Boolean)
+    const overlays = overlayCandidates.records.map(normalizeOverlay).filter(Boolean)
       .filter((overlay) => overlay.cells.some((cell) => cellInBounds(cell, queryBounds)));
     const selectedEntity = uniqueEntities.find((entity) => entity.selected) || null;
     const selectedCells = selectedEntity
@@ -437,6 +570,29 @@
       entities: uniqueEntities,
       effects,
       overlays,
+      culling: {
+        entities: {
+          input: entityCandidates.input,
+          visible: uniqueEntities.length,
+          culled: Math.max(0, entityCandidates.input - uniqueEntities.length),
+          indexed: entityCandidates.indexed,
+          query: entityCandidates.query
+        },
+        effects: {
+          input: effectCandidates.input,
+          visible: effects.length,
+          culled: Math.max(0, effectCandidates.input - effects.length),
+          indexed: effectCandidates.indexed,
+          query: effectCandidates.query
+        },
+        overlays: {
+          input: overlayCandidates.input,
+          visible: overlays.length,
+          culled: Math.max(0, overlayCandidates.input - overlays.length),
+          indexed: overlayCandidates.indexed,
+          query: overlayCandidates.query
+        }
+      },
       selection: {
         target: selectedTarget,
         key: selectedKey,
@@ -536,6 +692,9 @@
     overscanBounds,
     cellInBounds,
     cellsWithinBounds,
+    candidateCells,
+    candidateIntersectsBounds,
+    createSpatialQuery,
     cleanEntity,
     cleanStatusCue,
     normalizeEffect,

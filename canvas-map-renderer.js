@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 6;
+  const RENDERER_VERSION = 7;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -868,13 +868,73 @@
     return { cellsDrawn, spritesDrawn, spriteFallbacks };
   }
 
+  function prepareDrawPlan(scene, options = {}) {
+    const cells = renderCells(scene, options);
+    const visibleCellKeys = new Set(cells.map((cell) => cellKey(cell.cell)));
+    const entities = RenderOrder.orderedEntities((scene?.entities || [])
+      .filter((entity) => (entity.footprintCells || [])
+        .some((cell) => visibleCellKeys.has(cellKey(cell)))));
+    const effects = [...(scene?.effects || [])]
+      .filter((effect) => (effect.cells || [])
+        .some((cell) => visibleCellKeys.has(cellKey(cell))))
+      .sort((left, right) => RenderOrder.compareRenderKeys(
+        RenderOrder.effectRenderKey(left),
+        RenderOrder.effectRenderKey(right)
+      ));
+    const entitiesByPass = new Map();
+    const effectsByPass = new Map();
+    for (const entity of entities) {
+      const pass = RenderOrder.entityPass(entity);
+      if (!entitiesByPass.has(pass)) entitiesByPass.set(pass, []);
+      entitiesByPass.get(pass).push(entity);
+    }
+    for (const effect of effects) {
+      const pass = RenderOrder.effectPass(effect);
+      if (!effectsByPass.has(pass)) effectsByPass.set(pass, []);
+      effectsByPass.get(pass).push(effect);
+    }
+    return {
+      cells,
+      visibleCellKeys,
+      cellsByKey: new Map(cells.map((cell) => [cellKey(cell.cell), cell])),
+      entities,
+      effects,
+      entitiesByPass,
+      effectsByPass,
+      occluderIds: RenderOrder.selectedOccluderIds(scene),
+      cutawayIds: RenderOrder.cutawayEntityIds(scene),
+      selectedCellKeys: new Set((scene?.selection?.cells || []).map(cellKey)),
+      stats: {
+        inputCells: scene?.cells?.length || 0,
+        visibleCells: cells.length,
+        culledCells: Math.max(0, (scene?.cells?.length || 0) - cells.length),
+        inputEntities: scene?.entities?.length || 0,
+        visibleEntities: entities.length,
+        culledEntities: Math.max(0, (scene?.entities?.length || 0) - entities.length),
+        inputEffects: scene?.effects?.length || 0,
+        visibleEffects: effects.length,
+        culledEffects: Math.max(0, (scene?.effects?.length || 0) - effects.length)
+      }
+    };
+  }
+
   function renderScene(ctx, scene, options = {}) {
     const viewport = scene?.viewport || { x: 0, y: 0, z: 0, width: 1, height: 1 };
     const tilePx = Math.max(4, cleanNumber(options.tilePx, 14));
     const origin = presentationOrigin(options);
-    const cells = renderCells(scene, options);
-    const visibleCellKeys = new Set(cells.map((cell) => cellKey(cell.cell)));
-    const cellsByKey = new Map(cells.map((cell) => [cellKey(cell.cell), cell]));
+    const drawPlan = options.drawPlan || prepareDrawPlan(scene, options);
+    const {
+      cells,
+      visibleCellKeys,
+      cellsByKey,
+      entities,
+      effects,
+      entitiesByPass,
+      effectsByPass,
+      occluderIds,
+      cutawayIds,
+      selectedCellKeys
+    } = drawPlan;
     let entityCellsDrawn = 0;
     let entitiesDrawn = 0;
     let spritesDrawn = 0;
@@ -913,18 +973,6 @@
       ctx.globalAlpha = priorAlpha;
     }
     countPass(RenderOrder.RENDER_PASSES.terrain, cells.length);
-
-    const entities = RenderOrder.orderedEntities((scene?.entities || [])
-      .filter((entity) => (entity.footprintCells || []).some((cell) => visibleCellKeys.has(cellKey(cell))))
-    );
-    const effects = [...(scene?.effects || [])]
-      .filter((effect) => (effect.cells || []).some((cell) => visibleCellKeys.has(cellKey(cell))))
-      .sort((left, right) => RenderOrder.compareRenderKeys(
-        RenderOrder.effectRenderKey(left),
-        RenderOrder.effectRenderKey(right)
-      ));
-    const occluderIds = RenderOrder.selectedOccluderIds(scene);
-    const cutawayIds = RenderOrder.cutawayEntityIds(scene);
 
     const drawEntity = (entity) => {
       const anchorLightingCell = cellsByKey.get(cellKey(entity.anchorCell))
@@ -1049,7 +1097,7 @@
     };
 
     const drawEffectsAtPass = (pass) => {
-      for (const effect of effects.filter((candidate) => RenderOrder.effectPass(candidate) === pass)) {
+      for (const effect of effectsByPass.get(pass) || []) {
         const counts = drawEffect(
           ctx,
           effect,
@@ -1065,7 +1113,7 @@
       }
     };
     const drawEntitiesAtPass = (pass) => {
-      for (const entity of entities.filter((candidate) => RenderOrder.entityPass(candidate) === pass)) {
+      for (const entity of entitiesByPass.get(pass) || []) {
         drawEntity(entity);
       }
     };
@@ -1093,7 +1141,6 @@
     }
     drawEffectsAtPass(RenderOrder.RENDER_PASSES.alert);
 
-    const selectedCellKeys = new Set((scene?.selection?.cells || []).map(cellKey));
     const selectedMotion = entityMotionSamples.get(scene?.selection?.entityId);
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
@@ -1133,7 +1180,8 @@
       animationActive: activeAnimations > 0,
       interpolatedEntities,
       entityHitRegions,
-      renderPassCounts
+      renderPassCounts,
+      drawPlanStats: { ...drawPlan.stats }
     };
   }
 
@@ -1149,6 +1197,8 @@
     let destroyed = false;
     let resizeObserver = null;
     let entityHitRegions = [];
+    let drawPlan = null;
+    const pendingInvalidationReasons = new Set();
     const now = typeof options.now === "function"
       ? options.now
       : () => typeof performance === "object" && typeof performance.now === "function"
@@ -1177,8 +1227,20 @@
       overheadCutawaysDrawn: 0,
       activeAnimations: 0,
       interpolatedEntities: 0,
-      renderPassCounts: {}
+      renderPassCounts: {},
+      drawPlanBuilds: 0,
+      drawPlanUses: 0,
+      drawPlanCacheHits: 0,
+      drawPlanStats: {},
+      invalidations: {},
+      lastInvalidationReasons: []
     };
+
+    function rebuildDrawPlan() {
+      drawPlan = scene ? prepareDrawPlan(scene, presentation) : null;
+      diagnostics.drawPlanBuilds += drawPlan ? 1 : 0;
+      diagnostics.drawPlanStats = { ...(drawPlan?.stats || {}) };
+    }
 
     function snapshot() {
       return {
@@ -1205,6 +1267,10 @@
     function draw(realTimeMs) {
       frameId = 0;
       if (destroyed || !scene) return;
+      const invalidationReasons = [...pendingInvalidationReasons];
+      pendingInvalidationReasons.clear();
+      const reusedDrawPlan = Boolean(drawPlan);
+      if (!drawPlan) rebuildDrawPlan();
       const startedAt = now();
       const clockSample = presentationClock.sample(
         Number.isFinite(Number(realTimeMs)) ? Number(realTimeMs) : startedAt
@@ -1232,7 +1298,8 @@
         presentationTime: clockSample.gameTime,
         speed: clockSample.speed,
         paused: clockSample.paused,
-        timelineMode: clockSample.mode
+        timelineMode: clockSample.mode,
+        drawPlan
       });
       const elapsedMs = now() - startedAt;
       diagnostics.frameCount += 1;
@@ -1256,16 +1323,23 @@
       diagnostics.activeAnimations = counts.activeAnimations;
       diagnostics.interpolatedEntities = counts.interpolatedEntities;
       diagnostics.renderPassCounts = counts.renderPassCounts;
+      diagnostics.drawPlanUses += 1;
+      if (reusedDrawPlan) diagnostics.drawPlanCacheHits += 1;
+      diagnostics.drawPlanStats = { ...counts.drawPlanStats };
+      diagnostics.lastInvalidationReasons = invalidationReasons;
       entityHitRegions = counts.entityHitRegions;
       canvas.dataset.canvasFrameCount = String(diagnostics.frameCount);
       canvas.dataset.canvasCellsDrawn = String(counts.cellsDrawn);
       canvas.dataset.canvasEntitiesDrawn = String(counts.entitiesDrawn);
       canvas.dataset.canvasSpritesDrawn = String(counts.spritesDrawn);
       options.onFrame?.(snapshot());
-      if (counts.animationActive) invalidate();
+      if (counts.animationActive) invalidate("animation");
     }
 
-    function invalidate() {
+    function invalidate(reason = "manual") {
+      const key = String(reason || "manual");
+      pendingInvalidationReasons.add(key);
+      diagnostics.invalidations[key] = (diagnostics.invalidations[key] || 0) + 1;
       if (destroyed || frameId) return;
       frameId = window.requestAnimationFrame(draw);
     }
@@ -1277,12 +1351,16 @@
         gameTime: scene?.clock,
         timeline: scene?.timeline
       });
-      invalidate();
+      rebuildDrawPlan();
+      invalidate("scene");
     }
 
     function setPresentation(nextPresentation = {}) {
+      const includeOverscanChanged = nextPresentation.includeOverscan !== undefined
+        && Boolean(nextPresentation.includeOverscan) !== Boolean(presentation.includeOverscan);
       presentation = { ...presentation, ...nextPresentation };
-      invalidate();
+      if (includeOverscanChanged) rebuildDrawPlan();
+      invalidate("presentation");
     }
 
     function clientPointToCell(clientX, clientY) {
@@ -1324,7 +1402,7 @@
     if (typeof ResizeObserver === "function") {
       resizeObserver = new ResizeObserver(() => {
         options.onResize?.();
-        invalidate();
+        invalidate("resize");
       });
       resizeObserver.observe(canvas);
     }
@@ -1360,6 +1438,7 @@
     effectAlpha,
     orientedLogicalSize,
     spritePlacement,
+    prepareDrawPlan,
     renderScene,
     createRenderer
   };

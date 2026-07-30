@@ -181,6 +181,34 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
       height: 20,
     }],
   });
+  const drawPlan = CanvasRenderer.prepareDrawPlan({
+    viewport: { x: 0, y: 0, z: 0, width: 2, height: 1 },
+    cells: [
+      { key: '0,0,0', cell: { x: 0, y: 0, z: 0 }, base: { kind: 'floor' }, visual: {} },
+      { key: '1,0,0', cell: { x: 1, y: 0, z: 0 }, base: { kind: 'floor' }, visual: {} },
+      { key: '99,99,0', cell: { x: 99, y: 99, z: 0 }, base: { kind: 'floor' }, visual: {} },
+    ],
+    entities: [
+      movingActor,
+      { ...movingActor, id: 'offscreen', anchorCell: { x: 99, y: 99, z: 0 }, footprintCells: [{ x: 99, y: 99, z: 0 }] },
+    ],
+    effects: [
+      { id: 'visible', plane: 'ground', cells: [{ x: 1, y: 0, z: 0 }] },
+      { id: 'offscreen', plane: 'alert', cells: [{ x: 99, y: 99, z: 0 }] },
+    ],
+    selection: { cells: [] },
+  });
+  expect(drawPlan.stats).toEqual({
+    inputCells: 3,
+    visibleCells: 2,
+    culledCells: 1,
+    inputEntities: 2,
+    visibleEntities: 1,
+    culledEntities: 1,
+    inputEffects: 2,
+    visibleEffects: 1,
+    culledEffects: 1,
+  });
 
   const workbench = SpriteManifest.manifest.assets.find((entry) => entry.key === 'fixture.basicWorkbench');
   const resolved = { entry: workbench, image: {} };
@@ -402,7 +430,13 @@ test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', asy
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(6);
+  expect(result.diagnostics.canvas.version).toBe(7);
+  expect(result.diagnostics.canvas.drawPlanBuilds).toBeGreaterThan(0);
+  expect(result.diagnostics.canvas.drawPlanUses).toBeGreaterThan(0);
+  expect(result.diagnostics.canvas.drawPlanStats.visibleCells).toBe(
+    result.diagnostics.canvas.cellsDrawn
+  );
+  expect(result.diagnostics.canvas.invalidations.scene).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.spritesDrawn).toBe(0);
   expect(result.diagnostics.canvas.presentation).toMatchObject({
     glyphMode: true,
