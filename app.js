@@ -3311,6 +3311,7 @@
   let mapRendererMode = MAP_RENDERER_DOM;
   let activeCanvasMapRenderer = null;
   let activeCanvasMapSurface = null;
+  let activeMapParityFixtureRoot = null;
   const spriteAssetLoader = SpriteAssets.createAssetLoader(SpriteAssetManifest.manifest, {
     baseUrl: document.baseURI
   });
@@ -4805,6 +4806,9 @@
       validateSpriteManifest: () => spriteAssetLoader.validate(),
       retrySpriteAssets: () => spriteAssetLoader.loadAll({ retry: true }),
       runMapPopulationBenchmark: () => runMapPopulationBenchmark(),
+      mapRendererParityFixtureIds: () => [...(window.HelixMapRendererParity?.FIXTURE_IDS || [])],
+      mountMapRendererParityFixture: (fixtureId) => mountMapRendererParityFixture(fixtureId),
+      removeMapRendererParityFixture: () => removeMapRendererParityFixture(),
       canvasPointToCell: (clientX, clientY) => activeCanvasMapRenderer?.clientPointToCell?.(clientX, clientY) || null,
       canvasPointForCell: (cell) => activeCanvasMapRenderer?.pointForCell?.(cleanMapCell(cell)) || null,
       setMapRenderer: (mode) => {
@@ -48900,6 +48904,172 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function labMapCellElement(cellView, scene = null, options = {}) {
+    const domCell = labMapCellDomModel(cellView, scene);
+    const tile = document.createElement("div");
+    tile.className = domCell.classNames.join(" ");
+    tile.title = domCell.title;
+    const cellGlyph = document.createElement("span");
+    cellGlyph.className = "map-cell-glyph";
+    cellGlyph.textContent = domCell.text;
+    tile.append(cellGlyph);
+    for (const [key, value] of Object.entries(domCell.dataset)) {
+      tile.dataset[key] = value;
+    }
+    for (const marker of domCell.effectMarkers) {
+      const effectMarker = document.createElement("span");
+      effectMarker.className = [
+        "map-cell-effect-marker",
+        `map-cell-effect-${overlayClassPart(marker.plane)}`,
+        `map-cell-effect-${overlayClassPart(marker.kind)}`,
+        `map-cell-effect-severity-${overlayClassPart(marker.severity || "routine")}`
+      ].join(" ");
+      effectMarker.textContent = marker.stackCount > 1 ? `${marker.glyph}${marker.stackCount}` : marker.glyph;
+      effectMarker.title = marker.label;
+      effectMarker.setAttribute("aria-hidden", "true");
+      tile.append(effectMarker);
+    }
+    for (const [markerIndex, marker] of domCell.statusMarkers.entries()) {
+      const statusMarker = document.createElement("span");
+      statusMarker.className = `map-cell-status-marker map-cell-status-${overlayClassPart(marker.severity)}`;
+      statusMarker.textContent = marker.glyph;
+      statusMarker.title = marker.label;
+      statusMarker.dataset.statusIndex = String(markerIndex);
+      statusMarker.setAttribute("aria-hidden", "true");
+      tile.append(statusMarker);
+    }
+    if (options.interactive !== false) {
+      tile.addEventListener("click", () => {
+        if (suppressNextMapClick) {
+          suppressNextMapClick = false;
+          return;
+        }
+        if (handleConstructionMapCellClick(cellView)) return;
+        if (domCell.clickTarget) {
+          focusMapTarget(domCell.clickTarget, {
+            keepWorkspace: true,
+            source: "map",
+            resetInspectorTab: true,
+            resetInspectorExpanded: true,
+            resetCommandMenu: true
+          });
+        }
+      });
+    }
+    return { tile, model: domCell };
+  }
+
+  function removeMapRendererParityFixture() {
+    activeMapParityFixtureRoot?.remove();
+    activeMapParityFixtureRoot = null;
+  }
+
+  async function mountMapRendererParityFixture(fixtureId) {
+    removeMapRendererParityFixture();
+    const parity = window.HelixMapRendererParity;
+    if (!parity) throw new Error("Renderer parity fixtures are not loaded.");
+    await spriteAssetLoader.loadAll();
+    await document.fonts?.ready;
+    const fixture = parity.createFixture(fixtureId);
+    const { scene, presentation } = fixture;
+    const root = document.createElement("section");
+    root.className = "map-parity-fixture-root";
+    root.dataset.mapParityFixture = fixture.id;
+    root.dataset.fixtureVersion = String(fixture.version);
+    root.setAttribute("aria-label", `Renderer parity fixture: ${fixture.title}`);
+    const heading = document.createElement("header");
+    heading.className = "map-parity-fixture-header";
+    heading.append(
+      textEl("strong", fixture.title),
+      textEl("span", `Fixture ${fixture.version} · ${scene.viewport.width}×${scene.viewport.height} · Z ${scene.viewport.z} · ${presentation.tilePx}px`)
+    );
+    const pair = document.createElement("div");
+    pair.className = "map-parity-pair";
+    const accessibleSummary = `Map fixture ${fixture.title}. Z ${scene.viewport.z}. ${scene.interactionIndex.length} interactive cells. Selection ${scene.selection.key || "none"}.`;
+
+    const domSurface = document.createElement("section");
+    domSurface.className = "map-parity-surface lab-map-panel";
+    domSurface.dataset.parityRenderer = "dom";
+    domSurface.dataset.mapContrast = presentation.highContrast ? "high" : "standard";
+    domSurface.dataset.mapEffectIntensity = presentation.effectIntensity;
+    domSurface.dataset.mapVisualMode = presentation.glyphMode ? "glyphs" : "sprites";
+    domSurface.style.setProperty("--map-marker-scale", String(presentation.markerScale));
+    domSurface.append(textEl("strong", "DOM glyph renderer"));
+    const domGrid = document.createElement("div");
+    domGrid.className = "lab-map-grid map-parity-grid";
+    domGrid.setAttribute("role", "img");
+    domGrid.setAttribute("aria-label", accessibleSummary);
+    domGrid.style.setProperty("--map-tile-size", `${presentation.tilePx}px`);
+    domGrid.style.gridTemplateColumns = `repeat(${scene.viewport.width}, var(--map-tile-size))`;
+    const domEntries = [];
+    for (const cell of scene.cells.filter((entry) => MapVisualState.cellInBounds(entry.cell, scene.viewport))) {
+      const rendered = labMapCellElement(cell, scene, { interactive: false });
+      domEntries.push({ key: cell.key, model: rendered.model });
+      domGrid.append(rendered.tile);
+    }
+    domSurface.append(domGrid);
+
+    const canvasSurface = document.createElement("section");
+    canvasSurface.className = "map-parity-surface lab-map-panel";
+    canvasSurface.dataset.parityRenderer = "canvas";
+    canvasSurface.dataset.mapContrast = presentation.highContrast ? "high" : "standard";
+    canvasSurface.dataset.mapEffectIntensity = presentation.effectIntensity;
+    canvasSurface.dataset.mapVisualMode = presentation.glyphMode ? "glyphs" : "sprites";
+    canvasSurface.style.setProperty("--map-marker-scale", String(presentation.markerScale));
+    canvasSurface.append(textEl("strong", "Canvas map renderer"));
+    const canvasHost = document.createElement("div");
+    canvasHost.className = "lab-map-canvas-host map-parity-canvas-host";
+    canvasHost.setAttribute("role", "img");
+    canvasHost.setAttribute("aria-label", accessibleSummary);
+    const canvas = document.createElement("canvas");
+    canvas.className = "lab-map-canvas";
+    canvas.dataset.canvasMap = "true";
+    canvas.dataset.canvasFrameCount = "1";
+    const width = scene.viewport.width * presentation.tilePx + 12;
+    const height = scene.viewport.height * presentation.tilePx + 12;
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const context = canvas.getContext("2d", { alpha: false });
+    context.fillStyle = presentation.highContrast ? "#000000" : "#090a08";
+    context.fillRect(0, 0, width, height);
+    const canvasCounts = CanvasMapRenderer.renderScene(context, scene, {
+      ...presentation,
+      origin: { x: 6, y: 6 },
+      assetLoader: spriteAssetLoader,
+      presentationTime: scene.clock,
+      speed: 1,
+      paused: true,
+      timelineMode: "paused"
+    });
+    canvas.dataset.canvasCellsDrawn = String(canvasCounts.cellsDrawn);
+    canvas.dataset.canvasEntitiesDrawn = String(canvasCounts.entitiesDrawn);
+    canvasHost.append(canvas);
+    canvasSurface.append(canvasHost);
+    pair.append(domSurface, canvasSurface);
+    root.append(heading, pair);
+    document.body.append(root);
+    activeMapParityFixtureRoot = root;
+
+    const report = parity.semanticReport(fixture, domEntries);
+    report.accessibility = {
+      dom: domGrid.getAttribute("aria-label"),
+      canvas: canvasHost.getAttribute("aria-label"),
+      matches: domGrid.getAttribute("aria-label") === canvasHost.getAttribute("aria-label")
+    };
+    if (!report.accessibility.matches) report.errors.push("Renderer accessibility summaries differ.");
+    report.canvas = {
+      cellsDrawn: canvasCounts.cellsDrawn,
+      entitiesDrawn: canvasCounts.entitiesDrawn,
+      effectsDrawn: canvasCounts.drawPlanStats?.visibleEffects || 0,
+      spritesDrawn: canvasCounts.spritesDrawn,
+      spriteFallbacks: canvasCounts.spriteFallbacks,
+      renderPassCounts: canvasCounts.renderPassCounts
+    };
+    return report;
+  }
+
   function mapSceneEnvironmentAtCell(cell, roomId, known, options = {}) {
     if (!known) {
       return { knowledge: { state: "unknown", observedAt: null, confidence: 0, source: "unknown terrain" }, values: null, bands: null };
@@ -50150,58 +50320,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handleMapWheelZoom(event, mapView);
     }, { passive: false });
     for (const cellView of mapView.cells) {
-      const domCell = labMapCellDomModel(cellView, mapView.scene);
-      const tile = document.createElement("div");
-      tile.className = domCell.classNames.join(" ");
-      tile.title = domCell.title;
-      const cellGlyph = document.createElement("span");
-      cellGlyph.className = "map-cell-glyph";
-      cellGlyph.textContent = domCell.text;
-      tile.append(cellGlyph);
-      for (const [key, value] of Object.entries(domCell.dataset)) {
-        tile.dataset[key] = value;
-      }
-      for (const marker of domCell.effectMarkers) {
-        const effectMarker = document.createElement("span");
-        effectMarker.className = [
-          "map-cell-effect-marker",
-          `map-cell-effect-${overlayClassPart(marker.plane)}`,
-          `map-cell-effect-${overlayClassPart(marker.kind)}`,
-          `map-cell-effect-severity-${overlayClassPart(marker.severity || "routine")}`
-        ].join(" ");
-        effectMarker.textContent = marker.stackCount > 1 ? `${marker.glyph}${marker.stackCount}` : marker.glyph;
-        effectMarker.title = marker.label;
-        effectMarker.setAttribute("aria-hidden", "true");
-        tile.append(effectMarker);
-      }
-      for (const [markerIndex, marker] of domCell.statusMarkers.entries()) {
-        const statusMarker = document.createElement("span");
-        statusMarker.className = `map-cell-status-marker map-cell-status-${overlayClassPart(marker.severity)}`;
-        statusMarker.textContent = marker.glyph;
-        statusMarker.title = marker.label;
-        statusMarker.dataset.statusIndex = String(markerIndex);
-        statusMarker.setAttribute("aria-hidden", "true");
-        tile.append(statusMarker);
-      }
-      tile.addEventListener("click", () => {
-        if (suppressNextMapClick) {
-          suppressNextMapClick = false;
-          return;
-        }
-        if (handleConstructionMapCellClick(cellView)) {
-          return;
-        }
-        if (domCell.clickTarget) {
-          focusMapTarget(domCell.clickTarget, {
-            keepWorkspace: true,
-            source: "map",
-            resetInspectorTab: true,
-            resetInspectorExpanded: true,
-            resetCommandMenu: true
-          });
-        }
-      });
-      grid.append(tile);
+      grid.append(labMapCellElement(cellView, mapView.scene).tile);
     }
     panel.append(grid);
     return panel;

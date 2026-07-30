@@ -49,11 +49,12 @@ For development and automation on Ubuntu, install a current Node.js LTS release,
 
 ```bash
 npm test
+npm run test:visual
 npm run benchmark:map
 npm run benchmark:map:full
 ```
 
-The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+The correctness command uses four Chromium workers to avoid overcommitting the Ubuntu desktop. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
 
 ## Project Files
 
@@ -70,8 +71,10 @@ The quick benchmark is intended for iteration; the full mode takes more samples.
 - `sprite-asset-loader.js` - Asynchronous image loading, caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated development placeholders and asset-maintenance notes.
 - `canvas-map-renderer.js` - Optional Canvas 2D map prototype with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, cached viewport draw plans, invalidation diagnostics, and conditional animation-frame redraws.
+- `map-renderer-parity.js` - Deterministic renderer fixtures and zero-tolerance semantic parity reports shared by the actual DOM adapter and Canvas draw path.
 - `map-population-benchmark.js` and `benchmarks/` - Deterministic representative, dense, and mostly-offscreen population fixtures measured in a real browser Canvas.
 - `scripts/run-map-benchmark.js` - Quick/full benchmark CLI with stage timings, advisory budgets, and structural invariant checks.
+- `RENDERER_PROMOTION_CHECKLIST.md` - Automated, human-review, and release gates required before Canvas can be considered as the default map renderer.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.

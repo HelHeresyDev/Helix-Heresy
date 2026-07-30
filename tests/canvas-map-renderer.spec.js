@@ -34,6 +34,81 @@ async function canvasPointForCell(page, cell) {
   }, cell);
 }
 
+async function verifyMapRendererParityFixtures(page) {
+  await page.addScriptTag({ path: path.join(projectRoot, 'map-renderer-parity.js') });
+  const fixtureIds = await page.evaluate(() => window.helixHeresyDebug.mapRendererParityFixtureIds());
+  expect(fixtureIds).toEqual([
+    'terrain',
+    'knowledge',
+    'effects',
+    'crowded',
+    'vertical',
+    'accessibility',
+  ]);
+  const reports = {};
+  await page.setViewportSize({ width: 1280, height: 900 });
+  for (const fixtureId of fixtureIds) {
+    reports[fixtureId] = await page.evaluate((id) =>
+      window.helixHeresyDebug.mountMapRendererParityFixture(id), fixtureId);
+    const root = page.locator(`[data-map-parity-fixture="${fixtureId}"]`);
+    await expect(root).toBeVisible();
+    await expect(root.locator('[data-parity-renderer="dom"]')).toBeVisible();
+    await expect(root.locator('[data-parity-renderer="canvas"] canvas')).toHaveAttribute(
+      'data-canvas-frame-count',
+      '1'
+    );
+    expect(reports[fixtureId].errors).toEqual([]);
+    expect(reports[fixtureId].accessibility).toMatchObject({ matches: true });
+    await expect(root).toHaveScreenshot(`map-parity-${fixtureId}.png`, {
+      animations: 'disabled',
+      caret: 'hide',
+      scale: 'css',
+      threshold: 0.15,
+      maxDiffPixelRatio: 0.005,
+    });
+    await page.evaluate(() => window.helixHeresyDebug.removeMapRendererParityFixture());
+  }
+
+  expect(reports.terrain.summary.cells).toBe(48);
+  expect(reports.effects.summary.effects).toEqual([
+    'ground-spill',
+    'world-failure',
+    'alert-incident',
+    'uncertain-alert',
+  ]);
+  expect(reports.crowded.summary.interactionOrder.find((entry) => entry.key === '3,2,0').targets)
+    .toEqual([
+      'incident:crowded-alert',
+      'slime:crowded-slime',
+      'container:crowded-container',
+      'itemStack:crowded-item',
+      'tile:3,2,0',
+    ]);
+  expect(reports.vertical.summary.passes.entities).toEqual(expect.arrayContaining([
+    ['tall-slime', 'actor'],
+    ['overhead-duct', 'overhead'],
+  ]));
+  expect(reports.accessibility.canvas.spritesDrawn).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  const compact = await page.evaluate(() =>
+    window.helixHeresyDebug.mountMapRendererParityFixture('accessibility'));
+  expect(compact.errors).toEqual([]);
+  const compactRoot = page.locator('[data-map-parity-fixture="accessibility"]');
+  await expect(compactRoot).toHaveScreenshot('map-parity-accessibility-compact.png', {
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'css',
+    threshold: 0.15,
+    maxDiffPixelRatio: 0.005,
+  });
+  expect(await compactRoot.locator('.map-parity-pair').evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(' ').length
+  )).toBe(1);
+  await page.evaluate(() => window.helixHeresyDebug.removeMapRendererParityFixture());
+  await page.setViewportSize({ width: 1280, height: 900 });
+}
+
 function recordingContext() {
   return new Proxy({}, {
     get(target, property) {
@@ -384,8 +459,9 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
   });
 });
 
-test('Debug renderer switch draws a nonblank high-DPI Canvas from MapScene', async ({ page }) => {
+test('renderer parity fixtures pass semantic and visual gates before the Debug Canvas switch', async ({ page }) => {
   await startRun(page);
+  await verifyMapRendererParityFixtures(page);
   await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
   const accessibility = page.locator('[data-map-accessibility-controls="true"]');
   await accessibility.locator('summary').click();
