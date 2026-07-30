@@ -105,10 +105,14 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
     return {
       cell: navigation.actors.find((actor) => actor.id === 'scientist').cell,
       movement: task?.data?.movement,
+      haulLegs: task?.data?.haulLegs,
     };
   });
   expect(initialHaulMovement.movement).toMatchObject({ intent: 'haul', speedMps: 0.75, stepIndex: 0 });
   expect(initialHaulMovement.movement.steps.length).toBeGreaterThan(2);
+  expect(initialHaulMovement.haulLegs).toEqual([
+    expect.objectContaining({ key: 'biomass', amount: 10, status: 'pending' }),
+  ]);
 
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(2));
   const movingHaul = await page.evaluate(({ key }) => {
@@ -177,6 +181,21 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   await page.locator('#queueToggleBtn').click();
   await expect(haulTask).toBeVisible();
 
+  const carriedLoad = await page.evaluate(() => {
+    let task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'resourceHaul');
+    const movement = task.data.movement;
+    const segmentSeconds = movement.segmentArriveAt - movement.segmentStartedAt;
+    const stepsToPickup = Math.max(0, task.data.haulLegs[0].pickupStepIndex - movement.stepIndex);
+    window.helixHeresyDebug.advanceSimulation(stepsToPickup * segmentSeconds + 5);
+    const inventory = window.helixHeresyDebug.actorInventorySnapshot('scientist');
+    task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'resourceHaul');
+    return { inventory, haulLegs: task?.data?.haulLegs };
+  });
+  expect(carriedLoad.inventory.stacks).toEqual([
+    expect.objectContaining({ section: 'resources', key: 'biomass', quantity: 10, carriedBy: 'scientist' }),
+  ]);
+  expect(carriedLoad.haulLegs[0].status).toBe('carried');
+
   await haulTask.getByRole('button', { name: 'Finish' }).click();
 
   const synthTask = page.locator('#taskList .task-row').filter({ hasText: 'Synthesize slime' });
@@ -192,6 +211,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       taskTypes: (state.tasks || []).map((task) => task.type),
       taskDurations: (state.tasks || []).map((task) => task.dueAt - task.createdAt),
       scientistRoomId: state.scientist?.roomId,
+      scientistInventory: state.scientist?.inventory,
     };
   }, { key: storageKey });
 
@@ -202,6 +222,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
   expect(logisticsState.taskDurations[0]).toBeGreaterThan(0);
   expect(logisticsState.taskDurations[0]).toBeLessThanOrEqual(8);
   expect(logisticsState.scientistRoomId).toBe('mainLab');
+  expect(logisticsState.scientistInventory.stackIds).toEqual([]);
 
   await synthTask.getByRole('button', { name: 'Finish' }).click();
   await page.locator('[data-task-menu-tab="completed"]').click();

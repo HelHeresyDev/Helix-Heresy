@@ -2374,8 +2374,11 @@
   const SERVICE_POLICY_DEFAULTS = { mode: "manual", thresholdPercent: 100, clearOverflow: false, priority: 4 };
   const WORK_ORDER_STATUS_IDS = new Set(["open", "claimed", "blocked", "completed", "canceled"]);
   const WORK_ORDER_HISTORY_LIMIT = 160;
+  const ACTOR_INVENTORY_VERSION = 1;
   const SCIENTIST_CARRY_MASS_KG = 25;
   const SCIENTIST_CARRY_VOLUME_L = 80;
+  const SLIME_CARRY_MIN_MASS_KG = 1;
+  const SLIME_CARRY_MIN_VOLUME_L = 2;
   const LABOR_BASE_SECONDS = 30;
   const LABOR_HAUL_SECONDS_PER_KG = 2;
   const LABOR_REPAIR_SECONDS_PER_POINT = 2;
@@ -3846,6 +3849,7 @@
     return {
       roomId: MAIN_ROOM_ID,
       mapCell: scientistDefaultMapCell(MAIN_ROOM_ID),
+      inventory: defaultActorInventory("scientist"),
       carriedLight: { ...SCIENTIST_DEFAULT_CARRIED_LIGHT },
       physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
       physicalState: defaultScientistPhysicalState(),
@@ -3867,6 +3871,47 @@
 
   function defaultInventory() {
     return Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item.initial]));
+  }
+
+  function normalizeActorInventoryOwnerId(candidate) {
+    const id = String(candidate || "").trim();
+    return /^[a-zA-Z0-9][a-zA-Z0-9:_-]*$/.test(id) ? id : "";
+  }
+
+  function slimeInventoryCapacity(slime) {
+    const profile = physicalProfile(slime?.genome || "");
+    const massFraction = clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.5);
+    const bodyMassKg = Math.max(0.1, Number(profile?.weightKg) || 1) * massFraction;
+    const bodyVolumeL = Math.max(0.1, (Number(profile?.volumeCm3) || 1000) / 1000) * massFraction;
+    return {
+      maxMassKg: roundOutputValue(Math.max(SLIME_CARRY_MIN_MASS_KG, bodyMassKg * 0.25)),
+      maxVolumeL: roundOutputValue(Math.max(SLIME_CARRY_MIN_VOLUME_L, bodyVolumeL * 0.2))
+    };
+  }
+
+  function defaultActorInventory(actorOrId = "scientist") {
+    const scientist = actorOrId === "scientist" || actorOrId === state?.scientist || actorOrId?.physicalPresence;
+    const capacity = scientist
+      ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
+      : slimeInventoryCapacity(actorOrId);
+    return {
+      version: ACTOR_INVENTORY_VERSION,
+      maxMassKg: capacity.maxMassKg,
+      maxVolumeL: capacity.maxVolumeL,
+      stackIds: [],
+      equippedToolInstanceIds: []
+    };
+  }
+
+  function normalizeActorInventory(candidate, actorOrId = "scientist") {
+    const fallback = defaultActorInventory(actorOrId);
+    return {
+      version: ACTOR_INVENTORY_VERSION,
+      maxMassKg: Math.max(0, Number(candidate?.maxMassKg) || fallback.maxMassKg),
+      maxVolumeL: Math.max(0, Number(candidate?.maxVolumeL) || fallback.maxVolumeL),
+      stackIds: [...new Set((Array.isArray(candidate?.stackIds) ? candidate.stackIds : []).map(String).filter(Boolean))],
+      equippedToolInstanceIds: [...new Set((Array.isArray(candidate?.equippedToolInstanceIds) ? candidate.equippedToolInstanceIds : []).map(String).filter(Boolean))]
+    };
   }
 
   function defaultToolDurability() {
@@ -5342,6 +5387,19 @@
           scientistFits: canActorOccupyTile(state.scientist, cell)
         })
       }),
+      actorInventorySnapshot: (actorId = "scientist") => actorInventorySnapshot(actorId),
+      carryActorStack: (actorId, stackId, quantity = 1) => {
+        const carried = carryPhysicalStack(actorId, stackId, quantity);
+        persist();
+        render();
+        return carried ? { ...carried, cell: { ...carried.cell } } : null;
+      },
+      dropActorStack: (actorId, stackId, options = {}) => {
+        const dropped = dropActorInventoryStack(actorId, stackId, options);
+        persist();
+        render();
+        return dropped;
+      },
       lightingSnapshot: (cell = null) => {
         const map = ensureLabMap();
         ensurePhysicalLightingCurrent(map);
@@ -8399,6 +8457,7 @@
     for (const system of schedule.due) {
       profileSimulationSystem(system.id, () => runSimulationSystem(system.id, system.elapsed, changes, options));
     }
+    if (syncActorInventories()) syncPhysicalReadModels();
     return changes;
   }
 
@@ -8480,6 +8539,14 @@
         .filter((task) => !state.combat?.routineSuspension || (suspensionTaskId && task.id === suspensionTaskId))
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
+        if (task.type === "resourceHaul" && resourceHaulLegs(task).some((leg) => leg.status !== "delivered")) {
+          if (firstScientistQueueTask()?.id === task.id) updateScientistMovementTask();
+          if (resourceHaulLegs(task).some((leg) => leg.status !== "delivered")) {
+            task.dueAt = Math.max(state.clock + 0.001, Number(task.data?.movement?.segmentArriveAt) || 0);
+            changeCount += 1;
+            continue;
+          }
+        }
         const blockedReason = taskBlockReason(task);
         if (blockedReason) {
           task.data ||= {};
@@ -9684,7 +9751,7 @@
   }
 
   function toolMapCell(instance, map = ensureLabMap()) {
-    if (instance?.carriedBy === "scientist") return scientistMapCell();
+    if (instance?.carriedBy) return actorInventoryLocation(instance.carriedBy)?.cell || scientistMapCell();
     const roomId = roomById(instance?.roomId)?.id || STORAGE_ROOM_ID;
     return nearestOpenMapCellInRoom(roomId, labMapRoomAnchor(roomId), { map });
   }
@@ -9697,7 +9764,8 @@
       instances.map((instance) => ({ itemKey, instance }))
     ).filter(({ itemKey, instance }) => durableToolDef(itemKey)?.capabilities
       && Number(instance.current) > 0
-      && !instance.reservedTaskId);
+      && !instance.reservedTaskId
+      && (!instance.carriedBy || instance.carriedBy === "scientist"));
     const selections = [];
     for (const requirement of requirements) {
       const ranked = allCandidates.map((candidate) => ({
@@ -11151,6 +11219,7 @@
       containerId: options.containerId ?? null,
       roomId: options.roomId || MAIN_ROOM_ID,
       mapCell: objectMapCell(options),
+      inventory: normalizeActorInventory(options.inventory, { genome, stats: options.stats || defaultSlimeStats() }),
       navigationOrientation: options.navigationOrientation === "vertical" ? "vertical" : "horizontal",
       spatialPressure: normalizeSlimeSpatialPressure(options.spatialPressure),
       parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
@@ -16737,7 +16806,9 @@
       stockpileId: String(candidate.stockpileId || ""),
       observedAt: finiteTime(candidate.observedAt, 0),
       reservedTaskId: String(candidate.reservedTaskId || ""),
-      carriedBy: candidate.carriedBy === "scientist" ? "scientist" : "",
+      carriedBy: normalizeActorInventoryOwnerId(candidate.carriedBy),
+      carryTaskId: String(candidate.carryTaskId || ""),
+      carryLegIndex: Number.isFinite(Number(candidate.carryLegIndex)) ? Math.floor(Number(candidate.carryLegIndex)) : -1,
       toolInstanceId: String(candidate.toolInstanceId || ""),
       containerId: cleanContainerId(candidate.containerId),
       form: ["stack", "waste", "spill", "receptacle"].includes(candidate.form) ? candidate.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
@@ -16773,6 +16844,214 @@
   function ensurePhysicalItemStacks() {
     if (!Array.isArray(state.physicalItemStacks)) state.physicalItemStacks = defaultPhysicalItemStacks();
     return state.physicalItemStacks;
+  }
+
+  function actorInventoryOwner(actorId, context = state) {
+    const id = normalizeActorInventoryOwnerId(actorId);
+    if (id === "scientist") return context?.scientist || null;
+    return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead") || null;
+  }
+
+  function actorInventoryLocation(actorId, context = state) {
+    const actor = actorInventoryOwner(actorId, context);
+    if (!actor) return null;
+    if (actorId === "scientist") {
+      return { roomId: actor.roomId || MAIN_ROOM_ID, cell: cleanMapCell(actor.mapCell) || labMapRoomAnchor(actor.roomId || MAIN_ROOM_ID, context.labMap) };
+    }
+    const container = actor.containerId ? (context.containers || []).find((entry) => entry.id === actor.containerId) : null;
+    return {
+      roomId: container?.roomId || actor.roomId || MAIN_ROOM_ID,
+      cell: cleanMapCell(container?.mapCell || container?.cell || actor.mapCell) || labMapRoomAnchor(container?.roomId || actor.roomId || MAIN_ROOM_ID, context.labMap)
+    };
+  }
+
+  function syncActorInventories(context = state) {
+    if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
+    const actors = [
+      { id: "scientist", actor: context.scientist },
+      ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime }))
+    ];
+    const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.status !== "dead").map((entry) => entry.id));
+    let changed = false;
+    for (const { id, actor } of actors) {
+      actor.inventory = normalizeActorInventory(actor.inventory, id === "scientist" ? "scientist" : actor);
+      const capacity = defaultActorInventory(id === "scientist" ? "scientist" : actor);
+      if (actor.inventory.maxMassKg !== capacity.maxMassKg || actor.inventory.maxVolumeL !== capacity.maxVolumeL) changed = true;
+      actor.inventory.maxMassKg = capacity.maxMassKg;
+      actor.inventory.maxVolumeL = capacity.maxVolumeL;
+    }
+    for (const stack of context.physicalItemStacks) {
+      if (!stack.carriedBy) continue;
+      if (!validIds.has(stack.carriedBy)) {
+        stack.carriedBy = "";
+        changed = true;
+        continue;
+      }
+      const location = actorInventoryLocation(stack.carriedBy, context);
+      if (!location) continue;
+      if (stack.roomId !== location.roomId || mapCellKey(stack.cell) !== mapCellKey(location.cell) || stack.fixtureId || stack.stockpileId || stack.containerId) changed = true;
+      stack.roomId = location.roomId;
+      stack.cell = cleanMapCell(location.cell);
+      stack.fixtureId = "";
+      stack.stockpileId = "";
+      stack.containerId = "";
+    }
+    for (const instances of Object.values(context.toolDurability || {})) {
+      for (const tool of instances) {
+        if (tool.carriedBy && !validIds.has(tool.carriedBy)) {
+          tool.carriedBy = "";
+          changed = true;
+        }
+      }
+    }
+    for (const { id, actor } of actors) {
+      const stackIds = context.physicalItemStacks.filter((stack) => stack.carriedBy === id).map((stack) => stack.id).sort();
+      const equippedToolInstanceIds = Object.values(context.toolDurability || {}).flat()
+        .filter((tool) => tool.carriedBy === id).map((tool) => tool.id).sort();
+      if (actor.inventory.stackIds.join("|") !== stackIds.join("|") || actor.inventory.equippedToolInstanceIds.join("|") !== equippedToolInstanceIds.join("|")) changed = true;
+      actor.inventory.stackIds = stackIds;
+      actor.inventory.equippedToolInstanceIds = equippedToolInstanceIds;
+    }
+    return changed;
+  }
+
+  function actorInventoryStacks(actorId) {
+    const id = normalizeActorInventoryOwnerId(actorId);
+    return id ? ensurePhysicalItemStacks().filter((stack) => stack.carriedBy === id) : [];
+  }
+
+  function actorInventoryUsage(actorId) {
+    return actorInventoryStacks(actorId).reduce((usage, stack) => {
+      usage.massKg += Math.max(0, Number(stack.quantity) || 0) * Math.max(0, Number(stack.unitMassKg) || 0);
+      usage.volumeL += Math.max(0, Number(stack.quantity) || 0) * Math.max(0, Number(stack.unitVolumeL) || 0);
+      return usage;
+    }, { massKg: 0, volumeL: 0 });
+  }
+
+  function actorInventorySnapshot(actorId) {
+    const actor = actorInventoryOwner(actorId);
+    if (!actor) return null;
+    syncActorInventories();
+    const inventory = normalizeActorInventory(actor.inventory, actorId === "scientist" ? "scientist" : actor);
+    const usage = actorInventoryUsage(actorId);
+    return {
+      actorId,
+      version: inventory.version,
+      capacity: { massKg: inventory.maxMassKg, volumeL: inventory.maxVolumeL },
+      usage,
+      remaining: {
+        massKg: Math.max(0, inventory.maxMassKg - usage.massKg),
+        volumeL: Math.max(0, inventory.maxVolumeL - usage.volumeL)
+      },
+      stacks: actorInventoryStacks(actorId).map((stack) => ({ ...stack, cell: { ...stack.cell } })),
+      equippedToolInstanceIds: [...inventory.equippedToolInstanceIds]
+    };
+  }
+
+  function actorInventoryCanCarry(actorId, stack, quantity = stack?.quantity) {
+    const snapshot = actorInventorySnapshot(actorId);
+    const amount = stack?.section === "collectedByproducts"
+      ? roundOutputValue(Math.max(0, Number(quantity) || 0))
+      : Math.max(0, Math.floor(Number(quantity) || 0));
+    if (!snapshot || !stack || amount <= 0 || amount > stack.quantity) return false;
+    return amount * stack.unitMassKg <= snapshot.remaining.massKg + 0.0001
+      && amount * stack.unitVolumeL <= snapshot.remaining.volumeL + 0.0001;
+  }
+
+  function carryPhysicalStack(actorId, stackId, quantity = 1, options = {}) {
+    const id = normalizeActorInventoryOwnerId(actorId);
+    const actor = actorInventoryOwner(id);
+    const source = ensurePhysicalItemStacks().find((stack) => stack.id === stackId);
+    const amount = source?.section === "collectedByproducts"
+      ? roundOutputValue(Math.max(0, Number(quantity) || 0))
+      : Math.max(0, Math.floor(Number(quantity) || 0));
+    if (!actor || !source || source.carriedBy && source.carriedBy !== id || source.reservedTaskId && !options.allowReserved) return null;
+    if (source.carriedBy === id) return source;
+    if (!actorInventoryCanCarry(id, source, amount)) return null;
+    let carried = source;
+    if (amount < source.quantity) {
+      source.quantity = source.section === "collectedByproducts" ? roundOutputValue(source.quantity - amount) : source.quantity - amount;
+      source.knownQuantity = Math.min(source.knownQuantity, source.quantity);
+      carried = normalizePhysicalItemStack({
+        ...source,
+        id: `stack-${state.nextPhysicalItemStackNumber++}`,
+        quantity: amount,
+        knownQuantity: amount,
+        reservedTaskId: "",
+        carriedBy: id,
+        carryTaskId: String(options.carryTaskId || source.carryTaskId || ""),
+        carryLegIndex: Number.isFinite(Number(options.carryLegIndex)) ? Math.floor(Number(options.carryLegIndex)) : -1,
+        toolInstanceId: String(options.toolInstanceId || source.toolInstanceId || ""),
+        createdAt: state.clock,
+        updatedAt: state.clock
+      }, state.nextPhysicalItemStackNumber);
+      ensurePhysicalItemStacks().push(carried);
+    } else {
+      carried.carriedBy = id;
+      carried.reservedTaskId = "";
+      carried.carryTaskId = String(options.carryTaskId || carried.carryTaskId || "");
+      carried.carryLegIndex = Number.isFinite(Number(options.carryLegIndex)) ? Math.floor(Number(options.carryLegIndex)) : -1;
+      carried.toolInstanceId = String(options.toolInstanceId || carried.toolInstanceId || "");
+    }
+    const location = actorInventoryLocation(id);
+    carried.roomId = location.roomId;
+    carried.cell = cleanMapCell(location.cell);
+    carried.fixtureId = "";
+    carried.stockpileId = "";
+    carried.containerId = "";
+    carried.observedAt = state.clock;
+    carried.updatedAt = state.clock;
+    const tool = carried.toolInstanceId ? toolInstanceById(carried.toolInstanceId)?.instance : null;
+    if (tool) {
+      tool.carriedBy = id;
+      tool.roomId = location.roomId;
+    }
+    syncActorInventories();
+    syncPhysicalReadModels();
+    return carried;
+  }
+
+  function dropActorInventoryStack(actorId, stackId, options = {}) {
+    const id = normalizeActorInventoryOwnerId(actorId);
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId && entry.carriedBy === id);
+    const location = actorInventoryLocation(id);
+    if (!stack || !location) return false;
+    stack.carriedBy = "";
+    stack.carryTaskId = "";
+    stack.carryLegIndex = -1;
+    stack.roomId = roomById(options.roomId)?.id || location.roomId;
+    stack.cell = cleanMapCell(options.cell) || location.cell;
+    stack.fixtureId = "";
+    stack.stockpileId = "";
+    stack.containerId = "";
+    stack.observedAt = state.clock;
+    stack.updatedAt = state.clock;
+    const tool = stack.toolInstanceId ? toolInstanceById(stack.toolInstanceId)?.instance : null;
+    if (tool) {
+      tool.carriedBy = "";
+      tool.roomId = stack.roomId;
+    }
+    syncActorInventories();
+    syncPhysicalReadModels();
+    return true;
+  }
+
+  function actorInventoryContentsLabel(actorId) {
+    const snapshot = actorInventorySnapshot(actorId);
+    if (!snapshot) return "Unavailable";
+    const contents = snapshot.stacks.map((stack) => `${physicalStackQuantityText(stack, false)} ${physicalStackLabel(stack)}`).join(", ") || "Empty";
+    return `${contents}; ${formatDecimal(snapshot.usage.massKg, 1)} / ${formatDecimal(snapshot.capacity.massKg, 1)} kg; ${formatDecimal(snapshot.usage.volumeL, 1)} / ${formatDecimal(snapshot.capacity.volumeL, 1)} L`;
+  }
+
+  function physicalStackStorageLabel(stack) {
+    if (stack?.carriedBy) {
+      const carrier = actorInventoryOwner(stack.carriedBy);
+      const label = stack.carriedBy === "scientist" ? "Scientist" : carrier?.name || stack.carriedBy;
+      return `${label} inventory`;
+    }
+    if (stack?.fixtureId) return fixtureById(stack.fixtureId)?.name || "Missing fixture";
+    if (stack?.containerId) return containerById(stack.containerId)?.name || "Contained";
+    return "Floor storage";
   }
 
   function physicalStackSectionAmount(stack, section, key, known = false) {
@@ -17085,7 +17364,9 @@
       stockpileId: location.stockpileId || "",
       observedAt: state.clock,
       reservedTaskId: "",
-      carriedBy: options.carriedBy === "scientist" ? "scientist" : "",
+      carriedBy: normalizeActorInventoryOwnerId(options.carriedBy),
+      carryTaskId: String(options.carryTaskId || ""),
+      carryLegIndex: Number.isFinite(Number(options.carryLegIndex)) ? Math.floor(Number(options.carryLegIndex)) : -1,
       toolInstanceId: String(options.toolInstanceId || ""),
       containerId: cleanContainerId(location.containerId || options.containerId),
       form: ["stack", "waste", "spill", "receptacle"].includes(options.form) ? options.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
@@ -17125,20 +17406,7 @@
       stack.section === "inventory" && stack.key === itemKey && !stack.carriedBy && stack.quantity > 0
     );
     if (!source) return null;
-    source.quantity -= 1;
-    source.knownQuantity = Math.max(0, source.knownQuantity - 1);
-    source.observedAt = state.clock;
-    if (source.quantity <= 0 && source.knownQuantity <= 0) {
-      state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.id !== source.id);
-    }
-    const carried = createPhysicalItemStack("inventory", itemKey, 1, {
-      roomId: scientistRoomId(),
-      cell: scientistMapCell(),
-      fixtureId: "",
-      stockpileId: ""
-    }, { carriedBy: "scientist", toolInstanceId });
-    syncPhysicalReadModels();
-    return carried;
+    return carryPhysicalStack("scientist", source.id, 1, { toolInstanceId });
   }
 
   function releasePhysicalDurableTool(toolInstanceId, roomId = scientistRoomId()) {
@@ -17147,6 +17415,7 @@
     const itemKey = stack.key;
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
     addPhysicalItemQuantity("inventory", itemKey, 1, roomId);
+    syncActorInventories();
     syncPhysicalReadModels();
     return true;
   }
@@ -17340,7 +17609,7 @@
 
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
-    if (stack.carriedBy === "scientist") return true;
+    if (stack.carriedBy) return true;
     if (normalizeResidueTags(stack.tags).includes("bait")) return true;
     if (stack.containerId || stack.form === "spill" || stack.form === "waste") return true;
     const designation = stack.stockpileId
@@ -17356,7 +17625,7 @@
 
   function stockpileHaulAccessCell(stack) {
     if (!stack) return null;
-    if (stack.carriedBy === "scientist") return scientistMapCell();
+    if (stack.carriedBy) return actorInventoryLocation(stack.carriedBy)?.cell || cleanMapCell(stack.cell);
     if (stack.fixtureId) return fixtureAccessCells(fixtureById(stack.fixtureId))[0]?.cell || null;
     return cleanMapCell(stack.cell);
   }
@@ -17767,7 +18036,8 @@
     if (!requirements.length) return { ok: true, selections: [], path: [startCell], endpoint: startCell, rate: 1, reason: "" };
     const allCandidates = Object.entries(ensureToolDurability()).flatMap(([itemKey, instances]) =>
       instances.map((instance) => ({ itemKey, instance }))
-    ).filter(({ itemKey, instance }) => durableToolDef(itemKey)?.capabilities && instance.current > 0 && !instance.reservedTaskId);
+    ).filter(({ itemKey, instance }) => durableToolDef(itemKey)?.capabilities && instance.current > 0 && !instance.reservedTaskId
+      && (!instance.carriedBy || instance.carriedBy === "scientist"));
     const selections = [];
     for (const requirement of requirements) {
       const chosen = allCandidates.map((candidate) => ({
@@ -27532,7 +27802,10 @@
   }
 
   function toolInstanceLocationLabel(instance) {
-    if (instance?.carriedBy === "scientist") return "Carried by scientist";
+    if (instance?.carriedBy) {
+      const actor = actorInventoryOwner(instance.carriedBy);
+      return `Carried by ${instance.carriedBy === "scientist" ? "scientist" : actor?.name || instance.carriedBy}`;
+    }
     return roomName(instance?.roomId || STORAGE_ROOM_ID);
   }
 
@@ -29312,7 +29585,8 @@
     let movementPath = currentCell ? [currentCell] : [];
     const mapPaths = [];
     const transferMapPaths = [];
-    for (const transfer of transfers || []) {
+    const haulLegs = [];
+    for (const [transferIndex, transfer] of (transfers || []).entries()) {
       const outbound = roomPathBetween(transfer.fromRoomId, transfer.toRoomId, {
         map,
         actor,
@@ -29320,7 +29594,7 @@
         ignoreAccessPolicy: true
       });
       if (outbound.length < 2) {
-        return { ok: false, reason: `No physical hauling route exists from ${roomArticleName(transfer.fromRoomId)} to ${roomArticleName(transfer.toRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [] };
+        return { ok: false, reason: `No physical hauling route exists from ${roomArticleName(transfer.fromRoomId)} to ${roomArticleName(transfer.toRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [], haulLegs: [] };
       }
       transferMapPaths.push(outbound);
       const approach = labMapPathBetweenCells(currentCell, outbound[0], {
@@ -29330,15 +29604,32 @@
         ignoreAccessPolicy: true
       });
       if (!approach.length) {
-        return { ok: false, reason: `The scientist cannot reach the materials in ${roomArticleName(transfer.fromRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [] };
+        return { ok: false, reason: `The scientist cannot reach the materials in ${roomArticleName(transfer.fromRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [], haulLegs: [] };
       }
       if (approach.length > 1) mapPaths.push(approach);
       movementPath = appendMapPath(movementPath, approach);
       const trips = resourceHaulTripCount(transfer);
+      const metrics = physicalItemUnitMetrics("resources", transfer.key);
+      const tripCapacity = Math.max(1, Math.floor(Math.min(SCIENTIST_CARRY_MASS_KG / metrics.massKg, SCIENTIST_CARRY_VOLUME_L / metrics.volumeL)));
+      let remainingAmount = Math.max(0, Number(transfer.amount) || 0);
       for (let trip = 0; trip < trips; trip += 1) {
+        const pickupStepIndex = movementPath.length - 1;
         mapPaths.push(outbound);
         movementPath = appendMapPath(movementPath, outbound);
         currentCell = outbound.at(-1);
+        const amount = Math.min(remainingAmount, tripCapacity);
+        haulLegs.push({
+          transferIndex,
+          tripIndex: trip,
+          key: transfer.key,
+          amount,
+          fromRoomId: transfer.fromRoomId,
+          toRoomId: transfer.toRoomId,
+          pickupStepIndex,
+          deliveryStepIndex: movementPath.length - 1,
+          status: "pending"
+        });
+        remainingAmount -= amount;
         if (trip < trips - 1) {
           const returnPath = [...outbound].reverse();
           mapPaths.push(returnPath);
@@ -29347,7 +29638,7 @@
         }
       }
     }
-    return { ok: true, reason: "", movementPath, mapPaths, transferMapPaths };
+    return { ok: true, reason: "", movementPath, mapPaths, transferMapPaths, haulLegs };
   }
 
   function resourceHaulTransferText(transfers) {
@@ -29423,6 +29714,7 @@
         mapPath: movementPlan.movementPath,
         mapPaths: movementPlan.mapPaths,
         transferMapPaths: movementPlan.transferMapPaths,
+        haulLegs: movementPlan.haulLegs,
         movement: createScientistMovementRecord(movementPlan.movementPath, duration, state.clock, {
           intent: "haul",
           speedMps: RESOURCE_HAUL_SPEED_MPS
@@ -29444,6 +29736,17 @@
       addEvent("Material hauling could not complete; no transfer was recorded.");
       return false;
     }
+    const haulLegs = resourceHaulLegs(task);
+    if (haulLegs.length) {
+      if (haulLegs.some((leg) => leg.status !== "delivered")) {
+        addEvent("Material hauling could not complete; at least one load has not reached its destination.");
+        return false;
+      }
+      applyDoorTransitPolicy(task.data?.doorTransit, "Material hauling");
+      addEvent(`Material hauling complete: ${resourceHaulTransferText(transfers)} delivered to ${roomArticleName(task.data?.toRoomId)}.`);
+      completeResourceHaulContinuation(task.data?.continuation);
+      return true;
+    }
     for (const transfer of transfers) {
       if (resourceAmountInRoom(transfer.key, transfer.fromRoomId) < transfer.amount) {
         addEvent(`Material hauling cancelled; ${roomName(transfer.fromRoomId)} no longer has ${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)}.`);
@@ -29457,6 +29760,93 @@
     addEvent(`Material hauling complete: ${resourceHaulTransferText(transfers)} delivered to ${roomArticleName(task.data?.toRoomId)}.`);
     completeResourceHaulContinuation(task.data?.continuation);
     return true;
+  }
+
+  function resourceHaulLegs(task) {
+    return Array.isArray(task?.data?.haulLegs) ? task.data.haulLegs : [];
+  }
+
+  function resourceHaulLegCarriedStacks(task, legIndex) {
+    return ensurePhysicalItemStacks().filter((stack) =>
+      stack.carriedBy === "scientist"
+      && stack.carryTaskId === task.id
+      && stack.carryLegIndex === legIndex
+    );
+  }
+
+  function pickupResourceHaulLeg(task, leg, legIndex) {
+    let remaining = Math.max(0, Number(leg.amount) || 0);
+    const sourceStacks = ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "resources" && stack.key === leg.key && stack.roomId === leg.fromRoomId)
+      .filter((stack) => !stack.carriedBy && (!stack.reservedTaskId || stack.reservedTaskId === task.id))
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .sort((left, right) => left.observedAt - right.observedAt);
+    for (const stack of sourceStacks) {
+      if (remaining <= 0) break;
+      const amount = Math.min(stack.quantity, remaining);
+      const carried = carryPhysicalStack("scientist", stack.id, amount, {
+        carryTaskId: task.id,
+        carryLegIndex: legIndex
+      });
+      if (!carried) break;
+      remaining -= carried.quantity;
+    }
+    if (remaining > 0) {
+      for (const stack of resourceHaulLegCarriedStacks(task, legIndex)) {
+        dropActorInventoryStack("scientist", stack.id, {
+          roomId: leg.fromRoomId,
+          cell: cleanMapCell(state.scientist.mapCell) || labMapRoomAnchor(leg.fromRoomId)
+        });
+      }
+      task.data.blockedReason = `${roomName(leg.fromRoomId)} could not supply a carryable load of ${formatNumber(leg.amount)} ${resourceLabel(leg.key)}.`;
+      task.data.blockedAt = state.clock;
+      return false;
+    }
+    leg.status = "carried";
+    leg.pickedUpAt = state.clock;
+    return true;
+  }
+
+  function deliverResourceHaulLeg(task, leg, legIndex) {
+    const carriedStacks = resourceHaulLegCarriedStacks(task, legIndex);
+    const delivered = carriedStacks.reduce((total, stack) => total + Math.max(0, Number(stack.quantity) || 0), 0);
+    if (delivered + 0.0001 < Math.max(0, Number(leg.amount) || 0)) {
+      task.data.blockedReason = `The scientist is no longer carrying the recorded ${resourceLabel(leg.key)} load.`;
+      task.data.blockedAt = state.clock;
+      return false;
+    }
+    const carriedIds = new Set(carriedStacks.map((stack) => stack.id));
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => !carriedIds.has(stack.id));
+    addPhysicalItemQuantity("resources", leg.key, delivered, leg.toRoomId);
+    leg.status = "delivered";
+    leg.deliveredAt = state.clock;
+    syncActorInventories();
+    syncPhysicalReadModels();
+    return true;
+  }
+
+  function updateResourceHaulCarryState(task, movement) {
+    if (task?.type !== "resourceHaul") return 0;
+    let changed = 0;
+    for (const [legIndex, leg] of resourceHaulLegs(task).entries()) {
+      if (leg.status === "pending" && movement.stepIndex >= Math.max(0, Number(leg.pickupStepIndex) || 0)) {
+        if (!pickupResourceHaulLeg(task, leg, legIndex)) return changed + 1;
+        changed += 1;
+      }
+      if (leg.status === "carried" && movement.stepIndex >= Math.max(0, Number(leg.deliveryStepIndex) || 0)) {
+        if (!deliverResourceHaulLeg(task, leg, legIndex)) return changed + 1;
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  function releaseResourceHaulCarriedLoads(task) {
+    let released = 0;
+    for (const stack of ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist" && entry.carryTaskId === task?.id)) {
+      if (dropActorInventoryStack("scientist", stack.id)) released += 1;
+    }
+    return released;
   }
 
   function completeResourceHaulContinuation(continuation) {
@@ -35087,6 +35477,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         task.data.mapPath = plan.movementPath;
         task.data.mapPaths = plan.mapPaths;
         task.data.transferMapPaths = plan.transferMapPaths;
+        task.data.haulLegs = plan.haulLegs;
         const movementStartAt = state.clock;
         const duration = resourceHaulDuration(task.data.transfers, { movementPath: plan.movementPath, map: ensureLabMap() });
         task.data.movementStartedAt = movementStartAt;
@@ -35154,6 +35545,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!movement) return 0;
     task.data.movement = movement;
     if (updateRecaptureCarryState(task, movement) && task.data?.blockedReason) return 1;
+    const initialHaulCarryChanges = updateResourceHaulCarryState(task, movement);
+    if (initialHaulCarryChanges && task.data?.blockedReason) return initialHaulCarryChanges;
     const revisions = normalizeNavigationState(state.navigation);
     if (movement.topologyRevision !== revisions.topologyRevision && !replanScientistMovementTask(task, movement)) {
       task.data.blockedReason = "The walking route changed and no replacement route is available.";
@@ -35223,6 +35616,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state.scientist.mapCell = nextStep.cell;
       state.scientist.roomId = labMapCellRoomId(nextStep.cell) || state.scientist.roomId;
       updateRecaptureCarryState(task, movement);
+      changed += updateResourceHaulCarryState(task, movement);
       if (task.data?.blockedReason) {
         changed += 1;
         break;
@@ -43692,9 +44086,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!transfers.length) {
       return "No material transfer is recorded.";
     }
-    for (const transfer of transfers) {
-      if (resourceAmountInRoom(transfer.key, transfer.fromRoomId) < transfer.amount) {
-        return `${roomName(transfer.fromRoomId)} no longer has ${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)}.`;
+    const haulLegs = resourceHaulLegs(task);
+    for (const [transferIndex, transfer] of transfers.entries()) {
+      const required = haulLegs.length
+        ? haulLegs.filter((leg) => leg.transferIndex === transferIndex && leg.status === "pending").reduce((total, leg) => total + Math.max(0, Number(leg.amount) || 0), 0)
+        : transfer.amount;
+      if (resourceAmountInRoom(transfer.key, transfer.fromRoomId) < required) {
+        return `${roomName(transfer.fromRoomId)} no longer has ${formatNumber(required)} ${resourceLabel(transfer.key)}.`;
       }
     }
     return "";
@@ -43916,6 +44314,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         deal.status = "open";
         deal.taskId = "";
       }
+    }
+    if (task.type === "resourceHaul") {
+      releaseResourceHaulCarriedLoads(task);
     }
     if (task.type === "constructionWork") {
       const order = constructionOrderById(task.data?.constructionOrderId);
@@ -46915,7 +47316,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection?.source) {
       rows.push(["Selected by", titleCase(selection.source)]);
     }
-    if (selection.kind === "room") {
+    if (selection.kind === "scientist") {
+      rows.push(["Inventory", actorInventoryContentsLabel("scientist")]);
+    } else if (selection.kind === "room") {
       const room = roomById(selection.roomId);
       const evaluation = roomPurposeEvaluation(room);
       rows.push(["Purpose", evaluation.purpose.label]);
@@ -46964,13 +47367,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["Form", titleCase(stack.form || "stack")]);
         if (stack.contents?.length) rows.push(["Contents", physicalStackContentsLabel(stack)]);
         rows.push(["Knowledge", physicalStackKnowledgeLabel(stack)]);
-        rows.push(["Storage", stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "Missing fixture" : stack.containerId ? containerById(stack.containerId)?.name || "Contained" : "On floor"]);
+        rows.push(["Storage", physicalStackStorageLabel(stack)]);
       }
     } else if (selection.kind === "slime") {
       const slime = findSlime(selection.id);
       if (slime) {
         rows.push(["State", slimeStateLabel(slime)]);
         rows.push(["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")]);
+        rows.push(["Inventory", actorInventoryContentsLabel(slime.id)]);
       }
     } else if (selection.kind === "corpse") {
       const corpse = findCorpse(selection.id);
@@ -47019,6 +47423,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Health", `${formatNumber(vitals.health?.current || 0)} / ${formatNumber(vitals.health?.max || DEFAULT_VITAL_MAX)}`],
         ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
         ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`],
+        ["Inventory", actorInventoryContentsLabel("scientist")],
         ["Carried light", `${carriedLight.label}; ${carriedLight.enabled && carriedLight.condition > 0 ? `on, warm, ${carriedLight.radius} m nominal radius` : "off or damaged"}`],
         ["Combat action", pending ? `${combatActionDef(pending.actionId)?.label || pending.actionId}; releases ${formatClock(pending.releaseAt)}` : scientistGuarding() ? "Guarding" : "None"],
         ["Routine work", state.combat?.routineSuspension ? `Suspended: ${state.combat.routineSuspension.reason}` : "Available"]
@@ -47242,9 +47647,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Knowledge", physicalStackKnowledgeLabel(stack)],
         ["Physical volume", `${formatDecimal(stack.knownQuantity * stack.unitVolumeL, 1)} L`],
         ["Physical mass", `${formatDecimal(stack.knownQuantity * stack.unitMassKg, 1)} kg`],
-        ["Storage fixture", fixture?.name || (stack.containerId ? containerById(stack.containerId)?.name || "Contained" : "Floor storage")],
-        ["Access", fixture ? titleCase(fixture.accessState) : "Exposed"],
-        ["Protection", physicalStackExposed(stack) ? "Exposed to loose creatures" : "Protected by closed storage"],
+        ["Storage fixture", physicalStackStorageLabel(stack)],
+        ["Access", stack.carriedBy ? "Controlled by carrier" : fixture ? titleCase(fixture.accessState) : "Exposed"],
+        ["Protection", stack.carriedBy ? "Carried inventory" : physicalStackExposed(stack) ? "Exposed to loose creatures" : "Protected by closed storage"],
         ["Stockpile", designation?.name || "Not in a valid stockpile"],
         ["Stored correctly", physicalStackStoredCorrectly(stack) ? "Yes" : "No; automatic hauling will seek a valid destination"]
       ];
@@ -47260,6 +47665,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Role", creatureRoleLabel(slimeRoleId(slime))],
         ["Role source", roleSourceLabel(slime)],
         ["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")],
+        ["Inventory", actorInventoryContentsLabel(slime.id)],
         ["Known traits", slimeKnownTraitSummary(slime)],
         ["Automation", slime.automationExcluded ? "Excluded from global automation" : "Follows global automation"]
       ];
@@ -54102,9 +54508,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const durableTools = normalizeToolDurability(context?.toolDurability, inventory);
     for (const [itemKey, instances] of Object.entries(durableTools)) {
       for (const stockpile of Object.values(normalized)) delete stockpile.inventory[itemKey];
-      const carriedCount = instances.filter((instance) => instance.carriedBy === "scientist").length;
+      const carriedCount = instances.filter((instance) => instance.carriedBy).length;
       inventory[itemKey] = Math.max(0, (inventory[itemKey] || 0) - carriedCount);
-      for (const instance of instances.filter((entry) => entry.carriedBy !== "scientist")) {
+      for (const instance of instances.filter((entry) => !entry.carriedBy)) {
         const roomId = roomIds.includes(instance.roomId) ? instance.roomId : STORAGE_ROOM_ID;
         normalized[roomId].inventory[itemKey] = (normalized[roomId].inventory[itemKey] || 0) + 1;
       }
@@ -55151,7 +55557,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       max,
       quality: clamp(Math.round(Number(candidate?.quality ?? fallback.quality) || 0), 0, 100),
       roomId: cleanRoomId(candidate?.roomId) || fallback.roomId,
-      carriedBy: candidate?.carriedBy === "scientist" ? "scientist" : "",
+      carriedBy: normalizeActorInventoryOwnerId(candidate?.carriedBy),
       reservedTaskId: String(candidate?.reservedTaskId || "")
     };
   }
@@ -57972,6 +58378,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       slime.automationExcluded = Boolean(slime.automationExcluded);
+      slime.inventory = normalizeActorInventory(slime.inventory, slime);
       slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0);
       slime.stats = normalizeSlimeStats(slime.stats);
       slime.skills = normalizeCreatureSkills(slime.skills);
@@ -57986,6 +58393,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       normalizeSlimeLifecycle(slime);
       normalizeSlimeRole(slime);
     }
+    syncActorInventories(next);
+    syncPhysicalReadModels(next);
     next.creatureRecords = normalizeCreatureRecords(next.creatureRecords, next);
     const previousState = state;
     try {
@@ -58251,6 +58660,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientist = {
       roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       mapCell: cleanMapCell(candidate?.mapCell) || fallback.mapCell || scientistDefaultMapCell(candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
+      inventory: normalizeActorInventory(candidate?.inventory, "scientist"),
       carriedLight: normalizeScientistCarriedLight(candidate?.carriedLight),
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       physicalState: normalizeScientistPhysicalState(candidate?.physicalState),

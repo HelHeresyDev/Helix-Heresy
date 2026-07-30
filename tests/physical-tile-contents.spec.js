@@ -57,6 +57,57 @@ test('physical records overwrite stale global and room compatibility totals', as
   }, { key: storageKey });
 
   expect(totals).toEqual({ global: 7, storage: 7, physical: 7 });
+
+  const actorInventories = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const stock = debug.physicalStockSnapshot();
+    const biomass = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'biomass');
+    const metalParts = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'metalParts');
+    const stone = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'stoneBlocks');
+    const slime = debug.createSpatialTestSlime({ roomId: 'mainLab' });
+    const scientistCarry = debug.carryActorStack('scientist', biomass.id, 2);
+    const slimeCarry = debug.carryActorStack(slime.id, metalParts.id, 1);
+    const overCapacity = debug.carryActorStack('scientist', stone.id, 4);
+    return {
+      slimeId: slime.id,
+      scientistCarry,
+      slimeCarry,
+      overCapacity,
+      scientist: debug.actorInventorySnapshot('scientist'),
+      slime: debug.actorInventorySnapshot(slime.id),
+      biomassTotal: debug.physicalStockSnapshot().stacks
+        .filter((stack) => stack.section === 'resources' && stack.key === 'biomass')
+        .reduce((total, stack) => total + stack.quantity, 0),
+    };
+  });
+
+  expect(actorInventories.scientistCarry.carriedBy).toBe('scientist');
+  expect(actorInventories.slimeCarry.carriedBy).toBe(actorInventories.slimeId);
+  expect(actorInventories.overCapacity).toBeNull();
+  expect(actorInventories.scientist).toMatchObject({
+    version: 1,
+    capacity: { massKg: 25, volumeL: 80 },
+    usage: { massKg: 2, volumeL: 2.4 },
+  });
+  expect(actorInventories.scientist.stacks.map((stack) => stack.id)).toContain(actorInventories.scientistCarry.id);
+  expect(actorInventories.slime.version).toBe(1);
+  expect(actorInventories.slime.capacity.massKg).toBeGreaterThanOrEqual(1);
+  expect(actorInventories.slime.capacity.volumeL).toBeGreaterThanOrEqual(2);
+  expect(actorInventories.slime.stacks.map((stack) => stack.id)).toContain(actorInventories.slimeCarry.id);
+  expect(actorInventories.biomassTotal).toBe(7);
+
+  await loadSavedRun(page);
+  const persistedInventories = await page.evaluate(({ slimeId }) => ({
+    scientist: window.helixHeresyDebug.actorInventorySnapshot('scientist'),
+    slime: window.helixHeresyDebug.actorInventorySnapshot(slimeId),
+  }), { slimeId: actorInventories.slimeId });
+  expect(persistedInventories.scientist.stacks).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: actorInventories.scientistCarry.id, carriedBy: 'scientist' }),
+  ]));
+  expect(persistedInventories.slime.stacks).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: actorInventories.slimeCarry.id, carriedBy: actorInventories.slimeId }),
+  ]));
+
   await page.locator('[data-workspace-tab="resources"]').click();
   await page.locator('[data-stores-menu-tab="materials"]').click();
   await expect(page.locator('#storesMaterialsList [data-resource-key="biomass"]')).toContainText('7 total');
