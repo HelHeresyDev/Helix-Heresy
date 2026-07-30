@@ -1092,12 +1092,13 @@
     { id: "specimens", label: "Specimen Materials", description: "Accept harvested tissues, samples, and other specimen materials.", sections: ["specimenMaterials"] }
   ];
   const STOCKPILE_FILTER_PRESET_BY_ID = Object.fromEntries(STOCKPILE_FILTER_PRESETS.map((preset) => [preset.id, preset]));
-  const CONTAINER_HAUL_BASE_DURATION = 20;
-  const CONTAINER_HAUL_WITH_CONTENTS_DURATION = 35;
-  const RESOURCE_HAUL_BASE_DURATION = 8;
-  const RESOURCE_HAUL_PER_UNIT_DURATION = 0.8;
+  const CONTAINER_HAUL_EMPTY_HANDLING_SECONDS = 20;
+  const CONTAINER_HAUL_LOADED_HANDLING_SECONDS = 35;
+  const CONTAINER_HAUL_PITS_EXTRA_SECONDS = 10;
+  const RESOURCE_HAUL_HANDLING_SECONDS_PER_TRIP = 10;
+  const ACTIVE_TASK_PACING_VERSION = 2;
   const RESOURCE_HAUL_STAMINA = 3;
-  const STOCKPILE_HAUL_BASE_DURATION = 10;
+  const STOCKPILE_HAUL_BASE_SECONDS = 10;
   const STOCKPILE_HAUL_PER_KG_SECONDS = 0.35;
   const STOCKPILE_HAUL_STAMINA = 2;
   // Pits hauling now moves only the container. Contents must be moved by direct interaction.
@@ -9135,7 +9136,7 @@
         roomId: container.roomId,
         replacementItemKey,
         replacementStackId: replacementStack.id,
-        duration: Math.ceil(adjustedDuration(6, "materialsScience") + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps())
+        duration: Math.ceil(adjustedActionDuration(6, "materialsScience") + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps())
       };
     }
     return { ok: false, reason: "This labor order has no physical procedure yet." };
@@ -10909,7 +10910,7 @@
     const task = createTask({
       type,
       label,
-      duration: adjustedDuration(baseDuration, skillId),
+      duration: adjustedActionDuration(baseDuration, skillId),
       data: {
         ...data,
         resourceCosts: normalizeResourceCosts(resourceCosts),
@@ -10964,7 +10965,7 @@
     return startStaminaTask({
       type: "toolMaintenance",
       label: `${action === "maintain" ? "Maintain" : "Repair"} ${item.label}`,
-      baseDuration: minutesToSeconds(action === "maintain" ? 4 : 8),
+      baseDuration: action === "maintain" ? 20 : 40,
       skillId: "materialsScience",
       baseXp: action === "maintain" ? 3 : 7,
       baseCost: action === "maintain" ? 2 : 4,
@@ -17433,7 +17434,7 @@
       type: "stockpileHaul",
       label: `Store ${formatNumber(amount)} ${physicalStackLabel(stack)} in ${destination.designation.name}`,
       createdAt: state.clock,
-      dueAt: queueTail + Math.max(1, Math.round(minutesToSeconds(STOCKPILE_HAUL_BASE_DURATION) + massKg * STOCKPILE_HAUL_PER_KG_SECONDS + travelSeconds)),
+      dueAt: queueTail + Math.max(1, Math.round(STOCKPILE_HAUL_BASE_SECONDS + massKg * STOCKPILE_HAUL_PER_KG_SECONDS + travelSeconds)),
       data: {
         stackId: stack.id,
         amount,
@@ -28528,7 +28529,7 @@
       render();
       return false;
     }
-    const duration = adjustedDuration(action === "close" ? CONTAINER_INTERACTION_CLOSE_DURATION : CONTAINER_INTERACTION_OPEN_DURATION, "creatureHandling");
+    const duration = adjustedActionDuration(action === "close" ? CONTAINER_INTERACTION_CLOSE_DURATION : CONTAINER_INTERACTION_OPEN_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -28726,7 +28727,7 @@
       render();
       return false;
     }
-    const duration = adjustedDuration(LIVE_TRANSFER_DURATION, "creatureHandling");
+    const duration = adjustedActionDuration(LIVE_TRANSFER_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -28885,7 +28886,7 @@
       render();
       return false;
     }
-    const duration = adjustedDuration(action === "scrapeRemains" ? REMAINS_SCRAPE_DURATION : REMAINS_DUMP_DURATION, "creatureHandling");
+    const duration = adjustedActionDuration(action === "scrapeRemains" ? REMAINS_SCRAPE_DURATION : REMAINS_DUMP_DURATION, "creatureHandling");
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "containerInteraction",
@@ -29076,12 +29077,12 @@
 
   function containerHaulDuration(container, toRoomId, plan = null) {
     const contents = containerContentsCount(container);
-    const base = contents ? CONTAINER_HAUL_WITH_CONTENTS_DURATION : CONTAINER_HAUL_BASE_DURATION;
+    const handlingSeconds = contents ? CONTAINER_HAUL_LOADED_HANDLING_SECONDS : CONTAINER_HAUL_EMPTY_HANDLING_SECONDS;
     const pitsTrip = container?.roomId === PITS_ROOM_ID || toRoomId === PITS_ROOM_ID;
     const distance = plan?.ok
       ? plan.distanceMeters
       : roomPathDistanceMeters(container?.roomId || MAIN_ROOM_ID, toRoomId, { ignoreDoors: true });
-    const setupSeconds = minutesToSeconds(base + (pitsTrip ? 10 : 0));
+    const setupSeconds = handlingSeconds + (pitsTrip ? CONTAINER_HAUL_PITS_EXTRA_SECONDS : 0);
     const travelSeconds = Number.isFinite(distance) ? distance / CONTAINER_HAUL_SPEED_MPS : 0;
     return Math.max(1, Math.round(setupSeconds + travelSeconds));
   }
@@ -29267,18 +29268,40 @@
     return { ok: true, reason: "", transfers };
   }
 
-  function resourceHaulDuration(transfers) {
-    const totalUnits = (transfers || []).reduce((total, transfer) => total + (Number(transfer.amount) || 0), 0);
-    const distance = (transfers || []).reduce((total, transfer) =>
-      total + roomPathDistanceMeters(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }), 0);
-    const setupSeconds = minutesToSeconds(RESOURCE_HAUL_BASE_DURATION + totalUnits * RESOURCE_HAUL_PER_UNIT_DURATION);
-    const travelSeconds = Number.isFinite(distance) ? distance / RESOURCE_HAUL_SPEED_MPS : 0;
-    return Math.max(1, Math.round(setupSeconds + travelSeconds));
+  function resourceHaulTripCount(transfer) {
+    const amount = Math.max(0, Number(transfer?.amount) || 0);
+    const metrics = physicalItemUnitMetrics("resources", transfer?.key);
+    return Math.max(
+      1,
+      Math.ceil(amount * metrics.massKg / SCIENTIST_CARRY_MASS_KG),
+      Math.ceil(amount * metrics.volumeL / SCIENTIST_CARRY_VOLUME_L)
+    );
+  }
+
+  function resourceHaulDuration(transfers, options = {}) {
+    const mapPaths = Array.isArray(options.mapPaths) ? options.mapPaths : [];
+    const map = options.map || ensureLabMap();
+    const duration = (transfers || []).reduce((total, transfer, index) => {
+      const savedPath = Array.isArray(mapPaths[index]) ? mapPaths[index] : [];
+      const distance = savedPath.length
+        ? mapPathTravelDistanceMeters(savedPath, map)
+        : roomPathDistanceMeters(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true });
+      if (!Number.isFinite(distance)) return total;
+      const trips = resourceHaulTripCount(transfer);
+      const routeLegs = trips * 2 - 1;
+      const handlingSeconds = trips * RESOURCE_HAUL_HANDLING_SECONDS_PER_TRIP;
+      const travelSeconds = distance / RESOURCE_HAUL_SPEED_MPS * routeLegs;
+      return total + handlingSeconds + travelSeconds;
+    }, 0);
+    return Math.max(1, Math.round(duration));
   }
 
   function resourceHaulTransferText(transfers) {
     return (transfers || [])
-      .map((transfer) => `${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)} from ${roomName(transfer.fromRoomId)}`)
+      .map((transfer) => {
+        const trips = resourceHaulTripCount(transfer);
+        return `${formatNumber(transfer.amount)} ${resourceLabel(transfer.key)} from ${roomName(transfer.fromRoomId)} (${trips} trip${trips === 1 ? "" : "s"})`;
+      })
       .join("; ");
   }
 
@@ -29320,7 +29343,7 @@
     const routes = plan.transfers.map((transfer) => roomRouteBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
     const mapPaths = plan.transfers.map((transfer) => roomPathBetween(transfer.fromRoomId, transfer.toRoomId, { ignoreDoors: true }));
     const doorTransit = routes.flatMap((route) => doorTransitPlan(route));
-    const duration = resourceHaulDuration(plan.transfers);
+    const duration = resourceHaulDuration(plan.transfers, { mapPaths, map: ensureLabMap() });
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "resourceHaul",
@@ -29334,6 +29357,7 @@
         staminaCost: cost,
         routes,
         mapPaths,
+        pacingVersion: ACTIVE_TASK_PACING_VERSION,
         doorTransit
       }
     };
@@ -30464,7 +30488,7 @@
       render();
       return false;
     }
-    const duration = adjustedDuration(6, "materialsScience");
+    const duration = adjustedActionDuration(6, "materialsScience");
     state.tasks.push({
       id: `task-${state.nextTaskNumber++}`,
       type: "collectionBayTransfer",
@@ -31355,7 +31379,7 @@
   }
 
   function synthesisDurationSeconds() {
-    return adjustedDuration(8, "fabrication");
+    return adjustedActionDuration(8, "fabrication");
   }
 
   function synthesisActionBlockReason() {
@@ -31505,7 +31529,7 @@
         continue;
       }
       const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"]);
-      const duration = adjustedDuration(test.duration, test.skillId);
+      const duration = adjustedActionDuration(test.duration, test.skillId);
       setButtonStaminaLabel(button, test.label, BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"], { duration: formatDuration(duration) });
       const reason = testBlockReason(test, slime, cost);
       setActionButtonState(button, Boolean(reason), reason);
@@ -31525,7 +31549,7 @@
   function refreshBreedButtonState() {
     const breedable = state.slimes.filter(isBreedable);
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"]);
-    const duration = adjustedDuration(18, "husbandry");
+    const duration = adjustedActionDuration(18, "husbandry");
     setButtonStaminaLabel(dom.breedBtn, "Force Recombination", BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = breedable.length < 2
       ? "Forced recombination requires two mature slimes."
@@ -34172,7 +34196,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function refreshNecropsyButton(button, corpse) {
     const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["medicine", "creatureHandling"]);
-    const duration = adjustedDuration(necropsyDuration(corpse), "medicine");
+    const duration = adjustedActionDuration(necropsyDuration(corpse), "medicine");
     setButtonStaminaLabel(button, "Necropsy", BASE_ACTION_STAMINA, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = necropsyBlockReason(corpse, cost);
     setActionButtonState(button, Boolean(reason), reason);
@@ -34193,7 +34217,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function refreshLivingHarvestButton(button, slime, procedure) {
     const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
-    const duration = adjustedDuration(procedure.livingDuration, "medicine");
+    const duration = adjustedActionDuration(procedure.livingDuration, "medicine");
     setButtonStaminaLabel(button, procedure.livingLabel, procedure.staminaCost, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = livingHarvestBlockReason(slime, procedure, cost);
     setActionButtonState(button, Boolean(reason), reason);
@@ -34204,7 +34228,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function refreshCorpseHarvestButton(button, corpse, procedure) {
     const cost = adjustedStaminaCost(procedure.staminaCost, ["medicine", "creatureHandling"]);
-    const duration = adjustedDuration(corpseHarvestDuration(corpse, procedure), "medicine");
+    const duration = adjustedActionDuration(corpseHarvestDuration(corpse, procedure), "medicine");
     setButtonStaminaLabel(button, procedure.corpseLabel, procedure.staminaCost, ["medicine", "creatureHandling"], { duration: formatDuration(duration) });
     const reason = corpseHarvestBlockReason(corpse, procedure, cost);
     setActionButtonState(button, Boolean(reason), reason);
@@ -40109,7 +40133,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const slime = getSelectedSlime();
     for (const test of TESTS) {
       const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test.skillId, "creatureHandling"]);
-      const duration = adjustedDuration(test.duration, test.skillId);
+      const duration = adjustedActionDuration(test.duration, test.skillId);
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.testId = test.id;
@@ -45514,7 +45538,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       label: "Necropsy",
       group: "Corpse",
       disabledReason: necropsyBlockReason(corpse, necropsyCost),
-      description: `Scientific examination; ${formatDuration(adjustedDuration(necropsyDuration(corpse), "medicine"))}.`,
+      description: `Scientific examination; ${formatDuration(adjustedActionDuration(necropsyDuration(corpse), "medicine"))}.`,
       run: () => startNecropsy(corpse)
     }));
     commands.push(commandDef({
@@ -53710,7 +53734,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       type: "physicalDiagnostic",
       label: `${test.label}: physical state`,
       createdAt: state.clock,
-      dueAt: state.clock + adjustedDuration(test.duration, skillId),
+      dueAt: state.clock + adjustedActionDuration(test.duration, skillId),
       data: {
         testId: test.id,
         staminaCost: cost,
@@ -56649,8 +56673,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
-  function adjustedDuration(baseDuration, skillId) {
-    return Math.max(1, Math.ceil(minutesToSeconds(baseDuration) * skillReductionMultiplier(skillLevel(skillId))));
+  function adjustedActionDuration(baseSeconds, skillId) {
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId))));
   }
 
   function adjustedSecondsDuration(baseSeconds, skillId) {
@@ -57727,7 +57751,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resultRepeats ||= {};
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
-    next.tasks ||= [];
+    next.tasks = normalizeActiveTaskPacing(next.tasks, next.clock, next.labMap);
     if (next.combat.routineSuspension?.taskId && !next.tasks.some((task) => task.id === next.combat.routineSuspension.taskId)) {
       next.combat.routineSuspension = null;
     }
@@ -57882,6 +57906,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state = previousState;
     }
     return next;
+  }
+
+  function normalizeActiveTaskPacing(candidate, clock, map) {
+    const now = Math.max(0, Number(clock) || 0);
+    return (Array.isArray(candidate) ? candidate : []).map((rawTask) => {
+      if (!rawTask || rawTask.type !== "resourceHaul" || Number(rawTask.data?.pacingVersion) >= ACTIVE_TASK_PACING_VERSION) {
+        return rawTask;
+      }
+      const task = { ...rawTask, data: { ...(rawTask.data || {}), pacingVersion: ACTIVE_TASK_PACING_VERSION } };
+      const oldDuration = Math.max(1, (Number(task.dueAt) || now) - (Number(task.createdAt) || now));
+      if ((Number(task.dueAt) || 0) <= now) return task;
+      const elapsed = Math.max(0, now - (Number(task.createdAt) || now));
+      const progress = clamp(elapsed / oldDuration, 0, 1);
+      const newDuration = resourceHaulDuration(task.data.transfers, {
+        mapPaths: task.data.mapPaths,
+        map
+      });
+      const remaining = Math.max(1, Math.ceil(newDuration * (1 - progress)));
+      task.dueAt = Math.min(Number(task.dueAt) || now + remaining, now + remaining);
+      return task;
+    });
   }
 
   function normalizeSlimeLifecycle(slime) {
