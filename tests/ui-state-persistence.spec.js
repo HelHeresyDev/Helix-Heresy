@@ -191,6 +191,18 @@ test('@smoke reset UI preferences restores defaults and current map view', async
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
   await expect.poll(() => containersPanel.evaluate((panel) => panel.scrollTop)).toBe(scrolledTop);
 
+  await containersPanel.click({ button: 'right', position: { x: 12, y: 12 } });
+  await expect(containersPanel).toBeHidden();
+  await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
+  expect(await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return (payload.state || payload).ui?.activeWorkspaceTab;
+  }, { key: storageKey })).toBe('map');
+  await page.keyboard.press('Shift+/');
+  await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
+  await page.mouse.click(640, 500, { button: 'right' });
+  await expect(page.locator('[data-keyboard-help="true"]')).toHaveCount(0);
+
   await page.locator('[data-workspace-tab="log"]').click();
   await page.locator('#messageFilterSelect').selectOption('combat');
   await page.locator('#debugToggleBtn').click();

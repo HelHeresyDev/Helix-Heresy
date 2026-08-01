@@ -39,7 +39,7 @@ function fakeImageFactory(calls, errorKey = '') {
 }
 
 test('@smoke development sprite manifest is valid and covers every asset category', () => {
-  expect(Manifest.manifest.version).toBe(2);
+  expect(Manifest.manifest.version).toBe(3);
   expect(SpriteAssets.validateManifest(Manifest.manifest)).toEqual([]);
   expect(new Set(Manifest.manifest.assets.map((entry) => entry.category))).toEqual(
     new Set(SpriteAssets.CATEGORIES)
@@ -88,8 +88,9 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     state: 'ready',
     counts: { idle: 0, loading: 0, ready: Manifest.manifest.assets.length, error: 0 },
   });
-  expect(calls).toHaveLength(Manifest.manifest.assets.length);
-  expect(new Set(calls).size).toBe(Manifest.manifest.assets.length);
+  const uniqueSourceCount = new Set(Manifest.manifest.assets.map((entry) => entry.source.path)).size;
+  expect(calls).toHaveLength(uniqueSourceCount);
+  expect(new Set(calls).size).toBe(uniqueSourceCount);
   expect(states).toContain('loading');
   expect(states.at(-1)).toBe('ready');
   expect(loader.resolve('actor.slime')).toMatchObject({
@@ -113,11 +114,49 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     status: 'ready',
   });
   expect(loader.resolve('fixture.unmapped')).toMatchObject({
-    resolvedKey: '',
-    resolution: 'fallback',
-    status: 'fallback',
-    fallback: { category: 'fixture', type: 'glyph', glyph: 'F' },
+    resolvedKey: 'fixture.generic',
+    resolution: 'alias',
+    status: 'ready',
   });
+  const coveredKeys = [
+    'tile.unknownDark',
+    'tile.draftExcavation.valid',
+    'tile.wall.constructed.stoneBlocks.pristine',
+    'tile.room.workroom',
+    'tile.floor.smoothed',
+    'tile.vertical.rampUp',
+    'room.anchor.storage',
+    'door.open',
+    'door.locked',
+    'fixture.bed',
+    'fixture.wallLamp',
+    'container.basicGlassJar',
+    'container.openDirtPit',
+    'item.receptacle',
+    'item.spill',
+    'item.rubble',
+    'item.materialPile',
+    'corpse.remains',
+    'corpse.remains.large.stale',
+    'actor.scientist.pose.working.facing.west',
+    'actor.slime.pose.quiescent',
+    'effect.spill.hazardous',
+    'effect.structure.failing',
+    'effect.electricity.active',
+    'effect.fire.active',
+    'effect.magic.active',
+    'effect.combatAction.active',
+    'effect.task.urgent',
+    'effect.task.blocked',
+    'effect.task.active',
+    'effect.incident.combat.serious',
+  ];
+  for (const key of coveredKeys) {
+    expect(loader.resolve(key), key).toMatchObject({ status: 'ready' });
+    expect(loader.resolve(key).resolution, key).not.toBe('fallback');
+  }
+  expect(Manifest.manifest.assets.find((entry) => entry.key === 'corpse.remains.large')?.logicalSize)
+    .toEqual({ width: 2, height: 2, layers: 1 });
 
   const failedCalls = [];
   const failedLoader = SpriteAssets.createAssetLoader(Manifest.manifest, {
@@ -158,6 +197,12 @@ test('browser loads declared images and Canvas reports authored sprites', async 
   await expect.poll(() => page.evaluate(() =>
     window.helixHeresyDebug.mapRendererSnapshot().canvas?.multiTileSpritesDrawn || 0
   )).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() =>
+    window.helixHeresyDebug.mapRendererSnapshot().canvas?.spriteFallbacks ?? -1
+  )).toBe(0);
+  await expect.poll(() => page.evaluate(() =>
+    window.helixHeresyDebug.mapRendererSnapshot().canvas?.spritePlacementMismatches ?? -1
+  )).toBe(0);
 
   const snapshot = await page.evaluate(() => {
     const scene = window.helixHeresyDebug.mapSceneSnapshot();

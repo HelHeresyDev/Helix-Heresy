@@ -4,20 +4,17 @@ The map uses semantic keys from `sprite-asset-manifest.js`; simulation and `MapS
 
 ## Development Placeholders
 
-Files under `placeholders/` are generated development assets, not final game art. They intentionally cover one representative asset in each current category:
+Files under `placeholders/` are generated development assets, not final game art. The original individual placeholders remain, and four transparent 3 by 3 atlases now cover every semantic sprite family emitted by the current map renderer:
 
-- `tile.solidEarth` - terrain
-- `door.closed` - fixture
-- `fixture.basicWorkbench` - directional 2 by 1 fixture
-- `item.stack` - item
-- `actor.slime` - actor
-- `actor.slime.large` - 2 by 2 large actor
-- `effect.hazard.pulse` - effect
-- `marker.incident` - map marker
+- `atlas-terrain-placeholders.png` - unknown space, excavation states, walls, room and rough floors, vertical connectors, and room anchors.
+- `atlas-equipment-placeholders.png` - open, locked, sealed, and breached doors plus generic and footprint-specific fixtures.
+- `atlas-actors-items-placeholders.png` - containers, pits, receptacles, spills, rubble, material piles, small and large remains, and the scientist.
+- `atlas-effects-placeholders.png` - spills, structural failure, electricity, fire, magic, combat impact, and task states.
+- Original individual files - natural rock, closed door, workbench, item stack, small and large slime, hazard pulse, and incident marker.
 
-These initial images are 1254 by 1254 pixels because they are direct development-generation outputs. Their exact dimensions are declared in the manifest and validated when loaded. Future production assets should generally follow the visual-language target of approximately 64 source pixels per occupied tile.
+The generated images are 1254 by 1254 pixels because they are direct development-generation outputs. Atlas cells are 418 by 418 pixels; directional 2 by 1 fixtures use a centered 418 by 210 source rectangle. Exact source rectangles and logical footprints are declared in the manifest and validated when loaded. Future production assets should generally follow the visual-language target of approximately 64 source pixels per occupied tile.
 
-To replace or add an asset, edit the manifest entry rather than adding a path to simulation or scene-building code. Keep paths relative and repository-local, declare the exact source and logical dimensions, and preserve a category fallback. The schema already reserves `source.type: "atlas"` for a later atlas implementation; the current loader supports individual images.
+To replace or add an asset, edit the manifest entry rather than adding a path to simulation or scene-building code. Keep paths relative and repository-local, declare the exact source and logical dimensions, and preserve a category fallback. `source.type: "atlas"` entries that share a path also share one decoded image in the loader; each semantic entry selects its own `sourceRect`.
 
 Actor scene records request semantic variants from most to least specific: actor plus pose and facing, actor plus pose, actor plus facing, then the base actor key. For example, a west-facing feeding slime tries `actor.slime.pose.feeding.facing.west`, `actor.slime.pose.feeding`, `actor.slime.facing.west`, and `actor.slime`. Missing variants therefore continue to use the existing base sprite and static procedural state cues.
 

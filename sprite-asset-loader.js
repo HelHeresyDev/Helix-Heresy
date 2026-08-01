@@ -153,18 +153,36 @@
       .map((entry) => [entry.key, entry]));
     const aliases = Array.isArray(manifest?.aliases) ? [...manifest.aliases] : [];
     const records = new Map();
+    const sourceRecords = new Map();
     const listeners = new Set();
     let destroyed = false;
 
     for (const entry of entries.values()) {
+      const sourceKey = [
+        entry.source.type,
+        absoluteSourcePath(entry.source.path, options.baseUrl),
+        `${entry.sourceSize.width}x${entry.sourceSize.height}`
+      ].join(":");
       records.set(entry.key, {
         key: entry.key,
+        sourceKey,
         status: "idle",
         image: null,
         error: "",
         attempts: 0,
         promise: null
       });
+      if (!sourceRecords.has(sourceKey)) {
+        sourceRecords.set(sourceKey, {
+          key: sourceKey,
+          entry,
+          status: "idle",
+          image: null,
+          error: "",
+          attempts: 0,
+          promise: null
+        });
+      }
     }
 
     function canonicalEntry(requestedKey) {
@@ -254,51 +272,71 @@
       const resolved = resolve(requestedKey);
       if (!resolved.entry) return Promise.resolve(resolved);
       const record = records.get(resolved.resolvedKey);
+      const sourceRecord = sourceRecords.get(record.sourceKey);
       if (record.status === "ready") return Promise.resolve(resolve(requestedKey));
       if (record.status === "loading" && record.promise) return record.promise.then(() => resolve(requestedKey));
       if (record.status === "error" && !loadOptions.retry) return Promise.resolve(resolve(requestedKey));
+      const finishRecord = () => {
+        record.status = sourceRecord.status;
+        record.image = sourceRecord.status === "ready" ? sourceRecord.image : null;
+        record.error = sourceRecord.error;
+        record.promise = null;
+        notify();
+        return resolve(requestedKey);
+      };
+      if (sourceRecord.status === "ready") {
+        return Promise.resolve(finishRecord());
+      }
+      if (sourceRecord.status === "error" && !loadOptions.retry) {
+        return Promise.resolve(finishRecord());
+      }
       record.status = "loading";
       record.error = "";
       record.attempts += 1;
       notify();
-      record.promise = new Promise((finish) => {
-        const image = (options.imageFactory || defaultImageFactory)(resolved.entry);
+      if (sourceRecord.status === "loading" && sourceRecord.promise) {
+        record.promise = sourceRecord.promise.then(finishRecord);
+        return record.promise;
+      }
+      sourceRecord.status = "loading";
+      sourceRecord.error = "";
+      sourceRecord.attempts += 1;
+      sourceRecord.promise = new Promise((finish) => {
+        const image = (options.imageFactory || defaultImageFactory)(sourceRecord.entry);
         if (!image) {
-          record.status = "error";
-          record.error = "Image construction is unavailable.";
-          record.promise = null;
-          notify();
-          finish(resolve(requestedKey));
+          sourceRecord.status = "error";
+          sourceRecord.error = "Image construction is unavailable.";
+          sourceRecord.promise = null;
+          finish();
           return;
         }
         image.decoding = "async";
         image.onload = () => {
-          const expected = resolved.entry.sourceSize;
+          const expected = sourceRecord.entry.sourceSize;
           const width = Number(image.naturalWidth || image.width);
           const height = Number(image.naturalHeight || image.height);
           if (width !== Number(expected.width) || height !== Number(expected.height)) {
-            record.status = "error";
-            record.image = null;
-            record.error = `Expected ${expected.width}x${expected.height}, loaded ${width}x${height}.`;
+            sourceRecord.status = "error";
+            sourceRecord.image = null;
+            sourceRecord.error = `Expected ${expected.width}x${expected.height}, loaded ${width}x${height}.`;
           } else {
-            record.status = "ready";
-            record.image = image;
-            record.error = "";
+            sourceRecord.status = "ready";
+            sourceRecord.image = image;
+            sourceRecord.error = "";
           }
-          record.promise = null;
-          notify();
-          finish(resolve(requestedKey));
+          sourceRecord.promise = null;
+          finish();
         };
         image.onerror = () => {
-          record.status = "error";
-          record.image = null;
-          record.error = `Failed to load ${resolved.entry.source.path}.`;
-          record.promise = null;
-          notify();
-          finish(resolve(requestedKey));
+          sourceRecord.status = "error";
+          sourceRecord.image = null;
+          sourceRecord.error = `Failed to load ${sourceRecord.entry.source.path}.`;
+          sourceRecord.promise = null;
+          finish();
         };
-        image.src = absoluteSourcePath(resolved.entry.source.path, options.baseUrl);
+        image.src = absoluteSourcePath(sourceRecord.entry.source.path, options.baseUrl);
       });
+      record.promise = sourceRecord.promise.then(finishRecord);
       return record.promise;
     }
 
@@ -319,10 +357,10 @@
     function destroy() {
       destroyed = true;
       listeners.clear();
-      for (const record of records.values()) {
-        if (record.image) {
-          record.image.onload = null;
-          record.image.onerror = null;
+      for (const sourceRecord of sourceRecords.values()) {
+        if (sourceRecord.image) {
+          sourceRecord.image.onload = null;
+          sourceRecord.image.onerror = null;
         }
       }
     }
