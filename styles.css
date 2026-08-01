@@ -266,8 +266,9 @@ h2 {
   z-index: 35;
   display: flex;
   flex-wrap: nowrap;
-  gap: 0.55rem;
+  gap: 0.3rem;
   align-items: stretch;
+  justify-content: center;
   overflow-x: auto;
   padding: 0.45rem;
   background: rgba(21, 22, 16, 0.82);
@@ -279,27 +280,51 @@ h2 {
 
 .workspace-tab-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.2rem;
   flex: 0 0 auto;
-  padding: 0.25rem;
-  border: 1px solid #282a23;
-  border-radius: 8px;
-  background: #11120d;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
-.workspace-category-label {
-  padding: 0 0.25rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.workspace-icon-defs,
+.workspace-category-label,
+.workspace-tab-label,
+.queue-next {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .workspace-tab {
-  padding: 0.42rem 0.65rem;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 2.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0.48rem;
   color: var(--muted);
+}
+
+.workspace-tab-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .workspace-tab[data-hotkey]::before,
@@ -329,6 +354,19 @@ h2 {
   border-color: var(--cyan);
   background: #1c2a2c;
   color: var(--text);
+}
+
+.workspace-tab[data-hotkey]::before {
+  position: absolute;
+  right: 0.08rem;
+  bottom: 0.06rem;
+  z-index: 1;
+  min-width: 0.72rem;
+  margin: 0;
+  padding: 0.01rem 0.1rem;
+  font-size: 0.48rem;
+  line-height: 1.05;
+  opacity: 0.82;
 }
 
 .panel {
@@ -565,31 +603,23 @@ h2 {
 }
 
 .task-workspace-tab {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  max-width: 16rem;
+  display: inline-grid;
+  max-width: none;
 }
 
-.queue-badge {
-  min-width: 1.55rem;
-  padding: 0.15rem 0.3rem;
+.task-workspace-tab .queue-badge {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.2rem;
+  z-index: 2;
+  min-width: 1.05rem;
+  padding: 0.07rem 0.18rem;
   border-radius: 999px;
   background: #2e4526;
   border: 1px solid #54783e;
   color: #f6ffe8;
-  font-size: 0.76rem;
-  line-height: 1.2;
-}
-
-.queue-next {
-  min-width: 0;
-  max-width: 5.5rem;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.6rem;
+  line-height: 1.05;
 }
 
 .panel-actions,
@@ -3968,6 +3998,25 @@ html[data-reduced-motion="true"] *::after {
 @media (max-width: 560px) {
   :root {
     --management-top-offset: 14rem;
+  }
+
+  .workspace-tabs {
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    justify-content: center;
+    overflow-x: hidden;
+    padding: 0.35rem;
+  }
+
+  .workspace-tab-group {
+    gap: 0.12rem;
+  }
+
+  .workspace-tab {
+    flex-basis: 2.35rem;
+    width: 2.35rem;
+    height: 2.35rem;
+    min-width: 2.35rem;
   }
 
   .topbar {
