@@ -5568,6 +5568,11 @@
 
   function bindEvents() {
     bindWorkspaceTabs();
+    document.addEventListener("contextmenu", (event) => {
+      if (state?.started) {
+        handleBackNavigation(event);
+      }
+    });
     window.addEventListener("resize", handleMapViewportResize);
     document.addEventListener("wheel", noteManagementScrollInput, { capture: true, passive: true });
     document.addEventListener("touchmove", noteManagementScrollInput, { capture: true, passive: true });
@@ -43493,6 +43498,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : "actor.slime";
   }
 
+  function corpseMapSpriteKey(footprintCells, stale = false) {
+    const bounds = MapVisualState.boundsForCells(footprintCells);
+    const baseKey = bounds?.width === 2 && bounds?.height === 2 && bounds?.depth === 1
+      ? "corpse.remains.large"
+      : "corpse.remains";
+    return stale ? `${baseKey}.stale` : baseKey;
+  }
+
   function slimeActorActivityTargetCell(slime) {
     const committed = cleanMapCell(slime?.ai?.commitment?.target?.cell);
     if (committed) return committed;
@@ -43826,7 +43839,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         condition: current ? { ratio: clamp(corpse.remainingMassRatio ?? 1, 0, 1), band: corpseStateLabel(corpse).toLowerCase() } : null,
         statusCues: [],
         knowledge,
-        visual: { key: knowledge.state === "stale" ? "corpse.remains.stale" : "corpse.remains", glyph: "R", recipeKey: `corpse:${corpse.sourceSlimeId || corpse.id}` },
+        visual: { key: corpseMapSpriteKey(footprintCells, knowledge.state === "stale"), glyph: "R", recipeKey: `corpse:${corpse.sourceSlimeId || corpse.id}` },
         blocking: false
       };
     }
