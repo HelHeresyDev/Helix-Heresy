@@ -94,6 +94,45 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
 test('@smoke reset UI preferences restores defaults and current map view', async ({ page }) => {
   await startRun(page);
 
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({ width: 560, height: 760 });
+  const compactMenu = await page.locator('.workspace-tabs').evaluate((menu) => {
+    const menuBounds = menu.getBoundingClientRect();
+    const buttons = [...menu.querySelectorAll('[data-workspace-tab]')]
+      .filter((button) => !button.hidden);
+    return {
+      labels: buttons.map((button) => button.getAttribute('title')),
+      iconCount: buttons.filter((button) => button.querySelector('.workspace-tab-icon')).length,
+      allInside: buttons.every((button) => {
+        const bounds = button.getBoundingClientRect();
+        return bounds.left >= menuBounds.left - 1 && bounds.right <= menuBounds.right + 1;
+      }),
+      scrollWidth: menu.scrollWidth,
+      clientWidth: menu.clientWidth,
+    };
+  });
+  expect(compactMenu.labels).toEqual([
+    'Map',
+    'Foundry',
+    'Tasks',
+    'Production',
+    'Creatures',
+    'Containers',
+    'Resources',
+    'Black Market',
+    'Policies',
+    'Journal',
+    'Messages',
+    'Cheats',
+  ]);
+  expect(compactMenu.iconCount).toBe(compactMenu.labels.length);
+  expect(compactMenu.allInside).toBe(true);
+  expect(compactMenu.scrollWidth).toBeLessThanOrEqual(compactMenu.clientWidth);
+  await expect(page.getByRole('button', { name: 'Black Market', exact: true })).toBeVisible();
+  if (originalViewport) {
+    await page.setViewportSize(originalViewport);
+  }
+
   const timeSpeeds = await page.locator('#timeSpeedSelect option').evaluateAll((options) =>
     options.map((option) => ({ value: option.value, label: option.textContent })));
   expect(timeSpeeds).toEqual([

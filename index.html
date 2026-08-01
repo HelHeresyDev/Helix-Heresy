@@ -40,45 +40,60 @@
 
       <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
         <nav class="workspace-tabs" aria-label="Bottom management menu">
-          <div class="workspace-tab-group" data-workspace-category="lab">
+          <svg class="workspace-icon-defs" aria-hidden="true" focusable="false">
+            <symbol id="workspace-icon-map" viewBox="0 0 24 24"><path d="m3 5 5-2 8 3 5-2v15l-5 2-8-3-5 2Z M8 3v15 M16 6v15"/></symbol>
+            <symbol id="workspace-icon-foundry" viewBox="0 0 24 24"><path d="M7 3c7 3 3 15 10 18 M17 3C10 6 14 18 7 21 M8.5 7h7 M8.5 17h7 M10 12h4"/></symbol>
+            <symbol id="workspace-icon-tasks" viewBox="0 0 24 24"><path d="m4 6 2 2 4-4 M12 6h8 M4 13l2 2 4-4 M12 13h8 M4 20l2 2 4-4 M12 20h8"/></symbol>
+            <symbol id="workspace-icon-production" viewBox="0 0 24 24"><path d="M3 21V10l6 4v-4l6 4V5h5v16Z M7 18h2 M13 18h2 M18 9h2"/></symbol>
+            <symbol id="workspace-icon-creatures" viewBox="0 0 24 24"><path d="M5 18c-2-2-2-7 1-10 1-1 2-2 2-4 3 0 4 2 5 3 2-1 5 0 6 3 2 5-2 10-7 10-3 0-5 0-7-2Z M9 12h.1 M15 12h.1 M9 16c2 1 4 1 6 0"/></symbol>
+            <symbol id="workspace-icon-containers" viewBox="0 0 24 24"><path d="M7 3h10 M8 6h8l2 4v9c0 1-1 2-2 2H8c-1 0-2-1-2-2v-9Z M7 10h10"/></symbol>
+            <symbol id="workspace-icon-resources" viewBox="0 0 24 24"><path d="M4 15h7v5H4z M13 15h7v5h-7z M8.5 8h7v5h-7z M4 3h7v3H4z M13 3h7v3h-7z"/></symbol>
+            <symbol id="workspace-icon-economy" viewBox="0 0 24 24"><path d="M8 7c0-2 2-4 4-4s4 2 4 4 M7 8h10l3 11c0 1-1 2-2 2H6c-1 0-2-1-2-2Z M12 11v7 M15 13c-1-2-5-2-5 0s5 1 5 3-4 2-6 0"/></symbol>
+            <symbol id="workspace-icon-policies" viewBox="0 0 24 24"><path d="M4 6h5 M13 6h7 M4 12h9 M17 12h3 M4 18h2 M10 18h10 M9 4v4 M13 10v4 M6 16v4"/></symbol>
+            <symbol id="workspace-icon-journal" viewBox="0 0 24 24"><path d="M3 5c4-2 7-1 9 1v15c-2-2-5-3-9-1Z M21 5c-4-2-7-1-9 1v15c2-2 5-3 9-1Z"/></symbol>
+            <symbol id="workspace-icon-log" viewBox="0 0 24 24"><path d="M4 4h16v11H9l-5 4Z M8 8h8 M8 11h5"/></symbol>
+            <symbol id="workspace-icon-cheats" viewBox="0 0 24 24"><path d="M4 5h16v14H4Z M8 9l3 3-3 3 M13 15h4"/></symbol>
+          </svg>
+          <div class="workspace-tab-group" role="group" aria-label="Lab" data-workspace-category="lab">
             <span class="workspace-category-label">Lab</span>
-            <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" data-workspace-tab="map">Map</button>
-            <button class="workspace-tab" type="button" data-workspace-tab="foundry">Foundry</button>
+            <button class="workspace-tab active-workspace-tab" type="button" aria-current="page" aria-label="Map" data-workspace-tab="map" title="Map"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-map"/></svg><span class="workspace-tab-label">Map</span></button>
+            <button class="workspace-tab" type="button" aria-label="Foundry" data-workspace-tab="foundry" title="Foundry"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-foundry"/></svg><span class="workspace-tab-label">Foundry</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="work">
+          <div class="workspace-tab-group" role="group" aria-label="Work" data-workspace-category="work">
             <span class="workspace-category-label">Work</span>
-            <button id="queueToggleBtn" class="workspace-tab task-workspace-tab" type="button" data-workspace-tab="tasks">
-              <span>Tasks</span>
+            <button id="queueToggleBtn" class="workspace-tab task-workspace-tab" type="button" aria-label="Tasks" data-workspace-tab="tasks" title="Tasks">
+              <svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-tasks"/></svg>
+              <span class="workspace-tab-label">Tasks</span>
               <span id="queueBadge" class="queue-badge">0</span>
               <span id="queueNextReadout" class="queue-next">Clear</span>
             </button>
-            <button class="workspace-tab" type="button" data-workspace-tab="production">Production</button>
+            <button class="workspace-tab" type="button" aria-label="Production" data-workspace-tab="production" title="Production"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-production"/></svg><span class="workspace-tab-label">Production</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="creatures">
+          <div class="workspace-tab-group" role="group" aria-label="Creatures" data-workspace-category="creatures">
             <span class="workspace-category-label">Creatures</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="specimens">Creatures</button>
-            <button class="workspace-tab" type="button" data-workspace-tab="containers">Containers</button>
+            <button class="workspace-tab" type="button" aria-label="Creatures" data-workspace-tab="specimens" title="Creatures"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-creatures"/></svg><span class="workspace-tab-label">Creatures</span></button>
+            <button class="workspace-tab" type="button" aria-label="Containers" data-workspace-tab="containers" title="Containers"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-containers"/></svg><span class="workspace-tab-label">Containers</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="stores">
+          <div class="workspace-tab-group" role="group" aria-label="Stores" data-workspace-category="stores">
             <span class="workspace-category-label">Stores</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="resources">Resources</button>
+            <button class="workspace-tab" type="button" aria-label="Resources" data-workspace-tab="resources" title="Resources"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-resources"/></svg><span class="workspace-tab-label">Resources</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="economy">
+          <div class="workspace-tab-group" role="group" aria-label="Economy" data-workspace-category="economy">
             <span class="workspace-category-label">Economy</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="economy">Black Market</button>
+            <button class="workspace-tab" type="button" aria-label="Black Market" data-workspace-tab="economy" title="Black Market"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-economy"/></svg><span class="workspace-tab-label">Black Market</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="policy">
+          <div class="workspace-tab-group" role="group" aria-label="Policy" data-workspace-category="policy">
             <span class="workspace-category-label">Policy</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="policies">Policies</button>
+            <button class="workspace-tab" type="button" aria-label="Policies" data-workspace-tab="policies" title="Policies"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-policies"/></svg><span class="workspace-tab-label">Policies</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="records">
+          <div class="workspace-tab-group" role="group" aria-label="Records" data-workspace-category="records">
             <span class="workspace-category-label">Records</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="journal">Journal</button>
-            <button class="workspace-tab" type="button" data-workspace-tab="log">Messages</button>
+            <button class="workspace-tab" type="button" aria-label="Journal" data-workspace-tab="journal" title="Journal"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-journal"/></svg><span class="workspace-tab-label">Journal</span></button>
+            <button class="workspace-tab" type="button" aria-label="Messages" data-workspace-tab="log" title="Messages"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-log"/></svg><span class="workspace-tab-label">Messages</span></button>
           </div>
-          <div class="workspace-tab-group" data-workspace-category="debug" data-debug-only="true">
+          <div class="workspace-tab-group" role="group" aria-label="Debug" data-workspace-category="debug" data-debug-only="true">
             <span class="workspace-category-label">Debug</span>
-            <button class="workspace-tab" type="button" data-workspace-tab="cheats" data-debug-only="true">Cheats</button>
+            <button class="workspace-tab" type="button" aria-label="Cheats" data-workspace-tab="cheats" data-debug-only="true" title="Cheats"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-cheats"/></svg><span class="workspace-tab-label">Cheats</span></button>
           </div>
         </nav>
 
