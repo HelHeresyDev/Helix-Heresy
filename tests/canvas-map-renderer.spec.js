@@ -177,6 +177,10 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     dashed: true,
     alpha: 0.48,
   });
+  const roomTerrain = SpriteManifest.manifest.assets.find((entry) => entry.key === 'tile.room');
+  const floorTerrain = SpriteManifest.manifest.assets.find((entry) => entry.key === 'tile.floor');
+  expect(roomTerrain.sourceRect).toEqual({ x: 882, y: 478, width: 281, height: 280 });
+  expect(floorTerrain.sourceRect).toEqual({ x: 92, y: 860, width: 280, height: 278 });
   expect(CanvasRenderer.entityStyle({
     kind: 'slime',
     knowledge: { state: 'stale' },
