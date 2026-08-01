@@ -2076,6 +2076,7 @@
   const REAL_TICK_MS = 250;
   const AUTOSAVE_REAL_INTERVAL_MS = 10 * 60 * 1000;
   const MANAGEMENT_RENDER_INTERVAL_MS = 1000;
+  const MANAGEMENT_SCROLL_SETTLE_MS = 220;
   const DEFAULT_TIME_SPEED = "realtime";
   const TIME_SPEEDS = [
     { id: "realtime", label: "1x", description: "real time", secondsPerSecond: 1 },
@@ -3297,6 +3298,9 @@
   let lastAutosaveAt = Date.now();
   let stateDirtySinceAutosave = false;
   let lastManagementRenderAt = 0;
+  let lastManagementScrollInputAt = 0;
+  let deferredManagementRenderTimer = 0;
+  let deferredManagementRenderTab = "";
   let lastSimulationChanges = null;
   const simulationPerformance = {
     systems: {},
@@ -5293,6 +5297,15 @@
         render({ preserveWorkspaceScroll: true });
         return state.clock;
       },
+      managementRenderProbe: () => {
+        lastManagementRenderAt = 0;
+        renderSimulationChanges({ scientistMovementChanged: 1 }, Date.now());
+        return {
+          tab: currentWorkspaceTab(),
+          scrollInputActive: managementScrollInputActive(),
+          deferred: Boolean(deferredManagementRenderTimer)
+        };
+      },
       queueDoorOperation: (doorId, operation, value, options = {}) => queueDoorOperation(doorId, operation, value, options),
       materialCatalog: () => MATERIAL_DEFS.map((material) => ({ ...material, properties: { ...material.properties } })),
       toolMaterialSnapshot: (itemKey) => ({
@@ -5556,6 +5569,16 @@
   function bindEvents() {
     bindWorkspaceTabs();
     window.addEventListener("resize", handleMapViewportResize);
+    document.addEventListener("wheel", noteManagementScrollInput, { capture: true, passive: true });
+    document.addEventListener("touchmove", noteManagementScrollInput, { capture: true, passive: true });
+    document.addEventListener("pointermove", (event) => {
+      if (event.buttons) noteManagementScrollInput(event);
+    }, { capture: true, passive: true });
+    document.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
+        noteManagementScrollInput(event);
+      }
+    }, true);
 
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -8119,12 +8142,55 @@
       if (simulationMapNeedsRedraw(changes)) renderMapInteraction();
       else renderMapSelectionInteraction();
     } else if (now - lastManagementRenderAt >= MANAGEMENT_RENDER_INTERVAL_MS) {
-      lastManagementRenderAt = now;
-      render({ preserveWorkspaceScroll: true });
+      if (managementScrollInputActive(now)) {
+        renderClockReadout();
+        deferManagementRenderUntilScrollSettles();
+      } else {
+        lastManagementRenderAt = now;
+        render({ preserveWorkspaceScroll: true });
+      }
     } else {
       renderClockReadout();
     }
     recordPerformanceSample(simulationPerformance.render, performance.now() - startedAt);
+  }
+
+  function managementWorkspacePanelForTarget(target) {
+    if (!(target instanceof Element) || currentWorkspaceTab() === "map") return null;
+    const panel = target.closest("[data-workspace-panel]");
+    return panel && cleanWorkspaceTab(panel.dataset.workspacePanel) === currentWorkspaceTab() ? panel : null;
+  }
+
+  function noteManagementScrollInput(event) {
+    let panel = managementWorkspacePanelForTarget(event.target);
+    if (event.type === "keydown") {
+      if (event.target instanceof Element && event.target.matches("input, select, textarea, button")) return;
+      panel ||= workspacePanelForTab(currentWorkspaceTab());
+    }
+    if (!panel) return;
+    lastManagementScrollInputAt = Date.now();
+  }
+
+  function managementScrollInputActive(now = Date.now()) {
+    return now - lastManagementScrollInputAt < MANAGEMENT_SCROLL_SETTLE_MS;
+  }
+
+  function deferManagementRenderUntilScrollSettles() {
+    deferredManagementRenderTab = currentWorkspaceTab();
+    window.clearTimeout(deferredManagementRenderTimer);
+    const renderWhenSettled = () => {
+      const remaining = MANAGEMENT_SCROLL_SETTLE_MS - (Date.now() - lastManagementScrollInputAt);
+      if (remaining > 0) {
+        deferredManagementRenderTimer = window.setTimeout(renderWhenSettled, remaining + 1);
+        return;
+      }
+      deferredManagementRenderTimer = 0;
+      if (!state?.started || currentWorkspaceTab() === "map" || currentWorkspaceTab() !== deferredManagementRenderTab) return;
+      lastManagementRenderAt = Date.now();
+      render({ preserveWorkspaceScroll: true });
+    };
+    const remaining = Math.max(1, MANAGEMENT_SCROLL_SETTLE_MS - (Date.now() - lastManagementScrollInputAt));
+    deferredManagementRenderTimer = window.setTimeout(renderWhenSettled, remaining + 1);
   }
 
   function togglePause() {
