@@ -25,7 +25,14 @@
     const column = Number(options.column) || 0;
     const row = Number(options.row) || 0;
     const logicalSize = options.logicalSize || { width: 1, height: 1, layers: 1 };
-    const sourceRect = options.horizontal
+    const sourceRect = options.contentRect
+      ? {
+          x: column * GENERATED_ATLAS_CELL_PX + options.contentRect.x,
+          y: row * GENERATED_ATLAS_CELL_PX + options.contentRect.y,
+          width: options.contentRect.width,
+          height: options.contentRect.height
+        }
+      : options.horizontal
       ? {
           x: column * GENERATED_ATLAS_CELL_PX,
           y: row * GENERATED_ATLAS_CELL_PX + 104,
@@ -197,15 +204,15 @@
         variants: ["stack"],
         placeholder: true
       },
-      atlasPlaceholder({ key: "tile.unknownDark", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 0 }),
-      atlasPlaceholder({ key: "tile.draftExcavation.valid", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 0 }),
-      atlasPlaceholder({ key: "tile.draftExcavation.invalid", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 0 }),
-      atlasPlaceholder({ key: "tile.plannedExcavation", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 1 }),
-      atlasPlaceholder({ key: "tile.wall", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 1 }),
-      atlasPlaceholder({ key: "tile.room", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 1 }),
-      atlasPlaceholder({ key: "tile.floor", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 2 }),
-      atlasPlaceholder({ key: "tile.vertical", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 2 }),
-      atlasPlaceholder({ key: "room.anchor", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 2 }),
+      atlasPlaceholder({ key: "tile.unknownDark", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 0, contentRect: { x: 90, y: 84, width: 282, height: 289 } }),
+      atlasPlaceholder({ key: "tile.draftExcavation.valid", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 0, contentRect: { x: 71, y: 88, width: 277, height: 285 } }),
+      atlasPlaceholder({ key: "tile.draftExcavation.invalid", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 0, contentRect: { x: 51, y: 91, width: 275, height: 282 } }),
+      atlasPlaceholder({ key: "tile.plannedExcavation", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 1, contentRect: { x: 92, y: 57, width: 282, height: 280 } }),
+      atlasPlaceholder({ key: "tile.wall", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 1, contentRect: { x: 66, y: 55, width: 286, height: 289 } }),
+      atlasPlaceholder({ key: "tile.room", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 1, contentRect: { x: 46, y: 60, width: 281, height: 280 } }),
+      atlasPlaceholder({ key: "tile.floor", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 0, row: 2, contentRect: { x: 92, y: 24, width: 280, height: 278 } }),
+      atlasPlaceholder({ key: "tile.vertical", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 1, row: 2, contentRect: { x: 69, y: 28, width: 280, height: 273 } }),
+      atlasPlaceholder({ key: "room.anchor", category: "terrain", path: "assets/sprites/placeholders/atlas-terrain-placeholders.png", column: 2, row: 2, contentRect: { x: 46, y: 28, width: 280, height: 273 } }),
       atlasPlaceholder({ key: "door.open", category: "fixture", path: "assets/sprites/placeholders/atlas-equipment-placeholders.png", column: 0, row: 0, rotation: "quarterTurns" }),
       atlasPlaceholder({ key: "door.locked", category: "fixture", path: "assets/sprites/placeholders/atlas-equipment-placeholders.png", column: 1, row: 0, rotation: "quarterTurns" }),
       atlasPlaceholder({ key: "door.sealed", category: "fixture", path: "assets/sprites/placeholders/atlas-equipment-placeholders.png", column: 2, row: 0, rotation: "quarterTurns" }),
