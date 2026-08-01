@@ -106,6 +106,23 @@ test('creature records split confirmed living from stale unknown loose creatures
   await expect(page.locator('#slimeList')).toContainText('REC-CONTAINED');
   await expect(page.locator('#slimeList')).not.toContainText('REC-LOOSE');
 
+  await page.locator('[data-slime-card="contained-record"]').click();
+  const scrollingCard = await page.locator('[data-slime-card="contained-record"]').elementHandle();
+  if (!scrollingCard) throw new Error('Living creature card was not rendered.');
+  const scrollProbe = await scrollingCard.evaluate((element) => {
+    document.querySelector('#slimeList')?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 90 }));
+    return {
+      connected: element.isConnected,
+      render: window.helixHeresyDebug.managementRenderProbe(),
+    };
+  });
+  expect(scrollProbe).toEqual({
+    connected: true,
+    render: { tab: 'specimens', scrollInputActive: true, deferred: true },
+  });
+  await page.waitForTimeout(350);
+  expect(await scrollingCard.evaluate((element) => element.isConnected)).toBe(false);
+
   await page.locator('[data-creature-record-tab="unknown"]').click();
   await expect(page.locator('#unknownCreatureList')).toContainText('REC-LOOSE');
   await expect(page.locator('#unknownCreatureList')).toContainText('last seen');
