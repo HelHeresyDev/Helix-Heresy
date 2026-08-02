@@ -118,6 +118,11 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     resolution: 'alias',
     status: 'ready',
   });
+  const synthesisTube = loader.resolve('container.synthesisTube');
+  const genericContainer = loader.resolve('container.basicGlassJar');
+  expect(synthesisTube).toMatchObject({ resolvedKey: 'container.synthesisTube', resolution: 'exact' });
+  expect(genericContainer).toMatchObject({ resolvedKey: 'container.generic', resolution: 'alias' });
+  expect(synthesisTube.entry.sourceRect).not.toEqual(genericContainer.entry.sourceRect);
   const coveredKeys = [
     'tile.unknownDark',
     'tile.draftExcavation.valid',
@@ -130,6 +135,7 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     'door.locked',
     'fixture.bed',
     'fixture.wallLamp',
+    'container.synthesisTube',
     'container.basicGlassJar',
     'container.openDirtPit',
     'item.receptacle',
