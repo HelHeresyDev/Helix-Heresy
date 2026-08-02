@@ -5561,6 +5561,7 @@
     bindWorkspaceTabs();
     document.addEventListener("contextmenu", (event) => {
       if (state?.started) {
+        event.preventDefault();
         handleBackNavigation(event);
       }
     });
