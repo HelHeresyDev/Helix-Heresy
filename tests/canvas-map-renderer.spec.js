@@ -480,6 +480,8 @@ test('@smoke Canvas is the default with persistent DOM rollback and renderer par
   await verifyMapRendererParityFixtures(page);
   const accessibility = page.locator('[data-map-accessibility-controls="true"]');
   await accessibility.locator('summary').click();
+  await expect(accessibility).toContainText('Canvas is the primary map renderer');
+  await expect(accessibility).toContainText('persistent fallback');
   const rendererControl = accessibility.locator('[data-map-accessibility-preference="mapRendererMode"]');
   await expect(rendererControl).toHaveValue('canvas');
   await rendererControl.selectOption('dom');

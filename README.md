@@ -72,11 +72,11 @@ The 14-test smoke command is the quick cross-system check for routine iteration.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
 - `sprite-asset-loader.js` - Asynchronous image loading, shared atlas-source caching, validation, status diagnostics, and nonfatal fallback resolution.
 - `assets/sprites/` - Generated individual and atlas-based development placeholders plus asset-maintenance notes.
-- `canvas-map-renderer.js` - Canvas-default trial map renderer with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, cached viewport draw plans, invalidation diagnostics, and conditional animation-frame redraws.
+- `canvas-map-renderer.js` - Primary Canvas map renderer with deterministic passes, physical lighting, airborne and hazard treatment, semantic status markers, occlusion handling, anchored multi-tile sprites, complete glyph-first rendering, knowledge-safe movement interpolation, accessibility presentation options, cached viewport draw plans, invalidation diagnostics, and conditional animation-frame redraws.
 - `map-renderer-parity.js` - Deterministic renderer fixtures and zero-tolerance semantic parity reports shared by the actual DOM adapter and Canvas draw path.
 - `map-population-benchmark.js` and `benchmarks/` - Deterministic representative, dense, and mostly-offscreen population fixtures measured in a real browser Canvas.
 - `scripts/run-map-benchmark.js` - Quick/full benchmark CLI with stage timings, advisory budgets, and structural invariant checks.
-- `RENDERER_PROMOTION_CHECKLIST.md` - Automated, human-review, and release gates used to evaluate the Canvas-default trial before final promotion.
+- `RENDERER_PROMOTION_CHECKLIST.md` - Automated, human-review, and release gates retained as the completed promotion record and ongoing regression policy.
 - `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.

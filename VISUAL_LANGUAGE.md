@@ -281,7 +281,7 @@ Text and exact values remain in HTML inspectors, menus, tooltips, and records. T
 
 ## Map Scene Contract
 
-Both the glyph renderer and future Canvas renderer consume the same transient, versioned `MapScene`.
+Both the DOM compatibility renderer and primary Canvas renderer consume the same transient, versioned `MapScene`.
 
 - The scene covers the visible viewport plus a one-tile overscan margin.
 - Terrain remains cell-based; physical objects and actors are unique entity records with anchors, full footprints, bounds, normalized quarter-turn physical orientation, vertical extent, and semantic visual keys.
