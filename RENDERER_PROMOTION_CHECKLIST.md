@@ -1,6 +1,6 @@
 # Renderer Promotion Checklist
 
-Canvas is the trial default renderer. The DOM Compatibility Map remains a persistent player-facing fallback, and this checklist governs the later decision to finalize Canvas promotion; it does not authorize removal of the DOM renderer.
+Canvas is the promoted primary renderer. The DOM Compatibility Map remains a persistent player-facing fallback, and this checklist records the completed promotion decision; it does not authorize removal of the DOM renderer.
 
 ## Automated Gates
 
@@ -16,11 +16,11 @@ Canvas is the trial default renderer. The DOM Compatibility Map remains a persis
 
 ## Human and Release Gates
 
-- [ ] The developer has reviewed and approved the current Linux screenshots.
+- [x] The developer has reviewed and approved the current Linux screenshots.
 - [x] Canvas has been used as the default renderer for a dedicated manual soak pass covering ordinary play, not only synthetic fixtures.
-- [ ] Any intentional screenshot change has an explanation in the commit that updates its baseline.
-- [ ] Known visual differences are documented as intentional, accessible, and information-equivalent.
-- [ ] A separate decision explicitly approves final Canvas promotion after the trial.
+- [x] Any intentional screenshot change has an explanation in the commit that updates its baseline.
+- [x] Known visual differences are documented as intentional, accessible, and information-equivalent.
+- [x] A separate decision explicitly approves final Canvas promotion after the trial.
 
 ## Baseline Policy
 

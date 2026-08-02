@@ -50448,7 +50448,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     const note = textEl(
       "p",
-      "Canvas is the trial default. The DOM Compatibility Map remains available here. Color-independent glyphs and shapes remain active in every mode."
+      "Canvas is the primary map renderer. The DOM Compatibility Map remains available here as a persistent fallback. Color-independent glyphs and shapes remain active in every mode."
     );
     note.className = "map-accessibility-note";
     details.append(summary, fields, note);
