@@ -655,15 +655,6 @@
     { id: "door-pits-main", roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], cell: { x: 58, y: 53 } },
     { id: "door-exit-storage", roomIds: [CONCEALED_EXIT_ROOM_ID, STORAGE_ROOM_ID], cell: { x: 47, y: 43 } }
   ];
-  const LAB_MAP_ROOM_ABBREVIATIONS = {
-    [MAIN_ROOM_ID]: "ML",
-    [MENAGERIE_ROOM_ID]: "MN",
-    [PITS_ROOM_ID]: "PT",
-    [BEDROOM_ROOM_ID]: "BD",
-    [STORAGE_ROOM_ID]: "ST",
-    [COLLECTION_BAY_ROOM_ID]: "CB",
-    [CONCEALED_EXIT_ROOM_ID]: "EX"
-  };
   const DOOR_POLICY_DEFS = [
     { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
     { id: "leaveOpenAfterUse", label: "Leave open after use", description: "Movement opens doors as needed and leaves them open afterward." },
@@ -42470,10 +42461,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
-  function labMapRoomAbbreviation(roomId) {
-    return LAB_MAP_ROOM_ABBREVIATIONS[roomId] || roomName(roomId).slice(0, 2).toUpperCase();
-  }
-
   function doorMapClassName(door) {
     if (doorIsBreached(door)) {
       return "door-breached";
@@ -48617,15 +48604,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       spriteKey: labMapObjectSpriteKey(objectEntry)
     } : null;
     const anchorRoom = context.anchors.get(mapCellKey(cell));
-    const anchor = anchorRoom ? {
-      roomId: anchorRoom.roomId,
-      abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
-    } : null;
+    const anchor = anchorRoom ? { roomId: anchorRoom.roomId } : null;
     const visual = labMapCellVisualView({
       base,
       door: semanticDoor,
-      object: semanticObject,
-      anchor
+      object: semanticObject
     });
     return MapKnowledge.snapshotCellView({
       cell,
@@ -49130,7 +49113,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }))];
   }
 
-  function labMapCellVisualView({ base, door, object, incident, anchor }) {
+  function labMapCellVisualView({ base, door, object, incident }) {
     if (object) {
       return {
         glyph: object.symbols.length > 1 ? String(object.symbols.length) : object.symbols[0],
@@ -49152,13 +49135,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             : base.verticalDirection === "ramp" ? "/" : "O",
         spriteKey: `tile.vertical.${base.verticalDirection}`,
         layer: "terrain"
-      };
-    }
-    if (anchor) {
-      return {
-        glyph: anchor.abbreviation,
-        spriteKey: `room.anchor.${roomRole(anchor.roomId)}`,
-        layer: "roomAnchor"
       };
     }
     if (base.kind === "plannedExcavation") {
@@ -49288,10 +49264,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       knowledge: visibleOverlayEntry.knowledge || null,
       target: visibleOverlayEntry.target || null
     } : null;
-    const anchor = currentKnowledge && anchorRoom ? {
-      roomId: anchorRoom.roomId,
-      abbreviation: labMapRoomAbbreviation(anchorRoom.roomId)
-    } : memory?.anchor ? MapKnowledge.cloneJson(memory.anchor) : null;
+    const anchor = currentKnowledge && anchorRoom
+      ? { roomId: anchorRoom.roomId }
+      : memory?.anchor ? { roomId: String(memory.anchor.roomId || "") } : null;
     const selected = visible && selectedTargetMatchesTile(selectedTarget, {
       cell,
       roomId: currentKnowledge ? roomId : "",
@@ -49334,13 +49309,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const visual = scientistHere
       ? { glyph: "S", spriteKey: "actor.scientist", layer: "actor" }
       : !currentKnowledge && memory && !visiblePlannedEntry && !visibleDraftEntry
-        ? memory.visual || labMapCellVisualView({ base, door: semanticDoor, object: semanticObject, anchor })
+        ? (memory.visual?.layer === "roomAnchor" ? null : memory.visual) || labMapCellVisualView({ base, door: semanticDoor, object: semanticObject })
         : labMapCellVisualView({
             base,
             door: semanticDoor,
             object: semanticObject,
-            incident: semanticIncident,
-            anchor
+            incident: semanticIncident
           });
 
     return {
@@ -49542,8 +49516,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       classNames.push("scientist-cell");
     } else if (cellView.object) {
       classNames.push("object-cell", ...mapObjectDomClasses(cellView.object.tags));
-    } else if (cellView.anchor) {
-      classNames.push("room-anchor");
     }
     return {
       classNames,
@@ -50588,7 +50560,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "faint outlined cells = fixture interaction points",
       "L = loose living",
       "R = remains",
-      "room letters = room anchor",
       "x = closed door",
       "l = locked",
       "s = sealed",

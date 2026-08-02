@@ -130,7 +130,6 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     'tile.room.workroom',
     'tile.floor.smoothed',
     'tile.vertical.rampUp',
-    'room.anchor.storage',
     'door.open',
     'door.locked',
     'fixture.bed',
