@@ -166,6 +166,16 @@ test('@smoke map keeps the large blueprint visible through keyboard pan and zoom
   expect(afterKeyboardZoomOut.zoom.index).toBe(beforeWheelZoom.zoom.index);
   await expect(page.locator('[data-map-viewport="true"]')).toHaveAttribute('data-map-viewport-width', String(afterKeyboardZoomOut.viewport.width));
 
+  const zoomInButton = page.locator('button[title="Zoom in (+)"]');
+  for (let step = 0; step < 20; step += 1) {
+    if (await zoomInButton.isDisabled()) break;
+    await zoomInButton.click();
+  }
+  const maximumZoom = await mapSnapshot(page);
+  expect(maximumZoom.zoom).toMatchObject({ tilePx: 72, canZoomIn: false });
+  expect(maximumZoom.viewport.width).toBeLessThan(afterWheelZoom.viewport.width);
+  await expect(zoomInButton).toBeDisabled();
+
   const afterNavigation = await savedMapUi(page);
   expect(afterNavigation.selection).toEqual(beforePan.selection);
   expect(afterNavigation.selectedMapTarget).toEqual(beforePan.selectedMapTarget);
