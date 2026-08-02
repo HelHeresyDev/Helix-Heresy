@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 8;
+  const RENDERER_VERSION = 9;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -727,6 +727,18 @@
   }
 
   function effectColor(effect) {
+    const feedbackColors = {
+      feedbackArrival: "#68c8d8",
+      feedbackWork: "#e1b75f",
+      feedbackDoor: "#f0d989",
+      feedbackImpact: "#ff8b73",
+      feedbackMiss: "#b9c1b4",
+      feedbackConstruction: "#c6a66a",
+      feedbackHazard: "#e67e4e",
+      feedbackComplete: "#9abe60",
+      feedbackFailure: "#ff8b73"
+    };
+    if (feedbackColors[effect?.kind]) return feedbackColors[effect.kind];
     const damageTags = new Set(effect?.damageTags || []);
     if (effect?.kind === "fire" || damageTags.has("heat")) return "#ff9c56";
     if (effect?.kind === "electricity" || damageTags.has("electrical")) return "#9ed8ff";
@@ -855,15 +867,177 @@
     drawGlyph(ctx, effect.glyph || "!", position.x, position.y, tilePx, color);
   }
 
+  function feedbackEffectSample(effect, options = {}) {
+    const feedback = effect?.feedback;
+    if (!feedback) {
+      return { valid: false, visible: true, active: false, animated: false, progress: 0, opacity: 1, pulse: 0 };
+    }
+    const startedAtMs = cleanNumber(feedback.startedAtMs);
+    const durationMs = Math.max(1, cleanNumber(feedback.durationMs, 1));
+    const nowMs = cleanNumber(options.presentationRealTimeMs, startedAtMs);
+    const elapsedMs = nowMs - startedAtMs;
+    const progress = Math.max(0, Math.min(1, elapsedMs / durationMs));
+    const visible = elapsedMs >= 0 && elapsedMs < durationMs;
+    const animated = visible && !options.reducedMotion;
+    const fadeStart = 0.62;
+    return {
+      valid: true,
+      visible,
+      active: visible,
+      animated,
+      progress: animated ? progress : 0.5,
+      opacity: !visible ? 0 : animated && progress > fadeStart
+        ? 1 - (progress - fadeStart) / (1 - fadeStart)
+        : 1,
+      pulse: animated ? (Math.sin(progress * Math.PI * 4) + 1) / 2 : 0.5
+    };
+  }
+
+  function feedbackDirectionVector(direction) {
+    return {
+      north: { x: 0, y: -1 },
+      east: { x: 1, y: 0 },
+      south: { x: 0, y: 1 },
+      west: { x: -1, y: 0 },
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 }
+    }[direction] || { x: 0, y: 0 };
+  }
+
+  function drawFeedbackEffect(ctx, effect, sample, position, tilePx, color) {
+    const centerX = position.x + tilePx * 0.5;
+    const centerY = position.y + tilePx * 0.5;
+    const progress = sample.progress;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(1.5, tilePx * 0.065);
+    if (["feedbackArrival", "feedbackComplete"].includes(effect.kind)) {
+      const radius = tilePx * (0.16 + progress * 0.32);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      if (effect.kind === "feedbackComplete") {
+        ctx.beginPath();
+        ctx.moveTo(centerX - tilePx * 0.16, centerY);
+        ctx.lineTo(centerX - tilePx * 0.03, centerY + tilePx * 0.13);
+        ctx.lineTo(centerX + tilePx * 0.2, centerY - tilePx * 0.16);
+        ctx.stroke();
+      }
+      return;
+    }
+    if (effect.kind === "feedbackWork") {
+      const radius = tilePx * (0.25 + sample.pulse * 0.06);
+      const angle = sample.animated ? progress * Math.PI * 2 : 0;
+      for (let index = 0; index < 4; index += 1) {
+        const spoke = angle + index * Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX + Math.cos(spoke) * radius * 0.45, centerY + Math.sin(spoke) * radius * 0.45);
+        ctx.lineTo(centerX + Math.cos(spoke) * radius, centerY + Math.sin(spoke) * radius);
+        ctx.stroke();
+      }
+      ctx.strokeRect(centerX - tilePx * 0.12, centerY - tilePx * 0.12, tilePx * 0.24, tilePx * 0.24);
+      return;
+    }
+    if (effect.kind === "feedbackDoor") {
+      const horizontal = ["east", "west"].includes(effect.feedback?.direction);
+      const spread = tilePx * (sample.animated ? 0.08 + progress * 0.24 : 0.22);
+      ctx.beginPath();
+      if (horizontal) {
+        ctx.moveTo(centerX - spread, centerY - tilePx * 0.34);
+        ctx.lineTo(centerX - spread, centerY + tilePx * 0.34);
+        ctx.moveTo(centerX + spread, centerY - tilePx * 0.34);
+        ctx.lineTo(centerX + spread, centerY + tilePx * 0.34);
+      } else {
+        ctx.moveTo(centerX - tilePx * 0.34, centerY - spread);
+        ctx.lineTo(centerX + tilePx * 0.34, centerY - spread);
+        ctx.moveTo(centerX - tilePx * 0.34, centerY + spread);
+        ctx.lineTo(centerX + tilePx * 0.34, centerY + spread);
+      }
+      ctx.stroke();
+      return;
+    }
+    if (effect.kind === "feedbackImpact") {
+      const direction = feedbackDirectionVector(effect.feedback?.direction);
+      const offsetX = direction.x * tilePx * 0.1;
+      const offsetY = direction.y * tilePx * 0.1;
+      const inner = tilePx * 0.08;
+      const outer = tilePx * (0.3 + progress * 0.18);
+      for (let index = 0; index < 8; index += 1) {
+        const angle = index * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(centerX + offsetX + Math.cos(angle) * inner, centerY + offsetY + Math.sin(angle) * inner);
+        ctx.lineTo(centerX + offsetX + Math.cos(angle) * outer, centerY + offsetY + Math.sin(angle) * outer);
+        ctx.stroke();
+      }
+      return;
+    }
+    if (effect.kind === "feedbackMiss") {
+      ctx.setLineDash([Math.max(2, tilePx * 0.12), Math.max(1, tilePx * 0.08)]);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, tilePx * 0.32, -Math.PI * 0.8, Math.PI * 0.35);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return;
+    }
+    if (effect.kind === "feedbackConstruction") {
+      const points = [[-0.28, 0.18], [-0.12, -0.04], [0.08, 0.14], [0.24, -0.12], [0.3, 0.2]];
+      for (let index = 0; index < points.length; index += 1) {
+        const point = points[index];
+        const rise = sample.animated ? progress * tilePx * (0.12 + index * 0.025) : tilePx * 0.08;
+        ctx.beginPath();
+        ctx.arc(
+          centerX + point[0] * tilePx,
+          centerY + point[1] * tilePx - rise,
+          Math.max(1.5, tilePx * (0.045 + index * 0.006)),
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+      return;
+    }
+    if (effect.kind === "feedbackHazard") {
+      for (const offset of [0, 0.18]) {
+        const local = sample.animated ? (progress + offset) % 1 : 0.5 + offset * 0.2;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, tilePx * (0.12 + local * 0.36), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      return;
+    }
+    if (effect.kind === "feedbackFailure") {
+      const radius = tilePx * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - radius);
+      ctx.lineTo(centerX + radius, centerY);
+      ctx.lineTo(centerX, centerY + radius);
+      ctx.lineTo(centerX - radius, centerY);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(centerX - tilePx * 0.12, centerY - tilePx * 0.12);
+      ctx.lineTo(centerX + tilePx * 0.12, centerY + tilePx * 0.12);
+      ctx.moveTo(centerX + tilePx * 0.12, centerY - tilePx * 0.12);
+      ctx.lineTo(centerX - tilePx * 0.12, centerY + tilePx * 0.12);
+      ctx.stroke();
+    }
+  }
+
   function drawEffect(ctx, effect, visibleCellKeys, viewport, tilePx, origin, options = {}) {
     let cellsDrawn = 0;
     let spritesDrawn = 0;
     let spriteFallbacks = 0;
+    const feedbackSample = feedbackEffectSample(effect, options);
+    if (feedbackSample.valid && !feedbackSample.visible) {
+      return { cellsDrawn, spritesDrawn, spriteFallbacks, activeAnimations: 0 };
+    }
     for (const cell of effect.cells || []) {
       if (!visibleCellKeys.has(cellKey(cell))) continue;
       cellsDrawn += 1;
       const position = tilePosition(cell, viewport, tilePx, origin);
-      const spriteKey = effect.visualKey;
+      const spriteKey = feedbackSample.valid ? "" : effect.visualKey;
       const sprite = options.glyphMode ? null : resolveSprite(options.assetLoader, spriteKey);
       if (sprite) {
         drawSprite(ctx, sprite, position.x, position.y, tilePx, tilePx);
@@ -873,11 +1047,13 @@
       }
       ctx.save();
       const color = effectColor(effect);
-      ctx.globalAlpha = effectAlpha(effect, options);
+      ctx.globalAlpha = effectAlpha(effect, options) * (feedbackSample.valid ? feedbackSample.opacity : 1);
       if (["stale", "uncertain"].includes(effect.knowledge?.state)) {
         ctx.setLineDash([Math.max(2, tilePx * 0.2), Math.max(1, tilePx * 0.12)]);
       }
-      if (!sprite) {
+      if (feedbackSample.valid) {
+        drawFeedbackEffect(ctx, effect, feedbackSample, position, tilePx, color);
+      } else if (!sprite) {
         if (effect.plane === "ground") drawGroundEffect(ctx, effect, position, tilePx, color);
         else if (effect.plane === "alert") drawAlertEffect(ctx, effect, position, tilePx, color);
         else drawWorldEffect(ctx, effect, position, tilePx, color);
@@ -894,26 +1070,33 @@
         );
         ctx.stroke();
       }
-      drawGlyph(
-        ctx,
-        effect.glyph || "!",
-        position.x,
-        position.y,
-        tilePx,
-        color,
-        1,
-        options.markerScale
-      );
+      if (!feedbackSample.valid) {
+        drawGlyph(
+          ctx,
+          effect.glyph || "!",
+          position.x,
+          position.y,
+          tilePx,
+          color,
+          1,
+          options.markerScale
+        );
+      }
       if (effect.stackCount > 1) {
         ctx.fillStyle = color;
-        ctx.font = `800 ${Math.max(6, Math.floor(tilePx * 0.24 * cleanNumber(options.markerScale, 1)))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+        ctx.font = "800 " + Math.max(6, Math.floor(tilePx * 0.24 * cleanNumber(options.markerScale, 1))) + "px ui-monospace, SFMono-Regular, Consolas, monospace";
         ctx.textAlign = "right";
         ctx.textBaseline = "top";
         ctx.fillText(String(effect.stackCount), position.x + tilePx * 0.94, position.y + tilePx * 0.04, tilePx * 0.4);
       }
       ctx.restore();
     }
-    return { cellsDrawn, spritesDrawn, spriteFallbacks };
+    return {
+      cellsDrawn,
+      spritesDrawn,
+      spriteFallbacks,
+      activeAnimations: feedbackSample.active ? 1 : 0
+    };
   }
 
   function prepareDrawPlan(scene, options = {}) {
@@ -1157,6 +1340,7 @@
         );
         spritesDrawn += counts.spritesDrawn;
         spriteFallbacks += counts.spriteFallbacks;
+        activeAnimations += counts.activeAnimations || 0;
         countPass(pass, counts.cellsDrawn);
       }
     };
@@ -1344,6 +1528,7 @@
         tilePx,
         assetLoader: options.assetLoader,
         presentationTime: clockSample.gameTime,
+        presentationRealTimeMs: clockSample.realTimeMs,
         speed: clockSample.speed,
         paused: clockSample.paused,
         timelineMode: clockSample.mode,
@@ -1498,6 +1683,7 @@
     actorCueModel,
     effectColor,
     effectAlpha,
+    feedbackEffectSample,
     orientedLogicalSize,
     spritePlacement,
     prepareDrawPlan,
