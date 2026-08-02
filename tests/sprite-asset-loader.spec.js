@@ -118,6 +118,11 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     resolution: 'alias',
     status: 'ready',
   });
+  expect(loader.resolve('container.reinforcedObservationVessel')).toMatchObject({
+    resolvedKey: 'container.generic',
+    resolution: 'alias',
+    status: 'ready',
+  });
   const synthesisTube = loader.resolve('container.synthesisTube');
   const genericContainer = loader.resolve('container.basicGlassJar');
   expect(synthesisTube).toMatchObject({ resolvedKey: 'container.synthesisTube', resolution: 'exact' });

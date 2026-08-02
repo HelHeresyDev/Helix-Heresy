@@ -116,6 +116,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
     'Foundry',
     'Tasks',
     'Production',
+    'Research',
     'Creatures',
     'Containers',
     'Resources',

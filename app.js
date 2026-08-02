@@ -135,7 +135,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Operator Position", x: 0, y: 1 }, { id: "operator", label: "Operator Position", x: 1, y: 1 }],
-      capabilities: ["workbench", "fabrication", "maintenance"],
+      capabilities: ["workbench", "fabrication", "maintenance", "research"],
       workMinutes: 14,
       materialOptions: {
         wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 3, metalParts: 1 }, score: 62 },
@@ -1610,6 +1610,32 @@
         electricalCharge: 0.25
       },
       notes: ["High visibility", "Fragile", "Poor seal"]
+    },
+    {
+      id: "reinforcedObservationVessel",
+      label: "Reinforced Observation Vessel",
+      geometry: {
+        shape: "box",
+        internalCm: { length: 45, width: 30, height: 28 },
+        openingCm: { width: 36, height: 22 },
+        openTop: false
+      },
+      capacityCm3: 37800,
+      maxWeightKg: 110,
+      visibility: "high",
+      seal: 82,
+      gap: 0,
+      durability: 72,
+      comfort: 58,
+      environmentExchange: {
+        temperature: 0.35,
+        light: 0.85,
+        ambientMana: 0.4,
+        humidity: 0.2,
+        contamination: 0.2,
+        electricalCharge: 0.25
+      },
+      notes: ["Research prototype", "Reinforced frame", "High visibility", "Good seal"]
     },
     {
       id: "sealedGlassTank",
@@ -3219,6 +3245,10 @@
   if (!Geology) {
     throw new Error("HelixGeologyField must load before app.js");
   }
+  const Research = window.HelixResearchSystem;
+  if (!Research) {
+    throw new Error("HelixResearchSystem must load before app.js");
+  }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
@@ -3354,7 +3384,7 @@
   let measuredMapViewportPixels = null;
   let mapViewportMeasureFrame = 0;
   let mapViewportResizeFrame = 0;
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "research", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
     { id: "living", label: "Living" },
@@ -3425,6 +3455,7 @@
     { key: "M", label: "Map", workspaceTab: "map" },
     { key: "F", label: "Foundry", workspaceTab: "foundry" },
     { key: "T", label: "Tasks", workspaceTab: "tasks", menuPath: "tasks" },
+    { key: "H", label: "Research", workspaceTab: "research" },
     { key: "C", label: "Creatures", workspaceTab: "specimens", menuPath: "creatures" },
     { key: "I", label: "Stores", workspaceTab: "resources", menuPath: "stores" },
     { key: "B", label: "Black Market", workspaceTab: "economy", menuPath: "economy" },
@@ -3520,6 +3551,7 @@
     foundry: "F",
     tasks: "T",
     production: "T P",
+    research: "H",
     specimens: "C",
     containers: "C C",
     resources: "I",
@@ -3633,6 +3665,7 @@
     "excavate",
     "constructionWork",
     "productionWork",
+    "researchWork",
     "toolMaintenance",
     "laborWork",
     "rest"
@@ -3760,6 +3793,7 @@
       collectedByproducts: defaultCollectedByproducts(),
       collectedByproductHistory: defaultCollectedByproductHistory(),
       specimenMaterials: defaultSpecimenMaterials(),
+      research: Research.defaultState(),
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
       feedingResidues: [],
@@ -4738,6 +4772,10 @@
       "productionBillList",
       "productionRecipeList",
       "productionWorkpieceList",
+      "researchSummary",
+      "researchActiveProject",
+      "researchProjectList",
+      "researchEvidenceList",
       "mapOverlayHud",
       "messageFeed",
       "messageHistorySummary",
@@ -5560,6 +5598,28 @@
       fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
       createProductionBill: (options) => createProductionBill(options),
       setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
+      researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
+      researchProjectEvaluation: (projectId) => JSON.parse(JSON.stringify(researchProjectEvaluation(projectId))),
+      recordResearchEvidence: (options) => {
+        const entry = recordResearchEvidence(options);
+        persist();
+        render();
+        return entry;
+      },
+      addResearchSpecimenMaterial: (label = "Research tissue", amount = 1, tags = ["research"]) => {
+        const added = addSpecimenMaterial(label, amount, tags, "Debug research input", STORAGE_ROOM_ID);
+        persist();
+        render();
+        return added;
+      },
+      addResearchResource: (key, amount = 1) => {
+        const added = addPhysicalItemQuantity("resources", key, Math.max(0, Number(amount) || 0), STORAGE_ROOM_ID);
+        persist();
+        render();
+        return added;
+      },
+      startResearchProject: (projectId) => startResearchProject(projectId),
+      researchUnlockKnown: (unlockId) => researchUnlockKnown(unlockId),
       advanceSimulation: (seconds) => {
         advanceTime(Math.max(0, Number(seconds) || 0), { quiet: true });
         persist();
@@ -8548,6 +8608,7 @@
       laborClaimed: 0,
       constructionProgressChanged: 0,
       productionProgressChanged: 0,
+      researchProgressChanged: 0,
       skillDecayChanged: 0,
       scientistMovementChanged: 0,
       observationChanged: false,
@@ -8630,6 +8691,7 @@
       changes.laborOrdersChanged += syncLaborTaskOrders();
       changes.constructionProgressChanged += routineSuspended ? 0 : updateConstructionWorkProgress(fromClock, state.clock);
       changes.productionProgressChanged += routineSuspended ? 0 : updateProductionWorkProgress(fromClock, state.clock);
+      changes.researchProgressChanged += routineSuspended ? 0 : updateResearchWorkProgress(fromClock, state.clock);
       changes.scientistMovementChanged += updateScientistMovementTask();
       changes.completed += completeDueTasks();
       changes.servicingOrdersChanged += syncAutomaticCollectionServiceOrders();
@@ -8699,6 +8761,7 @@
       + changes.incidentUrgencyChanged
       + changes.productionClaimed
       + changes.productionProgressChanged
+      + changes.researchProgressChanged
       + changes.completed
       + changes.constructionClaimed
       + changes.cleanupClaimed
@@ -8821,6 +8884,7 @@
       }
       const reveal = revealTraits(slime, test.traits, { measured: true, testId: test.id });
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, test.label);
+      recordTestResearchEvidence(task, slime, test);
       addEvent(`${test.label} complete for ${slime.name}.`);
       return;
     }
@@ -8918,6 +8982,10 @@
       completeProductionWork(task);
       return;
     }
+    if (task.type === "researchWork") {
+      completeResearchWork(task);
+      return;
+    }
     if (task.type === "toolMaintenance") {
       completeToolMaintenance(task);
       return;
@@ -8932,6 +9000,10 @@
       if (slime && slime.status !== "dead") {
         slime.mature = true;
         addEvent(`${slime.name} reached maturity.`);
+        recordResearchEvidence({
+          methodId: "maturation", category: "lifecycle", specimenId: slime.id, specimenName: slime.name,
+          sourceKey: `maturation:${slime.id}`, summary: `${slime.name} reached maturity.`, confidence: 1
+        });
       }
       return;
     }
@@ -8958,6 +9030,11 @@
     if (yieldInfo.amount > 0) {
       addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`, slimeEffectiveRoomId(slime));
     }
+    recordResearchEvidence({
+      methodId: `harvest:${procedure.id}`, category: "harvest", specimenId: slime.id, specimenName: slime.name,
+      sourceKey: `harvest:${task.id}`, summary: `${procedure.label} yielded ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}.`,
+      confidence: 1
+    });
     if (procedure.terminal) {
       removeLivingSlimeRecord(slime.id);
       awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), procedure.label);
@@ -8992,6 +9069,11 @@
     if (yieldInfo.amount > 0) {
       addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`, corpse.roomId || scientistRoomId());
     }
+    recordResearchEvidence({
+      methodId: `harvest:${procedure.id}`, category: "harvest", specimenId: corpse.specimenId || corpse.id, specimenName: corpse.name,
+      sourceKey: `harvest:${task.id}`, summary: `${procedure.label} yielded ${formatNumber(yieldInfo.amount)} ${yieldInfo.label} from remains.`,
+      confidence: 1
+    });
     corpse.harvestedProcedures ||= {};
     corpse.harvestedProcedures[procedure.id] = true;
     if (procedure.corpseConsumes) {
@@ -11681,6 +11763,11 @@
     corpse.ruined = true;
     corpse.lastFreshness = "ruined";
     corpse.harvestBlocked = true;
+    recordResearchEvidence({
+      methodId: "necropsy", category: "examination", specimenId: corpse.specimenId || corpse.id, specimenName: corpse.name,
+      sourceKey: `necropsy:${task.id}`, summary: `Necropsy completed at ${freshness} freshness.`,
+      confidence: freshness === "fresh" ? 1 : freshness === "decaying" ? 0.65 : 0.25
+    });
     awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Necropsy");
     addEvent(`Necropsy complete for ${corpse.name}. Corpse ruined; disposal still required.`);
     if (freshness === "fresh") {
@@ -18352,6 +18439,8 @@
       if (!def || fixture.condition <= 0 || fixture.operationalState !== "operational") return false;
       if (bill?.scope === "workstation" && fixture.id !== bill.workstationId) return false;
       if (!(recipe.workstationCapabilities || []).every((capability) => def.capabilities.includes(capability))) return false;
+      const research = ensureResearchState();
+      if (research.activeProjectId && research.projects[research.activeProjectId]?.workstationId === fixture.id) return false;
       if (!fixtureAccessCells(fixture).length) return false;
       const occupying = (state.productionWorkpieces || []).find((workpiece) => workpiece.workstationId === fixture.id && ["working", "paused"].includes(workpiece.status));
       return !occupying || occupying.billId === bill?.id;
@@ -18845,6 +18934,292 @@
     return true;
   }
 
+  function ensureResearchState() {
+    state.research = Research.normalizeState(state.research);
+    return state.research;
+  }
+
+  function researchProject(projectOrId) {
+    return typeof projectOrId === "string" ? Research.PROJECT_BY_ID[projectOrId] || null : projectOrId || null;
+  }
+
+  function researchProjectRecord(projectOrId) {
+    const project = researchProject(projectOrId);
+    return project ? ensureResearchState().projects[project.id] : null;
+  }
+
+  function researchProjectEvaluation(projectOrId) {
+    return Research.projectEvaluation(projectOrId, ensureResearchState());
+  }
+
+  function researchUnlockKnown(unlockId) {
+    return Research.isUnlocked(ensureResearchState(), unlockId);
+  }
+
+  function recordResearchEvidence(options = {}) {
+    const research = ensureResearchState();
+    const sourceKey = String(options.sourceKey || "").trim();
+    if (!sourceKey || research.evidence.some((entry) => entry.sourceKey === sourceKey)) return null;
+    const evidence = Research.normalizeEvidence({
+      id: `evidence-${research.nextEvidenceNumber++}`, methodId: options.methodId,
+      category: options.category || "observation", specimenId: options.specimenId,
+      specimenName: options.specimenName, sourceKey, summary: options.summary,
+      confidence: options.confidence ?? 1, observedAt: state.clock
+    });
+    if (!evidence) return null;
+    research.evidence.push(evidence);
+    state.research = Research.normalizeState(research);
+    return evidence;
+  }
+
+  function recordTestResearchEvidence(task, slime, test) {
+    return recordResearchEvidence({
+      methodId: test.id, category: "test", specimenId: slime.id, specimenName: slime.name,
+      sourceKey: `test:${task.id}`, summary: `${test.label} completed for ${slime.name}.`, confidence: 1
+    });
+  }
+
+  function researchWorkstations() {
+    const active = ensureResearchState().activeProjectId;
+    return (state.fixtures || []).filter((fixture) => {
+      const def = fixtureDef(fixture);
+      if (!def?.capabilities?.includes("research") || fixture.condition <= 0 || fixture.operationalState !== "operational") return false;
+      if (fixture.productionTaskId) return false;
+      if ((state.productionWorkpieces || []).some((workpiece) => workpiece.workstationId === fixture.id && ["working", "paused"].includes(workpiece.status))) return false;
+      const record = active ? researchProjectRecord(active) : null;
+      return !record?.workstationId || record.workstationId === fixture.id;
+    });
+  }
+
+  function researchSpecimenStacks() {
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "specimenMaterials" && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)));
+  }
+
+  function researchSpecimenAmount() {
+    return ensurePhysicalItemStacks().filter((stack) => stack.section === "specimenMaterials" && !stack.carriedBy)
+      .reduce((total, stack) => total + Math.max(0, Number(stack.knownQuantity) || 0), 0);
+  }
+
+  function researchMaterialRoute(project, startCell, workstationCell) {
+    let path = [startCell];
+    let cursor = startCell;
+    const reservations = [];
+    let remaining = Math.max(0, Number(project?.inputs?.specimenAmount) || 0);
+    if (remaining > 0) {
+      const candidates = researchSpecimenStacks().map((stack) => {
+        const accessCell = stockpileHaulAccessCell(stack);
+        const route = accessCell ? labMapPathBetweenCells(cursor, accessCell, { map: ensureLabMap(), ignoreDoors: true }) : [];
+        return { stack, accessCell, route };
+      }).filter((candidate) => candidate.route.length)
+        .sort((a, b) => a.route.length - b.route.length || a.stack.observedAt - b.stack.observedAt);
+      for (const candidate of candidates) {
+        if (remaining <= 0) break;
+        const quantity = Math.min(candidate.stack.quantity, remaining);
+        reservations.push({ stackId: candidate.stack.id, key: candidate.stack.key, quantity, sourceCell: candidate.accessCell });
+        path = appendMapPath(path, candidate.route);
+        cursor = candidate.accessCell;
+        remaining -= quantity;
+      }
+      if (remaining > 0) return { ok: false, reason: "Not enough reachable harvested specimen material is available.", reservations: [], path: [] };
+    }
+    const resources = productionMaterialRoute(project?.inputs?.resources || {}, cursor, workstationCell);
+    if (!resources.ok) return resources;
+    return { ok: true, reason: "", reservations: [...reservations, ...(resources.reservations || [])], path: appendMapPath(path, resources.path) };
+  }
+
+  function researchWorkPlan(projectOrId) {
+    const project = researchProject(projectOrId);
+    const record = researchProjectRecord(project);
+    if (!project || !record) return { ok: false, reason: "The research project no longer exists." };
+    const workstations = researchWorkstations();
+    const plans = [];
+    for (const workstation of workstations) {
+      for (const port of fixtureAccessCells(workstation)) {
+        const materials = record.inputsConsumed
+          ? (() => {
+              const route = labMapPathBetweenCells(scientistMapCell(), port.cell, { map: ensureLabMap(), ignoreDoors: true });
+              return route.length ? { ok: true, reason: "", reservations: [], path: route } : { ok: false, reason: "No route reaches the research workbench.", reservations: [], path: [] };
+            })()
+          : researchMaterialRoute(project, scientistMapCell(), port.cell);
+        if (materials.ok) plans.push({ ...materials, workstation, accessCell: port.cell, score: materials.path.length });
+      }
+    }
+    if (plans.length) return plans.sort((a, b) => a.score - b.score || a.workstation.id.localeCompare(b.workstation.id))[0];
+    return { ok: false, reason: workstations.length ? "Required materials or a route to the workbench are unavailable." : "No operational research-capable workbench is available." };
+  }
+
+  function researchProjectBlockReason(projectOrId, options = {}) {
+    const project = researchProject(projectOrId);
+    if (!project) return "The research project no longer exists.";
+    const research = ensureResearchState();
+    const evaluation = researchProjectEvaluation(project);
+    if (evaluation.completed) return "Project already completed.";
+    if (research.activeProjectId && research.activeProjectId !== project.id) return `${researchProject(research.activeProjectId)?.label || "Another project"} is already active.`;
+    const missingPrerequisite = evaluation.prerequisiteRows.find((row) => !row.met);
+    if (missingPrerequisite) return `Complete ${missingPrerequisite.label} first.`;
+    const missingEvidence = evaluation.evidenceRows.find((row) => !row.met);
+    if (missingEvidence) {
+      const specimens = missingEvidence.requiredSpecimens ? `; ${missingEvidence.uniqueSpecimens}/${missingEvidence.requiredSpecimens} distinct specimens` : "";
+      return `${missingEvidence.label}: ${missingEvidence.count}/${missingEvidence.requiredCount} observations${specimens}.`;
+    }
+    if (!evaluation.record.inputsConsumed) {
+      const resourceReason = resourceBlockReason(project.inputs.resources || {});
+      if (resourceReason) return resourceReason;
+      if (researchSpecimenAmount() < (project.inputs.specimenAmount || 0)) return "Harvested specimen material is required.";
+    }
+    if (!options.skipStamina) {
+      const reason = staminaBlockReason(adjustedStaminaCost(6, [project.skillId]));
+      if (reason) return reason;
+    }
+    return researchWorkPlan(project).reason || "";
+  }
+
+  function startResearchProject(projectId) {
+    const project = researchProject(projectId);
+    const reason = researchProjectBlockReason(project);
+    if (reason) {
+      addEvent(`${project?.label || "Research"} blocked: ${reason}`);
+      persist();
+      render();
+      return false;
+    }
+    const plan = researchWorkPlan(project);
+    const research = ensureResearchState();
+    const record = research.projects[project.id];
+    const staminaCost = adjustedStaminaCost(6, [project.skillId]);
+    if (!spendStamina(staminaCost)) return false;
+    const taskId = `task-${state.nextTaskNumber++}`;
+    const reservedStackIds = record.inputsConsumed ? [] : reserveProductionMaterialSlices(plan.reservations, taskId);
+    if (!reservedStackIds) {
+      restoreStamina(staminaCost);
+      addEvent(`${project.label} blocked because its materials changed before they could be reserved.`);
+      persist();
+      render();
+      return false;
+    }
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const remainingBase = Math.max(0, project.workSeconds - record.progressSeconds);
+    const workSeconds = adjustedActionDuration(remainingBase, project.skillId);
+    const task = {
+      id: taskId, type: "researchWork",
+      label: `${record.progressSeconds > 0 ? "Resume" : "Research"} ${project.label} at ${plan.workstation.name}`,
+      createdAt: state.clock, dueAt: queueTail + travelSeconds + workSeconds,
+      data: {
+        projectId: project.id, workstationId: plan.workstation.id, reservedStackIds,
+        mapPath: plan.path, route: roomsFromMapPath(plan.path), toCell: plan.accessCell,
+        roomId: labMapCellRoomId(plan.workstation.origin) || MAIN_ROOM_ID,
+        movementStartedAt: queueTail,
+        movement: createScientistMovementRecord(plan.path, travelSeconds, queueTail, { intent: "research" }),
+        workStartsAt: queueTail + travelSeconds,
+        workRate: remainingBase / Math.max(1, workSeconds), staminaCost, skillId: project.skillId
+      }
+    };
+    record.status = "active";
+    record.taskId = task.id;
+    record.workstationId = plan.workstation.id;
+    record.startedAt ??= state.clock;
+    research.activeProjectId = project.id;
+    state.tasks.push(task);
+    addEvent(`${project.label} entered the scientist queue. Evidence is cited; physical inputs are reserved.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function consumeResearchInputs(task, record) {
+    if (record.inputsConsumed) return false;
+    consumeProductionMaterialReservations(task);
+    record.inputsConsumed = true;
+    return true;
+  }
+
+  function updateResearchWorkProgress(fromClock, toClock) {
+    const task = firstScientistQueueTask();
+    if (!task || task.type !== "researchWork") return 0;
+    const project = researchProject(task.data?.projectId);
+    const record = researchProjectRecord(project);
+    if (!project || !record) return 0;
+    const start = Math.max(Number(fromClock) || 0, finiteTime(task.data?.workStartsAt, task.createdAt));
+    const end = Math.min(Number(toClock) || 0, task.dueAt);
+    if (end <= start) return 0;
+    let changes = consumeResearchInputs(task, record) ? 1 : 0;
+    const before = record.progressSeconds;
+    record.progressSeconds = Math.min(project.workSeconds, before + (end - start) * Math.max(0.01, Number(task.data?.workRate) || 1));
+    if (record.progressSeconds > before) changes += 1;
+    return changes;
+  }
+
+  function createReinforcedObservationPrototype(workstation) {
+    const id = `research-vessel-${(state.containers || []).filter((container) => String(container.id).startsWith("research-vessel-")).length + 1}`;
+    const container = {
+      id, name: "Reinforced Observation Vessel Prototype", type: "basic",
+      typeId: "reinforcedObservationVessel", wardIds: [], roomId: MAIN_ROOM_ID,
+      mapCell: nearestOpenMapCellInRoom(MAIN_ROOM_ID, workstation?.origin, { actor: null }),
+      defaultRoleId: "idle", condition: CONTAINER_CONDITION_DEFAULT,
+      environment: defaultContainerEnvironment()
+    };
+    state.containers.push(container);
+    ensurePhysicalObjectPlacements();
+    return container;
+  }
+
+  function completeResearchWork(task) {
+    const project = researchProject(task.data?.projectId);
+    const research = ensureResearchState();
+    const record = research.projects[project?.id];
+    const workstation = fixtureById(task.data?.workstationId);
+    if (!project || !record || !workstation) {
+      releaseProductionMaterialReservations(task);
+      addEvent("Research could not complete because its project or workbench was lost.");
+      return false;
+    }
+    consumeResearchInputs(task, record);
+    record.progressSeconds = project.workSeconds;
+    record.status = "completed";
+    record.completedAt = state.clock;
+    record.taskId = "";
+    record.workstationId = workstation.id;
+    research.activeProjectId = "";
+    for (const unlock of project.unlocks) if (!research.unlocks.includes(unlock.id)) research.unlocks.push(unlock.id);
+    const prototype = project.id === "reinforcedObservationVessels" ? createReinforcedObservationPrototype(workstation) : null;
+    awardXp(project.skillId, Math.max(8, project.workSeconds / 10), `research: ${project.label}`);
+    addEvent(`${project.label} complete. Unlocked ${project.unlocks.map((unlock) => unlock.label).join(", ")}${prototype ? "; a usable prototype was placed in the Main Lab" : ""}.`);
+    emitMapFeedback("feedbackWork", workstation.origin, { label: project.label + " completed", intensityBand: "high", coalesceKey: "research:" + project.id });
+    return true;
+  }
+
+  function researchWorkTaskBlockReason(task) {
+    const project = researchProject(task.data?.projectId);
+    const record = researchProjectRecord(project);
+    const workstation = fixtureById(task.data?.workstationId);
+    if (!project || !record || record.status !== "active" || record.taskId !== task.id) return "The research project is no longer active.";
+    if (!workstation || workstation.condition <= 0 || workstation.operationalState !== "operational") return "The research workbench is unavailable.";
+    if (!record.inputsConsumed) {
+      for (const stackId of task.data?.reservedStackIds || []) {
+        const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+        if (!stack || stack.reservedTaskId !== task.id) return "Reserved research materials are no longer available.";
+      }
+    }
+    return "";
+  }
+
+  function cleanupCanceledResearchTask(task) {
+    const project = researchProject(task.data?.projectId);
+    const research = ensureResearchState();
+    const record = research.projects[project?.id];
+    if (!record) {
+      releaseProductionMaterialReservations(task);
+      return;
+    }
+    if (state.clock >= finiteTime(task.data?.workStartsAt, Infinity)) consumeResearchInputs(task, record);
+    if (!record.inputsConsumed) releaseProductionMaterialReservations(task);
+    record.status = "paused";
+    record.taskId = "";
+    research.activeProjectId = "";
+  }
   function objectFootprintCells(origin, footprint) {
     const clean = cleanMapCell(origin);
     const width = clamp(Math.ceil(Number(footprint?.width) || 1), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS);
@@ -32022,6 +32397,7 @@
     renderScientist();
     renderTasks();
     renderProduction();
+    renderResearch();
     renderJournal();
     renderEvents();
     renderMapOverlayHud();
@@ -32396,6 +32772,9 @@
   function testBlockReason(test, slime, cost) {
     if (!slime || slime.status === "dead") {
       return "No living slime selected.";
+    }
+    if (!researchUnlockKnown(`test:${test.id}`)) {
+      return `${test.label} requires a completed research project.`;
     }
     if (hasPendingTest(slime.id, test.id)) {
       return "Test already pending.";
@@ -35848,8 +36227,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -38934,6 +39313,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     adjustSlimeStat(slime, "stress", Math.min(20, 4 + broodCount));
     setSlimeStat(slime, "divisionPressure", 0);
     slime.splitBlocked = false;
+    recordResearchEvidence({
+      methodId: "division", category: "lifecycle", specimenId: slime.id, specimenName: slime.name,
+      sourceKey: `division:${slime.id}:${state.clock}`, summary: `${slime.name} divided into ${broodCount} offspring.`, confidence: 1
+    });
     addEvent(`${slime.name} split into ${broodCount} offspring, dividing its mass across ${bodyCount} bodies.`);
     return created.length > 0;
   }
@@ -41892,6 +42275,112 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
+  function researchInputSummary(project) {
+    const resources = formatResourceBundle(project?.inputs?.resources || {});
+    const specimen = Math.max(0, Number(project?.inputs?.specimenAmount) || 0);
+    return [resources, specimen ? `${formatNumber(specimen)} harvested specimen material` : ""].filter(Boolean).join(" + ") || "No physical inputs";
+  }
+
+  function researchEvidenceProgressText(row) {
+    const specimenText = row.requiredSpecimens ? `; ${row.uniqueSpecimens}/${row.requiredSpecimens} specimens` : "";
+    return `${row.count}/${row.requiredCount} observations${specimenText}`;
+  }
+
+  function renderResearch() {
+    if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
+    const research = ensureResearchState();
+    const completed = Research.PROJECTS.filter((project) => research.projects[project.id]?.status === "completed").length;
+    dom.researchSummary.textContent = `${completed}/${Research.PROJECTS.length} projects complete · ${research.evidence.length} distinct evidence record${research.evidence.length === 1 ? "" : "s"}`;
+    dom.researchProjectList.textContent = "";
+    dom.researchActiveProject.textContent = "";
+    dom.researchEvidenceList.textContent = "";
+
+    if (research.activeProjectId) {
+      const project = researchProject(research.activeProjectId);
+      const record = researchProjectRecord(project);
+      const card = document.createElement("div");
+      card.className = "subpanel research-active-card";
+      card.dataset.activeResearchProject = project.id;
+      const progress = clamp(record.progressSeconds / Math.max(1, project.workSeconds), 0, 1);
+      card.append(
+        textEl("div", `Active: ${project.label}`, "subpanel-title"),
+        textEl("p", `${formatNumber(progress * 100)}% documented · ${formatDuration(Math.max(0, project.workSeconds - record.progressSeconds))} base work remaining`, "journal-meta")
+      );
+      dom.researchActiveProject.append(card);
+    } else {
+      dom.researchActiveProject.append(emptyText("No active project. Evidence remains available for any project that cites it."));
+    }
+
+    for (const project of Research.PROJECTS) {
+      const evaluation = researchProjectEvaluation(project);
+      const record = evaluation.record;
+      const card = document.createElement("article");
+      card.className = "card research-project-card";
+      card.dataset.researchProject = project.id;
+      card.dataset.researchStatus = record.status;
+      const heading = document.createElement("div");
+      heading.className = "card-title-row";
+      heading.append(
+        textEl("h3", project.label),
+        chip(record.status === "completed" ? "Completed" : record.status === "active" ? "Active" : record.status === "paused" ? "Paused" : "Available")
+      );
+      card.append(heading, textEl("p", project.description, "journal-meta"));
+
+      const requirements = document.createElement("div");
+      requirements.className = "research-requirements";
+      for (const row of evaluation.prerequisiteRows) {
+        const item = textEl("div", `${row.met ? "✓" : "○"} Prerequisite: ${row.label}`);
+        item.dataset.requirementMet = String(row.met);
+        requirements.append(item);
+      }
+      for (const row of evaluation.evidenceRows) {
+        const item = textEl("div", `${row.met ? "✓" : "○"} ${row.label} — ${researchEvidenceProgressText(row)}`);
+        item.dataset.requirementMet = String(row.met);
+        requirements.append(item);
+      }
+      const physicalMet = record.inputsConsumed
+        || (!resourceBlockReason(project.inputs.resources || {}) && researchSpecimenAmount() >= (project.inputs.specimenAmount || 0));
+      const physical = textEl("div", `${physicalMet ? "✓" : "○"} Physical inputs: ${researchInputSummary(project)}`);
+      physical.dataset.requirementMet = String(physicalMet);
+      requirements.append(physical);
+      card.append(requirements);
+
+      card.append(textEl("p", `Work: ${formatDuration(project.workSeconds)} base time at a research workbench · Skill: ${skillDisplayName(project.skillId)}`, "journal-meta"));
+      card.append(textEl("p", `Unlocks: ${project.unlocks.map((unlock) => unlock.label).join(", ")}`, "journal-meta"));
+      if (record.progressSeconds > 0 && record.status !== "completed") {
+        card.append(textEl("p", `Saved workpiece: ${formatNumber(record.progressSeconds / project.workSeconds * 100)}% complete${record.inputsConsumed ? "; inputs already incorporated" : ""}.`, "journal-meta"));
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.startResearchProject = project.id;
+      button.textContent = record.status === "completed" ? "Completed" : record.status === "paused" ? "Resume Project" : record.status === "active" ? "Active" : "Start Project";
+      const reason = researchProjectBlockReason(project);
+      setActionButtonState(button, Boolean(reason), reason);
+      if (!reason) button.title = "The scientist will collect the physical inputs, walk to the research workbench, and perform the project.";
+      button.addEventListener("click", () => startResearchProject(project.id));
+      card.append(button);
+      dom.researchProjectList.append(card);
+    }
+
+    const evidence = [...research.evidence].sort((a, b) => b.observedAt - a.observedAt || b.id.localeCompare(a.id));
+    if (!evidence.length) {
+      dom.researchEvidenceList.append(emptyText("No research evidence recorded. Complete ordinary specimen tests and observe lifecycle events."));
+      return;
+    }
+    for (const entry of evidence.slice(0, 30)) {
+      const row = document.createElement("div");
+      row.className = "research-evidence-row";
+      row.dataset.researchEvidence = entry.id;
+      row.append(
+        textEl("strong", titleCase(entry.methodId)),
+        textEl("span", entry.specimenName || "Unknown specimen"),
+        textEl("span", entry.summary || "Observation recorded"),
+        textEl("time", formatClock(entry.observedAt))
+      );
+      dom.researchEvidenceList.append(row);
+    }
+  }
+
   function renderProduction() {
     if (!dom.productionBillList) return;
     renderProductionBillEditor();
@@ -44697,6 +45186,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!tool) return "The tool is no longer available.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
     }
+    if (task.type === "researchWork") {
+      return researchWorkTaskBlockReason(task);
+    }
     if (task.type === "laborWork") {
       return laborWorkTaskBlockReason(task);
     }
@@ -44814,6 +45306,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+    }
+    if (task.type === "researchWork") {
+      cleanupCanceledResearchTask(task);
     }
     if (task.type === "stockpileHaul") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
@@ -52731,6 +53226,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "toolMaintenance") {
       return "Maintenance";
     }
+    if (task.type === "researchWork") {
+      return "Research";
+    }
     if (task.type === "laborWork") {
       return laborCategoryLabel(workOrderById(task.data?.workOrderId)?.category || "hauling");
     }
@@ -58808,6 +59306,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
+    next.research = Research.normalizeState(next.research);
     next.floorStockpiles = normalizeFloorStockpiles(next.floorStockpiles);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
     next.physicalItemStacks = normalizePhysicalItemStacks(next.physicalItemStacks);
@@ -58836,6 +59335,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.tasks = normalizeActiveTaskPacing(next.tasks, next.clock, next.labMap);
+    const researchTaskIds = new Set(next.tasks.filter((task) => task?.type === "researchWork").map((task) => String(task.id || "")));
+    for (const record of Object.values(next.research.projects || {})) {
+      if (record.taskId && !researchTaskIds.has(record.taskId)) {
+        record.taskId = "";
+        if (record.status === "active") record.status = "paused";
+      }
+    }
+    if (next.research.activeProjectId) {
+      const record = next.research.projects[next.research.activeProjectId];
+      if (!record?.taskId || !researchTaskIds.has(record.taskId)) {
+        next.research.activeProjectId = "";
+        if (record?.status === "active") record.status = "paused";
+      }
+    }
     if (next.combat.routineSuspension?.taskId && !next.tasks.some((task) => task.id === next.combat.routineSuspension.taskId)) {
       next.combat.routineSuspension = null;
     }

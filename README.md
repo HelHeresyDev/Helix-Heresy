@@ -10,6 +10,7 @@ For story background, long-term systems, current design direction, and open ques
 
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
+- Evidence-driven research projects that cite reusable observations, consume physical materials and scientist work, preserve interrupted workpieces, and unlock advanced tests or usable prototypes.
 - Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstocks for testing feeding systems.
 - Slime reproduction foundation with natural splitting, Forced Recombination, Current Mass, and Division Pressure.
 - Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, movement, and Sustenance.
@@ -65,6 +66,7 @@ The 14-test smoke command is the quick cross-system check for routine iteration.
 - `styles.css` - Visual design, layout, and responsive behavior.
 - `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, Suspicion, rooms, corpses, and rendering.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
+- `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.

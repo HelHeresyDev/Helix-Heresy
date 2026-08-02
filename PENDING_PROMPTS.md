@@ -14,93 +14,88 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Research Projects and Technology Unlocks
-2. Experimental Instruments and Physical Diagnostic Workflows
-3. Genetics Experiment Planning and Result Comparison
-4. Advanced Slime Reproduction and Heredity
-5. Creature Needs, Habitats, and Long-Term Welfare
-6. Large-Population Slime AI and Group Behavior
-7. Containment Breaches and Emergency Response
-8. Tactical Combat Actions, Injuries, and Recovery
-9. Scientist Equipment, Clothing, and Loadouts
-10. Expanded Production Chains and Material Processing
-11. Utility Networks, Power Failures, and Maintenance
-12. Black-Market Contracts, Deadlines, and Consequences
-13. Suspicion, Investigations, and Evidence Management
-14. Campaign Objectives, Milestones, and End States
-15. New-Run Onboarding and Contextual Tutorial
-16. Sound Design, Notifications, and Accessibility Audit
-17. Production Sprite Replacement and Art-Direction Pass
+1. Experimental Instruments and Physical Diagnostic Workflows
+2. Genetics Experiment Planning and Result Comparison
+3. Advanced Slime Reproduction and Heredity
+4. Creature Needs, Habitats, and Long-Term Welfare
+5. Large-Population Slime AI and Group Behavior
+6. Containment Breaches and Emergency Response
+7. Tactical Combat Actions, Injuries, and Recovery
+8. Scientist Equipment, Clothing, and Loadouts
+9. Expanded Production Chains and Material Processing
+10. Utility Networks, Power Failures, and Maintenance
+11. Black-Market Contracts, Deadlines, and Consequences
+12. Suspicion, Investigations, and Evidence Management
+13. Campaign Objectives, Milestones, and End States
+14. New-Run Onboarding and Contextual Tutorial
+15. Sound Design, Notifications, and Accessibility Audit
+16. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
-## 1. Research Projects and Technology Unlocks
-
-Add explicit research projects that consume observations, specimens, scientist time, instruments, and resources to unlock new capabilities without bypassing the discovery loop.
-
-## 2. Experimental Instruments and Physical Diagnostic Workflows
+## 1. Experimental Instruments and Physical Diagnostic Workflows
 
 Implement physical diagnostic instruments, sampling procedures, calibration, uncertainty, and workflows that justify increasingly precise environmental and biological information.
 
-## 3. Genetics Experiment Planning and Result Comparison
+## 2. Genetics Experiment Planning and Result Comparison
 
 Provide tools for defining hypotheses, organizing controlled genetic experiments, comparing subjects and results, and recording evidence without revealing undiscovered mappings automatically.
 
-## 4. Advanced Slime Reproduction and Heredity
+## 3. Advanced Slime Reproduction and Heredity
 
 Expand splitting, recombination, mutation, brood relationships, inherited traits, and lineage records into a predictable-but-discoverable breeding system.
 
-## 5. Creature Needs, Habitats, and Long-Term Welfare
+## 4. Creature Needs, Habitats, and Long-Term Welfare
 
 Deepen nutrition, rest, stimulation, social contact, environmental fit, illness, stress, and ethical tradeoffs so long-term creature care affects behavior and research.
 
-## 6. Large-Population Slime AI and Group Behavior
+## 5. Large-Population Slime AI and Group Behavior
 
 Develop scalable local coordination, flocking or clustering, competition, cooperation, territorial behavior, and group responses for laboratories containing many autonomous creatures.
 
-## 7. Containment Breaches and Emergency Response
+## 6. Containment Breaches and Emergency Response
 
 Create multi-stage containment emergencies with alarms, lockdowns, evacuation, recapture, cleanup, repair, evidence, and lasting consequences derived from physical simulation state.
 
-## 8. Tactical Combat Actions, Injuries, and Recovery
+## 7. Tactical Combat Actions, Injuries, and Recovery
 
 Expand tactical positioning, attacks, defenses, abilities, wounds, treatment, incapacitation, and recovery while keeping combat readable and integrated with ordinary laboratory work.
 
-## 9. Scientist Equipment, Clothing, and Loadouts
+## 8. Scientist Equipment, Clothing, and Loadouts
 
 Add physical equipment slots, protective clothing, tools, consumables, encumbrance, preparation, storage, and loadout decisions that affect laboratory and field actions.
 
-## 10. Expanded Production Chains and Material Processing
+## 9. Expanded Production Chains and Material Processing
 
 Build multi-stage recipes, intermediate materials, quality propagation, byproducts, workstation dependencies, bills, stock targets, and physical hauling into a broader production economy.
 
-## 11. Utility Networks, Power Failures, and Maintenance
+## 10. Utility Networks, Power Failures, and Maintenance
 
 Deepen electricity, ventilation, drainage, heat, mana, fuel, capacity, faults, redundancy, inspection, repair, and scheduled maintenance across connected physical networks.
 
-## 12. Black-Market Contracts, Deadlines, and Consequences
+## 11. Black-Market Contracts, Deadlines, and Consequences
 
 Add negotiated contracts, delivery requirements, deadlines, reputation, unreliable contacts, payment risk, contraband logistics, and consequences for failed or suspicious deals.
 
-## 13. Suspicion, Investigations, and Evidence Management
+## 12. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 14. Campaign Objectives, Milestones, and End States
+## 13. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 15. New-Run Onboarding and Contextual Tutorial
+## 14. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 16. Sound Design, Notifications, and Accessibility Audit
+## 15. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 17. Production Sprite Replacement and Art-Direction Pass
+## 16. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
