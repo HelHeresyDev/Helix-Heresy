@@ -64,7 +64,9 @@ function livingSlimeFixture({ id, name, genome, containerId = 'basic-1', roomId 
 }
 
 async function finishQueuedTask(page, label) {
-  await page.locator('#queueToggleBtn').click();
+  if (!await page.locator('#taskList').isVisible()) {
+    await page.locator('#queueToggleBtn').click();
+  }
   const taskRow = page.locator('#taskList .task-row').filter({ hasText: label }).first();
   await expect(taskRow).toBeVisible();
   await taskRow.getByRole('button', { name: 'Finish' }).click();
@@ -179,6 +181,110 @@ test('sampling a living specimen stores harvested material and worsens condition
   expect(result.currentMass).toBe(99);
   expect(result.stress).toBeGreaterThanOrEqual(9);
   expect(result.stress).toBeLessThan(9.1);
+
+  await finishQueuedTask(page, 'Store 1 Caustic tissue');
+  await page.locator('[data-workspace-tab="specimens"]').click();
+  await page.locator('[data-creature-record-tab="testing"]').click();
+  const stressButton = page.locator('#testButtons').getByRole('button', { name: /Stress Test/ });
+  await expect(stressButton).toBeDisabled();
+  const researchSetup = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const before = debug.researchSnapshot();
+    const evidence = [
+      { methodId: 'containment', specimenId: 'evidence-a', specimenName: 'EVA', sourceKey: 'fixture:containment:a' },
+      { methodId: 'containment', specimenId: 'evidence-b', specimenName: 'EVB', sourceKey: 'fixture:containment:b' },
+      { methodId: 'behavior', specimenId: 'evidence-a', specimenName: 'EVA', sourceKey: 'fixture:behavior:a' },
+      { methodId: 'behavior', specimenId: 'evidence-b', specimenName: 'EVB', sourceKey: 'fixture:behavior:b' },
+    ];
+    for (const entry of evidence) {
+      debug.recordResearchEvidence({ ...entry, category: 'test', summary: 'Deterministic research fixture observation.' });
+    }
+    debug.addResearchResource('geneticMaterial', 1);
+    return {
+      harvestRecorded: before.evidence.some((entry) => entry.category === 'harvest' && entry.specimenId === 'harvest-live'),
+      lockedBefore: !debug.researchUnlockKnown('test:stress'),
+    };
+  });
+  expect(researchSetup).toEqual({ harvestRecorded: true, lockedBefore: true });
+
+  await page.locator('[data-workspace-tab="research"]').click();
+  const projectCard = page.locator('[data-research-project="controlledStress"]');
+  await expect(projectCard).toContainText('Containment observations from two specimens — 2/2 observations; 2/2 specimens');
+  await expect(projectCard).toContainText('Behavior observations from two specimens — 2/2 observations; 2/2 specimens');
+  await projectCard.getByRole('button', { name: 'Start Project' }).click();
+
+  const activeResearch = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = (state.tasks || []).find((entry) => entry.type === 'researchWork');
+    return {
+      activeProjectId: state.research?.activeProjectId,
+      status: state.research?.projects?.controlledStress?.status,
+      pathLength: task?.data?.mapPath?.length || 0,
+      reservedStackCount: task?.data?.reservedStackIds?.length || 0,
+      workStartsAfterCreation: task?.data?.workStartsAt > task?.createdAt,
+    };
+  }, { key: storageKey });
+  expect(activeResearch).toEqual({
+    activeProjectId: 'controlledStress',
+    status: 'active',
+    pathLength: expect.any(Number),
+    reservedStackCount: 2,
+    workStartsAfterCreation: true,
+  });
+  expect(activeResearch.pathLength).toBeGreaterThan(1);
+
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = (state.tasks || []).find((entry) => entry.type === 'researchWork');
+    window.helixHeresyDebug.advanceSimulation(Math.max(1, task.data.workStartsAt - state.clock + 15));
+  }, { key: storageKey });
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('#taskList .task-row').filter({ hasText: 'Controlled Stress Methodology' })
+    .getByRole('button', { name: 'Cancel' }).click();
+  const pausedResearch = await page.evaluate(() => {
+    const record = window.helixHeresyDebug.researchSnapshot().projects.controlledStress;
+    return { status: record.status, progressSeconds: record.progressSeconds, inputsConsumed: record.inputsConsumed };
+  });
+  expect(pausedResearch.status).toBe('paused');
+  expect(pausedResearch.progressSeconds).toBeGreaterThan(0);
+  expect(pausedResearch.progressSeconds).toBeLessThan(90);
+  expect(pausedResearch.inputsConsumed).toBe(true);
+
+  await page.locator('[data-workspace-tab="research"]').click();
+  await projectCard.getByRole('button', { name: 'Resume Project' }).click();
+  const resumedReservationCount = await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return (state.tasks || []).find((entry) => entry.type === 'researchWork')?.data?.reservedStackIds?.length;
+  }, { key: storageKey });
+  expect(resumedReservationCount).toBe(0);
+
+  await finishQueuedTask(page, 'Controlled Stress Methodology');
+  const completedResearch = await page.evaluate(() => {
+    const snapshot = window.helixHeresyDebug.researchSnapshot();
+    return {
+      activeProjectId: snapshot.activeProjectId,
+      status: snapshot.projects.controlledStress.status,
+      progressSeconds: snapshot.projects.controlledStress.progressSeconds,
+      inputsConsumed: snapshot.projects.controlledStress.inputsConsumed,
+      unlocked: window.helixHeresyDebug.researchUnlockKnown('test:stress'),
+      evidenceCount: snapshot.evidence.length,
+    };
+  });
+  expect(completedResearch).toEqual({
+    activeProjectId: '',
+    status: 'completed',
+    progressSeconds: 90,
+    inputsConsumed: true,
+    unlocked: true,
+    evidenceCount: 5,
+  });
+
+  await page.locator('[data-workspace-tab="specimens"]').click();
+  await page.locator('[data-creature-record-tab="testing"]').click();
+  await expect(page.locator('#testButtons').getByRole('button', { name: /Stress Test/ })).toBeEnabled();
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

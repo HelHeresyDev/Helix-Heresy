@@ -269,6 +269,11 @@
       },
       {
         match: "exact",
+        pattern: "container.reinforcedObservationVessel",
+        key: "container.generic"
+      },
+      {
+        match: "exact",
         pattern: "item.mapArtifact",
         key: "item.materialPile"
       },

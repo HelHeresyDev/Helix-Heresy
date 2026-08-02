@@ -45,6 +45,7 @@
             <symbol id="workspace-icon-foundry" viewBox="0 0 24 24"><path d="M7 3c7 3 3 15 10 18 M17 3C10 6 14 18 7 21 M8.5 7h7 M8.5 17h7 M10 12h4"/></symbol>
             <symbol id="workspace-icon-tasks" viewBox="0 0 24 24"><path d="m4 6 2 2 4-4 M12 6h8 M4 13l2 2 4-4 M12 13h8 M4 20l2 2 4-4 M12 20h8"/></symbol>
             <symbol id="workspace-icon-production" viewBox="0 0 24 24"><path d="M3 21V10l6 4v-4l6 4V5h5v16Z M7 18h2 M13 18h2 M18 9h2"/></symbol>
+            <symbol id="workspace-icon-research" viewBox="0 0 24 24"><path d="M9 3h6 M10 3v6l-5 9c-1 2 0 3 2 3h10c2 0 3-1 2-3l-5-9V3 M8 15h8 M9 18h6"/></symbol>
             <symbol id="workspace-icon-creatures" viewBox="0 0 24 24"><path d="M5 18c-2-2-2-7 1-10 1-1 2-2 2-4 3 0 4 2 5 3 2-1 5 0 6 3 2 5-2 10-7 10-3 0-5 0-7-2Z M9 12h.1 M15 12h.1 M9 16c2 1 4 1 6 0"/></symbol>
             <symbol id="workspace-icon-containers" viewBox="0 0 24 24"><path d="M7 3h10 M8 6h8l2 4v9c0 1-1 2-2 2H8c-1 0-2-1-2-2v-9Z M7 10h10"/></symbol>
             <symbol id="workspace-icon-resources" viewBox="0 0 24 24"><path d="M4 15h7v5H4z M13 15h7v5h-7z M8.5 8h7v5h-7z M4 3h7v3H4z M13 3h7v3h-7z"/></symbol>
@@ -68,6 +69,7 @@
               <span id="queueNextReadout" class="queue-next">Clear</span>
             </button>
             <button class="workspace-tab" type="button" aria-label="Production" data-workspace-tab="production" title="Production"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-production"/></svg><span class="workspace-tab-label">Production</span></button>
+            <button class="workspace-tab" type="button" aria-label="Research" data-workspace-tab="research" title="Research"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-research"/></svg><span class="workspace-tab-label">Research</span></button>
           </div>
           <div class="workspace-tab-group" role="group" aria-label="Creatures" data-workspace-category="creatures">
             <span class="workspace-category-label">Creatures</span>
@@ -367,6 +369,22 @@
           </div>
         </section>
 
+        <section class="panel research-panel" aria-labelledby="researchTitle" data-workspace-panel="research">
+          <div class="panel-heading">
+            <div>
+              <h2 id="researchTitle">Research Projects</h2>
+              <p id="researchSummary">Evidence-driven laboratory methods and physical prototypes</p>
+            </div>
+          </div>
+          <div id="researchActiveProject" class="research-active-project"></div>
+          <div id="researchProjectList" class="research-project-list"></div>
+          <div class="subpanel research-evidence-panel">
+            <div class="subpanel-title">Evidence Ledger</div>
+            <p class="journal-meta">Observations remain knowledge after being cited. Repeating one source does not create additional evidence.</p>
+            <div id="researchEvidenceList" class="research-evidence-list"></div>
+          </div>
+        </section>
+
         <section class="panel stores-panel scientist-panel" aria-labelledby="storesTitle" data-workspace-panel="resources">
           <div class="panel-heading">
             <div>
@@ -628,6 +646,7 @@
 
     <script src="creature-spatial.js"></script>
     <script src="geology-field.js"></script>
+    <script src="research-system.js"></script>
     <script src="terrain-connectivity.js"></script>
     <script src="actor-visual-state.js"></script>
     <script src="animation-clock.js"></script>
