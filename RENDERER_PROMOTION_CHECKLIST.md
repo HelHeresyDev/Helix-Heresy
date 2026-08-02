@@ -17,7 +17,7 @@ Canvas is the trial default renderer. The DOM Compatibility Map remains a persis
 ## Human and Release Gates
 
 - [ ] The developer has reviewed and approved the current Linux screenshots.
-- [ ] Canvas has been used as the default renderer for a dedicated manual soak pass covering ordinary play, not only synthetic fixtures.
+- [x] Canvas has been used as the default renderer for a dedicated manual soak pass covering ordinary play, not only synthetic fixtures.
 - [ ] Any intentional screenshot change has an explanation in the commit that updates its baseline.
 - [ ] Known visual differences are documented as intentional, accessible, and information-equivalent.
 - [ ] A separate decision explicitly approves final Canvas promotion after the trial.
