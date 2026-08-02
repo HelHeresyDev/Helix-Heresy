@@ -47,6 +47,33 @@ test('@smoke construction tools block inadequate work retain partial progress an
   test.setTimeout(90_000);
   await startRun(page);
 
+  const geologyFoundation = await page.evaluate(() => {
+    const sampleCell = { x: 46, y: 44, z: 0 };
+    const sample = window.helixHeresyDebug.geologyCellSnapshot(sampleCell);
+    const repeated = window.helixHeresyDebug.geologyCellSnapshot(sampleCell);
+    const origin = window.helixHeresyDebug.navigationSnapshot().actors.find((actor) => actor.id === 'scientist').cell;
+    return {
+      version: window.HelixGeologyField.VERSION,
+      sample,
+      deterministic: JSON.stringify(sample.actual) === JSON.stringify(repeated.actual),
+      deposit: window.helixHeresyDebug.findGeologyFeature('deposit', origin, { maxRadius: 40 }),
+      hazard: window.helixHeresyDebug.findGeologyFeature('hazard', origin, { maxRadius: 40 }),
+      readiness: window.helixHeresyDebug.roomExpansionReadiness('mainLab'),
+    };
+  });
+  expect(geologyFoundation.version).toBe(1);
+  expect(geologyFoundation.deterministic).toBe(true);
+  expect(geologyFoundation.sample.face).toMatchObject({
+    materialId: geologyFoundation.sample.actual.stratum.materialId,
+    hardnessBand: expect.any(String),
+    stabilityBand: expect.any(String),
+  });
+  expect(geologyFoundation.deposit.deposit).toBeTruthy();
+  expect(geologyFoundation.hazard.hazard).toBeTruthy();
+  expect(geologyFoundation.readiness.stages.map((stage) => stage.id)).toEqual([
+    'designated', 'excavated', 'reachable', 'cleared', 'structurallySafe', 'lit', 'ventilated', 'equipped', 'commissioned',
+  ]);
+
   const starterTools = await page.evaluate(() => window.helixHeresyDebug.constructionToolSnapshot());
   expect(starterTools.map((tool) => tool.itemKey).sort()).toEqual([
     'foldingLadder', 'handSaw', 'masonryHammer', 'miningPick', 'pryBar', 'shovel', 'stoneChisel', 'woodAxe',
@@ -87,12 +114,17 @@ test('@smoke construction tools block inadequate work retain partial progress an
   expect(snapshot.task.data.toolSelections).toEqual([
     expect.objectContaining({ itemKey: 'miningPick', requirement: 'solid-rock excavation' }),
   ]);
+  expect(snapshot.task.data.geologyWearMultiplier).toBeCloseTo(geologyFoundation.sample.actual.toolWearMultiplier);
+  expect(snapshot.tile.workRequiredSeconds).toBeGreaterThan(0);
 
   await page.evaluate(() => {
     const pick = window.helixHeresyDebug.constructionToolSnapshot().find((tool) => tool.itemKey === 'miningPick');
     window.helixHeresyDebug.damageTool('miningPick', pick.instance.current - 1);
   });
-  const progressAdvance = Math.max(1, Math.ceil(snapshot.task.data.workStartsAt - snapshot.task.createdAt + 65));
+  const progressAdvance = Math.max(1, Math.ceil(
+    snapshot.task.data.workStartsAt - snapshot.task.createdAt
+    + 65 / Math.max(0.1, snapshot.task.data.geologyWearMultiplier || 1)
+  ));
   await skipSeconds(page, progressAdvance);
 
   const interrupted = await page.evaluate(({ key }) => {
@@ -134,4 +166,33 @@ test('@smoke construction tools block inadequate work retain partial progress an
   expect(repaired.metalParts).toBe(interrupted.metalParts - 1);
   expect(repaired.tile.workCompletedSeconds).toBe(interrupted.tile.workCompletedSeconds);
   expect(repaired.task.data.toolSelections[0].itemKey).toBe('miningPick');
+
+  await finishTask(page, 'Mine tile 46,44');
+  const mined = await page.evaluate((cell) => ({
+    encounter: window.helixHeresyDebug.geologyEncounterSnapshot().find((entry) =>
+      entry.cell.x === cell.x && entry.cell.y === cell.y && entry.cell.z === (cell.z || 0)),
+    rubble: JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state.labMap.terrain.rubble
+      .find((pile) => pile.cell.x === cell.x && pile.cell.y === cell.y && pile.cell.z === (cell.z || 0)),
+  }), { x: 46, y: 44, z: 0 });
+  expect(mined.encounter).toMatchObject({ stratumId: geologyFoundation.sample.actual.stratum.id });
+  expect(mined.rubble.materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: geologyFoundation.sample.actual.stratum.materialId }),
+  ]));
+
+  const pocket = await page.evaluate((profile) => {
+    window.helixHeresyDebug.setExcavatedCells([profile.cell]);
+    const outcome = window.helixHeresyDebug.resolveGeologyExcavationForTest(profile.cell);
+    const environment = window.helixHeresyDebug.tileEnvironmentSnapshot(profile.cell)[0];
+    const encounter = window.helixHeresyDebug.geologyEncounterSnapshot().find((entry) =>
+      entry.cell.x === profile.cell.x && entry.cell.y === profile.cell.y && entry.cell.z === profile.cell.z);
+    const magnitude = profile.hazard.kind === 'airborne'
+      ? environment.airborneTotal
+      : profile.hazard.kind === 'mana'
+        ? environment.manaDensity
+        : environment.temperatureC;
+    return { outcome, environment, encounter, magnitude };
+  }, geologyFoundation.hazard);
+  expect(pocket.encounter.hazardId).toBe(geologyFoundation.hazard.hazard.id);
+  expect(pocket.outcome.profile.hazard.id).toBe(geologyFoundation.hazard.hazard.id);
+  expect(pocket.magnitude).toBeGreaterThan(30);
 });

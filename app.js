@@ -1144,6 +1144,8 @@
     { id: "stone", label: "Common Stone", properties: { density: 75, hardness: 72, toughness: 58, porosity: 28, flammability: 0, thermalResistance: 82, conductivity: 28, corrosionResistance: 62, moistureResistance: 68, arcanePermeability: 55, contaminationRetention: 35, soundTransmission: 72 } },
     { id: "granite", label: "Granite", properties: { density: 82, hardness: 82, toughness: 68, porosity: 18, flammability: 0, thermalResistance: 88, conductivity: 25, corrosionResistance: 72, moistureResistance: 80, arcanePermeability: 48, contaminationRetention: 24, soundTransmission: 78 } },
     { id: "limestone", label: "Limestone", properties: { density: 66, hardness: 55, toughness: 48, porosity: 42, flammability: 0, thermalResistance: 76, conductivity: 22, corrosionResistance: 28, moistureResistance: 48, arcanePermeability: 62, contaminationRetention: 52, soundTransmission: 64 } },
+    { id: "shale", label: "Fractured Shale", properties: { density: 58, hardness: 38, toughness: 34, porosity: 66, flammability: 0, thermalResistance: 70, conductivity: 24, corrosionResistance: 34, moistureResistance: 36, arcanePermeability: 68, contaminationRetention: 72, soundTransmission: 52 } },
+    { id: "basalt", label: "Mana-Responsive Basalt", properties: { density: 86, hardness: 86, toughness: 74, porosity: 12, flammability: 0, thermalResistance: 92, conductivity: 34, corrosionResistance: 78, moistureResistance: 86, arcanePermeability: 88, contaminationRetention: 18, soundTransmission: 82 } },
     { id: "brick", label: "Brick", properties: { density: 65, hardness: 60, toughness: 52, porosity: 38, flammability: 0, thermalResistance: 80, conductivity: 18, corrosionResistance: 66, moistureResistance: 55, arcanePermeability: 58, contaminationRetention: 46, soundTransmission: 58 } },
     { id: "wood", label: "Wood", properties: { density: 38, hardness: 38, toughness: 55, porosity: 62, flammability: 82, thermalResistance: 48, conductivity: 8, corrosionResistance: 32, moistureResistance: 24, arcanePermeability: 68, contaminationRetention: 72, soundTransmission: 42 } },
     { id: "iron", label: "Iron", properties: { density: 82, hardness: 68, toughness: 72, porosity: 2, flammability: 0, thermalResistance: 72, conductivity: 88, corrosionResistance: 25, moistureResistance: 58, arcanePermeability: 38, contaminationRetention: 18, soundTransmission: 88 } },
@@ -3213,6 +3215,10 @@
   if (!CreatureSpatial) {
     throw new Error("HelixCreatureSpatial must load before app.js");
   }
+  const Geology = window.HelixGeologyField;
+  if (!Geology) {
+    throw new Error("HelixGeologyField must load before app.js");
+  }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
@@ -4417,7 +4423,7 @@
       ...Object.values(doors).map((door) => door.cell)
     ]);
     return {
-      version: 8,
+      version: 9,
       tileSizeM: LAB_MAP_TILE_SIZE_M,
       layerHeightM: LAB_MAP_LAYER_HEIGHT_M,
       width: LAB_MAP_DEFAULT_WIDTH,
@@ -4428,10 +4434,8 @@
         smoothedWalls: [],
         constructedFloors: [],
         constructedWalls: [],
-        naturalDeposits: [
-          { cell: { x: 47, y: 40 }, stoneId: "granite", oreId: "ironOre" },
-          { cell: { x: 55, y: 40 }, stoneId: "limestone", oreId: "copperOre" }
-        ],
+        naturalDeposits: [],
+        geologyEncounters: [],
         naturalDamage: [],
         rubble: [],
         verticalConnectors: [],
@@ -4884,6 +4888,35 @@
           excavatedKeys,
           compartmentInference
         }));
+      },
+      geologyCellSnapshot: (cell) => {
+        const clean = cleanMapCell(cell);
+        const profile = Geology.profileForCell(state.seed, clean);
+        const observation = normalizeMapCellObservations(state.mapCellObservations)[mapCellKey(clean)] || null;
+        const encounter = (ensureLabMap().terrain?.geologyEncounters || []).find((entry) => sameMapCell(entry.cell, clean)) || null;
+        return profile ? {
+          version: Geology.VERSION,
+          actual: profile,
+          face: Geology.faceKnowledge(profile),
+          observed: Boolean(observation),
+          rememberedBase: observation?.snapshot?.base || null,
+          encounter
+        } : null;
+      },
+      findGeologyFeature: (feature, origin = scientistMapCell(), options = {}) => Geology.findNearestFeature(state.seed, origin, feature, {
+        maxRadius: options.maxRadius,
+        width: ensureLabMap().width,
+        height: ensureLabMap().height
+      }),
+      geologyEncounterSnapshot: () => normalizeGeologyEncounters(ensureLabMap().terrain?.geologyEncounters),
+      roomExpansionReadiness: (roomId) => roomExpansionReadiness(roomId),
+      resolveGeologyExcavationForTest: (cell) => {
+        const outcome = applyGeologyExcavationOutcome(cleanMapCell(cell));
+        observeScientistMapCells();
+        refreshIncidentAlerts();
+        persist();
+        render();
+        return outcome;
       },
       setVerticalConnectorsForTest: (connectors) => {
         const map = ensureLabMap();
@@ -9834,7 +9867,27 @@
     return "";
   }
 
-  function constructionBaseWorkSeconds(order) {
+  function constructionGeologyCells(order, tile) {
+    if (!order || !tile || !["mine", "stairUp", "stairDown", "channelDown", "ramp"].includes(order.mode)) return [];
+    if (order.mode === "mine") return [tile.cell];
+    if (["stairUp", "stairDown", "channelDown"].includes(order.mode)) return [verticalExcavationTargetCell(order.mode, tile.cell)];
+    return rampPlacementCells(tile.cell, order).filter((cell) => !labMapCellIsExcavated(cell, ensureLabMap()));
+  }
+
+  function constructionGeologyProfiles(order, tile) {
+    return constructionGeologyCells(order, tile)
+      .map((cell) => Geology.profileForCell(state.seed, cell))
+      .filter(Boolean);
+  }
+
+  function constructionGeologyMultiplier(order, tile, key) {
+    const profiles = constructionGeologyProfiles(order, tile);
+    return profiles.length
+      ? profiles.reduce((total, profile) => total + Math.max(0.1, Number(profile[key]) || 1), 0) / profiles.length
+      : 1;
+  }
+
+  function constructionBaseWorkSeconds(order, tile = null) {
     const minutes = ["mine", "stairUp", "stairDown", "channelDown"].includes(order?.mode)
       ? EXCAVATION_MINUTES_PER_TILE
       : order?.mode === "ramp"
@@ -9842,7 +9895,10 @@
       : order?.mode === "build"
         ? constructionOrderBuildDef(order)?.workMinutes
         : order?.mode === "deconstruct" ? DECONSTRUCTION_MINUTES_PER_TILE : SMOOTHING_MINUTES_PER_TILE;
-    return minutesToSeconds(Math.max(1, Number(minutes) || 1));
+    const geologyMultiplier = ["mine", "stairUp", "stairDown", "channelDown", "ramp"].includes(order?.mode)
+      ? constructionGeologyMultiplier(order, tile, "workMultiplier")
+      : 1;
+    return minutesToSeconds(Math.max(1, Number(minutes) || 1) * geologyMultiplier);
   }
 
   function constructionTargetComposition(order, tile) {
@@ -10090,7 +10146,7 @@
   function constructionWorkDuration(order, plan) {
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
     const tile = constructionOrderTile(order, plan.targetCell);
-    const required = Math.max(constructionBaseWorkSeconds(order), Number(tile?.workRequiredSeconds) || 0);
+    const required = Math.max(constructionBaseWorkSeconds(order, tile), Number(tile?.workRequiredSeconds) || 0);
     const remaining = Math.max(0, required - (Number(tile?.workCompletedSeconds) || 0));
     return travelSeconds + remaining / Math.max(0.1, Number(plan.toolPlan?.rate) || 1);
   }
@@ -10223,12 +10279,16 @@
     const end = Math.min(Number(toClock) || 0, task.dueAt);
     if (end <= start) return 0;
     let changed = pickupConstructionTaskTools(task);
-    const required = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
+    const required = Math.max(constructionBaseWorkSeconds(order, tile), Number(tile.workRequiredSeconds) || 0);
     tile.workRequiredSeconds = required;
     const before = Math.max(0, Number(tile.workCompletedSeconds) || 0);
     tile.workCompletedSeconds = Math.min(required, before + (end - start) * Math.max(0.1, Number(task.data?.workRate) || 1));
     if (tile.workCompletedSeconds > before) changed += 1;
-    const earnedWearUnits = Math.floor(Math.max(0, tile.workCompletedSeconds - (Number(task.data?.wearProgressBase) || 0)) / CONSTRUCTION_TOOL_WEAR_PROGRESS_SECONDS);
+    const earnedWearUnits = Math.floor(
+      Math.max(0, tile.workCompletedSeconds - (Number(task.data?.wearProgressBase) || 0))
+      / CONSTRUCTION_TOOL_WEAR_PROGRESS_SECONDS
+      * Math.max(0.1, Number(task.data?.geologyWearMultiplier) || 1)
+    );
     const pendingWearUnits = Math.max(0, earnedWearUnits - (Number(task.data?.wearAppliedUnits) || 0));
     for (let unit = 0; unit < pendingWearUnits; unit += 1) {
       for (const selection of task.data.toolSelections || []) {
@@ -10272,7 +10332,7 @@
     const duration = constructionWorkDuration(order, plan);
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
-    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
+    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order, tile), Number(tile.workRequiredSeconds) || 0);
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "constructionWork",
@@ -10294,6 +10354,7 @@
         workRate: Math.max(0.1, Number(plan.toolPlan?.rate) || 1),
         wearProgressBase: Number(tile.workCompletedSeconds) || 0,
         wearAppliedUnits: 0,
+        geologyWearMultiplier: constructionGeologyMultiplier(order, tile, "toolWearMultiplier"),
         toolSelections: (plan.toolPlan?.selections || []).map((selection) => ({
           instanceId: selection.instance.id,
           itemKey: selection.itemKey,
@@ -10469,6 +10530,8 @@
       stone: "Stone rubble",
       granite: "Granite rubble",
       limestone: "Limestone rubble",
+      shale: "Shale rubble",
+      basalt: "Basalt rubble",
       ironOre: "Iron ore fragments",
       copperOre: "Copper ore fragments",
       stoneBlocks: "Broken stone blocks",
@@ -10489,6 +10552,68 @@
         materials: Object.entries(materials || {}).map(([id, amount]) => ({ id, label: rubbleMaterialLabel(id), amount }))
       }
     ]);
+  }
+
+  function geologyExcavationProfile(cell) {
+    return Geology.profileForCell(state.seed, cleanMapCell(cell));
+  }
+
+  function recordGeologyEncounter(profile, map = ensureLabMap()) {
+    if (!profile?.cell) return null;
+    const key = mapCellKey(profile.cell);
+    const encounter = {
+      cell: profile.cell,
+      stratumId: profile.stratum.id,
+      depositId: profile.deposit?.materialId || "",
+      hazardId: profile.hazard?.id || "",
+      encounteredAt: state.clock
+    };
+    map.terrain.geologyEncounters = normalizeGeologyEncounters([
+      ...(map.terrain?.geologyEncounters || []).filter((entry) => mapCellKey(entry.cell) !== key),
+      encounter
+    ]);
+    return encounter;
+  }
+
+  function applyGeologyExcavationOutcome(cell) {
+    const map = ensureLabMap();
+    const profile = geologyExcavationProfile(cell);
+    if (!profile || !labMapCellIsExcavated(profile.cell, map)) return null;
+    const encounter = recordGeologyEncounter(profile, map);
+    if (profile.deposit) {
+      addEvent(`${profile.deposit.label} exposed in ${profile.stratum.label.toLowerCase()} at ${profile.cell.x},${profile.cell.y}, Z ${profile.cell.z}.`);
+      emitMapFeedback("feedbackComplete", profile.cell, {
+        label: profile.deposit.label + " exposed",
+        intensityBand: "high",
+        coalesceKey: "geology-deposit:" + mapCellKey(profile.cell)
+      });
+    }
+    if (profile.hazard) {
+      const environment = tileEnvironmentAtCell(profile.cell, map);
+      if (environment) {
+        if (profile.hazard.kind === "airborne") {
+          environment.airborne = normalizeAirborneLoads({
+            ...environment.airborne,
+            "geologic-contaminated-vapor": (Number(environment.airborne?.["geologic-contaminated-vapor"]) || 0) + 36
+          });
+        } else if (profile.hazard.kind === "mana") {
+          environment.manaDensity = clamp(environment.manaDensity + 90, 0, 1000);
+          environment.rockManaDensity = clamp(environment.rockManaDensity + 45, 0, 1000);
+        } else if (profile.hazard.kind === "heat") {
+          environment.temperatureC = clamp(environment.temperatureC + 55, -100, 500);
+          environment.rockTemperatureC = clamp(environment.rockTemperatureC + 28, -100, 100);
+        }
+        environment.updatedAt = state.clock;
+      }
+      addEvent(`${profile.hazard.label} breached at ${profile.cell.x},${profile.cell.y}, Z ${profile.cell.z}.`);
+      emitMapFeedback("feedbackHazard", profile.cell, {
+        label: profile.hazard.label,
+        intensityBand: "high",
+        damageTags: profile.hazard.kind === "airborne" ? ["toxic"] : profile.hazard.kind === "heat" ? ["heat"] : ["arcane"],
+        coalesceKey: "geology-hazard:" + mapCellKey(profile.cell)
+      });
+    }
+    return { profile, encounter };
   }
 
   function structuralTargetAtCell(cell, map = ensureLabMap()) {
@@ -10566,6 +10691,7 @@
   function destroyStructuralTarget(target, source = "structural damage", map = ensureLabMap()) {
     const key = mapCellKey(target.cell);
     const composition = structuralTargetComposition(target, map);
+    let geologyOutcomeCell = null;
     if (target.kind === "door") {
       delete map.doors[target.mapDoor.id];
       delete state.doors?.[target.mapDoor.id];
@@ -10583,16 +10709,15 @@
       map.terrain.verticalConnectors = (map.terrain.verticalConnectors || []).filter((entry) => entry.id !== target.value.id);
       addRubblePile(target.cell, rubbleMaterialsForComposition(composition, Math.max(1, Number(target.value.length) * Number(target.value.width))), `ramp destroyed by ${source}`, map);
     } else if (target.kind === "naturalWall") {
-      const deposit = naturalDepositAtCell(target.cell, map);
+      const profile = geologyExcavationProfile(target.cell);
       map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), target.cell]);
       map.terrain.naturalDamage = (map.terrain.naturalDamage || []).filter((entry) => mapCellKey(entry.cell) !== key);
       map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== key);
-      addRubblePile(target.cell, {
-        [deposit?.stoneId || composition.primary]: 3,
-        ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
-      }, `natural wall destroyed by ${source}`, map);
+      addRubblePile(target.cell, Geology.excavationMaterials(profile), `${profile?.stratum.label.toLowerCase() || "natural wall"} destroyed by ${source}`, map);
+      geologyOutcomeCell = target.cell;
     }
     state.labMap = normalizeLabMap(map, state.rooms);
+    if (geologyOutcomeCell) applyGeologyExcavationOutcome(geologyOutcomeCell);
     bumpNavigationRevision("topology");
     state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
     finalizeRoomTopologyChange();
@@ -10720,7 +10845,7 @@
 
   function completeVerticalExcavation(mode, sourceCell, map) {
     const targetCell = verticalExcavationTargetCell(mode, sourceCell);
-    const deposit = naturalDepositAtCell(targetCell, map);
+    const profile = geologyExcavationProfile(targetCell);
     map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), targetCell]);
     map.terrain.naturalDeposits = (map.terrain.naturalDeposits || [])
       .filter((entry) => mapCellKey(entry.cell) !== mapCellKey(targetCell));
@@ -10739,27 +10864,26 @@
       map.terrain.verticalConnectors = (map.terrain.verticalConnectors || [])
         .filter((entry) => !sameMapCell(entry.lowerCell, targetCell) || !sameMapCell(entry.upperCell, sourceCell));
     }
-    addRubblePile(sourceCell, {
-      [deposit?.stoneId || "stone"]: 3,
-      ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
-    }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "vertical stone excavation", map);
+    addRubblePile(sourceCell, Geology.excavationMaterials(profile), profile?.deposit ? `ore-bearing ${profile.stratum.label.toLowerCase()}` : `vertical ${profile?.stratum.label.toLowerCase() || "stone"} excavation`, map);
     return targetCell;
   }
 
   function completeRampExcavation(order, sourceCell, map) {
     const ramp = rampPlacementRecord(sourceCell, order);
     const excavationCells = normalizeDigCells([...ramp.footprintCells, ...ramp.upperCells]);
-    let rubbleAmount = 0;
+    const rubbleMaterials = {};
     for (const cell of excavationCells) {
       if (labMapCellIsExcavated(cell, map)) continue;
-      const deposit = naturalDepositAtCell(cell, map);
+      const materials = Geology.excavationMaterials(geologyExcavationProfile(cell));
       map.terrain.excavated = normalizeDigCells([...(map.terrain.excavated || []), cell]);
       map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(cell));
       map.terrain.smoothedWalls = normalizeDigCells(map.terrain.smoothedWalls).filter((entry) => mapCellKey(entry) !== mapCellKey(cell));
-      rubbleAmount += deposit?.oreId ? 4 : 3;
+      for (const [materialId, amount] of Object.entries(materials)) {
+        rubbleMaterials[materialId] = (rubbleMaterials[materialId] || 0) + amount;
+      }
     }
     map.terrain.verticalConnectors = normalizeVerticalConnectors([...(map.terrain.verticalConnectors || []), ramp]);
-    addRubblePile(sourceCell, { stone: Math.max(1, rubbleAmount) }, `${ramp.length} m ${ramp.grade.toLowerCase()} ramp excavation`, map);
+    addRubblePile(sourceCell, rubbleMaterials, `${ramp.length} m ${ramp.grade.toLowerCase()} ramp excavation`, map);
     return ramp;
   }
 
@@ -11034,25 +11158,28 @@
     const map = ensureLabMap();
     map.terrain ||= { excavated: [], smoothedFloors: [], smoothedWalls: [], constructedFloors: [], constructedWalls: [], rubble: [] };
     let topologyFocusCell = tile.cell;
+    let geologyOutcomeCells = [];
     if (order.mode === "mine") {
-      const deposit = naturalDepositAtCell(tile.cell, map);
+      const profile = geologyExcavationProfile(tile.cell);
       map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, tile.cell]);
       map.terrain.smoothedWalls = normalizeDigCells(map.terrain.smoothedWalls)
         .filter((cell) => mapCellKey(cell) !== mapCellKey(tile.cell));
       map.terrain.naturalDeposits = (map.terrain.naturalDeposits || []).filter((entry) => mapCellKey(entry.cell) !== mapCellKey(tile.cell));
-      addRubblePile(tile.cell, {
-        [deposit?.stoneId || "stone"]: 3,
-        ...(deposit?.oreId ? { [deposit.oreId]: 1 } : {})
-      }, deposit?.oreId ? `ore-bearing ${deposit.stoneId || "stone"}` : "natural stone excavation", map);
+      addRubblePile(tile.cell, Geology.excavationMaterials(profile), profile?.deposit ? `ore-bearing ${profile.stratum.label.toLowerCase()}` : `${profile?.stratum.label.toLowerCase() || "natural stone"} excavation`, map);
       state.labMap = normalizeLabMap(map, state.rooms);
+      geologyOutcomeCells = [tile.cell];
     } else if (["stairUp", "stairDown", "channelDown"].includes(order.mode)) {
       topologyFocusCell = completeVerticalExcavation(order.mode, tile.cell, map);
       state.labMap = normalizeLabMap(map, state.rooms);
+      geologyOutcomeCells = [topologyFocusCell];
       applyGravityAfterTopologyChange();
     } else if (order.mode === "ramp") {
+      const beforeExcavatedKeys = labMapExcavatedCellKeys(map);
       const ramp = completeRampExcavation(order, tile.cell, map);
       topologyFocusCell = ramp.upperCell;
       state.labMap = normalizeLabMap(map, state.rooms);
+      geologyOutcomeCells = normalizeDigCells([...ramp.footprintCells, ...ramp.upperCells])
+        .filter((cell) => !beforeExcavatedKeys.has(mapCellKey(cell)));
     } else if (order.mode === "smoothFloor") {
       map.terrain.smoothedFloors = normalizeDigCells([...(map.terrain.smoothedFloors || []), tile.cell]);
     } else if (order.mode === "smoothWall") {
@@ -11081,6 +11208,11 @@
       state.doors = normalizeDoors(state.doors, state.rooms, state.labMap);
       finalizeRoomTopologyChange();
     }
+    const geologyOutcomes = geologyOutcomeCells.map(applyGeologyExcavationOutcome).filter(Boolean);
+    if (geologyOutcomes.length) {
+      observeScientistMapCells();
+      refreshIncidentAlerts();
+    }
     evaluateStructuralSupport(state.labMap);
     applyGravityAfterTopologyChange(state.labMap);
     bumpNavigationRevision("topology");
@@ -11088,7 +11220,7 @@
     tile.taskId = "";
     tile.blockedReason = "";
     tile.completedAt = state.clock;
-    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
+    tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order, tile), Number(tile.workRequiredSeconds) || 0);
     tile.workCompletedSeconds = tile.workRequiredSeconds;
     addEvent(`${constructionModeLabel(order.mode)} completed at tile ${tile.cell.x},${tile.cell.y},${tile.cell.z}.`);
     emitMapFeedback("feedbackConstruction", tile.cell, {
@@ -14351,6 +14483,23 @@
     }).filter(Boolean);
   }
 
+  function normalizeGeologyEncounters(candidate) {
+    const seen = new Set();
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const cell = cleanMapCell(entry?.cell);
+      const key = mapCellKey(cell);
+      if (!cell || seen.has(key)) return null;
+      seen.add(key);
+      return {
+        cell,
+        stratumId: String(entry?.stratumId || "stone").replace(/[^a-zA-Z0-9_-]/g, "") || "stone",
+        depositId: String(entry?.depositId || "").replace(/[^a-zA-Z0-9_-]/g, ""),
+        hazardId: String(entry?.hazardId || "").replace(/[^a-zA-Z0-9_-]/g, ""),
+        encounteredAt: finiteTime(entry?.encounteredAt, 0)
+      };
+    }).filter(Boolean);
+  }
+
   function normalizeRubblePiles(candidate) {
     return (Array.isArray(candidate) ? candidate : []).map((entry, index) => {
       const cell = cleanMapCell(entry?.cell);
@@ -16083,7 +16232,7 @@
     const constructedWalls = normalizeConstructedSurfaces(source.terrain?.constructedWalls)
       .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
     return {
-      version: 8,
+      version: 9,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
       layerHeightM: Math.max(1, Number(source.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M),
       width,
@@ -16098,6 +16247,7 @@
         constructedWalls,
         naturalDeposits: normalizeNaturalDeposits(source.terrain?.naturalDeposits || fallback.terrain?.naturalDeposits)
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
+        geologyEncounters: normalizeGeologyEncounters(source.terrain?.geologyEncounters),
         naturalDamage: normalizeNaturalDamage(source.terrain?.naturalDamage)
           .filter((entry) => !excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell))),
         rubble: normalizeRubblePiles(source.terrain?.rubble),
@@ -16207,8 +16357,19 @@
   }
 
   function naturalDepositAtCell(cell, map = ensureLabMap()) {
-    const key = mapCellKey(cell);
-    return (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+    const clean = cleanMapCell(cell);
+    if (!clean || labMapCellIsExcavated(clean, map)) return null;
+    const key = mapCellKey(clean);
+    const explicit = (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+    if (explicit) return explicit;
+    const profile = Geology.profileForCell(state?.seed || "helix-heresy", clean);
+    return profile ? {
+      cell: clean,
+      stoneId: profile.stratum.materialId,
+      oreId: profile.deposit?.materialId || "",
+      procedural: true,
+      profile
+    } : null;
   }
 
   function naturalDamageAtCell(cell, map = ensureLabMap()) {
@@ -42705,7 +42866,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
     if (!labMapCellIsExcavated(cell, map, excavatedKeys)) {
       const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
-      parts.push(`${MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${structureConditionBand(naturalCondition)}`);
+      const face = Geology.faceKnowledge(Geology.profileForCell(state.seed, cell));
+      parts.push(`${face?.label || MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${face?.hardnessBand || "hardness unknown"}; ${face?.stabilityBand || "stability unknown"}; ${structureConditionBand(naturalCondition)}`);
+    } else {
+      const encounter = (map.terrain?.geologyEncounters || []).find((entry) => mapCellKey(entry.cell) === key);
+      if (encounter) {
+        const stratum = Geology.STRATUM_BY_ID[encounter.stratumId];
+        parts.push(`excavated geology: ${stratum?.label || titleCase(encounter.stratumId)}`);
+        if (encounter.depositId) parts.push(`recovered ${rubbleMaterialLabel(encounter.depositId).toLowerCase()}`);
+        if (encounter.hazardId) parts.push(`encountered ${Geology.HAZARDS.find((entry) => entry.id === encounter.hazardId)?.label.toLowerCase() || titleCase(encounter.hazardId)}`);
+      }
     }
     if (wallAllowsAttackTransmission(cell, map, excavatedKeys)) parts.push("breach passes attacks and directed abilities, but not movement");
     const rubble = rubbleAtCell(cell, map);
@@ -47630,8 +47800,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (selection.kind === "room") {
       const room = roomById(selection.roomId);
       const evaluation = roomPurposeEvaluation(room);
+      const readiness = roomExpansionReadiness(room);
       rows.push(["Purpose", evaluation.purpose.label]);
       rows.push(["Function", evaluation.status.label]);
+      rows.push(["Expansion", readiness.status]);
+      rows.push(["Readiness", readiness.stages.map((stage) => `${stage.met ? "✓" : "○"} ${stage.label}`).join(" · ")]);
       rows.push(["Occupancy", roomOccupancySummary(room.id)]);
       rows.push(["Observation", roomObservationInspectorSummary(room)]);
     } else if (selection.kind === "door") {
@@ -47761,14 +47934,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : (ensureLabMap().terrain?.smoothedWalls || []).some((cell) => mapCellKey(cell) === key)
           ? "Smoothed natural wall"
           : excavated ? "Rough floor" : "Natural rock";
+      const geologyFace = !excavated ? Geology.faceKnowledge(Geology.profileForCell(state.seed, selection.tile)) : null;
       const rows = [
         ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
         ["Room", roomId ? roomName(roomId) : excavated ? "Unassigned floor" : "Solid earth"],
         ["Inferred compartment", compartment ? `${compartment.kind}; ${compartment.status}; ${compartment.cells.length} tiles` : "None"],
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
         ["Surface", surface],
-        ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : excavated ? "Excavated ground" : MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
-        ["Material properties", structuralComposition ? materialPropertySummary(structuralComposition) : "No constructed material profile"],
+        ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : excavated ? "Excavated ground" : geologyFace?.label || MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
+        ["Material properties", structuralComposition ? materialPropertySummary(structuralComposition) : geologyFace ? `Hardness: ${geologyFace.hardnessBand}; Stability: ${geologyFace.stabilityBand}; Permeability: ${geologyFace.permeabilityBand}; Mana response: ${geologyFace.manaResponseBand}` : "No constructed material profile"],
         ["Damage resistance", structuralComposition ? damageResistanceSummary(damageResistanceEntriesForComposition(structuralComposition, structuralCondition), "none") : "None"],
         ["Structural state", structuralTarget ? structureConditionBand(structuralCondition) : "Not a damageable structure"],
         ["Attack channel", wallAllowsAttackTransmission(selection.tile) ? "Attacks and directed abilities may pass; movement remains blocked" : "Blocked"],
@@ -48029,8 +48203,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (task.type === "constructionWork") {
         const order = constructionOrderById(task.data?.constructionOrderId);
         const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
+        const geology = constructionGeologyProfiles(order, tile).map(Geology.faceKnowledge).filter(Boolean);
         rows.push(
           ["Tools", (task.data?.toolSelections || []).map((selection) => `${inventoryItemLabel(selection.itemKey)} (${damageResistanceBand(selection.score)})`).join(", ") || "None"],
+          ["Geology", geology.length ? [...new Set(geology.map((entry) => `${entry.label}; ${entry.hardnessBand}; ${entry.stabilityBand}`))].join(" / ") : "Not natural-rock excavation"],
           ["Work progress", tile ? `${formatDuration(tile.workCompletedSeconds)} / ${formatDuration(tile.workRequiredSeconds)}` : "Unknown"],
           ["Work rate", `${formatDecimal((Number(task.data?.workRate) || 1) * 100, 0)}%`]
         );
@@ -48956,6 +49132,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return {
       map,
+      geologySeed: state.seed,
       fullReveal: Boolean(options.fullReveal),
       knownCellKeys: options.knownCellKeys ?? null,
       excavatedKeys: options.excavatedKeys || labMapExcavatedCellKeys(map),
@@ -49011,6 +49188,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!excavated) {
       const deposit = context.naturalDepositsByCell.get(key);
       const damage = context.naturalDamageByCell.get(key);
+      const procedural = Geology.profileForCell(context.geologySeed, clean);
       return {
         known: true,
         kind: "naturalRock",
@@ -49018,8 +49196,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         roomId: "",
         compartmentId: "",
         door: null,
-        materialId: normalizeMaterialId(deposit?.stoneId || "stone"),
-        depositId: String(deposit?.oreId || ""),
+        materialId: normalizeMaterialId(deposit?.stoneId || procedural?.stratum.materialId || "stone"),
+        depositId: context.fullReveal ? String(deposit?.oreId || procedural?.deposit?.materialId || "") : "",
         surfaceStyle: context.smoothedWalls.has(key) ? "smoothed" : "rough",
         conditionBand: structureConditionBand(damage?.condition ?? 100).toLowerCase()
       };
@@ -51536,6 +51714,70 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           ? ROOM_FUNCTION_STATUS_DEFS.impaired
           : ROOM_FUNCTION_STATUS_DEFS.usable;
     return { purpose, status, essential, support, missing, concerns, unsafeReasons, facilities };
+  }
+
+  function roomExpansionReadiness(roomOrId) {
+    const room = typeof roomOrId === "string" ? roomById(roomOrId) : roomOrId;
+    const map = ensureLabMap();
+    const cells = room ? labMapRoomCells(room.id, map) : [];
+    const keys = new Set(cells.map(mapCellKey));
+    const excavated = cells.length > 0 && cells.every((cell) => labMapCellIsExcavated(cell, map));
+    const targetCell = cells.find((cell) => labMapCellIsWalkable(cell, map)) || null;
+    const reachable = Boolean(targetCell && labNavigationPlanBetweenCells(scientistMapCell(), targetCell, {
+      map,
+      actor: state.scientist,
+      ignoreAccessPolicy: true
+    }).found);
+    const rubble = (map.terrain?.rubble || []).filter((pile) => keys.has(mapCellKey(pile.cell)));
+    const failures = (map.terrain?.structuralFailures || []).filter((failure) => keys.has(mapCellKey(failure.cell)));
+    const weakUnreinforced = cells.filter((cell) => {
+      const profile = Geology.profileForCell(state.seed, cell);
+      if (!profile || profile.stratum.stability >= 40) return false;
+      return !constructedFloorAtCell(cell, map)
+        && !cardinalMapCells(cell).some((neighbor) => constructedWallAtCell(neighbor, map));
+    });
+    const structurallySafe = excavated && failures.length === 0 && weakUnreinforced.length === 0;
+    const lights = (state.fixtures || []).filter((fixture) => {
+      const infrastructure = fixtureInfrastructureDef(fixture);
+      return infrastructure?.role === "light" && utilityFixtureEnabled(fixture);
+    });
+    const unlit = cells.filter((cell) => !lights.some((fixture) => {
+      const radius = Math.max(1, Number(fixtureInfrastructureDef(fixture)?.lightRadius) || 1);
+      return cell.z === fixture.origin.z && mapCellDistance(cell, fixture.origin) <= radius;
+    }));
+    const terminals = (state.fixtures || []).filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "airTerminal"
+      && keys.has(mapCellKey(fixture.origin))
+      && utilityFixtureEnabled(fixture));
+    const ventilated = terminals.some((terminal) => {
+      const component = utilityComponentForFixture(terminal, "air");
+      const roles = new Set((component?.fixtures || []).filter(utilityFixtureEnabled).map((fixture) => fixtureInfrastructureDef(fixture)?.role));
+      return roles.has("airFan") && roles.has("airExterior");
+    });
+    const evaluation = room ? roomPurposeEvaluation(room) : null;
+    const equipped = Boolean(evaluation && !evaluation.missing.length && !evaluation.unsafeReasons.length);
+    const stages = [
+      { id: "designated", label: "Designated", met: Boolean(room && cells.length), detail: cells.length ? `${cells.length} owned tile${cells.length === 1 ? "" : "s"}` : "No formal room tiles" },
+      { id: "excavated", label: "Excavated", met: excavated, detail: excavated ? "All room tiles are open floor" : "Solid rock remains inside the designation" },
+      { id: "reachable", label: "Reachable", met: reachable, detail: reachable ? "A scientist route reaches the room" : "No current scientist route reaches the room" },
+      { id: "cleared", label: "Cleared", met: excavated && rubble.length === 0, detail: rubble.length ? `${rubble.length} rubble pile${rubble.length === 1 ? "" : "s"} remain` : "No excavation rubble remains" },
+      { id: "structurallySafe", label: "Structurally Safe", met: structurallySafe, detail: failures.length ? `${failures.length} active support failure${failures.length === 1 ? "" : "s"}` : weakUnreinforced.length ? `${weakUnreinforced.length} fractured shale tile${weakUnreinforced.length === 1 ? " needs" : "s need"} constructed reinforcement` : "No known support concern" },
+      { id: "lit", label: "Lit", met: cells.length > 0 && unlit.length === 0, detail: unlit.length ? `${unlit.length} tile${unlit.length === 1 ? " is" : "s are"} outside installed light coverage` : "Installed lighting covers the room" },
+      { id: "ventilated", label: "Ventilated", met: ventilated, detail: ventilated ? "A powered air route reaches an exterior terminal" : "No complete fan-to-exterior air route serves this room" },
+      { id: "equipped", label: "Equipped", met: equipped, detail: evaluation ? roomFunctionalIssueSummary(evaluation) : "No room purpose is assigned" }
+    ];
+    const commissioned = stages.every((stage) => stage.met);
+    stages.push({ id: "commissioned", label: "Commissioned", met: commissioned, detail: commissioned ? "The physical room is ready for its assigned purpose" : "Complete the preceding physical requirements" });
+    const next = stages.find((stage) => !stage.met) || stages.at(-1);
+    return {
+      roomId: room?.id || "",
+      status: commissioned ? "Commissioned" : `Next: ${next.label}`,
+      commissioned,
+      stages,
+      geology: {
+        strata: [...new Set(cells.map((cell) => Geology.profileForCell(state.seed, cell)?.stratum.label).filter(Boolean))],
+        weakUnreinforcedCells: weakUnreinforced.map((cell) => ({ ...cell }))
+      }
+    };
   }
 
   function roomZonesSummary(room) {

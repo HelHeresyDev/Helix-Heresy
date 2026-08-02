@@ -427,7 +427,10 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   const roomTile = page.locator('[data-map-target-kind="room"]').first();
   await expect(roomTile).toBeVisible();
   await roomTile.click();
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
+  const roomInspector = page.locator('[data-selection-inspector="true"]');
+  await expect(roomInspector).toHaveAttribute('data-selection-kind', 'room');
+  await expect(roomInspector).toContainText('Expansion');
+  await expect(roomInspector).toContainText(/Next:|Commissioned/);
 });
 
 test('player perspective withholds environmental values for unknown cells', async ({ page }) => {
@@ -459,6 +462,12 @@ test('player perspective withholds environmental values for unknown cells', asyn
     const domLightingClasses = window.helixHeresyDebug.mapDomSnapshot()
       .flatMap((cell) => cell.classNames)
       .filter((name) => name.startsWith('lighting-'));
+    const currentSolid = scene.cells.find((cell) => cell.knowledge.state === 'current' && cell.base.kind === 'solidEarth');
+    const currentGeology = currentSolid ? window.helixHeresyDebug.geologyCellSnapshot(currentSolid.cell) : null;
+    const hiddenFeature = scene.cells
+      .filter((cell) => cell.knowledge.state === 'unknown')
+      .map((cell) => ({ cell, geology: window.helixHeresyDebug.geologyCellSnapshot(cell.cell) }))
+      .find((entry) => entry.geology.actual.deposit || entry.geology.actual.hazard);
     let staleDoorPreserved = null;
     if (staleDoor) {
       const rememberedState = staleDoor.door.state;
@@ -483,6 +492,13 @@ test('player perspective withholds environmental values for unknown cells', asyn
       domLightingClasses,
       currentLightingBands,
       observedEnvironmentJson: JSON.stringify(observed?.environment),
+      currentSolidBase: currentSolid?.base,
+      currentGeology,
+      hiddenFeatureBase: hiddenFeature?.cell.base,
+      hiddenFeatureActual: hiddenFeature ? {
+        depositId: hiddenFeature.geology.actual.deposit?.id || '',
+        hazardId: hiddenFeature.geology.actual.hazard?.id || '',
+      } : null,
       staleDoorPreserved,
     };
   });
@@ -505,6 +521,13 @@ test('player perspective withholds environmental values for unknown cells', asyn
   });
   expect(result.observedEnvironmentJson).not.toContain('chemicalTraces');
   expect(result.observedEnvironmentJson).not.toContain('"airborne":');
+  expect(result.currentSolidBase.materialId).toBe(result.currentGeology.actual.stratum.materialId);
+  expect(JSON.stringify(result.currentSolidBase)).not.toContain(result.currentGeology.actual.deposit?.id || 'unreachable-hidden-deposit');
+  expect(JSON.stringify(result.currentSolidBase)).not.toContain(result.currentGeology.actual.hazard?.id || 'unreachable-hidden-hazard');
+  expect(result.hiddenFeatureActual).toBeTruthy();
+  expect(result.hiddenFeatureBase.kind).toBe('unknownDark');
+  expect(JSON.stringify(result.hiddenFeatureBase)).not.toContain(result.hiddenFeatureActual.depositId || 'unreachable-hidden-deposit');
+  expect(JSON.stringify(result.hiddenFeatureBase)).not.toContain(result.hiddenFeatureActual.hazardId || 'unreachable-hidden-hazard');
   expect(result.currentLightingBands.length).toBeGreaterThan(0);
   expect(result.knowledgeStates).not.toContain('debug');
   expect(result.cellKnowledgeStates).toEqual(expect.arrayContaining(['current', 'stale', 'unknown']));
