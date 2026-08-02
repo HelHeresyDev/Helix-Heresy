@@ -523,7 +523,7 @@ test('@smoke Canvas is the default with persistent DOM rollback and renderer par
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(7);
+  expect(result.diagnostics.canvas.version).toBe(8);
   expect(result.diagnostics.canvas.drawPlanBuilds).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.drawPlanUses).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.drawPlanStats.visibleCells).toBe(

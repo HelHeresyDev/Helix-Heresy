@@ -169,13 +169,17 @@ test('scientist movement occupies intermediate tiles before arrival', async ({ p
   const intermediate = await page.evaluate(() => {
     const snapshot = window.helixHeresyDebug.navigationSnapshot();
     const task = window.helixHeresyDebug.taskStatusSnapshot().find((entry) => entry.type === 'scientistMove');
-    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    const view = window.helixHeresyDebug.mapViewSnapshot();
+    const scene = view.scene;
+    const routeCells = scene.cells.filter((entry) => entry.route);
     return {
       cell: snapshot.actors.find((actor) => actor.id === 'scientist').cell,
       movement: task?.data?.movement,
       reservations: snapshot.reservations,
       sceneMotion: scene.entities.find((entity) => entity.id === 'scientist:scientist')?.motion,
       timeline: scene.timeline,
+      overlay: view.overlay.id,
+      routeCells: routeCells.map((entry) => ({ cell: entry.cell, route: entry.route })),
     };
   });
   expect(intermediate.cell).not.toEqual(started.before);
@@ -197,8 +201,25 @@ test('scientist movement occupies intermediate tiles before arrival', async ({ p
     speed: expect.any(Number),
   });
   expect(intermediate.reservations).toEqual(expect.arrayContaining([
-    expect.objectContaining({ actorId: 'scientist' }),
+    expect.objectContaining({ actorId: "scientist" }),
   ]));
+  expect(intermediate.overlay).toBe("none");
+  expect(intermediate.routeCells.length).toBeGreaterThan(1);
+  expect(intermediate.routeCells).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      route: expect.objectContaining({
+        taskId: started.task.id,
+        connections: expect.any(Array),
+      }),
+    }),
+  ]));
+  expect(intermediate.routeCells.some((entry) => entry.route.connections.length > 0)).toBe(true);
+  const traversedKeys = new Set(intermediate.movement.steps
+    .slice(0, intermediate.movement.stepIndex)
+    .map((step) => String(step.cell.x) + "," + String(step.cell.y) + "," + String(step.cell.z)));
+  expect(intermediate.routeCells.some((entry) =>
+    traversedKeys.has(String(entry.cell.x) + "," + String(entry.cell.y) + "," + String(entry.cell.z))
+  )).toBe(false);
 
   for (let index = 0; index < 40; index += 1) {
     const active = await page.evaluate(() => window.helixHeresyDebug.taskStatusSnapshot().some((entry) => entry.type === 'scientistMove'));

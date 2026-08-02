@@ -1932,9 +1932,9 @@ body.map-dragging .lab-map-canvas-host {
 }
 
 .lab-map-cell.queued-path-cell {
-  background: #26332d;
-  border-color: rgba(117, 184, 107, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(117, 184, 107, 0.18);
+  background: #20302d;
+  border-color: rgba(104, 200, 216, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(104, 200, 216, 0.2);
 }
 
 .lab-map-cell.selected-map-cell {
@@ -2398,8 +2398,8 @@ body.map-dragging .lab-map-canvas-host {
 
 .lab-map-cell.room-cell.queued-path-cell,
 .lab-map-cell.object-cell.queued-path-cell {
-  background: #26332d;
-  border-color: rgba(117, 184, 107, 0.5);
+  background: #20302d;
+  border-color: rgba(104, 200, 216, 0.58);
 }
 
 .lab-map-cell.room-cell.selected-task-path-cell,
