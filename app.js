@@ -3286,6 +3286,12 @@
   let lastTickAt = Date.now();
   let animationTimelineRevision = 1;
   let animationTimelineMode = "load";
+  const MAP_FEEDBACK_MAX_EVENTS = 24;
+  const MAP_FEEDBACK_MAX_CELLS = 16;
+  const MAP_FEEDBACK_COALESCE_MS = 160;
+  const MAP_FEEDBACK_KINDS = new Set(["feedbackArrival", "feedbackWork", "feedbackDoor", "feedbackImpact", "feedbackMiss", "feedbackConstruction", "feedbackHazard", "feedbackComplete", "feedbackFailure"]);
+  let mapFeedbackEvents = [];
+  let nextMapFeedbackEventNumber = 1;
   let lastAutosaveAt = Date.now();
   let stateDirtySinceAutosave = false;
   let lastManagementRenderAt = 0;
@@ -4827,6 +4833,12 @@
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
       mapSceneSnapshot: () => buildLabMapView().scene,
+      mapFeedbackSnapshot: () => mapFeedbackSnapshot(),
+      emitMapFeedback: (kind, cells, options = {}) => {
+        const feedback = emitMapFeedback(kind, cells, options);
+        if (feedback && options.render !== false) renderMapInteraction();
+        return feedback;
+      },
       validateMapScene: () => MapVisualState.validateScene(buildLabMapView().scene),
       mapDomSnapshot: () => {
         const view = buildLabMapView();
@@ -5589,6 +5601,7 @@
       next.economy = defaultEconomyState(next.seed);
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
+      clearMapFeedbackEvents();
       markAnimationDiscontinuity("new-run");
       geneMap = buildGeneMap(state.seed, state.complexity);
       rebuildActorSpatialIndex();
@@ -5607,6 +5620,7 @@
         return;
       }
       state = loaded;
+      clearMapFeedbackEvents();
       markAnimationDiscontinuity("load");
       state.started = true;
       geneMap = buildGeneMap(state.seed, state.complexity);
@@ -8066,6 +8080,107 @@
     return runContextCommand(command);
   }
 
+  function mapFeedbackNowMs() {
+    return typeof performance === "object" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  }
+
+  function pruneMapFeedbackEvents(nowMs = mapFeedbackNowMs()) {
+    mapFeedbackEvents = mapFeedbackEvents
+      .filter((event) => nowMs - event.startedAtMs < event.durationMs)
+      .slice(-MAP_FEEDBACK_MAX_EVENTS);
+    return mapFeedbackEvents;
+  }
+
+  function clearMapFeedbackEvents() {
+    mapFeedbackEvents = [];
+    nextMapFeedbackEventNumber = 1;
+  }
+
+  function mapFeedbackDirection(fromCandidate, toCandidate) {
+    const from = cleanMapCell(fromCandidate);
+    const to = cleanMapCell(toCandidate);
+    if (!from || !to) return "";
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    if (Math.abs(dx) >= Math.abs(dy) && dx) return dx > 0 ? "east" : "west";
+    if (dy) return dy > 0 ? "south" : "north";
+    if (to.z !== from.z) return to.z > from.z ? "up" : "down";
+    return "";
+  }
+
+  function emitMapFeedback(kind, cellCandidates, options = {}) {
+    const cleanKind = MAP_FEEDBACK_KINDS.has(String(kind)) ? String(kind) : "feedbackComplete";
+    const candidates = Array.isArray(cellCandidates) ? cellCandidates : [cellCandidates];
+    const cells = [];
+    const keys = new Set();
+    for (const candidate of candidates) {
+      const cell = cleanMapCell(candidate);
+      const key = mapCellKey(cell);
+      if (!cell || !key || keys.has(key)) continue;
+      keys.add(key);
+      cells.push(cell);
+      if (cells.length >= MAP_FEEDBACK_MAX_CELLS) break;
+    }
+    if (!cells.length) return null;
+    const nowMs = mapFeedbackNowMs();
+    pruneMapFeedbackEvents(nowMs);
+    const defaultDuration = {
+      feedbackArrival: 720,
+      feedbackWork: 900,
+      feedbackDoor: 620,
+      feedbackImpact: 520,
+      feedbackMiss: 520,
+      feedbackConstruction: 980,
+      feedbackHazard: 1100,
+      feedbackComplete: 760,
+      feedbackFailure: 900
+    }[cleanKind] || 760;
+    const durationMs = clamp(Number(options.durationMs) || defaultDuration, 240, 1600);
+    const coalesceKey = String(options.coalesceKey || `${cleanKind}:${cells.map(mapCellKey).join("|")}`);
+    const existing = mapFeedbackEvents.find((event) =>
+      event.coalesceKey === coalesceKey
+      && nowMs - event.startedAtMs <= MAP_FEEDBACK_COALESCE_MS
+    );
+    if (existing) {
+      existing.startedAtMs = nowMs;
+      existing.durationMs = Math.max(existing.durationMs, durationMs);
+      existing.stackCount = Math.min(9, existing.stackCount + 1);
+      existing.label = String(options.label || existing.label);
+      existing.damageTags = [...new Set([...existing.damageTags, ...(options.damageTags || []).map(String)])];
+      existing.direction = String(options.direction || existing.direction);
+      return { ...existing, cells: existing.cells.map((cell) => ({ ...cell })) };
+    }
+    const event = {
+      id: `map-feedback-${nextMapFeedbackEventNumber++}`,
+      kind: cleanKind,
+      cells,
+      startedAtMs: nowMs,
+      durationMs,
+      coalesceKey,
+      stackCount: 1,
+      intensityBand: ["trace", "low", "medium", "high", "extreme"].includes(options.intensityBand)
+        ? options.intensityBand
+        : ["feedbackImpact", "feedbackFailure"].includes(cleanKind) ? "high" : "medium",
+      severity: String(options.severity || (cleanKind === "feedbackFailure" ? "warning" : "")),
+      damageTags: [...new Set((options.damageTags || []).map(String).filter(Boolean))],
+      direction: String(options.direction || mapFeedbackDirection(options.fromCell, cells[0])),
+      label: String(options.label || cleanKind.replace(/^feedback/, ""))
+    };
+    mapFeedbackEvents.push(event);
+    mapFeedbackEvents = mapFeedbackEvents.slice(-MAP_FEEDBACK_MAX_EVENTS);
+    return { ...event, cells: event.cells.map((cell) => ({ ...cell })) };
+  }
+
+  function mapFeedbackSnapshot() {
+    return pruneMapFeedbackEvents().map((event) => ({
+      ...event,
+      cells: event.cells.map((cell) => ({ ...cell })),
+      damageTags: [...event.damageTags]
+    }));
+  }
+
   function animationTimelineSnapshot() {
     return AnimationClock.normalizeTimeline({
       revision: animationTimelineRevision,
@@ -8616,6 +8731,11 @@
           if (task.data.blockedReason !== blockedReason) {
             task.data.blockedReason = blockedReason;
             task.data.blockedAt = state.clock;
+            emitMapFeedback("feedbackFailure", taskTargetCell(task), {
+              label: task.label + " blocked: " + blockedReason,
+              severity: "warning",
+              coalesceKey: "blocked:" + task.id
+            });
             changeCount += 1;
           }
           continue;
@@ -8651,6 +8771,11 @@
       const reveal = revealTraits(slime, TESTS.find((test) => test.id === "visual").traits);
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, "Synthesis");
       addEvent(`${slime.name} stabilized in the synthesis tube.`);
+      emitMapFeedback("feedbackWork", objectMapCell(tube), {
+        label: slime.name + " stabilized",
+        intensityBand: "high",
+        coalesceKey: "synthesis:" + tube.id
+      });
       state.selectedSlimeId = slime.id;
       return;
     }
@@ -10966,6 +11091,12 @@
     tile.workRequiredSeconds = Math.max(constructionBaseWorkSeconds(order), Number(tile.workRequiredSeconds) || 0);
     tile.workCompletedSeconds = tile.workRequiredSeconds;
     addEvent(`${constructionModeLabel(order.mode)} completed at tile ${tile.cell.x},${tile.cell.y},${tile.cell.z}.`);
+    emitMapFeedback("feedbackConstruction", tile.cell, {
+      label: constructionModeLabel(order.mode) + " completed",
+      intensityBand: ["mine", "stairUp", "stairDown", "channelDown", "ramp", "deconstruct"].includes(order.mode) ? "high" : "medium",
+      damageTags: ["physical"],
+      coalesceKey: "construction:" + mapCellKey(tile.cell)
+    });
     const remaining = order.tiles.some((entry) => ["planned", "queued"].includes(entry.status));
     if (!remaining) {
       const completedCells = order.tiles.filter((entry) => entry.status === "completed").map((entry) => entry.cell);
@@ -17451,6 +17582,14 @@
       updatedAt: state.clock
     };
     ensurePhysicalItemStacks().push(stack);
+    if (state?.started && stack.form === "spill" && !stack.containerId) {
+      emitMapFeedback("feedbackHazard", stack.cell, {
+        label: "New " + stack.key + " spill",
+        intensityBand: "medium",
+        damageTags: spillEffectDamageTags(stack),
+        coalesceKey: "spill:" + stack.id
+      });
+    }
     if (!options.deferSync) syncPhysicalReadModels();
     return stack;
   }
@@ -18470,6 +18609,11 @@
     releaseConstructionTaskTools(task, { retain: false });
     awardXp(recipe.skillId || "fabrication", Math.max(4, recipe.workSeconds / 60), recipe.output.fixtureTypeId ? "fixture fabrication" : "receptacle fabrication");
     addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${INVENTORY_ITEM_BY_KEY[recipe.output.key]?.label || recipe.output.key} produced at ${workstation.name}.`);
+    emitMapFeedback("feedbackWork", workstation.origin, {
+      label: recipe.label + " completed",
+      intensityBand: "medium",
+      coalesceKey: "workstation:" + workstation.id
+    });
     refreshConstructionOrderBlocks();
     claimNextConstructionWork();
     claimNextProductionWork();
@@ -20032,6 +20176,13 @@
       changed = setDoorLockState("", "", DOOR_LOCK_LOCKED, { doorId: door.id, event: false }) || changed;
     }
     addEvent(changed ? `${doorOperationLabel(operation, value)} operation completed at ${doorActionLabel(mapDoor)}.` : `${doorActionLabel(mapDoor)} already matched the requested state.`);
+    if (changed) {
+      emitMapFeedback("feedbackDoor", mapDoor.cell, {
+        label: doorOperationLabel(operation, value) + " complete",
+        direction: mapDoor.passageAxis === "horizontal" ? "east" : "south",
+        coalesceKey: "door:" + mapDoor.id
+      });
+    }
     observeScientistRoom({ discoverChanges: true });
     return true;
   }
@@ -22027,6 +22178,14 @@
     if (target.kind === "structure") {
       if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
       const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`);
+      if (result.ok) {
+        emitMapFeedback("feedbackImpact", target.cell, {
+          label: action.label + " struck structure",
+          intensityBand: "high",
+          damageTags: action.damageTypes,
+          fromCell: combatActorCell(actor)
+        });
+      }
       return { ok: Boolean(result.ok), hit: Boolean(result.ok), damage: result.ok ? action.baseDamage : 0, reason: result.reason || "" };
     }
     const targetActor = combatActor(target.id);
@@ -22034,6 +22193,11 @@
     const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
     const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
     if (!accuracy.hit) {
+      emitMapFeedback("feedbackMiss", combatActorCell(targetActor), {
+        label: action.label + " missed",
+        fromCell: combatActorCell(actor),
+        coalesceKey: "miss:" + actorId + ":" + target.id
+      });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
       if (targetActor !== state.scientist) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
@@ -22043,6 +22207,15 @@
     const changed = targetActor === state.scientist
       ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`)
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label);
+    if (changed) {
+      emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
+        label: action.label + " hit for " + guardedDamage,
+        intensityBand: guardedDamage >= 8 ? "high" : "medium",
+        damageTags: action.damageTypes,
+        fromCell: combatActorCell(actor),
+        coalesceKey: "impact:" + actorId + ":" + targetId
+      });
+    }
     awardCombatActionXp(actor, action.skillId, options.xp || 6, action.label, changed ? "success" : "failure");
     if (combatGuardRecord(targetId)) {
       awardCombatActionXp(targetActor, "guarding", 4, `guarding against ${action.label.toLowerCase()}`, "success");
@@ -35691,7 +35864,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       changed += 1;
     }
     if (movement.stepIndex >= movement.steps.length - 1) {
+      const newlyCompleted = !movement.completed;
       movement.completed = true;
+      if (newlyCompleted) {
+        emitMapFeedback("feedbackArrival", scientistMapCell(), {
+          label: movement.intent === "haul" ? "Hauling leg reached" : "Scientist arrived",
+          intensityBand: "medium"
+        });
+      }
       movementReservations.releaseActor("scientist");
     } else if (task.dueAt <= state.clock) {
       const remaining = movement.steps.length - 1 - movement.stepIndex;
@@ -50062,6 +50242,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return effects;
   }
 
+  function mapSceneFeedbackEffectSeeds(map, options = {}) {
+    const effects = [];
+    for (const event of mapFeedbackSnapshot()) {
+      const visibleCells = event.cells.filter((cell) => {
+        const knowledge = mapSceneKnowledgeForRoom(labMapCellRoomId(cell, map), {
+          ...options,
+          map,
+          cell
+        });
+        return ["current", "debug"].includes(knowledge.state);
+      });
+      if (!visibleCells.length) continue;
+      effects.push({
+        id: event.id,
+        kind: event.kind,
+        sourceId: event.coalesceKey,
+        cells: visibleCells,
+        knowledge: { state: options.debug ? "debug" : "current", observedAt: state.clock, confidence: 1, source: "direct feedback" },
+        severity: event.severity,
+        state: "transient",
+        plane: "world",
+        intensityBand: event.intensityBand,
+        damageTags: event.damageTags,
+        stackCount: event.stackCount,
+        glyph: "",
+        visualKey: "",
+        label: event.label,
+        feedback: {
+          startedAtMs: event.startedAtMs,
+          durationMs: event.durationMs,
+          direction: event.direction,
+          coalescedCount: event.stackCount
+        }
+      });
+    }
+    return effects;
+  }
+
   function mapSceneEffectSeeds(visibleIncidents, options = {}) {
     const map = options.map || ensureLabMap();
     return [
@@ -50069,6 +50287,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...mapSceneStructuralEffectSeeds(map, options),
       ...mapScenePendingActionEffectSeeds(),
       ...mapSceneTaskEffectSeeds(),
+      ...mapSceneFeedbackEffectSeeds(map, options),
       ...mapSceneIncidentEffectSeeds(visibleIncidents)
     ];
   }

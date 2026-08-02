@@ -17,7 +17,7 @@
 
   if (!ActorVisualState) throw new Error("Map visual state requires actor visual-state derivation.");
   if (!AnimationClock) throw new Error("Map visual state requires the animation-clock contract.");
-  const SCENE_VERSION = 8;
+  const SCENE_VERSION = 9;
   const KNOWLEDGE_STATES = Object.freeze(["current", "stale", "uncertain", "unknown", "debug"]);
   const KNOWLEDGE_TIERS = Object.freeze(["current", "recent", "aged", "archived", "unknown"]);
   const EFFECT_PLANES = Object.freeze(["ground", "world", "alert"]);
@@ -431,6 +431,16 @@
           endAt: Number.isFinite(endAt) ? endAt : null
         }
       : null;
+    const feedbackStartedAtMs = Number(candidate?.feedback?.startedAtMs);
+    const feedbackDurationMs = Number(candidate?.feedback?.durationMs);
+    const feedback = Number.isFinite(feedbackStartedAtMs) && Number.isFinite(feedbackDurationMs)
+      ? {
+          startedAtMs: feedbackStartedAtMs,
+          durationMs: Math.max(1, feedbackDurationMs),
+          direction: String(candidate.feedback.direction || ""),
+          coalescedCount: Math.max(1, Math.floor(Number(candidate.feedback.coalescedCount) || 1))
+        }
+      : null;
     return {
       id: String(candidate?.id || `effect-${index + 1}`),
       kind: String(candidate?.kind || "effect"),
@@ -443,6 +453,7 @@
       intensityBand: EFFECT_INTENSITY_BANDS.includes(requestedIntensity) ? requestedIntensity : "medium",
       damageTags: [...new Set((candidate?.damageTags || []).map(String).filter(Boolean))],
       timing,
+      feedback,
       uncertaintyRadius: Math.max(0, Number(candidate?.uncertaintyRadius) || 0),
       stackCount: Math.max(1, Math.floor(Number(candidate?.stackCount) || 1)),
       glyph: String(candidate?.glyph || "").slice(0, 3),
@@ -665,6 +676,9 @@
       if (!EFFECT_PLANES.includes(effect.plane)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid plane.`);
       if (!EFFECT_INTENSITY_BANDS.includes(effect.intensityBand)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid intensity.`);
       if (!KNOWLEDGE_STATES.includes(effect.knowledge?.state)) errors.push(`Scene effect ${effect.id || "unknown"} has invalid knowledge.`);
+      if (effect.feedback && (!Number.isFinite(effect.feedback.startedAtMs) || effect.feedback.durationMs <= 0)) {
+        errors.push("Scene effect " + (effect.id || "unknown") + " has invalid feedback timing.");
+      }
     }
     for (const cell of scene?.cells || []) {
       for (const effectId of cell.effectIds || []) {

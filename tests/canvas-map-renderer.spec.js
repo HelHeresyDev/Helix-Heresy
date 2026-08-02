@@ -210,6 +210,31 @@ test('Canvas helpers cull overscan and derive presentation from semantic state',
     intensityBand: 'high',
     knowledge: { state: 'uncertain' },
   })).toBeCloseTo(0.5712);
+  const feedbackEffect = {
+    kind: "feedbackImpact",
+    feedback: { startedAtMs: 1000, durationMs: 800, direction: "east", coalescedCount: 1 },
+  };
+  expect(CanvasRenderer.feedbackEffectSample(feedbackEffect, { presentationRealTimeMs: 1400 })).toMatchObject({
+    valid: true,
+    visible: true,
+    active: true,
+    animated: true,
+    progress: 0.5,
+  });
+  expect(CanvasRenderer.feedbackEffectSample(feedbackEffect, {
+    presentationRealTimeMs: 1400,
+    reducedMotion: true,
+  })).toMatchObject({
+    visible: true,
+    active: true,
+    animated: false,
+    progress: 0.5,
+  });
+  expect(CanvasRenderer.feedbackEffectSample(feedbackEffect, { presentationRealTimeMs: 1800 })).toMatchObject({
+    visible: false,
+    active: false,
+    opacity: 0,
+  });
   const movingActor = {
     id: 'moving-actor',
     kind: 'slime',
@@ -512,6 +537,69 @@ test('@smoke Canvas is the default with persistent DOM rollback and renderer par
     };
   });
 
+  const feedback = await page.evaluate(() => {
+    const cell = window.helixHeresyDebug.navigationSnapshot().actors
+      .find((actor) => actor.id === "scientist").cell;
+    for (let index = 0; index < 30; index += 1) {
+      window.helixHeresyDebug.emitMapFeedback("feedbackComplete", cell, {
+        render: false,
+        coalesceKey: "capacity-" + index,
+        label: "Capacity cue " + index,
+      });
+    }
+    const kinds = [
+      "feedbackArrival",
+      "feedbackWork",
+      "feedbackDoor",
+      "feedbackImpact",
+      "feedbackMiss",
+      "feedbackConstruction",
+      "feedbackHazard",
+      "feedbackFailure",
+    ];
+    for (const kind of kinds) {
+      window.helixHeresyDebug.emitMapFeedback(kind, cell, {
+        render: false,
+        coalesceKey: "representative-" + kind,
+        label: kind,
+      });
+      if (kind === "feedbackArrival") {
+        window.helixHeresyDebug.emitMapFeedback(kind, cell, {
+          render: false,
+          coalesceKey: "representative-" + kind,
+          label: kind + " repeated",
+        });
+      }
+    }
+    window.helixHeresyDebug.emitMapFeedback("feedbackComplete", Array.from({ length: 20 }, (_, index) => ({
+      x: cell.x + index,
+      y: cell.y,
+      z: cell.z,
+    })), { render: false, coalesceKey: "cell-cap" });
+    const events = window.helixHeresyDebug.mapFeedbackSnapshot();
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    const effects = scene.effects.filter((effect) => effect.feedback);
+    return {
+      eventCount: events.length,
+      maxCellCount: Math.max(...events.map((event) => event.cells.length)),
+      arrivalStackCount: events.find((event) => event.coalesceKey === "representative-feedbackArrival")?.stackCount,
+      kinds,
+      effectKinds: effects.map((effect) => effect.kind),
+      feedback: effects.map((effect) => effect.feedback),
+      errors: window.HelixMapVisualState.validateScene(scene),
+    };
+  });
+  expect(feedback.eventCount).toBe(24);
+  expect(feedback.maxCellCount).toBe(16);
+  expect(feedback.arrivalStackCount).toBe(2);
+  expect(feedback.effectKinds).toEqual(expect.arrayContaining(feedback.kinds));
+  expect(feedback.feedback.every((entry) =>
+    Number.isFinite(entry.startedAtMs)
+    && entry.durationMs > 0
+    && entry.coalescedCount >= 1
+  )).toBe(true);
+  expect(feedback.errors).toEqual([]);
+
   expect(result.rect.width).toBeGreaterThan(500);
   expect(result.rect.height).toBeGreaterThan(300);
   expect(result.backing.width).toBeGreaterThanOrEqual(Math.floor(result.rect.width));
@@ -523,7 +611,7 @@ test('@smoke Canvas is the default with persistent DOM rollback and renderer par
     result.scene.viewport.width * result.scene.viewport.height
   );
   expect(result.diagnostics.canvas.entitiesDrawn).toBeGreaterThan(0);
-  expect(result.diagnostics.canvas.version).toBe(8);
+  expect(result.diagnostics.canvas.version).toBe(9);
   expect(result.diagnostics.canvas.drawPlanBuilds).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.drawPlanUses).toBeGreaterThan(0);
   expect(result.diagnostics.canvas.drawPlanStats.visibleCells).toBe(
