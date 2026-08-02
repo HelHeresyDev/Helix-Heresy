@@ -95,6 +95,13 @@ async function seedRoomCorpse(page) {
 test('@smoke map keeps the large blueprint visible through keyboard pan and zoom', async ({ page }) => {
   await startRun(page);
 
+  const contextMenu = await page.evaluate(() => {
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const dispatched = document.querySelector("[data-workspace-panel=map]").dispatchEvent(event);
+    return { defaultPrevented: event.defaultPrevented, dispatched };
+  });
+  expect(contextMenu).toEqual({ defaultPrevented: true, dispatched: false });
+
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   const initial = await mapSnapshot(page);
   expect(initial.mapWidth).toBe(100);
