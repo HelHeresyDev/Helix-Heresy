@@ -402,6 +402,9 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
       hasDomFields: JSON.stringify(scene).includes('styleTokens')
         || JSON.stringify(scene).includes('classNames')
         || JSON.stringify(scene).includes('stateClass'),
+      roomAnchorVisualCount: scene.cells.filter((cell) => cell.visual.layer === 'roomAnchor' || cell.visual.spriteKey.startsWith('room.anchor.')).length,
+      roomAnchorDomCount: window.helixHeresyDebug.mapDomSnapshot().filter((cell) => cell.classNames.includes('room-anchor')).length,
+      roomTargetCount: scene.cells.filter((cell) => cell.target?.kind === 'room').length,
     };
   });
 
@@ -415,8 +418,16 @@ test('browser scene is versioned, unique, overscanned, and free of DOM styling f
   expect(result.multi).toBeTruthy();
   expect(result.referencedCells.sort()).toEqual(result.multi.footprintCells.map(VisualState.cellKey).sort());
   expect(result.hasDomFields).toBe(false);
+  expect(result.roomAnchorVisualCount).toBe(0);
+  expect(result.roomAnchorDomCount).toBe(0);
+  expect(result.roomTargetCount).toBeGreaterThan(0);
   expect(result.queryBounds.width).toBeGreaterThanOrEqual(result.viewport.width);
   expect(result.queryBounds.height).toBeGreaterThanOrEqual(result.viewport.height);
+
+  const roomTile = page.locator('[data-map-target-kind="room"]').first();
+  await expect(roomTile).toBeVisible();
+  await roomTile.click();
+  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'room');
 });
 
 test('player perspective withholds environmental values for unknown cells', async ({ page }) => {
