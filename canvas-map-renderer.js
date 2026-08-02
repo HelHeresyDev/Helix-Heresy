@@ -17,7 +17,7 @@
 
   if (!RenderOrder) throw new Error("Canvas map renderer requires the map render-order policy.");
   if (!AnimationClock) throw new Error("Canvas map renderer requires the animation-clock contract.");
-  const RENDERER_VERSION = 7;
+  const RENDERER_VERSION = 8;
   const ROOM_COLORS = Object.freeze({
     mainLab: "#22251d",
     livingStorage: "#1a261d",
@@ -503,17 +503,65 @@
     };
   }
 
-  function drawRoute(ctx, cell, position, tilePx) {
+  function drawRoute(ctx, cell, position, tilePx, options = {}) {
     if (!cell?.route) return false;
+    const route = cell.route;
+    const color = route.selected
+      ? (options.highContrast ? "#fff36a" : "#f0d989")
+      : (options.highContrast ? "#5cffff" : "#68c8d8");
+    const centerX = position.x + tilePx / 2;
+    const centerY = position.y + tilePx / 2;
+    const directions = {
+      north: [centerX, position.y],
+      east: [position.x + tilePx, centerY],
+      south: [centerX, position.y + tilePx],
+      west: [position.x, centerY]
+    };
+    const connections = Array.isArray(route.connections) ? route.connections : [];
     ctx.save();
-    ctx.globalAlpha = 0.78;
-    ctx.strokeStyle = cell.route.selected ? "#f0d989" : "#75b86b";
-    ctx.lineWidth = Math.max(1.5, tilePx * 0.12);
-    ctx.setLineDash(cell.route.selected ? [] : [Math.max(2, tilePx * 0.22), Math.max(1, tilePx * 0.12)]);
+    ctx.globalAlpha = route.selected ? 0.96 : 0.86;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(options.highContrast ? 2 : 1.5, tilePx * 0.11);
     ctx.beginPath();
-    ctx.moveTo(position.x + tilePx * 0.16, position.y + tilePx / 2);
-    ctx.lineTo(position.x + tilePx * 0.84, position.y + tilePx / 2);
+    if (connections.length) {
+      for (const direction of connections) {
+        const target = directions[direction];
+        if (!target) continue;
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(target[0], target[1]);
+      }
+    } else if (!route.start && !route.end) {
+      ctx.moveTo(position.x + tilePx * 0.16, centerY);
+      ctx.lineTo(position.x + tilePx * 0.84, centerY);
+    }
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, Math.max(1.5, tilePx * 0.075), 0, Math.PI * 2);
+    ctx.fill();
+    if (route.end) {
+      const radius = Math.max(3, tilePx * 0.2);
+      ctx.fillStyle = "rgba(12, 18, 16, 0.82)";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1.5, tilePx * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - radius);
+      ctx.lineTo(centerX + radius, centerY);
+      ctx.lineTo(centerX, centerY + radius);
+      ctx.lineTo(centerX - radius, centerY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (route.vertical?.length) {
+      ctx.fillStyle = color;
+      ctx.font = `700 ${Math.max(7, Math.floor(tilePx * 0.32))}px ui-monospace, SFMono-Regular, Consolas, monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(route.vertical.includes("up") ? "↑" : "↓", centerX, centerY);
+    }
     ctx.restore();
     return true;
   }
@@ -1122,7 +1170,7 @@
     drawEntitiesAtPass(RenderOrder.RENDER_PASSES.ground);
     for (const cell of cells) {
       const position = tilePosition(cell.cell, viewport, tilePx, origin);
-      if (drawRoute(ctx, cell, position, tilePx)) countPass(RenderOrder.RENDER_PASSES.path);
+      if (drawRoute(ctx, cell, position, tilePx, options)) countPass(RenderOrder.RENDER_PASSES.path);
       if (drawDesignation(ctx, cell, position, tilePx)) countPass(RenderOrder.RENDER_PASSES.path);
     }
     for (const pass of [

@@ -44044,6 +44044,63 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return taskPathList(task).flat();
   }
 
+  function scientistTaskDisplayPaths(task, options = {}) {
+    if (!task) return [];
+    if (options.remaining && task.data?.movement) {
+      const movement = normalizeScientistMovementRecord(task.data.movement, task);
+      if (movement?.steps?.length) {
+        const remaining = movement.steps
+          .slice(movement.stepIndex)
+          .map((step) => cleanMapCell(step.cell))
+          .filter(Boolean);
+        if (remaining.length) return [remaining];
+      }
+    }
+    return taskPathList(task)
+      .map((path) => path.map(cleanMapCell).filter(Boolean))
+      .filter((path) => path.length);
+  }
+
+  function scientistRouteMarkers(paths) {
+    const markers = new Map();
+    const connection = (from, to) => {
+      if (!from || !to) return null;
+      if (from.z !== to.z) return to.z > from.z ? "up" : "down";
+      if (to.x === from.x && to.y === from.y - 1) return "north";
+      if (to.x === from.x + 1 && to.y === from.y) return "east";
+      if (to.x === from.x && to.y === from.y + 1) return "south";
+      if (to.x === from.x - 1 && to.y === from.y) return "west";
+      return null;
+    };
+    for (const path of paths) {
+      for (let index = 0; index < path.length; index += 1) {
+        const cell = path[index];
+        const key = mapCellKey(cell);
+        if (!key) continue;
+        const marker = markers.get(key) || {
+          connections: new Set(),
+          start: false,
+          end: false,
+          vertical: new Set()
+        };
+        marker.start ||= index === 0;
+        marker.end ||= index === path.length - 1;
+        for (const neighbor of [path[index - 1], path[index + 1]]) {
+          const direction = connection(cell, neighbor);
+          if (["up", "down"].includes(direction)) marker.vertical.add(direction);
+          else if (direction) marker.connections.add(direction);
+        }
+        markers.set(key, marker);
+      }
+    }
+    return new Map([...markers.entries()].map(([key, marker]) => [key, {
+      connections: [...marker.connections],
+      start: marker.start,
+      end: marker.end,
+      vertical: [...marker.vertical]
+    }]));
+  }
+
   function taskPathSummary(task) {
     const paths = taskPathList(task);
     if (!paths.length) {
@@ -44054,12 +44111,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function taskMovementRoute(task, map = ensureLabMap(), options = {}) {
     if (!task) {
-      return { task: null, keys: new Set(), label: "" };
+      return { task: null, keys: new Set(), markers: new Map(), label: "" };
     }
-    const path = taskPathCells(task);
+    const paths = scientistTaskDisplayPaths(task, { remaining: options.remaining });
+    const markers = scientistRouteMarkers(paths);
     return {
       task,
-      keys: new Set(path.map((cell) => mapCellKey(cell)).filter(Boolean)),
+      keys: new Set(markers.keys()),
+      markers,
       label: task.label || "queued movement",
       selected: Boolean(options.selected)
     };
@@ -44069,10 +44128,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const selected = currentSelection();
     const selectedTask = selected?.kind === "task" ? findTask(selected.id) : null;
     if (selectedTask && isScientistQueueTask(selectedTask) && taskPathCells(selectedTask).length) {
-      return taskMovementRoute(selectedTask, map, { selected: true });
+      return taskMovementRoute(selectedTask, map, {
+        selected: true,
+        remaining: selectedTask.id === firstScientistQueueTask()?.id
+      });
     }
     const task = scientistQueueTasks().find((candidate) => taskPathCells(candidate).length) || null;
-    return taskMovementRoute(task, map);
+    return taskMovementRoute(task, map, { remaining: task?.id === firstScientistQueueTask()?.id });
   }
 
   function taskTargetRoomId(task) {
@@ -49252,7 +49314,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const semanticRoute = visibleRouteEntry ? {
       taskId: visibleRouteEntry.task?.id || "next",
       label: visibleRouteEntry.label || "",
-      selected: Boolean(visibleRouteEntry.selected)
+      selected: Boolean(visibleRouteEntry.selected),
+      connections: [...(visibleRouteEntry.marker?.connections || [])],
+      start: Boolean(visibleRouteEntry.marker?.start),
+      end: Boolean(visibleRouteEntry.marker?.end),
+      vertical: [...(visibleRouteEntry.marker?.vertical || [])]
     } : null;
     const semanticOverlay = visibleOverlayEntry ? {
       id: visibleOverlayEntry.overlayId,
@@ -50037,7 +50103,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     const incidentAssignments = labMapIncidentAssignments(map);
     const route = selectedOrNextScientistTaskRoute(map);
-    const showMovementRoute = overlay.id === "movement";
     const plannedExcavations = plannedExcavationAssignments();
     const draftExcavations = draftExcavationAssignments();
     const selectedTarget = selectedMapTarget();
@@ -50091,7 +50156,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           source: current ? "direct observation" : undefined
         });
         const known = current || Boolean(observation) || plannedExcavations.has(key) || draftExcavations.has(key) || route.keys.has(key);
-        const routeEntry = showMovementRoute && route.keys.has(key) ? route : null;
+        const routeEntry = route.keys.has(key)
+          ? { ...route, marker: route.markers.get(key) || null }
+          : null;
         const cellView = buildLabMapCellView({
           cell,
           map,
