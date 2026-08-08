@@ -690,6 +690,7 @@ Open design questions:
 - Hood venting readout and condenser-flask receptacles for vapor/haze/fume/mist byproduct support.
 - Environmental fields have physical values, material exchange rules, and descriptive player-facing bands; airborne contamination does not passively disappear.
 - Timed tests that can reveal more precise trait information.
+- Physical diagnostic instruments begin worn and poorly calibrated, route through ordinary scientist movement, produce deterministic ranges rather than false precision, create physical samples, consume samples and Assay Reagent during bench analysis, and save historical results as research evidence.
 - Natural splitting from sustained full mass, with Brood Size controlling offspring count and strict mass division across parent and offspring.
 - Forced Recombination as the current two-parent lab intervention, with parent and offspring mass shared instead of free full-sized copies.
 - Parent IDs and brood IDs for new offspring, supporting protected parent/offspring and sibling recognition.

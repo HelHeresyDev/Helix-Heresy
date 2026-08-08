@@ -1346,6 +1346,24 @@
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.shovel || { primary: "steel", reinforcement: "wood" },
       capabilities: { earthmoving: 88, excavation: 28 },
       notes: ["earth and loose material", "future rubble clearing", "not adequate for solid rock"]
+    },
+    environmentalSurveyKit: {
+      max: 80,
+      material: "brass and glass field sensors",
+      materialComposition: { primary: "steel", lining: "glass" },
+      notes: ["temperature, humidity, light, and electrical sensors", "requires calibration for narrow readings"]
+    },
+    thaumometer: {
+      max: 70,
+      material: "glass thaumic resonator",
+      materialComposition: { primary: "glass", reinforcement: "steel" },
+      notes: ["ambient mana instrument", "susceptible to drift and physical shock"]
+    },
+    assayCase: {
+      max: 90,
+      material: "steel and glass portable assay case",
+      materialComposition: { primary: "steel", lining: "glass", seal: "rubber" },
+      notes: ["air and biological sampling", "bench analysis consumes Assay Reagent"]
     }
   };
   const TOOL_CONDITION_BANDS = [
@@ -2746,6 +2764,7 @@
     { key: "glass", label: "Glass", initial: 24 },
     { key: "cloth", label: "Cloth", initial: 20 },
     { key: "rubber", label: "Rubber", initial: 20 },
+    { key: "assayReagent", label: "Assay Reagent", initial: 12 },
     ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
@@ -2944,6 +2963,34 @@
       category: "tools",
       initial: 1,
       description: "An earthmoving tool for soil and future loose-rubble work; inadequate for solid stone."
+    },
+    {
+      key: "environmentalSurveyKit",
+      label: "Environmental Survey Kit",
+      category: "tools",
+      initial: 1,
+      description: "A worn portable sensor kit for local temperature, humidity, light, and electrical readings. Calibration controls precision."
+    },
+    {
+      key: "thaumometer",
+      label: "Thaumometer",
+      category: "tools",
+      initial: 1,
+      description: "A worn resonant instrument for local ambient-mana readings. It reports ranges when calibration is poor."
+    },
+    {
+      key: "assayCase",
+      label: "Assay Case",
+      category: "tools",
+      initial: 1,
+      description: "A portable sampling and bench-assay case for air, surface, fluid, and scientist exposure samples."
+    },
+    {
+      key: "diagnosticSample",
+      label: "Diagnostic Sample",
+      category: "materials",
+      initial: 0,
+      description: "A sealed physical sample awaiting analysis. Its source, collection time, and captured state remain fixed."
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
@@ -3248,6 +3295,10 @@
   const Research = window.HelixResearchSystem;
   if (!Research) {
     throw new Error("HelixResearchSystem must load before app.js");
+  }
+  const Diagnostics = window.HelixDiagnosticSystem;
+  if (!Diagnostics) {
+    throw new Error("HelixDiagnosticSystem must load before app.js");
   }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
@@ -3794,6 +3845,7 @@
       collectedByproductHistory: defaultCollectedByproductHistory(),
       specimenMaterials: defaultSpecimenMaterials(),
       research: Research.defaultState(),
+      diagnostics: Diagnostics.defaultState(),
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
       feedingResidues: [],
@@ -3970,9 +4022,9 @@
     const max = Math.max(1, Math.round(Number(def?.max) || 1));
     return {
       id: `${itemKey}-${index + 1}`,
-      current: max,
+      current: Diagnostics.INSTRUMENT_BY_ID[itemKey] ? Math.round(max * 0.7) : max,
       max,
-      quality: 50,
+      quality: Diagnostics.INSTRUMENT_BY_ID[itemKey] ? 35 : 50,
       roomId: STORAGE_ROOM_ID,
       carriedBy: "",
       reservedTaskId: ""
@@ -4776,6 +4828,7 @@
       "researchActiveProject",
       "researchProjectList",
       "researchEvidenceList",
+      "diagnosticResultsList",
       "mapOverlayHud",
       "messageFeed",
       "messageHistorySummary",
@@ -5341,6 +5394,7 @@
         render();
         return selection;
       },
+      cancelTask: (taskId) => cancelTask(taskId),
       taskStatusSnapshot: () => scientistQueueTasks().map((task) => ({
         id: task.id,
         type: task.type,
@@ -5599,6 +5653,18 @@
       createProductionBill: (options) => createProductionBill(options),
       setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
+      diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
+      startFieldDiagnostic: (instrumentId, kind, id = "", cell = null) => startFieldDiagnostic(instrumentId, kind, id, cell),
+      startSampleCollection: (methodId, kind, id = "", cell = null) => startSampleCollection(methodId, kind, id, cell),
+      startDiagnosticSampleAssay: (stackId) => startDiagnosticSampleAssay(stackId),
+      startDiagnosticCalibration: (itemKey) => startDiagnosticCalibration(itemKey),
+      setInstrumentCalibration: (itemKey, calibration) => {
+        const instrument = diagnosticInstrumentInstance(itemKey);
+        if (!instrument) return false;
+        diagnosticInstrumentRecord(instrument.id).calibration = clamp(Number(calibration) || 0, 0, 100);
+        persist(); render();
+        return true;
+      },
       researchProjectEvaluation: (projectId) => JSON.parse(JSON.stringify(researchProjectEvaluation(projectId))),
       recordResearchEvidence: (options) => {
         const entry = recordResearchEvidence(options);
@@ -28599,6 +28665,14 @@
     return toolInstancesForItem(itemKey).filter((instance) => Number(instance.current) > 0).length;
   }
 
+  function diagnosticCalibrationSummary(itemKey) {
+    if (!Diagnostics.INSTRUMENT_BY_ID[itemKey]) return "";
+    const instance = diagnosticInstrumentInstance(itemKey);
+    if (!instance) return "Calibration: instrument unavailable";
+    const record = diagnosticInstrumentRecord(instance.id);
+    return `Calibration: ${Math.round(record.calibration)}/100 (${Diagnostics.calibrationBand(record.calibration).label}); ${record.usesSinceCalibration} uses since reference`;
+  }
+
   function toolDurabilitySummary(itemKey) {
     const item = INVENTORY_ITEM_BY_KEY[itemKey];
     const def = durableToolDef(itemKey);
@@ -28629,6 +28703,7 @@
       `Notes: ${def.notes.join(", ")}.`,
       `Capabilities: ${toolCapabilitySummary(itemKey)}.`,
       toolDurabilitySummary(itemKey) + ".",
+      ...(Diagnostics.INSTRUMENT_BY_ID[itemKey] ? [diagnosticCalibrationSummary(itemKey) + ".", "Calibration degrades through use and physical damage, not passive time."] : []),
       "Broken tools remain cataloged and require repair before use."
     ];
     for (const [index, instance] of instances.entries()) {
@@ -36227,8 +36302,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "physicalDiagnostic"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "physicalDiagnostic"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -42286,6 +42361,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return `${row.count}/${row.requiredCount} observations${specimenText}`;
   }
 
+  function renderDiagnosticResults() {
+    if (!dom.diagnosticResultsList) return;
+    dom.diagnosticResultsList.textContent = "";
+    const results = [...ensureDiagnosticState().results].sort((a, b) => b.measuredAt - a.measuredAt);
+    if (!results.length) {
+      dom.diagnosticResultsList.append(emptyText("No saved instrument readings or bench assays yet."));
+      return;
+    }
+    for (const result of results.slice(0, 30)) {
+      const row = document.createElement("article");
+      row.className = "research-evidence-row diagnostic-result-row";
+      row.dataset.diagnosticResult = result.id;
+      row.append(
+        textEl("strong", result.targetLabel || "Unknown target"),
+        textEl("span", result.summary),
+        textEl("span", `${result.confidence} confidence (${Math.round(result.confidenceScore)}/100)`),
+        textEl("time", formatClock(result.measuredAt))
+      );
+      row.title = result.factors.join("\n");
+      dom.diagnosticResultsList.append(row);
+    }
+  }
+
   function renderResearch() {
     if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
     const research = ensureResearchState();
@@ -42294,6 +42392,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchProjectList.textContent = "";
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
+    renderDiagnosticResults();
 
     if (research.activeProjectId) {
       const project = researchProject(research.activeProjectId);
@@ -42748,16 +42847,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return button;
   }
 
+  function diagnosticCalibrationButton(itemKey) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "compact-button";
+    button.textContent = "Calibrate";
+    button.dataset.diagnosticCalibrate = itemKey;
+    const reason = diagnosticCalibrationBlockReason(itemKey);
+    button.disabled = Boolean(reason);
+    button.title = reason || "Carry this instrument to an operational research workbench and restore reference calibration.";
+    button.addEventListener("click", () => startDiagnosticCalibration(itemKey));
+    return button;
+  }
+
   function storesInventoryItemRow(item) {
     const amount = inventoryAmount(item.key);
     const storageAmount = inventoryAmountInRoom(item.key, STORAGE_ROOM_ID);
     const toolCondition = durableToolDef(item.key)
       ? `; ${toolDurabilitySummary(item.key).replace(/^Condition:\s*/, "")}`
       : "";
+    const calibration = Diagnostics.INSTRUMENT_BY_ID[item.key] ? `; ${diagnosticCalibrationSummary(item.key)}` : "";
     const breakdown = stockpileBreakdownLines("inventory", item.key);
     const actions = [storesOverlayButton(`category:${item.category}`)];
     if (durableToolDef(item.key)) actions.push(toolMaintenanceButton(item.key, "maintain"), toolMaintenanceButton(item.key, "repair"));
-    return storesRowEl(item.label, `${formatNumber(amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}`, {
+    if (Diagnostics.INSTRUMENT_BY_ID[item.key]) actions.push(diagnosticCalibrationButton(item.key));
+    return storesRowEl(item.label, `${formatNumber(amount)} total${storageAmount ? `; ${formatNumber(storageAmount)} storage` : ""}${toolCondition}${calibration}`, {
       title: inventoryItemTooltip(item),
       subtitle: breakdown.length ? `Last known: ${breakdown.join("; ")}` : item.description,
       dataset: { inventoryItemKey: item.key, inventoryCategory: item.category },
@@ -45186,6 +45300,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!tool) return "The tool is no longer available.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
     }
+    if (task.type === "physicalDiagnostic") {
+      return physicalDiagnosticTaskBlockReason(task);
+    }
     if (task.type === "researchWork") {
       return researchWorkTaskBlockReason(task);
     }
@@ -45306,6 +45423,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+    }
+    if (task.type === "physicalDiagnostic") {
+      releaseConstructionTaskTools(task, { retain: false });
+      releaseProductionMaterialReservations(task);
     }
     if (task.type === "researchWork") {
       cleanupCanceledResearchTask(task);
@@ -46207,9 +46328,49 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     ];
   }
 
+  function fieldDiagnosticContextCommands(kind, id = "", cell = null, options = {}) {
+    const commands = [];
+    if (options.environment !== false) {
+      commands.push(commandDef({
+        id: `diagnostic.environment.${kind}.${id || mapCellKey(cell)}`,
+        label: "Environmental Survey",
+        group: "Diagnostics",
+        disabledReason: fieldDiagnosticBlockReason("environmentalSurveyKit", kind, id, cell),
+        description: "Use the worn field kit to measure local temperature, humidity, light, and electrical conditions. Poor calibration produces wider ranges.",
+        run: () => startFieldDiagnostic("environmentalSurveyKit", kind, id, cell)
+      }));
+      commands.push(commandDef({
+        id: `diagnostic.mana.${kind}.${id || mapCellKey(cell)}`,
+        label: "Thaumic Survey",
+        group: "Diagnostics",
+        disabledReason: fieldDiagnosticBlockReason("thaumometer", kind, id, cell),
+        description: "Use the thaumometer to measure local ambient mana. Calibration and instrument condition determine precision.",
+        run: () => startFieldDiagnostic("thaumometer", kind, id, cell)
+      }));
+    }
+    for (const methodId of options.sampleMethods || []) {
+      const method = Diagnostics.SAMPLE_METHOD_BY_ID[methodId];
+      commands.push(commandDef({
+        id: `diagnostic.sample.${methodId}.${kind}.${id || mapCellKey(cell)}`,
+        label: method.label === "Air Vial" ? "Take Air Sample" : method.label,
+        group: "Diagnostics",
+        disabledReason: sampleCollectionBlockReason(methodId, kind, id, cell),
+        description: methodId === "fluidSample"
+          ? "Collect a high-quality invasive fluid sample. This causes stress and minor body damage."
+          : methodId === "surfaceSwab"
+            ? "Collect a lower-quality non-invasive surface sample. This causes minor stress."
+            : "Seal a physical air vial for later bench analysis. The captured environment will not change after collection.",
+        danger: methodId === "fluidSample",
+        run: () => startSampleCollection(methodId, kind, id, cell)
+      }));
+    }
+    return commands;
+  }
+
   function scientistContextCommands() {
     const pending = state.combat?.pendingActions?.scientist;
     return [
+      ...fieldDiagnosticContextCommands("scientist", "scientist", scientistMapCell(), { environment: false, sampleMethods: ["surfaceSwab", "fluidSample"] }),
       commandDef({
         id: "scientist.guard",
         label: scientistGuarding() ? "Stop Guarding" : "Guard",
@@ -46629,6 +46790,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             })
           }),
           ...baitPlacementContextCommands(cell),
+          ...fieldDiagnosticContextCommands("tile", "", cell, { sampleMethods: ["airVial"] }),
           ...tileLaborContextCommands(cell),
           ...roomDesignationContextCommands(cell),
           ...constructionContextCommands(cell)
@@ -46665,6 +46827,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         })
       }),
       ...baitPlacementContextCommands(selection.tile),
+      ...fieldDiagnosticContextCommands("tile", "", selection.tile, { sampleMethods: ["airVial"] }),
       ...tileLaborContextCommands(selection.tile),
       openWorkspaceCommand({
         id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
@@ -47131,6 +47294,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const bestFeedstockKey = slime.revealed?.sustenance ? bestAvailableFeedstockKey(slime) : "";
     const bestFeedstock = bestFeedstockKey ? FEEDSTOCK_BY_KEY[bestFeedstockKey] : null;
     const commands = [
+      ...fieldDiagnosticContextCommands("slime", slime.id, objectMapCell(slime), { environment: false, sampleMethods: ["surfaceSwab", "fluidSample"] }),
       commandDef({
         id: `slime.analyze.${slime.id}`,
         label: `Analyze (${ANALYZE_MANA_COST} MANA)`,
@@ -47353,6 +47517,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [];
     }
     const commands = [];
+    commands.push(...fieldDiagnosticContextCommands("container", container.id, objectMapCell(container), { sampleMethods: ["airVial"] }));
     if (isPitHoleContainer(container)) {
       for (const role of CREATURE_ROLES.filter((candidate) => ["idle", "corpse", "disposal"].includes(candidate.id))) {
         commands.push(commandDef({
@@ -47876,6 +48041,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection?.id);
     if (!stack) return [];
     const commands = [];
+    if (stack.section === "inventory" && stack.key === "diagnosticSample") {
+      commands.push(commandDef({
+        id: `itemStack.assay.${stack.id}`,
+        label: "Analyze Sample at Workbench",
+        group: "Diagnostics",
+        disabledReason: diagnosticSampleAssayBlockReason(stack.id),
+        description: "Carry this sealed sample and one Assay Reagent to an operational research workbench. Cancellation preserves both physical inputs.",
+        run: () => startDiagnosticSampleAssay(stack.id)
+      }));
+    }
     if (stack.form === "spill") {
       const itemKey = spillCleanupReceptacleItemKey(stack);
       const cleanupReason = spillCleanupTask(stack.id)
@@ -55277,6 +55452,301 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return (state.tasks || []).find((task) => task.type === "physicalDiagnostic") || null;
   }
 
+  function ensureDiagnosticState() {
+    state.diagnostics = Diagnostics.normalizeState(state.diagnostics);
+    const liveStackIds = new Set(ensurePhysicalItemStacks().map((stack) => stack.id));
+    state.diagnostics.samples = state.diagnostics.samples.filter((sample) => liveStackIds.has(sample.stackId));
+    return state.diagnostics;
+  }
+
+  function diagnosticInstrumentRecord(instanceId) {
+    const diagnostics = ensureDiagnosticState();
+    diagnostics.instruments[instanceId] = Diagnostics.normalizeInstrumentRecord(diagnostics.instruments[instanceId], instanceId);
+    return diagnostics.instruments[instanceId];
+  }
+
+  function diagnosticInstrumentInstance(itemKey, taskId = "") {
+    return [...toolInstancesForItem(itemKey)]
+      .filter((tool) => tool.current > 0 && (!tool.reservedTaskId || tool.reservedTaskId === taskId))
+      .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || b.current - a.current)[0] || null;
+  }
+
+  function diagnosticTargetInfo(kind, id = "", cellArg = null) {
+    if (kind === "scientist") return { kind, id: "scientist", label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId(), target: state.scientist };
+    if (kind === "slime") {
+      const slime = findSlime(id);
+      if (!slime || slime.status === "dead") return null;
+      const container = containerById(slime.containerId);
+      const roomId = slimeEffectiveRoomId(slime);
+      return { kind, id: slime.id, label: slime.name, cell: objectMapCell(slime) || objectMapCell(container) || labMapRoomAnchor(roomId), roomId, target: slime };
+    }
+    if (kind === "container") {
+      const container = containerById(id);
+      if (!container) return null;
+      return { kind, id: container.id, label: container.name, cell: objectMapCell(container) || labMapRoomAnchor(container.roomId), roomId: container.roomId, target: container };
+    }
+    const cell = cleanMapCell(cellArg);
+    if (kind === "tile" && cell && labMapCellIsExcavated(cell)) {
+      return { kind, id: mapCellKey(cell), label: `Tile ${cell.x},${cell.y}, Z ${cell.z}`, cell, roomId: labMapCellRoomId(cell) || nearestDesignatedRoomIdForCell(cell), target: null };
+    }
+    return null;
+  }
+
+  function diagnosticAccessPlan(startCell, target) {
+    return [target.cell, ...cardinalMapCells(target.cell)]
+      .map(cleanMapCell)
+      .filter((cell) => cell && labMapCellIsWalkable(cell, ensureLabMap()))
+      .filter((cell) => mapCellKey(cell) === mapCellKey(scientistMapCell()) || !labMapCellIsPathBlocked(cell, { map: ensureLabMap() }))
+      .map((cell) => ({ cell, path: labMapPathBetweenCells(startCell, cell, { map: ensureLabMap(), ignoreDoors: true }) }))
+      .filter((entry) => entry.path.length)
+      .sort((a, b) => a.path.length - b.path.length)[0] || null;
+  }
+
+  function diagnosticToolPlan(itemKey, startCell) {
+    const tool = diagnosticInstrumentInstance(itemKey);
+    if (!tool) return { ok: false, reason: `No usable ${inventoryItemLabel(itemKey)} is available.` };
+    if (tool.carriedBy === "scientist") return { ok: true, tool, path: [startCell], endpoint: startCell };
+    const cell = toolMapCell(tool);
+    const path = labMapPathBetweenCells(startCell, cell, { map: ensureLabMap(), ignoreDoors: true });
+    return path.length
+      ? { ok: true, tool, path, endpoint: cell }
+      : { ok: false, reason: `${inventoryItemLabel(itemKey)} is stocked but unreachable.` };
+  }
+
+  function diagnosticWorkbenchPlan(startCell) {
+    const plans = [];
+    for (const fixture of researchWorkstations()) {
+      for (const port of fixtureAccessCells(fixture)) {
+        const path = labMapPathBetweenCells(startCell, port.cell, { map: ensureLabMap(), ignoreDoors: true });
+        if (path.length) plans.push({ fixture, cell: port.cell, path });
+      }
+    }
+    return plans.sort((a, b) => a.path.length - b.path.length)[0] || null;
+  }
+
+  function physicalDiagnosticTaskBlockReason(task) {
+    if (!task) return "Diagnostic task is missing.";
+    if (task.data?.instrumentInstanceId) {
+      const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
+      if (!tool) return "The diagnostic instrument is no longer available.";
+      if (tool.current <= 0) return "The diagnostic instrument is broken.";
+      if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The diagnostic instrument is reserved for other work.";
+    }
+    for (const stackId of task.data?.reservedStackIds || []) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+      if (!stack || stack.reservedTaskId !== task.id) return "A reserved sample or assay reagent is no longer available.";
+    }
+    if (task.data?.workflowId === "collectSample" || ["fieldSurvey", "thaumicSurvey"].includes(task.data?.workflowId)) {
+      if (!diagnosticTargetInfo(task.data.targetKind, task.data.targetId, task.data.targetCell)) return "The diagnostic target is no longer available.";
+    }
+    if (["assaySample", "calibrateInstrument"].includes(task.data?.workflowId)) {
+      const workstation = fixtureById(task.data?.workstationId);
+      if (!workstation || workstation.condition <= 0 || workstation.operationalState !== "operational") return "The diagnostic workbench is unavailable.";
+    }
+    return "";
+  }
+
+  function diagnosticBaseBlockReason() {
+    if (scientistIsDead()) return "The scientist is dead.";
+    if (physicalDiagnosticTask()) return "A diagnostic task is already in progress.";
+    return "";
+  }
+
+  function queueInstrumentDiagnostic(options) {
+    const path = options.path || [scientistMapCell()];
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "physicalDiagnostic",
+      label: options.label,
+      createdAt: state.clock,
+      dueAt: state.clock + mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps() + adjustedActionDuration(options.workSeconds || 10, options.skillId || "analysis"),
+      data: {
+        workflowId: options.workflowId,
+        testId: options.workflowId,
+        instrumentId: options.instrumentId || "",
+        targetKind: options.target?.kind || "",
+        targetId: options.target?.id || "",
+        targetLabel: options.target?.label || "",
+        targetCell: cleanMapCell(options.target?.cell),
+        sampleId: options.sample?.id || "",
+        mapPath: path,
+        toCell: cleanMapCell(path.at(-1)),
+        staminaCost: options.staminaCost || 0,
+        skillId: options.skillId || "analysis",
+        baseXp: options.baseXp || 12,
+        ...(options.data || {})
+      }
+    };
+    if (options.instrumentId) {
+      const tool = diagnosticInstrumentInstance(options.instrumentId);
+      if (!tool) return null;
+      makeRoomForConstructionTools([{ itemKey: options.instrumentId, instanceId: tool.id }]);
+      tool.reservedTaskId = task.id;
+      task.data.instrumentInstanceId = tool.id;
+      task.data.toolSelections = [{ itemKey: options.instrumentId, instanceId: tool.id }];
+    }
+    state.tasks.push(task);
+    addEvent(`${task.label} started; the scientist will follow the marked route.`);
+    persist();
+    render();
+    return task;
+  }
+
+  function fieldDiagnosticBlockReason(instrumentId, kind, id = "", cell = null) {
+    const base = diagnosticBaseBlockReason();
+    if (base) return base;
+    const target = diagnosticTargetInfo(kind, id, cell);
+    if (!target) return "The diagnostic target is no longer available.";
+    const toolPlan = diagnosticToolPlan(instrumentId, scientistMapCell());
+    if (!toolPlan.ok) return toolPlan.reason;
+    if (!diagnosticAccessPlan(toolPlan.endpoint, target)) return "No physical route reaches the diagnostic target.";
+    return staminaBlockReason(adjustedStaminaCost(2, [instrumentId === "thaumometer" ? "animancy" : "analysis"]));
+  }
+
+  function startFieldDiagnostic(instrumentId, kind, id = "", cell = null) {
+    const reason = fieldDiagnosticBlockReason(instrumentId, kind, id, cell);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const target = diagnosticTargetInfo(kind, id, cell);
+    const toolPlan = diagnosticToolPlan(instrumentId, scientistMapCell());
+    const access = diagnosticAccessPlan(toolPlan.endpoint, target);
+    const path = appendMapPath(toolPlan.path, access.path);
+    const skillId = instrumentId === "thaumometer" ? "animancy" : "analysis";
+    const cost = adjustedStaminaCost(2, [skillId]);
+    if (!spendStamina(cost)) return false;
+    return Boolean(queueInstrumentDiagnostic({
+      workflowId: instrumentId === "thaumometer" ? "thaumicSurvey" : "fieldSurvey",
+      label: `${inventoryItemLabel(instrumentId)} survey: ${target.label}`,
+      instrumentId, target, path, workSeconds: Diagnostics.INSTRUMENT_BY_ID[instrumentId].fieldSeconds, staminaCost: cost, skillId
+    }));
+  }
+
+  function sampleCollectionBlockReason(methodId, kind, id = "", cell = null) {
+    const base = diagnosticBaseBlockReason();
+    if (base) return base;
+    const method = Diagnostics.SAMPLE_METHOD_BY_ID[methodId];
+    const target = diagnosticTargetInfo(kind, id, cell);
+    if (!method || !target || !method.targetKinds.includes(kind)) return "That sampling method cannot be used on this target.";
+    const toolPlan = diagnosticToolPlan("assayCase", scientistMapCell());
+    if (!toolPlan.ok) return toolPlan.reason;
+    if (!diagnosticAccessPlan(toolPlan.endpoint, target)) return "No physical route reaches the sampling target.";
+    return staminaBlockReason(adjustedStaminaCost(methodId === "fluidSample" ? 4 : 2, ["medicine", "analysis"]));
+  }
+
+  function startSampleCollection(methodId, kind, id = "", cell = null) {
+    const reason = sampleCollectionBlockReason(methodId, kind, id, cell);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const method = Diagnostics.SAMPLE_METHOD_BY_ID[methodId];
+    const target = diagnosticTargetInfo(kind, id, cell);
+    const toolPlan = diagnosticToolPlan("assayCase", scientistMapCell());
+    const access = diagnosticAccessPlan(toolPlan.endpoint, target);
+    const cost = adjustedStaminaCost(methodId === "fluidSample" ? 4 : 2, ["medicine", "analysis"]);
+    if (!spendStamina(cost)) return false;
+    return Boolean(queueInstrumentDiagnostic({
+      workflowId: "collectSample",
+      label: `${method.label}: ${target.label}`,
+      instrumentId: "assayCase",
+      target,
+      path: appendMapPath(toolPlan.path, access.path),
+      workSeconds: method.collectionSeconds,
+      staminaCost: cost,
+      skillId: "medicine",
+      data: { methodId }
+    }));
+  }
+
+  function diagnosticSampleByStackId(stackId) {
+    return ensureDiagnosticState().samples.find((sample) => sample.stackId === stackId) || null;
+  }
+
+  function diagnosticSampleAssayPlan(stackId) {
+    const sample = diagnosticSampleByStackId(stackId);
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId && entry.quantity > 0 && !entry.reservedTaskId);
+    if (!sample || !stack) return { ok: false, reason: "The physical sample is no longer available." };
+    const toolPlan = diagnosticToolPlan("assayCase", scientistMapCell());
+    if (!toolPlan.ok) return toolPlan;
+    const sampleCell = stack.carriedBy === "scientist" ? toolPlan.endpoint : stockpileHaulAccessCell(stack);
+    const toSample = labMapPathBetweenCells(toolPlan.endpoint, sampleCell, { map: ensureLabMap(), ignoreDoors: true });
+    if (!toSample.length) return { ok: false, reason: "The physical sample is unreachable." };
+    const bench = diagnosticWorkbenchPlan(sampleCell);
+    if (!bench) return { ok: false, reason: "No reachable operational research workbench is available." };
+    const materials = productionMaterialRoute({ assayReagent: 1 }, sampleCell, bench.cell);
+    if (!materials.ok) return materials;
+    return { ok: true, sample, stack, toolPlan, bench, materials, path: appendMapPath(appendMapPath(toolPlan.path, toSample), materials.path) };
+  }
+
+  function diagnosticSampleAssayBlockReason(stackId) {
+    const base = diagnosticBaseBlockReason();
+    if (base) return base;
+    const plan = diagnosticSampleAssayPlan(stackId);
+    return plan.ok ? staminaBlockReason(adjustedStaminaCost(4, ["alchemy", "analysis"])) : plan.reason;
+  }
+
+  function startDiagnosticSampleAssay(stackId) {
+    const reason = diagnosticSampleAssayBlockReason(stackId);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const plan = diagnosticSampleAssayPlan(stackId);
+    const cost = adjustedStaminaCost(4, ["alchemy", "analysis"]);
+    if (!spendStamina(cost)) return false;
+    const task = queueInstrumentDiagnostic({
+      workflowId: "assaySample",
+      label: `Analyze ${plan.sample.targetLabel} sample`,
+      instrumentId: "assayCase",
+      target: { kind: plan.sample.targetKind, id: plan.sample.targetId, label: plan.sample.targetLabel, cell: plan.sample.cell },
+      sample: plan.sample,
+      path: plan.path,
+      workSeconds: 30,
+      staminaCost: cost,
+      skillId: "alchemy",
+      data: { workstationId: plan.bench.fixture.id }
+    });
+    if (!task) return false;
+    const reservedStackIds = reserveProductionMaterialSlices([
+      { stackId, key: "diagnosticSample", quantity: 1 },
+      ...plan.materials.reservations
+    ], task.id);
+    if (!reservedStackIds) {
+      state.tasks = state.tasks.filter((entry) => entry.id !== task.id);
+      releaseConstructionTaskTools(task, { retain: false });
+      addEvent("The sample or reagent was claimed before the assay could begin.");
+      persist(); render();
+      return false;
+    }
+    task.data.reservedStackIds = reservedStackIds;
+    persist(); render();
+    return true;
+  }
+
+  function diagnosticCalibrationBlockReason(itemKey) {
+    const base = diagnosticBaseBlockReason();
+    if (base) return base;
+    if (!Diagnostics.INSTRUMENT_BY_ID[itemKey]) return "That item is not a diagnostic instrument.";
+    const toolPlan = diagnosticToolPlan(itemKey, scientistMapCell());
+    if (!toolPlan.ok) return toolPlan.reason;
+    if (!diagnosticWorkbenchPlan(toolPlan.endpoint)) return "No reachable operational research workbench is available.";
+    if (diagnosticInstrumentRecord(toolPlan.tool.id).calibration >= 99.5) return "This instrument is already fully calibrated.";
+    return staminaBlockReason(adjustedStaminaCost(2, ["analysis"]));
+  }
+
+  function startDiagnosticCalibration(itemKey) {
+    const reason = diagnosticCalibrationBlockReason(itemKey);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const toolPlan = diagnosticToolPlan(itemKey, scientistMapCell());
+    const bench = diagnosticWorkbenchPlan(toolPlan.endpoint);
+    const cost = adjustedStaminaCost(2, ["analysis"]);
+    if (!spendStamina(cost)) return false;
+    return Boolean(queueInstrumentDiagnostic({
+      workflowId: "calibrateInstrument",
+      label: `Calibrate ${inventoryItemLabel(itemKey)}`,
+      instrumentId: itemKey,
+      target: { kind: "fixture", id: bench.fixture.id, label: bench.fixture.name, cell: bench.cell },
+      path: appendMapPath(toolPlan.path, bench.path),
+      workSeconds: Diagnostics.INSTRUMENT_BY_ID[itemKey].calibrationSeconds,
+      staminaCost: cost,
+      skillId: "analysis",
+      data: { workstationId: bench.fixture.id }
+    }));
+  }
+
   function physicalDiagnosticBlockReason(test) {
     if (!test) {
       return "Unknown physical-state test.";
@@ -55287,6 +55757,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (physicalDiagnosticTask()) {
       return "A physical-state test is already in progress.";
     }
+    if (test.id === "basicAssay") {
+      const sample = ensureDiagnosticState().samples.find((entry) => ensurePhysicalItemStacks().some((stack) => stack.id === entry.stackId));
+      return sample ? diagnosticSampleAssayBlockReason(sample.stackId) : "Collect a physical sample before running a bench assay.";
+    }
     const cost = adjustedStaminaCost(test.staminaCost, test.skillIds || ["analysis"]);
     if (!hasStamina(cost)) {
       return `Not enough stamina. ${cost} required.`;
@@ -55296,6 +55770,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function startPhysicalDiagnostic(testId) {
     const test = PHYSICAL_DIAGNOSTIC_TEST_BY_ID[testId];
+    if (test?.id === "basicAssay") {
+      const sample = ensureDiagnosticState().samples.find((entry) => ensurePhysicalItemStacks().some((stack) => stack.id === entry.stackId));
+      return sample ? startDiagnosticSampleAssay(sample.stackId) : false;
+    }
     const reason = physicalDiagnosticBlockReason(test);
     if (reason) {
       addEvent(reason);
@@ -55318,6 +55796,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       createdAt: state.clock,
       dueAt: state.clock + adjustedActionDuration(test.duration, skillId),
       data: {
+        workflowId: "selfCheck",
         testId: test.id,
         staminaCost: cost,
         skillId,
@@ -55332,6 +55811,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completePhysicalDiagnostic(task) {
+    const workflowId = task.data?.workflowId || task.data?.testId || "selfCheck";
+    if (workflowId !== "selfCheck") return completeInstrumentDiagnostic(task);
     const test = PHYSICAL_DIAGNOSTIC_TEST_BY_ID[task.data?.testId] || PHYSICAL_DIAGNOSTIC_TEST_BY_ID.selfCheck;
     const exposure = scientistExposureTrack();
     const score = diagnosticConfidenceScore(test);
@@ -55366,6 +55847,227 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+
+  function diagnosticCapturedState(target) {
+    if (target.kind === "tile") {
+      const environment = tileEnvironmentAtCell(target.cell);
+      return {
+        environment: environment ? JSON.parse(JSON.stringify(environment)) : {},
+        attributes: tileEnvironmentAttributes(environment, roomById(target.roomId)?.attributes)
+      };
+    }
+    if (target.kind === "container") {
+      const environment = JSON.parse(JSON.stringify(target.target.environment || {}));
+      const attributes = tileEnvironmentAttributes(null, roomById(target.roomId)?.attributes);
+      attributes.temperature.current = environment.temperatureC ?? attributes.temperature.current;
+      attributes.humidity.current = environment.humidity ?? attributes.humidity.current;
+      attributes.ambientMana.current = environment.manaDensity ?? attributes.ambientMana.current;
+      attributes.contamination.current = airborneLoadTotal(environment.airborne);
+      return { environment, attributes };
+    }
+    if (target.kind === "slime") {
+      return {
+        bodyIntegrity: slimeStat(target.target, "bodyIntegrity").current,
+        stress: slimeStat(target.target, "stress").current,
+        currentMass: slimeStat(target.target, "currentMass").current,
+        nutrition: slimeStat(target.target, "nutrition").current
+      };
+    }
+    const exposure = scientistExposureTrack();
+    return { exposure: { current: exposure.current, max: exposure.max, sourceType: exposure.sourceType, likelySource: exposure.likelySource } };
+  }
+
+  function instrumentDiagnosticConfidence(task, sample = null) {
+    const found = toolInstanceById(task.data?.instrumentInstanceId);
+    const tool = found?.instance;
+    const record = diagnosticInstrumentRecord(tool?.id || task.data?.instrumentInstanceId);
+    const skill = Math.min(100, skillLevel(task.data?.skillId || "analysis") * 10 + 20);
+    const methodQuality = sample ? Diagnostics.SAMPLE_METHOD_BY_ID[sample.methodId]?.quality || 50 : 72;
+    const score = Diagnostics.confidenceScore({
+      calibration: record.calibration,
+      condition: tool ? tool.current / Math.max(1, tool.max) * 100 : 0,
+      skill,
+      methodQuality,
+      sampleAgeSeconds: sample ? state.clock - sample.collectedAt : 0
+    });
+    return {
+      score, record, tool,
+      factors: [
+        `Calibration ${Math.round(record.calibration)}/100 (${Diagnostics.calibrationBand(record.calibration).label})`,
+        `Condition ${tool ? Math.round(tool.current / Math.max(1, tool.max) * 100) : 0}%`,
+        `${skillDisplayName(task.data?.skillId || "analysis")} contribution ${skill}%`,
+        sample ? `Sample age ${formatDuration(state.clock - sample.collectedAt)}` : "Direct field reading"
+      ]
+    };
+  }
+
+  function instrumentDiagnosticReading(attributeKey, value, score) {
+    const label = ROOM_ATTRIBUTE_BY_KEY[attributeKey]?.label || titleCase(attributeKey);
+    const band = roomAttributeBand(attributeKey, value).label;
+    if (score >= 82) return { key: attributeKey, label, value: roomAttributeMeasurementText(attributeKey, value), band };
+    if (score < 28) return { key: attributeKey, label, value: `${band} band; exact reading indeterminate`, band };
+    const spread = Math.max(attributeKey === "temperature" ? 0.5 : 1, Math.abs(value) * Diagnostics.uncertaintyFraction(score));
+    return {
+      key: attributeKey,
+      label,
+      value: `${roomAttributeMeasurementText(attributeKey, value - spread)} to ${roomAttributeMeasurementText(attributeKey, value + spread)}`,
+      band
+    };
+  }
+
+  function saveInstrumentDiagnosticResult(task, result) {
+    const diagnostics = ensureDiagnosticState();
+    const normalized = Diagnostics.normalizeResult({
+      id: `diagnostic-result-${diagnostics.nextResultNumber++}`,
+      workflowId: task.data.workflowId,
+      targetKind: task.data.targetKind,
+      targetId: task.data.targetId,
+      targetLabel: task.data.targetLabel,
+      cell: task.data.targetCell,
+      measuredAt: state.clock,
+      instrumentId: task.data.instrumentId,
+      instrumentInstanceId: task.data.instrumentInstanceId,
+      ...result
+    }, diagnostics.results.length);
+    diagnostics.results.push(normalized);
+    diagnostics.results = diagnostics.results.slice(-100);
+    recordResearchEvidence({
+      methodId: `diagnostic:${task.data.workflowId}`,
+      category: "diagnostic",
+      specimenId: task.data.targetId,
+      specimenName: task.data.targetLabel,
+      sourceKey: `diagnostic:${normalized.id}`,
+      summary: normalized.summary,
+      confidence: normalized.confidenceScore / 100
+    });
+    return normalized;
+  }
+
+  function completeInstrumentDiagnostic(task) {
+    pickupConstructionTaskTools(task);
+    const workflowId = task.data.workflowId;
+    if (workflowId === "calibrateInstrument") {
+      const record = diagnosticInstrumentRecord(task.data.instrumentInstanceId);
+      record.calibration = 100;
+      record.usesSinceCalibration = 0;
+      record.lastCalibratedAt = state.clock;
+      awardActionXp("analysis", 10, emptyRevealSummary(), "Instrument calibration");
+      addEvent(`${inventoryItemLabel(task.data.instrumentId)} calibrated to reference condition.`);
+    } else if (workflowId === "collectSample") {
+      const target = diagnosticTargetInfo(task.data.targetKind, task.data.targetId, task.data.targetCell);
+      if (!target) {
+        releaseConstructionTaskTools(task, { retain: false });
+        return false;
+      }
+      const diagnostics = ensureDiagnosticState();
+      const stack = createPhysicalItemStack("inventory", "diagnosticSample", 1, {
+        roomId: scientistRoomId(), cell: scientistMapCell()
+      }, {
+        carriedBy: "scientist",
+        dimensionsM: { width: 0.08, length: 0.08, height: 0.14 }
+      });
+      const sample = Diagnostics.normalizeSample({
+        id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`,
+        stackId: stack.id,
+        methodId: task.data.methodId,
+        targetKind: target.kind,
+        targetId: target.id,
+        targetLabel: target.label,
+        cell: target.cell,
+        collectedAt: state.clock,
+        collectorInstrumentInstanceId: task.data.instrumentInstanceId,
+        captured: diagnosticCapturedState(target)
+      }, diagnostics.samples.length);
+      diagnostics.samples.push(sample);
+      const method = Diagnostics.SAMPLE_METHOD_BY_ID[task.data.methodId];
+      if (target.kind === "slime") {
+        if (method.stress) adjustSlimeStat(target.target, "stress", method.stress);
+        if (method.bodyDamage) adjustSlimeStat(target.target, "bodyIntegrity", -method.bodyDamage);
+      }
+      if (target.kind === "scientist" && method.bodyDamage) {
+        scientistVital("health").current = Math.max(0, scientistVital("health").current - method.bodyDamage);
+      }
+      addEvent(`${method.label} collected from ${target.label}. The sealed physical sample is now in the scientist's inventory.`);
+      awardActionXp("medicine", 8, emptyRevealSummary(), method.label);
+    } else {
+      const sample = workflowId === "assaySample"
+        ? ensureDiagnosticState().samples.find((entry) => entry.id === task.data.sampleId)
+        : null;
+      const confidence = instrumentDiagnosticConfidence(task, sample);
+      let readings = [];
+      if (workflowId === "fieldSurvey" || workflowId === "thaumicSurvey") {
+        const target = diagnosticTargetInfo(task.data.targetKind, task.data.targetId, task.data.targetCell);
+        const captured = diagnosticCapturedState(target);
+        const keys = workflowId === "thaumicSurvey" ? ["ambientMana"] : ["temperature", "humidity", "light", "electrical"];
+        readings = keys.map((key) => instrumentDiagnosticReading(key, captured.attributes[key]?.current || 0, confidence.score));
+      } else if (sample) {
+        const captured = sample.captured || {};
+        if (sample.methodId === "airVial") {
+          const environment = captured.environment || {};
+          const attributes = captured.attributes || tileEnvironmentAttributes(environment);
+          readings.push(instrumentDiagnosticReading("contamination", attributes.contamination?.current || airborneLoadTotal(environment.airborne), confidence.score));
+          const substances = Object.entries(environment.airborne || {});
+          readings.push({
+            key: "airborneIdentity",
+            label: "Airborne identity",
+            value: confidence.score >= 66
+              ? substances.map(([key, value]) => `${airborneSubstanceLabel(key)} ${formatDecimal(value, 1)}`).join(", ") || "No detectable airborne material"
+              : confidence.score >= 48
+                ? `${substances.length || "No"} distinguishable component${substances.length === 1 ? "" : "s"}; identities indeterminate`
+                : "Mixture identity indeterminate",
+            band: Diagnostics.confidenceBand(confidence.score).label
+          });
+        } else if (captured.exposure) {
+          const exposure = captured.exposure;
+          const spread = Math.max(2, exposure.current * Diagnostics.uncertaintyFraction(confidence.score));
+          readings.push({
+            key: "exposure",
+            label: "Exposure burden",
+            value: confidence.score >= 82
+              ? `${Math.round(exposure.current)}/${Math.round(exposure.max)}`
+              : `${Math.max(0, Math.round(exposure.current - spread))}-${Math.round(exposure.current + spread)} estimated`,
+            band: exposureSeverityLabel(exposure.current)
+          });
+          scientistPhysicalState().latestTest = {
+            testId: "basicAssay",
+            label: "Latest test",
+            summary: `${exposureSeverityLabel(exposure.current)} ${exposure.sourceType || "exposure"}`,
+            confidence: Diagnostics.confidenceBand(confidence.score).label,
+            sourceType: exposure.sourceType,
+            likelySource: exposure.likelySource,
+            exactValue: confidence.score >= 82 ? Math.round(exposure.current) : null,
+            testedAt: state.clock
+          };
+        } else {
+          readings = Object.entries(captured).map(([key, value]) => {
+            const spread = Diagnostics.uncertaintyFraction(confidence.score);
+            return {
+              key,
+              label: titleCase(key),
+              value: confidence.score >= 82 ? formatDecimal(value, 1) : `${Math.max(0, Math.round(value * (1 - spread)))}-${Math.round(value * (1 + spread))}`,
+              band: "Biological assay"
+            };
+          });
+        }
+        consumeProductionMaterialReservations(task);
+        ensureDiagnosticState().samples = ensureDiagnosticState().samples.filter((entry) => entry.id !== sample.id);
+      }
+      const summary = readings.map((reading) => `${reading.label}: ${reading.value}`).join("; ") || "Diagnostic reading complete.";
+      const result = saveInstrumentDiagnosticResult(task, {
+        confidenceScore: confidence.score,
+        summary,
+        readings,
+        factors: confidence.factors,
+        sampleCollectedAt: sample?.collectedAt ?? null
+      });
+      awardActionXp(task.data.skillId || "analysis", task.data.baseXp || 12, emptyRevealSummary(), task.label, { outcome: diagnosticXpOutcome(confidence.score) });
+      addEvent(`${task.label} complete. ${result.summary} Confidence: ${result.confidence}.`);
+      ensureDiagnosticState().instruments[task.data.instrumentInstanceId] = Diagnostics.useInstrument(confidence.record, task.data.instrumentId, state.clock);
+      damageSpecificTool(task.data.instrumentInstanceId, 1, task.label.toLowerCase());
+    }
+    releaseConstructionTaskTools(task, { retain: false });
+    return true;
+  }
 
   function slimeStats(slime) {
     slime.stats = normalizeSlimeStats(slime.stats);
@@ -59307,6 +60009,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
     next.research = Research.normalizeState(next.research);
+    next.diagnostics = Diagnostics.normalizeState(next.diagnostics);
     next.floorStockpiles = normalizeFloorStockpiles(next.floorStockpiles);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
     next.physicalItemStacks = normalizePhysicalItemStacks(next.physicalItemStacks);
@@ -59359,7 +60062,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
-    const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds]);
+    const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
+    const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds]);
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
