@@ -4207,6 +4207,72 @@ html[data-reduced-motion="true"] *::after {
   gap: 0.4rem;
 }
 
+.experiment-notebook-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.experiment-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 0.55rem;
+}
+
+.experiment-form label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.experiment-hypothesis-field,
+.experiment-form-actions {
+  grid-column: 1 / -1;
+}
+
+.experiment-form textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.experiment-form-actions,
+.experiment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.experiment-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 0.7rem;
+}
+
+.experiment-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.experiment-card h3,
+.experiment-card p {
+  margin: 0;
+}
+
+.experiment-card details {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.experiment-card details ul {
+  margin-bottom: 0.2rem;
+}
+
+.experiment-result-summary {
+  color: var(--green);
+}
+
 .research-project-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));

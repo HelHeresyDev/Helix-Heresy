@@ -73,6 +73,7 @@ async function finishQueuedTask(page, label) {
 }
 
 test('sampling a living specimen stores harvested material and worsens condition', async ({ page }) => {
+  test.setTimeout(90_000);
   const consoleIssues = [];
   const pageErrors = [];
   page.on('console', (message) => {
@@ -285,6 +286,164 @@ test('sampling a living specimen stores harvested material and worsens condition
   await page.locator('[data-workspace-tab="specimens"]').click();
   await page.locator('[data-creature-record-tab="testing"]').click();
   await expect(page.locator('#testButtons').getByRole('button', { name: /Stress Test/ })).toBeEnabled();
+
+  const experimentSetup = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const subject = debug.createSpatialTestSlime({ size: 'seedling' });
+    const experimentId = debug.createExperimentDraft({
+      title: 'Controlled acid comparison',
+      hypothesis: 'The harvested acid-line genome produces a different visible phenotype.',
+      variableType: 'genome',
+      controlId: 'harvest-live',
+      subjectValues: [subject.id],
+    });
+    const started = debug.startExperiment(experimentId);
+    const experiment = debug.experimentSnapshot().experiments.find((entry) => entry.id === experimentId);
+    return {
+      experimentId,
+      subjectId: subject.id,
+      started,
+      status: experiment.status,
+      baseline: experiment.baselineSnapshots,
+      formalControl: experiment.formalControl,
+    };
+  });
+  expect(experimentSetup.started).toBe(true);
+  expect(experimentSetup.status).toBe('running');
+  expect(experimentSetup.formalControl).toBe(true);
+  expect(Object.keys(experimentSetup.baseline)).toHaveLength(2);
+
+  await page.locator('[data-workspace-tab="research"]').click();
+  const experimentCard = page.locator(`[data-experiment-id="${experimentSetup.experimentId}"]`);
+  await expect(experimentCard).toContainText('Evidence coverage: 0/2');
+
+  for (const expectedCoverage of [1, 2]) {
+    const queuedLabel = await page.evaluate((experimentId) => {
+      const debug = window.helixHeresyDebug;
+      if (!debug.queueExperimentNextStep(experimentId)) throw new Error('Experiment next step was not queued.');
+      const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+      const state = payload.state || payload;
+      return state.tasks.find((task) => task.data?.experimentId === experimentId)?.label || '';
+    }, experimentSetup.experimentId);
+    expect(queuedLabel).not.toBe('');
+    await finishQueuedTask(page, queuedLabel);
+    await page.locator('[data-workspace-tab="research"]').click();
+    await expect(experimentCard).toContainText(`Evidence coverage: ${expectedCoverage}/2`);
+  }
+
+  const firstConclusion = await page.evaluate((experimentId) => {
+    const debug = window.helixHeresyDebug;
+    const queued = debug.queueExperimentConclusion(experimentId, 'supports');
+    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.type === 'experimentConclusion');
+    const experiment = debug.experimentSnapshot().experiments.find((entry) => entry.id === experimentId);
+    const fixture = state.fixtures.find((entry) => entry.id === task?.data?.workstationId);
+    const status = debug.taskStatusSnapshot().find((entry) => entry.id === task?.id)?.status;
+    return { queued, label: task?.label || '', taskId: task?.id || '', pathLength: task?.data?.mapPath?.length || 0, status, experimentStatus: experiment?.status, conclusionTaskId: experiment?.conclusionTaskId, workstationState: fixture?.operationalState };
+  }, experimentSetup.experimentId);
+  expect(firstConclusion).toEqual(expect.objectContaining({
+    queued: true,
+    status: expect.objectContaining({ id: 'active' }),
+    experimentStatus: 'concluding',
+    conclusionTaskId: firstConclusion.taskId,
+    workstationState: 'operational',
+  }));
+  expect(firstConclusion.pathLength).toBeGreaterThan(0);
+
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('#taskList .task-row').filter({ hasText: firstConclusion.label })
+    .getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate((experimentId) => window.helixHeresyDebug.experimentSnapshot().experiments
+    .find((entry) => entry.id === experimentId)?.status, experimentSetup.experimentId)).toBe('running');
+
+  const finalConclusionLabel = await page.evaluate((experimentId) => {
+    const debug = window.helixHeresyDebug;
+    if (!debug.queueExperimentConclusion(experimentId, 'supports')) throw new Error('Experiment conclusion was not re-queued.');
+    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+    const state = payload.state || payload;
+    return state.tasks.find((task) => task.type === 'experimentConclusion')?.label || '';
+  }, experimentSetup.experimentId);
+  await finishQueuedTask(page, finalConclusionLabel);
+
+  const completedExperiment = await page.evaluate((experimentId) => {
+    const debug = window.helixHeresyDebug;
+    const experiment = debug.experimentSnapshot().experiments.find((entry) => entry.id === experimentId);
+    const serialized = JSON.stringify(experiment);
+    return {
+      status: experiment.status,
+      conclusion: experiment.conclusion,
+      baseline: experiment.baselineSnapshots,
+      finalCount: Object.keys(experiment.finalSnapshots).length,
+      confidenceLabel: experiment.comparison?.confidenceLabel,
+      comparisonSources: experiment.comparison?.evidenceSourceKeys?.length || 0,
+      evidenceRecorded: debug.researchSnapshot().evidence.some((entry) => entry.sourceKey === `experiment:${experimentId}`),
+      leakedHiddenEvaluation: serialized.includes('evaluated') || serialized.includes('traitMaps'),
+    };
+  }, experimentSetup.experimentId);
+  expect(completedExperiment).toEqual(expect.objectContaining({
+    status: 'completed',
+    conclusion: 'supports',
+    baseline: experimentSetup.baseline,
+    finalCount: 2,
+    confidenceLabel: expect.any(String),
+    comparisonSources: 2,
+    evidenceRecorded: true,
+    leakedHiddenEvaluation: false,
+  }));
+  await page.locator('[data-workspace-tab="research"]').click();
+  await expect(experimentCard).toContainText('Supports hypothesis');
+  await expect(experimentCard).toContainText('Known genome differences');
+
+  const plannedExperiment = await page.evaluate(({ genome }) => {
+    const debug = window.helixHeresyDebug;
+    const id = debug.createExperimentDraft({
+      title: 'Planned genome synthesis',
+      hypothesis: 'A newly synthesized planned genome can be observed.',
+      variableType: 'genome',
+      subjectValues: [`planned:${genome}`],
+    });
+    debug.startExperiment(id);
+    if (!debug.queueExperimentNextStep(id)) throw new Error('Planned subject synthesis was not queued.');
+    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.data?.experimentId === id || entry.data?.continuation?.task?.data?.experimentId === id);
+    return { id, taskType: task?.data?.continuation?.task?.type || task?.type, taskLabel: task?.label || '' };
+  }, { genome: context.currentGenome });
+  expect(plannedExperiment.taskType).toBe('synthesize');
+  await finishQueuedTask(page, plannedExperiment.taskLabel);
+  const synthesisFollowupLabel = await page.evaluate((experimentId) => {
+    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
+    const state = payload.state || payload;
+    return state.tasks.find((entry) => entry.type === 'synthesize' && entry.data?.experimentId === experimentId)?.label || '';
+  }, plannedExperiment.id);
+  if (synthesisFollowupLabel) await finishQueuedTask(page, synthesisFollowupLabel);
+  const resolvedPlannedExperiment = await page.evaluate((experimentId) => {
+    const debug = window.helixHeresyDebug;
+    const experiment = debug.experimentSnapshot().experiments.find((entry) => entry.id === experimentId);
+    const subject = experiment.subjects[0];
+    const result = {
+      status: experiment.status,
+      synthesizedSlimeId: subject.synthesizedSlimeId,
+      baselineCount: Object.keys(experiment.baselineSnapshots).length,
+    };
+    debug.abandonExperiment(experimentId);
+    return result;
+  }, plannedExperiment.id);
+  expect(resolvedPlannedExperiment).toEqual({
+    status: 'running',
+    synthesizedSlimeId: expect.stringMatching(/^slime-/),
+    baselineCount: 1,
+  });
+
+  await loadSavedRun(page);
+  const reloadedExperiments = await page.evaluate(() => window.helixHeresyDebug.experimentSnapshot().experiments
+    .map((entry) => ({ id: entry.id, status: entry.status })));
+  expect(reloadedExperiments).toEqual(expect.arrayContaining([
+    { id: experimentSetup.experimentId, status: 'completed' },
+    { id: plannedExperiment.id, status: 'abandoned' },
+  ]));
+
   expect(consoleIssues).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

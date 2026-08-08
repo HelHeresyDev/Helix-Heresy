@@ -11,6 +11,7 @@ For story background, long-term systems, current design direction, and open ques
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
 - Evidence-driven research projects that cite reusable observations, consume physical materials and scientist work, preserve interrupted workpieces, and unlock advanced tests or usable prototypes.
+- An Experiment Notebook for player-written hypotheses, optional controls, one-to-three experimental subjects, planned-genome synthesis, immutable baseline/final snapshots, ordinary test evidence, confounder-aware comparisons, and routed workbench conclusions.
 - Physical diagnostic workflows with worn Environmental Survey Kits, Thaumometers, and Assay Cases; visible routed work; calibration and condition-based uncertainty; sealed air and biological samples; reagent-consuming bench assays; and saved historical results.
 - Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstocks for testing feeding systems.
 - Slime reproduction foundation with natural splitting, Forced Recombination, Current Mass, and Division Pressure.
@@ -69,6 +70,7 @@ The 14-test smoke command is the quick cross-system check for routine iteration.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
 - `diagnostic-system.js` - Instrument, calibration, sample, confidence, uncertainty, and immutable diagnostic-result data contracts.
+- `experiment-system.js` - Experiment templates, subjects, lifecycle normalization, immutable comparison records, conclusion labels, genome-difference summaries, and deterministic confidence bands.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
