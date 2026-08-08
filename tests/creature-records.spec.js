@@ -22,7 +22,7 @@ async function loadSavedRun(page) {
   await page.locator('#loadLastSaveBtn').click();
 }
 
-function slimeFixture({ id, name, genome, status = 'contained', containerId = 'basic-1', roomId = 'mainLab', parentIds = [], broodId = '' }) {
+function slimeFixture({ id, name, genome, status = 'contained', containerId = 'basic-1', roomId = 'mainLab', parentIds = [], broodId = '', generation = 0, reproductionEventId = '', inheritance = null }) {
   return {
     id,
     name,
@@ -39,6 +39,9 @@ function slimeFixture({ id, name, genome, status = 'contained', containerId = 'b
     mapCell: status === 'released' ? { x: 18, y: 14 } : null,
     parentIds,
     broodId,
+    generation,
+    reproductionEventId,
+    inheritance,
     automationExcluded: false,
     job: 'idle',
     jobProgress: 0,
@@ -161,6 +164,7 @@ test('creature records expose deceased and lineage files without revealing hidde
       ruined: false,
       parentIds: [],
       broodId: 'brood-records',
+      generation: 0,
       revealed: {},
       measured: {},
       traitObservations: {},
@@ -168,6 +172,22 @@ test('creature records expose deceased and lineage files without revealing hidde
       harvestedProcedures: {},
       nextOverflowEventAt: null,
     }];
+    state.heredity = {
+      version: 1,
+      nextEventNumber: 2,
+      events: [{
+        id: 'reproduction-1',
+        methodId: 'naturalDivision',
+        priorityId: 'balanced',
+        broodId: 'brood-records',
+        createdAt: 30,
+        targetCount: 1,
+        parents: [{ id: 'parent-dead', name: 'REC-PARENT', genome, generation: 0 }],
+        children: [{ id: 'child-record', name: 'REC-CHILD', genome, generation: 1, inheritance: child.inheritance }],
+        environment: { contamination: 0, ambientMana: 50 },
+        summary: 'Natural Division produced one recorded offspring.',
+      }],
+    };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
     key: storageKey,
@@ -178,6 +198,15 @@ test('creature records expose deceased and lineage files without revealing hidde
       genome,
       parentIds: ['parent-dead'],
       broodId: 'brood-records',
+      generation: 1,
+      reproductionEventId: 'reproduction-1',
+      inheritance: {
+        methodId: 'naturalDivision',
+        priorityId: 'balanced',
+        mutationBand: 'variable',
+        contributions: [{ parentId: 'parent-dead', start: 1, end: 26 }],
+        mutations: [],
+      },
     }),
   });
   await loadSavedRun(page);
@@ -190,5 +219,81 @@ test('creature records expose deceased and lineage files without revealing hidde
   await expect(page.locator('#lineageList')).toContainText('REC-CHILD');
   await expect(page.locator('#lineageList')).toContainText('REC-PARENT');
   await expect(page.locator('#lineageList')).toContainText('brood brood-records');
+  await expect(page.locator('#lineageList')).toContainText('generation 1');
+  await expect(page.locator('#lineageEventList')).toContainText('Natural Division');
+  await expect(page.locator('#lineageEventList')).toContainText('0 mutations');
   await expect(page.locator('#lineageList')).not.toContainText('Undiscovered');
+
+  const heredityResult = await page.evaluate(async () => {
+    const debug = window.helixHeresyDebug;
+    const parent = debug.livingHereditySnapshot().find((entry) => entry.id === 'child-record');
+    const options = {
+      methodId: 'forcedRecombination',
+      priorityId: 'balanced',
+      seed: 'creature-record-heredity',
+      parents: [
+        { id: 'left', genome: parent.genome },
+        { id: 'right', genome: parent.genome.replace(/[ACGT]/g, (base) => ({ A: 'C', C: 'G', G: 'T', T: 'A' })[base]) },
+      ],
+      stabilityRisk: 5,
+      stress: 0,
+      integrity: 100,
+      contamination: 0,
+      ambientMana: 50,
+    };
+    const first = debug.inheritGenomeForTest(options);
+    const second = debug.inheritGenomeForTest(options);
+    const hasExactClone = Array.from({ length: 80 }, (_, index) => debug.inheritGenomeForTest({
+      ...options,
+      methodId: 'inducedDivision',
+      priorityId: 'fidelity',
+      seed: `exact-clone-${index}`,
+      parents: [options.parents[0]],
+    })).some((outcome) => outcome.mutations.length === 0);
+
+    debug.addResearchResource('geneticMaterial', 1);
+    const queued = debug.queueControlledReproduction({
+      methodId: 'inducedDivision',
+      priorityId: 'novelty',
+      parentAId: 'child-record',
+      targetCount: 2,
+    });
+    for (let step = 0; step < 4; step += 1) {
+      const task = debug.taskStatusSnapshot().find((entry) => entry.type === 'resourceHaul' || entry.type === 'breed');
+      if (!task) break;
+      debug.advanceSimulation(Math.max(1, task.dueAt - task.createdAt + 5));
+    }
+    const naturalParent = debug.createSpatialTestSlime({ size: 'seedling', roomId: 'mainLab' });
+    const naturalDivided = debug.forceNaturalDivisionForTest(naturalParent.id);
+    return {
+      deterministic: JSON.stringify(first) === JSON.stringify(second),
+      contributions: first.contributions,
+      hasExactClone,
+      queued,
+      naturalParentId: naturalParent.id,
+      naturalDivided,
+      heredity: debug.hereditySnapshot(),
+      living: debug.livingHereditySnapshot(),
+    };
+  });
+
+  expect(heredityResult.deterministic).toBe(true);
+  expect(new Set(heredityResult.contributions.map((entry) => entry.parentId))).toEqual(new Set(['left', 'right']));
+  expect(heredityResult.hasExactClone).toBe(true);
+  expect(heredityResult.queued).toBe(true);
+  const controlledEvent = heredityResult.heredity.events.find((event) => event.methodId === 'inducedDivision');
+  expect(controlledEvent?.children).toHaveLength(2);
+  expect(controlledEvent?.children.every((child) => child.generation === 2 && child.inheritance)).toBe(true);
+  const controlledBodies = heredityResult.living.filter((slime) => slime.id === 'child-record' || slime.reproductionEventId === controlledEvent.id);
+  expect(controlledBodies).toHaveLength(3);
+  expect(controlledBodies.reduce((total, slime) => total + slime.mass, 0)).toBeCloseTo(100, 5);
+  expect(heredityResult.naturalDivided).toBe(true);
+  const naturalEvent = [...heredityResult.heredity.events].reverse().find((event) => event.methodId === 'naturalDivision' && event.parents[0]?.id === heredityResult.naturalParentId);
+  expect(naturalEvent?.children.length).toBeGreaterThan(0);
+  const naturalBodies = heredityResult.living.filter((slime) => slime.id === heredityResult.naturalParentId || slime.reproductionEventId === naturalEvent.id);
+  expect(naturalBodies.reduce((total, slime) => total + slime.mass, 0)).toBeCloseTo(100, 5);
+
+  await page.locator('[data-creature-record-tab="lineage"]').click();
+  await expect(page.locator('#lineageEventList')).toContainText('Induced Division');
+  await expect(page.locator('#lineageList')).toContainText('generation 2');
 });

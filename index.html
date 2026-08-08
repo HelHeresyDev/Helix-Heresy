@@ -191,21 +191,29 @@
           </div>
 
           <div class="creature-record-panel lineage-bank" data-creature-record-panel="lineage" role="tabpanel" hidden>
-            <div class="subpanel-title">Lineage</div>
+            <div class="subpanel breeding-bank reproduction-planner">
+              <div class="subpanel-title">Reproduction Planner</div>
+              <p class="journal-meta">Controlled procedures conserve parent mass, reserve empty destinations, use physical Genetic Material, and conclude at the Synthesis Tube.</p>
+              <div class="reproduction-form-grid">
+                <label>Method<select id="reproductionMethodSelect"></select></label>
+                <label>Priority<select id="reproductionPrioritySelect"></select></label>
+                <label>Parent A<select id="parentASelect"></select></label>
+                <label id="parentBField">Parent B<select id="parentBSelect"></select></label>
+                <label>Offspring<input id="reproductionOffspringCount" type="number" min="1" max="3" value="1"></label>
+              </div>
+              <p id="reproductionMutationBand" class="journal-meta"></p>
+              <p id="reproductionDestinationSummary" class="journal-meta"></p>
+              <button id="breedBtn" class="primary" type="button">Queue Procedure</button>
+            </div>
+            <div class="subpanel-title">Family Records</div>
             <div id="lineageList" class="lineage-list"></div>
+            <div class="subpanel-title">Reproduction Events</div>
+            <div id="lineageEventList" class="lineage-list"></div>
           </div>
 
           <div class="creature-record-panel test-bank" data-creature-record-panel="testing" role="tabpanel" hidden>
             <div class="subpanel-title">Tests</div>
             <div id="testButtons" class="test-buttons"></div>
-            <div class="breeding-bank">
-              <div class="subpanel-title">Reproduction</div>
-              <div class="breeding-row">
-                <select id="parentASelect"></select>
-                <select id="parentBSelect"></select>
-                <button id="breedBtn" type="button">Force Recombination</button>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -671,6 +679,7 @@
     <script src="research-system.js"></script>
     <script src="diagnostic-system.js"></script>
     <script src="experiment-system.js"></script>
+    <script src="heredity-system.js"></script>
     <script src="terrain-connectivity.js"></script>
     <script src="actor-visual-state.js"></script>
     <script src="animation-clock.js"></script>

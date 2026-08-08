@@ -3304,6 +3304,10 @@
   if (!Experiments) {
     throw new Error("HelixExperimentSystem must load before app.js");
   }
+  const Heredity = window.HelixHereditySystem;
+  if (!Heredity) {
+    throw new Error("HelixHereditySystem must load before app.js");
+  }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
@@ -3852,6 +3856,7 @@
       research: Research.defaultState(),
       diagnostics: Diagnostics.defaultState(),
       experiments: Experiments.defaultState(),
+      heredity: Heredity.defaultState(),
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
       feedingResidues: [],
@@ -4712,6 +4717,13 @@
       "jobSummary",
       "jobList",
       "lineageList",
+      "lineageEventList",
+      "reproductionMethodSelect",
+      "reproductionPrioritySelect",
+      "reproductionOffspringCount",
+      "reproductionMutationBand",
+      "reproductionDestinationSummary",
+      "parentBField",
       "containerSummary",
       "containerList",
       "testButtons",
@@ -5673,6 +5685,34 @@
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
       experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
+      hereditySnapshot: () => JSON.parse(JSON.stringify(ensureHeredityState())),
+      livingHereditySnapshot: () => (state.slimes || []).map((slime) => ({
+        id: slime.id,
+        genome: slime.genome,
+        parentIds: [...(slime.parentIds || [])],
+        broodId: slime.broodId || "",
+        generation: Number(slime.generation) || 0,
+        reproductionEventId: slime.reproductionEventId || "",
+        inheritance: Heredity.normalizeInheritance(slime.inheritance),
+        mass: slimeStat(slime, "currentMass").current,
+        nutrition: slimeStat(slime, "nutrition").current
+      })),
+      inheritGenomeForTest: (options) => Heredity.inheritGenome(options),
+      queueControlledReproduction: (options) => queueControlledReproduction(options),
+      forceNaturalDivisionForTest: (slimeId) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return false;
+        slime.mature = true;
+        setSlimeStat(slime, "currentMass", 100);
+        setSlimeStat(slime, "nutrition", 100);
+        setSlimeStat(slime, "bodyIntegrity", 100);
+        setSlimeStat(slime, "stress", 0);
+        setSlimeStat(slime, "divisionPressure", 100);
+        const divided = tryNaturalSplit(slime);
+        persist();
+        render();
+        return divided;
+      },
       createExperimentDraft: (options) => saveExperimentDraft(options),
       startExperiment: (experimentId) => startExperiment(experimentId),
       queueExperimentNextStep: (experimentId) => queueExperimentNextStep(experimentId),
@@ -6089,36 +6129,12 @@
       toggleSlimeContainment(getSelectedSlime()?.id);
     });
 
+    for (const control of [dom.reproductionMethodSelect, dom.reproductionPrioritySelect, dom.parentASelect, dom.parentBSelect, dom.reproductionOffspringCount]) {
+      control.addEventListener("change", renderBreeding);
+    }
+    dom.reproductionOffspringCount.addEventListener("input", renderBreeding);
     dom.breedBtn.addEventListener("click", () => {
-      const parentA = findSlime(dom.parentASelect.value);
-      const parentB = findSlime(dom.parentBSelect.value);
-      if (!parentA || !parentB || parentA.id === parentB.id) {
-        addEvent("Select two different mature slimes.");
-        persist();
-        render();
-        return;
-      }
-      if (!isBreedable(parentA) || !isBreedable(parentB)) {
-        addEvent("Forced recombination requires living mature slimes.");
-        persist();
-        render();
-        return;
-      }
-      if (!canAddContainedSlime()) {
-        addEvent("Forced recombination requires at least one open permanent container.");
-        persist();
-        render();
-        return;
-      }
-      startStaminaTask({
-        type: "breed",
-        label: `Forced Recombination ${parentA.name} x ${parentB.name}`,
-        baseDuration: 18,
-        skillId: "husbandry",
-        baseXp: 30,
-        baseCost: BASE_ACTION_STAMINA,
-        data: { parentAId: parentA.id, parentBId: parentB.id }
-      });
+      queueControlledReproduction(currentReproductionPlannerOptions());
     });
 
     dom.restFullBtn.addEventListener("click", () => {
@@ -11752,6 +11768,9 @@
       spatialPressure: normalizeSlimeSpatialPressure(options.spatialPressure),
       parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
       broodId: cleanLineageId(options.broodId),
+      generation: Math.max(0, Math.floor(Number(options.generation) || 0)),
+      reproductionEventId: Heredity.cleanId(options.reproductionEventId),
+      inheritance: Heredity.normalizeInheritance(options.inheritance),
       automationExcluded: Boolean(options.automationExcluded),
       roleId: "idle",
       roleSource: "automatic",
@@ -11797,72 +11816,356 @@
     return effectiveLifespanMinutes(evaluated.traits.lifespan.meta);
   }
 
+  function ensureHeredityState() {
+    if (!state.heredity || state.heredity.version !== Heredity.VERSION || !Array.isArray(state.heredity.events)) {
+      state.heredity = Heredity.normalizeState(state.heredity);
+    }
+    return state.heredity;
+  }
+
+  function reproductionEventById(eventId) {
+    return ensureHeredityState().events.find((entry) => entry.id === eventId) || null;
+  }
+
+  function reproductionParentSnapshot(slime) {
+    return {
+      id: slime.id,
+      name: slime.name,
+      genome: slime.genome,
+      generation: Math.max(0, Math.floor(Number(slime.generation) || 0)),
+      mass: slimeStat(slime, "currentMass").current,
+      nutrition: slimeStat(slime, "nutrition").current,
+      bodyIntegrity: slimeStat(slime, "bodyIntegrity").current,
+      stress: slimeStat(slime, "stress").current,
+      roomId: slimeEffectiveRoomId(slime),
+      containerId: slime.containerId || ""
+    };
+  }
+
+  function reproductionChildSnapshot(slime) {
+    return {
+      id: slime.id,
+      name: slime.name,
+      genome: slime.genome,
+      generation: Math.max(0, Math.floor(Number(slime.generation) || 0)),
+      mass: slimeStat(slime, "currentMass").current,
+      nutrition: slimeStat(slime, "nutrition").current,
+      bodyIntegrity: slimeStat(slime, "bodyIntegrity").current,
+      stress: slimeStat(slime, "stress").current,
+      roomId: slimeEffectiveRoomId(slime),
+      containerId: slime.containerId || "",
+      inheritance: Heredity.normalizeInheritance(slime.inheritance)
+    };
+  }
+
+  function reproductionMutationContext(parents) {
+    const count = Math.max(1, parents.length);
+    const environments = parents.map((slime) => experimentEnvironmentSnapshot(slime)).filter(Boolean);
+    const averageEnvironment = (key, fallback) => environments.length
+      ? environments.reduce((total, entry) => total + (Number(entry[key]) || 0), 0) / environments.length
+      : fallback;
+    return {
+      stabilityRisk: parents.reduce((total, slime) => total + (Number(evaluateGenome(slime.genome).traits.stability.meta?.risk) || 5), 0) / count,
+      stress: parents.reduce((total, slime) => total + slimeStat(slime, "stress").current, 0) / count,
+      integrity: parents.reduce((total, slime) => total + slimeStat(slime, "bodyIntegrity").current, 0) / count,
+      contamination: averageEnvironment("contamination", 0),
+      ambientMana: averageEnvironment("ambientMana", 50),
+      environment: {
+        contamination: averageEnvironment("contamination", 0),
+        ambientMana: averageEnvironment("ambientMana", 50),
+        temperature: averageEnvironment("temperature", 20),
+        humidity: averageEnvironment("humidity", 50)
+      }
+    };
+  }
+
+  function reproductionTask() {
+    return scientistQueueTasks().find((task) => task.type === "breed") || null;
+  }
+
+  function reproductionHaulTask() {
+    return scientistQueueTasks().find((task) => task.type === "resourceHaul" && task.data?.continuation?.kind === "reproductionProcedure") || null;
+  }
+
+  function reproductionReservedDestinationIds(exceptTaskId = "") {
+    const ids = new Set();
+    for (const task of state.tasks || []) {
+      if (task.id === exceptTaskId || task.type !== "breed") continue;
+      for (const id of task.data?.destinationContainerIds || []) ids.add(id);
+    }
+    return ids;
+  }
+
+  function reproductionDestinationCandidates(exceptTaskId = "") {
+    const reserved = reproductionReservedDestinationIds(exceptTaskId);
+    return openPermanentContainers().filter((container) => !reserved.has(container.id));
+  }
+
+  function normalizedReproductionOptions(options = {}) {
+    const methodId = ["inducedDivision", "forcedRecombination"].includes(options.methodId) ? options.methodId : "forcedRecombination";
+    return {
+      methodId,
+      priorityId: Heredity.PRIORITY_BY_ID[options.priorityId] ? options.priorityId : "balanced",
+      parentAId: String(options.parentAId || ""),
+      parentBId: methodId === "forcedRecombination" ? String(options.parentBId || "") : "",
+      targetCount: clamp(Math.floor(Number(options.targetCount) || 1), 1, 3)
+    };
+  }
+
+  function reproductionParentsForOptions(options) {
+    const clean = normalizedReproductionOptions(options);
+    return [findSlime(clean.parentAId), clean.parentBId ? findSlime(clean.parentBId) : null].filter(Boolean);
+  }
+
+  function reproductionProcedureBaseBlockReason(options, settings = {}) {
+    const clean = normalizedReproductionOptions(options);
+    const parents = reproductionParentsForOptions(clean);
+    if (scientistIsDead()) return "The scientist is dead.";
+    if (!settings.ignorePending && (reproductionTask() || reproductionHaulTask())) return "Another controlled reproduction procedure is already queued.";
+    if (parents.length !== Heredity.METHOD_BY_ID[clean.methodId].parentCount) return clean.methodId === "forcedRecombination" ? "Forced Recombination requires two living parents." : "Induced Division requires one living parent.";
+    if (new Set(parents.map((slime) => slime.id)).size !== parents.length) return "Select different parents for Forced Recombination.";
+    if (parents.some((slime) => !isBreedable(slime))) return "Every parent must be living and mature.";
+    if (parents.some((slime) => slimeStat(slime, "currentMass").current < 30)) return "Every parent needs at least 30% Current Mass before a controlled procedure.";
+    if (parents.some((slime) => slimeStat(slime, "bodyIntegrity").current < 35)) return "A parent is too physically compromised for controlled reproduction.";
+    const tube = synthesisTube();
+    if (!tube) return "The Synthesis Tube is unavailable.";
+    const tubeReason = synthesisTubeBlockReason();
+    if (tubeReason) return tubeReason;
+    const destinations = reproductionDestinationCandidates(settings.exceptTaskId);
+    if (destinations.length < clean.targetCount) return `Controlled reproduction requires ${clean.targetCount} empty permanent destination${clean.targetCount === 1 ? "" : "s"}; only ${destinations.length} are available.`;
+    const resourceCosts = { geneticMaterial: 1 };
+    const globalReason = resourceBlockReason(resourceCosts);
+    if (globalReason) return globalReason;
+    if (settings.requireLocal) {
+      const localReason = resourceBlockReasonForRoom(resourceCosts, tube.roomId || MAIN_ROOM_ID, { allowHaul: false });
+      if (localReason) return localReason;
+    }
+    return staminaBlockReason(adjustedStaminaCost(BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"]));
+  }
+
+  function reproductionProcedurePlan(options, destinationContainerIds) {
+    const clean = normalizedReproductionOptions(options);
+    const parents = reproductionParentsForOptions(clean);
+    const tube = synthesisTube();
+    let cursor = scientistMapCell();
+    let path = [cursor];
+    const parentTargetCells = [];
+    for (const parent of parents) {
+      const target = diagnosticTargetInfo("slime", parent.id);
+      const access = target ? diagnosticAccessPlan(cursor, target) : null;
+      if (!target || !access) return { ok: false, reason: `${parent.name} is not physically reachable.` };
+      path = appendMapPath(path, access.path);
+      cursor = access.cell;
+      parentTargetCells.push({ parentId: parent.id, targetCell: cleanMapCell(target.cell), accessCell: cleanMapCell(access.cell) });
+    }
+    const tubeTarget = diagnosticTargetInfo("container", tube?.id);
+    const tubeAccess = tubeTarget ? diagnosticAccessPlan(cursor, tubeTarget) : null;
+    if (!tubeTarget || !tubeAccess) return { ok: false, reason: "No physical route reaches the Synthesis Tube." };
+    path = appendMapPath(path, tubeAccess.path);
+    return {
+      ok: true,
+      reason: "",
+      path,
+      parentTargetCells,
+      tubeAccessCell: cleanMapCell(tubeAccess.cell),
+      destinationContainerIds: [...destinationContainerIds]
+    };
+  }
+
+  function queueControlledReproduction(options = {}, settings = {}) {
+    const clean = normalizedReproductionOptions(options);
+    const baseReason = reproductionProcedureBaseBlockReason(clean, { ignorePending: Boolean(settings.fromHaul), requireLocal: Boolean(settings.requireLocal) });
+    if (baseReason) {
+      addEvent(`${Heredity.METHOD_BY_ID[clean.methodId].label} blocked: ${baseReason}`);
+      persist(); render();
+      return false;
+    }
+    const tube = synthesisTube();
+    const resourceCosts = { geneticMaterial: 1 };
+    const localReason = resourceBlockReasonForRoom(resourceCosts, tube.roomId || MAIN_ROOM_ID, { allowHaul: false });
+    if (localReason && !settings.requireLocal) {
+      return queueResourceHaulForContinuation({
+        costs: resourceCosts,
+        toRoomId: tube.roomId || MAIN_ROOM_ID,
+        actionLabel: Heredity.METHOD_BY_ID[clean.methodId].label,
+        continuation: { kind: "reproductionProcedure", options: clean }
+      });
+    }
+    if (localReason) {
+      addEvent(`${Heredity.METHOD_BY_ID[clean.methodId].label} blocked after hauling: ${localReason}`);
+      persist(); render();
+      return false;
+    }
+    const destinations = reproductionDestinationCandidates().slice(0, clean.targetCount);
+    const plan = reproductionProcedurePlan(clean, destinations.map((container) => container.id));
+    if (!plan.ok) {
+      addEvent(`${Heredity.METHOD_BY_ID[clean.methodId].label} blocked: ${plan.reason}`);
+      persist(); render();
+      return false;
+    }
+    const staminaCost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"]);
+    if (!spendStamina(staminaCost)) return false;
+    if (!spendResourcesFromRoom(resourceCosts, tube.roomId || MAIN_ROOM_ID)) {
+      restoreStamina(staminaCost);
+      return false;
+    }
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const workBase = clean.methodId === "inducedDivision" ? 24 : 36;
+    const workSeconds = adjustedActionDuration(workBase + clean.targetCount * 4, "husbandry");
+    const method = Heredity.METHOD_BY_ID[clean.methodId];
+    const parentNames = reproductionParentsForOptions(clean).map((slime) => slime.name).join(" × ");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "breed",
+      label: `${method.label}: ${parentNames}`,
+      createdAt: state.clock,
+      dueAt: queueTail + travelSeconds + workSeconds,
+      data: {
+        ...clean,
+        destinationContainerIds: plan.destinationContainerIds,
+        parentTargetCells: plan.parentTargetCells,
+        mapPath: plan.path,
+        route: roomsFromMapPath(plan.path),
+        toCell: plan.tubeAccessCell,
+        roomId: tube.roomId || MAIN_ROOM_ID,
+        movementStartedAt: queueTail,
+        movement: createScientistMovementRecord(plan.path, travelSeconds, queueTail, { intent: "research" }),
+        workStartsAt: queueTail + travelSeconds,
+        resourceCosts,
+        resourceRoomId: tube.roomId || MAIN_ROOM_ID,
+        staminaCost,
+        skillId: "husbandry",
+        baseXp: 30
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${method.label} queued. The scientist will visit ${parentNames}, then operate the Synthesis Tube; ${clean.targetCount} destination${clean.targetCount === 1 ? " is" : "s are"} reserved.`);
+    persist(); render();
+    return true;
+  }
+
+  function reproductionProcedureTaskBlockReason(task) {
+    const clean = normalizedReproductionOptions(task?.data);
+    const parents = reproductionParentsForOptions(clean);
+    if (parents.length !== Heredity.METHOD_BY_ID[clean.methodId].parentCount || parents.some((slime) => !isBreedable(slime))) return "A reproduction parent is no longer living and mature.";
+    for (const record of task.data?.parentTargetCells || []) {
+      const parent = findSlime(record.parentId);
+      const target = parent ? diagnosticTargetInfo("slime", parent.id) : null;
+      if (!target || mapCellKey(target.cell) !== mapCellKey(record.targetCell)) return `${parent?.name || "A parent"} moved after the procedure route was planned.`;
+    }
+    const tube = synthesisTube();
+    if (!tube || synthesisTubeOccupied()) return "The Synthesis Tube is unavailable or occupied.";
+    if (parents.some((slime) => slimeStat(slime, "currentMass").current < 30)) return "A parent no longer has enough mass for the procedure.";
+    if (parents.some((slime) => slimeStat(slime, "bodyIntegrity").current < 35)) return "A parent became too physically compromised for the procedure.";
+    for (const id of task.data?.destinationContainerIds || []) {
+      const container = containerById(id);
+      if (!container || !containerUsableForContainment(container) || containerOccupants(id).length || containerCorpses(id).length) return "A reserved offspring destination is no longer empty and usable.";
+    }
+    return "";
+  }
+
+  function scheduleSlimeMaturity(slime, duration) {
+    state.tasks.push({
+      id: `task-${state.nextTaskNumber++}`,
+      type: "mature",
+      label: `Mature ${slime.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + Math.max(1, duration),
+      data: { slimeId: slime.id }
+    });
+  }
+
   function completeBreeding(task) {
-    const parentA = findSlime(task.data.parentAId);
-    const parentB = findSlime(task.data.parentBId);
-    if (!parentA || !parentB || !isBreedable(parentA) || !isBreedable(parentB)) {
-      addEvent("Forced recombination could not complete.");
-      return;
+    const clean = normalizedReproductionOptions(task.data);
+    const parents = reproductionParentsForOptions(clean);
+    const method = Heredity.METHOD_BY_ID[clean.methodId];
+    const destinations = (task.data?.destinationContainerIds || []).map(containerById).filter(Boolean);
+    if (parents.length !== method.parentCount || destinations.length < clean.targetCount) {
+      addResources(task.data?.resourceCosts || {}, task.data?.resourceRoomId || MAIN_ROOM_ID);
+      addEvent(`${method.label} could not complete because its parents or reserved destinations were lost. Genetic Material was recovered.`);
+      return false;
     }
-    const evalA = evaluateGenome(parentA.genome);
-    const evalB = evaluateGenome(parentB.genome);
-    const broodAverage = (evalA.traits.brood.meta.count + evalB.traits.brood.meta.count) / 2;
-    const rng = seedRng(`${state.seed}:breed:${task.id}:${state.clock}`);
-    const broodCount = clamp(Math.round(broodAverage + Math.floor(rng() * 3) - 1), 1, 8);
-    const openContainers = openPermanentContainers();
-    const offspringCount = Math.min(broodCount, openContainers.length);
-    if (offspringCount <= 0) {
-      addEvent("Forced recombination could not complete; no permanent container was open.");
-      return;
-    }
-    const growthAverage = (evalA.traits.growth.meta.growthMinutes + evalB.traits.growth.meta.growthMinutes) / 2;
-    const bodyCount = offspringCount + 2;
-    const massShare = (slimeStat(parentA, "currentMass").current + slimeStat(parentB, "currentMass").current) / bodyCount;
-    const nutritionShare = (slimeStat(parentA, "nutrition").current + slimeStat(parentB, "nutrition").current) / bodyCount;
+    const parentSnapshots = parents.map(reproductionParentSnapshot);
+    const context = reproductionMutationContext(parents);
+    const totalMass = parents.reduce((total, slime) => total + slimeStat(slime, "currentMass").current, 0);
+    const totalNutrition = parents.reduce((total, slime) => total + slimeStat(slime, "nutrition").current, 0);
+    const bodyCount = parents.length + clean.targetCount;
+    const massShare = totalMass / bodyCount;
+    const nutritionShare = totalNutrition / bodyCount;
+    const generation = Math.max(...parents.map((slime) => Math.max(0, Math.floor(Number(slime.generation) || 0)))) + 1;
+    const growthAverage = parents.reduce((total, slime) => total + (Number(evaluateGenome(slime.genome).traits.growth.meta?.growthMinutes) || 12), 0) / parents.length;
+    const heredity = ensureHeredityState();
+    const eventId = `reproduction-${heredity.nextEventNumber++}`;
+    const broodId = cleanLineageId(`${clean.methodId}-${eventId}`);
     const created = [];
-    const broodId = cleanLineageId(`recombined-${task.id}-${parentA.id}-${parentB.id}`);
     const revealSummary = emptyRevealSummary();
-    for (let i = 0; i < offspringCount; i += 1) {
-      const childGenome = forcedRecombinationGenome(parentA.genome, parentB.genome, seedRng(`${state.seed}:child:${task.id}:${i}`), parentA, parentB);
-      const growthMinutes = Math.max(4, Math.round(growthAverage * (0.8 + rng() * 0.4)));
-      const growthSeconds = minutesToSeconds(growthMinutes);
-      const child = createSlime(childGenome, "Recombined", {
+    for (let index = 0; index < clean.targetCount; index += 1) {
+      const inheritance = Heredity.inheritGenome({
+        ...context,
+        methodId: clean.methodId,
+        priorityId: clean.priorityId,
+        seed: `${state.seed}:${eventId}:child:${index}`,
+        parents: parents.map((slime) => ({ id: slime.id, genome: slime.genome }))
+      });
+      const growthSeconds = Math.round(minutesToSeconds(Math.max(4, growthAverage * (0.85 + Heredity.seededRng(`${state.seed}:${eventId}:growth:${index}`)() * 0.3))));
+      const stressBase = clean.priorityId === "fidelity" ? 8 : clean.priorityId === "novelty" ? 18 : 12;
+      const child = createSlime(inheritance.genome, method.label, {
         mature: false,
         matureAt: state.clock + growthSeconds,
-        containerId: openContainers[i]?.id || null,
-        roomId: openContainers[i]?.roomId || MAIN_ROOM_ID,
-        parentIds: [parentA.id, parentB.id],
+        containerId: destinations[index].id,
+        roomId: destinations[index].roomId || MAIN_ROOM_ID,
+        parentIds: parents.map((slime) => slime.id),
         broodId,
+        generation,
+        reproductionEventId: eventId,
+        inheritance,
         stats: {
-          bodyIntegrity: { current: 90, max: 100 },
+          bodyIntegrity: { current: clamp(94 - inheritance.mutations.length * 3, 65, 100), max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
           currentMass: { current: massShare, max: 100 },
           divisionPressure: { current: 0, max: 100 },
-          stress: { current: 12, max: 100 }
+          stress: { current: stressBase + inheritance.mutations.length * 2, max: 100 }
         }
       });
-      mergeRevealSummary(revealSummary, revealTraits(child, ["size", "shape", "consistency", "appendages", "color"]));
-      createTask({
-        type: "mature",
-        label: `Mature ${child.name}`,
-        duration: growthSeconds,
-        data: { slimeId: child.id }
-      });
-      created.push(child.name);
+      mergeRevealSummary(revealSummary, revealTraits(child, TESTS.find((test) => test.id === "visual").traits));
+      scheduleSlimeMaturity(child, growthSeconds);
+      created.push(child);
     }
-    setSlimeStat(parentA, "currentMass", massShare);
-    setSlimeStat(parentB, "currentMass", massShare);
-    setSlimeStat(parentA, "nutrition", nutritionShare);
-    setSlimeStat(parentB, "nutrition", nutritionShare);
-    setSlimeStat(parentA, "divisionPressure", 0);
-    setSlimeStat(parentB, "divisionPressure", 0);
-    adjustSlimeStat(parentA, "stress", 8);
-    adjustSlimeStat(parentB, "stress", 8);
-    awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, "Forced Recombination");
-    addEvent(`Forced recombination produced ${created.length} offspring and divided parent mass across ${bodyCount} bodies.`);
-    if (offspringCount < broodCount) {
-      addEvent(`${broodCount - offspringCount} potential offspring could not be stabilized because no permanent container was open.`);
+    const parentStress = (clean.priorityId === "fidelity" ? 5 : clean.priorityId === "novelty" ? 14 : 8) + clean.targetCount * 2;
+    for (const parent of parents) {
+      setSlimeStat(parent, "currentMass", massShare);
+      setSlimeStat(parent, "nutrition", nutritionShare);
+      setSlimeStat(parent, "divisionPressure", 0);
+      adjustSlimeStat(parent, "stress", parentStress);
     }
+    const mutationCount = created.reduce((total, slime) => total + (slime.inheritance?.mutations?.length || 0), 0);
+    const summary = `${method.label} produced ${created.length} offspring across generation ${generation}; ${mutationCount} de novo base mutation${mutationCount === 1 ? "" : "s"} recorded.`;
+    heredity.events.push(Heredity.normalizeEvent({
+      id: eventId,
+      methodId: clean.methodId,
+      priorityId: clean.priorityId,
+      broodId,
+      createdAt: state.clock,
+      targetCount: clean.targetCount,
+      parents: parentSnapshots,
+      children: created.map(reproductionChildSnapshot),
+      environment: context.environment,
+      summary
+    }));
+    recordResearchEvidence({
+      methodId: clean.methodId,
+      category: "reproduction",
+      specimenId: parents[0].id,
+      specimenName: parents.map((slime) => slime.name).join(" × "),
+      sourceKey: `reproduction:${eventId}`,
+      summary,
+      confidence: 1
+    });
+    awardActionXp(task.data.skillId, task.data.baseXp, revealSummary, method.label);
+    addEvent(`${summary} Parent mass was conserved across ${bodyCount} bodies.`);
+    emitMapFeedback("feedbackWork", objectMapCell(synthesisTube()), { label: `${method.label} complete`, intensityBand: "high", coalesceKey: `reproduction:${eventId}` });
+    return true;
   }
 
   function completeNecropsy(task) {
@@ -13113,6 +13416,9 @@
       source: slime.source,
       parentIds: idList(slime.parentIds),
       broodId: cleanLineageId(slime.broodId),
+      generation: Math.max(0, Math.floor(Number(slime.generation) || 0)),
+      reproductionEventId: Heredity.cleanId(slime.reproductionEventId),
+      inheritance: Heredity.normalizeInheritance(slime.inheritance),
       deathReason,
       diedAt,
       roomId: location.roomId,
@@ -31183,6 +31489,9 @@
       }
       return startStaminaTask({ ...task, allowResourceHaul: false });
     }
+    if (continuation.kind === "reproductionProcedure") {
+      return queueControlledReproduction(continuation.options || {}, { fromHaul: true, requireLocal: true });
+    }
     if (continuation.kind === "feedSlime") {
       const slime = findSlime(continuation.slimeId);
       if (!slime || slime.status === "dead") {
@@ -33332,15 +33641,11 @@
   }
 
   function refreshBreedButtonState() {
-    const breedable = state.slimes.filter(isBreedable);
-    const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"]);
-    const duration = adjustedActionDuration(18, "husbandry");
-    setButtonStaminaLabel(dom.breedBtn, "Force Recombination", BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"], { duration: formatDuration(duration) });
-    const reason = breedable.length < 2
-      ? "Forced recombination requires two mature slimes."
-      : !canAddContainedSlime()
-        ? "Forced recombination requires at least one open permanent container."
-        : staminaBlockReason(cost);
+    const options = currentReproductionPlannerOptions();
+    const method = Heredity.METHOD_BY_ID[options.methodId];
+    const duration = adjustedActionDuration((options.methodId === "inducedDivision" ? 24 : 36) + options.targetCount * 4, "husbandry");
+    setButtonStaminaLabel(dom.breedBtn, `Queue ${method.label}`, BASE_ACTION_STAMINA, ["husbandry", "creatureHandling"], { duration: formatDuration(duration) });
+    const reason = reproductionProcedureBaseBlockReason(options);
     setActionButtonState(dom.breedBtn, Boolean(reason), reason);
   }
 
@@ -33698,8 +34003,63 @@
     return {
       entity,
       parentIds: idList(source.parentIds),
-      broodId: cleanLineageId(source.broodId)
+      broodId: cleanLineageId(source.broodId),
+      generation: Math.max(0, Math.floor(Number(source.generation) || 0)),
+      reproductionEventId: cleanLineageId(source.reproductionEventId),
+      inheritance: Heredity.normalizeInheritance(source.inheritance)
     };
+  }
+
+  function inheritanceDetailsEl(inheritance) {
+    if (!inheritance) return null;
+    const details = document.createElement("details");
+    details.className = "lineage-inheritance";
+    details.append(textEl("summary", "Base inheritance record"));
+    const ranges = inheritance.contributions.map((range) => `${range.parentId}: bases ${range.start}-${range.end}`).join("; ") || "No parent ranges recorded";
+    const mutations = inheritance.mutations.map((mutation) => `${mutation.position}: ${mutation.from}→${mutation.to}`).join(", ") || "none";
+    details.append(textEl("p", `Contributions: ${ranges}`), textEl("p", `De novo mutations: ${mutations}.`));
+    return details;
+  }
+
+  function renderReproductionEvents() {
+    if (!dom.lineageEventList) return;
+    dom.lineageEventList.textContent = "";
+    const events = [...ensureHeredityState().events].reverse();
+    if (!events.length) {
+      dom.lineageEventList.append(emptyText("No reproduction events recorded yet."));
+      return;
+    }
+    for (const event of events) {
+      const card = document.createElement("article");
+      card.className = "lineage-card reproduction-event-card";
+      card.dataset.reproductionEvent = event.id;
+      const method = Heredity.METHOD_BY_ID[event.methodId];
+      const priority = Heredity.PRIORITY_BY_ID[event.priorityId];
+      const title = document.createElement("h3");
+      title.append(textEl("strong", method.label), chip(priority.label), chip(formatClock(event.createdAt)));
+      const parentLine = document.createElement("div");
+      parentLine.className = "lineage-links";
+      parentLine.append(textEl("span", "Parents: "));
+      event.parents.forEach((parent, index) => {
+        if (index) parentLine.append(document.createTextNode(", "));
+        parentLine.append(creatureRecordEntityLink(creatureRecordEntityBySpecimenId(parent.id)));
+      });
+      const childList = document.createElement("div");
+      childList.className = "reproduction-event-children";
+      for (const child of event.children) {
+        const row = document.createElement("div");
+        row.className = "reproduction-child-record";
+        const heading = document.createElement("div");
+        heading.className = "lineage-links";
+        heading.append(creatureRecordEntityLink(creatureRecordEntityBySpecimenId(child.id)), chip(`generation ${child.generation}`), chip(`${child.inheritance?.mutations?.length || 0} mutations`));
+        row.append(heading);
+        const details = inheritanceDetailsEl(child.inheritance);
+        if (details) row.append(details);
+        childList.append(row);
+      }
+      card.append(title, textEl("p", event.summary), parentLine, childList);
+      dom.lineageEventList.append(card);
+    }
   }
 
   function renderLineageRecords() {
@@ -33710,14 +34070,12 @@
     const entries = [
       ...(state.slimes || []).map((slime) => lineageEntryForCreature(slime, "slime")),
       ...(state.corpses || []).map((corpse) => lineageEntryForCreature(corpse, "corpse"))
-    ].filter((entry) => entry.parentIds.length || entry.broodId);
+    ];
+    const linkedEntries = entries.filter((entry) => entry.parentIds.length || entry.broodId || entries.some((candidate) => candidate.parentIds.includes(entry.entity.specimenId || entry.entity.id)));
 
-    if (!entries.length) {
-      dom.lineageList.append(emptyText("No lineage records yet. Natural splitting and forced recombination will populate this file."));
-      return;
-    }
+    if (!linkedEntries.length) dom.lineageList.append(emptyText("No lineage records yet. Natural and controlled reproduction will populate this file."));
 
-    for (const entry of entries) {
+    for (const entry of linkedEntries) {
       const row = document.createElement("article");
       row.className = "lineage-card";
       row.dataset.lineageRecord = entry.entity.specimenId || entry.entity.id;
@@ -33727,9 +34085,12 @@
 
       const meta = document.createElement("div");
       meta.className = "slime-meta";
+      meta.append(chip(`generation ${entry.generation}`));
       if (entry.broodId) {
         meta.append(chip(`brood ${entry.broodId}`));
       }
+      const event = reproductionEventById(entry.reproductionEventId);
+      if (event) meta.append(chip(Heredity.METHOD_BY_ID[event.methodId].label), chip(`${entry.inheritance?.mutations?.length || 0} mutations`));
       if (entry.parentIds.length) {
         const parentLine = document.createElement("div");
         parentLine.className = "lineage-links";
@@ -33746,9 +34107,25 @@
         meta.append(chip("parents unknown"));
       }
 
+      const childEntries = entries.filter((candidate) => candidate.parentIds.includes(entry.entity.specimenId || entry.entity.id));
+      if (childEntries.length) {
+        const childLine = document.createElement("div");
+        childLine.className = "lineage-links";
+        childLine.append(textEl("span", "Children: "));
+        childEntries.forEach((child, index) => {
+          if (index) childLine.append(document.createTextNode(", "));
+          childLine.append(creatureRecordEntityLink(child.entity));
+        });
+        meta.append(childLine);
+      }
+
+      const inheritance = inheritanceDetailsEl(entry.inheritance);
+      if (inheritance) meta.append(inheritance);
+
       row.append(title, meta);
       dom.lineageList.append(row);
     }
+    renderReproductionEvents();
   }
 
 
@@ -36776,8 +37153,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -39764,7 +40141,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const conditions = divisionReadiness(slime);
     const required = divisionPressureDuration(slime);
     if (conditions.ready && startedAtFullMass) {
-      slime.splitBlocked = false;
       const gain = minutes * (pressure.max / required);
       const before = pressure.current;
       adjustSlimeStat(slime, "divisionPressure", gain);
@@ -39776,11 +40152,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (pressure.current <= 0) {
       slime.splitBlocked = false;
+      slime.divisionBlockReason = "";
       return false;
     }
     const decay = minutes * (pressure.max / Math.max(minutesToSeconds(60), required / 2));
     adjustSlimeStat(slime, "divisionPressure", -decay);
     slime.splitBlocked = false;
+    slime.divisionBlockReason = "";
     return true;
   }
 
@@ -39826,23 +40204,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const nutritionShare = slimeStat(slime, "nutrition").current / bodyCount;
     const parentIntegrity = slimeStat(slime, "bodyIntegrity").current;
     const parentStress = slimeStat(slime, "stress").current;
-    const rng = seedRng(`${state.seed}:split:${slime.id}:${state.clock}:${state.nextSlimeNumber}`);
+    const heredity = ensureHeredityState();
+    const eventId = `reproduction-${heredity.nextEventNumber}`;
+    const context = reproductionMutationContext([slime]);
+    const inheritances = Array.from({ length: broodCount }, (_, index) => Heredity.inheritGenome({
+      ...context,
+      methodId: "naturalDivision",
+      priorityId: "balanced",
+      seed: `${state.seed}:${eventId}:child:${index}`,
+      parents: [{ id: slime.id, genome: slime.genome }]
+    }));
+    const placement = naturalDivisionPlacementPlan(slime, inheritances, massShare);
+    if (!placement.ok) {
+      if (!slime.splitBlocked || slime.divisionBlockReason !== placement.reason) {
+        adjustSlimeStat(slime, "stress", 2);
+        addEvent(`${slime.name} remains at full division pressure: ${placement.reason}`);
+      }
+      slime.splitBlocked = true;
+      slime.divisionBlockReason = placement.reason;
+      return false;
+    }
+    heredity.nextEventNumber += 1;
+    const parentSnapshot = reproductionParentSnapshot(slime);
+    const rng = Heredity.seededRng(`${state.seed}:${eventId}:growth`);
     const growthMinutes = Math.max(4, Number(evaluated.traits.growth.meta?.growthMinutes) || 12);
     const created = [];
-    const broodId = cleanLineageId(`split-${slime.id}-${state.clock}-${state.nextSlimeNumber}`);
+    const broodId = cleanLineageId(`natural-${eventId}`);
+    const generation = Math.max(0, Math.floor(Number(slime.generation) || 0)) + 1;
     for (let i = 0; i < broodCount; i += 1) {
-      const childGenome = naturalSplitGenome(slime, rng, i);
+      const inheritance = inheritances[i];
       const growthSeconds = Math.round(minutesToSeconds(growthMinutes * (0.75 + rng() * 0.5)));
-      const child = createSlime(childGenome, "Split", {
+      const child = createSlime(inheritance.genome, "Natural Division", {
         mature: false,
         matureAt: state.clock + growthSeconds,
         status: slime.status,
         containerId: slime.containerId,
         roomId: slime.roomId,
+        mapCell: placement.cells[i] || objectMapCell(slime),
         parentIds: [slime.id],
         broodId,
+        generation,
+        reproductionEventId: eventId,
+        inheritance,
         stats: {
-          bodyIntegrity: { current: clamp(parentIntegrity - 5, 20, 100), max: 100 },
+          bodyIntegrity: { current: clamp(parentIntegrity - 5 - inheritance.mutations.length * 2, 20, 100), max: 100 },
           nutrition: { current: nutritionShare, max: 100 },
           currentMass: { current: massShare, max: 100 },
           divisionPressure: { current: 0, max: 100 },
@@ -39850,38 +40255,73 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       });
       created.push(child);
-      createTask({
-        type: "mature",
-        label: `Mature ${child.name}`,
-        duration: Math.max(1, child.matureAt - state.clock),
-        data: { slimeId: child.id }
-      });
+      scheduleSlimeMaturity(child, growthSeconds);
     }
     setSlimeStat(slime, "currentMass", massShare);
     setSlimeStat(slime, "nutrition", nutritionShare);
     adjustSlimeStat(slime, "stress", Math.min(20, 4 + broodCount));
     setSlimeStat(slime, "divisionPressure", 0);
     slime.splitBlocked = false;
+    slime.divisionBlockReason = "";
+    const mutationCount = created.reduce((total, child) => total + (child.inheritance?.mutations?.length || 0), 0);
+    const summary = `Natural Division produced ${broodCount} offspring in generation ${generation}; ${mutationCount} de novo base mutation${mutationCount === 1 ? "" : "s"} recorded.`;
+    heredity.events.push(Heredity.normalizeEvent({
+      id: eventId,
+      methodId: "naturalDivision",
+      priorityId: "balanced",
+      broodId,
+      createdAt: state.clock,
+      targetCount: broodCount,
+      parents: [parentSnapshot],
+      children: created.map(reproductionChildSnapshot),
+      environment: context.environment,
+      summary
+    }));
     recordResearchEvidence({
       methodId: "division", category: "lifecycle", specimenId: slime.id, specimenName: slime.name,
-      sourceKey: `division:${slime.id}:${state.clock}`, summary: `${slime.name} divided into ${broodCount} offspring.`, confidence: 1
+      sourceKey: `reproduction:${eventId}`, summary, confidence: 1
     });
-    addEvent(`${slime.name} split into ${broodCount} offspring, dividing its mass across ${bodyCount} bodies.`);
+    addEvent(`${summary} ${slime.name}'s mass was conserved across ${bodyCount} bodies.`);
     return created.length > 0;
   }
 
-  function naturalSplitGenome(slime, rng, offset) {
-    const evaluated = evaluateGenome(slime.genome);
-    const brood = Math.max(1, Number(evaluated.traits.brood.meta?.count) || 1);
-    const stabilityRisk = Math.max(1, Number(evaluated.traits.stability.meta?.risk) || 5);
-    let mutationCount = 1;
-    if (rng() < 0.25 + stabilityRisk * 0.035) {
-      mutationCount += 1;
+  function naturalDivisionPlacementPlan(slime, inheritances, massShare) {
+    if (slime.status !== "released") {
+      const container = containerById(slime.containerId);
+      const type = containerTypeDef(container?.typeId);
+      if (!container || !type || containerBreachState(container) === "breached") return { ok: false, reason: "its containment is no longer viable" };
+      const genomes = [slime.genome, ...inheritances.map((entry) => entry.genome)];
+      const volume = genomes.reduce((total, genome) => total + (physicalProfile(genome)?.volumeCm3 || 1000) * massShare / 100, 0);
+      if (volume > type.capacityCm3) return { ok: false, reason: `${container.name} lacks capacity for the full brood` };
+      return { ok: true, cells: Array(inheritances.length).fill(null) };
     }
-    if (brood >= 5 && rng() < 0.35) {
-      mutationCount += 1;
+    const map = ensureLabMap();
+    const room = labMapRoom(slime.roomId, map);
+    if (!room) return { ok: false, reason: "its current room has no viable floor" };
+    const blocked = labMapBlockingCellKeys(map);
+    const cells = [];
+    for (const inheritance of inheritances) {
+      const actor = {
+        genome: inheritance.genome,
+        navigationOrientation: slime.navigationOrientation || "horizontal",
+        stats: normalizeSlimeStats({ currentMass: { current: massShare, max: 100 } })
+      };
+      const footprint = navigationFootprintForActor(actor);
+      let chosen = null;
+      for (const cell of roomCellsSortedForPlacement(room, objectMapCell(slime) || room.anchor)) {
+        const orientations = [actor.navigationOrientation];
+        if (footprint.rotatable) orientations.push(actor.navigationOrientation === "vertical" ? "horizontal" : "vertical");
+        const orientation = orientations.find((candidate) => navigationFootprintCanOccupy(actor, cell, footprint, candidate, { map, blockedCellKeys: blocked, requireCurrentCapacity: true }));
+        if (!orientation) continue;
+        actor.navigationOrientation = orientation;
+        chosen = cell;
+        for (const occupiedCell of Navigation.footprintCells(cell, footprint, orientation)) blocked.add(mapCellKey(occupiedCell));
+        break;
+      }
+      if (!chosen) return { ok: false, reason: "its room lacks safe floor space for the full brood" };
+      cells.push(chosen);
     }
-    return mutateGenome(slime.genome, rng, mutationCount + (offset % 2 === 0 && rng() < 0.2 ? 1 : 0));
+    return { ok: true, cells };
   }
 
   function corpseProcessingInventoryRecovery(corpse) {
@@ -40887,10 +41327,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const value = slimeStat(slime, stat.key);
       const row = document.createElement("div");
       row.className = "slime-stat-row";
+      const band = stat.key === "divisionPressure" && slime.splitBlocked ? "Blocked" : slimeStatBand(stat.key, value);
+      if (stat.key === "divisionPressure" && slime.divisionBlockReason) row.title = slime.divisionBlockReason;
       row.append(
         textEl("span", stat.label),
         textEl("strong", formatSlimeStatValue(stat.key, value)),
-        textEl("em", slimeStatBand(stat.key, value))
+        textEl("em", band)
       );
       grid.append(row);
     }
@@ -41986,9 +42428,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderBreeding() {
     const breedable = state.slimes.filter(isBreedable);
+    renderDefinitionOptions(dom.reproductionMethodSelect, Heredity.METHODS.filter((method) => method.controlled), "forcedRecombination");
+    renderDefinitionOptions(dom.reproductionPrioritySelect, Heredity.PRIORITIES, "balanced");
+    const methodId = dom.reproductionMethodSelect.value;
     renderSlimeOptions(dom.parentASelect, breedable, state.selectedSlimeId);
     renderSlimeOptions(dom.parentBSelect, breedable, breedable.find((slime) => slime.id !== state.selectedSlimeId)?.id);
+    dom.parentBField.classList.toggle("hidden", methodId !== "forcedRecombination");
+    const targetCount = clamp(Math.floor(Number(dom.reproductionOffspringCount.value) || 1), 1, 3);
+    dom.reproductionOffspringCount.value = String(targetCount);
+    const priority = Heredity.PRIORITY_BY_ID[dom.reproductionPrioritySelect.value];
+    const band = Heredity.methodMutationBand(methodId, priority.id);
+    dom.reproductionMutationBand.textContent = `${band.label} baseline variation. ${priority.description} Parent condition and the local environment may shift the actual outcome.`;
+    const available = reproductionDestinationCandidates().length;
+    const tube = synthesisTube();
+    const localMaterial = tube ? !resourceBlockReasonForRoom({ geneticMaterial: 1 }, tube.roomId || MAIN_ROOM_ID, { allowHaul: false }) : false;
+    dom.reproductionDestinationSummary.textContent = `${available} empty permanent destination${available === 1 ? "" : "s"} available; ${targetCount} will be reserved. Genetic Material is ${localMaterial ? "already stored near" : "hauled to"} the Synthesis Tube.`;
     refreshBreedButtonState();
+  }
+
+  function renderDefinitionOptions(select, definitions, fallbackId) {
+    const previous = select.value;
+    select.textContent = "";
+    for (const definition of definitions) {
+      const option = document.createElement("option");
+      option.value = definition.id;
+      option.textContent = definition.label;
+      select.append(option);
+    }
+    select.value = definitions.some((entry) => entry.id === previous) ? previous : fallbackId;
+  }
+
+  function currentReproductionPlannerOptions() {
+    return normalizedReproductionOptions({
+      methodId: dom.reproductionMethodSelect.value,
+      priorityId: dom.reproductionPrioritySelect.value,
+      parentAId: dom.parentASelect.value,
+      parentBId: dom.parentBSelect.value,
+      targetCount: dom.reproductionOffspringCount.value
+    });
   }
 
   function renderSlimeOptions(select, slimes, preferredId) {
@@ -45857,9 +46334,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return findSlime(task.data?.slimeId) ? "" : "The test specimen is no longer available.";
     }
     if (task.type === "breed") {
-      const parentA = findSlime(task.data?.parentAId);
-      const parentB = findSlime(task.data?.parentBId);
-      return parentA && parentB ? "" : "One of the recombination parents is no longer available.";
+      return reproductionProcedureTaskBlockReason(task);
     }
     if (task.type === "necropsy" || task.type === "harvestCorpse") {
       return findCorpse(task.data?.corpseId) ? "" : "The corpse is no longer available.";
@@ -53975,6 +54450,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (continuation.kind === "staminaTask") {
       return continuation.task?.label || "queued action";
     }
+    if (continuation.kind === "reproductionProcedure") {
+      return Heredity.METHOD_BY_ID[continuation.options?.methodId]?.label || "controlled reproduction";
+    }
     if (continuation.kind === "feedSlime") {
       const slime = findSlime(continuation.slimeId);
       const feedstock = FEEDSTOCK_BY_KEY[continuation.feedstockKey];
@@ -54013,7 +54491,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Lab Test";
     }
     if (task.type === "breed") {
-      return "Recombination";
+      return "Reproduction";
     }
     if (task.type === "necropsy") {
       return "Necropsy";
@@ -60661,6 +61139,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.research = Research.normalizeState(next.research);
     next.diagnostics = Diagnostics.normalizeState(next.diagnostics);
     next.experiments = Experiments.normalizeState(next.experiments);
+    next.heredity = Heredity.normalizeState(next.heredity);
     next.floorStockpiles = normalizeFloorStockpiles(next.floorStockpiles);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
     next.physicalItemStacks = normalizePhysicalItemStacks(next.physicalItemStacks);
@@ -60797,6 +61276,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       slime.parentIds = idList(slime.parentIds).filter((id) => id && id !== slime.id).slice(0, 4);
       slime.broodId = cleanLineageId(slime.broodId);
+      slime.generation = Math.max(0, Math.floor(Number(slime.generation) || 0));
+      slime.reproductionEventId = Heredity.cleanId(slime.reproductionEventId);
+      slime.inheritance = Heredity.normalizeInheritance(slime.inheritance);
       slime.revealed ||= {};
       slime.measured ||= {};
       slime.traitObservations ||= {};
@@ -60899,6 +61381,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.lifecycleVersion = 1;
     }
     slime.splitBlocked = Boolean(slime.splitBlocked);
+    slime.divisionBlockReason = slime.splitBlocked ? String(slime.divisionBlockReason || "Natural division lacks safe capacity.") : "";
     slime.navigationOrientation = slime.navigationOrientation === "vertical" ? "vertical" : "horizontal";
     slime.spatialPressure = normalizeSlimeSpatialPressure(slime.spatialPressure);
   }
@@ -60924,6 +61407,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.testsRun ||= [];
       corpse.parentIds = idList(corpse.parentIds).filter((id) => id && id !== corpse.specimenId).slice(0, 4);
       corpse.broodId = cleanLineageId(corpse.broodId);
+      corpse.generation = Math.max(0, Math.floor(Number(corpse.generation) || 0));
+      corpse.reproductionEventId = Heredity.cleanId(corpse.reproductionEventId);
+      corpse.inheritance = Heredity.normalizeInheritance(corpse.inheritance);
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
       corpse.harvestBlocked = Boolean(corpse.harvestBlocked);

@@ -14,7 +14,7 @@ For story background, long-term systems, current design direction, and open ques
 - An Experiment Notebook for player-written hypotheses, optional controls, one-to-three experimental subjects, planned-genome synthesis, immutable baseline/final snapshots, ordinary test evidence, confounder-aware comparisons, and routed workbench conclusions.
 - Physical diagnostic workflows with worn Environmental Survey Kits, Thaumometers, and Assay Cases; visible routed work; calibration and condition-based uncertainty; sealed air and biological samples; reagent-consuming bench assays; and saved historical results.
 - Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstocks for testing feeding systems.
-- Slime reproduction foundation with natural splitting, Forced Recombination, Current Mass, and Division Pressure.
+- Advanced slime heredity with autonomous Natural Division, routed Induced Division and Forced Recombination, Fidelity/Balanced/Novelty priorities, optional deterministic mutation, segment-level parent contributions, strict mass conservation, and immutable lineage events.
 - Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, movement, and Sustenance.
 - Sustenance traits describe a slime's primary feeding adaptation, with broad material, waste/decay, and slow environmental pathways.
 - Manual feeding, best-match feeding after Sustenance discovery, and auto-feeding policies with per-slime automation exclusion.
@@ -71,6 +71,7 @@ The 14-test smoke command is the quick cross-system check for routine iteration.
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
 - `diagnostic-system.js` - Instrument, calibration, sample, confidence, uncertainty, and immutable diagnostic-result data contracts.
 - `experiment-system.js` - Experiment templates, subjects, lifecycle normalization, immutable comparison records, conclusion labels, genome-difference summaries, and deterministic confidence bands.
+- `heredity-system.js` - Deterministic haploid inheritance, controlled-method definitions, mutation priorities and bands, segment-based recombination, and immutable reproduction-event normalization.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
