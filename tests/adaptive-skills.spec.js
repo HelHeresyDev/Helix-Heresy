@@ -108,6 +108,7 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
 });
 
 test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
+  test.setTimeout(120_000);
   await startRun(page);
   const firstBreakthrough = xpToNextLevel(0);
 
@@ -128,6 +129,80 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   expect(skill?.xp).toBe(firstBreakthrough + 3);
   expect(skill?.practiceTags?.selfcheck).toBe(3);
   await expect(page.locator('#skillList')).toContainText('Analysis');
+
+  const fieldTask = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const cell = debug.lightingSnapshot().cell;
+    debug.setTileEnvironment(cell, { temperatureC: 12, humidity: 72, manaDensity: 41, airborne: { "test-vapor": 18 } });
+    debug.setInstrumentCalibration('environmentalSurveyKit', 20);
+    const started = debug.startFieldDiagnostic('environmentalSurveyKit', 'tile', '', cell);
+    return { started, cell, task: debug.taskStatusSnapshot().find((entry) => entry.type === 'physicalDiagnostic') };
+  });
+  expect(fieldTask.started).toBe(true);
+  expect(fieldTask.task?.data.mapPath.length).toBeGreaterThan(1);
+
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1200));
+  const fieldResult = await page.evaluate(() => {
+    const diagnostics = window.helixHeresyDebug.diagnosticsSnapshot();
+    return {
+      result: diagnostics.results.at(-1),
+      instrument: Object.values(diagnostics.instruments).find((entry) => entry.instanceId.startsWith('environmentalSurveyKit')),
+    };
+  });
+  expect(fieldResult.result?.workflowId).toBe('fieldSurvey');
+  expect(fieldResult.result?.summary).toContain(' to ');
+  expect(fieldResult.result?.confidenceScore).toBeLessThan(82);
+  expect(fieldResult.instrument?.calibration).toBe(16);
+
+  const collected = await page.evaluate((cell) => {
+    const debug = window.helixHeresyDebug;
+    const started = debug.startSampleCollection('airVial', 'tile', '', cell);
+    debug.advanceSimulation(1200);
+    const diagnostics = debug.diagnosticsSnapshot();
+    return { started, sample: diagnostics.samples.at(-1) };
+  }, fieldTask.cell);
+  expect(collected.started).toBe(true);
+  expect(collected.sample?.methodId).toBe('airVial');
+  const capturedTemperature = collected.sample?.captured.environment.temperatureC;
+
+  const preservedSnapshot = await page.evaluate(({ cell, stackId }) => {
+    const debug = window.helixHeresyDebug;
+    debug.setTileEnvironment(cell, { temperatureC: 85, airborne: { "replacement-vapor": 2 } });
+    const sampleBefore = debug.diagnosticsSnapshot().samples.find((entry) => entry.stackId === stackId);
+    const reagentBefore = debug.physicalStockSnapshot().stacks
+      .filter((stack) => stack.section === 'resources' && stack.key === 'assayReagent')
+      .reduce((total, stack) => total + stack.quantity, 0);
+    const started = debug.startDiagnosticSampleAssay(stackId);
+    const task = debug.taskStatusSnapshot().find((entry) => entry.type === 'physicalDiagnostic');
+    const canceled = debug.cancelTask(task.id);
+    const sampleAfter = debug.diagnosticsSnapshot().samples.find((entry) => entry.stackId === stackId);
+    const reagentAfter = debug.physicalStockSnapshot().stacks
+      .filter((stack) => stack.section === 'resources' && stack.key === 'assayReagent')
+      .reduce((total, stack) => total + stack.quantity, 0);
+    return { started, canceled, sampleBefore, sampleAfter, reagentBefore, reagentAfter };
+  }, { cell: fieldTask.cell, stackId: collected.sample.stackId });
+  expect(preservedSnapshot.started).toBe(true);
+  expect(preservedSnapshot.canceled).toBe(true);
+  expect(preservedSnapshot.sampleAfter?.captured.environment.temperatureC).toBe(capturedTemperature);
+  expect(preservedSnapshot.reagentAfter).toBe(preservedSnapshot.reagentBefore);
+
+  const assay = await page.evaluate((stackId) => {
+    const debug = window.helixHeresyDebug;
+    const reagentBefore = debug.physicalStockSnapshot().stacks
+      .filter((stack) => stack.section === 'resources' && stack.key === 'assayReagent')
+      .reduce((total, stack) => total + stack.quantity, 0);
+    const started = debug.startDiagnosticSampleAssay(stackId);
+    debug.advanceSimulation(2400);
+    const diagnostics = debug.diagnosticsSnapshot();
+    const reagentAfter = debug.physicalStockSnapshot().stacks
+      .filter((stack) => stack.section === 'resources' && stack.key === 'assayReagent')
+      .reduce((total, stack) => total + stack.quantity, 0);
+    return { started, diagnostics, reagentBefore, reagentAfter };
+  }, collected.sample.stackId);
+  expect(assay.started).toBe(true);
+  expect(assay.diagnostics.samples).toHaveLength(0);
+  expect(assay.reagentAfter).toBe(assay.reagentBefore - 1);
+  expect(assay.diagnostics.results.at(-1)?.workflowId).toBe('assaySample');
 });
 
 test('breakthrough progress decays after sustained idle time', async ({ page }) => {
