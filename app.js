@@ -3300,6 +3300,10 @@
   if (!Diagnostics) {
     throw new Error("HelixDiagnosticSystem must load before app.js");
   }
+  const Experiments = window.HelixExperimentSystem;
+  if (!Experiments) {
+    throw new Error("HelixExperimentSystem must load before app.js");
+  }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
@@ -3717,6 +3721,7 @@
     "constructionWork",
     "productionWork",
     "researchWork",
+    "experimentConclusion",
     "toolMaintenance",
     "laborWork",
     "rest"
@@ -3846,6 +3851,7 @@
       specimenMaterials: defaultSpecimenMaterials(),
       research: Research.defaultState(),
       diagnostics: Diagnostics.defaultState(),
+      experiments: Experiments.defaultState(),
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
       feedingResidues: [],
@@ -4829,6 +4835,18 @@
       "researchProjectList",
       "researchEvidenceList",
       "diagnosticResultsList",
+      "experimentForm",
+      "experimentIdInput",
+      "experimentTemplateSelect",
+      "experimentTitleInput",
+      "experimentHypothesisInput",
+      "experimentVariableSelect",
+      "experimentControlSelect",
+      "experimentSubject1Select",
+      "experimentSubject2Select",
+      "experimentSubject3Select",
+      "experimentClearBtn",
+      "experimentList",
       "mapOverlayHud",
       "messageFeed",
       "messageHistorySummary",
@@ -5654,6 +5672,12 @@
       setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
+      experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
+      createExperimentDraft: (options) => saveExperimentDraft(options),
+      startExperiment: (experimentId) => startExperiment(experimentId),
+      queueExperimentNextStep: (experimentId) => queueExperimentNextStep(experimentId),
+      queueExperimentConclusion: (experimentId, conclusion) => queueExperimentConclusion(experimentId, conclusion),
+      abandonExperiment: (experimentId) => abandonExperiment(experimentId),
       startFieldDiagnostic: (instrumentId, kind, id = "", cell = null) => startFieldDiagnostic(instrumentId, kind, id, cell),
       startSampleCollection: (methodId, kind, id = "", cell = null) => startSampleCollection(methodId, kind, id, cell),
       startDiagnosticSampleAssay: (stackId) => startDiagnosticSampleAssay(stackId),
@@ -5888,6 +5912,31 @@
         persist();
         render();
       }
+    });
+
+    dom.experimentTemplateSelect?.addEventListener("change", () => {
+      const template = Experiments.TEMPLATES.find((entry) => entry.id === dom.experimentTemplateSelect.value);
+      if (!template || template.id === "custom") return;
+      dom.experimentTitleInput.value = template.label;
+      dom.experimentHypothesisInput.value = template.hypothesis;
+      dom.experimentVariableSelect.value = template.variableType;
+    });
+
+    dom.experimentForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveExperimentDraft({
+        id: dom.experimentIdInput.value,
+        title: dom.experimentTitleInput.value,
+        hypothesis: dom.experimentHypothesisInput.value,
+        variableType: dom.experimentVariableSelect.value,
+        controlId: dom.experimentControlSelect.value,
+        subjectValues: [dom.experimentSubject1Select.value, dom.experimentSubject2Select.value, dom.experimentSubject3Select.value]
+      });
+    });
+
+    dom.experimentClearBtn?.addEventListener("click", () => {
+      clearExperimentForm();
+      renderExperimentForm();
     });
 
     dom.storesMenuTabs?.addEventListener("click", (event) => {
@@ -8932,6 +8981,7 @@
       const slime = createSlime(task.data.genome, "Synthetic", { containerId: tube.id, roomId: tube.roomId });
       const reveal = revealTraits(slime, TESTS.find((test) => test.id === "visual").traits);
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, "Synthesis");
+      if (task.data?.experimentId) attachSynthesizedExperimentSubject(task, slime);
       addEvent(`${slime.name} stabilized in the synthesis tube.`);
       emitMapFeedback("feedbackWork", objectMapCell(tube), {
         label: slime.name + " stabilized",
@@ -9046,6 +9096,10 @@
     }
     if (task.type === "productionWork") {
       completeProductionWork(task);
+      return;
+    }
+    if (task.type === "experimentConclusion") {
+      completeExperimentConclusion(task);
       return;
     }
     if (task.type === "researchWork") {
@@ -19286,6 +19340,426 @@
     record.taskId = "";
     research.activeProjectId = "";
   }
+  function ensureExperimentState() {
+    if (!state.experiments || state.experiments.version !== Experiments.VERSION || !Array.isArray(state.experiments.experiments)) {
+      state.experiments = Experiments.normalizeState(state.experiments);
+    }
+    return state.experiments;
+  }
+
+  function experimentById(experimentId) {
+    return ensureExperimentState().experiments.find((entry) => entry.id === experimentId) || null;
+  }
+
+  function experimentResolvedSubjectId(subject) {
+    return subject?.kind === "plannedGenome" ? subject.synthesizedSlimeId : subject?.subjectId || "";
+  }
+
+  function experimentSubjectSlime(subject) {
+    return findSlime(experimentResolvedSubjectId(subject));
+  }
+
+  function experimentSubjectKey(subject) {
+    return subject?.slotId || experimentResolvedSubjectId(subject);
+  }
+
+  function experimentEnvironmentSnapshot(slime) {
+    if (!slime) return null;
+    const container = containerById(slime.containerId);
+    const cell = objectMapCell(slime) || objectMapCell(container);
+    const tile = cell ? tileEnvironmentAtCell(cell) : null;
+    const room = roomById(slimeEffectiveRoomId(slime));
+    const attributes = tileEnvironmentAttributes(tile, room?.attributes);
+    if (container?.environment) {
+      attributes.temperature.current = Number(container.environment.temperatureC ?? attributes.temperature.current);
+      attributes.humidity.current = Number(container.environment.humidity ?? attributes.humidity.current);
+      attributes.ambientMana.current = Number(container.environment.manaDensity ?? attributes.ambientMana.current);
+      attributes.contamination.current = airborneLoadTotal(container.environment.airborne);
+    }
+    return Object.fromEntries(["temperature", "humidity", "light", "ambientMana", "contamination", "electrical"].map((key) => [key, Number(attributes[key]?.current) || 0]));
+  }
+
+  function experimentSubjectSnapshot(subject) {
+    const slime = experimentSubjectSlime(subject);
+    if (!slime) return null;
+    const stats = Object.fromEntries(SLIME_STAT_DEFS.map((def) => [def.key, Number(slimeStat(slime, def.key).current) || 0]));
+    return {
+      capturedAt: state.clock,
+      subjectId: slime.id,
+      subjectName: slime.name,
+      genome: slime.genome,
+      ageSeconds: Math.max(0, state.clock - slime.createdAt),
+      status: slime.status,
+      roomId: slimeEffectiveRoomId(slime),
+      containerId: slime.containerId || "",
+      stats,
+      knownTraits: { ...(slime.revealed || {}) },
+      measuredTraitIds: Object.keys(slime.measured || {}).filter((key) => slime.measured[key]).sort(),
+      testsRun: [...new Set((slime.testsRun || []).map(String))].sort(),
+      environment: experimentEnvironmentSnapshot(slime)
+    };
+  }
+
+  function experimentSubjectEvidence(experiment, subject) {
+    const subjectId = experimentResolvedSubjectId(subject);
+    if (!subjectId) return [];
+    return ensureResearchState().evidence.filter((entry) => entry.specimenId === subjectId && entry.observedAt >= (experiment.startedAt || 0));
+  }
+
+  function experimentEvidenceSourceKeys(experiment) {
+    return [...new Set(experiment.subjects.flatMap((subject) => experimentSubjectEvidence(experiment, subject).map((entry) => entry.sourceKey)))];
+  }
+
+  function experimentValidationReason(candidate) {
+    const experiment = Experiments.normalizeExperiment(candidate, 0);
+    if (!experiment.hypothesis) return "Write a hypothesis before saving the draft.";
+    if (!experiment.subjects.some((subject) => subject.role === "experimental")) return "Select at least one experimental subject.";
+    const resolved = experiment.subjects.filter((subject) => subject.kind === "slime");
+    if (resolved.some((subject) => !findSlime(subject.subjectId))) return "One selected subject is no longer available.";
+    const identities = experiment.subjects.map((subject) => subject.kind === "slime" ? subject.subjectId : `genome:${subject.genome}`);
+    if (new Set(identities).size !== identities.length) return "Each experiment slot must use a distinct subject or planned genome.";
+    if (experiment.formalControl && !experiment.subjects.some((subject) => subject.role === "control")) return "A formal experiment requires a control subject.";
+    return "";
+  }
+
+  function saveExperimentDraft(options = {}) {
+    const experiments = ensureExperimentState();
+    const existing = options.id ? experimentById(options.id) : null;
+    if (existing && existing.status !== "draft") return false;
+    const subjects = [];
+    if (options.controlId) {
+      const slime = findSlime(options.controlId);
+      if (slime) subjects.push({ slotId: "control", role: "control", kind: "slime", subjectId: slime.id, label: slime.name, genome: slime.genome });
+    }
+    for (const [index, value] of (options.subjectValues || []).filter(Boolean).slice(0, 3).entries()) {
+      if (String(value).startsWith("planned:")) {
+        const genome = String(value).slice("planned:".length).replace(/[^ACGT]/gi, "").toUpperCase();
+        subjects.push({ slotId: `experimental-${index + 1}`, role: "experimental", kind: "plannedGenome", genome, label: `Planned genome ${index + 1}` });
+      } else {
+        const slime = findSlime(value);
+        if (slime) subjects.push({ slotId: `experimental-${index + 1}`, role: "experimental", kind: "slime", subjectId: slime.id, label: slime.name, genome: slime.genome });
+      }
+    }
+    const candidate = Experiments.normalizeExperiment({
+      ...(existing || {}),
+      id: existing?.id || `experiment-${experiments.nextExperimentNumber}`,
+      title: options.title,
+      hypothesis: options.hypothesis,
+      variableType: options.variableType,
+      formalControl: Boolean(options.controlId),
+      subjects,
+      status: "draft",
+      createdAt: existing?.createdAt ?? state.clock
+    }, experiments.experiments.length);
+    const reason = experimentValidationReason(candidate);
+    if (reason) {
+      addEvent(`Experiment draft blocked: ${reason}`);
+      persist(); render();
+      return false;
+    }
+    if (existing) Object.assign(existing, candidate);
+    else {
+      experiments.experiments.push(candidate);
+      experiments.nextExperimentNumber += 1;
+    }
+    addEvent(`${candidate.title} saved as a draft.`);
+    clearExperimentForm();
+    persist(); render();
+    return candidate.id;
+  }
+
+  function startExperiment(experimentId) {
+    const experiment = experimentById(experimentId);
+    if (!experiment || experiment.status !== "draft") return false;
+    const reason = experimentValidationReason(experiment);
+    if (reason) {
+      addEvent(`${experiment.title} blocked: ${reason}`);
+      persist(); render();
+      return false;
+    }
+    experiment.baselineSnapshots = {};
+    for (const subject of experiment.subjects) {
+      const snapshot = experimentSubjectSnapshot(subject);
+      if (snapshot) experiment.baselineSnapshots[experimentSubjectKey(subject)] = snapshot;
+    }
+    experiment.status = "running";
+    experiment.startedAt = state.clock;
+    experiment.interventionLog.push({ at: state.clock, kind: "start", summary: `Experiment started with ${experiment.subjects.length} subject slots.` });
+    addEvent(`${experiment.title} started. Baseline snapshots were recorded without revealing unknown traits.`);
+    persist(); render();
+    return true;
+  }
+
+  function abandonExperiment(experimentId) {
+    const experiment = experimentById(experimentId);
+    if (!experiment || ["completed", "abandoned", "concluding"].includes(experiment.status)) return false;
+    experiment.status = "abandoned";
+    experiment.abandonedAt = state.clock;
+    experiment.interventionLog.push({ at: state.clock, kind: "abandon", summary: "Experiment abandoned by player." });
+    addEvent(`${experiment.title} abandoned. Its historical notebook remains available.`);
+    persist(); render();
+    return true;
+  }
+
+  function experimentMissingEvidenceSubject(experiment) {
+    return experiment.subjects.find((subject) => experimentResolvedSubjectId(subject) && experimentSubjectEvidence(experiment, subject).length === 0) || null;
+  }
+
+  function experimentReadyToConclude(experiment) {
+    return Boolean(experiment && experiment.status === "running"
+      && experiment.subjects.every((subject) => experimentResolvedSubjectId(subject) && experimentSubjectSlime(subject))
+      && !experimentMissingEvidenceSubject(experiment));
+  }
+
+  function attachSynthesizedExperimentSubject(task, slime) {
+    const experiment = experimentById(task.data?.experimentId);
+    const subject = experiment?.subjects.find((entry) => entry.slotId === task.data?.experimentSubjectSlotId);
+    if (!experiment || !subject || subject.kind !== "plannedGenome" || subject.synthesizedSlimeId) return false;
+    subject.synthesizedSlimeId = slime.id;
+    subject.subjectId = slime.id;
+    subject.label = slime.name;
+    experiment.baselineSnapshots[experimentSubjectKey(subject)] = experimentSubjectSnapshot(subject);
+    experiment.interventionLog.push({ at: state.clock, kind: "synthesis", summary: `${slime.name} synthesized for ${subject.slotId}.` });
+    addEvent(`${slime.name} attached to ${experiment.title} as ${subject.slotId}.`);
+    return true;
+  }
+
+  function queueExperimentNextStep(experimentId) {
+    const experiment = experimentById(experimentId);
+    if (!experiment || experiment.status !== "running") return false;
+    const planned = experiment.subjects.find((subject) => subject.kind === "plannedGenome" && !subject.synthesizedSlimeId);
+    if (planned) {
+      const reason = synthesisActionBlockReason();
+      if (reason) {
+        addEvent(`${experiment.title} next step blocked: ${reason}`);
+        persist(); render();
+        return false;
+      }
+      const started = startStaminaTask({
+        type: "synthesize",
+        label: `Synthesize ${planned.label} for ${experiment.title}`,
+        baseDuration: 8,
+        skillId: "fabrication",
+        baseXp: 25,
+        baseCost: BASE_ACTION_STAMINA,
+        resourceCosts: synthesisResourceCosts(),
+        resourceRoomId: synthesisResourceRoomId(),
+        data: { genome: planned.genome, experimentId: experiment.id, experimentSubjectSlotId: planned.slotId }
+      });
+      if (started) experiment.interventionLog.push({ at: state.clock, kind: "synthesisQueued", summary: `Queued synthesis for ${planned.label}.` });
+      return started;
+    }
+    const subject = experimentMissingEvidenceSubject(experiment);
+    if (subject) {
+      const slime = experimentSubjectSlime(subject);
+      const test = TESTS.find((candidate) => candidate.id === "visual" && researchUnlockKnown(`test:${candidate.id}`)) || TESTS.find((candidate) => researchUnlockKnown(`test:${candidate.id}`));
+      const cost = adjustedStaminaCost(BASE_ACTION_STAMINA, [test?.skillId || "analysis", "creatureHandling"]);
+      const reason = test ? testBlockReason(test, slime, cost) : "No known specimen test is available.";
+      if (reason) {
+        addEvent(`${experiment.title} next step blocked: ${reason}`);
+        persist(); render();
+        return false;
+      }
+      const started = startStaminaTask({
+        type: "test",
+        label: `${test.label} on ${slime.name} for ${experiment.title}`,
+        baseDuration: test.duration,
+        skillId: test.skillId,
+        baseXp: test.xp,
+        baseCost: BASE_ACTION_STAMINA,
+        data: { slimeId: slime.id, testId: test.id, experimentId: experiment.id }
+      });
+      if (started) experiment.interventionLog.push({ at: state.clock, kind: "testQueued", summary: `Queued ${test.label} for ${slime.name}.` });
+      return started;
+    }
+    addEvent(`${experiment.title} has evidence for every subject. Choose a conclusion to queue formal workbench documentation.`);
+    persist(); render();
+    return false;
+  }
+
+  function experimentConclusionPlan() {
+    const start = scientistMapCell();
+    const plans = [];
+    for (const workstation of researchWorkstations()) {
+      for (const port of fixtureAccessCells(workstation)) {
+        const path = labMapPathBetweenCells(start, port.cell, { map: ensureLabMap(), ignoreDoors: true });
+        if (path.length) plans.push({ workstation, accessCell: port.cell, path });
+      }
+    }
+    return plans.sort((a, b) => a.path.length - b.path.length)[0] || null;
+  }
+
+  function experimentConclusionBlockReason(experimentId) {
+    const experiment = experimentById(experimentId);
+    if (!experiment || experiment.status !== "running") return "The experiment is not running.";
+    if (!experimentReadyToConclude(experiment)) return "Resolve every planned subject and record at least one observation for each subject.";
+    if ((state.tasks || []).some((task) => task.type === "experimentConclusion")) return "Another experiment conclusion is already queued.";
+    if (!experimentConclusionPlan()) return "No reachable operational research workbench is available.";
+    return staminaBlockReason(adjustedStaminaCost(3, ["analysis"]));
+  }
+
+  function queueExperimentConclusion(experimentId, conclusion) {
+    const experiment = experimentById(experimentId);
+    const reason = experimentConclusionBlockReason(experimentId);
+    if (reason || !Experiments.CONCLUSION_IDS.includes(conclusion)) {
+      addEvent(`${experiment?.title || "Experiment"} conclusion blocked: ${reason || "Choose a valid conclusion."}`);
+      persist(); render();
+      return false;
+    }
+    const plan = experimentConclusionPlan();
+    const cost = adjustedStaminaCost(3, ["analysis"]);
+    if (!spendStamina(cost)) return false;
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const workSeconds = adjustedActionDuration(30, "analysis");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "experimentConclusion",
+      label: `Conclude ${experiment.title} at ${plan.workstation.name}`,
+      createdAt: state.clock,
+      dueAt: queueTail + travelSeconds + workSeconds,
+      data: {
+        experimentId: experiment.id,
+        conclusion,
+        workstationId: plan.workstation.id,
+        mapPath: plan.path,
+        route: roomsFromMapPath(plan.path),
+        toCell: plan.accessCell,
+        roomId: labMapCellRoomId(plan.workstation.origin) || MAIN_ROOM_ID,
+        movementStartedAt: queueTail,
+        movement: createScientistMovementRecord(plan.path, travelSeconds, queueTail, { intent: "research" }),
+        workStartsAt: queueTail + travelSeconds,
+        staminaCost: cost,
+        skillId: "analysis"
+      }
+    };
+    experiment.status = "concluding";
+    experiment.conclusion = conclusion;
+    experiment.conclusionTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`${experiment.title} conclusion entered the scientist queue. The notebook will be finalized at the workbench.`);
+    persist(); render();
+    return true;
+  }
+
+  function experimentConfounders(experiment) {
+    const confounders = [];
+    if (!experiment.formalControl) confounders.push("No formal control subject; this remains exploratory.");
+    for (const subject of experiment.subjects) {
+      const key = experimentSubjectKey(subject);
+      const baseline = experiment.baselineSnapshots[key];
+      const final = experiment.finalSnapshots[key];
+      if (!baseline || !final) {
+        confounders.push(`${subject.label} lacks a complete baseline/final pair.`);
+        continue;
+      }
+      if (baseline.roomId !== final.roomId || baseline.containerId !== final.containerId) confounders.push(`${final.subjectName} changed location or containment.`);
+      if (experiment.variableType !== "feeding" && Math.abs((final.stats?.nutrition || 0) - (baseline.stats?.nutrition || 0)) >= 10) confounders.push(`${final.subjectName} had a substantial nutrition change.`);
+      if (experiment.variableType !== "treatment" && Math.abs((final.stats?.stress || 0) - (baseline.stats?.stress || 0)) >= 10) confounders.push(`${final.subjectName} had a substantial stress change.`);
+      if (experiment.variableType !== "environment") {
+        const changedEnvironment = Object.keys(final.environment || {}).some((keyName) => Math.abs((final.environment[keyName] || 0) - (baseline.environment?.[keyName] || 0)) >= 8);
+        if (changedEnvironment) confounders.push(`${final.subjectName} experienced a material environmental change.`);
+      }
+    }
+    return [...new Set(confounders)];
+  }
+
+  function experimentComparison(experiment) {
+    const resolved = experiment.subjects.filter((subject) => experimentSubjectSlime(subject));
+    const reference = resolved.find((subject) => subject.role === "control") || resolved[0];
+    const others = resolved.filter((subject) => subject !== reference);
+    const referenceFinal = experiment.finalSnapshots[experimentSubjectKey(reference)];
+    const genomeDifferences = [];
+    const observedDifferences = [];
+    const conditionChanges = [];
+    for (const subject of others) {
+      const final = experiment.finalSnapshots[experimentSubjectKey(subject)];
+      const genome = Experiments.differingGenomePositions(referenceFinal?.genome, final?.genome);
+      genomeDifferences.push(`${final?.subjectName || subject.label}: ${genome.length ? genome.map((entry) => `${entry.position} ${entry.reference}>${entry.subject}`).join(", ") : "no base differences"}.`);
+      const traitKeys = new Set([...Object.keys(referenceFinal?.knownTraits || {}), ...Object.keys(final?.knownTraits || {})]);
+      const traits = [...traitKeys].filter((key) => referenceFinal?.knownTraits?.[key] !== final?.knownTraits?.[key]);
+      observedDifferences.push(`${final?.subjectName || subject.label}: ${traits.length ? traits.map((key) => `${titleCase(key)} ${referenceFinal?.knownTraits?.[key] || "unknown"} vs ${final?.knownTraits?.[key] || "unknown"}`).join("; ") : "no known trait difference observed"}.`);
+    }
+    for (const subject of resolved) {
+      const key = experimentSubjectKey(subject);
+      const baseline = experiment.baselineSnapshots[key];
+      const final = experiment.finalSnapshots[key];
+      const changes = Object.keys(final?.stats || {}).filter((stat) => Math.abs((final.stats[stat] || 0) - (baseline?.stats?.[stat] || 0)) >= 1)
+        .map((stat) => `${titleCase(stat)} ${formatNumber(baseline?.stats?.[stat] || 0)}→${formatNumber(final.stats[stat] || 0)}`);
+      conditionChanges.push(`${final?.subjectName || subject.label}: ${changes.join(", ") || "no recorded condition change"}.`);
+    }
+    const evidence = resolved.flatMap((subject) => experimentSubjectEvidence(experiment, subject));
+    const coveredSubjects = resolved.filter((subject) => experimentSubjectEvidence(experiment, subject).length).length;
+    const confounders = experimentConfounders(experiment);
+    const score = Experiments.confidenceScore({
+      formalControl: experiment.formalControl,
+      experimentalCount: others.length,
+      evidenceCoverage: resolved.length ? coveredSubjects / resolved.length : 0,
+      meanEvidenceConfidence: evidence.length ? evidence.reduce((total, entry) => total + entry.confidence, 0) / evidence.length : 0,
+      confounderCount: confounders.length,
+      missingBaseline: resolved.some((subject) => !experiment.baselineSnapshots[experimentSubjectKey(subject)])
+    });
+    const band = Experiments.confidenceBand(score);
+    const conclusionLabel = Experiments.conclusionLabel(experiment.conclusion).toLowerCase();
+    return Experiments.normalizeComparison({
+      generatedAt: state.clock,
+      confidenceScore: score,
+      confidenceLabel: band.label,
+      referenceLabel: referenceFinal?.subjectName || reference?.label || "Reference subject",
+      genomeDifferences,
+      observedDifferences,
+      conditionChanges,
+      confounders,
+      evidenceSourceKeys: experimentEvidenceSourceKeys(experiment),
+      summary: `${Experiments.conclusionLabel(experiment.conclusion)} hypothesis: “${experiment.hypothesis}” (${band.label.toLowerCase()} confidence). This ${conclusionLabel} statement is the player's interpretation of recorded evidence, not an automatic gene mapping.`
+    });
+  }
+
+  function completeExperimentConclusion(task) {
+    const experiment = experimentById(task.data?.experimentId);
+    const workstation = fixtureById(task.data?.workstationId);
+    if (!experiment || experiment.status !== "concluding" || experiment.conclusionTaskId !== task.id || !workstation) return false;
+    experiment.finalSnapshots = {};
+    for (const subject of experiment.subjects) {
+      const snapshot = experimentSubjectSnapshot(subject);
+      if (snapshot) experiment.finalSnapshots[experimentSubjectKey(subject)] = snapshot;
+    }
+    experiment.comparison = experimentComparison(experiment);
+    experiment.status = "completed";
+    experiment.completedAt = state.clock;
+    experiment.conclusionTaskId = "";
+    experiment.interventionLog.push({ at: state.clock, kind: "conclusion", summary: experiment.comparison.summary });
+    recordResearchEvidence({
+      methodId: "controlledExperiment",
+      category: "experiment",
+      specimenId: experiment.subjects.map(experimentResolvedSubjectId).filter(Boolean)[0] || "",
+      specimenName: experiment.title,
+      sourceKey: `experiment:${experiment.id}`,
+      summary: experiment.comparison.summary,
+      confidence: experiment.comparison.confidenceScore / 100
+    });
+    awardXp("analysis", 12, `experiment conclusion: ${experiment.title}`);
+    addEvent(`${experiment.title} completed. ${experiment.comparison.summary}`);
+    emitMapFeedback("feedbackWork", workstation.origin, { label: `${experiment.title} documented`, intensityBand: "high", coalesceKey: `experiment:${experiment.id}` });
+    return true;
+  }
+
+  function experimentConclusionTaskBlockReason(task) {
+    const experiment = experimentById(task.data?.experimentId);
+    const workstation = fixtureById(task.data?.workstationId);
+    if (!experiment || experiment.status !== "concluding" || experiment.conclusionTaskId !== task.id) return "The experiment is no longer awaiting this conclusion.";
+    if (!workstation || workstation.condition <= 0 || workstation.operationalState !== "operational") return "The research workbench is unavailable.";
+    return "";
+  }
+
+  function cleanupCanceledExperimentConclusion(task) {
+    const experiment = experimentById(task.data?.experimentId);
+    if (!experiment || experiment.conclusionTaskId !== task.id) return;
+    experiment.status = "running";
+    experiment.conclusionTaskId = "";
+    experiment.interventionLog.push({ at: state.clock, kind: "conclusionCanceled", summary: "Workbench conclusion canceled; evidence and snapshots were preserved." });
+  }
+
   function objectFootprintCells(origin, footprint) {
     const clean = cleanMapCell(origin);
     const width = clamp(Math.ceil(Number(footprint?.width) || 1), 1, LAB_MAP_MAX_OBJECT_FOOTPRINT_CELLS);
@@ -36302,8 +36776,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "physicalDiagnostic"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "physicalDiagnostic"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -42384,6 +42858,172 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function experimentSubjectOptions(select, options = {}) {
+    const previous = select?.value || "";
+    const values = [{ value: "", label: options.control ? "No control (exploratory)" : "None" }];
+    for (const slime of state.slimes.filter((entry) => entry.status !== "dead").sort((a, b) => a.name.localeCompare(b.name))) {
+      values.push({ value: slime.id, label: `${slime.name} — ${slimeLocationLabel(slime)}` });
+    }
+    if (!options.control) {
+      const plannedValues = new Set([state.currentGenome]);
+      if (String(previous).startsWith("planned:")) plannedValues.add(String(previous).slice("planned:".length));
+      for (const genome of plannedValues) values.push({ value: `planned:${genome}`, label: `Planned: current/saved genome ${genome}` });
+    }
+    return values;
+  }
+
+  function renderExperimentForm() {
+    if (!dom.experimentForm) return;
+    if (!dom.experimentTemplateSelect.options.length) {
+      setSelectOptions(dom.experimentTemplateSelect, Experiments.TEMPLATES.map((entry) => ({ value: entry.id, label: entry.label })), "custom", "custom");
+    }
+    if (!dom.experimentVariableSelect.options.length) {
+      setSelectOptions(dom.experimentVariableSelect, Experiments.VARIABLE_TYPES.map((entry) => ({ value: entry.id, label: entry.label })), "other", "other");
+    }
+    setSelectOptions(dom.experimentControlSelect, experimentSubjectOptions(dom.experimentControlSelect, { control: true }), dom.experimentControlSelect.value, "");
+    for (const select of [dom.experimentSubject1Select, dom.experimentSubject2Select, dom.experimentSubject3Select]) {
+      setSelectOptions(select, experimentSubjectOptions(select), select.value, "");
+    }
+    const editing = experimentById(dom.experimentIdInput.value);
+    dom.experimentForm.querySelector("button[type=submit]").textContent = editing ? "Update Draft" : "Save Draft";
+  }
+
+  function clearExperimentForm() {
+    if (!dom.experimentForm) return;
+    dom.experimentIdInput.value = "";
+    dom.experimentTemplateSelect.value = "custom";
+    dom.experimentTitleInput.value = "";
+    dom.experimentHypothesisInput.value = "";
+    dom.experimentVariableSelect.value = "other";
+    dom.experimentControlSelect.value = "";
+    dom.experimentSubject1Select.value = "";
+    dom.experimentSubject2Select.value = "";
+    dom.experimentSubject3Select.value = "";
+  }
+
+  function editExperimentDraft(experimentId) {
+    const experiment = experimentById(experimentId);
+    if (!experiment || experiment.status !== "draft") return false;
+    dom.experimentIdInput.value = experiment.id;
+    dom.experimentTemplateSelect.value = "custom";
+    dom.experimentTitleInput.value = experiment.title;
+    dom.experimentHypothesisInput.value = experiment.hypothesis;
+    dom.experimentVariableSelect.value = experiment.variableType;
+    const control = experiment.subjects.find((subject) => subject.role === "control");
+    dom.experimentControlSelect.value = control?.subjectId || "";
+    const experimental = experiment.subjects.filter((subject) => subject.role === "experimental");
+    for (const [index, select] of [dom.experimentSubject1Select, dom.experimentSubject2Select, dom.experimentSubject3Select].entries()) {
+      const subject = experimental[index];
+      select.value = subject ? subject.kind === "plannedGenome" ? `planned:${subject.genome}` : subject.subjectId : "";
+      if (subject && ![...select.options].some((option) => option.value === select.value)) {
+        const option = document.createElement("option");
+        option.value = select.value;
+        option.textContent = subject.label;
+        select.append(option);
+        select.value = option.value;
+      }
+    }
+    renderExperimentForm();
+    dom.experimentTitleInput.focus();
+    return true;
+  }
+
+  function experimentStatusLabel(experiment) {
+    return { draft: "Draft", running: "Running", concluding: "Concluding", completed: "Completed", abandoned: "Abandoned" }[experiment.status] || titleCase(experiment.status);
+  }
+
+  function experimentEvidenceProgress(experiment) {
+    const resolved = experiment.subjects.filter((subject) => experimentResolvedSubjectId(subject));
+    const covered = resolved.filter((subject) => experimentSubjectEvidence(experiment, subject).length).length;
+    return { covered, total: experiment.subjects.length };
+  }
+
+  function experimentComparisonList(title, entries) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `${title} (${entries.length})`;
+    details.append(summary);
+    if (!entries.length) details.append(emptyText("None recorded."));
+    else {
+      const list = document.createElement("ul");
+      for (const entry of entries) list.append(textEl("li", entry));
+      details.append(list);
+    }
+    return details;
+  }
+
+  function renderExperiments() {
+    if (!dom.experimentList) return;
+    renderExperimentForm();
+    dom.experimentList.textContent = "";
+    const experiments = [...ensureExperimentState().experiments].sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
+    if (!experiments.length) {
+      dom.experimentList.append(emptyText("No experiment drafts yet. Templates are optional; hypotheses remain player-written records."));
+      return;
+    }
+    for (const experiment of experiments) {
+      const card = document.createElement("article");
+      card.className = "card experiment-card";
+      card.dataset.experimentId = experiment.id;
+      card.dataset.experimentStatus = experiment.status;
+      const heading = document.createElement("div");
+      heading.className = "card-title-row";
+      heading.append(textEl("h3", experiment.title), chip(experimentStatusLabel(experiment)));
+      card.append(heading, textEl("p", `Hypothesis: “${experiment.hypothesis}”`, "experiment-hypothesis"));
+      card.append(textEl("p", `${experiment.formalControl ? "Formal control" : "Exploratory; no formal control"} · Variable: ${Experiments.VARIABLE_TYPE_BY_ID[experiment.variableType]?.label || "Other intervention"}`, "journal-meta"));
+      const subjects = experiment.subjects.map((subject) => `${subject.role === "control" ? "Control" : "Experimental"}: ${experimentSubjectSlime(subject)?.name || subject.label}${subject.kind === "plannedGenome" && !subject.synthesizedSlimeId ? " (awaiting synthesis)" : ""}`);
+      card.append(textEl("p", subjects.join(" · "), "journal-meta"));
+
+      const actions = document.createElement("div");
+      actions.className = "experiment-actions";
+      if (experiment.status === "draft") {
+        actions.append(
+          storesActionButton("Edit Draft", "Load this draft into the notebook form.", () => editExperimentDraft(experiment.id)),
+          storesActionButton("Start Experiment", "Save immutable baseline snapshots and begin tracking evidence.", () => startExperiment(experiment.id)),
+          storesActionButton("Abandon", "Preserve this draft as an abandoned historical notebook.", () => abandonExperiment(experiment.id))
+        );
+      } else if (experiment.status === "running") {
+        const progress = experimentEvidenceProgress(experiment);
+        card.append(textEl("p", `Evidence coverage: ${progress.covered}/${progress.total} subject slots. Existing knowledge is cited; repeated sources do not become independent evidence.`, "journal-meta"));
+        const nextButton = storesActionButton("Queue Next Step", "Queue synthesis for an unresolved planned genome or an ordinary known specimen test for the next subject lacking evidence.", () => queueExperimentNextStep(experiment.id));
+        actions.append(nextButton);
+        if (experimentReadyToConclude(experiment)) {
+          const select = document.createElement("select");
+          select.setAttribute("aria-label", `Conclusion for ${experiment.title}`);
+          select.dataset.experimentConclusionChoice = experiment.id;
+          for (const id of Experiments.CONCLUSION_IDS) {
+            const option = document.createElement("option");
+            option.value = id;
+            option.textContent = Experiments.conclusionLabel(id);
+            if (id === "inconclusive") option.selected = true;
+            select.append(option);
+          }
+          const conclude = storesActionButton("Queue Conclusion", "Route the scientist to a research workbench and formalize the selected player interpretation.", () => queueExperimentConclusion(experiment.id, select.value));
+          const reason = experimentConclusionBlockReason(experiment.id);
+          conclude.disabled = Boolean(reason);
+          conclude.title = reason || conclude.title;
+          actions.append(select, conclude);
+        }
+        actions.append(storesActionButton("Abandon", "Preserve the running notebook and all snapshots as abandoned.", () => abandonExperiment(experiment.id)));
+      } else if (experiment.status === "concluding") {
+        card.append(textEl("p", `Queued conclusion: ${Experiments.conclusionLabel(experiment.conclusion)}. Cancellation returns the notebook to Running without losing evidence.`, "journal-meta"));
+      } else if (experiment.status === "completed" && experiment.comparison) {
+        card.append(
+          textEl("p", experiment.comparison.summary, "experiment-result-summary"),
+          textEl("p", `Reference: ${experiment.comparison.referenceLabel} · Confidence: ${experiment.comparison.confidenceLabel} (${Math.round(experiment.comparison.confidenceScore)}/100) · ${experiment.comparison.evidenceSourceKeys.length} cited sources`, "journal-meta"),
+          experimentComparisonList("Known genome differences", experiment.comparison.genomeDifferences),
+          experimentComparisonList("Observed trait differences", experiment.comparison.observedDifferences),
+          experimentComparisonList("Condition changes", experiment.comparison.conditionChanges),
+          experimentComparisonList("Confounders", experiment.comparison.confounders)
+        );
+      } else if (experiment.status === "abandoned") {
+        card.append(textEl("p", "Historical draft, snapshots, and intervention notes are preserved but cannot be resumed.", "journal-meta"));
+      }
+      if (actions.childElementCount) card.append(actions);
+      dom.experimentList.append(card);
+    }
+  }
+
   function renderResearch() {
     if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
     const research = ensureResearchState();
@@ -42393,6 +43033,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
     renderDiagnosticResults();
+    renderExperiments();
 
     if (research.activeProjectId) {
       const project = researchProject(research.activeProjectId);
@@ -45303,6 +45944,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "physicalDiagnostic") {
       return physicalDiagnosticTaskBlockReason(task);
     }
+    if (task.type === "experimentConclusion") {
+      return experimentConclusionTaskBlockReason(task);
+    }
     if (task.type === "researchWork") {
       return researchWorkTaskBlockReason(task);
     }
@@ -45427,6 +46071,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "physicalDiagnostic") {
       releaseConstructionTaskTools(task, { retain: false });
       releaseProductionMaterialReservations(task);
+    }
+    if (task.type === "experimentConclusion") {
+      cleanupCanceledExperimentConclusion(task);
     }
     if (task.type === "researchWork") {
       cleanupCanceledResearchTask(task);
@@ -53350,6 +53997,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "physicalDiagnostic") {
       return "Diagnostic";
     }
+    if (task.type === "experimentConclusion") {
+      return "Research";
+    }
     if (task.type === "scientistMove") {
       return "Scientist";
     }
@@ -60010,6 +60660,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.specimenMaterials = normalizeSpecimenMaterials(next.specimenMaterials);
     next.research = Research.normalizeState(next.research);
     next.diagnostics = Diagnostics.normalizeState(next.diagnostics);
+    next.experiments = Experiments.normalizeState(next.experiments);
     next.floorStockpiles = normalizeFloorStockpiles(next.floorStockpiles);
     next.roomStockpiles = normalizeRoomStockpiles(next.roomStockpiles, next);
     next.physicalItemStacks = normalizePhysicalItemStacks(next.physicalItemStacks);
@@ -60038,6 +60689,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.tasks = normalizeActiveTaskPacing(next.tasks, next.clock, next.labMap);
+    const experimentConclusionTaskIds = new Set(next.tasks.filter((task) => task?.type === "experimentConclusion").map((task) => String(task.id || "")));
+    for (const experiment of next.experiments.experiments) {
+      if (experiment.status === "concluding" && (!experiment.conclusionTaskId || !experimentConclusionTaskIds.has(experiment.conclusionTaskId))) {
+        experiment.status = "running";
+        experiment.conclusionTaskId = "";
+      }
+    }
     const researchTaskIds = new Set(next.tasks.filter((task) => task?.type === "researchWork").map((task) => String(task.id || "")));
     for (const record of Object.values(next.research.projects || {})) {
       if (record.taskId && !researchTaskIds.has(record.taskId)) {

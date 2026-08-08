@@ -372,9 +372,26 @@
         <section class="panel research-panel" aria-labelledby="researchTitle" data-workspace-panel="research">
           <div class="panel-heading">
             <div>
-              <h2 id="researchTitle">Research Projects</h2>
+              <h2 id="researchTitle">Research</h2>
               <p id="researchSummary">Evidence-driven laboratory methods and physical prototypes</p>
             </div>
+          </div>
+          <div class="subpanel experiment-notebook-panel">
+            <div class="subpanel-title">Experiment Notebook</div>
+            <p class="journal-meta">Define a hypothesis, compare existing or planned subjects, and coordinate ordinary synthesis, tests, diagnostics, and a physical workbench conclusion.</p>
+            <form id="experimentForm" class="experiment-form">
+              <input id="experimentIdInput" type="hidden">
+              <label>Template<select id="experimentTemplateSelect"></select></label>
+              <label>Title<input id="experimentTitleInput" maxlength="80" required></label>
+              <label class="experiment-hypothesis-field">Hypothesis<textarea id="experimentHypothesisInput" rows="2" maxlength="400" required></textarea></label>
+              <label>Independent variable<select id="experimentVariableSelect"></select></label>
+              <label>Control<select id="experimentControlSelect"></select></label>
+              <label>Experimental subject 1<select id="experimentSubject1Select" required></select></label>
+              <label>Experimental subject 2<select id="experimentSubject2Select"></select></label>
+              <label>Experimental subject 3<select id="experimentSubject3Select"></select></label>
+              <div class="experiment-form-actions"><button class="primary" type="submit">Save Draft</button><button id="experimentClearBtn" type="button">Clear Form</button></div>
+            </form>
+            <div id="experimentList" class="experiment-list"></div>
           </div>
           <div id="researchActiveProject" class="research-active-project"></div>
           <div id="researchProjectList" class="research-project-list"></div>
@@ -653,6 +670,7 @@
     <script src="geology-field.js"></script>
     <script src="research-system.js"></script>
     <script src="diagnostic-system.js"></script>
+    <script src="experiment-system.js"></script>
     <script src="terrain-connectivity.js"></script>
     <script src="actor-visual-state.js"></script>
     <script src="animation-clock.js"></script>
