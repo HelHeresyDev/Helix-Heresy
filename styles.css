@@ -3583,6 +3583,77 @@ body.map-dragging .lab-map-canvas-host {
   border-top: 1px solid var(--line);
 }
 
+.reproduction-planner {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.reproduction-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem;
+}
+
+.reproduction-form-grid label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.reproduction-form-grid select,
+.reproduction-form-grid input {
+  width: 100%;
+  min-width: 0;
+}
+
+.lineage-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.lineage-inheritance {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #313329;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.lineage-inheritance summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.lineage-inheritance p {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.reproduction-event-children {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.reproduction-child-record {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border-left: 2px solid var(--cyan);
+  background: #171a16;
+}
+
 .job-list {
   display: grid;
   gap: 0.55rem;

@@ -14,79 +14,74 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Advanced Slime Reproduction and Heredity
-2. Creature Needs, Habitats, and Long-Term Welfare
-3. Large-Population Slime AI and Group Behavior
-4. Containment Breaches and Emergency Response
-5. Tactical Combat Actions, Injuries, and Recovery
-6. Scientist Equipment, Clothing, and Loadouts
-7. Expanded Production Chains and Material Processing
-8. Utility Networks, Power Failures, and Maintenance
-9. Black-Market Contracts, Deadlines, and Consequences
-10. Suspicion, Investigations, and Evidence Management
-11. Campaign Objectives, Milestones, and End States
-12. New-Run Onboarding and Contextual Tutorial
-13. Sound Design, Notifications, and Accessibility Audit
-14. Production Sprite Replacement and Art-Direction Pass
+1. Creature Needs, Habitats, and Long-Term Welfare
+2. Large-Population Slime AI and Group Behavior
+3. Containment Breaches and Emergency Response
+4. Tactical Combat Actions, Injuries, and Recovery
+5. Scientist Equipment, Clothing, and Loadouts
+6. Expanded Production Chains and Material Processing
+7. Utility Networks, Power Failures, and Maintenance
+8. Black-Market Contracts, Deadlines, and Consequences
+9. Suspicion, Investigations, and Evidence Management
+10. Campaign Objectives, Milestones, and End States
+11. New-Run Onboarding and Contextual Tutorial
+12. Sound Design, Notifications, and Accessibility Audit
+13. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Advanced Slime Reproduction and Heredity
-
-Expand splitting, recombination, mutation, brood relationships, inherited traits, and lineage records into a predictable-but-discoverable breeding system.
-
-## 2. Creature Needs, Habitats, and Long-Term Welfare
+## 1. Creature Needs, Habitats, and Long-Term Welfare
 
 Deepen nutrition, rest, stimulation, social contact, environmental fit, illness, stress, and ethical tradeoffs so long-term creature care affects behavior and research.
 
-## 3. Large-Population Slime AI and Group Behavior
+## 2. Large-Population Slime AI and Group Behavior
 
 Develop scalable local coordination, flocking or clustering, competition, cooperation, territorial behavior, and group responses for laboratories containing many autonomous creatures.
 
-## 4. Containment Breaches and Emergency Response
+## 3. Containment Breaches and Emergency Response
 
 Create multi-stage containment emergencies with alarms, lockdowns, evacuation, recapture, cleanup, repair, evidence, and lasting consequences derived from physical simulation state.
 
-## 5. Tactical Combat Actions, Injuries, and Recovery
+## 4. Tactical Combat Actions, Injuries, and Recovery
 
 Expand tactical positioning, attacks, defenses, abilities, wounds, treatment, incapacitation, and recovery while keeping combat readable and integrated with ordinary laboratory work.
 
-## 6. Scientist Equipment, Clothing, and Loadouts
+## 5. Scientist Equipment, Clothing, and Loadouts
 
 Add physical equipment slots, protective clothing, tools, consumables, encumbrance, preparation, storage, and loadout decisions that affect laboratory and field actions.
 
-## 7. Expanded Production Chains and Material Processing
+## 6. Expanded Production Chains and Material Processing
 
 Build multi-stage recipes, intermediate materials, quality propagation, byproducts, workstation dependencies, bills, stock targets, and physical hauling into a broader production economy.
 
-## 8. Utility Networks, Power Failures, and Maintenance
+## 7. Utility Networks, Power Failures, and Maintenance
 
 Deepen electricity, ventilation, drainage, heat, mana, fuel, capacity, faults, redundancy, inspection, repair, and scheduled maintenance across connected physical networks.
 
-## 9. Black-Market Contracts, Deadlines, and Consequences
+## 8. Black-Market Contracts, Deadlines, and Consequences
 
 Add negotiated contracts, delivery requirements, deadlines, reputation, unreliable contacts, payment risk, contraband logistics, and consequences for failed or suspicious deals.
 
-## 10. Suspicion, Investigations, and Evidence Management
+## 9. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 11. Campaign Objectives, Milestones, and End States
+## 10. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 12. New-Run Onboarding and Contextual Tutorial
+## 11. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 13. Sound Design, Notifications, and Accessibility Audit
+## 12. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 14. Production Sprite Replacement and Art-Direction Pass
+## 13. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
