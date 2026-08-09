@@ -153,6 +153,8 @@ test('door commands and emergency lockdown create physical scientist tasks', asy
   await loadSavedRun(page);
   await page.locator('[data-workspace-tab="policies"]').click();
   await page.locator('[data-policy-menu-tab="access"]').click();
+  await expect(page.getByLabel('Containment emergency response')).toHaveValue('notifyPause');
+  await expect(page.getByLabel('Containment emergency response').locator('option')).toHaveCount(3);
   await page.getByLabel('Emergency restrictions active').check();
   const lockdown = await page.evaluate(({ key, doorId }) => {
     const state = JSON.parse(window.localStorage.getItem(key)).state;

@@ -65,6 +65,15 @@ async function stageContainmentSlime(page, options) {
     state.timeSpeed = 'realtime';
     state.clock = 0;
     state.tasks = [];
+    state.taskHistory = [];
+    state.containmentEmergencies = [];
+    state.nextContainmentEmergencyNumber = 1;
+    state.policies.containmentEmergency = { mode: options.emergencyPolicy || 'notifyPause' };
+    if (options.emergencyPolicy === 'automaticLockdown') {
+      const lockdownDoor = Object.values(state.doors).find((door) => door.state === 'open' && !door.breached);
+      if (lockdownDoor) lockdownDoor.lockdownAction = 'lock';
+      state.accessControl.lockdownActive = false;
+    }
     state.selectedSlimeId = options.slimeId;
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
@@ -249,6 +258,7 @@ test('critical attack testing cracks a fragile container and removes it from ser
     nutrition: 4,
     stress: 96,
     revealed: { element: 'none', consistency: 'rubbery', behavior: 'vibration hunting', stability: 'predatory' },
+    emergencyPolicy: 'automaticLockdown',
   });
 
   await skipSeconds(page, 7200);
@@ -268,6 +278,10 @@ test('critical attack testing cracks a fragile container and removes it from ser
       condition: container?.condition,
       escapedMemory: slime?.behaviorMemory?.tags?.containmentEscaped || 0,
       events: state.events.slice(0, 5).map((event) => event.message || String(event)).join(' | '),
+      emergency: state.containmentEmergencies.find((entry) => entry.sourceKind === 'container' && entry.sourceId === 'basic-1'),
+      emergencyIncident: state.incidents.find((entry) => entry.type === 'containmentEmergency'),
+      lockdownActive: state.accessControl.lockdownActive,
+      lockdownDoorWorked: [...state.tasks, ...state.taskHistory].some((entry) => entry.type === 'doorOperation' && entry.data?.lockdown),
     };
   }, { key: storageKey });
 
@@ -280,6 +294,12 @@ test('critical attack testing cracks a fragile container and removes it from ser
   expect(result.condition).toBe(0);
   expect(result.escapedMemory).toBeGreaterThan(0);
   expect(result.events).toContain('cracked Ruined Jar');
+  expect(result.emergency).toMatchObject({ stage: 'uncontrolled', sourceKind: 'container', sourceId: 'basic-1' });
+  expect(result.emergency.requirements.join(' | ')).toMatch(/secure 1 loose creature/i);
+  expect(result.emergency.requirements.join(' | ')).toMatch(/repair and reseal Ruined Jar/i);
+  expect(result.emergencyIncident).toMatchObject({ type: 'containmentEmergency', emergencyStage: 'uncontrolled', severity: 'critical' });
+  expect(result.lockdownActive).toBe(true);
+  expect(result.lockdownDoorWorked).toBe(true);
   await expect(page.locator('[data-container-breach="basic-1"]')).toContainText('breach breached');
   await expect(page.locator('[data-container-breach-summary="basic-1"]')).toContainText('Cracked container');
 });
