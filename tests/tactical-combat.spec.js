@@ -55,7 +55,7 @@ async function seedCombatSlime(page, id, options = {}) {
       lifecycleVersion: 1,
       matureAt: 0,
       mature: true,
-      status: 'released',
+      status: options.contained ? 'contained' : 'released',
       containerId: null,
       roomId: state.scientist.roomId,
       mapCell: cell,
@@ -67,6 +67,7 @@ async function seedCombatSlime(page, id, options = {}) {
       testsRun: [],
       jobKnowledge: {},
       behaviorMemory: { tags: {}, recent: [], lastUpdatedAt: null },
+      nextAutonomousDecisionAt: options.freeze ? 100000 : 0,
       stats: {
         bodyIntegrity: { current: options.integrity || 100, max: 100 },
         nutrition: { current: options.nutrition ?? 80, max: 100 },
@@ -78,6 +79,8 @@ async function seedCombatSlime(page, id, options = {}) {
     state.creatureRecords = {};
     state.combat = { active: [], cooldowns: {}, actorRecoveryUntil: {}, pendingActions: {}, guarding: {}, nextActionNumber: 1 };
     state.incidents = [];
+    state.injuries = [];
+    state.nextInjuryNumber = 1;
     state.selectedSlimeId = id;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, id, genome, options });
@@ -102,6 +105,7 @@ test('Soul Lash is a map command that spends Mana and deals Arcane damage', asyn
       mana: state.scientist.vitals.mana.current,
       animancyXp: state.scientist.skills.animancy.xp,
       recoveryUntil: state.combat.actorRecoveryUntil.scientist,
+      injuries: state.injuries.filter((injury) => injury.actorId === 'soul-target'),
       eventText: state.events.map((event) => event.message).join('\n'),
     };
   }, storageKey);
@@ -110,32 +114,38 @@ test('Soul Lash is a map command that spends Mana and deals Arcane damage', asyn
   expect(result.mana).toBe(88);
   expect(result.animancyXp).toBeGreaterThan(0);
   expect(result.recoveryUntil).toBeGreaterThan(0);
+  expect(result.injuries).toEqual(expect.arrayContaining([expect.objectContaining({ typeId: 'arcaneTrauma', status: 'active' })]));
   expect(result.eventText).toContain('Scientist used Soul Lash on SOUL-TARGET');
 });
 
-test('diagonal footprints count as adjacent for a scientist Strike', async ({ page }) => {
+test('diagonal footprints count as adjacent for Shove and create persistent trauma', async ({ page }) => {
   await startRun(page);
-  await seedCombatSlime(page, 'diagonal-target', { name: 'DIAGONAL-TARGET', diagonal: true, integrity: 16 });
+  await seedCombatSlime(page, 'diagonal-target', { name: 'DIAGONAL-TARGET', diagonal: true, integrity: 100, contained: true });
 
   await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'slime', id: 'diagonal-target' }));
   await page.locator('[data-selection-inspector-tab="actions"]').click();
-  const strike = page.locator('[data-context-command="slime.strike.diagonal-target"]');
-  await expect(strike).toBeEnabled();
-  await strike.click();
+  const shove = page.locator('[data-context-command="slime.shove.diagonal-target"]');
+  await expect(shove).toBeEnabled();
+  await shove.click();
+  await skipSeconds(page, 1);
 
   const result = await page.evaluate((key) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return {
       living: state.slimes.some((slime) => slime.id === 'diagonal-target'),
-      strikingXp: state.scientist.skills.striking?.xp || 0,
+      integrity: state.slimes.find((slime) => slime.id === 'diagonal-target')?.stats.bodyIntegrity.current,
+      grapplingXp: state.scientist.skills.grappling?.xp || 0,
       handlingXp: state.scientist.skills.creatureHandling?.xp || 0,
+      injuries: state.injuries.filter((injury) => injury.actorId === 'diagonal-target'),
     };
   }, storageKey);
 
-  expect(result.living).toBe(false);
-  expect(result.strikingXp).toBeGreaterThan(0);
+  expect(result.living).toBe(true);
+  expect(result.integrity).toBe(94);
+  expect(result.grapplingXp).toBeGreaterThan(0);
   expect(result.handlingXp).toBe(0);
+  expect(result.injuries.length).toBeGreaterThan(0);
 });
 
 test('Guard suspends and then preserves the remaining scientist task schedule', async ({ page }) => {
@@ -176,7 +186,7 @@ test('Guard suspends and then preserves the remaining scientist task schedule', 
   expect(result.suspension).toBeNull();
 });
 
-test('Guard reduces incoming attack damage and practices Guarding when struck', async ({ page }) => {
+test('Guard reduces incoming damage and physical first aid stabilizes the resulting injury', async ({ page }) => {
   await startRun(page);
   await seedCombatSlime(page, 'guard-attacker', {
     name: 'GUARD-ATTACKER',
@@ -195,12 +205,47 @@ test('Guard reduces incoming attack damage and practices Guarding when struck', 
       health: state.scientist.vitals.health.current,
       guardingXp: state.scientist.skills.guarding?.xp || 0,
       guarding: Boolean(state.combat.guarding.scientist),
+      injuries: state.injuries.filter((injury) => injury.actorId === 'scientist'),
     };
   }, storageKey);
 
   expect(result.health).toBe(97);
   expect(result.guardingXp).toBeGreaterThan(2);
   expect(result.guarding).toBe(true);
+  expect(result.injuries.length).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.helixHeresyDebug.setScientistGuarding(false));
+  await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'scientist', id: 'scientist' }));
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const stabilize = page.locator('[data-context-command^="injury.stabilize."]').first();
+  await expect(stabilize).toBeEnabled();
+  await stabilize.click();
+
+  const queuedCare = await page.evaluate((key) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    const task = state.tasks.find((entry) => entry.type === 'injuryTreatment');
+    const reserved = state.physicalItemStacks.find((stack) => stack.id === task?.data.supplyStackId);
+    return { seconds: Math.ceil((task?.dueAt || state.clock) - state.clock) + 1, reservedTaskId: reserved?.reservedTaskId, taskId: task?.id };
+  }, storageKey);
+  expect(queuedCare.reservedTaskId).toBe(queuedCare.taskId);
+  await skipSeconds(page, queuedCare.seconds);
+
+  const careResult = await page.evaluate((key) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    return {
+      statuses: state.injuries.filter((injury) => injury.actorId === 'scientist').map((injury) => injury.status),
+      bandages: state.physicalItemStacks.filter((stack) => stack.section === 'inventory' && stack.key === 'medicalBandage').reduce((sum, stack) => sum + stack.quantity, 0),
+      medicineXp: state.scientist.skills.medicine?.xp || 0,
+      careQueued: state.tasks.some((task) => task.type === 'injuryTreatment'),
+    };
+  }, storageKey);
+  expect(careResult).toMatchObject({ careQueued: false, bandages: 7 });
+  expect(careResult.statuses).toContain('stabilized');
+  expect(careResult.bandages).toBe(7);
+  expect(careResult.medicineXp).toBeGreaterThan(0);
+  expect(careResult.careQueued).toBe(false);
 });
 
 test('urgent movement runs ahead of routine work and resumes the preserved queue', async ({ page }) => {
