@@ -161,6 +161,23 @@
       description: "A full-size bed assembled from fabricated frame pieces at its destination."
     },
     {
+      id: "slimeEnrichmentStation",
+      label: "Slime Enrichment Station",
+      glyph: "◎",
+      assemblyClass: "portable",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "interaction", label: "Creature Access", x: 0, y: 1 }],
+      capabilities: ["creatureEnrichment"],
+      workMinutes: 6,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 2, metalParts: 1 }, score: 72 },
+        steel: { composition: { primary: "steel", lining: "rubber" }, costs: { steelPanels: 1, metalParts: 2, rubber: 1 }, score: 86 }
+      },
+      description: "A reusable physical course of textured, moving, and reactive surfaces that gives nearby slimes varied activity without manual clicking."
+    },
+    {
       id: "collectionApparatus",
       label: "Collection Apparatus",
       glyph: "A",
@@ -2679,7 +2696,8 @@
     containerBreach: { label: "Container Breach" },
     breachedDoor: { label: "Door Breach" },
     structuralBreach: { label: "Structural Breach" },
-    combat: { label: "Combat" }
+    combat: { label: "Combat" },
+    welfare: { label: "Creature Welfare" }
   };
   const SPECIMEN_HARVEST_PROCEDURE_DEFS = [
     {
@@ -3307,6 +3325,10 @@
   const Heredity = window.HelixHereditySystem;
   if (!Heredity) {
     throw new Error("HelixHereditySystem must load before app.js");
+  }
+  const Welfare = window.HelixWelfareSystem;
+  if (!Welfare) {
+    throw new Error("HelixWelfareSystem must load before app.js");
   }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
@@ -4050,6 +4072,7 @@
     return [
       defaultFixtureInstance("starter-workbench", "basicWorkbench", { x: 55, y: 46 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-bed", "bed", { x: 49, y: 57 }, 0, { materialPolicy: "wood" }),
+      defaultFixtureInstance("starter-slime-enrichment", "slimeEnrichmentStation", { x: 33, y: 47 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-collection-apparatus", "collectionApparatus", { x: 64, y: 46 }, 0, { materialPolicy: "steel" }),
       defaultFixtureInstance("starter-storage-shelf", "storageShelf", { x: 49, y: 40 }, 0, { materialPolicy: "wood", accessState: "open" }),
       defaultFixtureInstance("starter-storage-crate", "storageCrate", { x: 52, y: 40 }, 0, { materialPolicy: "wood", accessState: "closed" }),
@@ -5686,6 +5709,49 @@
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
       experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
       hereditySnapshot: () => JSON.parse(JSON.stringify(ensureHeredityState())),
+      welfareSnapshot: (slimeId) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return null;
+        slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+        return JSON.parse(JSON.stringify({
+          record: slime.welfare,
+          assessment: slimeWelfareAssessment(slime),
+          socialPreference: slimeSocialPreference(slime),
+          workFactor: slimeWelfareWorkFactor(slime),
+          enrichment: slimeHasEnrichment(slime)
+        }));
+      },
+      setSlimeCarePlan: (slimeId, carePlanId) => setSlimeCarePlan(slimeId, carePlanId),
+      setSlimeWelfareStateForTest: (slimeId, options = {}) => {
+        const slime = findSlime(slimeId);
+        if (!slime) return false;
+        for (const [key, value] of Object.entries(options.stats || {})) {
+          if (SLIME_STAT_DEFS.some((definition) => definition.key === key)) setSlimeStat(slime, key, value);
+        }
+        slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+        if (Number.isFinite(Number(options.inactiveHours))) slime.welfare.lastMeaningfulActivityAt = Math.max(0, state.clock - Number(options.inactiveHours) * 3600);
+        if (options.carePlanId) slime.welfare.carePlanId = Welfare.CARE_PLAN_BY_ID[options.carePlanId] ? options.carePlanId : slime.welfare.carePlanId;
+        if (typeof options.spatialPressure === "boolean") {
+          slime.spatialPressure = normalizeSlimeSpatialPressure({
+            ...slime.spatialPressure,
+            active: options.spatialPressure,
+            since: options.spatialPressure ? state.clock : 0
+          });
+        }
+        if (options.roomActivityType) {
+          slime.roomActivity = { type: String(options.roomActivityType), label: String(options.roomActivityLabel || options.roomActivityType), roomId: slimeEffectiveRoomId(slime), updatedAt: state.clock };
+        }
+        persist();
+        render();
+        return true;
+      },
+      recordWelfareInterventionForTest: (slimeId, kind, burden, summary) => {
+        const slime = findSlime(slimeId);
+        const changed = recordSlimeWelfareIntervention(slime, kind, burden, summary);
+        persist();
+        render();
+        return changed;
+      },
       livingHereditySnapshot: () => (state.slimes || []).map((slime) => ({
         id: slime.id,
         genome: slime.genome,
@@ -8719,6 +8785,7 @@
       feedingChanged: 0,
       uncontainedBehaviorChanged: 0,
       socialChanged: 0,
+      welfareChanged: 0,
       metabolismChanged: 0,
       collectionChanged: 0,
       servicingOrdersChanged: 0,
@@ -8798,6 +8865,8 @@
       changes.feedingChanged += updateAutoFeeding();
       changes.socialChanged += updateSlimeSocialEffects(elapsed);
       changes.metabolismChanged += updateSlimeMetabolism(elapsed);
+      changes.welfareChanged += updateSlimeWelfare(elapsed);
+      changes.expired += expireSlimes();
       changes.collectionChanged += updateCollectionBayAccumulation(elapsed);
       changes.compatibilityChanged += updateContainerCompatibilityEffects(elapsed);
       changes.containmentIncidentChanges += updateContainmentIncidents(elapsed);
@@ -8880,6 +8949,7 @@
       + changes.feedingChanged
       + changes.uncontainedBehaviorChanged
       + changes.socialChanged
+      + changes.welfareChanged
       + changes.metabolismChanged
       + changes.collectionChanged
       + changes.servicingOrdersChanged
@@ -9017,6 +9087,8 @@
       const reveal = revealTraits(slime, test.traits, { measured: true, testId: test.id });
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, test.label);
       recordTestResearchEvidence(task, slime, test);
+      const testBurden = { visual: 0, behavior: 8, stress: 28, breeding: 16, lifespan: 12 }[test.id] || 6;
+      if (testBurden) recordSlimeWelfareIntervention(slime, `test:${test.id}`, testBurden, `${test.label} imposed a recorded research burden.`);
       addEvent(`${test.label} complete for ${slime.name}.`);
       return;
     }
@@ -9163,6 +9235,10 @@
       return;
     }
     const yieldInfo = specimenHarvestYieldForSlime(slime, procedure);
+    if (!procedure.terminal) {
+      const burden = procedure.id === "sample" ? 18 : procedure.id === "partial" ? 48 : 72;
+      recordSlimeWelfareIntervention(slime, `harvest:${procedure.id}`, burden, `${procedure.label} imposed tissue loss and handling strain.`);
+    }
     if (yieldInfo.amount > 0) {
       addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`, slimeEffectiveRoomId(slime));
     }
@@ -11766,6 +11842,7 @@
       inventory: normalizeActorInventory(options.inventory, { genome, stats: options.stats || defaultSlimeStats() }),
       navigationOrientation: options.navigationOrientation === "vertical" ? "vertical" : "horizontal",
       spatialPressure: normalizeSlimeSpatialPressure(options.spatialPressure),
+      welfare: Welfare.normalizeRecord(options.welfare, state.clock),
       parentIds: idList(options.parentIds).filter((id) => id !== `slime-${state.nextSlimeNumber}`).slice(0, 4),
       broodId: cleanLineageId(options.broodId),
       generation: Math.max(0, Math.floor(Number(options.generation) || 0)),
@@ -11866,7 +11943,7 @@
       : fallback;
     return {
       stabilityRisk: parents.reduce((total, slime) => total + (Number(evaluateGenome(slime.genome).traits.stability.meta?.risk) || 5), 0) / count,
-      stress: parents.reduce((total, slime) => total + slimeStat(slime, "stress").current, 0) / count,
+      stress: parents.reduce((total, slime) => total + slimeStat(slime, "stress").current + Welfare.burdenScore(slime.welfare, state.clock) * 0.25, 0) / count,
       integrity: parents.reduce((total, slime) => total + slimeStat(slime, "bodyIntegrity").current, 0) / count,
       contamination: averageEnvironment("contamination", 0),
       ambientMana: averageEnvironment("ambientMana", 50),
@@ -11924,7 +12001,11 @@
     if (!settings.ignorePending && (reproductionTask() || reproductionHaulTask())) return "Another controlled reproduction procedure is already queued.";
     if (parents.length !== Heredity.METHOD_BY_ID[clean.methodId].parentCount) return clean.methodId === "forcedRecombination" ? "Forced Recombination requires two living parents." : "Induced Division requires one living parent.";
     if (new Set(parents.map((slime) => slime.id)).size !== parents.length) return "Select different parents for Forced Recombination.";
-    if (parents.some((slime) => !isBreedable(slime))) return "Every parent must be living and mature.";
+    if (parents.some((slime) => slime.status === "dead" || !slime.mature)) return "Every parent must be living and mature.";
+    const recoveryParent = parents.find((slime) => slime?.welfare?.carePlanId === "recovery");
+    if (recoveryParent) return `${recoveryParent.name} is on a Recovery care plan and excluded from reproduction.`;
+    const unwellParent = parents.find((slime) => slimeWelfareConditions(slime).some((condition) => ["established", "severe"].includes(condition.stage)));
+    if (unwellParent) return `${unwellParent.name} has an established welfare condition that must recover before reproduction.`;
     if (parents.some((slime) => slimeStat(slime, "currentMass").current < 30)) return "Every parent needs at least 30% Current Mass before a controlled procedure.";
     if (parents.some((slime) => slimeStat(slime, "bodyIntegrity").current < 35)) return "A parent is too physically compromised for controlled reproduction.";
     const tube = synthesisTube();
@@ -12048,7 +12129,9 @@
   function reproductionProcedureTaskBlockReason(task) {
     const clean = normalizedReproductionOptions(task?.data);
     const parents = reproductionParentsForOptions(clean);
-    if (parents.length !== Heredity.METHOD_BY_ID[clean.methodId].parentCount || parents.some((slime) => !isBreedable(slime))) return "A reproduction parent is no longer living and mature.";
+    if (parents.length !== Heredity.METHOD_BY_ID[clean.methodId].parentCount || parents.some((slime) => slime.status === "dead" || !slime.mature)) return "A reproduction parent is no longer living and mature.";
+    if (parents.some((slime) => slime?.welfare?.carePlanId === "recovery")) return "A reproduction parent is now on a Recovery care plan.";
+    if (parents.some((slime) => slimeWelfareConditions(slime).some((condition) => ["established", "severe"].includes(condition.stage)))) return "A reproduction parent developed an established welfare condition.";
     for (const record of task.data?.parentTargetCells || []) {
       const parent = findSlime(record.parentId);
       const target = parent ? diagnosticTargetInfo("slime", parent.id) : null;
@@ -12138,6 +12221,7 @@
       setSlimeStat(parent, "nutrition", nutritionShare);
       setSlimeStat(parent, "divisionPressure", 0);
       adjustSlimeStat(parent, "stress", parentStress);
+      recordSlimeWelfareIntervention(parent, `reproduction:${clean.methodId}`, clean.methodId === "forcedRecombination" ? 42 : 28, `${method.label} imposed reproductive and handling strain.`);
     }
     const mutationCount = created.reduce((total, slime) => total + (slime.inheritance?.mutations?.length || 0), 0);
     const summary = `${method.label} produced ${created.length} offspring across generation ${generation}; ${mutationCount} de novo base mutation${mutationCount === 1 ? "" : "s"} recorded.`;
@@ -13419,6 +13503,7 @@
       generation: Math.max(0, Math.floor(Number(slime.generation) || 0)),
       reproductionEventId: Heredity.cleanId(slime.reproductionEventId),
       inheritance: Heredity.normalizeInheritance(slime.inheritance),
+      welfare: Welfare.normalizeRecord(slime.welfare, diedAt),
       deathReason,
       diedAt,
       roomId: location.roomId,
@@ -13469,7 +13554,8 @@
           "waste exposure": "succumbed to waste exposure",
           "body integrity failure": "collapsed from body integrity failure",
           "harvesting trauma": "collapsed from harvesting trauma",
-          "combat trauma": "collapsed from combat trauma"
+          "combat trauma": "collapsed from combat trauma",
+          "prolonged unmet welfare needs": "died after prolonged unmet welfare needs"
         }[deathReason] || "reached the end of its lifespan";
         addEvent(`${slime.name} ${causeText}; remains are now in ${corpseLocationLabel(corpse)}.`);
         expired += 1;
@@ -19689,6 +19775,8 @@
     const slime = experimentSubjectSlime(subject);
     if (!slime) return null;
     const stats = Object.fromEntries(SLIME_STAT_DEFS.map((def) => [def.key, Number(slimeStat(slime, def.key).current) || 0]));
+    const welfare = slimeWelfareAssessment(slime);
+    slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
     return {
       capturedAt: state.clock,
       subjectId: slime.id,
@@ -19702,7 +19790,14 @@
       knownTraits: { ...(slime.revealed || {}) },
       measuredTraitIds: Object.keys(slime.measured || {}).filter((key) => slime.measured[key]).sort(),
       testsRun: [...new Set((slime.testsRun || []).map(String))].sort(),
-      environment: experimentEnvironmentSnapshot(slime)
+      environment: experimentEnvironmentSnapshot(slime),
+      welfare: {
+        overall: welfare?.overall?.id || "unknown",
+        needBands: Object.fromEntries(Welfare.NEEDS.map((need) => [need.id, welfare?.needs?.[need.id]?.band?.id || "unknown"])),
+        conditions: slime.welfare.conditions.map((condition) => ({ id: condition.id, stage: condition.stage })),
+        burden: Welfare.burdenScore(slime.welfare, state.clock),
+        carePlanId: slime.welfare.carePlanId
+      }
     };
   }
 
@@ -19962,6 +20057,13 @@
       if (baseline.roomId !== final.roomId || baseline.containerId !== final.containerId) confounders.push(`${final.subjectName} changed location or containment.`);
       if (experiment.variableType !== "feeding" && Math.abs((final.stats?.nutrition || 0) - (baseline.stats?.nutrition || 0)) >= 10) confounders.push(`${final.subjectName} had a substantial nutrition change.`);
       if (experiment.variableType !== "treatment" && Math.abs((final.stats?.stress || 0) - (baseline.stats?.stress || 0)) >= 10) confounders.push(`${final.subjectName} had a substantial stress change.`);
+      if (experiment.variableType !== "treatment") {
+        const baselineConditions = JSON.stringify(baseline.welfare?.conditions || []);
+        const finalConditions = JSON.stringify(final.welfare?.conditions || []);
+        if (baseline.welfare?.overall !== final.welfare?.overall || baselineConditions !== finalConditions || Math.abs((final.welfare?.burden || 0) - (baseline.welfare?.burden || 0)) >= 15) {
+          confounders.push(`${final.subjectName} had a material welfare or procedure-burden change.`);
+        }
+      }
       if (experiment.variableType !== "environment") {
         const changedEnvironment = Object.keys(final.environment || {}).some((keyName) => Math.abs((final.environment[keyName] || 0) - (baseline.environment?.[keyName] || 0)) >= 8);
         if (changedEnvironment) confounders.push(`${final.subjectName} experienced a material environmental change.`);
@@ -22706,6 +22808,29 @@
 
   function collectDesiredIncidentAlerts() {
     const desired = [];
+
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead") continue;
+      const conditions = slimeWelfareConditions(slime).filter((condition) => ["established", "severe"].includes(condition.stage));
+      const assessment = slimeWelfareAssessment(slime);
+      if (!conditions.length && assessment?.overall?.rank < 3) continue;
+      const severe = conditions.some((condition) => condition.stage === "severe");
+      const container = slime.containerId ? containerById(slime.containerId) : null;
+      const summary = conditions.length
+        ? conditions.map((condition) => `${condition.definition.label} (${condition.stageLabel.toLowerCase()})`).join("; ")
+        : `Critical unmet need: ${Welfare.NEEDS.filter((need) => assessment.needs[need.id].band.id === "critical").map((need) => need.label).join(", ")}`;
+      addDesiredIncident(desired, {
+        type: "welfare",
+        label: `${slime.name} needs welfare intervention`,
+        summary,
+        severity: severe ? "critical" : "serious",
+        roomId: slimeEffectiveRoomId(slime),
+        cell: objectMapCell(slime) || objectMapCell(container),
+        sourceKind: "slime",
+        sourceId: slime.id,
+        sourceLabel: slime.name
+      });
+    }
 
     for (const slime of state.slimes || []) {
       if (!slimeIsUncontained(slime) || slime.status === "dead") {
@@ -31994,6 +32119,11 @@
       factor *= habitat.productionFactor;
       reasons.push(`${habitat.label} habitat reduces production.`);
     }
+    const welfareFactor = Welfare.conditionFactor(slime.welfare);
+    if (welfareFactor < 1) {
+      factor *= welfareFactor;
+      reasons.push("Persistent welfare conditions reduce reliable production.");
+    }
 
     factor = roundOutputValue(clamp(factor, 0, 1));
     const label = factor <= 0.08 ? "Dormant"
@@ -33778,6 +33908,10 @@
       if (socialChip) {
         meta.append(socialChip);
       }
+      const welfareChip = slimeWelfareChip(slime);
+      if (welfareChip) {
+        meta.append(welfareChip);
+      }
       const habitatChip = slimeHabitatChip(slime);
       if (habitatChip) {
         meta.append(habitatChip);
@@ -33816,6 +33950,7 @@
           card.append(elementalHazards);
         }
         card.append(renderSlimeHabitat(slime));
+        card.append(renderSlimeWelfare(slime));
         card.append(renderSlimeDrives(slime));
         card.append(renderFeedingControls(slime));
         card.append(renderLivingHarvestControls(slime));
@@ -36549,6 +36684,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (isInSynthesisTube(slime)) {
       return "specimens in the synthesis tube cannot be given roles";
     }
+    if (slime?.welfare?.carePlanId === "recovery") {
+      return "the Recovery care plan suspends ordinary creature roles";
+    }
     return "";
   }
 
@@ -36568,7 +36706,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const pit of pitHoleContainers()) {
       const occupants = containerOccupants(pit.id).filter((slime) => {
         const target = containedMaterialTargetForSlime(slime);
-        return slimeCanConsumeContainedMaterial(slime) && target?.kind === "waste";
+        return slimeCanConsumeContainedMaterial(slime) && slimeWelfareWorkFactor(slime) > 0 && target?.kind === "waste";
       });
       if (!occupants.length) continue;
       for (const stack of physicalWasteStacks({ containerId: pit.id })) {
@@ -36579,7 +36717,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (target?.id !== stack.id) continue;
           const suitability = wasteDisposalSuitability(slime);
           const duration = Math.max(1, wasteDisposalDuration(slime));
-          const contribution = elapsed / duration;
+          const contribution = elapsed / duration * slimeWelfareWorkFactor(slime);
           stack.processingProgress = Math.max(0, Number(stack.processingProgress) || 0) + contribution;
           stack.processingContributions[slime.id] = Math.max(0, Number(stack.processingContributions[slime.id]) || 0) + contribution;
           const nutrition = adjustedSlimeNutritionGain(slime, wasteDisposalNutritionGain(slime, suitability) * contribution);
@@ -39806,6 +39944,192 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return changes;
   }
 
+  const SLIME_SOCIAL_PREFERENCE_LABELS = {
+    solitary: "Solitary",
+    tolerant: "Tolerant",
+    social: "Social",
+    broodOriented: "Brood-Oriented",
+    territorial: "Territorial"
+  };
+
+  function slimeSocialPreference(slime, options = {}) {
+    const evaluated = evaluateGenome(slime.genome);
+    const behavior = String(baseOutcomeLabel(evaluated.traits.behavior) || "").toLowerCase();
+    const stability = String(baseOutcomeLabel(evaluated.traits.stability) || "").toLowerCase();
+    const brood = Number(evaluated.traits.brood?.meta?.broodSize) || 1;
+    let id = "tolerant";
+    if (/territorial/.test(stability) || /guarding|ambush/.test(behavior)) id = "territorial";
+    else if (/hiding|light avoiding|burrowing/.test(behavior) || /nervous|fragile/.test(stability)) id = "solitary";
+    else if (brood >= 3 && (slime.broodId || slime.parentIds?.length)) id = "broodOriented";
+    else if (/swarm|follow|orbit|herd|cooperat/.test(behavior)) id = "social";
+    const visible = !options.knownOnly || slimeTraitKnown(slime, "behavior") || slimeTraitKnown(slime, "stability");
+    return { id, label: visible ? SLIME_SOCIAL_PREFERENCE_LABELS[id] : "Uncertain", visible };
+  }
+
+  function slimeSocialWelfare(slime, options = {}) {
+    const social = evaluateSlimeSocialContext(slime);
+    const preference = slimeSocialPreference(slime, options);
+    let score = 75;
+    if (preference.id === "solitary") score = social.nearbyCount ? 72 - social.nearbyCount * 14 - social.contactCount * 8 : 92;
+    else if (preference.id === "territorial") score = social.nonKinCount ? 48 - social.nonKinCount * 14 - social.contactCount * 8 : 86;
+    else if (preference.id === "social") score = social.nearbyCount ? 86 + Math.min(8, social.kinCount * 4) : 28;
+    else if (preference.id === "broodOriented") score = social.kinCount ? 94 : social.nearbyCount ? 52 : 36;
+    else score = 80 - social.score * 0.42;
+    const reasons = [];
+    if (preference.visible) reasons.push(`${preference.label} social preference.`);
+    else reasons.push("Relevant social traits remain uncertain.");
+    if (!social.nearbyCount) reasons.push("No other slime is physically nearby.");
+    if (social.kinCount) reasons.push(`${social.kinCount} nearby kin relationship${social.kinCount === 1 ? "" : "s"}.`);
+    if (social.nonKinCount) reasons.push(`${social.nonKinCount} unrelated slime${social.nonKinCount === 1 ? "" : "s"} nearby.`);
+    return { score: clamp(score, 0, 100), preference, social, reasons };
+  }
+
+  function slimeMeaningfulActivity(slime) {
+    const type = String(slime?.roomActivity?.type || "");
+    const excluded = new Set(["", "quiescent", "recovering", "resting", "blocked", "pressingClosedDoor", "emerging"]);
+    if (slime?.status === "released" && !excluded.has(type)) return true;
+    return slimeRoleId(slime) !== "idle" && slime?.welfare?.carePlanId !== "recovery";
+  }
+
+  function slimeIsResting(slime) {
+    const ai = slimeAiRecord(slime);
+    const type = String(slime?.roomActivity?.type || "");
+    if (["recovering", "resting", "quiescent"].includes(type) || ["recover", "quiesce"].includes(ai.intent)) return true;
+    if (slime?.welfare?.carePlanId === "recovery" && !combatRecordForSlime(slime)) return true;
+    return slime?.status === "contained" && slimeRoleId(slime) === "idle";
+  }
+
+  function slimeHasEnrichment(slime) {
+    return fixtureCapabilityAvailable("creatureEnrichment", slimeEffectiveRoomId(slime));
+  }
+
+  function slimeWelfareInput(slime, options = {}) {
+    slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+    const habitat = slimeHabitatFit(slime);
+    const social = slimeSocialWelfare(slime, options);
+    const meaningfulActivity = slimeMeaningfulActivity(slime);
+    const enrichment = slimeHasEnrichment(slime);
+    const inactiveHours = Math.max(0, state.clock - slime.welfare.lastMeaningfulActivityAt) / 3600;
+    const stimulationScore = meaningfulActivity ? 96
+      : (inactiveHours < 6 ? 82 : inactiveHours < 24 ? 62 : inactiveHours < 72 ? 38 : 16) + (enrichment ? 24 : 0);
+    const recentPain = recentPainForSlime(slime);
+    const activeStrain = (recentPain ? Math.min(18, 5 + recentPain.amount) : 0)
+      + (slimeRoleId(slime) !== "idle" && slime.welfare.carePlanId !== "recovery" ? 6 : 0)
+      + (combatRecordForSlime(slime) ? 10 : 0);
+    const overstimulationPressure = clamp(
+      activeStrain * 3
+      + social.social.score * 0.35
+      + (slimeStatPercent(slime, "stress") >= 80 ? 20 : 0),
+      0,
+      100
+    );
+    return {
+      nutrition: slimeStatPercent(slime, "nutrition"),
+      mass: slimeStatPercent(slime, "currentMass"),
+      integrity: slimeStatPercent(slime, "bodyIntegrity"),
+      stress: slimeStatPercent(slime, "stress"),
+      habitatScore: habitat.score,
+      socialScore: social.score,
+      socialReasons: social.reasons,
+      stimulationScore,
+      resting: slimeIsResting(slime),
+      meaningfulActivity,
+      enrichment,
+      spatialPressure: Boolean(slime.spatialPressure?.active),
+      overstimulationPressure,
+      activeStrain
+    };
+  }
+
+  function slimeWelfareAssessment(slime, options = {}) {
+    if (!slime || slime.status === "dead") return null;
+    return Welfare.evaluate(slimeWelfareInput(slime, options));
+  }
+
+  function slimeWelfareConditions(slime) {
+    slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+    return slime.welfare.conditions.map((condition) => ({
+      ...condition,
+      definition: Welfare.CONDITION_BY_ID[condition.id],
+      stageLabel: Welfare.STAGES.find((stage) => stage.id === condition.stage)?.label || titleCase(condition.stage)
+    }));
+  }
+
+  function recordSlimeWelfareIntervention(slime, kind, burden, summary) {
+    if (!slime || slime.status === "dead") return false;
+    slime.welfare = Welfare.recordIntervention(slime.welfare, { kind, burden, summary }, state.clock);
+    return true;
+  }
+
+  function setSlimeCarePlan(slimeId, carePlanId) {
+    const slime = findSlime(slimeId);
+    const plan = Welfare.CARE_PLAN_BY_ID[carePlanId];
+    if (!slime || slime.status === "dead" || !plan) return false;
+    slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+    if (slime.welfare.carePlanId === plan.id) return true;
+    slime.welfare.carePlanId = plan.id;
+    slime.welfare.history.push({
+      at: state.clock,
+      kind: "carePlanChanged",
+      severity: "info",
+      summary: `Care plan changed to ${plan.label}.`
+    });
+    slime.welfare.history = slime.welfare.history.slice(-80);
+    if (plan.id === "recovery" && slime.roleId !== "idle") {
+      slime.roomActivity = { type: "recovering", label: "resting under a Recovery care plan", roomId: slimeEffectiveRoomId(slime), updatedAt: state.clock };
+    }
+    addEvent(`${slime.name} placed on ${plan.label}. ${plan.description}`);
+    persist();
+    render();
+    return true;
+  }
+
+  function slimeWelfareWorkFactor(slime) {
+    if (!slime || slime.status === "dead" || slime?.welfare?.carePlanId === "recovery") return 0;
+    return Welfare.conditionFactor(slime.welfare);
+  }
+
+  function applySlimeWelfareConsequences(slime, assessment, elapsed) {
+    const days = secondsToDays(elapsed);
+    slime.welfare.consequenceProgress ||= { damage: 0, stressGain: 0, integrityRecovery: 0, stressRecovery: 0 };
+    const applyAccumulated = (key, amount, statKey, direction) => {
+      slime.welfare.consequenceProgress[key] = Math.max(0, Number(slime.welfare.consequenceProgress[key]) || 0) + Math.max(0, amount);
+      const applied = Math.floor(slime.welfare.consequenceProgress[key] * 10) / 10;
+      if (applied < 0.1) return 0;
+      slime.welfare.consequenceProgress[key] -= applied;
+      adjustSlimeStat(slime, statKey, applied * direction);
+      return applied;
+    };
+    const severe = slimeWelfareConditions(slime).filter((condition) => condition.stage === "severe");
+    const damaging = severe.filter((condition) => ["malnourished", "habitatSick", "compressed"].includes(condition.id));
+    if (damaging.length) {
+      const damage = damaging.length * 2 * days;
+      const applied = applyAccumulated("damage", damage, "bodyIntegrity", -1);
+      if (applied && slimeStat(slime, "bodyIntegrity").current <= 0) slime.deathCause = "prolonged unmet welfare needs";
+    }
+    if (severe.length) applyAccumulated("stressGain", severe.length * 0.8 * days, "stress", 1);
+    if (assessment.needs.recovery.band.rank <= 1 && assessment.needs.nourishment.band.rank <= 1 && assessment.needs.habitat.band.rank <= 1 && assessment.needs.recovery.reasons.includes("Current quiescence supports recovery.")) {
+      const recoveryPlan = slime.welfare.carePlanId === "recovery";
+      applyAccumulated("stressRecovery", (recoveryPlan ? 5 : 2) * days, "stress", -1);
+      applyAccumulated("integrityRecovery", (recoveryPlan ? 3 : 1) * days, "bodyIntegrity", 1);
+    }
+  }
+
+  function updateSlimeWelfare(elapsed) {
+    const seconds = Math.max(0, Number(elapsed) || 0);
+    if (!seconds || !state?.started) return 0;
+    let changes = 0;
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead") continue;
+      const before = JSON.stringify(slime.welfare || {});
+      const result = Welfare.advance(slime.welfare, slimeWelfareInput(slime), seconds, state.clock);
+      slime.welfare = result.record;
+      applySlimeWelfareConsequences(slime, result.assessment, seconds);
+      if (JSON.stringify(slime.welfare) !== before) changes += 1;
+    }
+    return changes;
+  }
+
   function updateSlimeMetabolism(minutes) {
     const elapsed = Math.max(0, Number(minutes) || 0);
     if (!elapsed) {
@@ -42107,6 +42431,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return element;
   }
 
+  function slimeWelfareChip(slime) {
+    const assessment = slimeWelfareAssessment(slime, { knownOnly: true });
+    if (!assessment) return null;
+    const element = chip(`Welfare: ${assessment.overall.label}`);
+    element.dataset.slimeWelfare = slime.id;
+    if (assessment.overall.rank >= 3) element.classList.add("danger-chip");
+    element.title = Welfare.NEEDS.map((need) => `${need.label}: ${assessment.needs[need.id].band.label}`).join("\n");
+    return element;
+  }
+
   function slimeHabitatTooltip(fit) {
     const lines = [
       `Habitat fit: ${fit.label}.`,
@@ -42152,6 +42486,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     addRow("Concerns", fit.concerns?.length ? fit.concerns.join("; ") : "None clear", fit.concerns?.length ? "known" : "not observed");
     addRow("Unknown", fit.unknownFactors?.length ? fit.unknownFactors.join(", ") : "None", fit.unknownFactors?.length ? "could matter" : "all habitat traits visible");
     section.append(title, grid);
+    return section;
+  }
+
+  function renderSlimeWelfare(slime) {
+    slime.welfare = Welfare.normalizeRecord(slime.welfare, state.clock);
+    const assessment = slimeWelfareAssessment(slime, { knownOnly: true });
+    const conditions = slimeWelfareConditions(slime);
+    const section = document.createElement("div");
+    section.className = "slime-welfare subpanel";
+    section.dataset.slimeWelfarePanel = slime.id;
+    const title = document.createElement("div");
+    title.className = "subpanel-title";
+    title.textContent = `Welfare - ${assessment.overall.label}`;
+    title.title = "Qualitative needs are derived from real biology, environment, proximity, activity, and longitudinal history. This is a physical-care record, not a morality score.";
+
+    const planRow = document.createElement("label");
+    planRow.className = "field-label";
+    planRow.append(document.createTextNode("Care plan "));
+    const planSelect = document.createElement("select");
+    planSelect.dataset.slimeCarePlan = slime.id;
+    for (const plan of Welfare.CARE_PLANS) {
+      const option = document.createElement("option");
+      option.value = plan.id;
+      option.textContent = plan.label;
+      option.title = plan.description;
+      option.selected = slime.welfare.carePlanId === plan.id;
+      planSelect.append(option);
+    }
+    planSelect.title = Welfare.CARE_PLAN_BY_ID[slime.welfare.carePlanId]?.description || "";
+    planSelect.addEventListener("change", () => setSlimeCarePlan(slime.id, planSelect.value));
+    planRow.append(planSelect);
+
+    const grid = document.createElement("div");
+    grid.className = "slime-stat-grid";
+    for (const need of Welfare.NEEDS) {
+      const result = assessment.needs[need.id];
+      const row = document.createElement("div");
+      row.className = "slime-stat-row";
+      row.dataset.slimeWelfareNeed = need.id;
+      row.title = result.reasons.join("\n") || `${need.label} is ${result.band.label.toLowerCase()}.`;
+      row.append(
+        textEl("span", need.label),
+        textEl("strong", result.band.label),
+        textEl("em", result.reasons[0] || "No current concern")
+      );
+      grid.append(row);
+    }
+
+    const social = slimeSocialWelfare(slime, { knownOnly: true });
+    const preferenceRow = document.createElement("div");
+    preferenceRow.className = "slime-stat-row";
+    preferenceRow.dataset.slimeSocialPreference = slime.id;
+    preferenceRow.append(textEl("span", "Social preference"), textEl("strong", social.preference.label), textEl("em", social.preference.visible ? "derived from known biology" : "observe or test relevant traits"));
+    grid.append(preferenceRow);
+
+    const burden = Welfare.burdenScore(slime.welfare, state.clock);
+    const burdenLabel = burden >= 70 ? "Critical" : burden >= 40 ? "High" : burden >= 15 ? "Elevated" : "Low";
+    const burdenRow = document.createElement("div");
+    burdenRow.className = "slime-stat-row";
+    burdenRow.dataset.slimeWelfareBurden = slime.id;
+    burdenRow.title = "Recent interventions and persistent physical conditions contribute to this qualitative burden. It is not a morality meter.";
+    burdenRow.append(textEl("span", "Recorded burden"), textEl("strong", burdenLabel), textEl("em", "rolling physical-care ledger"));
+    grid.append(burdenRow);
+
+    const conditionPanel = document.createElement("div");
+    conditionPanel.className = "journal-meta";
+    conditionPanel.dataset.slimeWelfareConditions = slime.id;
+    conditionPanel.textContent = conditions.length
+      ? `Conditions: ${conditions.map((condition) => `${condition.definition.label} (${condition.stageLabel.toLowerCase()})`).join("; ")}.`
+      : "Conditions: none. Brief strain is being tracked without assigning a persistent condition.";
+
+    const recentHistory = slime.welfare.history.slice(-4).reverse();
+    const historyPanel = document.createElement("div");
+    historyPanel.className = "journal-meta";
+    historyPanel.dataset.slimeWelfareHistory = slime.id;
+    historyPanel.textContent = recentHistory.length
+      ? `Recent record: ${recentHistory.map((entry) => `${formatClock(entry.at)} — ${entry.summary}`).join(" · ")}`
+      : "Recent record: no sustained change or intervention recorded.";
+    section.append(title, planRow, grid, conditionPanel, historyPanel);
     return section;
   }
 
@@ -56416,7 +56829,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function isBreedable(slime) {
-    return slime.status !== "dead" && slime.mature;
+    if (!slime || slime.status === "dead" || !slime.mature || slime?.welfare?.carePlanId === "recovery") return false;
+    return !slimeWelfareConditions(slime).some((condition) => ["established", "severe"].includes(condition.stage));
   }
 
   function scientistSkill(skillId, options = {}) {
@@ -61279,6 +61693,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.generation = Math.max(0, Math.floor(Number(slime.generation) || 0));
       slime.reproductionEventId = Heredity.cleanId(slime.reproductionEventId);
       slime.inheritance = Heredity.normalizeInheritance(slime.inheritance);
+      slime.welfare = Welfare.normalizeRecord(slime.welfare, next.clock);
       slime.revealed ||= {};
       slime.measured ||= {};
       slime.traitObservations ||= {};
@@ -61410,6 +61825,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpse.generation = Math.max(0, Math.floor(Number(corpse.generation) || 0));
       corpse.reproductionEventId = Heredity.cleanId(corpse.reproductionEventId);
       corpse.inheritance = Heredity.normalizeInheritance(corpse.inheritance);
+      corpse.welfare = Welfare.normalizeRecord(corpse.welfare, corpse.diedAt);
       corpse.diedAt = Number.isFinite(Number(corpse.diedAt)) ? Number(corpse.diedAt) : state.clock;
       corpse.ruined = Boolean(corpse.ruined);
       corpse.harvestBlocked = Boolean(corpse.harvestBlocked);

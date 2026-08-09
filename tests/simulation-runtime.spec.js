@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const Simulation = require('../simulation-runtime.js');
+const Welfare = require('../welfare-system.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -38,6 +39,45 @@ test('@smoke cadence scheduling is stable and preserves accumulated elapsed time
   expect(result.due.map((entry) => entry.id)).toEqual(['tactical', 'sensory', 'biology']);
   expect(result.due.find((entry) => entry.id === 'biology')?.elapsed).toBeCloseTo(30, 6);
   expect(result.due.find((entry) => entry.id === 'sensory')?.elapsed).toBeCloseTo(30, 6);
+
+  const deprivedInput = {
+    nutrition: 0,
+    mass: 0,
+    integrity: 10,
+    stress: 100,
+    habitatScore: 0,
+    socialScore: 0,
+    stimulationScore: 0,
+    spatialPressure: true,
+    overstimulationPressure: 100,
+  };
+  let welfare = Welfare.advance(Welfare.defaultRecord(0), deprivedInput, 6 * 3600, 6 * 3600);
+  expect(welfare.assessment.overall.id).toBe('critical');
+  expect(welfare.record.conditions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'malnourished', stage: 'early' }),
+    expect.objectContaining({ id: 'exhausted', stage: 'early' }),
+    expect.objectContaining({ id: 'habitatSick', stage: 'early' }),
+    expect.objectContaining({ id: 'compressed', stage: 'early' }),
+    expect.objectContaining({ id: 'overstimulated', stage: 'early' }),
+    expect.objectContaining({ id: 'chronicallyStressed', stage: 'early' }),
+  ]));
+  welfare = Welfare.advance(welfare.record, {
+    nutrition: 100,
+    mass: 100,
+    integrity: 100,
+    stress: 0,
+    habitatScore: 100,
+    socialScore: 100,
+    stimulationScore: 100,
+    resting: true,
+  }, 6 * 3600, 12 * 3600);
+  expect(welfare.record.conditions).toEqual([]);
+  let burdenRecord = welfare.record;
+  for (let index = 0; index < 90; index += 1) {
+    burdenRecord = Welfare.recordIntervention(burdenRecord, { kind: 'fixture', burden: 4, summary: `Intervention ${index}` }, 12 * 3600 + index);
+  }
+  expect(burdenRecord.interventions).toHaveLength(60);
+  expect(burdenRecord.history).toHaveLength(80);
 });
 
 test('incremental and bulk cadence advancement integrate the same elapsed time', () => {

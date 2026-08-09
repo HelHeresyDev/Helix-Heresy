@@ -25,6 +25,13 @@ async function infrastructureFixture(page, typeId) {
 test('starter utilities are physical fixtures and the oil lamp lights nearby tiles', async ({ page }) => {
   await startRun(page);
   const before = await infrastructureFixture(page, 'wallLamp');
+  const enrichment = await page.evaluate(() => window.helixHeresyDebug.fixtureSnapshot().fixtures.find((fixture) => fixture.typeId === 'slimeEnrichmentStation'));
+  expect(enrichment).toMatchObject({
+    id: 'starter-slime-enrichment',
+    typeId: 'slimeEnrichmentStation',
+    operationalState: 'operational',
+  });
+  expect(enrichment.definition.capabilities).toContain('creatureEnrichment');
   expect(before.utility.enabled).toBe(true);
   expect(before.utility.powerMode).toBe('fuel');
   expect(before.networks).toEqual(expect.arrayContaining(['electricity', 'mana']));

@@ -110,6 +110,16 @@ test('creature records split confirmed living from stale unknown loose creatures
   await expect(page.locator('#slimeList')).not.toContainText('REC-LOOSE');
 
   await page.locator('[data-slime-card="contained-record"]').click();
+  const welfarePanel = page.locator('[data-slime-welfare-panel="contained-record"]');
+  await expect(welfarePanel).toContainText('Welfare');
+  await expect(welfarePanel.locator('[data-slime-welfare-need]')).toHaveCount(5);
+  await expect(welfarePanel.locator('[data-slime-care-plan="contained-record"] option')).toHaveCount(4);
+  await welfarePanel.locator('[data-slime-care-plan="contained-record"]').selectOption('recovery');
+  const welfare = await page.evaluate(() => window.helixHeresyDebug.welfareSnapshot('contained-record'));
+  expect(welfare.record.carePlanId).toBe('recovery');
+  expect(welfare.workFactor).toBe(0);
+  expect(Object.keys(welfare.assessment.needs)).toEqual(['nourishment', 'recovery', 'habitat', 'social', 'stimulation']);
+
   const scrollingCard = await page.locator('[data-slime-card="contained-record"]').elementHandle();
   if (!scrollingCard) throw new Error('Living creature card was not rendered.');
   const scrollProbe = await scrollingCard.evaluate((element) => {

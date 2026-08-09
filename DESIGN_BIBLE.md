@@ -92,6 +92,22 @@ Every ability definition can specify charge time, channel time, recovery time, m
 
 Combat and emergency response have a dedicated Combat map overlay separate from the general Incidents overlay. The Combat overlay shows known active or last-known combat incident tiles and lightly marks known participants when an active observed combat record is still available. Clicking a combat marker selects the combat incident record first, preserving uncertainty and keeping the incident as the response surface. The Selection inspector's Combat Situation section shows status, awareness, last-known tile, summary, known participants, combat type, contact, and response state without revealing hidden fights, exact formulas, or unobserved weaknesses. Responding to a combat incident queues urgent scientist movement toward the last-known incident tile rather than inventing a safest approach. Selecting a living combatant exposes Strike, Soul Lash, Analyze, and Combat Analyze through normal contextual commands, with disabled reasons for range, access, line of effect, knowledge, recovery, Mana, Stamina, and current condition. Selecting the scientist exposes Guard and cancellation for prepared combat actions.
 
+## Creature Welfare
+
+Creature welfare is a renderer-independent longitudinal layer derived from existing physical simulation state. It does not add redundant survival bars or a Social gene. The five player-facing needs are Nourishment, Recovery, Habitat, Social Fit, and Stimulation, each reported only as Met, Strained, Deprived, or Critical. Nutrition, Current Mass, Body Integrity, Stress, recent activity and pain, environmental fit, spatial pressure, real proximity, kinship, crowding, and access to reusable enrichment remain authoritative.
+
+Social preference is derived from behavior, stability, brood context, and current relationships. The broad preferences are Solitary, Tolerant, Social, Brood-Oriented, and Territorial. Hidden biology affects the real result, while the ordinary record says that relevant factors are uncertain until observation or testing supports a more specific explanation. Social Fit never grants room-wide awareness: only actual shared-container contact or physical room proximity counts.
+
+Stimulation comes from movement, exploration, meaningful work, environmental variety, and the physical Slime Enrichment Station. The station is reusable equipment with a map footprint and ordinary construction/material rules; it supports nearby creatures automatically rather than creating a repetitive toy-clicking action. Inactivity accumulates across hours and days, while meaningful activity refreshes the creature's saved activity history.
+
+Brief problems first express through existing Stress and behavior. Sustained deprivation accumulates deterministic exposure history and can develop Malnourished, Exhausted, Habitat-Sick, Compressed, Understimulated, Overstimulated, Socially Distressed, or Chronically Stressed conditions. Conditions progress through Early, Established, and Severe stages and recede only after sustained correction. Severe physical deprivation gradually damages condition in accumulated, visible increments, so perceived established or severe problems create warning incidents before they can become fatal.
+
+Quiescence is the slime form of autonomous rest. It improves Recovery when nourishment and habitat are adequate; the Recovery care plan increases gradual recovery and suspends ordinary creature work and controlled reproduction. Standard Care balances routine housing and work, Research Exemption permits stressful research while preserving its full recorded burden, and Minimal Intervention avoids unnecessary handling without hiding critical neglect. Care plans do not override combat, physical access, biology, or emergency behavior.
+
+Living tests, tissue harvests, and controlled reproduction write bounded physical-burden entries to each creature's care history. The ledger is qualitative in normal UI and is explicitly not a morality meter. Aggressive procedures may remain faster or productive, but their recent burden and persistent conditions reduce reliable byproduct output, ordinary work, and reproduction quality, and become Experiment Notebook confounders when they change outside the intended treatment.
+
+The current implementation is slime-first but the welfare data contract is generic. It deliberately excludes infection, contagious disease, surgery, pregnancy, souls, advanced psychology, and government enforcement. Those systems may later consume the same physical-care facts without redefining welfare as ethics points or exposing hidden traits.
+
 ## Natural Byproducts and Collection
 
 A slime’s natural byproduct is part of its biology. It is separate from feeding residue and separate from material harvested from the slime’s body.
@@ -674,6 +690,8 @@ Open design questions:
 - Loose slimes can follow qualitative adjacent-room food traces through the map, but only exact same-room targets can be directly consumed.
 - Derived slime Habitat fit based on discovered and hidden biology, with selected-slime readouts for known supports, known concerns, and unknown factors.
 - Habitat effects gently change Stress, natural byproduct expression, active containment pressure, and loose-slime room seeking.
+- Longitudinal welfare records with qualitative Nourishment, Recovery, Habitat, Social Fit, and Stimulation; staged persistent conditions; autonomous quiescent recovery; four per-creature care plans; bounded procedure burden; welfare-aware work, production, reproduction, experiments, and perceived alerts.
+- Physical Slime Enrichment Station fixtures provide reusable local stimulation without manual interaction.
 - Loose slimes can follow qualitative adjacent-room environmental traces when a nearby room is substantially better habitat.
 - Selected slime Activity panel and Debug workspace Slime AI Debug readout for broad player-facing behavior state plus deeper development inspection of drives, perception, pathing, responses, combat decisions, and blockers.
 - Derived slime threat response with calm, wary, agitated, pained, panicked, and desperate bands, recent-injury memory, selected-slime readouts, and light loose-slime idle reactions when food and habitat are not already driving behavior.
