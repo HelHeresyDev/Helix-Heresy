@@ -99,3 +99,86 @@ test('@smoke queued black market trade sells collected byproduct and updates eco
   expect(finalState.scientist.roomId).toBe('concealedExit');
   expect(finalState.taskHistory[0].type).toBe('blackMarketTrade');
 });
+
+test('formal contracts reserve physical receptacles and expose structured negotiation choices', async ({ page }) => {
+  await startRun(page);
+  const offer = await page.evaluate(() => window.helixHeresyDebug.economySnapshot().deals.find((deal) => deal.offerKind === 'contract' && deal.status === 'open'));
+  expect(offer).toBeTruthy();
+
+  await openCheats(page);
+  await page.locator('#marketCommandInput').fill(`byproduct ${offer.material} ${offer.amount}`);
+  await page.locator('#marketCommandBtn').click();
+  await page.keyboard.press('B');
+  await page.locator('[data-economy-menu-tab="deals"]').click();
+  const offerRow = page.locator(`[data-black-market-deal="${offer.id}"]`);
+  await expect(offerRow.getByRole('button', { name: 'Accept Terms' })).toBeEnabled();
+  await expect(offerRow.getByRole('button', { name: 'Ask More Time' })).toBeEnabled();
+  await expect(offerRow.getByRole('button', { name: 'Request Discreet Handoff' })).toBeEnabled();
+  await offerRow.getByRole('button', { name: 'Accept Terms' }).click();
+
+  const economy = await page.evaluate(() => window.helixHeresyDebug.economySnapshot());
+  const contract = economy.contracts.find((candidate) => candidate.offerId === offer.id);
+  expect(contract.status).toBe('active');
+  expect(contract.reservations.length).toBeGreaterThan(0);
+  expect(contract.reservations.reduce((total, reservation) => total + reservation.amount, 0)).toBeCloseTo(offer.amount, 3);
+  expect(await page.evaluate((material) => window.helixHeresyDebug.marketAvailableByproduct(material), offer.material)).toBe(0);
+
+  await page.locator('[data-economy-menu-tab="contracts"]').click();
+  const contractRow = page.locator(`[data-economy-menu-panel="contracts"] [data-black-market-contract="${contract.id}"]`);
+  await expect(contractRow).toContainText('designated');
+  await expect(contractRow.getByRole('button', { name: 'Dispatch Delivery' })).toBeEnabled();
+});
+
+test('contract delivery stores exposure and payment-default outcomes without rerolling', async ({ page }) => {
+  await startRun(page);
+  const offer = await page.evaluate(() => window.helixHeresyDebug.economySnapshot().deals.find((deal) => deal.offerKind === 'contract' && deal.status === 'open'));
+  await openCheats(page);
+  await page.locator('#marketCommandInput').fill(`byproduct ${offer.material} ${offer.amount}`);
+  await page.locator('#marketCommandBtn').click();
+  await page.evaluate((offerId) => window.helixHeresyDebug.acceptMarketContract(offerId), offer.id);
+  const contract = await page.evaluate((offerId) => window.helixHeresyDebug.economySnapshot().contracts.find((candidate) => candidate.offerId === offerId), offer.id);
+  await page.evaluate((contractId) => window.helixHeresyDebug.setMarketContractOutcome(contractId, { paymentFraction: 0.5, exposureRoll: 0 }), contract.id);
+  expect(await page.evaluate((contractId) => window.helixHeresyDebug.startMarketContractDelivery(contractId), contract.id)).toBe(true);
+
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  const taskRow = page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: offer.material });
+  await taskRow.getByRole('button', { name: 'Finish' }).click();
+  let delivered = await page.evaluate((contractId) => window.helixHeresyDebug.economySnapshot().contracts.find((candidate) => candidate.id === contractId), contract.id);
+  if (delivered.status === 'delivered') {
+    await page.evaluate((seconds) => window.helixHeresyDebug.advanceMarketTime(seconds), 86401);
+    delivered = await page.evaluate((contractId) => window.helixHeresyDebug.economySnapshot().contracts.find((candidate) => candidate.id === contractId), contract.id);
+  }
+  const finalState = await savedState(page);
+  expect(delivered.status).toBe('defaulted');
+  expect(delivered.outcome).toBe('Partially paid');
+  expect(finalState.economy.exposures.some((entry) => entry.contractId === contract.id)).toBe(true);
+  expect(finalState.suspicion).toBeGreaterThan(0);
+  expect(finalState.economy.money).toBe(Math.round(delivered.payout * 0.5));
+  expect((finalState.collectedByproductHistory[offer.material] || []).some((entry) => entry.source.includes(contract.id))).toBe(true);
+});
+
+test('missed contract deadlines release designated stock and apply saved relationship penalties', async ({ page }) => {
+  await startRun(page);
+  const offer = await page.evaluate(() => window.helixHeresyDebug.economySnapshot().deals.find((deal) => deal.offerKind === 'contract' && deal.status === 'open'));
+  await openCheats(page);
+  await page.locator('#marketCommandInput').fill('reputation 20');
+  await page.locator('#marketCommandBtn').click();
+  await page.locator('#marketCommandInput').fill(`byproduct ${offer.material} ${offer.amount}`);
+  await page.locator('#marketCommandBtn').click();
+  await page.evaluate((offerId) => window.helixHeresyDebug.acceptMarketContract(offerId), offer.id);
+  const before = await savedState(page);
+  const contract = before.economy.contracts.find((candidate) => candidate.offerId === offer.id);
+  const contactBefore = before.economy.contacts.find((contact) => contact.id === contract.contactId);
+  await page.evaluate(({ contractId, dueAt }) => window.helixHeresyDebug.setMarketContractOutcome(contractId, { dueAt }), { contractId: contract.id, dueAt: before.clock + 1 });
+  await page.evaluate(() => window.helixHeresyDebug.advanceMarketTime(2));
+
+  const finalState = await savedState(page);
+  const failed = finalState.economy.contracts.find((candidate) => candidate.id === contract.id);
+  const contactAfter = finalState.economy.contacts.find((contact) => contact.id === contract.contactId);
+  expect(failed.status).toBe('failed');
+  expect(failed.reservations).toEqual([]);
+  expect(finalState.economy.blackMarketReputation).toBeLessThan(20);
+  expect(contactAfter.trust).toBeLessThan(contactBefore.trust);
+  expect(finalState.collectedByproducts[offer.material]).toBeCloseTo(offer.amount, 3);
+  expect(finalState.economy.ledger.some((entry) => entry.contractId === contract.id && entry.kind === 'contractFailed')).toBe(true);
+});

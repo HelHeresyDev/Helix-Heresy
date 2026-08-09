@@ -509,8 +509,10 @@
 
           <div id="economyMenuTabs" class="record-tabs economy-menu-tabs" role="tablist" aria-label="Black market sections">
             <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-economy-menu-tab="overview">Overview <span id="economyOverviewBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="deals">Offers <span id="economyDealsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="contracts">Contracts <span id="economyContractsBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="contacts">Contacts <span id="economyContactsBadge" class="record-tab-badge">0</span></button>
-            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="deals">Deals <span id="economyDealsBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="ledger">Ledger <span id="economyLedgerBadge" class="record-tab-badge">0</span></button>
           </div>
 
           <div class="economy-menu-body inventory-list">
@@ -522,6 +524,12 @@
             </div>
             <div class="economy-menu-panel" data-economy-menu-panel="deals" role="tabpanel" hidden>
               <div id="economyDealsList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="contracts" role="tabpanel" hidden>
+              <div id="economyContractsList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="ledger" role="tabpanel" hidden>
+              <div id="economyLedgerList" class="inventory-list"></div>
             </div>
           </div>
         </section>
