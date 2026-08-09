@@ -71,9 +71,21 @@ async function stageToolDurabilitySlime(page, { genome, toolCurrent = 10 }) {
     state.inventory.thickGloves = 1;
     state.toolDurability = {
       ...(state.toolDurability || {}),
-      thickGloves: [{ id: 'thickGloves-1', current: toolCurrent, max: 10 }],
+      thickGloves: [{ id: 'thickGloves-1', current: toolCurrent, max: 10, roomId: 'mainLab', carriedBy: 'scientist' }],
     };
     state.scientist ||= {};
+    state.scientist.inventory ||= {};
+    state.scientist.inventory.equipmentSlots = {
+      head: '', eyes: '', face: '', torso: '', hands: 'thickGloves-1', legs: '', feet: '',
+      mainHand: '', offHand: '', waist: '', beltLeft: '', beltRight: '', back: '',
+    };
+    const gloveStack = (state.physicalItemStacks || []).find((stack) => stack.section === 'inventory' && stack.key === 'thickGloves');
+    if (!gloveStack) throw new Error('starter thick gloves stack not found');
+    gloveStack.carriedBy = 'scientist';
+    gloveStack.toolInstanceId = 'thickGloves-1';
+    gloveStack.roomId = 'mainLab';
+    gloveStack.fixtureId = '';
+    gloveStack.stockpileId = '';
     state.scientist.vitals ||= {};
     state.scientist.vitals.stamina = { current: 100, max: 100 };
     state.slimes = [

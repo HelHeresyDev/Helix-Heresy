@@ -52,7 +52,7 @@ test('starter utilities are physical fixtures and the oil lamp lights nearby til
   expect(scientistLight.carriedLight).toMatchObject({
     id: 'starter-hand-lamp',
     label: 'Hand lamp',
-    enabled: true,
+    enabled: false,
     spectrum: 'warm',
     radius: 4,
   });

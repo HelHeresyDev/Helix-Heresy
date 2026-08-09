@@ -85,21 +85,56 @@ test('physical records overwrite stale global and room compatibility totals', as
   expect(actorInventories.slimeCarry.carriedBy).toBe(actorInventories.slimeId);
   expect(actorInventories.overCapacity).toBeNull();
   expect(actorInventories.scientist).toMatchObject({
-    version: 1,
+    version: 2,
     capacity: { massKg: 25, volumeL: 80 },
     usage: { massKg: 2, volumeL: 2.4 },
+    equipmentSlots: { back: '', head: '', torso: '', hands: '' },
+    equipped: [],
   });
   expect(actorInventories.scientist.stacks.map((stack) => stack.id)).toContain(actorInventories.scientistCarry.id);
-  expect(actorInventories.slime.version).toBe(1);
+  expect(actorInventories.slime.version).toBe(2);
   expect(actorInventories.slime.capacity.massKg).toBeGreaterThanOrEqual(1);
   expect(actorInventories.slime.capacity.volumeL).toBeGreaterThanOrEqual(2);
   expect(actorInventories.slime.stacks.map((stack) => stack.id)).toContain(actorInventories.slimeCarry.id);
   expect(actorInventories.biomassTotal).toBe(7);
 
+  const equippedBackpack = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const queued = debug.queueEquipmentChange('fieldBackpack', 'equip');
+    for (let attempt = 0; attempt < 6 && !debug.equipmentSnapshot().slots.back; attempt += 1) {
+      debug.advanceSimulation(600);
+    }
+    return { queued, equipment: debug.equipmentSnapshot(), inventory: debug.actorInventorySnapshot('scientist') };
+  });
+  expect(equippedBackpack.queued).toBe(true);
+  expect(equippedBackpack.equipment.slots.back).toBe('fieldBackpack-1');
+  expect(equippedBackpack.equipment.summary).toContain('Back Mount: Field backpack');
+  expect(equippedBackpack.inventory.capacity).toEqual({ massKg: 40, volumeL: 115 });
+  expect(equippedBackpack.inventory.equipped).toContainEqual({
+    itemKey: 'fieldBackpack', instanceId: 'fieldBackpack-1', slots: ['back'],
+  });
+  const protectedLoadout = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    debug.queueEquipmentChange('containmentApron', 'equip');
+    for (let attempt = 0; attempt < 6 && !debug.equipmentSnapshot().slots.torso; attempt += 1) {
+      debug.advanceSimulation(600);
+    }
+    const damage = debug.applyScientistEquipmentDamage(20, ['acid']);
+    debug.saveEquipmentLoadout('Containment Work');
+    return { damage, equipment: debug.equipmentSnapshot() };
+  });
+  expect(protectedLoadout.damage).toMatchObject({ incoming: 20, damage: 10, absorbed: 10, protection: 0.5 });
+  expect(protectedLoadout.equipment.slots.torso).toBe('containmentApron-1');
+  expect(protectedLoadout.equipment.contamination).toContain('Containment apron 20');
+  expect(protectedLoadout.equipment.loadouts).toContainEqual(expect.objectContaining({
+    name: 'Containment Work',
+    slots: expect.objectContaining({ back: 'fieldBackpack', torso: 'containmentApron' }),
+  }));
   await loadSavedRun(page);
   const persistedInventories = await page.evaluate(({ slimeId }) => ({
     scientist: window.helixHeresyDebug.actorInventorySnapshot('scientist'),
     slime: window.helixHeresyDebug.actorInventorySnapshot(slimeId),
+    equipment: window.helixHeresyDebug.equipmentSnapshot('scientist'),
   }), { slimeId: actorInventories.slimeId });
   expect(persistedInventories.scientist.stacks).toEqual(expect.arrayContaining([
     expect.objectContaining({ id: actorInventories.scientistCarry.id, carriedBy: 'scientist' }),
@@ -107,6 +142,7 @@ test('physical records overwrite stale global and room compatibility totals', as
   expect(persistedInventories.slime.stacks).toEqual(expect.arrayContaining([
     expect.objectContaining({ id: actorInventories.slimeCarry.id, carriedBy: actorInventories.slimeId }),
   ]));
+  expect(persistedInventories.equipment.loadouts[0].name).toBe('Containment Work');
 
   await page.locator('[data-workspace-tab="resources"]').click();
   await page.locator('[data-stores-menu-tab="materials"]').click();

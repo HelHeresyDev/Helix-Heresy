@@ -69,6 +69,21 @@ async function stageLooseSlime(page, options = {}) {
     state.nextContainmentEmergencyNumber = 1;
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.policies.handling.method = 'longTongs';
+    const tongs = state.toolDurability?.longTongs?.[0];
+    const tongsStack = (state.physicalItemStacks || []).find((stack) => stack.section === 'inventory' && stack.key === 'longTongs');
+    if (!tongs || !tongsStack) throw new Error('starter Long tongs not found');
+    tongs.carriedBy = 'scientist';
+    tongs.roomId = 'mainLab';
+    state.scientist.inventory ||= {};
+    state.scientist.inventory.equipmentSlots = {
+      ...(state.scientist.inventory.equipmentSlots || {}),
+      mainHand: tongs.id,
+      offHand: tongs.id,
+    };
+    tongsStack.carriedBy = 'scientist';
+    tongsStack.toolInstanceId = tongs.id;
+    tongsStack.fixtureId = '';
+    tongsStack.stockpileId = '';
     container.roomId = 'mainLab';
     container.type = 'basic';
     container.typeId = 'ironCage';

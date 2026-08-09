@@ -25,9 +25,10 @@ For story background, long-term systems, current design direction, and open ques
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
 - Corpse handling with waste drums, decay states, necropsy, dumping, Suspicion, and policy-driven Corpse Processing jobs.
 - Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments that can affect slime condition stats.
+- Actor-neutral equipment attachment points with an empty vat-start scientist loadout, routed equipping, protective clothing, persistent wear and contamination, encumbrance, optional belts and backpacks, a preserved Back Mount for specialized apparatus, and player-named loadouts.
 - Scientist stamina, mana, skills, XP/resource cheats, real-time-paced hands-on tasks, physical trip-and-route hauling, 1x/5x/10x speed controls, manual skip controls, and keyboard shortcuts.
 - Icon-based management windows with accessible labels, keyboard shortcuts, and right-click back/dismiss behavior shared with Escape.
-- Saved player map knowledge with light-aware line-of-sight perception, a physical carried hand lamp, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
+- Saved player map knowledge with light-aware line-of-sight perception, physical room lighting, no magically equipped vat-start lamp, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
 - Seeded, lazily generated underground geology with distinct rock strata, hidden ore veins and environmental pockets, geology-aware excavation time and tool wear, physical rubble outputs, and derived room-expansion readiness.
 - Knowledge-safe physical lighting and selected temperature, humidity, ambient-mana, light, and aggregate airborne-contamination overlays shared by the DOM and Canvas renderers.
 - Renderer-neutral ground, world, and alert effects for known spills, structural failures, active abilities, incidents, and actionable task endpoints, with severity-ranked equipment status cues.
