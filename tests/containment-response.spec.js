@@ -65,6 +65,8 @@ async function stageLooseSlime(page, options = {}) {
     state.taskHistory = [];
     state.incidents = [];
     state.nextIncidentNumber = 1;
+    state.containmentEmergencies = [];
+    state.nextContainmentEmergencyNumber = 1;
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.policies.handling.method = 'longTongs';
     container.roomId = 'mainLab';
@@ -129,6 +131,7 @@ test('known loose slime can be physically recaptured into an explicit container'
 
   const before = await page.evaluate(() => window.helixHeresyDebug.containmentResponseSnapshot('loose-response-test'));
   expect(before.incident).toMatchObject({ sourceId: 'loose-response-test', perceptionPrecision: 'exact' });
+  expect(before.emergency).toMatchObject({ sourceKind: 'slime', sourceId: 'loose-response-test', stage: 'uncontrolled' });
   expect(before.destinations.some((entry) => entry.id === 'basic-1' && !entry.blockReason)).toBe(true);
 
   const queued = await page.evaluate(() => window.helixHeresyDebug.startSlimeRecapture('loose-response-test', 'basic-1'));
@@ -139,6 +142,7 @@ test('known loose slime can be physically recaptured into an explicit container'
   expect(task.data.destinationContainerId).toBe('basic-1');
 
   await skipSeconds(page, 1000);
+  await skipSeconds(page, 1);
 
   const result = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -151,6 +155,8 @@ test('known loose slime can be physically recaptured into an explicit container'
       activeTasks: state.tasks.filter((entry) => entry.type === 'recaptureSlime').length,
       history: state.taskHistory.find((entry) => entry.type === 'recaptureSlime'),
       events: state.events.map((entry) => entry.message || String(entry)).join(' | '),
+      emergency: state.containmentEmergencies.find((entry) => entry.sourceId === 'loose-response-test'),
+      incident: state.incidents.find((entry) => entry.emergencyId === state.containmentEmergencies.find((emergency) => emergency.sourceId === 'loose-response-test')?.id),
     };
   }, { key: storageKey });
   expect(result.slime, result.events).toEqual({ status: 'contained', containerId: 'basic-1', mapCell: null });
@@ -158,6 +164,9 @@ test('known loose slime can be physically recaptured into an explicit container'
   expect(result.activeTasks).toBe(0);
   expect(result.history?.status).toBe('completed');
   expect(result.events).toContain('recaptured in Recovery Cage');
+  expect(result.emergency?.stage).toBe('resolved');
+  expect(result.emergency?.history.map((entry) => entry.stage)).toEqual(expect.arrayContaining(['uncontrolled', 'secured', 'recovery', 'resolved']));
+  expect(result.incident?.status).toBe('resolved');
 });
 
 test('recapture waits when the creature leaves its observed capture point', async ({ page }) => {

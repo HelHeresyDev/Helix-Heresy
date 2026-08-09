@@ -64,6 +64,24 @@
   ];
   const CONTAINMENT_TEST_METHOD_BY_ID = Object.fromEntries(CONTAINMENT_TEST_METHOD_DEFS.map((method) => [method.id, method]));
   const CONTAINER_BREACH_STATES = new Set(["intact", "compromised", "breached"]);
+  const CONTAINMENT_EMERGENCY_STAGE_DEFS = [
+    { id: "warning", label: "Warning", rank: 0 },
+    { id: "imminent", label: "Breach Imminent", rank: 1 },
+    { id: "breached", label: "Breached", rank: 2 },
+    { id: "uncontrolled", label: "Uncontrolled", rank: 3 },
+    { id: "secured", label: "Secured", rank: 4 },
+    { id: "recovery", label: "Recovery", rank: 5 },
+    { id: "resolved", label: "Resolved", rank: 6 }
+  ];
+  const CONTAINMENT_EMERGENCY_STAGE_BY_ID = Object.fromEntries(CONTAINMENT_EMERGENCY_STAGE_DEFS.map((stage) => [stage.id, stage]));
+  const CONTAINMENT_EMERGENCY_POLICY_DEFS = [
+    { id: "manual", label: "Manual", description: "Notify only. Time and doors remain under direct player control." },
+    { id: "notifyPause", label: "Notify and Pause", description: "Serious alerts return to 1x; critical alerts pause at 1x." },
+    { id: "automaticLockdown", label: "Automatic Lockdown", description: "Notify and pause, activate emergency access restrictions, and queue configured physical door operations." }
+  ];
+  const CONTAINMENT_EMERGENCY_POLICY_BY_ID = Object.fromEntries(CONTAINMENT_EMERGENCY_POLICY_DEFS.map((mode) => [mode.id, mode]));
+  const DEFAULT_CONTAINMENT_EMERGENCY_POLICY_ID = "notifyPause";
+  const CONTAINMENT_EMERGENCY_RETENTION = 40;
   const CONTAINER_CONDITION_DEFAULT = 100;
   const MAIN_ROOM_ID = "mainLab";
   const MENAGERIE_ROOM_ID = "menagerie";
@@ -335,6 +353,23 @@
         steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 2, glass: 1 }, score: 84 }
       },
       description: "A local temperature sensor that unlocks exact Celsius targets for climate equipment in its room."
+    },
+    {
+      id: "containmentAlarm",
+      label: "Containment Alarm",
+      glyph: "!",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "nonblocking",
+      layer: "wallControl",
+      requiresAdjacentWall: true,
+      ports: [{ id: "maintenance", label: "Alarm Controls", x: 0, y: 0 }],
+      capabilities: ["containmentAlarm"],
+      workMinutes: 6,
+      materialOptions: {
+        steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 2, glass: 1 }, score: 84 }
+      },
+      description: "A local physical sensor and audible alarm that reports containment emergencies originating in its room."
     },
     {
       id: "airDuct",
@@ -2694,6 +2729,7 @@
     exposedRemains: { label: "Exposed Remains" },
     corpseOverflow: { label: "Corpse Overflow" },
     containerBreach: { label: "Container Breach" },
+    containmentEmergency: { label: "Containment Emergency" },
     breachedDoor: { label: "Door Breach" },
     structuralBreach: { label: "Structural Breach" },
     combat: { label: "Combat" },
@@ -3890,6 +3926,7 @@
       feedstockIncomeProgress: {},
       wasteTags: {},
       containmentIncidentProgress: {},
+      containmentEmergencies: [],
       sensoryEvents: [],
       groupSignals: [],
       combat: defaultCombatState(),
@@ -3912,6 +3949,7 @@
       nextCorpseNumber: 1,
       nextResidueNumber: 1,
       nextIncidentNumber: 1,
+      nextContainmentEmergencyNumber: 1,
       nextTaskNumber: 1,
       nextWorkOrderNumber: 1,
       nextFixtureNumber: 1,
@@ -4658,6 +4696,7 @@
       corpseHandling: { ...CORPSE_HANDLING_DEFAULTS },
       handling: { method: DEFAULT_HANDLING_METHOD },
       doors: { behavior: DEFAULT_DOOR_POLICY_ID },
+      containmentEmergency: { mode: DEFAULT_CONTAINMENT_EMERGENCY_POLICY_ID },
       rooms: {
         designationMode: DEFAULT_ROOM_DESIGNATION_POLICY_ID,
         purposeMode: DEFAULT_ROOM_PURPOSE_POLICY_ID
@@ -5434,11 +5473,25 @@
       },
       startSlimeRecapture: (slimeId, containerId) => startSlimeRecapture(slimeId, containerId),
       startPlaceBait: (cell, feedstockKey) => startPlaceBait(cell, feedstockKey),
+      containmentEmergencySnapshot: () => ({
+        policy: containmentEmergencyPolicyMode(),
+        lockdownActive: ensureAccessControl().lockdownActive,
+        emergencies: normalizeContainmentEmergencies(state.containmentEmergencies).map((emergency) => ({
+          ...emergency,
+          sourceCell: cleanMapCell(emergency.sourceCell),
+          creatureIds: [...emergency.creatureIds],
+          requirements: [...emergency.requirements],
+          activeOrderIds: containmentEmergencyActiveOrders(emergency).map((order) => order.id),
+          history: emergency.history.map((entry) => ({ ...entry }))
+        }))
+      }),
+      setContainmentEmergencyPolicy: (mode) => setContainmentEmergencyPolicy(mode),
       containmentResponseSnapshot: (slimeId = "") => {
         const slime = slimeId ? findSlime(slimeId) : null;
         return {
           slime: slime ? { id: slime.id, status: slime.status, containerId: slime.containerId, cell: objectMapCell(slime) } : null,
           incident: slime ? looseSlimeIncident(slime) : null,
+          emergency: slime ? activeContainmentEmergencyForCreature(slime) : null,
           destinations: slime ? recaptureDestinationCandidates(slime).map((container) => ({
             id: container.id,
             name: container.name,
@@ -21445,18 +21498,20 @@
     return true;
   }
 
-  function setAccessLockdown(active) {
+  function setAccessLockdown(active, options = {}) {
     const access = ensureAccessControl();
     const next = Boolean(active);
     if (access.lockdownActive === next) return false;
     access.lockdownActive = next;
     let queued = 0;
     if (next) queued = queueLockdownDoorOperations();
-    addEvent(next
-      ? `Emergency access restrictions activated${queued ? `; ${queued} physical door operation${queued === 1 ? "" : "s"} queued` : "; no door work was configured"}.`
-      : "Emergency access restrictions lifted. Doors remain in their current physical states.");
-    persist();
-    render();
+    if (options.event !== false) {
+      addEvent(next
+        ? `Emergency access restrictions activated${queued ? `; ${queued} physical door operation${queued === 1 ? "" : "s"} queued` : "; no door work was configured"}.`
+        : "Emergency access restrictions lifted. Doors remain in their current physical states.");
+    }
+    if (options.persist !== false) persist();
+    if (options.render !== false) render();
     return true;
   }
 
@@ -22579,6 +22634,244 @@
     return rooms.some((room) => room.id === id) ? id : MAIN_ROOM_ID;
   }
 
+  function containmentEmergencyStageLabel(stage) {
+    return CONTAINMENT_EMERGENCY_STAGE_BY_ID[stage]?.label || CONTAINMENT_EMERGENCY_STAGE_BY_ID.warning.label;
+  }
+
+  function normalizeContainmentEmergency(candidate, index = 0, context = state) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const id = String(candidate.id || `containment-emergency-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "");
+    if (!id) return null;
+    const stage = CONTAINMENT_EMERGENCY_STAGE_BY_ID[candidate.stage] ? candidate.stage : "warning";
+    const createdAt = finiteTime(candidate.createdAt, context?.clock || 0);
+    const roomId = cleanIncidentRoomId(candidate.roomId || candidate.originRoomId, context);
+    return {
+      id,
+      key: String(candidate.key || `source:${candidate.sourceKind || "room"}:${candidate.sourceId || roomId}`),
+      sourceKind: ["container", "slime"].includes(candidate.sourceKind) ? candidate.sourceKind : "room",
+      sourceId: String(candidate.sourceId || ""),
+      sourceLabel: String(candidate.sourceLabel || "Containment source"),
+      roomId,
+      sourceCell: cleanMapCell(candidate.sourceCell),
+      creatureIds: [...new Set((Array.isArray(candidate.creatureIds) ? candidate.creatureIds : []).map(String).filter(Boolean))],
+      stage,
+      previousStage: CONTAINMENT_EMERGENCY_STAGE_BY_ID[candidate.previousStage] ? candidate.previousStage : stage,
+      createdAt,
+      updatedAt: finiteTime(candidate.updatedAt, createdAt),
+      stageChangedAt: finiteTime(candidate.stageChangedAt, createdAt),
+      resolvedAt: stage === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null,
+      detectedAt: incidentTimestamp(candidate.detectedAt),
+      lockdownActivatedAt: incidentTimestamp(candidate.lockdownActivatedAt),
+      requirements: (Array.isArray(candidate.requirements) ? candidate.requirements : []).map(String).filter(Boolean).slice(0, 12),
+      history: (Array.isArray(candidate.history) ? candidate.history : []).filter((entry) => entry && typeof entry === "object")
+        .map((entry) => ({ stage: CONTAINMENT_EMERGENCY_STAGE_BY_ID[entry.stage] ? entry.stage : "warning", at: finiteTime(entry.at, createdAt) }))
+        .slice(-16)
+    };
+  }
+
+  function normalizeContainmentEmergencies(candidate, context = state) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => normalizeContainmentEmergency(entry, index, context)).filter(Boolean);
+  }
+
+  function containmentEmergencyById(id) {
+    return (state.containmentEmergencies || []).find((entry) => entry.id === id) || null;
+  }
+
+  function activeContainmentEmergencyForCreature(slimeOrId) {
+    const id = typeof slimeOrId === "string" ? slimeOrId : slimeOrId?.id;
+    if (!id) return null;
+    return (state.containmentEmergencies || [])
+      .find((entry) => entry.stage !== "resolved" && entry.creatureIds.includes(id)) || null;
+  }
+
+  function containmentEmergencyPolicyMode() {
+    state.policies = normalizePolicies(state.policies);
+    return state.policies.containmentEmergency.mode;
+  }
+
+  function setContainmentEmergencyPolicy(mode) {
+    state.policies = normalizePolicies(state.policies);
+    const nextMode = CONTAINMENT_EMERGENCY_POLICY_BY_ID[mode] ? mode : DEFAULT_CONTAINMENT_EMERGENCY_POLICY_ID;
+    state.policies.containmentEmergency.mode = nextMode;
+    addEvent(`Containment emergency response set: ${CONTAINMENT_EMERGENCY_POLICY_BY_ID[nextMode].label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function containmentEmergencyHazardousSpills(emergency) {
+    return ensurePhysicalItemStacks().filter((stack) => stack.section === "residue" && stack.form === "spill"
+      && stack.quantity > 0 && stack.roomId === emergency.roomId && spillIsHazardous(stack));
+  }
+
+  function containmentEmergencyActiveOrders(emergency) {
+    const taskIds = new Set(scientistQueueTasks().filter((task) => task.data?.emergencyId === emergency.id).map((task) => task.id));
+    return ensureWorkOrders().filter((order) => !["completed", "canceled"].includes(order.status)
+      && (order.data?.emergencyId === emergency.id || taskIds.has(order.claimedTaskId)));
+  }
+
+  function containmentEmergencyAffectedRoomIds(emergency) {
+    return [...new Set([
+      emergency.roomId,
+      ...emergency.creatureIds.map(findSlime).filter((slime) => slime && slime.status !== "dead").map(slimeEffectiveRoomId)
+    ].filter(Boolean))];
+  }
+
+  function containmentEmergencyRequirements(emergency) {
+    const requirements = [];
+    const loose = emergency.creatureIds.map(findSlime).filter((slime) => slime && slime.status !== "dead" && slimeIsUncontained(slime));
+    if (loose.length) requirements.push(`Secure ${loose.length} loose creature${loose.length === 1 ? "" : "s"}`);
+    if (emergency.sourceKind === "container") {
+      const container = containerById(emergency.sourceId);
+      if (container && (containerBreachState(container) !== "intact" || containerCondition(container) < 50)) requirements.push(`Repair and reseal ${container.name}`);
+    }
+    const contamination = roomContaminationValue(emergency.roomId);
+    if (contamination >= INCIDENT_CONTAMINATION_THRESHOLD) requirements.push(`Reduce ${roomName(emergency.roomId)} contamination below ${INCIDENT_CONTAMINATION_THRESHOLD}`);
+    const spills = containmentEmergencyHazardousSpills(emergency);
+    if (spills.length) requirements.push(`Clean ${spills.length} hazardous spill${spills.length === 1 ? "" : "s"}`);
+    const orders = containmentEmergencyActiveOrders(emergency);
+    if (orders.length) requirements.push(`Clear ${orders.length} active response order${orders.length === 1 ? "" : "s"}`);
+    return requirements;
+  }
+
+  function containmentEmergencyPressureStage(container, creatures) {
+    const tests = creatures.map((slime) => normalizeContainmentTestRecord(slime.containmentTest));
+    const critical = tests.some((record) => record.active && (record.pressureBand === "critical" || record.progress >= CONTAINMENT_TEST_PROGRESS_THRESHOLD * 0.65));
+    if (critical || containerCondition(container) <= 15) return "imminent";
+    return "warning";
+  }
+
+  function setContainmentEmergencyStage(emergency, stage) {
+    if (emergency.stage === stage) return false;
+    emergency.previousStage = emergency.stage;
+    emergency.stage = stage;
+    emergency.stageChangedAt = state.clock;
+    emergency.updatedAt = state.clock;
+    emergency.resolvedAt = stage === "resolved" ? state.clock : null;
+    emergency.history.push({ stage, at: state.clock });
+    emergency.history = emergency.history.slice(-16);
+    return true;
+  }
+
+  function deriveContainmentEmergencyStage(emergency) {
+    const creatures = emergency.creatureIds.map(findSlime).filter(Boolean);
+    const loose = creatures.filter((slime) => slime.status !== "dead" && slimeIsUncontained(slime));
+    const container = emergency.sourceKind === "container" ? containerById(emergency.sourceId) : null;
+    const sourceBreached = Boolean(container && containerBreachState(container) !== "intact");
+    const testing = Boolean(container && creatures.some((slime) => slime.status === "contained" && slime.containerId === container.id
+      && normalizeContainmentTestRecord(slime.containmentTest).active));
+    const requirements = containmentEmergencyRequirements(emergency);
+    emergency.requirements = requirements;
+    if (loose.length) return "uncontrolled";
+    if (sourceBreached) {
+      if (["warning", "imminent", "breached"].includes(emergency.stage)) return "breached";
+      if (emergency.stage === "uncontrolled") return "secured";
+      if (emergency.stage === "secured") return "recovery";
+      return requirements.length ? "recovery" : "resolved";
+    }
+    if (emergency.stage === "uncontrolled") return "secured";
+    if (emergency.stage === "secured") return "recovery";
+    if (["breached", "recovery"].includes(emergency.stage)) return requirements.length ? "recovery" : "resolved";
+    if (testing) return containmentEmergencyPressureStage(container, creatures);
+    return "resolved";
+  }
+
+  function updateContainmentEmergencies() {
+    if (!state) return 0;
+    state.containmentEmergencies = normalizeContainmentEmergencies(state.containmentEmergencies);
+    state.nextContainmentEmergencyNumber = Math.max(Number(state.nextContainmentEmergencyNumber) || 1,
+      state.containmentEmergencies.reduce((max, emergency) => Math.max(max, numericSuffix(emergency.id)), 0) + 1);
+    const existingByKey = new Map(state.containmentEmergencies.map((entry) => [entry.key, entry]));
+    const linkedCreatureIds = new Set();
+    let changes = 0;
+    const ensureEmergency = (data) => {
+      let emergency = existingByKey.get(data.key);
+      if (!emergency) {
+        emergency = normalizeContainmentEmergency({
+          ...data,
+          id: `containment-emergency-${state.nextContainmentEmergencyNumber++}`,
+          stage: data.stage || "warning",
+          createdAt: state.clock,
+          updatedAt: state.clock,
+          stageChangedAt: state.clock,
+          history: [{ stage: data.stage || "warning", at: state.clock }]
+        });
+        state.containmentEmergencies.push(emergency);
+        existingByKey.set(data.key, emergency);
+        changes += 1;
+      } else {
+        emergency.sourceLabel = data.sourceLabel || emergency.sourceLabel;
+        emergency.roomId = data.roomId || emergency.roomId;
+        emergency.sourceCell = cleanMapCell(data.sourceCell) || emergency.sourceCell;
+        emergency.creatureIds = [...new Set([...emergency.creatureIds, ...(data.creatureIds || [])])];
+      }
+      emergency.creatureIds.forEach((id) => linkedCreatureIds.add(id));
+      return emergency;
+    };
+
+    for (const container of state.containers || []) {
+      if (!container || container.type === "synthesis") continue;
+      const occupants = containerOccupants(container.id).filter((slime) => slime.status !== "dead");
+      const escapedId = String(container.lastBreach?.slimeId || "");
+      const escaped = escapedId ? findSlime(escapedId) : null;
+      const creatures = [...occupants, ...(escaped ? [escaped] : [])];
+      const hasPressure = occupants.some((slime) => normalizeContainmentTestRecord(slime.containmentTest).active
+        && ["high", "critical"].includes(normalizeContainmentTestRecord(slime.containmentTest).pressureBand));
+      const breached = containerBreachState(container) !== "intact";
+      const key = `container:${container.id}`;
+      const existing = existingByKey.get(key);
+      if (!hasPressure && !breached && (!existing || existing.stage === "resolved")) continue;
+      ensureEmergency({
+        key,
+        sourceKind: "container",
+        sourceId: container.id,
+        sourceLabel: container.name,
+        roomId: container.roomId || MAIN_ROOM_ID,
+        sourceCell: objectMapCell(container),
+        creatureIds: creatures.map((slime) => slime.id),
+        stage: breached ? "breached" : containmentEmergencyPressureStage(container, occupants)
+      });
+    }
+
+    for (const slime of state.slimes || []) {
+      if (!slime || slime.status === "dead" || !slimeIsUncontained(slime) || linkedCreatureIds.has(slime.id)) continue;
+      ensureEmergency({
+        key: `slime:${slime.id}`,
+        sourceKind: "slime",
+        sourceId: slime.id,
+        sourceLabel: slime.name,
+        roomId: slimeEffectiveRoomId(slime),
+        sourceCell: objectMapCell(slime),
+        creatureIds: [slime.id],
+        stage: "uncontrolled"
+      });
+    }
+
+    for (const emergency of state.containmentEmergencies.filter((entry) => entry.stage !== "resolved")) {
+      if (existingByKey.get(emergency.key) !== emergency) continue;
+      const nextStage = deriveContainmentEmergencyStage(emergency);
+      if (setContainmentEmergencyStage(emergency, nextStage)) changes += 1;
+    }
+    const active = state.containmentEmergencies.filter((entry) => entry.stage !== "resolved");
+    const resolved = state.containmentEmergencies.filter((entry) => entry.stage === "resolved")
+      .sort((a, b) => b.resolvedAt - a.resolvedAt).slice(0, CONTAINMENT_EMERGENCY_RETENTION);
+    state.containmentEmergencies = [...active, ...resolved];
+    return changes;
+  }
+
+  function containmentEmergencySeverity(emergency) {
+    if (emergency.stage === "uncontrolled") return "critical";
+    if (["imminent", "breached", "secured"].includes(emergency.stage)) return "serious";
+    return "minor";
+  }
+
+  function containmentEmergencySummary(emergency) {
+    const roomPeers = state.containmentEmergencies.filter((entry) => entry.stage !== "resolved" && entry.roomId === emergency.roomId);
+    const affectedRooms = containmentEmergencyAffectedRoomIds(emergency).map(roomName).join(", ");
+    const requirements = emergency.requirements.length ? ` Remaining: ${emergency.requirements.join("; ")}.` : " No recovery requirements remain.";
+    return `${containmentEmergencyStageLabel(emergency.stage)} at ${emergency.sourceLabel}; ${roomPeers.length} active source${roomPeers.length === 1 ? "" : "s"} coordinated from ${roomName(emergency.roomId)}; affected rooms: ${affectedRooms}.${requirements}`;
+  }
+
   function incidentTypeLabel(type) {
     return INCIDENT_TYPE_DEFS[type]?.label || titleCase(type || "incident");
   }
@@ -22601,7 +22894,9 @@
       String(data?.sourceKind || "room"),
       String(data?.sourceId || data?.roomId || ""),
       String(data?.label || ""),
-      String(data?.summary || "")
+      String(data?.summary || ""),
+      String(data?.emergencyStage || ""),
+      (Array.isArray(data?.emergencyRequirements) ? data.emergencyRequirements : []).join(";")
     ].join("|");
   }
 
@@ -22641,6 +22936,10 @@
       sourceKind,
       sourceId,
       sourceLabel: String(candidate.sourceLabel || "").trim(),
+      emergencyId: String(candidate.emergencyId || "").trim(),
+      emergencyStage: CONTAINMENT_EMERGENCY_STAGE_BY_ID[candidate.emergencyStage] ? candidate.emergencyStage : "",
+      emergencyCreatureIds: [...new Set((Array.isArray(candidate.emergencyCreatureIds) ? candidate.emergencyCreatureIds : []).map(String).filter(Boolean))],
+      emergencyRequirements: (Array.isArray(candidate.emergencyRequirements) ? candidate.emergencyRequirements : []).map(String).filter(Boolean).slice(0, 12),
       createdAt,
       updatedAt: finiteTime(candidate.updatedAt, createdAt),
       resolvedAt: status === "resolved" ? finiteTime(candidate.resolvedAt, candidate.updatedAt ?? createdAt) : null,
@@ -22760,7 +23059,7 @@
       };
     }
     const severityRank = incidentSeverityRank(candidate.severity);
-    const audibleTypes = new Set(["combat", "blockedDoorPressure", "breachedDoor", "structuralBreach", "containerBreach"]);
+    const audibleTypes = new Set(["combat", "blockedDoorPressure", "breachedDoor", "structuralBreach", "containerBreach", "containmentEmergency"]);
     const soundTransmission = sensoryBarrierTransmission(scientistCell, sourceCell, "hearing");
     if (sensory.capabilities.hearing && audibleTypes.has(candidate.type) && severityRank >= incidentSeverityRank("serious") && distance <= 12 && soundTransmission > 0.01) {
       const uncertaintyRadius = clamp(Math.ceil(distance / 4 + (1 - soundTransmission) * 2), 1, 6);
@@ -22796,9 +23095,12 @@
   function addDesiredIncident(desired, data) {
     const roomId = roomById(data.roomId)?.id || MAIN_ROOM_ID;
     const actualCell = incidentCell(roomId, data.cell);
-    const perception = scientistIncidentPerception({ ...data, roomId, cell: actualCell });
+    const alarmPerception = data.type === "containmentEmergency" && fixtureCapabilityAvailable("containmentAlarm", roomId)
+      ? { channel: "alarm", precision: "exact-source", uncertaintyRadius: 0, perceivedCell: actualCell }
+      : null;
+    const perception = scientistIncidentPerception({ ...data, roomId, cell: actualCell }) || alarmPerception;
     if (!perception) return;
-    const exact = ["vision", "contact", "taste"].includes(perception.channel) && perception.precision === "exact";
+    const exact = (["vision", "contact", "taste"].includes(perception.channel) && perception.precision === "exact") || perception.channel === "alarm";
     const perceivedLabel = exact
       ? (data.label || incidentTypeLabel(data.type))
       : data.type === "combat" ? "Possible combat" : `Possible ${incidentTypeLabel(data.type).toLowerCase()}`;
@@ -22814,14 +23116,37 @@
       perceptionChannel: perception.channel,
       perceptionPrecision: perception.precision,
       uncertaintyRadius: perception.uncertaintyRadius,
-      sourceKind: data.sourceKind || "room",
-      sourceId: data.sourceId || roomId,
-      sourceLabel: exact ? (data.sourceLabel || "") : "Uncertain source"
+      sourceKind: data.type === "containmentEmergency" && !exact ? "room" : data.sourceKind || "room",
+      sourceId: data.type === "containmentEmergency" && !exact ? roomId : data.sourceId || roomId,
+      sourceLabel: exact ? (data.sourceLabel || "") : "Uncertain source",
+      emergencyId: data.emergencyId || "",
+      emergencyStage: exact ? (data.emergencyStage || "") : "",
+      emergencyCreatureIds: exact ? (data.emergencyCreatureIds || []) : [],
+      emergencyRequirements: exact ? (data.emergencyRequirements || []) : []
     });
   }
 
   function collectDesiredIncidentAlerts() {
     const desired = [];
+
+    for (const emergency of normalizeContainmentEmergencies(state.containmentEmergencies)) {
+      if (emergency.stage === "resolved") continue;
+      addDesiredIncident(desired, {
+        type: "containmentEmergency",
+        label: `${containmentEmergencyStageLabel(emergency.stage)}: ${emergency.sourceLabel}`,
+        summary: containmentEmergencySummary(emergency),
+        severity: containmentEmergencySeverity(emergency),
+        roomId: emergency.roomId,
+        cell: emergency.sourceCell || labMapRoomAnchor(emergency.roomId),
+        sourceKind: emergency.sourceKind,
+        sourceId: emergency.sourceId,
+        sourceLabel: emergency.sourceLabel,
+        emergencyId: emergency.id,
+        emergencyStage: emergency.stage,
+        emergencyCreatureIds: emergency.creatureIds,
+        emergencyRequirements: emergency.requirements
+      });
+    }
 
     for (const slime of state.slimes || []) {
       if (!slime || slime.status === "dead") continue;
@@ -22850,6 +23175,7 @@
       if (!slimeIsUncontained(slime) || slime.status === "dead") {
         continue;
       }
+      if (activeContainmentEmergencyForCreature(slime)) continue;
       const roomId = slimeEffectiveRoomId(slime);
       const activity = slime.roomActivity || {};
       if (activity.type === "pressingClosedDoor") {
@@ -23006,6 +23332,7 @@
       if (!container || container.type === "synthesis" || containerBreachState(container) === "intact") {
         continue;
       }
+      if (state.containmentEmergencies.some((emergency) => emergency.stage !== "resolved" && emergency.sourceKind === "container" && emergency.sourceId === container.id)) continue;
       const roomId = roomById(container.roomId)?.id || MAIN_ROOM_ID;
       addDesiredIncident(desired, {
         type: "containerBreach",
@@ -23027,19 +23354,22 @@
     if (!existing) {
       return true;
     }
-    const fields = ["type", "label", "summary", "severity", "roomId", "sourceKind", "sourceId", "sourceLabel"];
+    const fields = ["type", "label", "summary", "severity", "roomId", "sourceKind", "sourceId", "sourceLabel", "emergencyId", "emergencyStage"];
     if (fields.some((field) => existing[field] !== desired[field])) {
       return true;
     }
     const existingCell = existing.cell ? mapCellKey(existing.cell) : "";
     const desiredCell = desired.cell ? mapCellKey(desired.cell) : "";
-    return existingCell !== desiredCell || existing.status !== "active";
+    return existingCell !== desiredCell || existing.status !== "active"
+      || JSON.stringify(existing.emergencyCreatureIds || []) !== JSON.stringify(desired.emergencyCreatureIds || [])
+      || JSON.stringify(existing.emergencyRequirements || []) !== JSON.stringify(desired.emergencyRequirements || []);
   }
 
   function refreshIncidentAlerts() {
     if (!state) {
       return 0;
     }
+    const emergencyChanges = updateContainmentEmergencies();
     state.incidents = normalizeIncidents(state.incidents);
     state.nextIncidentNumber = Math.max(
       Number(state.nextIncidentNumber) || 1,
@@ -23048,7 +23378,7 @@
     const desired = collectDesiredIncidentAlerts();
     const desiredKeys = new Set();
     const existingByKey = new Map(state.incidents.map((incident) => [incident.key, incident]));
-    let changes = 0;
+    let changes = emergencyChanges;
 
     for (const entry of desired) {
       const key = entry.key || incidentKeyFor(entry);
@@ -23082,7 +23412,7 @@
           changes += 1;
         }
       } else {
-        state.incidents.push(normalizeIncident({
+        const created = normalizeIncident({
           ...entry,
           key,
           id: `incident-${state.nextIncidentNumber++}`,
@@ -23093,13 +23423,33 @@
           staleAt: null,
           manualResolvedAt: null,
           manualResolveSignature: ""
-        }));
+        });
+        state.incidents.push(created);
+        if (created.type === "containmentEmergency") {
+          const emergency = containmentEmergencyById(created.emergencyId);
+          if (emergency) emergency.detectedAt ??= state.clock;
+          if (created.emergencyStage === "warning") {
+            addEvent(`Containment warning detected: ${created.label}.`, {
+              category: "incident", severity: "minor", feed: true, incidentId: created.id,
+              roomId: created.roomId, cell: created.cell, sourceKind: created.sourceKind, sourceId: created.sourceId
+            });
+          }
+        }
         changes += 1;
       }
     }
 
     for (const incident of state.incidents) {
       if (incidentIsUnresolved(incident) && !desiredKeys.has(incident.key)) {
+        const emergency = incident.type === "containmentEmergency" ? containmentEmergencyById(incident.emergencyId) : null;
+        if (emergency?.stage === "resolved") {
+          incident.status = "resolved";
+          incident.resolvedAt = state.clock;
+          incident.updatedAt = state.clock;
+          incident.responseTaskId = "";
+          changes += 1;
+          continue;
+        }
         if (incident.status === "stale") {
           continue;
         }
@@ -23133,6 +23483,21 @@
       }
       incident.urgencyHandledAt = state.clock;
       incident.updatedAt = state.clock;
+      const emergency = incident.type === "containmentEmergency" ? containmentEmergencyById(incident.emergencyId) : null;
+      if (emergency) emergency.detectedAt ??= state.clock;
+      const responseMode = incident.type === "containmentEmergency" ? containmentEmergencyPolicyMode() : "notifyPause";
+      if (responseMode === "automaticLockdown" && !ensureAccessControl().lockdownActive) {
+        if (setAccessLockdown(true, { persist: false, render: false })) changes += 1;
+        if (emergency) emergency.lockdownActivatedAt ??= state.clock;
+      }
+      if (responseMode === "manual") {
+        addEvent(`${incidentSeverityLabel(incident.severity)} incident reported: ${incident.label}. Manual response policy left time and doors unchanged.`, {
+          category: "incident", severity: incident.severity, feed: true, incidentId: incident.id,
+          roomId: incident.roomId, cell: incident.cell, sourceKind: incident.sourceKind, sourceId: incident.sourceId
+        });
+        changes += 1;
+        continue;
+      }
       if (severityRank >= incidentSeverityRank("critical")) {
         const changed = !state.paused || state.timeSpeed !== "realtime";
         state.timeSpeed = "realtime";
@@ -43602,6 +43967,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     lockdownLabel.append(lockdownInput, textEl("span", "Emergency restrictions active"));
     lockdownLabel.title = "Activating emergency restrictions enables emergency-only areas and queues configured physical door operations.";
     controls.append(lockdownLabel);
+    const emergencyPolicyLabel = document.createElement("label");
+    emergencyPolicyLabel.className = "policy-field";
+    emergencyPolicyLabel.append(textEl("span", "Containment emergency response"));
+    const emergencyPolicySelect = document.createElement("select");
+    emergencyPolicySelect.dataset.containmentEmergencyPolicy = "mode";
+    for (const mode of CONTAINMENT_EMERGENCY_POLICY_DEFS) emergencyPolicySelect.append(new Option(mode.label, mode.id));
+    emergencyPolicySelect.value = containmentEmergencyPolicyMode();
+    emergencyPolicySelect.title = CONTAINMENT_EMERGENCY_POLICY_BY_ID[emergencyPolicySelect.value].description;
+    emergencyPolicySelect.addEventListener("change", () => setContainmentEmergencyPolicy(emergencyPolicySelect.value));
+    emergencyPolicyLabel.append(emergencyPolicySelect, textEl("small", CONTAINMENT_EMERGENCY_POLICY_BY_ID[emergencyPolicySelect.value].description));
+    controls.append(emergencyPolicyLabel);
 
     const createRow = document.createElement("div");
     createRow.className = "policy-button-row";
@@ -43759,6 +44135,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Actor access",
         ensureAccessControl().lockdownActive ? "Emergency restrictions" : `${accessProfileForActor(state.scientist)?.areaIds.length || 0} assigned areas`,
         "Named tile restrictions guide intelligent actors; loose creatures ignore administrative policy.",
+        policyTabButton("access", "Open Access")
+      ),
+      policyOverviewRow(
+        "Containment response",
+        CONTAINMENT_EMERGENCY_POLICY_BY_ID[containmentEmergencyPolicyMode()].label,
+        CONTAINMENT_EMERGENCY_POLICY_BY_ID[containmentEmergencyPolicyMode()].description,
         policyTabButton("access", "Open Access")
       ),
       policyOverviewRow(
@@ -49067,7 +49449,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         id: `incident.resolve.${incident.id}`,
         label: "Mark Resolved",
         group: "Incident",
-        disabledReason: incident.status === "resolved" ? "This incident is already resolved." : "",
+        disabledReason: incident.status === "resolved" ? "This incident is already resolved." : containmentEmergencyResolutionBlockReason(incident),
         description: "Clear this known alert. The same observation stays dismissed until it changes.",
         run: () => resolveIncident(incident.id)
       }),
@@ -49088,8 +49470,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open the scientist task management screen."
       })
     ];
-    if (incident.sourceKind === "slime") {
+    if (incident.sourceKind === "slime" && incident.type !== "containmentEmergency") {
       commands.splice(2, 0, ...recaptureContextCommands(findSlime(incident.sourceId)));
+    }
+    if (incident.type === "containmentEmergency" && ["exact", "exact-source"].includes(incident.perceptionPrecision)) {
+      commands.splice(2, 0, ...incident.emergencyCreatureIds
+        .map(findSlime)
+        .filter((slime) => slime && slime.status !== "dead" && slimeIsUncontained(slime))
+        .flatMap(recaptureContextCommands));
+      const emergency = containmentEmergencyById(incident.emergencyId);
+      commands.splice(2, 0, ...baitPlacementContextCommands(incident.cell));
+      const currentRoom = roomById(scientistRoomId());
+      const safeRoom = currentRoom?.connections
+        ?.map(roomById)
+        .find((room) => room && room.id !== incident.roomId
+          && !(state.containmentEmergencies || []).some((entry) => entry.stage !== "resolved" && entry.roomId === room.id));
+      commands.splice(2, 0, commandDef({
+        id: `incident.retreat.${incident.id}`,
+        label: safeRoom ? `Retreat to ${safeRoom.name}` : "Emergency Retreat",
+        group: "Containment Response",
+        disabledReason: scientistRoomId() !== incident.roomId
+          ? "The scientist is already outside the emergency room."
+          : safeRoom
+            ? scientistMoveBlockReason(safeRoom.id, { allowMultiRoom: true })
+            : "No connected room is currently clear of known containment emergencies.",
+        description: "Queue ordinary physical movement out of the emergency room. Doors, routes, access, and stamina still apply.",
+        run: () => startScientistMove(safeRoom.id, { allowMultiRoom: true, label: `Retreat to ${safeRoom.name}` })
+      }));
+      const container = emergency?.sourceKind === "container" ? containerById(emergency.sourceId) : null;
+      if (container) commands.splice(2, 0, ...repairLaborCommands({ kind: "container", value: container, cell: objectMapCell(container) }));
+      for (const spill of emergency ? containmentEmergencyHazardousSpills(emergency) : []) {
+        commands.splice(2, 0, commandDef({
+          id: `incident.cleanup.${incident.id}.${spill.id}`,
+          label: `Clean ${physicalStackLabel(spill)}`,
+          group: "Containment Recovery",
+          disabledReason: spillCleanupTask(spill.id) ? "Cleanup is already queued for this spill." : "",
+          description: "Queue physical travel, collection, and receptacle use for this hazardous spill.",
+          run: () => {
+            const task = startSpillCleanup(spill.id, { emergencyId: emergency.id });
+            persist();
+            render();
+            return Boolean(task);
+          }
+        }));
+      }
     }
     commands.splice(2, 0, commandDef({
       id: `incident.lockdown.${incident.id}`,
@@ -50478,6 +50902,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (selection.kind === "incident") {
       const incident = incidentById(selection.id);
       if (incident) {
+        if (incident.type === "containmentEmergency") rows.push(["Stage", incident.emergencyStage ? containmentEmergencyStageLabel(incident.emergencyStage) : "Unconfirmed"]);
         rows.push(["Severity", incidentSeverityLabel(incident.severity)]);
         rows.push(["Status", incidentStatusLabel(incident.status)]);
         rows.push(["Summary", incident.summary || incident.label]);
@@ -50589,7 +51014,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const geometry = roomGeometry(room);
       const evaluation = roomPurposeEvaluation(room);
       const suggestion = roomPurposeInference(room);
-      return [
+      const rows = [
         ["Name", room.name],
         ["Primary purpose", evaluation.purpose.label],
         ["Functional state", evaluation.status.label],
@@ -50783,7 +51208,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return [];
       }
       const response = incidentResponseTask(incident);
-      return [
+      const rows = [
         ["Type", incidentTypeLabel(incident.type)],
         ["Severity", incidentSeverityLabel(incident.severity)],
         ["Status", incidentStatusLabel(incident.status)],
@@ -50791,6 +51216,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Summary", incident.summary || incident.label],
         ["Response", response ? `${response.label}; due ${formatClock(response.dueAt)}` : "No response queued"]
       ];
+      if (incident.type === "containmentEmergency") {
+        const exactEmergency = ["exact", "exact-source"].includes(incident.perceptionPrecision);
+        const emergency = exactEmergency ? containmentEmergencyById(incident.emergencyId) : null;
+        rows.splice(1, 0,
+          ["Stage", incident.emergencyStage ? containmentEmergencyStageLabel(incident.emergencyStage) : "Unconfirmed"],
+          ["Detection", `${titleCase(incident.perceptionChannel)}; ${titleCase(incident.perceptionPrecision)}`],
+          ["Known creatures", incident.emergencyCreatureIds.map(findSlime).filter(Boolean).map((slime) => slime.name).join(", ") || "No exact identities confirmed"],
+          ["Affected rooms", emergency ? containmentEmergencyAffectedRoomIds(emergency).map(roomName).join(", ") : "Unconfirmed"],
+          ["Recovery requirements", incident.emergencyRequirements.join("; ") || "None remaining"],
+          ["Response policy", CONTAINMENT_EMERGENCY_POLICY_BY_ID[containmentEmergencyPolicyMode()].label],
+          ["Lockdown", ensureAccessControl().lockdownActive ? "Emergency restrictions active; configured door work is physical" : "Inactive"],
+          ["Active response orders", emergency ? formatNumber(containmentEmergencyActiveOrders(emergency).length) : "Unknown"]
+        );
+      }
+      return rows;
     }
     if (selection.kind === "task") {
       const task = findTask(selection.id);
@@ -50896,7 +51336,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "incident") {
       const incident = incidentById(selection.id);
       if (!incident) return [];
-      return [
+      const rows = [
         ["Created", formatClock(incident.createdAt || state.clock)],
         ["Updated", formatClock(incident.updatedAt || incident.createdAt || state.clock)],
         ["Stale since", incident.staleAt !== null && incident.staleAt !== undefined ? formatClock(incident.staleAt) : "No"],
@@ -50906,6 +51346,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Manual clear", incident.manualResolvedAt !== null && incident.manualResolvedAt !== undefined ? formatClock(incident.manualResolvedAt) : "No"],
         ["Urgency handled", incident.urgencyHandledAt !== null && incident.urgencyHandledAt !== undefined ? formatClock(incident.urgencyHandledAt) : "No"]
       ];
+      const emergency = incident.type === "containmentEmergency" && ["exact", "exact-source"].includes(incident.perceptionPrecision)
+        ? containmentEmergencyById(incident.emergencyId)
+        : null;
+      if (emergency) rows.push(["Stage history", emergency.history.map((entry) => `${containmentEmergencyStageLabel(entry.stage)} ${formatClock(entry.at)}`).join(" · ")]);
+      return rows;
     }
     if (selection.kind === "task") {
       const task = findTask(selection.id);
@@ -54149,6 +54594,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || staminaBlockReason(adjustedStaminaCost(SCIENTIST_MOVE_BASE_STAMINA, ["analysis"]));
   }
 
+  function containmentEmergencyResolutionBlockReason(incident) {
+    if (!incident || incident.type !== "containmentEmergency") return "";
+    if (!["exact", "exact-source"].includes(incident.perceptionPrecision)) return "Containment status must be confirmed at the source before this emergency can be resolved.";
+    const emergency = containmentEmergencyById(incident.emergencyId);
+    if (!emergency) return "The authoritative containment emergency record is unavailable.";
+    if (emergency.stage === "resolved") return "";
+    if (emergency.requirements.length) return `Containment emergency cannot resolve: ${emergency.requirements.join("; ")}.`;
+    return `Containment emergency remains in ${containmentEmergencyStageLabel(emergency.stage)}.`;
+  }
+
   function acknowledgeIncident(incidentId) {
     const incident = incidentById(incidentId);
     if (!incident || !incidentIsUnresolved(incident)) {
@@ -54175,6 +54630,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (incident.status === "resolved") {
       addEvent(`Incident already resolved: ${incident.label}.`);
+      persist();
+      render();
+      return false;
+    }
+    const emergencyBlock = containmentEmergencyResolutionBlockReason(incident);
+    if (emergencyBlock) {
+      addEvent(emergencyBlock);
       persist();
       render();
       return false;
@@ -59898,6 +60360,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         replacementItemKey,
         replacementCount,
         automatic: Boolean(options.automatic),
+        emergencyId: String(options.emergencyId || ""),
         staminaCost: SPILL_CLEANUP_STAMINA
       }
     };
@@ -60858,6 +61321,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const doors = {
       behavior: DOOR_POLICY_BY_ID[candidate?.doors?.behavior] ? candidate.doors.behavior : DEFAULT_DOOR_POLICY_ID
     };
+    const containmentEmergency = {
+      mode: CONTAINMENT_EMERGENCY_POLICY_BY_ID[candidate?.containmentEmergency?.mode]
+        ? candidate.containmentEmergency.mode
+        : DEFAULT_CONTAINMENT_EMERGENCY_POLICY_ID
+    };
     const rooms = {
       designationMode: ROOM_DESIGNATION_POLICY_BY_ID[candidate?.rooms?.designationMode]
         ? candidate.rooms.designationMode
@@ -60891,6 +61359,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       corpseHandling,
       handling,
       doors,
+      containmentEmergency,
       rooms,
       cleanup,
       labor,
@@ -61980,6 +62449,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.feedstockIncomeProgress = normalizeFeedstockIncomeProgress(next.feedstockIncomeProgress);
     next.wasteTags = normalizeWasteTags(next.wasteTags);
     next.containmentIncidentProgress = normalizeContainmentIncidentProgress(next.containmentIncidentProgress);
+    next.containmentEmergencies = normalizeContainmentEmergencies(next.containmentEmergencies, next);
+    next.nextContainmentEmergencyNumber = Math.max(
+      Number(next.nextContainmentEmergencyNumber) || 1,
+      next.containmentEmergencies.reduce((max, emergency) => Math.max(max, numericSuffix(emergency.id)), 0) + 1
+    );
     next.combat = normalizeCombatState(next.combat);
     next.policies = normalizePolicies(next.policies);
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
