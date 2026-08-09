@@ -2663,6 +2663,26 @@
   const BLACK_MARKET_TRADE_AMOUNT_SECONDS = minutesToSeconds(4);
   const BLACK_MARKET_REPUTATION_MAX = 1000;
   const BLACK_MARKET_TRUST_MAX = 100;
+  const BLACK_MARKET_OFFER_MIN_SECONDS = SECONDS_PER_DAY;
+  const BLACK_MARKET_OFFER_MAX_SECONDS = SECONDS_PER_DAY * 3;
+  const BLACK_MARKET_CONTRACT_MIN_SECONDS = SECONDS_PER_DAY * 2;
+  const BLACK_MARKET_CONTRACT_MAX_SECONDS = SECONDS_PER_DAY * 7;
+  const BLACK_MARKET_OFFER_REFRESH_SECONDS = SECONDS_PER_DAY;
+  const BLACK_MARKET_LEDGER_LIMIT = 80;
+  const BLACK_MARKET_EXPOSURE_LIMIT = 40;
+  const BLACK_MARKET_REFERRAL_THRESHOLDS = [35, 120];
+  const BLACK_MARKET_PAYMENT_TERMS = {
+    escrow: { id: "escrow", label: "Escrow", payoutMod: 0.9, delaySeconds: 0, secured: true, riskLabel: "Secured" },
+    delivery: { id: "delivery", label: "Cash on Delivery", payoutMod: 1, delaySeconds: 0, secured: false, riskLabel: "Contact-dependent" },
+    credit: { id: "credit", label: "Delayed Credit", payoutMod: 1.2, delaySeconds: SECONDS_PER_DAY, secured: false, riskLabel: "Risky" }
+  };
+  const BLACK_MARKET_NEGOTIATION_DEFS = {
+    standard: { id: "standard", label: "Accept Terms", payoutMod: 1, windowMod: 1, exposureMod: 1, acceptanceBase: 1 },
+    higherPayout: { id: "higherPayout", label: "Ask Higher Payout", payoutMod: 1.2, windowMod: 0.9, exposureMod: 1, acceptanceBase: 0.46 },
+    moreTime: { id: "moreTime", label: "Ask More Time", payoutMod: 0.9, windowMod: 1.5, exposureMod: 1, acceptanceBase: 0.72 },
+    discreet: { id: "discreet", label: "Request Discreet Handoff", payoutMod: 0.85, windowMod: 1, exposureMod: 0.45, acceptanceBase: 0.76, extraSeconds: minutesToSeconds(35) },
+    escrow: { id: "escrow", label: "Demand Escrow", payoutMod: 1, windowMod: 1, exposureMod: 1, acceptanceBase: 0.64, paymentTerm: "escrow" }
+  };
   const BLACK_MARKET_BYPRODUCT_LABELS = [...new Set(Object.values(BYPRODUCT_POOLS_BY_ELEMENT).flat())].sort();
   const BLACK_MARKET_RISK_BANDS = [
     { id: "low", label: "Low", maxChance: 0.08 },
@@ -3843,8 +3863,10 @@
   const DEFAULT_STORE_MENU_TAB = "overview";
   const ECONOMY_MENU_TAB_DEFS = [
     { id: "overview", label: "Overview" },
+    { id: "deals", label: "Offers" },
+    { id: "contracts", label: "Contracts" },
     { id: "contacts", label: "Contacts" },
-    { id: "deals", label: "Deals" }
+    { id: "ledger", label: "Ledger" }
   ];
   const ECONOMY_MENU_TAB_BY_ID = Object.fromEntries(ECONOMY_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
   const DEFAULT_ECONOMY_MENU_TAB = "overview";
@@ -3927,7 +3949,9 @@
       items: [
         { key: "O", label: "Overview", workspaceTab: "economy", tabKind: "economy", tabId: "overview" },
         { key: "C", label: "Contacts", workspaceTab: "economy", tabKind: "economy", tabId: "contacts" },
-        { key: "L", label: "Deals", workspaceTab: "economy", tabKind: "economy", tabId: "deals" }
+        { key: "L", label: "Offers", workspaceTab: "economy", tabKind: "economy", tabId: "deals" },
+        { key: "K", label: "Contracts", workspaceTab: "economy", tabKind: "economy", tabId: "contracts" },
+        { key: "H", label: "Ledger", workspaceTab: "economy", tabKind: "economy", tabId: "ledger" }
       ]
     },
     policies: {
@@ -4008,8 +4032,10 @@
   };
   const ECONOMY_MENU_TAB_HOTKEYS = {
     overview: "B O",
+    deals: "B L",
+    contracts: "B K",
     contacts: "B C",
-    deals: "B L"
+    ledger: "B H"
   };
   const POLICY_MENU_TAB_HOTKEYS = {
     overview: "P O",
@@ -4561,9 +4587,15 @@
       blackMarketReputation: 0,
       contacts,
       deals: [],
+      contracts: [],
+      ledger: [],
+      exposures: [],
       nextContactNumber: contacts.length + 1,
       nextDealNumber: 1,
-      lastContactRefreshAt: 0
+      nextContractNumber: 1,
+      nextLedgerNumber: 1,
+      lastContactRefreshAt: 0,
+      lastOfferRefreshAt: 0
     };
     for (const contact of contacts) {
       for (let slot = 0; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
@@ -4586,6 +4618,12 @@
       archetype: archetype.id,
       archetypeLabel: archetype.label,
       trust: Math.round(6 + rng() * 8),
+      reliability: roundOutputValue(0.7 + rng() * 0.25),
+      completedContracts: 0,
+      paymentFailures: 0,
+      contractFailures: 0,
+      unavailableUntil: 0,
+      nextOfferAt: 0,
       riskProfile,
       preferredTags: [...archetype.tags],
       discoveredAt: 0,
@@ -4649,8 +4687,24 @@
     const danger = tags.filter((tag) => ["corrosive", "toxic", "arcane", "rare", "vapor"].includes(tag)).length;
     const payout = Math.max(1, Math.round(amount * blackMarketByproductUnitValue(material) * demand * profile.payoutMod * (1 + (Number(contact?.trust) || 0) / 260)));
     const exposureChance = clamp(0.04 + danger * 0.035 + amount * 0.006 + profile.chanceMod - (Number(contact?.trust) || 0) / 800 - (Number(reputation) || 0) / 4000, 0.02, 0.55);
+    const offerKind = slot % BLACK_MARKET_DEALS_PER_CONTACT === 0 ? "spot" : "contract";
+    const offerLife = Math.round(BLACK_MARKET_OFFER_MIN_SECONDS + rng() * (BLACK_MARKET_OFFER_MAX_SECONDS - BLACK_MARKET_OFFER_MIN_SECONDS));
+    const deliveryWindow = Math.round(clamp(
+      BLACK_MARKET_CONTRACT_MIN_SECONDS + rng() * (BLACK_MARKET_CONTRACT_MAX_SECONDS - BLACK_MARKET_CONTRACT_MIN_SECONDS) - amount * SECONDS_PER_HOUR * 2,
+      BLACK_MARKET_CONTRACT_MIN_SECONDS,
+      BLACK_MARKET_CONTRACT_MAX_SECONDS
+    ));
+    const paymentTerm = offerKind === "spot"
+      ? "delivery"
+      : contact?.riskProfile === "reckless" && rng() < 0.55
+        ? "credit"
+        : rng() < 0.2
+          ? "escrow"
+          : "delivery";
     return {
       id: `deal-${number}`,
+      offerKind,
+      slot: Math.max(0, Math.floor(Number(slot) || 0)),
       contactId: contact?.id || "",
       material,
       tags,
@@ -4660,6 +4714,10 @@
       suspicionOnObserved: Math.max(1, Math.round(3 + danger * 2 + amount * 0.7)),
       reputationGain: Math.max(1, Math.round(2 + danger + payout / 45)),
       trustGain: Math.max(1, Math.round(1 + payout / 80)),
+      paymentTerm,
+      deliveryWindow,
+      expiresAt: finiteTime(clock, 0) + offerLife,
+      negotiationRoll: roundOutputValue(rng()),
       status: "open",
       taskId: "",
       createdAt: finiteTime(clock, 0),
@@ -4683,6 +4741,76 @@
       return `${type} requested sealed flasks of ${material}.`;
     }
     return `${type} is quietly buying ${material}.`;
+  }
+
+  function blackMarketContractTerms(deal, negotiationId = "standard") {
+    const negotiation = BLACK_MARKET_NEGOTIATION_DEFS[negotiationId] || BLACK_MARKET_NEGOTIATION_DEFS.standard;
+    const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[negotiation.paymentTerm || deal?.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
+    return {
+      negotiationId: negotiation.id,
+      payout: Math.max(1, Math.round((Number(deal?.payout) || 1) * negotiation.payoutMod * paymentTerm.payoutMod)),
+      deliveryWindow: Math.round(clamp((Number(deal?.deliveryWindow) || BLACK_MARKET_CONTRACT_MIN_SECONDS) * negotiation.windowMod, BLACK_MARKET_CONTRACT_MIN_SECONDS, BLACK_MARKET_CONTRACT_MAX_SECONDS * 1.5)),
+      exposureChance: clamp(roundOutputValue((Number(deal?.exposureChance) || 0) * negotiation.exposureMod), 0.01, 0.75),
+      paymentTerm: paymentTerm.id,
+      extraSeconds: Math.max(0, Number(negotiation.extraSeconds) || 0)
+    };
+  }
+
+  function blackMarketNegotiationAccepted(deal, contact, negotiationId) {
+    const negotiation = BLACK_MARKET_NEGOTIATION_DEFS[negotiationId] || BLACK_MARKET_NEGOTIATION_DEFS.standard;
+    if (negotiation.id === "standard") return true;
+    const profileModifier = contact?.riskProfile === "cautious" && negotiation.id === "discreet"
+      ? 0.12
+      : contact?.riskProfile === "reckless" && negotiation.id === "higherPayout"
+        ? 0.08
+        : 0;
+    const chance = clamp(negotiation.acceptanceBase + (Number(contact?.trust) || 0) / 250 + profileModifier, 0.15, 0.94);
+    return (Number(deal?.negotiationRoll) || 0) < chance;
+  }
+
+  function createBlackMarketContract(deal, negotiationId = "standard", number = 1, clock = 0) {
+    const contact = blackMarketContactById(deal?.contactId);
+    const terms = blackMarketContractTerms(deal, negotiationId);
+    const id = `contract-${number}`;
+    const reliability = clamp(Number(contact?.reliability) || 0.75, 0.35, 0.99);
+    const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[terms.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
+    const paymentRisk = paymentTerm.secured ? 0 : clamp((1 - reliability) * (paymentTerm.id === "credit" ? 1.35 : 0.75), 0.02, 0.65);
+    const paymentRoll = seedRng(`${state.seed}:black-market-payment:${id}:${deal?.id}:${negotiationId}`)();
+    const paymentFraction = paymentTerm.secured || paymentRoll >= paymentRisk
+      ? 1
+      : paymentRoll < paymentRisk * 0.35
+        ? 0
+        : 0.5;
+    return {
+      id,
+      offerId: String(deal?.id || ""),
+      contactId: String(deal?.contactId || ""),
+      material: byproductInventoryKey(deal?.material),
+      tags: [...(deal?.tags || [])],
+      amount: roundOutputValue(Number(deal?.amount) || 0),
+      payout: terms.payout,
+      paymentTerm: paymentTerm.id,
+      paymentFraction,
+      paymentDueAt: null,
+      exposureChance: terms.exposureChance,
+      exposureRoll: roundOutputValue(seedRng(`${state.seed}:black-market-contract-exposure:${id}:${deal?.id}`)()),
+      suspicionOnObserved: Math.max(1, Math.round(Number(deal?.suspicionOnObserved) || 1)),
+      reputationGain: Math.max(1, Math.round(Number(deal?.reputationGain) || 1)),
+      trustGain: Math.max(1, Math.round(Number(deal?.trustGain) || 1)),
+      negotiationId: terms.negotiationId,
+      extraSeconds: terms.extraSeconds,
+      acceptedAt: finiteTime(clock, 0),
+      dueAt: finiteTime(clock, 0) + terms.deliveryWindow,
+      deliveredAt: null,
+      settledAt: null,
+      failedAt: null,
+      status: "active",
+      taskId: "",
+      reservations: [],
+      warnings: [],
+      outcome: "",
+      notes: String(deal?.flavor || "")
+    };
   }
 
   function defaultConstructionState() {
@@ -5146,9 +5274,13 @@
       "economyOverviewBadge",
       "economyContactsBadge",
       "economyDealsBadge",
+      "economyContractsBadge",
+      "economyLedgerBadge",
       "economyOverviewList",
       "economyContactsList",
       "economyDealsList",
+      "economyContractsList",
+      "economyLedgerList",
       "scientistConditionList",
       "skillList",
       "restFullBtn",
@@ -5333,6 +5465,26 @@
   function installDebugHooks() {
     window.helixHeresyDebug = {
       mapViewSnapshot: () => buildLabMapView(),
+      economySnapshot: () => clonePlainObject(ensureEconomy()),
+      marketAvailableByproduct: (material) => blackMarketAvailableByproductAmount(material),
+      acceptMarketContract: (dealId, negotiationId = "standard") => acceptBlackMarketContract(dealId, negotiationId),
+      startMarketContractDelivery: (contractId) => startBlackMarketContractDelivery(contractId),
+      setMarketContractOutcome: (contractId, options = {}) => {
+        const contract = blackMarketContractById(contractId);
+        if (!contract) return false;
+        if (Number.isFinite(Number(options.paymentFraction))) contract.paymentFraction = clamp(Number(options.paymentFraction), 0, 1);
+        if (Number.isFinite(Number(options.exposureRoll))) contract.exposureRoll = clamp(Number(options.exposureRoll), 0, 1);
+        if (Number.isFinite(Number(options.dueAt))) contract.dueAt = Math.max(state.clock, Number(options.dueAt));
+        persist();
+        render();
+        return true;
+      },
+      advanceMarketTime: (seconds) => {
+        advanceTime(Math.max(0, Number(seconds) || 0), { quiet: true });
+        persist();
+        render();
+        return clonePlainObject(ensureEconomy());
+      },
       mapSceneSnapshot: () => buildLabMapView().scene,
       mapFeedbackSnapshot: () => mapFeedbackSnapshot(),
       emitMapFeedback: (kind, cells, options = {}) => {
@@ -9139,6 +9291,8 @@
     if (suspicionEvent) {
       events.push(suspicionEvent);
     }
+    const marketEvent = nextBlackMarketEvent();
+    if (marketEvent) events.push(marketEvent);
     const jobEvent = nextCreatureJobEvent();
     if (jobEvent) {
       events.push(jobEvent);
@@ -9206,6 +9360,7 @@
       vitalsChanged: 0,
       physicalStateChanged: 0,
       suspicionChanged: 0,
+      economyChanged: 0,
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
       envChanges: 0,
@@ -9349,6 +9504,7 @@
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.suspicionChanged += updateSuspicionDecay();
+      changes.economyChanged += updateBlackMarketEconomy();
       changes.incidentAlertChanged += refreshIncidentAlerts();
       changes.incidentUrgencyChanged += handleIncidentUrgency();
       syncRoomObservationMemory();
@@ -9416,6 +9572,7 @@
       + changes.skillDecayChanged
       + changes.scientistMovementChanged
       + changes.aiChanged
+      + changes.economyChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -9616,7 +9773,8 @@
     }
 
     if (task.type === "blackMarketTrade") {
-      completeBlackMarketTrade(task);
+      if (task.data?.contractId) completeBlackMarketContractDelivery(task);
+      else completeBlackMarketTrade(task);
       return;
     }
 
@@ -39356,8 +39514,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "equipmentChange", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) return null;
-    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) {
+    if (!["scientistMove", "equipmentChange", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) return null;
+    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -47075,7 +47233,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const element of [
       dom.economyOverviewList,
       dom.economyContactsList,
-      dom.economyDealsList
+      dom.economyDealsList,
+      dom.economyContractsList,
+      dom.economyLedgerList
     ]) {
       if (element) {
         element.textContent = "";
@@ -47088,7 +47248,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const badgeMap = {
       overview: dom.economyOverviewBadge,
       contacts: dom.economyContactsBadge,
-      deals: dom.economyDealsBadge
+      deals: dom.economyDealsBadge,
+      contracts: dom.economyContractsBadge,
+      ledger: dom.economyLedgerBadge
     };
     for (const [tab, badge] of Object.entries(badgeMap)) {
       if (badge) {
@@ -47115,7 +47277,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return [
       `${contact?.name || "Unknown contact"} wants ${formatCollectionAmount(deal.amount)} ${deal.material}.`,
       `Payout: ${formatMoney(deal.payout)}.`,
-      `Exposure risk: ${risk.label} (${Math.round(deal.exposureChance * 100)}% observed chance).`,
+      `${deal.offerKind === "contract" ? "Formal delivery contract" : "Spot sale"}; offer expires ${formatClock(deal.expiresAt)}.`,
+      `Exposure risk: ${risk.label}. Exact odds remain uncertain.`,
+      deal.offerKind === "contract" ? `Proposed payment: ${BLACK_MARKET_PAYMENT_TERMS[deal.paymentTerm].label}; delivery window ${formatDuration(deal.deliveryWindow)} after acceptance.` : "Payment is immediate on completion.",
       "Suspicion only increases if authorities observe the exchange.",
       deal.flavor
     ].filter(Boolean).join("\n");
@@ -47130,19 +47294,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         label: "Cash",
         value: formatMoney(economy.money),
         note: "Money is a prototype currency for illegal sales, bribes, facilities, and future supply chains.",
-        action: storesActionButton("View Deals", "Open currently available illicit buyer requests.", () => setEconomyMenuTab("deals"))
+        action: storesActionButton("View Offers", "Open currently available illicit buyer requests.", () => setEconomyMenuTab("deals"))
       },
       {
         label: "Black market reputation",
         value: blackMarketReputationLabel(economy.blackMarketReputation),
-        note: `${formatNumber(economy.blackMarketReputation)} reputation. Contacts, referrals, and stranger offers will eventually scale from this.`,
+        note: `${formatNumber(economy.blackMarketReputation)} reputation. Higher bands unlock persistent contact referrals and stronger offers.`,
         action: storesActionButton("View Contacts", "Open persistent contact trust records.", () => setEconomyMenuTab("contacts"))
       },
       {
-        label: "Open deals",
+        label: "Open offers",
         value: formatNumber(openDeals.filter((deal) => deal.status === "open").length),
-        note: "Deals are contact-specific and remain consistent until queued, completed, or refreshed by future systems.",
-        action: storesActionButton("View Deals", "Open tradeable byproduct offers.", () => setEconomyMenuTab("deals"))
+        note: "Unaccepted offers expire without penalty. Formal contracts become obligations only after acceptance.",
+        action: storesActionButton("View Offers", "Open spot sales and negotiable byproduct contracts.", () => setEconomyMenuTab("deals"))
+      },
+      {
+        label: "Active contracts",
+        value: formatNumber(blackMarketActiveContracts().filter((contract) => ["active", "queued"].includes(contract.status)).length),
+        note: blackMarketActiveContracts().find((contract) => ["active", "queued"].includes(contract.status))
+          ? `Next deadline: ${formatClock(blackMarketActiveContracts().find((contract) => ["active", "queued"].includes(contract.status)).dueAt)}.`
+          : "No accepted delivery obligations.",
+        action: storesActionButton("View Contracts", "Review reserved shipments, deadlines, and payments.", () => setEconomyMenuTab("contracts"))
       },
       {
         label: "Scientist status",
@@ -47173,13 +47345,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const section = storesSectionEl("Contacts", "Persistent illicit buyers and brokers. Trust is per-contact; reputation is global.", { economyCategory: "contacts" });
     for (const contact of economy.contacts) {
       const profile = BLACK_MARKET_RISK_PROFILES[contact.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
+      const availability = blackMarketContactAvailability(contact);
       const activeDeals = openDeals.filter((deal) => deal.contactId === contact.id && deal.status === "open").length;
       section.append(storesRowEl(contact.name, `Trust ${formatNumber(contact.trust)}/${BLACK_MARKET_TRUST_MAX}`, {
-        title: `${contact.name}\n${contact.archetypeLabel}\nRisk profile: ${profile.label}.\nPreferred goods: ${contact.preferredTags.join(", ")}.`,
-        subtitle: `${contact.archetypeLabel}; ${profile.label}; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "deal" : "deals"}; id ${contact.id}`,
+        title: `${contact.name}\n${contact.archetypeLabel}\nRisk profile: ${profile.label}.\nObserved payment reliability: ${blackMarketContactReliabilityLabel(contact)}.\nPreferred goods: ${contact.preferredTags.join(", ")}.`,
+        subtitle: `${contact.archetypeLabel}; ${availability.label}; ${blackMarketContactReliabilityLabel(contact)} payments; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "offer" : "offers"}; id ${contact.id}`,
         dataset: { blackMarketContact: contact.id },
         actions: [
-          storesActionButton("Deals", `Show ${contact.name}'s open deals.`, () => setEconomyMenuTab("deals"))
+          storesActionButton("Offers", `Show ${contact.name}'s open offers.`, () => setEconomyMenuTab("deals"))
         ]
       }));
     }
@@ -47193,7 +47366,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyDealsList) {
       return;
     }
-    const section = storesSectionEl("Available Deals", "Selling byproducts is a queued scientist task. The scientist leaves through the Concealed Exit and cannot perform lab work while outside.", { economyCategory: "deals" });
+    const section = storesSectionEl("Available Offers", "Spot sales dispatch immediately. Formal offers may be accepted as saved obligations or answered with one structured counteroffer.", { economyCategory: "deals" });
     const deals = openDeals.filter((deal) => deal.status === "open" || deal.status === "queued");
     if (!deals.length) {
       section.append(emptyText("No black market deals are currently available."));
@@ -47202,23 +47375,94 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const deal of deals) {
       const contact = blackMarketContactById(deal.contactId);
-      const available = collectedByproductAmount(deal.material);
+      const available = blackMarketAvailableByproductAmount(deal.material);
       const risk = blackMarketRiskBand(deal.exposureChance);
-      const reason = blackMarketDealBlockReason(deal);
-      const button = storesActionButton(
-        deal.status === "queued" ? "Queued" : "Queue Trade",
-        reason || `Queue a scientist trip through the Concealed Exit. Duration: ${formatDuration(blackMarketTradeDuration(deal))}.`,
-        () => startBlackMarketTrade(deal.id)
-      );
-      setActionButtonState(button, Boolean(reason), reason);
+      const actions = [];
+      if (deal.offerKind === "spot") {
+        const reason = blackMarketDealBlockReason(deal);
+        const button = storesActionButton(
+          deal.status === "queued" ? "Queued" : "Queue Trade",
+          reason || `Queue a scientist trip through the Concealed Exit. Duration: ${formatDuration(blackMarketTradeDuration(deal))}.`,
+          () => startBlackMarketTrade(deal.id)
+        );
+        setActionButtonState(button, Boolean(reason), reason);
+        actions.push(button);
+      } else {
+        const reason = blackMarketContractAcceptanceBlockReason(deal);
+        for (const negotiationId of ["standard", "higherPayout", "moreTime", "discreet", "escrow"]) {
+          const negotiation = BLACK_MARKET_NEGOTIATION_DEFS[negotiationId];
+          const terms = blackMarketContractTerms(deal, negotiationId);
+          const button = storesActionButton(
+            negotiation.label,
+            reason || `${formatMoney(terms.payout)}; ${formatDuration(terms.deliveryWindow)} delivery window; ${BLACK_MARKET_PAYMENT_TERMS[terms.paymentTerm].label}. Counteroffers may be rejected and close the offer.`,
+            () => acceptBlackMarketContract(deal.id, negotiationId)
+          );
+          setActionButtonState(button, Boolean(reason), reason);
+          actions.push(button);
+        }
+      }
       section.append(storesRowEl(`${deal.material} for ${contact?.name || "Unknown contact"}`, formatMoney(deal.payout), {
         title: economyDealTitle(deal),
-        subtitle: `${formatCollectionAmount(deal.amount)} wanted; ${formatCollectionAmount(available)} available; ${risk.label} exposure; ${deal.flavor}`,
+        subtitle: `${deal.offerKind === "contract" ? "Contract" : "Spot sale"}; ${formatCollectionAmount(deal.amount)} wanted; ${formatCollectionAmount(available)} unreserved; ${risk.label} exposure; expires ${formatClock(deal.expiresAt)}; ${deal.flavor}`,
         dataset: { blackMarketDeal: deal.id, blackMarketContact: deal.contactId, blackMarketMaterial: deal.material, dealStatus: deal.status },
-        actions: [button]
+        actions
       }));
     }
     dom.economyDealsList.append(section);
+  }
+
+  function renderEconomyContracts(economy) {
+    if (!dom.economyContractsList) return;
+    const section = storesSectionEl("Accepted Contracts", "Designated receptacles are protected from other black market sales. Dispatch routes through every physical source and the Concealed Exit.", { economyCategory: "contracts" });
+    const contracts = [...economy.contracts]
+      .filter((contract) => ["active", "queued", "delivered"].includes(contract.status))
+      .sort((a, b) => a.dueAt - b.dueAt || String(a.id).localeCompare(String(b.id)));
+    if (!contracts.length) section.append(emptyText("No active contracts. Unaccepted offers expire without penalty."));
+    for (const contract of contracts) {
+      const contact = blackMarketContactById(contract.contactId);
+      const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
+      const reserved = roundOutputValue((contract.reservations || []).reduce((total, reservation) => total + reservation.amount, 0));
+      const actions = [];
+      if (contract.status === "active") {
+        const reason = blackMarketContractDeliveryBlockReason(contract);
+        const plan = reason ? null : blackMarketContractRoutePlan(contract);
+        const dispatch = storesActionButton("Dispatch Delivery", reason || `Estimated arrival ${formatClock(state.clock + plan.duration)} using ${plan.trips} load${plan.trips === 1 ? "" : "s"}.`, () => startBlackMarketContractDelivery(contract.id));
+        setActionButtonState(dispatch, Boolean(reason), reason);
+        actions.push(dispatch);
+      } else if (contract.status === "queued") {
+        const queued = storesActionButton("Delivery Queued", "The scientist delivery task is already queued.", () => {});
+        setActionButtonState(queued, true, "The scientist delivery task is already queued.");
+        actions.push(queued);
+      }
+      if (["active", "queued"].includes(contract.status)) {
+        actions.push(storesActionButton("Cancel Contract", "Release the shipment and accept a reputation and trust penalty.", () => cancelBlackMarketContract(contract.id)));
+      }
+      const timing = contract.status === "delivered"
+        ? `Payment due ${formatClock(contract.paymentDueAt)}`
+        : `${formatDuration(Math.max(0, contract.dueAt - state.clock))} remaining; due ${formatClock(contract.dueAt)}`;
+      section.append(storesRowEl(`${contract.material} for ${contact?.name || "Unknown contact"}`, formatMoney(contract.payout), {
+        title: `${contract.id}\n${formatCollectionAmount(contract.amount)} ${contract.material}.\n${timing}.\nPayment: ${paymentTerm.label}; security ${paymentTerm.riskLabel}.\nExposure: ${blackMarketRiskBand(contract.exposureChance).label}.\nNegotiation: ${BLACK_MARKET_NEGOTIATION_DEFS[contract.negotiationId]?.label || "Accepted terms"}.`,
+        subtitle: `${titleCase(contract.status)}; ${formatCollectionAmount(reserved)} designated in ${contract.reservations.length} physical receptacle${contract.reservations.length === 1 ? "" : "s"}; ${timing}; ${paymentTerm.label}`,
+        dataset: { blackMarketContract: contract.id, blackMarketContact: contract.contactId, contractStatus: contract.status },
+        actions
+      }));
+    }
+    dom.economyContractsList.append(section);
+  }
+
+  function renderEconomyLedger(economy) {
+    if (!dom.economyLedgerList) return;
+    const section = storesSectionEl("Market Ledger", "Saved acceptances, deliveries, failures, payments, referrals, and exposure records. Exact hidden risk rolls are not shown.", { economyCategory: "ledger" });
+    if (!economy.ledger.length) section.append(emptyText("No completed market history yet."));
+    for (const entry of economy.ledger.slice(0, 40)) {
+      const contact = blackMarketContactById(entry.contactId);
+      section.append(storesRowEl(entry.label, formatClock(entry.at), {
+        title: `${entry.label}\n${contact ? `Contact: ${contact.name}.\n` : ""}${entry.contractId ? `Contract: ${entry.contractId}.\n` : ""}${entry.amount ? `Recorded payment: ${formatMoney(entry.amount)}.` : ""}`,
+        subtitle: `${titleCase(entry.kind.replace(/([A-Z])/g, " $1"))}${contact ? `; ${contact.name}` : ""}`,
+        dataset: { blackMarketLedger: entry.id, blackMarketContract: entry.contractId, blackMarketContact: entry.contactId }
+      }));
+    }
+    dom.economyLedgerList.append(section);
   }
 
   function renderEconomy() {
@@ -47226,18 +47470,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const openDeals = blackMarketOpenDeals();
     const activeTrade = activeBlackMarketTradeTask();
     if (dom.economySummary) {
-      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${blackMarketReputationLabel(economy.blackMarketReputation)}; ${openDeals.filter((deal) => deal.status === "open").length} open deals`;
-      dom.economySummary.title = "Byproduct sales are handled as queued scientist trips through the Concealed Exit. Suspicion increases only if the exchange is observed.";
+      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${blackMarketReputationLabel(economy.blackMarketReputation)}; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers; ${blackMarketActiveContracts().filter((contract) => ["active", "queued"].includes(contract.status)).length} obligations`;
+      dom.economySummary.title = "Offers expire without penalty. Accepted contracts reserve physical receptacles, carry deadlines, and may create payment or exposure consequences.";
     }
     clearEconomyMenuLists();
     renderEconomyMenuTabs({
       overview: economy.contacts.length + openDeals.length,
       contacts: economy.contacts.length,
-      deals: openDeals.length
+      deals: openDeals.length,
+      contracts: blackMarketActiveContracts().length,
+      ledger: economy.ledger.length
     });
     renderEconomyOverview(economy, openDeals, activeTrade);
     renderEconomyContacts(economy, openDeals);
     renderEconomyDeals(openDeals);
+    renderEconomyContracts(economy);
+    renderEconomyLedger(economy);
   }
 
   function renderScientist() {
@@ -49371,10 +49619,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
     }
     if (task.type === "blackMarketTrade") {
-      const deal = blackMarketDealById(task.data?.dealId);
-      if (deal && deal.taskId === task.id) {
-        deal.status = "open";
-        deal.taskId = "";
+      const contract = blackMarketContractById(task.data?.contractId);
+      if (contract && contract.taskId === task.id) {
+        contract.status = "active";
+        contract.taskId = "";
+      } else {
+        const deal = blackMarketDealById(task.data?.dealId);
+        if (deal && deal.taskId === task.id) {
+          deal.status = "open";
+          deal.taskId = "";
+        }
       }
     }
     if (task.type === "resourceHaul") {
@@ -61080,12 +61334,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 0;
     }
     let remaining = requested;
+    const reservedByStack = new Map();
+    for (const contract of ensureEconomy().contracts || []) {
+      if (!blackMarketReservationStatuses().has(contract.status) || contract.material !== key) continue;
+      for (const reservation of contract.reservations || []) {
+        reservedByStack.set(reservation.stackId, roundOutputValue((reservedByStack.get(reservation.stackId) || 0) + reservation.amount));
+      }
+    }
     const stacks = ensurePhysicalItemStacks().sort((a, b) => a.roomId === STORAGE_ROOM_ID ? -1 : b.roomId === STORAGE_ROOM_ID ? 1 : a.createdAt - b.createdAt);
     for (const stack of stacks) {
       if (remaining <= 0) break;
+      let reservedRemaining = reservedByStack.get(stack.id) || 0;
       for (const content of normalizePhysicalContents(stack.contents)) {
         if (remaining <= 0 || content.kind !== "byproduct" || byproductInventoryKey(content.label || content.key) !== key) continue;
-        const taken = roundOutputValue(Math.min(content.amount, remaining));
+        const protectedAmount = roundOutputValue(Math.min(content.amount, reservedRemaining));
+        reservedRemaining = roundOutputValue(Math.max(0, reservedRemaining - protectedAmount));
+        const taken = roundOutputValue(Math.min(Math.max(0, content.amount - protectedAmount), remaining));
         const original = stack.contents.find((entry) => entry.kind === content.kind && entry.key === content.key && entry.label === content.label);
         if (original) original.amount = roundOutputValue(Math.max(0, Number(original.amount) - taken));
         remaining = roundOutputValue(remaining - taken);
@@ -61175,6 +61439,153 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .sort((a, b) => a.contactId.localeCompare(b.contactId) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   }
 
+  function blackMarketContractById(contractId) {
+    return ensureEconomy().contracts.find((contract) => contract.id === contractId) || null;
+  }
+
+  function blackMarketActiveContracts() {
+    return ensureEconomy().contracts
+      .filter((contract) => ["active", "queued", "delivered"].includes(contract.status))
+      .sort((a, b) => a.dueAt - b.dueAt || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function recordBlackMarketLedger(kind, label, options = {}) {
+    const economy = ensureEconomy();
+    economy.ledger.unshift({
+      id: `market-ledger-${economy.nextLedgerNumber++}`,
+      kind: String(kind || "event"),
+      label: String(label || "Black market event"),
+      contactId: String(options.contactId || ""),
+      offerId: String(options.offerId || ""),
+      contractId: String(options.contractId || ""),
+      amount: Math.round(Number(options.amount) || 0),
+      at: state.clock
+    });
+    economy.ledger = economy.ledger.slice(0, BLACK_MARKET_LEDGER_LIMIT);
+  }
+
+  function blackMarketContactReliabilityLabel(contact) {
+    const settled = Math.max(0, Number(contact?.completedContracts) || 0);
+    if (!settled) return "Unproven";
+    const failures = Math.max(0, Number(contact?.paymentFailures) || 0);
+    const ratio = 1 - failures / settled;
+    if (settled < 3) return ratio < 0.7 ? "Questionable" : "Limited history";
+    if (ratio >= 0.9) return "Reliable";
+    if (ratio >= 0.65) return "Inconsistent";
+    return "Questionable";
+  }
+
+  function blackMarketContactAvailability(contact) {
+    if (!contact) return { available: false, label: "Missing", reason: "Contact is no longer available." };
+    if ((Number(contact.unavailableUntil) || 0) > state.clock) {
+      return { available: false, label: "Cooling off", reason: `${contact.name} is unavailable until ${formatClock(contact.unavailableUntil)}.` };
+    }
+    return { available: true, label: "Available", reason: "" };
+  }
+
+  function blackMarketReservationStatuses() {
+    return new Set(["active", "queued"]);
+  }
+
+  function blackMarketReservedAmountsByStack(ignoreContractId = "", material = "") {
+    const reserved = new Map();
+    const key = byproductInventoryKey(material);
+    for (const contract of ensureEconomy().contracts || []) {
+      if (contract.id === ignoreContractId || !blackMarketReservationStatuses().has(contract.status) || key && contract.material !== key) continue;
+      for (const reservation of contract.reservations || []) {
+        reserved.set(reservation.stackId, roundOutputValue((reserved.get(reservation.stackId) || 0) + (Number(reservation.amount) || 0)));
+      }
+    }
+    return reserved;
+  }
+
+  function blackMarketReservedByproductAmount(material, ignoreContractId = "") {
+    const key = byproductInventoryKey(material);
+    return roundOutputValue((ensureEconomy().contracts || [])
+      .filter((contract) => contract.id !== ignoreContractId && blackMarketReservationStatuses().has(contract.status) && contract.material === key)
+      .reduce((total, contract) => total + (contract.reservations || []).reduce((sum, reservation) => sum + (Number(reservation.amount) || 0), 0), 0));
+  }
+
+  function blackMarketAvailableByproductAmount(material, ignoreContractId = "") {
+    return roundOutputValue(Math.max(0, collectedByproductAmount(material) - blackMarketReservedByproductAmount(material, ignoreContractId)));
+  }
+
+  function blackMarketReservableByproductAmount(material, ignoreContractId = "") {
+    const reservedByStack = blackMarketReservedAmountsByStack(ignoreContractId, material);
+    return roundOutputValue(ensurePhysicalItemStacks()
+      .filter((stack) => stack.form === "receptacle" && !stack.carriedBy)
+      .reduce((total, stack) => total + Math.max(0, physicalStackByproductAmount(stack, material) - (reservedByStack.get(stack.id) || 0)), 0));
+  }
+
+  function physicalStackByproductAmount(stack, material) {
+    const key = byproductInventoryKey(material);
+    return roundOutputValue(normalizePhysicalContents(stack?.contents).reduce((total, content) =>
+      content.kind === "byproduct" && byproductInventoryKey(content.label || content.key) === key
+        ? total + (Number(content.amount) || 0)
+        : total, 0));
+  }
+
+  function reserveBlackMarketShipment(contract) {
+    if (!contract) return [];
+    const reservedByStack = blackMarketReservedAmountsByStack(contract.id, contract.material);
+    let remaining = roundOutputValue(contract.amount);
+    const reservations = [];
+    const stacks = ensurePhysicalItemStacks()
+      .filter((stack) => stack.form === "receptacle" && physicalStackByproductAmount(stack, contract.material) > 0 && !stack.carriedBy)
+      .sort((a, b) => a.roomId === STORAGE_ROOM_ID ? -1 : b.roomId === STORAGE_ROOM_ID ? 1 : a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
+    for (const stack of stacks) {
+      if (remaining <= 0) break;
+      const available = roundOutputValue(Math.max(0, physicalStackByproductAmount(stack, contract.material) - (reservedByStack.get(stack.id) || 0)));
+      const amount = roundOutputValue(Math.min(remaining, available));
+      if (amount <= 0) continue;
+      reservations.push({
+        stackId: stack.id,
+        amount,
+        roomId: stack.roomId,
+        cell: cleanMapCell(stack.cell),
+        itemKey: stack.key
+      });
+      remaining = roundOutputValue(remaining - amount);
+    }
+    return remaining <= 0 ? reservations : [];
+  }
+
+  function blackMarketContractReservationReason(contract) {
+    if (!contract?.reservations?.length) return "No physical shipment is designated.";
+    const reservedByStack = blackMarketReservedAmountsByStack(contract.id, contract.material);
+    for (const reservation of contract.reservations) {
+      const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === reservation.stackId);
+      const available = physicalStackByproductAmount(stack, contract.material) - (reservedByStack.get(reservation.stackId) || 0);
+      if (!stack || stack.form !== "receptacle" || available + 0.0001 < reservation.amount) {
+        return `The designated ${inventoryItemLabel(reservation.itemKey)} no longer contains the required ${contract.material}.`;
+      }
+    }
+    return "";
+  }
+
+  function spendBlackMarketContractShipment(contract, source) {
+    if (blackMarketContractReservationReason(contract)) return 0;
+    let spent = 0;
+    for (const reservation of contract.reservations || []) {
+      const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === reservation.stackId);
+      let remaining = roundOutputValue(reservation.amount);
+      for (const content of stack?.contents || []) {
+        if (remaining <= 0 || content.kind !== "byproduct" || byproductInventoryKey(content.label || content.key) !== contract.material) continue;
+        const taken = roundOutputValue(Math.min(Number(content.amount) || 0, remaining));
+        content.amount = roundOutputValue(Math.max(0, (Number(content.amount) || 0) - taken));
+        remaining = roundOutputValue(remaining - taken);
+        spent = roundOutputValue(spent + taken);
+      }
+      if (stack) {
+        stack.contents = normalizePhysicalContents(stack.contents);
+        stack.updatedAt = state.clock;
+      }
+    }
+    syncPhysicalReadModels();
+    if (spent > 0) recordCollectedByproductChange(contract.material, -spent, source);
+    return spent;
+  }
+
   function formatMoney(value) {
     return `${formatNumber(Math.max(0, Math.round(Number(value) || 0)))} marks`;
   }
@@ -61221,6 +61632,164 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return BLACK_MARKET_REPUTATION_BANDS.find((band) => score >= band.min)?.label || "No Reputation";
   }
 
+  function blackMarketContractAcceptanceBlockReason(deal) {
+    if (!deal || deal.offerKind !== "contract") return "This is not a contract offer.";
+    if (deal.status !== "open") return "Offer is no longer open.";
+    if (state.clock >= deal.expiresAt) return "Offer has expired.";
+    const availability = blackMarketContactAvailability(blackMarketContactById(deal.contactId));
+    if (!availability.available) return availability.reason;
+    if (blackMarketReservableByproductAmount(deal.material) < deal.amount) {
+      return `Need ${formatCollectionAmount(deal.amount)} unreserved ${deal.material} in compatible physical receptacles; ${formatCollectionAmount(blackMarketReservableByproductAmount(deal.material))} available.`;
+    }
+    return "";
+  }
+
+  function acceptBlackMarketContract(dealId, negotiationId = "standard") {
+    const economy = ensureEconomy();
+    const deal = blackMarketDealById(dealId);
+    const reason = blackMarketContractAcceptanceBlockReason(deal);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const contact = blackMarketContactById(deal.contactId);
+    const negotiation = BLACK_MARKET_NEGOTIATION_DEFS[negotiationId] || BLACK_MARKET_NEGOTIATION_DEFS.standard;
+    if (!blackMarketNegotiationAccepted(deal, contact, negotiation.id)) {
+      deal.status = "declined";
+      deal.completedAt = state.clock;
+      contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+      if (negotiation.id === "higherPayout") adjustBlackMarketContactTrust(contact.id, -1);
+      recordBlackMarketLedger("negotiationRejected", `${contact.name} rejected ${negotiation.label.toLowerCase()}.`, { contactId: contact.id, offerId: deal.id });
+      addEvent(`${contact.name} rejected the counteroffer; this offer is closed.`);
+      persist();
+      render();
+      return false;
+    }
+    const contract = createBlackMarketContract(deal, negotiation.id, economy.nextContractNumber++, state.clock);
+    contract.reservations = reserveBlackMarketShipment(contract);
+    if (!contract.reservations.length) {
+      economy.nextContractNumber = Math.max(1, economy.nextContractNumber - 1);
+      addEvent(`Contract acceptance failed: ${deal.material} is not available in compatible physical receptacles.`);
+      persist();
+      render();
+      return false;
+    }
+    economy.contracts.push(contract);
+    deal.status = "accepted";
+    deal.completedAt = state.clock;
+    contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+    recordBlackMarketLedger("contractAccepted", `Accepted ${contact.name}'s contract for ${formatCollectionAmount(contract.amount)} ${contract.material}.`, { contactId: contact.id, offerId: deal.id, contractId: contract.id });
+    addEvent(`Contract accepted with ${contact.name}: ${formatCollectionAmount(contract.amount)} ${contract.material} due ${formatClock(contract.dueAt)}; ${formatMoney(contract.payout)} by ${BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm].label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function cancelBlackMarketContract(contractId, options = {}) {
+    const contract = blackMarketContractById(contractId);
+    if (!contract || !["active", "queued"].includes(contract.status)) return false;
+    const contact = blackMarketContactById(contract.contactId);
+    if (contract.taskId) {
+      const task = findTask(contract.taskId);
+      if (task) {
+        state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
+        recordTaskHistory(task, "canceled");
+      }
+    }
+    contract.status = options.status || "canceled";
+    contract.failedAt = state.clock;
+    contract.taskId = "";
+    contract.reservations = [];
+    contract.outcome = String(options.outcome || "Canceled by seller");
+    const reputationLoss = Math.max(1, Math.ceil(contract.reputationGain / 2));
+    const trustLoss = Math.max(2, Math.ceil(contract.trustGain));
+    addBlackMarketReputation(-reputationLoss);
+    adjustBlackMarketContactTrust(contract.contactId, -trustLoss);
+    if (contact) contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+    recordBlackMarketLedger(contract.status, `${contract.outcome}: -${reputationLoss} reputation, -${trustLoss} trust.`, { contactId: contract.contactId, contractId: contract.id });
+    if (!options.quiet) {
+      addEvent(`${contract.outcome}; lost ${reputationLoss} reputation and ${trustLoss} trust with ${contact?.name || "the contact"}.`);
+      persist();
+      render();
+    }
+    return true;
+  }
+
+  function failBlackMarketContract(contract, reason = "Delivery deadline missed") {
+    if (!contract || !["active", "queued"].includes(contract.status)) return false;
+    const contact = blackMarketContactById(contract.contactId);
+    if (contract.taskId) {
+      const task = findTask(contract.taskId);
+      if (task) {
+        state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
+        recordTaskHistory(task, "canceled");
+      }
+    }
+    contract.status = "failed";
+    contract.failedAt = state.clock;
+    contract.taskId = "";
+    contract.reservations = [];
+    contract.outcome = reason;
+    const reputationLoss = Math.max(2, contract.reputationGain);
+    const trustLoss = Math.max(4, contract.trustGain * 2);
+    addBlackMarketReputation(-reputationLoss);
+    adjustBlackMarketContactTrust(contract.contactId, -trustLoss);
+    if (contact) {
+      contact.contractFailures += 1;
+      contact.unavailableUntil = Math.max(Number(contact.unavailableUntil) || 0, state.clock + SECONDS_PER_DAY * Math.min(5, 1 + contact.contractFailures));
+      contact.nextOfferAt = contact.unavailableUntil;
+    }
+    recordBlackMarketLedger("contractFailed", `${reason}: -${reputationLoss} reputation, -${trustLoss} trust.`, { contactId: contract.contactId, contractId: contract.id });
+    addEvent(`${reason} for ${contact?.name || "a black market contact"}; lost ${reputationLoss} reputation and ${trustLoss} trust.`);
+    return true;
+  }
+
+  function recordBlackMarketExposure(contract, contact) {
+    const economy = ensureEconomy();
+    const exposure = {
+      id: `market-exposure-${contract.id}`,
+      contractId: contract.id,
+      contactId: contract.contactId,
+      kind: "observedHandoff",
+      severity: contract.suspicionOnObserved >= 8 ? "serious" : "concerning",
+      suspicion: contract.suspicionOnObserved,
+      at: state.clock,
+      summary: `${contact?.name || "A contact"}'s handoff of ${contract.material} was observed.`
+    };
+    economy.exposures.unshift(exposure);
+    economy.exposures = economy.exposures.slice(0, BLACK_MARKET_EXPOSURE_LIMIT);
+    addSuspicion(exposure.suspicion);
+    if (contact && exposure.severity === "serious") {
+      contact.unavailableUntil = Math.max(Number(contact.unavailableUntil) || 0, state.clock + SECONDS_PER_DAY);
+      adjustBlackMarketContactTrust(contact.id, -2);
+    }
+    recordBlackMarketLedger("exposure", exposure.summary, { contactId: contract.contactId, contractId: contract.id });
+    return exposure;
+  }
+
+  function settleBlackMarketContractPayment(contract) {
+    if (!contract || contract.settledAt !== null || !["delivered", "completed"].includes(contract.status)) return false;
+    const contact = blackMarketContactById(contract.contactId);
+    const paid = Math.max(0, Math.round(contract.payout * contract.paymentFraction));
+    if (paid) addMoney(paid, `contract with ${contact?.name || "black market contact"}`);
+    contract.settledAt = state.clock;
+    contract.status = contract.paymentFraction >= 1 ? "completed" : "defaulted";
+    contract.outcome = contract.paymentFraction >= 1 ? "Paid in full" : contract.paymentFraction > 0 ? "Partially paid" : "Payment default";
+    if (contact) {
+      contact.completedContracts += 1;
+      if (contract.paymentFraction < 1) {
+        contact.paymentFailures += 1;
+        adjustBlackMarketContactTrust(contact.id, contract.paymentFraction > 0 ? -5 : -10);
+        contact.unavailableUntil = Math.max(Number(contact.unavailableUntil) || 0, state.clock + SECONDS_PER_DAY * (contract.paymentFraction > 0 ? 2 : 5));
+      }
+    }
+    recordBlackMarketLedger(contract.status, `${contract.outcome}: ${formatMoney(paid)} received from ${contact?.name || "contact"}.`, { contactId: contract.contactId, contractId: contract.id, amount: paid });
+    addEvent(`${contract.outcome} from ${contact?.name || "black market contact"}: ${formatMoney(paid)} received${contract.paymentFraction < 1 ? "; contact reliability damaged" : ""}.`);
+    return true;
+  }
+
   function activeBlackMarketTradeTask() {
     return scientistQueueTasks().find((task) => task.type === "blackMarketTrade") || null;
   }
@@ -61246,16 +61815,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (deal.status !== "open") {
       return "Deal is no longer open.";
     }
+    if (deal.offerKind !== "spot") {
+      return "Accept this formal contract before arranging delivery.";
+    }
+    if (state.clock >= deal.expiresAt) {
+      return "Offer has expired.";
+    }
     const contact = blackMarketContactById(deal.contactId);
     if (!contact) {
       return "Contact is no longer available.";
     }
+    const availability = blackMarketContactAvailability(contact);
+    if (!availability.available) return availability.reason;
     const busyReason = blackMarketTradeBusyReason();
     if (busyReason) {
       return busyReason;
     }
-    if (collectedByproductAmount(deal.material) < deal.amount) {
-      return `Need ${formatCollectionAmount(deal.amount)} ${deal.material}; have ${formatCollectionAmount(collectedByproductAmount(deal.material))}.`;
+    if (blackMarketAvailableByproductAmount(deal.material) < deal.amount) {
+      return `Need ${formatCollectionAmount(deal.amount)} unreserved ${deal.material}; have ${formatCollectionAmount(blackMarketAvailableByproductAmount(deal.material))}.`;
     }
     const exit = roomById(CONCEALED_EXIT_ROOM_ID);
     if (!exit) {
@@ -61277,6 +61854,147 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
     const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
     return Math.max(1, Math.round(BLACK_MARKET_TRADE_BASE_SECONDS + (Number(deal?.amount) || 0) * BLACK_MARKET_TRADE_AMOUNT_SECONDS + travelSeconds + doorDelay));
+  }
+
+  function blackMarketContractRoutePlan(contract) {
+    const reservationReason = blackMarketContractReservationReason(contract);
+    if (reservationReason) return { ok: false, reason: reservationReason, mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
+    const exit = roomById(CONCEALED_EXIT_ROOM_ID);
+    if (!exit) return { ok: false, reason: "No Concealed Exit exists.", mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
+    const uniqueStacks = [...new Set((contract.reservations || []).map((reservation) => reservation.stackId))]
+      .map((stackId) => ensurePhysicalItemStacks().find((stack) => stack.id === stackId))
+      .filter(Boolean)
+      .sort((a, b) => String(a.roomId).localeCompare(String(b.roomId)) || String(a.id).localeCompare(String(b.id)));
+    const targets = uniqueStacks.map((stack) => cleanMapCell(stack.cell)).filter(Boolean);
+    targets.push(labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID));
+    let current = scientistMapCell();
+    const mapPaths = [];
+    const routes = [];
+    const doorTransit = [];
+    let distance = 0;
+    for (const target of targets) {
+      const path = sameMapCell(current, target)
+        ? [cleanMapCell(current)]
+        : labMapPathBetweenCells(current, target, { ignoreDoors: true, actor: state.scientist });
+      if (!path.length) return { ok: false, reason: "No physical route reaches every designated receptacle and the Concealed Exit.", mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
+      const route = [labMapCellRoomId(path[0]), ...roomsFromMapPath(path)].filter(Boolean).filter((roomId, index, values) => index === 0 || roomId !== values[index - 1]);
+      const doorReason = firstDoorSecurityBlockReason(route);
+      if (doorReason) return { ok: false, reason: doorReason, mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
+      mapPaths.push(path.map(cleanMapCell));
+      routes.push(route);
+      doorTransit.push(...doorTransitPlan(route));
+      distance += mapPathTravelDistanceMeters(path, ensureLabMap());
+      current = target;
+    }
+    const snapshot = actorInventorySnapshot("scientist");
+    const cargo = uniqueStacks.reduce((total, stack) => {
+      total.massKg += Math.max(0.01, Number(stack.unitMassKg) || 0.01) * Math.max(1, Number(stack.quantity) || 1);
+      total.volumeL += Math.max(0.01, Number(stack.unitVolumeL) || 0.01) * Math.max(1, Number(stack.quantity) || 1);
+      return total;
+    }, { massKg: 0, volumeL: 0 });
+    const massCapacity = Math.max(0.01, Number(snapshot?.remaining?.massKg) || 0);
+    const volumeCapacity = Math.max(0.01, Number(snapshot?.remaining?.volumeL) || 0);
+    const trips = Math.max(1, Math.ceil(cargo.massKg / massCapacity), Math.ceil(cargo.volumeL / volumeCapacity));
+    const travelSeconds = distance * trips / Math.max(0.01, scientistMoveSpeedMps());
+    const handlingSeconds = uniqueStacks.length * minutesToSeconds(2) * trips;
+    const duration = Math.max(1, Math.round(BLACK_MARKET_TRADE_BASE_SECONDS + contract.amount * BLACK_MARKET_TRADE_AMOUNT_SECONDS + travelSeconds + handlingSeconds + contract.extraSeconds));
+    return { ok: true, reason: "", mapPaths, routes, doorTransit, duration, trips, cargo };
+  }
+
+  function blackMarketContractDeliveryBlockReason(contract) {
+    if (!contract) return "Contract not found.";
+    if (contract.status === "queued") return "Delivery is already queued.";
+    if (contract.status !== "active") return "Contract is no longer awaiting delivery.";
+    if (state.clock >= contract.dueAt) return "Delivery deadline has passed.";
+    const availability = blackMarketContactAvailability(blackMarketContactById(contract.contactId));
+    if (!availability.available) return availability.reason;
+    const busyReason = blackMarketTradeBusyReason();
+    if (busyReason) return busyReason;
+    const plan = blackMarketContractRoutePlan(contract);
+    if (!plan.ok) return plan.reason;
+    if (state.clock + plan.duration > contract.dueAt) return `Estimated arrival ${formatClock(state.clock + plan.duration)} is after the ${formatClock(contract.dueAt)} deadline.`;
+    return staminaBlockReason(adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]));
+  }
+
+  function startBlackMarketContractDelivery(contractId) {
+    const contract = blackMarketContractById(contractId);
+    const reason = blackMarketContractDeliveryBlockReason(contract);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return false;
+    }
+    const contact = blackMarketContactById(contract.contactId);
+    const plan = blackMarketContractRoutePlan(contract);
+    const cost = adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]);
+    if (!spendStamina(cost)) return false;
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "blackMarketTrade",
+      label: `Deliver ${contract.material} contract to ${contact.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + plan.duration,
+      data: {
+        contractId: contract.id,
+        contactId: contact.id,
+        material: contract.material,
+        amount: contract.amount,
+        payout: contract.payout,
+        staminaCost: cost,
+        fromRoomId: scientistRoomId(),
+        toRoomId: CONCEALED_EXIT_ROOM_ID,
+        routes: plan.routes,
+        mapPaths: plan.mapPaths,
+        toCell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID),
+        doorTransit: plan.doorTransit,
+        shipmentTrips: plan.trips
+      }
+    };
+    state.tasks.push(task);
+    contract.status = "queued";
+    contract.taskId = task.id;
+    addEvent(`Contract delivery queued for ${contact.name}; ${plan.trips} physical load${plan.trips === 1 ? "" : "s"}, arrival ${formatClock(task.dueAt)}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function completeBlackMarketContractDelivery(task) {
+    const contract = blackMarketContractById(task.data?.contractId);
+    const contact = contract ? blackMarketContactById(contract.contactId) : null;
+    if (!contract || !contact || contract.status !== "queued" || contract.taskId !== task.id) {
+      addEvent("Contract delivery could not complete because its saved obligation is no longer active.");
+      return false;
+    }
+    applyDoorTransitPolicy(task.data?.doorTransit, "Black market contract delivery");
+    state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
+    state.scientist.mapCell = labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID);
+    if (task.dueAt > contract.dueAt) {
+      failBlackMarketContract(contract, "Contract delivery arrived after its deadline");
+      return false;
+    }
+    const spent = spendBlackMarketContractShipment(contract, `Delivered under ${contract.id} to ${contact.name}`);
+    if (spent + 0.0001 < contract.amount) {
+      failBlackMarketContract(contract, "Designated contract shipment was incomplete");
+      return false;
+    }
+    contract.deliveredAt = task.dueAt;
+    contract.taskId = "";
+    contract.reservations = [];
+    const observed = contract.exposureRoll < contract.exposureChance;
+    if (observed) recordBlackMarketExposure(contract, contact);
+    const repGain = addBlackMarketReputation(contract.reputationGain);
+    const trustGain = adjustBlackMarketContactTrust(contact.id, contract.trustGain);
+    contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+    const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
+    contract.status = "delivered";
+    contract.paymentDueAt = paymentTerm.delaySeconds ? state.clock + paymentTerm.delaySeconds : state.clock;
+    recordBlackMarketLedger("delivered", `Delivered ${formatCollectionAmount(contract.amount)} ${contract.material} to ${contact.name}.`, { contactId: contact.id, contractId: contract.id });
+    addEvent(`Contract delivered to ${contact.name}: +${repGain} reputation, +${trustGain} trust${observed ? `; handoff observed (+${contract.suspicionOnObserved} Suspicion)` : "; handoff unobserved"}.`);
+    if (!paymentTerm.delaySeconds) settleBlackMarketContractPayment(contract);
+    else addEvent(`${formatMoney(contract.payout)} credit payment is due ${formatClock(contract.paymentDueAt)}.`);
+    return true;
   }
 
   function startBlackMarketTrade(dealId) {
@@ -61329,6 +62047,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function blackMarketTradeTaskBlockReason(task) {
+    if (task.data?.contractId) {
+      const contract = blackMarketContractById(task.data.contractId);
+      if (!contract) return "Contract no longer exists.";
+      if (contract.status !== "queued" || contract.taskId !== task.id) return "Contract is not assigned to this delivery task.";
+      if (task.dueAt > contract.dueAt) return "Delivery cannot arrive before the contract deadline.";
+      return blackMarketContractReservationReason(contract);
+    }
     const deal = blackMarketDealById(task.data?.dealId);
     if (!deal) {
       return "Deal no longer exists.";
@@ -61374,17 +62099,82 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     deal.completedAt = state.clock;
     deal.taskId = "";
     addEvent(`Trade complete with ${contact.name}: ${formatMoney(deal.payout)}, +${formatNumber(repGain)} reputation, +${formatNumber(trustGain)} trust${observed ? `; observed by authorities (+${formatNumber(deal.suspicionOnObserved)} Suspicion)` : "; no authority observation"}.`);
+    recordBlackMarketLedger("spotSale", `Spot sale completed with ${contact.name}: ${formatMoney(deal.payout)}.`, { contactId: contact.id, offerId: deal.id, amount: deal.payout });
     replaceCompletedBlackMarketDeal(contact);
     return true;
   }
 
   function replaceCompletedBlackMarketDeal(contact) {
+    if (!contact) return;
+    contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+  }
+
+  function nextBlackMarketEvent() {
     const economy = ensureEconomy();
-    economy.deals = economy.deals.filter((deal) => deal.status !== "completed" || deal.completedAt === state.clock);
-    const activeCount = economy.deals.filter((deal) => deal.contactId === contact.id && ["open", "queued"].includes(deal.status)).length;
-    for (let slot = activeCount; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
-      economy.deals.push(createBlackMarketDeal(state.seed, contact, economy.nextDealNumber++, slot, economy.blackMarketReputation, state.clock));
+    const events = [];
+    for (const deal of economy.deals) {
+      if (deal.status === "open" && deal.expiresAt >= state.clock) events.push({ time: deal.expiresAt, label: `${blackMarketContactById(deal.contactId)?.name || "Black market"} offer expires`, type: "market" });
     }
+    for (const contract of economy.contracts) {
+      if (["active", "queued"].includes(contract.status) && contract.dueAt >= state.clock) events.push({ time: contract.dueAt, label: `${contract.material} contract deadline`, type: "market" });
+      if (contract.status === "delivered" && contract.paymentDueAt >= state.clock) events.push({ time: contract.paymentDueAt, label: `${contract.material} contract payment`, type: "market" });
+    }
+    return events.sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+  }
+
+  function updateBlackMarketEconomy() {
+    const economy = ensureEconomy();
+    let changes = 0;
+    for (const deal of economy.deals) {
+      if (deal.status !== "open" || state.clock < deal.expiresAt) continue;
+      deal.status = "expired";
+      deal.completedAt = deal.expiresAt;
+      const contact = blackMarketContactById(deal.contactId);
+      if (contact) contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, deal.expiresAt + BLACK_MARKET_OFFER_REFRESH_SECONDS);
+      recordBlackMarketLedger("offerExpired", `${contact?.name || "Contact"}'s ${deal.offerKind} offer expired without penalty.`, { contactId: deal.contactId, offerId: deal.id });
+      changes += 1;
+    }
+    for (const contract of economy.contracts) {
+      if (["active", "queued"].includes(contract.status)) {
+        const remaining = contract.dueAt - state.clock;
+        for (const [id, threshold] of [["24h", SECONDS_PER_DAY], ["6h", SECONDS_PER_HOUR * 6], ["1h", SECONDS_PER_HOUR]]) {
+          if (remaining > 0 && remaining <= threshold && !contract.warnings.includes(id)) {
+            contract.warnings.push(id);
+            addEvent(`Black market deadline warning: ${formatCollectionAmount(contract.amount)} ${contract.material} is due in ${formatDuration(remaining)}.`);
+            changes += 1;
+          }
+        }
+        if (state.clock >= contract.dueAt && failBlackMarketContract(contract, "Black market contract deadline missed")) changes += 1;
+      } else if (contract.status === "delivered" && contract.paymentDueAt !== null && state.clock >= contract.paymentDueAt) {
+        if (settleBlackMarketContractPayment(contract)) changes += 1;
+      }
+    }
+    const referralCount = BLACK_MARKET_REFERRAL_THRESHOLDS.filter((threshold) => economy.blackMarketReputation >= threshold).length;
+    const targetContacts = Math.min(BLACK_MARKET_CONTACT_ARCHETYPES.length, BLACK_MARKET_STARTING_CONTACTS + referralCount);
+    while (economy.contacts.length < targetContacts) {
+      const contact = createBlackMarketContact(state.seed, economy.nextContactNumber++);
+      contact.discoveredAt = state.clock;
+      economy.contacts.push(contact);
+      recordBlackMarketLedger("referral", `${contact.name} entered the network by referral.`, { contactId: contact.id });
+      addEvent(`Black market referral: ${contact.name}, ${contact.archetypeLabel}.`);
+      changes += 1;
+    }
+    for (const contact of economy.contacts) {
+      if (!blackMarketContactAvailability(contact).available || state.clock < (Number(contact.nextOfferAt) || 0)) continue;
+      const active = economy.deals.filter((deal) => deal.contactId === contact.id && ["open", "queued"].includes(deal.status));
+      const activeKinds = new Set(active.map((deal) => deal.offerKind));
+      for (const [kind, slot] of [["spot", 0], ["contract", 1]]) {
+        if (activeKinds.has(kind)) continue;
+        const deal = createBlackMarketDeal(state.seed, contact, economy.nextDealNumber++, slot, economy.blackMarketReputation, state.clock);
+        economy.deals.push(deal);
+        activeKinds.add(kind);
+        changes += 1;
+      }
+      if (activeKinds.size >= BLACK_MARKET_DEALS_PER_CONTACT) contact.nextOfferAt = state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS;
+    }
+    economy.deals = economy.deals.slice(-200);
+    economy.lastOfferRefreshAt = state.clock;
+    return changes;
   }
 
   function specimenHarvestYieldForSlime(slime, procedure) {
@@ -61720,6 +62510,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       archetype: archetype.id,
       archetypeLabel: String(candidate?.archetypeLabel || archetype.label),
       trust: clamp(Math.round(Number(candidate?.trust ?? fallback.trust) || 0), 0, BLACK_MARKET_TRUST_MAX),
+      reliability: clamp(roundOutputValue(Number(candidate?.reliability ?? fallback.reliability) || fallback.reliability), 0.35, 0.99),
+      completedContracts: Math.max(0, Math.floor(Number(candidate?.completedContracts) || 0)),
+      paymentFailures: Math.max(0, Math.floor(Number(candidate?.paymentFailures) || 0)),
+      contractFailures: Math.max(0, Math.floor(Number(candidate?.contractFailures) || 0)),
+      unavailableUntil: finiteTime(candidate?.unavailableUntil, 0),
+      nextOfferAt: finiteTime(candidate?.nextOfferAt, 0),
       riskProfile,
       preferredTags,
       discoveredAt: finiteTime(candidate?.discoveredAt, 0),
@@ -61732,12 +62528,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fallback = createBlackMarketDeal(seed, contact, index + 1, index % BLACK_MARKET_DEALS_PER_CONTACT, reputation, candidate?.createdAt || 0);
     const material = byproductInventoryKey(candidate?.material || fallback.material) || fallback.material;
     const amount = roundOutputValue(Math.max(0.001, Number(candidate?.amount ?? fallback.amount) || fallback.amount));
-    const status = ["open", "queued", "completed", "expired"].includes(candidate?.status) ? candidate.status : fallback.status;
+    const status = ["open", "queued", "accepted", "completed", "expired", "declined"].includes(candidate?.status) ? candidate.status : fallback.status;
     const tags = Array.isArray(candidate?.tags) && candidate.tags.length
       ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
       : blackMarketByproductTags(material);
     return {
       id: String(candidate?.id || fallback.id),
+      offerKind: candidate?.offerKind === "contract" ? "contract" : candidate?.offerKind === "spot" ? "spot" : fallback.offerKind,
+      slot: Math.max(0, Math.floor(Number(candidate?.slot ?? fallback.slot) || 0)),
       contactId: contact.id,
       material,
       tags,
@@ -61747,12 +62545,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       suspicionOnObserved: Math.max(0, Math.round(Number(candidate?.suspicionOnObserved ?? fallback.suspicionOnObserved) || fallback.suspicionOnObserved)),
       reputationGain: Math.max(0, Math.round(Number(candidate?.reputationGain ?? fallback.reputationGain) || fallback.reputationGain)),
       trustGain: Math.max(0, Math.round(Number(candidate?.trustGain ?? fallback.trustGain) || fallback.trustGain)),
+      paymentTerm: BLACK_MARKET_PAYMENT_TERMS[candidate?.paymentTerm] ? candidate.paymentTerm : fallback.paymentTerm,
+      deliveryWindow: Math.round(clamp(Number(candidate?.deliveryWindow ?? fallback.deliveryWindow) || fallback.deliveryWindow, BLACK_MARKET_CONTRACT_MIN_SECONDS, BLACK_MARKET_CONTRACT_MAX_SECONDS * 1.5)),
+      expiresAt: finiteTime(candidate?.expiresAt, fallback.expiresAt),
+      negotiationRoll: clamp(roundOutputValue(Number(candidate?.negotiationRoll ?? fallback.negotiationRoll) || 0), 0, 1),
       status,
       taskId: status === "queued" ? String(candidate?.taskId || "") : "",
       createdAt: finiteTime(candidate?.createdAt, 0),
       completedAt: candidate?.completedAt === null || candidate?.completedAt === undefined ? null : finiteTime(candidate.completedAt, 0),
       flavor: String(candidate?.flavor || blackMarketDealFlavor(contact, material, tags))
     };
+  }
+
+  function normalizeBlackMarketContract(candidate, contacts = [], index = 0, seed = state?.seed || "seed") {
+    const contact = contacts.find((entry) => entry.id === candidate?.contactId) || contacts[0] || createBlackMarketContact(seed, 1);
+    const status = ["active", "queued", "delivered", "completed", "defaulted", "failed", "canceled"].includes(candidate?.status) ? candidate.status : "active";
+    const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[candidate?.paymentTerm] ? candidate.paymentTerm : "delivery";
+    const material = byproductInventoryKey(candidate?.material || "trace slime") || "trace slime";
+    return {
+      id: String(candidate?.id || `contract-${index + 1}`),
+      offerId: String(candidate?.offerId || ""),
+      contactId: contact.id,
+      material,
+      tags: Array.isArray(candidate?.tags) ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean) : blackMarketByproductTags(material),
+      amount: roundOutputValue(Math.max(0.001, Number(candidate?.amount) || 0.001)),
+      payout: Math.max(1, Math.round(Number(candidate?.payout) || 1)),
+      paymentTerm,
+      paymentFraction: clamp(roundOutputValue(Number(candidate?.paymentFraction ?? 1) || 0), 0, 1),
+      paymentDueAt: candidate?.paymentDueAt === null || candidate?.paymentDueAt === undefined ? null : finiteTime(candidate.paymentDueAt, 0),
+      exposureChance: clamp(roundOutputValue(Number(candidate?.exposureChance) || 0), 0, 1),
+      exposureRoll: clamp(roundOutputValue(Number(candidate?.exposureRoll) || 0), 0, 1),
+      suspicionOnObserved: Math.max(0, Math.round(Number(candidate?.suspicionOnObserved) || 0)),
+      reputationGain: Math.max(1, Math.round(Number(candidate?.reputationGain) || 1)),
+      trustGain: Math.max(1, Math.round(Number(candidate?.trustGain) || 1)),
+      negotiationId: BLACK_MARKET_NEGOTIATION_DEFS[candidate?.negotiationId] ? candidate.negotiationId : "standard",
+      extraSeconds: Math.max(0, Number(candidate?.extraSeconds) || 0),
+      acceptedAt: finiteTime(candidate?.acceptedAt, 0),
+      dueAt: finiteTime(candidate?.dueAt, BLACK_MARKET_CONTRACT_MIN_SECONDS),
+      deliveredAt: candidate?.deliveredAt === null || candidate?.deliveredAt === undefined ? null : finiteTime(candidate.deliveredAt, 0),
+      settledAt: candidate?.settledAt === null || candidate?.settledAt === undefined ? null : finiteTime(candidate.settledAt, 0),
+      failedAt: candidate?.failedAt === null || candidate?.failedAt === undefined ? null : finiteTime(candidate.failedAt, 0),
+      status,
+      taskId: status === "queued" ? String(candidate?.taskId || "") : "",
+      reservations: (Array.isArray(candidate?.reservations) ? candidate.reservations : []).map((reservation) => ({
+        stackId: String(reservation?.stackId || ""),
+        amount: roundOutputValue(Math.max(0, Number(reservation?.amount) || 0)),
+        roomId: cleanRoomId(reservation?.roomId),
+        cell: cleanMapCell(reservation?.cell),
+        itemKey: String(reservation?.itemKey || "")
+      })).filter((reservation) => reservation.stackId && reservation.amount > 0),
+      warnings: [...new Set((Array.isArray(candidate?.warnings) ? candidate.warnings : []).map(String))],
+      outcome: String(candidate?.outcome || ""),
+      notes: String(candidate?.notes || "")
+    };
+  }
+
+  function normalizeBlackMarketLedger(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
+      id: String(entry?.id || `market-ledger-${index}`),
+      kind: String(entry?.kind || "event"),
+      label: String(entry?.label || "Black market event"),
+      contactId: String(entry?.contactId || ""),
+      offerId: String(entry?.offerId || ""),
+      contractId: String(entry?.contractId || ""),
+      amount: Math.round(Number(entry?.amount) || 0),
+      at: finiteTime(entry?.at, 0)
+    })).sort((a, b) => b.at - a.at || String(b.id).localeCompare(String(a.id))).slice(0, BLACK_MARKET_LEDGER_LIMIT);
+  }
+
+  function normalizeBlackMarketExposures(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
+      id: String(entry?.id || `market-exposure-${index}`),
+      contractId: String(entry?.contractId || ""),
+      contactId: String(entry?.contactId || ""),
+      kind: String(entry?.kind || "observedHandoff"),
+      severity: entry?.severity === "serious" ? "serious" : "concerning",
+      suspicion: Math.max(0, Math.round(Number(entry?.suspicion) || 0)),
+      at: finiteTime(entry?.at, 0),
+      summary: String(entry?.summary || "Black market exposure")
+    })).sort((a, b) => b.at - a.at).slice(0, BLACK_MARKET_EXPOSURE_LIMIT);
   }
 
   function normalizeEconomyState(candidate, seed = state?.seed || "seed", clock = 0) {
@@ -61762,9 +62633,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       blackMarketReputation: clamp(Math.round(Number(candidate?.blackMarketReputation ?? fallback.blackMarketReputation) || 0), 0, BLACK_MARKET_REPUTATION_MAX),
       contacts: [],
       deals: [],
+      contracts: [],
+      ledger: normalizeBlackMarketLedger(candidate?.ledger),
+      exposures: normalizeBlackMarketExposures(candidate?.exposures),
       nextContactNumber: Math.max(1, Math.round(Number(candidate?.nextContactNumber) || fallback.nextContactNumber)),
       nextDealNumber: Math.max(1, Math.round(Number(candidate?.nextDealNumber) || fallback.nextDealNumber)),
-      lastContactRefreshAt: finiteTime(candidate?.lastContactRefreshAt, 0)
+      nextContractNumber: Math.max(1, Math.round(Number(candidate?.nextContractNumber) || fallback.nextContractNumber)),
+      nextLedgerNumber: Math.max(1, Math.round(Number(candidate?.nextLedgerNumber) || fallback.nextLedgerNumber)),
+      lastContactRefreshAt: finiteTime(candidate?.lastContactRefreshAt, 0),
+      lastOfferRefreshAt: finiteTime(candidate?.lastOfferRefreshAt, 0)
     };
     const rawContacts = Array.isArray(candidate?.contacts) && candidate.contacts.length ? candidate.contacts : fallback.contacts;
     economy.contacts = rawContacts.map((contact, index) => normalizeBlackMarketContact(contact, index, seed));
@@ -61784,17 +62661,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     economy.deals = rawDeals
       .map((deal, index) => normalizeBlackMarketDeal(deal, economy.contacts, index, seed, economy.blackMarketReputation))
       .filter((deal) => economy.contacts.some((contact) => contact.id === deal.contactId));
+    economy.contracts = (Array.isArray(candidate?.contracts) ? candidate.contracts : [])
+      .map((contract, index) => normalizeBlackMarketContract(contract, economy.contacts, index, seed))
+      .filter((contract) => economy.contacts.some((contact) => contact.id === contract.contactId));
     const maxContactSuffix = economy.contacts.reduce((max, contact) => Math.max(max, numericSuffix(contact.id)), 0);
     const maxDealSuffix = economy.deals.reduce((max, deal) => Math.max(max, numericSuffix(deal.id)), 0);
+    const maxContractSuffix = economy.contracts.reduce((max, contract) => Math.max(max, numericSuffix(contract.id)), 0);
+    const maxLedgerSuffix = economy.ledger.reduce((max, entry) => Math.max(max, numericSuffix(entry.id)), 0);
     economy.nextContactNumber = Math.max(economy.nextContactNumber, maxContactSuffix + 1);
     economy.nextDealNumber = Math.max(economy.nextDealNumber, maxDealSuffix + 1);
-
-    for (const contact of economy.contacts) {
-      const activeCount = economy.deals.filter((deal) => deal.contactId === contact.id && ["open", "queued"].includes(deal.status)).length;
-      for (let slot = activeCount; slot < BLACK_MARKET_DEALS_PER_CONTACT; slot += 1) {
-        economy.deals.push(createBlackMarketDeal(seed, contact, economy.nextDealNumber++, slot, economy.blackMarketReputation, clock));
-      }
-    }
+    economy.nextContractNumber = Math.max(economy.nextContractNumber, maxContractSuffix + 1);
+    economy.nextLedgerNumber = Math.max(economy.nextLedgerNumber, maxLedgerSuffix + 1);
     return economy;
   }
 
@@ -64445,6 +65322,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (deal.status === "queued" && !activeBlackMarketTaskIds.has(deal.taskId)) {
         deal.status = "open";
         deal.taskId = "";
+      }
+    }
+    for (const contract of next.economy.contracts || []) {
+      if (contract.status === "queued" && !activeBlackMarketTaskIds.has(contract.taskId)) {
+        contract.status = "active";
+        contract.taskId = "";
       }
     }
     next.taskHistory = normalizeTaskHistory(next.taskHistory);

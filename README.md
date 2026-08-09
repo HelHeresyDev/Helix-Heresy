@@ -24,6 +24,7 @@ For story background, long-term systems, current design direction, and open ques
 - Manual feeding, best-match feeding after Sustenance discovery, and auto-feeding policies with per-slime automation exclusion.
 - Main Lab room foundation with dynamic Temperature, Light, Ambient Mana, Moisture, Contamination, and Electrical Charge.
 - Connected physical ventilation, drainage, electricity, and mana networks with finite source and conduit capacity, stable consumer priorities, redundant-source failover, fuel and stored-mana limits, deterministic service wear and faults, inspection-gated diagnosis, and routed preventive-maintenance and repair orders.
+- Persistent black-market contacts, reputation referrals, expiring spot offers, negotiated byproduct contracts, exact physical shipment reservations, simulation-time deadlines, routed delivery loads, qualitative exposure and reliability information, risky or secured payment terms, relationship consequences, and a saved market ledger.
 - Corpse handling with waste drums, decay states, necropsy, dumping, Suspicion, and policy-driven Corpse Processing jobs.
 - Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments that can affect slime condition stats.
 - Actor-neutral equipment attachment points with an empty vat-start scientist loadout, routed equipping, protective clothing, persistent wear and contamination, encumbrance, optional belts and backpacks, a preserved Back Mount for specialized apparatus, and player-named loadouts.
@@ -66,7 +67,7 @@ npm run benchmark:map
 npm run benchmark:map:full
 ```
 
-The 14-test smoke command is the quick cross-system check for routine iteration. The 157-test correctness command is the focused Chromium regression suite and uses four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+The 14-test smoke command is the quick cross-system check for routine iteration. The 160-test correctness command is the focused Chromium regression suite and uses four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
 
 ## Project Files
 
