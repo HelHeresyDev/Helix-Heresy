@@ -4,6 +4,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const Simulation = require('../simulation-runtime.js');
 const Welfare = require('../welfare-system.js');
+const GroupBehavior = require('../group-behavior-system.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -23,6 +24,7 @@ test('@smoke cadence scheduling is stable and preserves accumulated elapsed time
     { id: 'sensory', interval: 1, priority: 20 },
     { id: 'tactical', interval: 0.25, priority: 10 },
     { id: 'biology', interval: 30, priority: 30 },
+    { id: 'group', interval: 5, priority: 35 },
   ];
   let state = Simulation.normalizeCadenceState(definitions, {}, 0);
 
@@ -36,7 +38,7 @@ test('@smoke cadence scheduling is stable and preserves accumulated elapsed time
   state = result.state;
 
   result = Simulation.collectDueCadences(definitions, state, 0.25, 30);
-  expect(result.due.map((entry) => entry.id)).toEqual(['tactical', 'sensory', 'biology']);
+  expect(result.due.map((entry) => entry.id)).toEqual(['tactical', 'sensory', 'biology', 'group']);
   expect(result.due.find((entry) => entry.id === 'biology')?.elapsed).toBeCloseTo(30, 6);
   expect(result.due.find((entry) => entry.id === 'sensory')?.elapsed).toBeCloseTo(30, 6);
 
@@ -78,6 +80,22 @@ test('@smoke cadence scheduling is stable and preserves accumulated elapsed time
   }
   expect(burdenRecord.interventions).toHaveLength(60);
   expect(burdenRecord.history).toHaveLength(80);
+
+  const densePopulation = GroupBehavior.benchmarkPopulation(250);
+  expect(densePopulation).toMatchObject({
+    actorCount: 250,
+    maxDetailedNeighbors: 16,
+    neighborLimit: 16,
+  });
+  const deterministicActors = Array.from({ length: 40 }, (_entry, index) => ({
+    id: `slime-${String(index).padStart(2, '0')}`,
+    roomId: 'room-a',
+    cell: { x: index % 10, y: Math.floor(index / 10), z: 0 },
+  }));
+  const firstContexts = GroupBehavior.buildLocalContexts(deterministicActors);
+  const secondContexts = GroupBehavior.buildLocalContexts([...deterministicActors].reverse());
+  expect(firstContexts.contexts).toEqual(secondContexts.contexts);
+  expect(firstContexts.maxDetailedNeighbors).toBeLessThanOrEqual(16);
 });
 
 test('incremental and bulk cadence advancement integrate the same elapsed time', () => {
@@ -129,6 +147,14 @@ test('spatial index bounds local queries with one thousand actors', () => {
   expect(index.recordsAtCell({ x: 0, y: 0, z: 0 }).map((actor) => actor.id)).toEqual(['actor-0']);
   expect(index.recordsInRoom('room-3')).toHaveLength(100);
   expect(index.recordsInRadius({ x: 50, y: 5, z: 0 }, 2)).toHaveLength(15);
+
+  const local = GroupBehavior.buildLocalContexts(actors.slice(0, 250).map((actor) => ({
+    ...actor,
+    cell: actor.cell,
+    containerId: '',
+  })));
+  expect(local.actorCount).toBe(250);
+  expect(local.maxDetailedNeighbors).toBeLessThanOrEqual(16);
 });
 
 test('debug performance view exposes cadences spatial counts and ten-minute autosave', async ({ page }) => {
@@ -136,15 +162,20 @@ test('debug performance view exposes cadences spatial counts and ten-minute auto
   const snapshot = await page.evaluate(() => {
     window.helixHeresyDebug.resetSimulationPerformance();
     window.helixHeresyDebug.advanceSimulation(30);
-    return window.helixHeresyDebug.simulationPerformanceSnapshot();
+    return {
+      performance: window.helixHeresyDebug.simulationPerformanceSnapshot(),
+      groups: window.helixHeresyDebug.groupPopulationBenchmark(250),
+    };
   });
 
-  expect(snapshot.autosave.intervalMs).toBe(600000);
-  expect(snapshot.actors).toBeGreaterThanOrEqual(1);
-  expect(snapshot.spatialIndex.records).toBe(snapshot.actors);
-  expect(snapshot.systems.tactical.calls).toBe(1);
-  expect(snapshot.systems.sensory.calls).toBe(1);
-  expect(snapshot.systems.biology.calls).toBe(1);
+  expect(snapshot.performance.autosave.intervalMs).toBe(600000);
+  expect(snapshot.performance.actors).toBeGreaterThanOrEqual(1);
+  expect(snapshot.performance.spatialIndex.records).toBe(snapshot.performance.actors);
+  expect(snapshot.performance.systems.tactical.calls).toBe(1);
+  expect(snapshot.performance.systems.sensory.calls).toBe(1);
+  expect(snapshot.performance.systems.biology.calls).toBe(1);
+  expect(snapshot.performance.systems.group.calls).toBe(1);
+  expect(snapshot.groups).toMatchObject({ actorCount: 250, maxDetailedNeighbors: 16, neighborLimit: 16 });
 
   await page.locator('[data-workspace-tab="cheats"]').click();
   await page.locator('[data-debug-menu-tab="performance"]').click();

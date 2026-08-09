@@ -16,6 +16,7 @@ For story background, long-term systems, current design direction, and open ques
 - Core stockpile resources: Biomass, Genetic Material, Elemental Residue, Waste, and broad feedstocks for testing feeding systems.
 - Advanced slime heredity with autonomous Natural Division, routed Induced Division and Forced Recombination, Fidelity/Balanced/Novelty priorities, optional deterministic mutation, segment-level parent contributions, strict mass conservation, and immutable lineage events.
 - Longitudinal creature welfare with five qualitative derived needs, staged persistent conditions, autonomous quiescent recovery, per-creature care plans, a bounded intervention-burden ledger, knowledge-safe alerts, and a reusable physical Slime Enrichment Station.
+- Scalable local slime group behavior with six-tile neighborhoods, 16-neighbor detail caps, aggregate crowd density, temporary cohorts, cohesion/separation/alignment/competition responses, personal territorial memory, and physically diffusing distress signals.
 - Discoverable physical traits such as shape, body consistency, appendages, color, element, size, weight, movement, and Sustenance.
 - Sustenance traits describe a slime's primary feeding adaptation, with broad material, waste/decay, and slow environmental pathways.
 - Manual feeding, best-match feeding after Sustenance discovery, and auto-feeding policies with per-slime automation exclusion.
@@ -74,6 +75,7 @@ The 14-test smoke command is the quick cross-system check for routine iteration.
 - `experiment-system.js` - Experiment templates, subjects, lifecycle normalization, immutable comparison records, conclusion labels, genome-difference summaries, and deterministic confidence bands.
 - `heredity-system.js` - Deterministic haploid inheritance, controlled-method definitions, mutation priorities and bands, segment-based recombination, and immutable reproduction-event normalization.
 - `welfare-system.js` - Renderer-independent qualitative needs, exposure histories, staged welfare conditions, care-plan definitions, bounded intervention records, and persistent consequence factors.
+- `group-behavior-system.js` - Renderer-independent bounded local neighborhoods, deterministic temporary cohorts, dense-population probes, and stable group context contracts.
 - `terrain-connectivity.js` - Renderer-neutral terrain adjacency, edge relations, door framing, ramp segments, and deterministic visual variation.
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
