@@ -914,7 +914,7 @@
   const SENSORY_EVENT_LIMIT = 200;
   const SENSORY_EVENT_MAX_AGE = minutesToSeconds(60);
   const SENSORY_CHANNELS = ["vision", "hearing", "chemical", "taste", "magic", "contact"];
-  const CHEMICAL_TRACE_IDS = ["living", "scientist", "carrion", "organic", "waste", "hazard"];
+  const CHEMICAL_TRACE_IDS = ["living", "scientist", "carrion", "organic", "waste", "hazard", "slime-distress"];
   const CONTAMINATION_DIFFUSION_OPEN_MODIFIER = 1;
   const CONTAMINATION_DIFFUSION_BREACHED_MODIFIER = 1.35;
   const CONTAMINATION_DIFFUSION_CLOSED_MODIFIER = 0.18;
@@ -3330,6 +3330,10 @@
   if (!Welfare) {
     throw new Error("HelixWelfareSystem must load before app.js");
   }
+  const GroupBehavior = window.HelixGroupBehavior;
+  if (!GroupBehavior) {
+    throw new Error("HelixGroupBehavior must load before app.js");
+  }
   const TerrainConnectivity = window.HelixTerrainConnectivity;
   if (!TerrainConnectivity) {
     throw new Error("HelixTerrainConnectivity must load before app.js");
@@ -3384,6 +3388,7 @@
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
     { id: "biology", interval: 30, priority: 30 },
+    { id: "group", interval: 5, priority: 35 },
     { id: "actor", interval: 1, priority: 40 },
     { id: "containment", interval: 0.25, priority: 45 },
     { id: "tactical", interval: 0.25, priority: 50 },
@@ -3886,6 +3891,7 @@
       wasteTags: {},
       containmentIncidentProgress: {},
       sensoryEvents: [],
+      groupSignals: [],
       combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
@@ -5213,6 +5219,7 @@
         };
       },
       simulationPerformanceSnapshot: () => buildSimulationPerformanceSnapshot(),
+      groupPopulationBenchmark: (count = 250) => GroupBehavior.benchmarkPopulation(count),
       resetSimulationPerformance: () => {
         simulationPerformance.systems = {};
         for (const key of ["render", "mapScene", "canvasDraw", "save"]) {
@@ -8785,6 +8792,7 @@
       feedingChanged: 0,
       uncontainedBehaviorChanged: 0,
       socialChanged: 0,
+      groupChanged: 0,
       welfareChanged: 0,
       metabolismChanged: 0,
       collectionChanged: 0,
@@ -8874,6 +8882,11 @@
       changes.skillDecayChanged += updateSkillBreakthroughDecay(elapsed);
       return;
     }
+    if (id === "group") {
+      rebuildActorSpatialIndex();
+      changes.groupChanged += updateSlimeGroupBehavior(elapsed);
+      return;
+    }
     if (id === "actor") {
       changes.uncontainedBehaviorChanged += updateUncontainedSlimeBehavior(elapsed);
       return;
@@ -8949,6 +8962,7 @@
       + changes.feedingChanged
       + changes.uncontainedBehaviorChanged
       + changes.socialChanged
+      + changes.groupChanged
       + changes.welfareChanged
       + changes.metabolismChanged
       + changes.collectionChanged
@@ -24636,6 +24650,7 @@
     slime.lastCombatAttackerId = String(attackerId || "");
     slime.lastCombatAttackedAt = state.clock;
     slime.lastCombatReason = String(reason || "combat injury");
+    emitSlimeDistressSignal(slime, damage);
     awardCreatureSkillXp(slime, "toughness", Math.max(1, damage * CREATURE_PRACTICE_XP.toughnessPerDamage), reason || "combat injury", { outcome: damage >= 8 ? "partial" : "failure" });
     rememberCreatureExperience(
       slime,
@@ -26907,6 +26922,8 @@
       contactCount: 0,
       kinCount: 0,
       nonKinCount: 0,
+      localDensityCount: 0,
+      truncatedCount: 0,
       reasons: [],
       unknownFactors: [],
       kinLabels: [],
@@ -26941,10 +26958,76 @@
       contactCount: Math.max(0, Math.floor(Number(candidate?.contactCount) || 0)),
       kinCount: Math.max(0, Math.floor(Number(candidate?.kinCount) || 0)),
       nonKinCount: Math.max(0, Math.floor(Number(candidate?.nonKinCount) || 0)),
+      localDensityCount: Math.max(0, Math.floor(Number(candidate?.localDensityCount ?? candidate?.nearbyCount) || 0)),
+      truncatedCount: Math.max(0, Math.floor(Number(candidate?.truncatedCount) || 0)),
       reasons,
       unknownFactors,
       kinLabels,
       nonKinLabels
+    };
+  }
+
+  const SLIME_GROUP_TENDENCY_LABELS = {
+    independent: "Independent",
+    cohere: "Cohere",
+    separate: "Separate",
+    align: "Align",
+    compete: "Compete",
+    protect: "Protect",
+    avoid: "Avoid",
+    patrol: "Patrol",
+    expel: "Expel",
+    scatter: "Scatter",
+    rally: "Rally"
+  };
+
+  function defaultSlimeGroupRecord() {
+    return {
+      tendency: "independent",
+      label: SLIME_GROUP_TENDENCY_LABELS.independent,
+      cohortId: "",
+      cohortSize: 1,
+      memberIds: [],
+      nearbyIds: [],
+      localCount: 0,
+      detailedCount: 0,
+      truncatedCount: 0,
+      targetId: "",
+      targetCell: null,
+      distressResponse: "",
+      reasons: [],
+      updatedAt: 0,
+      reactionUntil: 0
+    };
+  }
+
+  function normalizeSlimeGroupRecord(candidate = {}) {
+    const tendency = SLIME_GROUP_TENDENCY_LABELS[candidate?.tendency] ? candidate.tendency : "independent";
+    return {
+      tendency,
+      label: SLIME_GROUP_TENDENCY_LABELS[tendency],
+      cohortId: String(candidate?.cohortId || ""),
+      cohortSize: Math.max(1, Math.floor(Number(candidate?.cohortSize) || 1)),
+      memberIds: idList(candidate?.memberIds).slice(0, GroupBehavior.DETAILED_NEIGHBOR_LIMIT),
+      nearbyIds: idList(candidate?.nearbyIds).slice(0, GroupBehavior.DETAILED_NEIGHBOR_LIMIT),
+      localCount: Math.max(0, Math.floor(Number(candidate?.localCount) || 0)),
+      detailedCount: Math.max(0, Math.min(GroupBehavior.DETAILED_NEIGHBOR_LIMIT, Math.floor(Number(candidate?.detailedCount) || 0))),
+      truncatedCount: Math.max(0, Math.floor(Number(candidate?.truncatedCount) || 0)),
+      targetId: String(candidate?.targetId || ""),
+      targetCell: cleanMapCell(candidate?.targetCell),
+      distressResponse: String(candidate?.distressResponse || ""),
+      reasons: (Array.isArray(candidate?.reasons) ? candidate.reasons : []).map(String).filter(Boolean).slice(0, 5),
+      updatedAt: finiteTime(candidate?.updatedAt, 0),
+      reactionUntil: finiteTime(candidate?.reactionUntil, 0)
+    };
+  }
+
+  function normalizeSlimeTerritory(candidate = {}) {
+    return {
+      anchorCell: cleanMapCell(candidate?.anchorCell),
+      roomId: String(candidate?.roomId || ""),
+      strength: clamp(Number(candidate?.strength) || 0, 0, 100),
+      lastReinforcedAt: finiteTime(candidate?.lastReinforcedAt, 0)
     };
   }
 
@@ -28222,18 +28305,22 @@
     }
     const entries = [];
     const roomId = slimeEffectiveRoomId(slime);
+    const origin = sensoryActorCell(slime);
     const candidates = slime.containerId
       ? actorSpatialIndex.recordsInContainer(slime.containerId)
-      : actorSpatialIndex.recordsInRoom(roomId);
+      : actorSpatialIndex.recordsInRadius(origin, GroupBehavior.LOCAL_RADIUS);
     for (const other of candidates) {
       if (!other || other.id === slime.id || other.status === "dead") {
         continue;
       }
       const contact = slimeContactContext(slime, other);
+      const distance = GroupBehavior.distance(origin, sensoryActorCell(other));
       const sameLooseRoom = !contact
         && slimeIsUncontained(slime)
         && slimeIsUncontained(other)
-        && slimeEffectiveRoomId(other) === roomId;
+        && slimeEffectiveRoomId(other) === roomId
+        && distance <= GroupBehavior.LOCAL_RADIUS
+        && sensoryBarrierTransmission(origin, sensoryActorCell(other), "hearing") >= 0.02;
       if (!contact && !sameLooseRoom) {
         continue;
       }
@@ -28242,13 +28329,18 @@
         slime: other,
         contact,
         roomId,
-        proximity: contact?.kind || "room",
+        distance,
+        proximity: contact?.kind || "nearby",
         label: other.name || "other slime",
         kinship,
         related: kinship.related
       });
     }
-    return entries;
+    entries.sort((left, right) => left.distance - right.distance || left.slime.id.localeCompare(right.slime.id));
+    const bounded = entries.slice(0, GroupBehavior.DETAILED_NEIGHBOR_LIMIT);
+    bounded.totalCount = entries.length;
+    bounded.truncatedCount = Math.max(0, entries.length - bounded.length);
+    return bounded;
   }
 
   function addSocialTraitUnknown(unknownFactors, traitKey) {
@@ -28279,7 +28371,9 @@
     const nonKinLabels = nonKinEntries.map((entry) => entry.label);
     const reasons = [];
     const unknownFactors = [];
-    let score = contactEntries.length * 8 + nonKinContactEntries.length * 14 + Math.max(0, entries.length - 2) * 4;
+    const localDensityCount = Math.max(entries.length, Number(entries.totalCount) || 0);
+    const truncatedCount = Math.max(0, Number(entries.truncatedCount) || 0);
+    let score = contactEntries.length * 8 + nonKinContactEntries.length * 14 + Math.max(0, localDensityCount - 2) * 4;
 
     if (!slimeIsUncontained(slime) && contactEntries.length) {
       score += contactEntries.length * 8;
@@ -28373,6 +28467,8 @@
       contactCount: contactEntries.length,
       kinCount: kinEntries.length,
       nonKinCount: nonKinEntries.length,
+      localDensityCount,
+      truncatedCount,
       reasons: [...new Set(reasons)].slice(0, 6),
       unknownFactors: [...new Set(unknownFactors)].slice(0, 5),
       kinLabels,
@@ -29335,10 +29431,11 @@
       return null;
     }
     const social = slimeObservedAiRecord(slime).social || defaultSlimeSocialRecord();
+    const group = normalizeSlimeGroupRecord(slime.groupBehavior);
     if (!social.nearbyCount) {
       return null;
     }
-    const element = chip(`Group: ${social.label}`);
+    const element = chip(`Group: ${social.label} · ${group.label}`);
     element.dataset.slimeSocial = slime.id;
     if (["high", "critical"].includes(social.pressureBand) && social.nonKinCount > 0) {
       element.classList.add("danger-chip");
@@ -29346,6 +29443,8 @@
     element.title = [
       `Pressure: ${social.pressureBand}.`,
       `Nearby: ${social.nearbyCount}; contact: ${social.contactCount}.`,
+      `Local tendency: ${group.label}; temporary cohort: ${group.cohortSize}.`,
+      group.truncatedCount ? `${group.truncatedCount} additional local bodies represented as aggregate density.` : "",
       social.kinLabels.length ? `Kin: ${social.kinLabels.join(", ")}.` : "",
       social.nonKinLabels.length ? `Non-kin: ${social.nonKinLabels.join(", ")}.` : "",
       social.reasons.length ? `Factors: ${social.reasons.join("; ")}.` : "",
@@ -39013,6 +39112,49 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { target, path: [origin, option.cell], value: option.fit.score };
   }
 
+  function chooseAutonomousGroupTarget(slime) {
+    const group = normalizeSlimeGroupRecord(slime.groupBehavior);
+    if (group.tendency === "independent" || !slimeIsUncontained(slime)) return null;
+    const origin = objectMapCell(slime);
+    const reference = cleanMapCell(group.targetCell);
+    if (!origin || !reference) return null;
+    const movesAway = ["avoid", "separate", "scatter"].includes(group.tendency);
+    const currentDistance = GroupBehavior.distance(origin, reference);
+    if (!movesAway && currentDistance <= 1 && group.tendency !== "patrol") {
+      return { hold: true, group };
+    }
+    let options = cardinalMapCells(origin).filter((cell) => slimeCanSenseStepTo(slime, cell));
+    if (group.tendency === "patrol") {
+      options = options.filter((cell) => GroupBehavior.distance(cell, reference) <= 3);
+    }
+    const rng = seedRng(`${state.seed}:group-step:${slime.id}:${group.tendency}:${Math.floor(state.clock / 30)}`);
+    const ranked = options
+      .map((cell) => ({
+        cell,
+        distance: GroupBehavior.distance(cell, reference),
+        tie: rng()
+      }))
+      .filter((entry) => movesAway ? entry.distance > currentDistance : group.tendency === "patrol" || entry.distance < currentDistance)
+      .sort((left, right) => movesAway
+        ? right.distance - left.distance || right.tie - left.tie
+        : left.distance - right.distance || right.tie - left.tie);
+    const chosen = ranked[0];
+    if (!chosen) return { hold: true, group };
+    return {
+      group,
+      target: {
+        kind: `group-${group.tendency}`,
+        id: group.targetId,
+        roomId: labMapCellRoomId(chosen.cell) || slimeEffectiveRoomId(slime),
+        cell: chosen.cell,
+        label: `${group.label.toLowerCase()} group tendency`,
+        score: 1
+      },
+      path: [origin, chosen.cell],
+      value: 1
+    };
+  }
+
   function chooseAutonomousWanderTarget(slime) {
     const currentRoomId = slimeEffectiveRoomId(slime);
     const rng = seedRng(`${state.seed}:wander:${slime.id}:${Math.floor(state.clock / CREATURE_AUTONOMOUS_DECISION_INTERVAL)}`);
@@ -39052,6 +39194,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .filter((step) => step.cell);
     const segmentSeconds = Math.max(CREATURE_AUTONOMOUS_MIN_MOVE_SECONDS, map.tileSizeM / movementProfile.speedMps);
     const duration = Math.max(segmentSeconds, distanceMeters / movementProfile.speedMps + navigationSteps.filter((step) => step.action === "rotate").length * segmentSeconds * 0.5);
+    const groupTendency = String(target.kind || "").startsWith("group-") ? String(target.kind).slice(6) : "";
     const label = target.kind === "wander"
       ? `wandering toward ${roomName(target.roomId)}`
       : target.kind === "contamination"
@@ -39060,9 +39203,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           ? `moving toward better habitat in ${roomName(target.roomId)}`
           : target.kind === "threat"
             ? `fleeing from ${target.label || "threat"}`
+            : groupTendency
+              ? `${SLIME_GROUP_TENDENCY_LABELS[groupTendency] || "Following"} local group pressure`
             : `seeking ${target.label}`;
+    const movementIntent = groupTendency
+      ? (["avoid", "separate", "scatter"].includes(groupTendency) ? "flee"
+        : ["protect", "expel"].includes(groupTendency) ? "defend" : "move")
+      : target.kind === "wander" ? "wander" : target.kind === "habitat" ? "seekHabitat" : target.kind === "threat" ? "flee" : "seekFood";
     slime.autonomousMovement = {
-      intent: target.kind === "wander" ? "wander" : target.kind === "habitat" ? "seekHabitat" : target.kind === "threat" ? "flee" : "seekFood",
+      intent: movementIntent,
       label,
       targetKind: target.kind,
       targetId: target.id || "",
@@ -39095,7 +39244,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reserveActorMovementStep(slime, firstStep.cell, firstStep.orientation, slime.autonomousMovement.intent, segmentSeconds);
     }
     slime.roomActivity = {
-      type: target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : target.kind === "threat" ? "fleeingThreat" : "seekingFood",
+      type: groupTendency ? "groupMovement" : target.kind === "wander" ? "moving" : target.kind === "habitat" ? "seekingHabitat" : target.kind === "threat" ? "fleeingThreat" : "seekingFood",
       label,
       roomId: slime.roomId || MAIN_ROOM_ID,
       targetRoomId: target.roomId,
@@ -39734,6 +39883,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return startSlimeAutonomousMovement(slime, chosen.target, chosen.path);
     }
+    const groupTarget = chooseAutonomousGroupTarget(slime);
+    if (groupTarget?.hold) {
+      slime.roomActivity = {
+        type: groupTarget.group.tendency === "patrol" ? "patrolling" : "groupPosture",
+        label: `${groupTarget.group.label.toLowerCase()} near its local target`,
+        roomId: slimeEffectiveRoomId(slime),
+        targetKind: "group",
+        targetId: groupTarget.group.targetId,
+        targetLabel: groupTarget.group.label,
+        updatedAt: state.clock
+      };
+      commitSlimeIntent(slime, ["avoid", "separate", "scatter"].includes(groupTarget.group.tendency) ? "flee" : "wait", {
+        kind: "group",
+        id: groupTarget.group.targetId,
+        label: groupTarget.group.label,
+        roomId: slimeEffectiveRoomId(slime),
+        cell: groupTarget.group.targetCell
+      }, { reason: groupTarget.group.reasons[0] || "local group pressure", urgency: "low" });
+      return true;
+    }
+    if (groupTarget?.target && groupTarget.path?.length > 1) {
+      return startSlimeAutonomousMovement(slime, groupTarget.target, groupTarget.path);
+    }
     const wander = chooseAutonomousWanderTarget(slime);
     if (wander?.target && wander.path?.length > 1) {
       if (feedingRank >= SLIME_DRIVE_BAND_RANK.moderate) {
@@ -39964,6 +40136,227 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     else if (/swarm|follow|orbit|herd|cooperat/.test(behavior)) id = "social";
     const visible = !options.knownOnly || slimeTraitKnown(slime, "behavior") || slimeTraitKnown(slime, "stability");
     return { id, label: visible ? SLIME_SOCIAL_PREFERENCE_LABELS[id] : "Uncertain", visible };
+  }
+
+  function normalizeGroupSignal(candidate) {
+    const cell = cleanMapCell(candidate?.cell);
+    const sourceId = String(candidate?.sourceId || "");
+    if (!cell || !sourceId) return null;
+    const createdAt = finiteTime(candidate?.createdAt, 0);
+    return {
+      id: String(candidate?.id || `distress:${sourceId}:${Math.floor(createdAt)}`),
+      kind: "distress",
+      sourceId,
+      cell,
+      roomId: String(candidate?.roomId || ""),
+      containerId: String(candidate?.containerId || ""),
+      intensity: clamp(Number(candidate?.intensity) || 0, 0, 100),
+      createdAt,
+      expiresAt: Math.max(createdAt, finiteTime(candidate?.expiresAt, createdAt + minutesToSeconds(5)))
+    };
+  }
+
+  function normalizeGroupSignals(candidate, now = state?.clock || 0) {
+    return (Array.isArray(candidate) ? candidate : [])
+      .map(normalizeGroupSignal)
+      .filter((signal) => signal && signal.expiresAt > now)
+      .sort((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id))
+      .slice(0, 64);
+  }
+
+  function emitSlimeDistressSignal(slime, damage) {
+    if (!slime || slime.status === "dead") return false;
+    const environment = sensoryEnvironmentForActor(slime);
+    addChemicalTrace(environment, "slime-distress", 8 + Math.max(0, Number(damage) || 0) * 2);
+    state.groupSignals = normalizeGroupSignals(state.groupSignals);
+    const existing = state.groupSignals.find((signal) => signal.sourceId === slime.id && state.clock - signal.createdAt <= 30);
+    const cell = sensoryActorCell(slime);
+    if (existing) {
+      existing.cell = cleanMapCell(cell) || existing.cell;
+      existing.intensity = clamp(existing.intensity + damage, 0, 100);
+      existing.expiresAt = state.clock + minutesToSeconds(5);
+    } else if (cell) {
+      state.groupSignals.unshift(normalizeGroupSignal({
+        sourceId: slime.id,
+        cell,
+        roomId: slimeEffectiveRoomId(slime),
+        containerId: slime.containerId,
+        intensity: clamp(15 + damage * 3, 0, 100),
+        createdAt: state.clock,
+        expiresAt: state.clock + minutesToSeconds(5)
+      }));
+    }
+    state.groupSignals = normalizeGroupSignals(state.groupSignals);
+    return true;
+  }
+
+  function slimeCanReceiveGroupSignal(slime, signal) {
+    if (!slime || !signal || signal.sourceId === slime.id) return false;
+    if (slime.containerId || signal.containerId) {
+      return Boolean(slime.containerId) && slime.containerId === signal.containerId;
+    }
+    const cell = sensoryActorCell(slime);
+    if (!cell || slimeEffectiveRoomId(slime) !== signal.roomId) return false;
+    if (GroupBehavior.distance(cell, signal.cell) > GroupBehavior.LOCAL_RADIUS) return false;
+    if (sensoryBarrierTransmission(cell, signal.cell, "hearing") < 0.02) return false;
+    return Number(sensoryEnvironmentForActor(slime)?.chemicalTraces?.["slime-distress"]) >= 0.05;
+  }
+
+  function slimeGroupDescriptor(slime) {
+    const preference = slimeSocialPreference(slime);
+    return {
+      id: slime.id,
+      slime,
+      cell: sensoryActorCell(slime),
+      roomId: slimeEffectiveRoomId(slime),
+      containerId: slime.containerId || "",
+      preference: preference.id
+    };
+  }
+
+  function slimeCohortCompatible(left, right) {
+    const kin = slimeKinship(left?.slime, right?.slime);
+    if (kin.related) return true;
+    if (["solitary", "territorial"].includes(left?.preference) || ["solitary", "territorial"].includes(right?.preference)) return false;
+    const leftSocial = ["social", "broodOriented"].includes(left?.preference);
+    const rightSocial = ["social", "broodOriented"].includes(right?.preference);
+    return leftSocial || rightSocial || left?.preference === "tolerant" && right?.preference === "tolerant";
+  }
+
+  function updateSlimeTerritory(slime, preference, elapsed) {
+    const territory = normalizeSlimeTerritory(slime.territory);
+    const hours = secondsToHours(Math.max(0, Number(elapsed) || 0));
+    territory.strength = Math.max(0, territory.strength - hours * 0.5);
+    if (preference.id !== "territorial" || !slimeIsUncontained(slime)) {
+      slime.territory = territory;
+      return territory;
+    }
+    const cell = objectMapCell(slime);
+    const settled = !slime.autonomousMovement && ["quiescent", "resting", "recovering", "guarding", "patrolling"].includes(String(slime.roomActivity?.type || "quiescent"));
+    if (!territory.anchorCell || territory.roomId !== slimeEffectiveRoomId(slime)) {
+      territory.anchorCell = cleanMapCell(cell);
+      territory.roomId = slimeEffectiveRoomId(slime);
+      territory.strength = Math.max(10, territory.strength);
+      territory.lastReinforcedAt = state.clock;
+    } else if (settled && GroupBehavior.distance(cell, territory.anchorCell) <= 2) {
+      territory.strength = clamp(territory.strength + hours * 4, 0, 100);
+      territory.lastReinforcedAt = state.clock;
+    }
+    slime.territory = territory;
+    return territory;
+  }
+
+  function deriveSlimeGroupTendency(slime, context, social, territory) {
+    const preference = slimeSocialPreference(slime);
+    const neighbors = context.nearbyIds.map(findSlime).filter(Boolean);
+    const kin = neighbors.filter((other) => slimeKinship(slime, other).related);
+    const nonKin = neighbors.filter((other) => !slimeKinship(slime, other).related);
+    const distress = normalizeGroupSignals(state.groupSignals)
+      .filter((signal) => slimeCanReceiveGroupSignal(slime, signal))
+      .sort((left, right) => GroupBehavior.distance(sensoryActorCell(slime), left.cell) - GroupBehavior.distance(sensoryActorCell(slime), right.cell))[0];
+    const source = distress ? findSlime(distress.sourceId) : null;
+    let tendency = "independent";
+    let targetId = "";
+    let targetCell = null;
+    let distressResponse = "";
+    const reasons = [];
+
+    if (distress && source) {
+      const related = slimeKinship(slime, source).related;
+      if (related || preference.id === "broodOriented") {
+        tendency = "protect";
+        distressResponse = "moving toward distressed kin";
+        targetId = source.id;
+        targetCell = cleanMapCell(distress.cell);
+      } else if (preference.id === "social" && slimeStatPercent(slime, "stress") < 70) {
+        tendency = "rally";
+        distressResponse = "investigating a local distress trace";
+        targetId = source.id;
+        targetCell = cleanMapCell(distress.cell);
+      } else {
+        tendency = "scatter";
+        distressResponse = "moving away from a local distress trace";
+        targetId = source.id;
+        targetCell = cleanMapCell(distress.cell);
+      }
+      reasons.push("physical distress trace detected nearby");
+    } else if (preference.id === "territorial" && nonKin.length && territory.strength > 0) {
+      tendency = "expel";
+      targetId = nonKin[0].id;
+      targetCell = sensoryActorCell(nonKin[0]);
+      reasons.push("unrelated slime entered remembered territory");
+    } else if (preference.id === "solitary" && neighbors.length) {
+      tendency = "avoid";
+      targetId = neighbors[0].id;
+      targetCell = sensoryActorCell(neighbors[0]);
+      reasons.push("solitary preference resists local company");
+    } else if (context.localCount > 6 || social.pressureBand === "critical") {
+      tendency = "separate";
+      targetId = neighbors[0]?.id || "";
+      targetCell = sensoryActorCell(neighbors[0]);
+      reasons.push("local density is high");
+    } else if (nonKin.length && slimeStatPercent(slime, "nutrition") <= 25) {
+      tendency = "compete";
+      targetId = nonKin[0].id;
+      targetCell = sensoryActorCell(nonKin[0]);
+      reasons.push("hunger creates local competition");
+    } else if (kin.length && !["solitary", "territorial"].includes(preference.id)) {
+      tendency = "cohere";
+      targetId = kin[0].id;
+      targetCell = sensoryActorCell(kin[0]);
+      reasons.push("nearby kin support cohesion");
+    } else {
+      const movingMember = context.memberIds.map(findSlime).find((other) => other?.autonomousMovement);
+      if (movingMember && context.cohortSize > 1) {
+        tendency = "align";
+        targetId = movingMember.id;
+        targetCell = cleanMapCell(movingMember.autonomousMovement.targetCell);
+        reasons.push("a local cohort member is moving");
+      } else if (preference.id === "territorial" && territory.anchorCell && territory.strength > 0) {
+        tendency = "patrol";
+        targetCell = cleanMapCell(territory.anchorCell);
+        reasons.push("remembered territory remains active");
+      } else if (context.cohortSize > 1 && preference.id === "social") {
+        tendency = "cohere";
+        targetId = context.memberIds[0] || "";
+        targetCell = sensoryActorCell(findSlime(targetId));
+        reasons.push("temporary local cohort");
+      }
+    }
+    return { tendency, targetId, targetCell, distressResponse, reasons, preference };
+  }
+
+  function updateSlimeGroupBehavior(elapsed) {
+    const living = (state.slimes || []).filter((slime) => slime && slime.status !== "dead");
+    state.groupSignals = normalizeGroupSignals(state.groupSignals);
+    const descriptors = living.map(slimeGroupDescriptor).filter((entry) => entry.cell);
+    const result = GroupBehavior.buildLocalContexts(descriptors, {
+      canPerceive: (left, right) => Boolean(left.containerId)
+        || sensoryBarrierTransmission(left.cell, right.cell, "hearing") >= 0.02,
+      cohortCompatible: slimeCohortCompatible
+    });
+    let changes = 0;
+    for (const slime of living) {
+      const before = JSON.stringify([slime.groupBehavior, slime.territory, slime.ai?.social]);
+      const context = result.contexts[slime.id] || {
+        cohortId: "", cohortSize: 1, memberIds: [], nearbyIds: [], localCount: 0, detailedCount: 0, truncatedCount: 0
+      };
+      const social = evaluateSlimeSocialContext(slime);
+      slime.ai = normalizeSlimeAiRecord(slime.ai);
+      slime.ai.social = social;
+      const preference = slimeSocialPreference(slime);
+      const territory = updateSlimeTerritory(slime, preference, elapsed);
+      const derived = deriveSlimeGroupTendency(slime, context, social, territory);
+      const prior = normalizeSlimeGroupRecord(slime.groupBehavior);
+      slime.groupBehavior = normalizeSlimeGroupRecord({
+        ...context,
+        ...derived,
+        updatedAt: state.clock,
+        reactionUntil: derived.distressResponse ? Math.max(prior.reactionUntil, state.clock + 30) : prior.reactionUntil
+      });
+      if (before !== JSON.stringify([slime.groupBehavior, slime.territory, slime.ai.social])) changes += 1;
+    }
+    return changes;
   }
 
   function slimeSocialWelfare(slime, options = {}) {
@@ -41758,6 +42151,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const response = ai.response || defaultSlimeResponseRecord();
     const combatDecision = ai.combatDecision || defaultSlimeCombatDecisionRecord();
     const social = ai.social || defaultSlimeSocialRecord();
+    const group = normalizeSlimeGroupRecord(slime.groupBehavior);
+    const territory = normalizeSlimeTerritory(slime.territory);
     const movement = normalizeSlimeAutonomousMovement(slime.autonomousMovement);
     const testing = containmentTestRecordForSlime(slime);
     addRow("Specimen", slime.name, slime.id);
@@ -41788,6 +42183,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ai.observation ? formatClock(ai.observation.observedAt) : "unobserved"
     );
     addRow("Updated", formatClock(ai.updatedAt || 0), `${formatDuration(Math.max(0, state.clock - (ai.updatedAt || 0)))} ago`);
+    addRow("Group tendency", group.tendency, group.label);
+    addRow("Local cohort", group.cohortId || "none", `${group.cohortSize} member${group.cohortSize === 1 ? "" : "s"}`);
+    addRow("Local neighborhood", `${group.localCount} total / ${group.detailedCount} detailed`, `${group.truncatedCount} aggregate`);
+    addRow("Group target", group.targetId || "none", group.targetCell ? mapCellKey(group.targetCell) : "no cell");
+    addRow("Territory raw", territory.anchorCell ? JSON.stringify(territory) : "none", "debug");
     addRow(
       "Dominant drive",
       ai.dominantDrive ? SLIME_DRIVE_LABELS[ai.dominantDrive] || ai.dominantDrive : "none",
@@ -42197,6 +42597,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderSlimeSocialContext(slime) {
     const social = slimeAiRecord(slime).social || defaultSlimeSocialRecord();
+    const group = normalizeSlimeGroupRecord(slime.groupBehavior);
+    const territory = normalizeSlimeTerritory(slime.territory);
     const section = document.createElement("div");
     section.className = "slime-social subpanel";
     section.dataset.slimeSocialPanel = slime.id;
@@ -42216,9 +42618,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       grid.append(row);
     };
     addRow("Stance", social.label, social.pressureBand, "Broad observed group behavior. Exact formulas remain hidden.");
-    addRow("Nearby", `${social.nearbyCount} slime${social.nearbyCount === 1 ? "" : "s"}`, `${social.contactCount} in contact`);
+    addRow("Tendency", group.label, group.reasons[0] || "local and temporary", "This is a current local response, not a permanent faction or shared mind.");
+    addRow("Nearby", `${social.localDensityCount} slime${social.localDensityCount === 1 ? "" : "s"}`, `${social.contactCount} in contact`);
+    addRow("Cohort", group.cohortSize > 1 ? `${group.cohortSize} locally linked` : "No current cohort", group.truncatedCount ? `plus ${group.truncatedCount} aggregate` : "temporary");
     addRow("Kin", social.kinLabels.length ? social.kinLabels.join("; ") : "None nearby", social.kinCount ? "recognized" : "none");
     addRow("Non-kin", social.nonKinLabels.length ? social.nonKinLabels.join("; ") : "None nearby", social.nonKinCount ? "pressure" : "none");
+    addRow("Territory", territory.anchorCell ? `${Math.round(territory.strength)}% established` : "None remembered", territory.anchorCell ? roomName(territory.roomId) : "personal memory");
+    addRow("Distress", group.distressResponse || "No local response", group.distressResponse ? "physical trace" : "quiet");
     addRow("Factors", social.reasons.length ? social.reasons.join("; ") : "None clear", social.reasons.length ? "current" : "quiet");
     addRow("Unknown", social.unknownFactors.length ? social.unknownFactors.join(", ") : "None", social.unknownFactors.length ? "could matter" : "all social factors visible");
     section.append(title, grid);
@@ -61581,6 +61987,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resultRepeats ||= {};
     next.events = normalizeMessages(next.events);
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
+    next.groupSignals = normalizeGroupSignals(next.groupSignals, next.clock);
     next.tasks = normalizeActiveTaskPacing(next.tasks, next.clock, next.labMap);
     const experimentConclusionTaskIds = new Set(next.tasks.filter((task) => task?.type === "experimentConclusion").map((task) => String(task.id || "")));
     for (const experiment of next.experiments.experiments) {
@@ -61694,6 +62101,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slime.reproductionEventId = Heredity.cleanId(slime.reproductionEventId);
       slime.inheritance = Heredity.normalizeInheritance(slime.inheritance);
       slime.welfare = Welfare.normalizeRecord(slime.welfare, next.clock);
+      slime.groupBehavior = normalizeSlimeGroupRecord(slime.groupBehavior);
+      slime.territory = normalizeSlimeTerritory(slime.territory);
       slime.revealed ||= {};
       slime.measured ||= {};
       slime.traitObservations ||= {};

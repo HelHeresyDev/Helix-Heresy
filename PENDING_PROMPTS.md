@@ -14,69 +14,64 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Large-Population Slime AI and Group Behavior
-2. Containment Breaches and Emergency Response
-3. Tactical Combat Actions, Injuries, and Recovery
-4. Scientist Equipment, Clothing, and Loadouts
-5. Expanded Production Chains and Material Processing
-6. Utility Networks, Power Failures, and Maintenance
-7. Black-Market Contracts, Deadlines, and Consequences
-8. Suspicion, Investigations, and Evidence Management
-9. Campaign Objectives, Milestones, and End States
-10. New-Run Onboarding and Contextual Tutorial
-11. Sound Design, Notifications, and Accessibility Audit
-12. Production Sprite Replacement and Art-Direction Pass
+1. Containment Breaches and Emergency Response
+2. Tactical Combat Actions, Injuries, and Recovery
+3. Scientist Equipment, Clothing, and Loadouts
+4. Expanded Production Chains and Material Processing
+5. Utility Networks, Power Failures, and Maintenance
+6. Black-Market Contracts, Deadlines, and Consequences
+7. Suspicion, Investigations, and Evidence Management
+8. Campaign Objectives, Milestones, and End States
+9. New-Run Onboarding and Contextual Tutorial
+10. Sound Design, Notifications, and Accessibility Audit
+11. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Large-Population Slime AI and Group Behavior
-
-Develop scalable local coordination, flocking or clustering, competition, cooperation, territorial behavior, and group responses for laboratories containing many autonomous creatures.
-
-## 2. Containment Breaches and Emergency Response
+## 1. Containment Breaches and Emergency Response
 
 Create multi-stage containment emergencies with alarms, lockdowns, evacuation, recapture, cleanup, repair, evidence, and lasting consequences derived from physical simulation state.
 
-## 3. Tactical Combat Actions, Injuries, and Recovery
+## 2. Tactical Combat Actions, Injuries, and Recovery
 
 Expand tactical positioning, attacks, defenses, abilities, wounds, treatment, incapacitation, and recovery while keeping combat readable and integrated with ordinary laboratory work.
 
-## 4. Scientist Equipment, Clothing, and Loadouts
+## 3. Scientist Equipment, Clothing, and Loadouts
 
 Add physical equipment slots, protective clothing, tools, consumables, encumbrance, preparation, storage, and loadout decisions that affect laboratory and field actions.
 
-## 5. Expanded Production Chains and Material Processing
+## 4. Expanded Production Chains and Material Processing
 
 Build multi-stage recipes, intermediate materials, quality propagation, byproducts, workstation dependencies, bills, stock targets, and physical hauling into a broader production economy.
 
-## 6. Utility Networks, Power Failures, and Maintenance
+## 5. Utility Networks, Power Failures, and Maintenance
 
 Deepen electricity, ventilation, drainage, heat, mana, fuel, capacity, faults, redundancy, inspection, repair, and scheduled maintenance across connected physical networks.
 
-## 7. Black-Market Contracts, Deadlines, and Consequences
+## 6. Black-Market Contracts, Deadlines, and Consequences
 
 Add negotiated contracts, delivery requirements, deadlines, reputation, unreliable contacts, payment risk, contraband logistics, and consequences for failed or suspicious deals.
 
-## 8. Suspicion, Investigations, and Evidence Management
+## 7. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 9. Campaign Objectives, Milestones, and End States
+## 8. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 10. New-Run Onboarding and Contextual Tutorial
+## 9. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 11. Sound Design, Notifications, and Accessibility Audit
+## 10. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 12. Production Sprite Replacement and Art-Direction Pass
+## 11. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 

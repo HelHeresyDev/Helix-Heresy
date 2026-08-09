@@ -108,6 +108,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
       attacks: (state.combat.active || []).filter((record) => record.type === 'attack').length,
       decisions: Object.fromEntries(state.slimes.map((slime) => [slime.id, slime.ai?.combatDecision?.intent])),
       social: state.slimes.find((slime) => slime.id === 'kin-child-a')?.ai?.social,
+      group: state.slimes.find((slime) => slime.id === 'kin-child-a')?.groupBehavior,
       integrities: Object.fromEntries(state.slimes.map((slime) => [slime.id, slime.stats.bodyIntegrity.current])),
     };
   }, { key: storageKey });
@@ -116,6 +117,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
   expect(Object.values(result.decisions)).not.toContain('attack');
   expect(Object.values(result.decisions)).not.toContain('feedAttack');
   expect(result.social).toMatchObject({ stance: 'kin', kinCount: 2, nonKinCount: 0 });
+  expect(result.group).toMatchObject({ tendency: 'cohere', cohortSize: 3, localCount: 2, truncatedCount: 0 });
   expect(Object.values(result.integrities)).toEqual([100, 100, 100]);
 });
 
@@ -199,6 +201,7 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
       bIntegrity: strangerB?.stats.bodyIntegrity.current,
       social: strangerA?.ai?.social,
       intent: strangerA?.ai?.combatDecision?.intent,
+      group: strangerA?.groupBehavior,
     };
   }, { key: storageKey });
 
@@ -206,4 +209,6 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
   expect(Math.min(result.aIntegrity, result.bIntegrity)).toBeLessThan(100);
   expect(result.social).toMatchObject({ stance: 'hostile', kinCount: 0, nonKinCount: 1 });
   expect(result.intent).toBe('feedAttack');
+  expect(result.group.localCount).toBe(1);
+  expect(result.group.detailedCount).toBe(1);
 });
