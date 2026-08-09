@@ -205,3 +205,96 @@ test('mana collectors support rock extraction and feedstock while emitters affec
   expect(feedstockResult.utility.storedMana).toBeGreaterThan(0);
   expect(feedstockResult.utility.feedstock).toBeLessThan(2);
 });
+
+test('network capacity sheds lower-priority demand and reports redundant sources', async ({ page }) => {
+  await startRun(page);
+  const result = await page.evaluate(() => {
+    const debug = window.helixHeresyDebug;
+    const snapshot = debug.infrastructureSnapshot();
+    const generator = snapshot.fixtures.find((fixture) => fixture.typeId === 'fuelGenerator');
+    const heater = snapshot.fixtures.find((fixture) => fixture.typeId === 'spaceHeater');
+    debug.setFixtureUtility(generator.id, { enabled: true, fuel: 48 });
+    debug.setFixtureUtility(heater.id, { enabled: true, powerMode: 'electric', priority: 7 });
+    const extraHeaters = [];
+    for (let index = 0; index < 6; index += 1) {
+      const fixture = debug.addInfrastructureFixture('spaceHeater', { x: 57 + index, y: 53, z: 0 }, {
+        utility: { enabled: true, powerMode: 'electric', priority: index === 5 ? 1 : 7, exactTargetC: 80 }
+      });
+      extraHeaters.push(fixture);
+    }
+    const backup = debug.addInfrastructureFixture('fuelGenerator', { x: 52, y: 53, z: 0 }, {
+      utility: { enabled: true, fuel: 48 }
+    });
+    const withBackup = debug.infrastructureSnapshot();
+    const component = withBackup.networks.electricity.find((entry) => entry.fixtureIds.includes(generator.id));
+    const highPriorityId = extraHeaters.at(-1).id;
+    const lowPriorityIds = [heater.id, ...extraHeaters.slice(0, -1).map((fixture) => fixture.id)];
+    debug.setUtilityFault(backup.id, 'seizedMechanism', { known: true, severity: 'critical' });
+    const failedOver = debug.infrastructureSnapshot().networks.electricity.find((entry) => entry.fixtureIds.includes(generator.id));
+    return {
+      before: {
+        capacity: component.metrics.capacity,
+        demand: component.metrics.demand,
+        sourceCount: component.metrics.sourceCount,
+        redundant: component.metrics.redundant,
+        highAllocation: component.allocations[highPriorityId],
+        lowAllocations: lowPriorityIds.map((id) => component.allocations[id])
+      },
+      after: {
+        sourceCount: failedOver.metrics.sourceCount,
+        redundant: failedOver.metrics.redundant,
+        highAllocation: failedOver.allocations[highPriorityId]
+      }
+    };
+  });
+
+  expect(result.before.capacity).toBe(24);
+  expect(result.before.demand).toBe(28);
+  expect(result.before.sourceCount).toBe(2);
+  expect(result.before.redundant).toBe(true);
+  expect(result.before.highAllocation).toBe(1);
+  expect(result.before.lowAllocations.some((allocation) => allocation < 1)).toBe(true);
+  expect(result.after).toMatchObject({ sourceCount: 1, redundant: false, highAllocation: 1 });
+});
+
+test('utility faults require inspection and physical repair work', async ({ page }) => {
+  await startRun(page);
+  const generator = await infrastructureFixture(page, 'fuelGenerator');
+  await page.evaluate((fixtureId) => {
+    const debug = window.helixHeresyDebug;
+    debug.setFixtureUtility(fixtureId, { maintenanceIntervalHours: 0 });
+    debug.addUtilityResource(fixtureId, 'metalParts', 4);
+    debug.setUtilityFault(fixtureId, 'bearingWear');
+  }, generator.id);
+
+  let current = await infrastructureFixture(page, 'fuelGenerator');
+  expect(current.utility.fault.id).toBe('bearingWear');
+  expect(current.utility.knownFaultId).toBe('');
+
+  await page.evaluate((fixtureId) => window.helixHeresyDebug.queueUtilityWork(fixtureId, 'inspectUtility'), generator.id);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(900));
+  current = await infrastructureFixture(page, 'fuelGenerator');
+  expect(current.utility.knownFaultId).toBe('bearingWear');
+
+  await page.evaluate((fixtureId) => window.helixHeresyDebug.queueUtilityWork(fixtureId, 'repairUtility'), generator.id);
+  for (let index = 0; index < 4; index += 1) {
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(900));
+  }
+  current = await infrastructureFixture(page, 'fuelGenerator');
+  expect(current.utility.fault).toBeNull();
+  expect(current.utility.knownFaultId).toBe('none');
+  expect(current.operationalState).toBe('operational');
+});
+
+test('service-hour schedules create persistent preventive maintenance orders', async ({ page }) => {
+  await startRun(page);
+  const lamp = await infrastructureFixture(page, 'wallLamp');
+  const result = await page.evaluate((fixtureId) => {
+    const debug = window.helixHeresyDebug;
+    debug.setFixtureUtility(fixtureId, { maintenanceIntervalHours: 24, serviceHours: 24 });
+    debug.syncUtilityMaintenance();
+    return debug.workOrderSnapshot().find((order) => order.target.id === fixtureId && order.kind === 'maintainUtility');
+  }, lamp.id);
+  expect(result).toMatchObject({ category: 'maintenance', source: 'policy' });
+  expect(['open', 'claimed', 'blocked']).toContain(result.status);
+});

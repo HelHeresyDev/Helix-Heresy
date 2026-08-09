@@ -143,6 +143,20 @@
   const UTILITY_SUMP_CAPACITY = 120;
   const UTILITY_FUEL_CAPACITY = 24;
   const UTILITY_MANA_CAPACITY = 160;
+  const UTILITY_NETWORK_MEDIA = ["air", "drain", "electricity", "mana"];
+  const UTILITY_PRIORITY_MIN = 1;
+  const UTILITY_PRIORITY_MAX = 7;
+  const UTILITY_DEFAULT_PRIORITY = 4;
+  const UTILITY_DEFAULT_MAINTENANCE_HOURS = 0;
+  const UTILITY_MAINTENANCE_INTERVALS = [24, 72, 168];
+  const UTILITY_FAULT_DEFS = {
+    bearingWear: { label: "Bearing wear", severity: "impaired", performance: 0.55 },
+    fouledPath: { label: "Fouled flow path", severity: "impaired", performance: 0.45 },
+    insulationBreak: { label: "Insulation break", severity: "critical", performance: 0 },
+    sealLeak: { label: "Seal leak", severity: "impaired", performance: 0.6 },
+    manaFracture: { label: "Mana fracture", severity: "impaired", performance: 0.4 },
+    seizedMechanism: { label: "Seized mechanism", severity: "critical", performance: 0 }
+  };
   const FIXTURE_DEFS = [
     {
       id: "basicWorkbench",
@@ -276,7 +290,7 @@
       requiresAdjacentWall: true,
       ports: [{ id: "maintenance", label: "Maintenance Access", x: 0, y: 0 }],
       capabilities: ["lighting"],
-      infrastructure: { role: "light", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 12, fuelPerHour: 0.04, manaPerHour: 1, light: 88, lightRadius: 7 },
+      infrastructure: { role: "light", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 12, fuelPerHour: 0.04, electricDemandPerHour: 1, manaPerHour: 1, light: 88, lightRadius: 7 },
       workMinutes: 5,
       materialOptions: {
         steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 1 }, score: 80 }
@@ -329,7 +343,7 @@
       layer: "floor",
       ports: [{ id: "maintenance", label: "Controls and Fuel Access", x: 0, y: 1 }],
       capabilities: ["heating"],
-      infrastructure: { role: "heater", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.18, manaPerHour: 4, heatCPerHour: 18, defaultSetting: "comfortable" },
+      infrastructure: { role: "heater", networks: ["electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.18, electricDemandPerHour: 4, manaPerHour: 4, heatCPerHour: 18, defaultSetting: "comfortable" },
       workMinutes: 8,
       materialOptions: {
         steel: { composition: { primary: "steel", lining: "ceramic" }, costs: { steelPanels: 2, metalParts: 2 }, score: 82 }
@@ -381,7 +395,7 @@
       layer: "utilityAir",
       ports: [{ id: "maintenance", label: "Duct Access", x: 0, y: 0 }],
       capabilities: ["ventilationNetwork"],
-      infrastructure: { role: "conduit", networks: ["air"] },
+      infrastructure: { role: "conduit", networks: ["air"], throughputPerHour: 24 },
       workMinutes: 4,
       materialOptions: {
         steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1 }, score: 82 }
@@ -398,7 +412,7 @@
       layer: "utilityAir",
       ports: [{ id: "maintenance", label: "Fan Access", x: 0, y: 0 }],
       capabilities: ["ventilationPower"],
-      infrastructure: { role: "airFan", networks: ["air", "electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.12, manaPerHour: 3, flowM3PerHour: 24 },
+      infrastructure: { role: "airFan", networks: ["air", "electricity", "mana"], powerModes: ["fuel", "electric", "mana"], defaultPowerMode: "fuel", fuelCapacity: 24, fuelPerHour: 0.12, electricDemandPerHour: 3, manaPerHour: 3, flowM3PerHour: 24 },
       workMinutes: 7,
       materialOptions: {
         steel: { composition: { primary: "steel", reinforcement: "iron" }, costs: { steelPanels: 1, metalParts: 2 }, score: 85 }
@@ -449,7 +463,7 @@
       layer: "utilityDrain",
       ports: [{ id: "maintenance", label: "Pipe Access", x: 0, y: 0 }],
       capabilities: ["drainageNetwork"],
-      infrastructure: { role: "conduit", networks: ["drain"] },
+      infrastructure: { role: "conduit", networks: ["drain"], throughputPerHour: 10 },
       workMinutes: 4,
       materialOptions: {
         steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 1 }, score: 84 },
@@ -484,7 +498,7 @@
       layer: "utilityDrain",
       ports: [{ id: "maintenance", label: "Outfall Access", x: 0, y: 0 }],
       capabilities: ["exteriorDischarge"],
-      infrastructure: { role: "drainExterior", networks: ["drain"] },
+      infrastructure: { role: "drainExterior", networks: ["drain"], outputPerHour: 60 },
       workMinutes: 14,
       materialOptions: {
         steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 2, metalParts: 1 }, score: 84 }
@@ -518,7 +532,7 @@
       layer: "utilityElectric",
       ports: [{ id: "maintenance", label: "Conduit Access", x: 0, y: 0 }],
       capabilities: ["electricityNetwork"],
-      infrastructure: { role: "conduit", networks: ["electricity"] },
+      infrastructure: { role: "conduit", networks: ["electricity"], throughputPerHour: 24 },
       workMinutes: 4,
       materialOptions: {
         steel: { composition: { primary: "iron", lining: "rubber" }, costs: { metalParts: 1, rubber: 1 }, score: 80 }
@@ -552,7 +566,7 @@
       layer: "utilityMana",
       ports: [{ id: "maintenance", label: "Conduit Access", x: 0, y: 0 }],
       capabilities: ["manaNetwork"],
-      infrastructure: { role: "conduit", networks: ["mana"] },
+      infrastructure: { role: "conduit", networks: ["mana"], throughputPerHour: 12 },
       workMinutes: 4,
       materialOptions: {
         steel: { composition: { primary: "steel", lining: "glass" }, costs: { metalParts: 1, glass: 1 }, score: 82 }
@@ -5876,11 +5890,19 @@
       infrastructureSnapshot: () => {
         const context = utilityNetworkContext();
         return {
+          networks: Object.fromEntries(Object.entries(context.components).map(([medium, components]) => [medium, components.map((component) => ({
+            id: component.id,
+            fixtureIds: component.fixtures.map((fixture) => fixture.id),
+            metrics: { ...component.metrics, consumers: component.metrics.consumers.map((fixture) => fixture.id) },
+            allocations: { ...component.allocations }
+          }))])),
           fixtures: (state.fixtures || []).filter(fixtureInfrastructureDef).map((fixture) => ({
             id: fixture.id,
             typeId: fixture.typeId,
             name: fixture.name,
             origin: { ...fixture.origin },
+            condition: fixture.condition,
+            operationalState: fixture.operationalState,
             utility: {
               ...fixture.utility,
               contents: { ...fixture.utility.contents },
@@ -5895,6 +5917,42 @@
         };
       },
       setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
+      addInfrastructureFixture: (typeId, cell, options = {}) => {
+        const def = fixtureDef(typeId);
+        const origin = cleanMapCell(cell);
+        if (!def?.infrastructure || !origin || !mapCellInBounds(origin, ensureLabMap())) return null;
+        const fixture = defaultFixtureInstance(`debug-fixture-${state.nextFixtureNumber++}`, typeId, origin, options.rotation || 0, options);
+        state.fixtures.push(fixture);
+        state.fixtures = normalizeFixtures(state.fixtures);
+        bumpNavigationRevision("occupancy");
+        persist();
+        render();
+        return { ...fixture, utility: { ...fixture.utility } };
+      },
+      setUtilityFault: (fixtureId, faultId, options = {}) => {
+        const fixture = fixtureById(fixtureId);
+        if (!fixture || !setUtilityFault(fixture, faultId, options)) return false;
+        updateUtilityFaultStatuses();
+        persist();
+        render();
+        return true;
+      },
+      queueUtilityWork: (fixtureId, kind) => startUtilityWorkOrder(fixtureById(fixtureId), kind),
+      addUtilityResource: (fixtureId, key, amount = 1) => {
+        const fixture = fixtureById(fixtureId);
+        if (!fixture) return false;
+        const added = addPhysicalItemQuantity("resources", key, Math.max(0, Number(amount) || 0), labMapCellRoomId(fixture.origin) || MAIN_ROOM_ID);
+        persist();
+        render();
+        return added;
+      },
+      syncUtilityMaintenance: () => {
+        const changed = syncUtilityMaintenanceOrders();
+        claimNextLaborWork();
+        persist();
+        render();
+        return changed;
+      },
       setFixtureOrigin: (fixtureId, cell) => {
         const fixture = fixtureById(fixtureId);
         const clean = cleanMapCell(cell);
@@ -9278,6 +9336,7 @@
       changes.scientistMovementChanged += updateScientistMovementTask();
       changes.completed += completeDueTasks();
       changes.servicingOrdersChanged += syncAutomaticCollectionServiceOrders();
+      changes.servicingOrdersChanged += syncUtilityMaintenanceOrders();
       changes.constructionClaimed += routineSuspended ? 0 : claimNextConstructionWork();
       changes.productionClaimed += routineSuspended ? 0 : claimNextProductionWork();
       changes.cleanupClaimed += routineSuspended ? 0 : claimNextSpillCleanup();
@@ -10153,7 +10212,7 @@
       const needsSeal = order.kind === "sealRepair" && (target.kind === "door" ? doorIsBreached(target.value) : target.kind === "container" && containerBreachState(target.value) !== "intact");
       if (condition >= 100 && !needsSeal) return { ok: false, reason: "The target no longer needs repair." };
       const roomId = target.value?.roomId || labMapCellRoomId(target.cell) || MAIN_ROOM_ID;
-      const footprint = target.kind === "fixture" ? fixtureFootprintDimensions(target.value) : target.kind === "container" ? containerFootprintDimensions(target.value) : { width: 1, height: 1 };
+      const footprint = target.kind === "fixture" ? fixtureRotatedFootprint(fixtureDef(target.value), target.value.rotation) : target.kind === "container" ? containerFootprintDimensions(target.value) : { width: 1, height: 1 };
       const targetCell = laborTargetAccessCell(target.cell, footprint, roomId);
       const mapPath = laborPathViaCells([targetCell]);
       if (!mapPath.length) return { ok: false, reason: "No physical route reaches a repair position." };
@@ -10163,6 +10222,27 @@
       return { ok: true, mapPath, targetCell, target, roomId, costs, materialTransfers: haul.transfers,
         duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + Math.max(1, 100 - condition) * LABOR_REPAIR_SECONDS_PER_POINT) };
     }
+    if (["inspectUtility", "maintainUtility", "repairUtility"].includes(order.kind)) {
+      const fixture = fixtureById(order.target?.id);
+      if (!fixture || !fixtureInfrastructureDef(fixture)) return { ok: false, reason: "The utility fixture no longer exists." };
+      const fault = normalizeUtilityFault(fixture.utility.fault);
+      if (order.kind === "maintainUtility" && fault) return { ok: false, reason: "An active fault must be inspected and repaired before preventive maintenance." };
+      if (order.kind === "repairUtility" && (!fault || fixture.utility.knownFaultId !== fault.id)) {
+        return { ok: false, reason: fault ? "Inspect the fixture before repairing its fault." : "The fixture no longer has an active fault." };
+      }
+      const roomId = labMapCellRoomId(fixture.origin) || MAIN_ROOM_ID;
+      const targetCell = laborTargetAccessCell(fixture.origin, fixtureRotatedFootprint(fixtureDef(fixture), fixture.rotation), roomId);
+      const mapPath = laborPathViaCells([targetCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches the utility service point." };
+      const costs = order.kind === "repairUtility"
+        ? { metalParts: 1, ...(fixtureUtilityNetworks(fixture).some((medium) => ["air", "drain"].includes(medium)) ? { rubber: 1 } : {}) }
+        : {};
+      const haul = resourceHaulPlan(costs, roomId);
+      if (!haul.ok) return { ok: false, reason: haul.reason };
+      const workSeconds = order.kind === "inspectUtility" ? 30 : order.kind === "maintainUtility" ? 55 : 90;
+      return { ok: true, mapPath, targetCell, roomId, costs, materialTransfers: haul.transfers,
+        duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + adjustedActionDuration(workSeconds, "materialsScience")) };
+    }
     if (order.kind === "serviceFixture") {
       const fixture = fixtureById(order.target?.id);
       if (!fixture) return { ok: false, reason: "The service target no longer exists." };
@@ -10170,7 +10250,7 @@
       const amount = order.data?.field === "capturedAirborne" ? airborneLoadTotal(contents) : utilityContentsTotal(contents);
       if (amount <= TILE_ENVIRONMENT_EPSILON) return { ok: false, reason: "The fixture no longer needs servicing." };
       const roomId = labMapCellRoomId(fixture.origin) || MAIN_ROOM_ID;
-      const targetCell = laborTargetAccessCell(fixture.origin, fixtureFootprintDimensions(fixture), roomId);
+      const targetCell = laborTargetAccessCell(fixture.origin, fixtureRotatedFootprint(fixtureDef(fixture), fixture.rotation), roomId);
       const mapPath = laborPathViaCells([targetCell]);
       if (!mapPath.length) return { ok: false, reason: "No physical route reaches the fixture's service point." };
       return { ok: true, mapPath, targetCell, roomId, duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps()) };
@@ -10239,7 +10319,7 @@
       if (plan.materialTransfers?.length) {
         return queueLaborMaterialHaul(order, plan) ? 1 : 0;
       }
-      const staminaCost = adjustedStaminaCost(LABOR_STAMINA, [order.category === "repair" ? "materialsScience" : "creatureHandling"]);
+      const staminaCost = adjustedStaminaCost(LABOR_STAMINA, [["repair", "maintenance"].includes(order.category) ? "materialsScience" : "creatureHandling"]);
       if (scientistVital("stamina").current < staminaCost) {
         order.status = "blocked";
         order.blockedReason = `Not enough stamina. ${staminaCost} required.`;
@@ -10345,6 +10425,37 @@
     } else if (["repair", "sealRepair"].includes(order.kind)) {
       if (!spendResourcesFromRoom(task.data?.resourceCosts || {}, task.data?.resourceRoomId || MAIN_ROOM_ID)) return false;
       if (!applyRepairWork(order)) return false;
+    } else if (["inspectUtility", "maintainUtility", "repairUtility"].includes(order.kind)) {
+      const fixture = fixtureById(order.target.id);
+      if (!fixture) return false;
+      const fault = normalizeUtilityFault(fixture.utility.fault);
+      if (order.kind === "inspectUtility") {
+        fixture.utility.lastInspectedAt = state.clock;
+        fixture.utility.knownFaultId = fault?.id || "none";
+        addEvent(fault
+          ? `${fixture.name} inspection identified ${UTILITY_FAULT_DEFS[fault.id].label.toLowerCase()}.`
+          : `${fixture.name} inspection found no active fault.`);
+      } else if (order.kind === "maintainUtility") {
+        fixture.utility.serviceHours = 0;
+        fixture.utility.wear = Math.max(0, fixture.utility.wear - 80);
+        fixture.utility.failureChecks = Math.max(0, Math.floor((fixture.utility.wear - 75) / 25) + 1);
+        fixture.utility.lastMaintainedAt = state.clock;
+        fixture.condition = Math.min(100, fixture.condition + 10);
+        addEvent(`${fixture.name} preventive maintenance completed; wear and service clock were reset.`);
+      } else {
+        if (!spendResourcesFromRoom(task.data?.resourceCosts || {}, task.data?.resourceRoomId || MAIN_ROOM_ID)) return false;
+        if (!fault) return false;
+        fixture.utility.fault = null;
+        fixture.utility.knownFaultId = "none";
+        fixture.utility.lastInspectedAt = state.clock;
+        fixture.utility.lastMaintainedAt = state.clock;
+        fixture.utility.serviceHours = 0;
+        fixture.utility.wear = Math.min(25, fixture.utility.wear);
+        fixture.utility.failureChecks = 0;
+        fixture.condition = Math.min(100, fixture.condition + (fault.severity === "critical" ? 35 : 20));
+        fixture.operationalState = "operational";
+        addEvent(`${fixture.name} ${UTILITY_FAULT_DEFS[fault.id].label.toLowerCase()} repaired; the fixture returned to service.`);
+      }
     } else if (order.kind === "serviceFixture") {
       if (!emptyFixtureUtilityWaste(order.target.id, order.data?.field, order.data?.label || "service waste", { quiet: true })) return false;
     } else if (order.kind === "collectionTransfer") {
@@ -10360,7 +10471,7 @@
       return false;
     }
     applyDoorTransitPolicy(task.data?.doorTransit, order.label);
-    awardXp(order.category === "repair" ? "materialsScience" : "creatureHandling", 4, order.label);
+    awardXp(["repair", "maintenance"].includes(order.category) ? "materialsScience" : "creatureHandling", 4, order.label);
     return true;
   }
 
@@ -14524,6 +14635,17 @@
     return [...new Set((fixtureInfrastructureDef(candidate)?.networks || []).map(String).filter(Boolean))];
   }
 
+  function utilityFaultPerformance(fixture) {
+    const fault = normalizeUtilityFault(fixture?.utility?.fault);
+    return fault ? UTILITY_FAULT_DEFS[fault.id].performance : 1;
+  }
+
+  function utilityFixtureCarriesMedium(fixture, medium) {
+    if (!fixture || fixture.condition <= 0 || !fixtureUtilityNetworks(fixture).includes(medium)) return false;
+    const fault = normalizeUtilityFault(fixture.utility?.fault);
+    return !(fault?.severity === "critical" && fixtureInfrastructureDef(fixture)?.role === "conduit");
+  }
+
   function utilityFixturesConnect(left, right) {
     const rightKeys = new Set(fixtureFootprintCells(right).map(mapCellKey));
     return fixtureFootprintCells(left).some((cell) => rightKeys.has(mapCellKey(cell))
@@ -14531,7 +14653,7 @@
   }
 
   function utilityNetworkComponents(medium) {
-    const fixtures = (state.fixtures || []).filter((fixture) => fixture.condition > 0 && fixtureUtilityNetworks(fixture).includes(medium));
+    const fixtures = (state.fixtures || []).filter((fixture) => utilityFixtureCarriesMedium(fixture, medium));
     const remaining = new Set(fixtures.map((fixture) => fixture.id));
     const components = [];
     while (remaining.size) {
@@ -14556,17 +14678,99 @@
     return components;
   }
 
+  function utilityFixtureDemandPerHour(fixture, medium) {
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    if (!infrastructure || !utilityFixtureEnabled(fixture)) return 0;
+    if (medium === "electricity" && fixture.utility.powerMode === "electric") {
+      return Math.max(0, Number(infrastructure.electricDemandPerHour ?? infrastructure.manaPerHour) || 0);
+    }
+    if (medium === "mana") {
+      if (fixture.utility.powerMode === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
+      if (infrastructure.role === "manaEmitter") return Math.max(0, Number(infrastructure.outputPerHour) || 0);
+    }
+    if (medium === "air" && infrastructure.role === "airTerminal" && fixture.utility.mode !== "closed") {
+      return Math.max(0, Number(infrastructure.flowM3PerHour) || 0);
+    }
+    if (medium === "drain" && infrastructure.role === "drainInlet") {
+      return Math.max(0, Number(infrastructure.flowUnitsPerHour) || 0);
+    }
+    return 0;
+  }
+
+  function utilityFixtureSourceCapacityPerHour(fixture, medium) {
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    if (!infrastructure || !utilityFixtureEnabled(fixture)) return 0;
+    if (medium === "electricity" && infrastructure.role === "electricSource" && fixture.utility.fuel > 0) {
+      return Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture);
+    }
+    if (medium === "mana" && infrastructure.role === "manaSource" && fixture.utility.storedMana > 0) {
+      return Math.max(0, Number(infrastructure.outputPerHour || infrastructure.collectPerHour) || 0) * utilityFaultPerformance(fixture);
+    }
+    if (medium === "air" && infrastructure.role === "airFan") {
+      return Math.max(0, Number(infrastructure.flowM3PerHour) || 0) * utilityFaultPerformance(fixture);
+    }
+    if (medium === "drain" && ["drainSump", "drainExterior"].includes(infrastructure.role)) {
+      return infrastructure.role === "drainExterior"
+        ? Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture)
+        : (Math.max(0, Number(infrastructure.capacity) || UTILITY_SUMP_CAPACITY) - utilityContentsTotal(fixture.utility.contents)) * utilityFaultPerformance(fixture);
+    }
+    return 0;
+  }
+
+  function utilityComponentMetrics(component) {
+    const medium = component?.medium || "";
+    const conduits = (component?.fixtures || []).filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "conduit");
+    const conduitCapacity = conduits.length
+      ? conduits.reduce((total, fixture) => total + Math.max(0, Number(fixtureInfrastructureDef(fixture)?.throughputPerHour) || 0) * utilityFaultPerformance(fixture), 0)
+      : Number.POSITIVE_INFINITY;
+    const sourceFixtures = (component?.fixtures || []).filter((fixture) => utilityFixtureSourceCapacityPerHour(fixture, medium) > 0);
+    const sourceCapacity = sourceFixtures.reduce((total, fixture) => total + utilityFixtureSourceCapacityPerHour(fixture, medium), 0);
+    const capacity = Math.min(sourceCapacity, conduitCapacity);
+    const consumers = (component?.fixtures || []).filter((fixture) => utilityFixtureDemandPerHour(fixture, medium) > 0);
+    const demand = consumers.reduce((total, fixture) => total + utilityFixtureDemandPerHour(fixture, medium), 0);
+    return {
+      medium,
+      capacity: Number.isFinite(capacity) ? capacity : sourceCapacity,
+      sourceCapacity,
+      conduitCapacity: Number.isFinite(conduitCapacity) ? conduitCapacity : null,
+      demand,
+      reserve: Math.max(0, (Number.isFinite(capacity) ? capacity : sourceCapacity) - demand),
+      utilization: capacity > 0 && Number.isFinite(capacity) ? demand / capacity : 0,
+      sourceCount: sourceFixtures.length,
+      redundant: sourceFixtures.length > 1,
+      consumers
+    };
+  }
+
+  function utilityPriorityAllocations(metrics) {
+    const allocations = {};
+    let remaining = Math.max(0, Number(metrics?.capacity) || 0);
+    const consumers = [...(metrics?.consumers || [])].sort((left, right) =>
+      (left.utility.priority || UTILITY_DEFAULT_PRIORITY) - (right.utility.priority || UTILITY_DEFAULT_PRIORITY)
+      || String(left.id).localeCompare(String(right.id)));
+    for (const fixture of consumers) {
+      const demand = utilityFixtureDemandPerHour(fixture, metrics.medium);
+      const delivered = Math.min(demand, remaining);
+      allocations[fixture.id] = demand > 0 ? delivered / demand : 1;
+      remaining -= delivered;
+    }
+    return allocations;
+  }
+
   function utilityNetworkContext() {
-    const media = ["air", "drain", "electricity", "mana"];
-    const components = Object.fromEntries(media.map((medium) => [medium, utilityNetworkComponents(medium)]));
+    const components = Object.fromEntries(UTILITY_NETWORK_MEDIA.map((medium) => [medium, utilityNetworkComponents(medium)]));
     const lookup = {};
+    const allocations = {};
     for (const [medium, entries] of Object.entries(components)) {
       lookup[medium] = {};
       for (const component of entries) {
+        component.metrics = utilityComponentMetrics(component);
+        component.allocations = utilityPriorityAllocations(component.metrics);
         for (const fixture of component.fixtures) lookup[medium][fixture.id] = component;
+        Object.assign(allocations, component.allocations);
       }
     }
-    return { components, lookup, electricityBudget: {} };
+    return { components, lookup, allocations, electricityBudget: {} };
   }
 
   function utilityComponentForFixture(fixture, medium, context = utilityNetworkContext()) {
@@ -14584,7 +14788,8 @@
   }
 
   function utilityFixtureEnabled(fixture) {
-    return Boolean(fixture?.utility?.enabled && fixture.condition > 0 && fixture.operationalState !== "broken" && fixture.operationalState !== "unfinished");
+    const fault = normalizeUtilityFault(fixture?.utility?.fault);
+    return Boolean(fixture?.utility?.enabled && fixture.condition > 0 && fixture.operationalState !== "broken" && fixture.operationalState !== "unfinished" && fault?.severity !== "critical");
   }
 
   function fixtureEnvironmentRecords(fixture, map = ensureLabMap(), environmentRecords = null) {
@@ -14632,7 +14837,7 @@
     if (fixture.utility.powerMode === "fuel") {
       const fuelRate = Math.max(0.001, Number(infrastructure.fuelPerHour) || 0.1);
       const required = fuelRate * elapsedHours;
-      const ratio = clamp(fixture.utility.fuel / Math.max(required, TILE_ENVIRONMENT_EPSILON), 0, 1);
+      const ratio = clamp(fixture.utility.fuel / Math.max(required, TILE_ENVIRONMENT_EPSILON), 0, 1) * utilityFaultPerformance(fixture);
       const used = required * ratio;
       fixture.utility.fuel = Math.max(0, fixture.utility.fuel - used);
       utilityCombustionAtFixture(fixture, used);
@@ -14642,27 +14847,31 @@
       const component = utilityComponentForFixture(fixture, "electricity", context);
       const generators = component?.fixtures?.filter((candidate) => fixtureInfrastructureDef(candidate)?.role === "electricSource" && utilityFixtureEnabled(candidate) && candidate.utility.fuel > 0) || [];
       if (!generators.length) return 0;
-      let remaining = demand;
+      const allocation = clamp(component?.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture);
+      let remaining = demand * allocation;
+      let deliveredTotal = 0;
       for (const generator of generators) {
         const generatorDef = fixtureInfrastructureDef(generator);
         const outputRate = Math.max(1, Number(generatorDef.outputPerHour) || 1);
         const fuelRate = Math.max(0.001, Number(generatorDef.fuelPerHour) || 0.1);
         if (!Number.isFinite(context.electricityBudget[generator.id])) context.electricityBudget[generator.id] = outputRate * elapsedHours;
         const availableFuelOutput = generator.utility.fuel / fuelRate * outputRate;
-        const delivered = Math.min(remaining, context.electricityBudget[generator.id], availableFuelOutput);
+        const delivered = Math.min(remaining, context.electricityBudget[generator.id], availableFuelOutput) * utilityFaultPerformance(generator);
         if (delivered <= 0) continue;
         const fuelUsed = delivered / outputRate * fuelRate;
         generator.utility.fuel = Math.max(0, generator.utility.fuel - fuelUsed);
         context.electricityBudget[generator.id] = Math.max(0, context.electricityBudget[generator.id] - delivered);
         utilityCombustionAtFixture(generator, fuelUsed);
         remaining -= delivered;
+        deliveredTotal += delivered;
         if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
       }
-      return clamp((demand - remaining) / demand, 0, 1);
+      return clamp(deliveredTotal / demand, 0, 1);
     }
     if (fixture.utility.powerMode === "mana") {
       const component = utilityComponentForFixture(fixture, "mana", context);
-      return clamp(drawManaFromComponent(component, demand) / demand, 0, 1);
+      const allocation = clamp(component?.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture);
+      return clamp(drawManaFromComponent(component, demand * allocation) / demand, 0, 1);
     }
     return 0;
   }
@@ -14671,14 +14880,14 @@
     const infrastructure = fixtureInfrastructureDef(fixture);
     if (!infrastructure?.powerModes?.length) return 1;
     if (!utilityFixtureEnabled(fixture)) return 0;
-    if (fixture.utility.powerMode === "fuel") return fixture.utility.fuel > 0 ? 1 : 0;
+    if (fixture.utility.powerMode === "fuel") return fixture.utility.fuel > 0 ? utilityFaultPerformance(fixture) : 0;
     if (fixture.utility.powerMode === "electric") {
       const component = utilityComponentForFixture(fixture, "electricity", context);
       return component?.fixtures?.some((candidate) =>
         fixtureInfrastructureDef(candidate)?.role === "electricSource"
         && utilityFixtureEnabled(candidate)
         && candidate.utility.fuel > 0
-      ) ? 1 : 0;
+      ) ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
     }
     if (fixture.utility.powerMode === "mana") {
       const component = utilityComponentForFixture(fixture, "mana", context);
@@ -14686,7 +14895,7 @@
         fixtureInfrastructureDef(candidate)?.role === "manaSource"
         && utilityFixtureEnabled(candidate)
         && candidate.utility.storedMana > 0
-      ) ? 1 : 0;
+      ) ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
     }
     return 0;
   }
@@ -14782,7 +14991,7 @@
   function currentPhysicalLightingSignature(map = ensureLabMap()) {
     const carried = normalizeScientistCarriedLight(state.scientist?.carriedLight);
     const fixtures = (state.fixtures || [])
-      .filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "light")
+      .filter((fixture) => fixtureInfrastructureDef(fixture))
       .map((fixture) => [
         fixture.id,
         mapCellKey(fixture.origin),
@@ -14790,6 +14999,8 @@
         fixture.operationalState,
         fixture.utility?.enabled,
         fixture.utility?.powerMode,
+        fixture.utility?.priority,
+        fixture.utility?.fault?.id || "none",
         Math.round((Number(fixture.utility?.fuel) || 0) * 1000),
         fixture.utility?.storedMana
       ].join(","))
@@ -14941,7 +15152,7 @@
         const infrastructure = fixtureInfrastructureDef(fan);
         const power = consumeUtilityPower(fan, elapsedHours, Number(infrastructure.manaPerHour) || 3, context);
         if (power > 0) {
-          flow += (Number(infrastructure.flowM3PerHour) || 20) * elapsedHours * power;
+          flow += (Number(infrastructure.flowM3PerHour) || 20) * elapsedHours * power * utilityFaultPerformance(fan);
           changes += utilitySetStatus(fan, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Insufficient power." : "Moving air through connected ducts.");
         } else {
           changes += utilitySetStatus(fan, "unpowered", "No usable power source reaches the fan.");
@@ -14951,8 +15162,13 @@
         for (const terminal of terminals) changes += utilitySetStatus(terminal, "idle", fans.length ? "No powered fan is operating." : "No fan is connected.");
         continue;
       }
-      const perTerminalVolume = flow / terminals.length;
+      const componentCapacity = Math.max(0, Number(component.metrics?.capacity) || 0) * elapsedHours;
+      const availableVolume = Math.min(flow, componentCapacity || flow);
+      const allocatedRates = terminals.reduce((total, terminal) => total
+        + utilityFixtureDemandPerHour(terminal, "air") * clamp(component.allocations?.[terminal.id] ?? 0, 0, 1), 0);
       for (const terminal of terminals) {
+        const allocatedRate = utilityFixtureDemandPerHour(terminal, "air") * clamp(component.allocations?.[terminal.id] ?? 0, 0, 1);
+        const perTerminalVolume = allocatedRates > 0 ? availableVolume * allocatedRate / allocatedRates : 0;
         const tile = tileEnvironmentAtCell(terminal.origin);
         if (!tile) continue;
         const fraction = clamp(perTerminalVolume / tileVolume, 0, 0.85);
@@ -15010,13 +15226,15 @@
       const inlets = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainInlet" && utilityFixtureEnabled(fixture));
       const sumps = component.fixtures.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainSump" && utilityFixtureEnabled(fixture));
       const outfall = component.fixtures.find((fixture) => fixtureInfrastructureDef(fixture)?.role === "drainExterior" && utilityFixtureEnabled(fixture));
+      let componentFlowRemaining = Math.max(0, Number(component.metrics?.capacity) || 0) * elapsedHours;
       for (const inlet of inlets) {
         const stacks = ensurePhysicalItemStacks().filter((stack) => stack.form === "spill" && !stack.containerId && mapCellKey(stack.cell) === mapCellKey(inlet.origin) && stack.quantity > 0);
         if (!stacks.length) {
           changes += utilitySetStatus(inlet, "idle", "No liquid or sludge is on the drain tile.");
           continue;
         }
-        const rate = (Number(fixtureInfrastructureDef(inlet).flowUnitsPerHour) || 8) * elapsedHours;
+        const allocated = clamp(component.allocations?.[inlet.id] ?? 0, 0, 1);
+        const rate = Math.min(componentFlowRemaining, (Number(fixtureInfrastructureDef(inlet).flowUnitsPerHour) || 8) * elapsedHours * allocated * utilityFaultPerformance(inlet));
         let remainingRate = rate;
         for (const stack of stacks) {
           if (remainingRate <= TILE_ENVIRONMENT_EPSILON) break;
@@ -15043,6 +15261,7 @@
           changes += 1;
         }
         changes += utilitySetStatus(inlet, remainingRate < rate ? "operating" : "blocked", remainingRate < rate ? "Draining material from this exact tile." : "No connected sump capacity or exterior outfall is available.");
+        componentFlowRemaining = Math.max(0, componentFlowRemaining - (rate - remainingRate));
       }
       for (const sump of sumps) {
         const capacity = Number(fixtureInfrastructureDef(sump).capacity) || UTILITY_SUMP_CAPACITY;
@@ -15071,11 +15290,11 @@
         if (available > 0 && source.utility.mode === "rock") {
           const tile = tileEnvironmentAtCell(source.origin);
           if (tile) {
-            collected = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours, tile.rockManaDensity * tileVolume);
+            collected = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours * utilityFaultPerformance(source), tile.rockManaDensity * tileVolume);
             tile.rockManaDensity = Math.max(0, tile.rockManaDensity - collected / tileVolume);
           }
         } else if (available > 0 && source.utility.mode === "feedstock" && source.utility.feedstock > 0) {
-          const potential = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours, source.utility.feedstock * 20);
+          const potential = Math.min(available, (Number(infrastructure.collectPerHour) || 8) * elapsedHours * utilityFaultPerformance(source), source.utility.feedstock * 20);
           collected = potential;
           source.utility.feedstock = Math.max(0, source.utility.feedstock - potential / 20);
         }
@@ -15089,7 +15308,8 @@
         const infrastructure = fixtureInfrastructureDef(emitter);
         const target = emitter.utility.manaTarget;
         const needed = Math.max(0, (target - tile.manaDensity) * tileVolume);
-        const requested = Math.min(needed, (Number(infrastructure.outputPerHour) || 8) * elapsedHours);
+        const allocation = clamp(component.allocations?.[emitter.id] ?? 0, 0, 1);
+        const requested = Math.min(needed, (Number(infrastructure.outputPerHour) || 8) * elapsedHours * allocation * utilityFaultPerformance(emitter));
         const delivered = drawManaFromComponent(component, requested);
         if (delivered > 0) {
           tile.manaDensity = clamp(tile.manaDensity + delivered / tileVolume, 0, 1000);
@@ -15128,6 +15348,76 @@
     return changes;
   }
 
+  function utilityFaultCandidates(fixture) {
+    const infrastructure = fixtureInfrastructureDef(fixture);
+    const networks = fixtureUtilityNetworks(fixture);
+    if (infrastructure?.role === "conduit") {
+      if (networks.includes("electricity")) return ["insulationBreak", "sealLeak"];
+      if (networks.includes("mana")) return ["manaFracture", "sealLeak"];
+      return ["fouledPath", "sealLeak"];
+    }
+    if (["airFan", "electricSource", "heater"].includes(infrastructure?.role)) return ["bearingWear", "seizedMechanism"];
+    if (["airFilter", "airTerminal", "drainInlet", "drainSump"].includes(infrastructure?.role)) return ["fouledPath", "sealLeak"];
+    if (["manaSource", "manaEmitter"].includes(infrastructure?.role)) return ["manaFracture", "seizedMechanism"];
+    return ["bearingWear", "sealLeak"];
+  }
+
+  function setUtilityFault(fixture, faultId, options = {}) {
+    if (!fixture?.utility || !UTILITY_FAULT_DEFS[faultId]) return false;
+    const def = UTILITY_FAULT_DEFS[faultId];
+    fixture.utility.fault = { id: faultId, severity: options.severity === "critical" ? "critical" : def.severity, occurredAt: state.clock, cause: String(options.cause || "service wear") };
+    fixture.utility.knownFaultId = options.known ? faultId : "";
+    if (fixture.utility.fault.severity === "critical") fixture.operationalState = "impaired";
+    addEvent(options.known
+      ? `${fixture.name} developed ${def.label.toLowerCase()}.`
+      : `${fixture.name} developed an operational fault; physical inspection is required.`);
+    return true;
+  }
+
+  function updateUtilityReliability(elapsedHours, context) {
+    let changed = false;
+    for (const fixture of state.fixtures || []) {
+      if (!fixtureInfrastructureDef(fixture)) continue;
+      const components = fixtureUtilityNetworks(fixture).map((medium) => utilityComponentForFixture(fixture, medium, context)).filter(Boolean);
+      const utilization = components.reduce((maximum, component) => Math.max(maximum, Number(component.metrics?.utilization) || 0), 0);
+      const role = fixtureInfrastructureDef(fixture).role;
+      const active = utilityFixtureEnabled(fixture) && (role === "conduit"
+        ? utilization > 0 && components.some((component) => component.metrics?.sourceCapacity > 0)
+        : ["electricSource", "manaSource"].includes(role)
+          ? components.some((component) => component.metrics?.demand > 0)
+          : ["operating", "collecting"].includes(fixture.utility.status));
+      if (!active) continue;
+      fixture.utility.runtimeHours += elapsedHours;
+      fixture.utility.serviceHours += elapsedHours;
+      fixture.utility.wear = clamp(fixture.utility.wear + elapsedHours * (1 + Math.max(0, utilization - 0.8) * 1.5), 0, 250);
+      const eligibleChecks = Math.max(0, Math.floor((fixture.utility.wear - 75) / 25) + 1);
+      while (!fixture.utility.fault && fixture.utility.failureChecks < eligibleChecks) {
+        fixture.utility.failureChecks += 1;
+        const chance = clamp(0.08 + Math.max(0, fixture.utility.wear - 100) / 250 + Math.max(0, utilization - 1) * 0.2, 0, 0.75);
+        const roll = seedRng(`${state.seed}:utility-fault:${fixture.id}:${fixture.utility.failureChecks}`)();
+        if (roll < chance) {
+          const candidates = utilityFaultCandidates(fixture);
+          const faultId = candidates[Math.floor(seedRng(`${state.seed}:utility-fault-kind:${fixture.id}:${fixture.utility.failureChecks}`)() * candidates.length)] || candidates[0];
+          if (setUtilityFault(fixture, faultId)) changed = true;
+        }
+      }
+      changed = true;
+    }
+    return changed ? 1 : 0;
+  }
+
+  function updateUtilityFaultStatuses() {
+    let changes = 0;
+    for (const fixture of state.fixtures || []) {
+      const fault = normalizeUtilityFault(fixture.utility?.fault);
+      if (!fault) continue;
+      const known = fixture.utility.knownFaultId === fault.id;
+      const label = known ? UTILITY_FAULT_DEFS[fault.id].label : "Unidentified fault";
+      changes += utilitySetStatus(fixture, fault.severity === "critical" ? "fault" : "impaired", `${label}; ${known ? "repair is available" : "inspection required"}.`);
+    }
+    return changes;
+  }
+
   function updateInfrastructureStep(seconds) {
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
@@ -15140,6 +15430,8 @@
     changes += updateDrainageNetworks(elapsedHours, context);
     changes += updateInfrastructureLighting(elapsedHours, context);
     changes += updateInfrastructurePassiveStatuses(context);
+    changes += updateUtilityReliability(elapsedHours, context);
+    changes += updateUtilityFaultStatuses();
     syncRoomAttributeSummaries();
     return changes;
   }
@@ -17945,6 +18237,17 @@
     return normalized;
   }
 
+  function normalizeUtilityFault(candidate) {
+    if (!candidate || typeof candidate !== "object" || !UTILITY_FAULT_DEFS[candidate.id]) return null;
+    const def = UTILITY_FAULT_DEFS[candidate.id];
+    return {
+      id: candidate.id,
+      severity: candidate.severity === "critical" ? "critical" : def.severity,
+      occurredAt: finiteTime(candidate.occurredAt, 0),
+      cause: String(candidate.cause || "service wear")
+    };
+  }
+
   function normalizeFixtureUtility(candidate, def = null) {
     const infrastructure = def?.infrastructure || {};
     const source = candidate && typeof candidate === "object" ? candidate : {};
@@ -17964,6 +18267,15 @@
     const climateSetting = UTILITY_CLIMATE_SETTING_BY_ID[source.climateSetting]?.id
       || UTILITY_CLIMATE_SETTING_BY_ID[infrastructure.defaultSetting]?.id
       || "comfortable";
+    const maintenanceIntervalHours = source.maintenanceIntervalHours === 0
+      ? 0
+      : UTILITY_MAINTENANCE_INTERVALS.includes(Number(source.maintenanceIntervalHours))
+        ? Number(source.maintenanceIntervalHours)
+        : UTILITY_DEFAULT_MAINTENANCE_HOURS;
+    const fault = normalizeUtilityFault(source.fault);
+    const knownFaultId = source.knownFaultId === "none" || UTILITY_FAULT_DEFS[source.knownFaultId]
+      ? String(source.knownFaultId)
+      : "";
     return {
       enabled: source.enabled !== false,
       powerMode,
@@ -17981,6 +18293,16 @@
       dischargedLoad: Math.max(0, Number(source.dischargedLoad) || 0),
       exposureChecks: Math.max(0, Math.floor(Number(source.exposureChecks) || 0)),
       capacity: storageCapacity,
+      priority: clamp(Math.floor(Number(source.priority) || UTILITY_DEFAULT_PRIORITY), UTILITY_PRIORITY_MIN, UTILITY_PRIORITY_MAX),
+      runtimeHours: Math.max(0, Number(source.runtimeHours) || 0),
+      serviceHours: Math.max(0, Number(source.serviceHours) || 0),
+      wear: clamp(Number(source.wear) || 0, 0, 250),
+      maintenanceIntervalHours,
+      lastMaintainedAt: finiteTime(source.lastMaintainedAt, 0),
+      lastInspectedAt: source.lastInspectedAt === null ? null : finiteTime(source.lastInspectedAt, null),
+      knownFaultId,
+      fault,
+      failureChecks: Math.max(0, Math.floor(Number(source.failureChecks) || 0)),
       status: String(source.status || "idle"),
       statusReason: String(source.statusReason || "")
     };
@@ -34509,6 +34831,60 @@
       order.completedAt = state.clock;
       order.updatedAt = state.clock;
       order.blockedReason = "";
+      changed += 1;
+    }
+    return changed;
+  }
+
+  function utilityMaintenanceDue(fixture) {
+    const interval = Math.max(0, Number(fixture?.utility?.maintenanceIntervalHours) || 0);
+    return interval > 0 && (Number(fixture.utility.serviceHours) || 0) >= interval;
+  }
+
+  function utilityWorkOrderKind(fixture) {
+    const fault = normalizeUtilityFault(fixture?.utility?.fault);
+    if (fault && fixture.utility.knownFaultId !== fault.id) return "inspectUtility";
+    if (fault) return "repairUtility";
+    if (utilityMaintenanceDue(fixture)) return "maintainUtility";
+    return "";
+  }
+
+  function utilityWorkOrderLabel(kind, fixture) {
+    if (kind === "inspectUtility") return `Inspect ${fixture.name}`;
+    if (kind === "repairUtility") return `Repair ${fixture.name} utility fault`;
+    return `Maintain ${fixture.name}`;
+  }
+
+  function createUtilityWorkOrder(fixture, kind, source = "manual") {
+    if (!fixture || !["inspectUtility", "maintainUtility", "repairUtility"].includes(kind)) return null;
+    const dedupeKey = `utility:${kind}:${fixture.id}`;
+    return createWorkOrder({
+      kind,
+      category: kind === "repairUtility" ? "repair" : "maintenance",
+      label: utilityWorkOrderLabel(kind, fixture),
+      priority: fixture.utility.priority || UTILITY_DEFAULT_PRIORITY,
+      source,
+      target: { kind: "fixture", id: fixture.id, roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin },
+      dedupeKey
+    });
+  }
+
+  function startUtilityWorkOrder(fixture, kind) {
+    const order = createUtilityWorkOrder(fixture, kind, "manual");
+    if (!order) return false;
+    claimNextLaborWork();
+    persist();
+    render();
+    return order;
+  }
+
+  function syncUtilityMaintenanceOrders() {
+    let changed = 0;
+    for (const fixture of state.fixtures || []) {
+      if (!fixtureInfrastructureDef(fixture) || fixture.utility.maintenanceIntervalHours <= 0) continue;
+      const kind = utilityWorkOrderKind(fixture);
+      if (!kind || activeLaborOrderForDedupeKey(`utility:${kind}:${fixture.id}`)) continue;
+      createUtilityWorkOrder(fixture, kind, "policy");
       changed += 1;
     }
     return changed;
@@ -51582,8 +51958,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const context = utilityNetworkContext();
     return networks.map((medium) => {
       const component = utilityComponentForFixture(fixture, medium, context);
-      return `${titleCase(medium)}: ${component?.fixtures?.length || 1} connected fixture${component?.fixtures?.length === 1 ? "" : "s"}`;
+      const metrics = component?.metrics;
+      const capacity = metrics ? `${formatDecimal(metrics.demand, 1)} / ${formatDecimal(metrics.capacity, 1)} per hour` : "no capacity reading";
+      const redundancy = metrics?.redundant ? `${metrics.sourceCount} sources; redundant` : `${metrics?.sourceCount || 0} source${metrics?.sourceCount === 1 ? "" : "s"}`;
+      return `${titleCase(medium)}: ${component?.fixtures?.length || 1} connected; ${capacity}; ${redundancy}`;
     }).join("; ");
+  }
+
+  function fixtureUtilityFaultSummary(fixture) {
+    const fault = normalizeUtilityFault(fixture?.utility?.fault);
+    if (!fault) return fixture?.utility?.knownFaultId === "none" ? "No fault found at last inspection" : "No active symptoms";
+    return fixture.utility.knownFaultId === fault.id
+      ? `${UTILITY_FAULT_DEFS[fault.id].label}; ${titleCase(fault.severity)}; identified ${formatClock(fixture.utility.lastInspectedAt)}`
+      : `Unidentified ${fault.severity} fault; inspection required`;
+  }
+
+  function fixtureUtilityMaintenanceSummary(fixture) {
+    const hours = Number(fixture?.utility?.maintenanceIntervalHours) || 0;
+    if (!hours) return `Manual only; ${formatDecimal(fixture.utility.serviceHours, 1)} service hours; wear index ${formatNumber(fixture.utility.wear)}`;
+    const remaining = Math.max(0, hours - fixture.utility.serviceHours);
+    return `${formatDecimal(fixture.utility.serviceHours, 1)} / ${hours} service hours; ${utilityMaintenanceDue(fixture) ? "due now" : `${formatDecimal(remaining, 1)} hours until due`}; wear index ${formatNumber(fixture.utility.wear)}`;
   }
 
   function fixtureContextCommands(fixture) {
@@ -51712,6 +52106,56 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: fixture.utility.enabled ? "Disable this utility device without dismantling its physical network." : "Enable this utility device. It will operate only when its physical inputs and connections are available.",
         run: () => updateFixtureUtility(fixture.id, { enabled: !fixture.utility.enabled }, `${fixture.name} switched ${fixture.utility.enabled ? "off" : "on"}.`)
       }));
+      for (const priority of [2, 4, 6]) {
+        const label = priority === 2 ? "High" : priority === 4 ? "Normal" : "Low";
+        commands.push(commandDef({
+          id: `fixture.utility.priority.${fixture.id}.${priority}`,
+          label: `${label} Utility Priority`,
+          group: "Infrastructure",
+          disabledReason: fixture.utility.priority === priority ? `${fixture.name} already uses ${label.toLowerCase()} utility priority.` : "",
+          description: "When a connected network lacks capacity, lower priority numbers receive service first. Equal-priority devices use stable fixture-ID order.",
+          run: () => updateFixtureUtility(fixture.id, { priority }, `${fixture.name} utility priority set to ${label.toLowerCase()}.`)
+        }));
+      }
+      const inspectionKey = `utility:inspectUtility:${fixture.id}`;
+      const maintenanceKey = `utility:maintainUtility:${fixture.id}`;
+      const repairKey = `utility:repairUtility:${fixture.id}`;
+      const fault = normalizeUtilityFault(fixture.utility.fault);
+      commands.push(commandDef({
+        id: `fixture.utility.inspect.${fixture.id}`,
+        label: "Inspect Utility Fixture",
+        group: "Maintenance",
+        disabledReason: activeLaborOrderForDedupeKey(inspectionKey) ? "Inspection is already designated." : "",
+        description: "Create a routed inspection order. Symptoms remain visible, but the exact fault and repair procedure stay unknown until inspection completes.",
+        run: () => startUtilityWorkOrder(fixture, "inspectUtility")
+      }));
+      commands.push(commandDef({
+        id: `fixture.utility.maintain.${fixture.id}`,
+        label: "Perform Preventive Maintenance",
+        group: "Maintenance",
+        disabledReason: activeLaborOrderForDedupeKey(maintenanceKey) ? "Maintenance is already designated." : fault ? "Repair the active fault before preventive maintenance." : "",
+        description: "Create a routed maintenance order that resets the service clock, reduces wear, and modestly restores condition.",
+        run: () => startUtilityWorkOrder(fixture, "maintainUtility")
+      }));
+      commands.push(commandDef({
+        id: `fixture.utility.repairFault.${fixture.id}`,
+        label: "Repair Utility Fault",
+        group: "Maintenance",
+        disabledReason: activeLaborOrderForDedupeKey(repairKey) ? "Fault repair is already designated." : !fault ? "No active fault is present." : fixture.utility.knownFaultId !== fault.id ? "Inspect the fixture to identify its fault first." : "",
+        description: "Create a routed repair order using physical Metal Parts and seals where the network medium requires them.",
+        run: () => startUtilityWorkOrder(fixture, "repairUtility")
+      }));
+      for (const hours of [0, ...UTILITY_MAINTENANCE_INTERVALS]) {
+        const label = hours ? `${hours} Hour Service Schedule` : "Disable Service Schedule";
+        commands.push(commandDef({
+          id: `fixture.utility.schedule.${fixture.id}.${hours}`,
+          label,
+          group: "Maintenance Schedule",
+          disabledReason: fixture.utility.maintenanceIntervalHours === hours ? `${fixture.name} already uses this schedule.` : "",
+          description: hours ? `Automatically create an inspection, repair, or preventive-maintenance order when this fixture reaches ${hours} service hours.` : "Stop automatic utility work orders for this fixture; manual inspection and repair remain available.",
+          run: () => updateFixtureUtility(fixture.id, { maintenanceIntervalHours: hours }, `${fixture.name} service schedule ${hours ? `set to ${hours} hours` : "disabled"}.`)
+        }));
+      }
       for (const mode of infrastructure.powerModes || []) {
         commands.push(commandDef({
           id: `fixture.utility.power.${fixture.id}.${mode}`,
@@ -52301,6 +52745,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["Access", `${fixtureAccessCells(fixture).length} / ${fixturePortCells(fixture).length} interaction points usable`]);
         if (fixtureInfrastructureDef(fixture)) {
           rows.push(["Utility", `${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `: ${fixture.utility.statusReason}` : ""}`]);
+          rows.push(["Reliability", fixtureUtilityFaultSummary(fixture)]);
         }
         if (isStorageFixture(fixture)) {
           rows.push(["Storage", titleCase(fixture.accessState)]);
@@ -52560,7 +53005,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (infrastructure) {
         rows.push(
           ["Utility state", `${fixture.utility.enabled ? "Enabled" : "Disabled"}; ${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `; ${fixture.utility.statusReason}` : ""}`],
-          ["Physical networks", fixtureUtilityNetworkSummary(fixture)]
+          ["Physical networks", fixtureUtilityNetworkSummary(fixture)],
+          ["Utility priority", `${fixture.utility.priority} (1 is highest)`],
+          ["Inspection", fixtureUtilityFaultSummary(fixture)],
+          ["Maintenance", fixtureUtilityMaintenanceSummary(fixture)]
         );
         if (infrastructure.powerModes?.length) rows.push(["Power source", UTILITY_POWER_MODE_BY_ID[fixture.utility.powerMode]?.label || "Unavailable"]);
         if (Number(infrastructure.fuelCapacity) > 0 || infrastructure.powerModes?.includes("fuel")) rows.push(["Internal fuel", `${formatDecimal(fixture.utility.fuel, 1)} / ${formatDecimal(Number(infrastructure.fuelCapacity) || UTILITY_FUEL_CAPACITY, 1)} Fuel Reagent`]);
@@ -57000,6 +57448,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return `${corpse?.name || "Corpse"} to ${container?.name || (order.destination?.storage === "drum" ? "Waste Drums" : roomName(order.destination?.roomId || ""))}`;
     }
     if (["repair", "sealRepair"].includes(order.kind)) return repairTargetDescriptor(laborRepairTarget(order))?.label || "Structural target";
+    if (["inspectUtility", "maintainUtility", "repairUtility"].includes(order.kind)) return fixtureById(order.target?.id)?.name || "Utility fixture";
     if (order.kind === "collectionTransfer") return containerById(order.target?.id)?.name || "Collection station";
     if (order.kind === "serviceFixture") return fixtureById(order.target?.id)?.name || "Utility fixture";
     return order.target?.roomId ? roomName(order.target.roomId) : "Labor target";
