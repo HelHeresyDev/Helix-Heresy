@@ -33,7 +33,7 @@ async function finishCurrentTask(page) {
   return timing.type;
 }
 
-test('persistent rubble hauling preserves the physical rubble pile and exposes its order controls', async ({ page }) => {
+test('rubble hauling catalogs the physical pile as raw stock and exposes its order controls', async ({ page }) => {
   await startRun(page);
   const setup = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -74,12 +74,15 @@ test('persistent rubble hauling preserves the physical rubble pile and exposes i
     const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
     return {
       pile: state.labMap.terrain.rubble.find((entry) => entry.id === 'labor-rubble'),
+      rawStack: state.physicalItemStacks.find((entry) => entry.key === 'stoneRubble' && entry.tags?.includes('unprocessed-rubble')),
       order: window.helixHeresyDebug.workOrderSnapshot().find((entry) => entry.data.dedupeKey === 'test:rubble'),
     };
   }, { key: storageKey });
-  expect(after.pile.cell).toEqual(setup.destination);
-  expect(after.pile.materials).toEqual([{ id: 'stone', label: 'Stone rubble', amount: 8 }]);
-  expect(after.pile.stockpileId).toBe('test-material-stockpile');
+  expect(after.pile).toBeUndefined();
+  expect(after.rawStack).toMatchObject({
+    key: 'stoneRubble', quantity: 8, stockpileId: 'test-material-stockpile',
+    materialComposition: { primary: 'stone' },
+  });
   expect(after.order.status).toBe('completed');
 });
 

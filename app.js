@@ -153,7 +153,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Operator Position", x: 0, y: 1 }, { id: "operator", label: "Operator Position", x: 1, y: 1 }],
-      capabilities: ["workbench", "fabrication", "maintenance", "research"],
+      capabilities: ["workbench", "fabrication", "woodworking", "stoneworking", "glassworking", "maintenance", "research"],
       workMinutes: 14,
       materialOptions: {
         wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 3, metalParts: 1 }, score: 62 },
@@ -2937,6 +2937,19 @@
     { key: "cloth", label: "Cloth", initial: 20 },
     { key: "rubber", label: "Rubber", initial: 20 },
     { key: "assayReagent", label: "Assay Reagent", initial: 12 },
+    { key: "stoneRubble", label: "Stone Rubble", initial: 0 },
+    { key: "oreFragments", label: "Ore Fragments", initial: 0 },
+    { key: "woodDebris", label: "Wood Debris", initial: 0 },
+    { key: "metalScrap", label: "Metal Scrap", initial: 0 },
+    { key: "stoneChips", label: "Stone Chips", initial: 0 },
+    { key: "masonryComponents", label: "Masonry Components", initial: 0 },
+    { key: "cutBoards", label: "Cut Boards", initial: 0 },
+    { key: "sawdust", label: "Sawdust", initial: 0 },
+    { key: "woodenComponents", label: "Wooden Components", initial: 0 },
+    { key: "glassFragments", label: "Glass Fragments", initial: 0 },
+    { key: "glasswareComponents", label: "Glassware Components", initial: 0 },
+    { key: "rubberOffcuts", label: "Rubber Offcuts", initial: 0 },
+    { key: "rubberSeals", label: "Rubber Seals", initial: 0 },
     ...FEEDSTOCK_DEFS.map((feedstock) => ({ key: feedstock.key, label: feedstock.label, initial: feedstock.passive ? 5 : 0 }))
   ];
   const RESOURCE_BY_KEY = Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, resource]));
@@ -3248,6 +3261,7 @@
       id: `fixture:${fixture.id}`,
       label: `Fabricate ${FIXTURE_CRAFTED_ITEM_BY_TYPE[fixture.id].label}`,
       description: fixture.description,
+      chainId: "equipment", stage: 3,
       workstationCapabilities: ["workbench", "fabrication"],
       toolRequirements: [],
       skillId: "fabrication",
@@ -3257,7 +3271,10 @@
       materialOptions: Object.entries(fixture.materialOptions || {}).map(([id, option]) => ({
         id,
         label: titleCase(id),
-        costs: option.costs || {},
+        costs: Object.fromEntries(Object.entries(option.costs || {}).map(([key, amount]) => [
+          key === "lumber" ? "woodenComponents" : key === "stoneBlocks" ? "masonryComponents" : key,
+          amount
+        ])),
         composition: option.composition || {},
         score: option.score || 50,
         toolRequirements: id === "wood"
@@ -3266,32 +3283,100 @@
       }))
     })),
     {
+      id: "process:cutStoneBlocks", label: "Cut stone blocks", description: "Shape hauled stone rubble into regular construction blocks.",
+      chainId: "masonry", stage: 1, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "stoneworking"], toolRequirements: [{ label: "stone shaping", any: ["stoneShaping", "masonry"], minimum: 32 }],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
+      output: { section: "resources", key: "stoneBlocks", quantity: 3 },
+      byproducts: [{ section: "resources", key: "stoneChips", quantity: 1 }],
+      criticalInputKeys: ["stoneRubble"],
+      materialOptions: [{ id: "rubble", label: "Hauled stone rubble", costs: { stoneRubble: 4 }, composition: { primary: "stone" }, score: 56 }]
+    },
+    {
+      id: "process:masonryComponents", label: "Shape masonry components", description: "Cut finished blocks into fitted components for furniture and laboratory fixtures.",
+      chainId: "masonry", stage: 2, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "stoneworking"], toolRequirements: [{ label: "stone shaping", any: ["stoneShaping", "masonry"], minimum: 32 }],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      output: { section: "resources", key: "masonryComponents", quantity: 3 },
+      byproducts: [{ section: "resources", key: "stoneChips", quantity: 1 }],
+      criticalInputKeys: ["stoneBlocks"],
+      materialOptions: [{ id: "stone", label: "Cut stone", costs: { stoneBlocks: 3 }, composition: { primary: "stone" }, score: 62 }]
+    },
+    {
+      id: "process:cutBoards", label: "Cut lumber into boards", description: "Saw rough lumber into dimensioned boards for later assembly.",
+      chainId: "woodworking", stage: 1, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "woodworking"], toolRequirements: [{ label: "woodworking", any: ["woodworking"], minimum: 38 }],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(5),
+      output: { section: "resources", key: "cutBoards", quantity: 3 },
+      byproducts: [{ section: "resources", key: "sawdust", quantity: 1 }],
+      criticalInputKeys: ["lumber"],
+      materialOptions: [{ id: "wood", label: "Lumber", costs: { lumber: 3 }, composition: { primary: "wood" }, score: 60 }]
+    },
+    {
+      id: "process:woodenComponents", label: "Fabricate wooden components", description: "Cut and fit boards into standardized components used by finished fixtures.",
+      chainId: "woodworking", stage: 2, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "woodworking"], toolRequirements: [{ label: "woodworking", any: ["woodworking"], minimum: 38 }],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      output: { section: "resources", key: "woodenComponents", quantity: 2 },
+      byproducts: [{ section: "resources", key: "sawdust", quantity: 1 }],
+      criticalInputKeys: ["cutBoards"],
+      materialOptions: [{ id: "wood", label: "Cut boards", costs: { cutBoards: 2 }, composition: { primary: "wood" }, score: 66 }]
+    },
+    {
+      id: "process:glasswareComponents", label: "Form glassware components", description: "Shape glass stock into standardized vessel bodies and fittings.",
+      chainId: "glassware", stage: 1, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "glassworking"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      output: { section: "resources", key: "glasswareComponents", quantity: 2 },
+      byproducts: [{ section: "resources", key: "glassFragments", quantity: 1 }],
+      criticalInputKeys: ["glass"],
+      materialOptions: [{ id: "glass", label: "Glass stock", costs: { glass: 3 }, composition: { primary: "glass" }, score: 72 }]
+    },
+    {
+      id: "process:rubberSeals", label: "Cut rubber seals", description: "Cut rubber stock into standardized seals for laboratory vessels.",
+      chainId: "glassware", stage: 1, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [],
+      skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(4),
+      output: { section: "resources", key: "rubberSeals", quantity: 2 },
+      byproducts: [{ section: "resources", key: "rubberOffcuts", quantity: 1 }],
+      criticalInputKeys: ["rubber"],
+      materialOptions: [{ id: "rubber", label: "Rubber stock", costs: { rubber: 2 }, composition: { primary: "rubber" }, score: 64 }]
+    },
+    {
       id: "receptacle:sealedCollectionJar", label: "Make sealed collection jar", description: "Fabricate an empty sealed liquid-collection jar.",
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
-      output: { section: "inventory", key: "sealedCollectionJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 80 }]
+      chainId: "glassware", stage: 2,
+      output: { section: "inventory", key: "sealedCollectionJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glasswareComponents: 2, rubberSeals: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 80 }]
     },
     {
       id: "receptacle:linedScrapeJar", label: "Make lined scrape jar", description: "Fabricate an empty lined vessel for sludge and hazardous residue.",
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
-      output: { section: "inventory", key: "linedScrapeJar", quantity: 1 }, materialOptions: [{ id: "linedGlass", label: "Lined glass", costs: { glass: 2, rubber: 1, metalParts: 1 }, composition: { primary: "glass", reinforcement: "steel", seal: "rubber" }, score: 84 }]
+      chainId: "glassware", stage: 2,
+      output: { section: "inventory", key: "linedScrapeJar", quantity: 1 }, materialOptions: [{ id: "linedGlass", label: "Lined glass", costs: { glasswareComponents: 2, rubberSeals: 1, metalParts: 1 }, composition: { primary: "glass", reinforcement: "steel", seal: "rubber" }, score: 84 }]
     },
     {
       id: "receptacle:condenserFlask", label: "Make condenser flask", description: "Fabricate an empty sealed flask for condensed vapors.",
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
-      output: { section: "inventory", key: "condenserFlask", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 82 }]
+      chainId: "glassware", stage: 2,
+      output: { section: "inventory", key: "condenserFlask", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glasswareComponents: 2, rubberSeals: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 82 }]
     },
     {
       id: "receptacle:filterBag", label: "Make filter bag", description: "Sew an empty filter bag for powders and flakes.",
+      chainId: "supplies", stage: 1,
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(4),
       output: { section: "inventory", key: "filterBag", quantity: 1 }, materialOptions: [{ id: "cloth", label: "Cloth", costs: { cloth: 2 }, composition: { primary: "cloth" }, score: 68 }]
     },
     {
       id: "receptacle:mixedOutputJar", label: "Make mixed-output jar", description: "Fabricate an empty general-purpose sealed collection jar.",
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
-      output: { section: "inventory", key: "mixedOutputJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glass: 2, rubber: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 76 }]
+      chainId: "glassware", stage: 2,
+      output: { section: "inventory", key: "mixedOutputJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glasswareComponents: 2, rubberSeals: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 76 }]
     }
   ];
   const PRODUCTION_RECIPE_BY_ID = Object.fromEntries(PRODUCTION_RECIPE_DEFS.map((recipe) => [recipe.id, recipe]));
+  const PRODUCTION_RECIPE_BY_OUTPUT_KEY = Object.fromEntries(PRODUCTION_RECIPE_DEFS
+    .filter((recipe) => recipe.dependencyEligible && recipe.output?.key)
+    .map((recipe) => [recipe.output.key, recipe]));
   const HANDLING_METHOD_INVENTORY_ITEM_KEYS = {
     thickGloves: "thickGloves",
     longTongs: "longTongs",
@@ -5108,6 +5193,8 @@
       "productionModeSelect",
       "productionQuantityField",
       "productionQuantityInput",
+      "productionQualityField",
+      "productionMinimumQualityInput",
       "productionPriorityInput",
       "productionMaterialStrategySelect",
       "productionScopeSelect",
@@ -6295,6 +6382,7 @@
         mode: dom.productionModeSelect.value,
         quantity: Number(dom.productionQuantityInput.value) || 1,
         targetQuantity: Number(dom.productionQuantityInput.value) || 1,
+        minimumCraftsmanship: Number(dom.productionMinimumQualityInput.value) || 0,
         priority: Number(dom.productionPriorityInput.value) || CONSTRUCTION_PRIORITY_DEFAULT,
         materialStrategy: dom.productionMaterialStrategySelect.value,
         scope: dom.productionScopeSelect.value,
@@ -10235,10 +10323,9 @@
       const pile = rubblePileById(order.target.id);
       const destination = cleanMapCell(order.destination?.cell) ? order.destination : defaultRubbleDestination(pile);
       if (!pile || !destination?.cell) return false;
-      pile.cell = cleanMapCell(destination.cell);
-      pile.stockpileId = String(destination.stockpileId || "");
+      const storedStacks = storeHauledRubblePile(pile, destination);
       order.destination = { ...destination };
-      addEvent(`${order.label} completed in ${formatNumber(task.data?.trips || 1)} trip${task.data?.trips === 1 ? "" : "s"}; rubble remains physical and unprocessed.`);
+      addEvent(`${order.label} completed in ${formatNumber(task.data?.trips || 1)} trip${task.data?.trips === 1 ? "" : "s"}; ${storedStacks.length} unprocessed material stack${storedStacks.length === 1 ? "" : "s"} cataloged at the stockpile.`);
     } else if (order.kind === "corpseHaul") {
       const corpse = findCorpse(order.target.id);
       if (!corpse) return false;
@@ -11226,6 +11313,41 @@
       steelPanels: "Steel scrap",
       bricks: "Broken bricks"
     }[id] || titleCase(id);
+  }
+
+  function rubblePhysicalStackSpec(materialId) {
+    if (["ironOre", "copperOre"].includes(materialId)) {
+      return { key: "oreFragments", primary: materialId === "copperOre" ? "copper" : "iron" };
+    }
+    if (materialId === "lumber") return { key: "woodDebris", primary: "wood" };
+    if (materialId === "steelPanels") return { key: "metalScrap", primary: "steel" };
+    return {
+      key: "stoneRubble",
+      primary: ["granite", "limestone", "shale", "basalt"].includes(materialId) ? materialId : "stone"
+    };
+  }
+
+  function storeHauledRubblePile(pile, destination) {
+    if (!pile || !destination?.cell) return [];
+    const stacks = [];
+    for (const material of pile.materials || []) {
+      const amount = Math.max(1, Math.floor(Number(material.amount) || 0));
+      const spec = rubblePhysicalStackSpec(material.id);
+      const stack = createPhysicalItemStack("resources", spec.key, amount, {
+        roomId: destination.roomId || labMapCellRoomId(destination.cell) || STORAGE_ROOM_ID,
+        cell: destination.cell,
+        fixtureId: "",
+        stockpileId: destination.stockpileId || ""
+      }, {
+        materialComposition: { primary: spec.primary },
+        tags: ["unprocessed rubble", material.id],
+        sourceLabels: [pile.source, material.label]
+      });
+      if (stack) stacks.push(stack);
+    }
+    state.labMap.terrain.rubble = (state.labMap.terrain.rubble || []).filter((entry) => entry.id !== pile.id);
+    syncPhysicalReadModels();
+    return stacks;
   }
 
   function addRubblePile(cell, materials, source, map = ensureLabMap()) {
@@ -19175,12 +19297,16 @@
       recipeId: recipe.id,
       fixtureTypeId: recipe.output?.fixtureTypeId || legacyFixtureTypeId,
       parentOrderId: String(candidate.parentOrderId || ""),
+      parentBillId: String(candidate.parentBillId || ""),
+      dependencyForKey: String(candidate.dependencyForKey || ""),
+      pausedByParent: Boolean(candidate.pausedByParent),
       scope: candidate.scope === "workstation" ? "workstation" : "global",
       workstationId: String(candidate.workstationId || ""),
       mode,
       quantity: mode === "once" ? 1 : quantity,
       targetQuantity: Math.max(1, Math.floor(Number(candidate.targetQuantity) || quantity)),
       completedQuantity: Math.max(0, Math.floor(Number(candidate.completedQuantity) || 0)),
+      minimumCraftsmanship: clamp(Math.floor(Number(candidate.minimumCraftsmanship) || 0), 0, 100),
       priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       materialStrategy: PRODUCTION_MATERIAL_STRATEGY_BY_ID[candidate.materialStrategy]?.id || (candidate.materialPolicy === "best" ? "best" : "closest"),
       allowedMaterialOptionIds: allowed.length ? allowed : options.map((option) => option.id),
@@ -19216,8 +19342,11 @@
       status: ["working", "paused", "completed", "canceled"].includes(candidate.status) ? candidate.status : "paused",
       reservedTaskId: String(candidate.reservedTaskId || ""),
       craftsmanship: clamp(Number(candidate.craftsmanship) || 0, 0, 100),
+      inputQuality: clamp(Number(candidate.inputQuality) || 0, 0, 100),
+      criticalInputQuality: clamp(Number(candidate.criticalInputQuality) || 0, 0, 100),
       outputStackId: String(candidate.outputStackId || ""),
       scrapStackId: String(candidate.scrapStackId || ""),
+      byproductStackIds: idList(candidate.byproductStackIds),
       cell: cleanMapCell(candidate.cell) || labMapRoomAnchor(MAIN_ROOM_ID),
       createdAt: finiteTime(candidate.createdAt, 0),
       completedAt: candidate.completedAt == null ? null : finiteTime(candidate.completedAt, 0)
@@ -19357,6 +19486,7 @@
       bill.status = "canceled";
       bill.blockedReason = "Parent placement order canceled.";
       if (bill.activeTaskId) cancelTask(bill.activeTaskId, { quiet: true });
+      cancelProductionDependencyBills(bill.id);
     }
     state.fabricatedFixtures = (state.fabricatedFixtures || []).map((item) => {
       if (item.reservedOrderId !== order?.id) return item;
@@ -19388,15 +19518,117 @@
     return (recipe.materialOptions || []).filter((option) => !allowed.size || allowed.has(option.id));
   }
 
-  function productionEligibleStockAmount(recipeOrId) {
+  function productionEligibleStockAmount(recipeOrId, minimumCraftsmanship = 0) {
     const recipe = productionRecipe(recipeOrId);
     if (!recipe?.output) return 0;
+    const qualityFloor = clamp(Number(minimumCraftsmanship) || 0, 0, 100);
     return ensurePhysicalItemStacks()
       .filter((stack) => stack.section === recipe.output.section && stack.key === recipe.output.key)
       .filter((stack) => stack.knownQuantity > 0 && !stack.carriedBy)
       .filter((stack) => !stack.reservedTaskId || findTask(stack.reservedTaskId)?.type === "stockpileHaul")
+      .filter((stack) => qualityFloor <= 0 || stack.craftsmanship >= qualityFloor)
       .filter((stack) => INVENTORY_ITEM_BY_KEY[recipe.output.key]?.category !== "receptacles" || !normalizePhysicalContents(stack.contents).length)
       .reduce((total, stack) => total + stack.knownQuantity, 0);
+  }
+
+  function productionOutputLabel(output) {
+    return INVENTORY_ITEM_BY_KEY[output?.key]?.label || RESOURCE_BY_KEY[output?.key]?.label || output?.key || "output";
+  }
+
+  function productionAvailableResourceAmount(key) {
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "resources" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .reduce((total, stack) => total + stack.quantity, 0);
+  }
+
+  function productionPreferredMaterialOption(bill, recipe = productionRecipe(bill?.recipeId)) {
+    const options = productionAllowedMaterialOptions(bill, recipe);
+    if (!options.length) return null;
+    if (bill?.materialStrategy === "best") {
+      return [...options].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
+    }
+    return options.find((option) => Object.entries(normalizeResourceCosts(option.costs))
+      .every(([key, amount]) => productionAvailableResourceAmount(key) >= amount))
+      || options[0];
+  }
+
+  function productionDependencyDepth(bill) {
+    let depth = 0;
+    let cursor = bill;
+    const seen = new Set();
+    while (cursor?.parentBillId && depth <= 8 && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      cursor = productionBillById(cursor.parentBillId);
+      depth += 1;
+    }
+    return depth;
+  }
+
+  function productionDependencyWouldCycle(parentBill, producer) {
+    let cursor = parentBill;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor.id)) {
+      if (cursor.recipeId === producer.id) return true;
+      seen.add(cursor.id);
+      cursor = productionBillById(cursor.parentBillId);
+    }
+    return false;
+  }
+
+  function createProductionDependencyBill(parentBill, resourceKey, missingAmount) {
+    const producer = PRODUCTION_RECIPE_BY_OUTPUT_KEY[resourceKey];
+    if (!producer || productionDependencyDepth(parentBill) >= 6 || productionDependencyWouldCycle(parentBill, producer)) return null;
+    const outputQuantity = Math.max(1, Math.floor(Number(producer.output?.quantity) || 1));
+    const targetQuantity = Math.ceil(Math.max(1, missingAmount) / outputQuantity) * outputQuantity;
+    const bill = normalizeProductionBill({
+      id: "production-bill-" + state.nextProductionBillNumber++,
+      recipeId: producer.id,
+      parentBillId: parentBill.id,
+      dependencyForKey: resourceKey,
+      scope: "global",
+      mode: "quantity",
+      quantity: targetQuantity,
+      targetQuantity,
+      completedQuantity: 0,
+      priority: parentBill.priority,
+      materialStrategy: "closest",
+      allowedMaterialOptionIds: producer.materialOptions.map((option) => option.id),
+      status: "active",
+      autoGenerated: true,
+      createdBy: "production dependency",
+      createdAt: state.clock
+    });
+    if (!bill) return null;
+    state.productionBills.push(bill);
+    addEvent(producer.label + " queued as a prerequisite for " + (productionRecipe(parentBill.recipeId)?.label || "production") + ".");
+    return bill;
+  }
+
+  function ensureProductionBillDependencies(bill) {
+    if (!productionBillNeedsUnit(bill) || productionPausedWorkpieceForBill(bill)) return 0;
+    const recipe = productionRecipe(bill.recipeId);
+    const option = productionPreferredMaterialOption(bill, recipe);
+    if (!option) return 0;
+    let created = 0;
+    for (const [key, amount] of Object.entries(normalizeResourceCosts(option.costs))) {
+      const missing = Math.max(0, amount - productionAvailableResourceAmount(key));
+      if (!missing || !PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]) continue;
+      const existing = (state.productionBills || []).find((candidate) => candidate.parentBillId === bill.id
+        && candidate.dependencyForKey === key && ["active", "paused"].includes(candidate.status));
+      if (!existing && createProductionDependencyBill(bill, key, missing)) created += 1;
+    }
+    return created;
+  }
+
+  function ensureProductionDependencies() {
+    let created = 0;
+    for (let pass = 0; pass < 6; pass += 1) {
+      let passCreated = 0;
+      for (const bill of [...(state.productionBills || [])]) passCreated += ensureProductionBillDependencies(bill);
+      created += passCreated;
+      if (!passCreated) break;
+    }
+    return created;
   }
 
   function productionPausedWorkpieceForBill(bill) {
@@ -19407,7 +19639,7 @@
     if (!bill || bill.status !== "active" || bill.activeTaskId) return false;
     if (productionPausedWorkpieceForBill(bill)) return true;
     if (bill.mode === "repeat") return true;
-    if (bill.mode === "maintain") return productionEligibleStockAmount(bill.recipeId) < bill.targetQuantity;
+    if (bill.mode === "maintain") return productionEligibleStockAmount(bill.recipeId, bill.minimumCraftsmanship) < bill.targetQuantity;
     const target = bill.mode === "once" ? 1 : bill.quantity;
     return bill.completedQuantity < target;
   }
@@ -19525,6 +19757,11 @@
       }
     }
     if (!plans.length) {
+      const dependency = (state.productionBills || []).find((candidate) => candidate.parentBillId === bill.id
+        && ["active", "paused"].includes(candidate.status));
+      if (dependency) {
+        return { ok: false, reason: `Waiting for prerequisite: ${productionRecipe(dependency.recipeId)?.label || resourceLabel(dependency.dependencyForKey)} (${dependency.status}).` };
+      }
       const options = productionAllowedMaterialOptions(bill, recipe);
       const missing = options.map((option) => resourceBlockReason(option.costs)).filter(Boolean)[0];
       return { ok: false, reason: missing || "Required tools, materials, or a route to the workstation are unavailable." };
@@ -19569,6 +19806,33 @@
     return reservedIds;
   }
 
+  function productionReservationInputSummary(stackIds, recipe, materialOption) {
+    const ids = new Set(stackIds || []);
+    const stacks = ensurePhysicalItemStacks().filter((stack) => ids.has(stack.id));
+    const fallbackQuality = clamp(Number(materialOption?.score) || 50, 0, 100);
+    const samples = stacks.map((stack) => ({
+      key: stack.key,
+      quantity: Math.max(1, Number(stack.quantity) || 1),
+      quality: stack.craftsmanship > 0 ? stack.craftsmanship : fallbackQuality,
+      composition: stack.materialComposition
+    }));
+    const totalQuantity = samples.reduce((total, sample) => total + sample.quantity, 0);
+    const inputQuality = totalQuantity
+      ? samples.reduce((total, sample) => total + sample.quality * sample.quantity, 0) / totalQuantity
+      : fallbackQuality;
+    const criticalKeys = new Set(recipe?.criticalInputKeys || Object.keys(normalizeResourceCosts(materialOption?.costs)));
+    const criticalSamples = samples.filter((sample) => criticalKeys.has(sample.key));
+    const criticalInputQuality = criticalSamples.length
+      ? Math.min(...criticalSamples.map((sample) => sample.quality))
+      : inputQuality;
+    const inheritedPrimary = samples.find((sample) => sample.composition?.primary)?.composition.primary;
+    const materialComposition = normalizeMaterialComposition({
+      ...(materialOption?.composition || {}),
+      ...(inheritedPrimary ? { primary: inheritedPrimary } : {})
+    });
+    return { inputQuality, criticalInputQuality, materialComposition };
+  }
+
   function releaseProductionMaterialReservations(task) {
     for (const stack of ensurePhysicalItemStacks()) {
       if (stack.reservedTaskId === task?.id) stack.reservedTaskId = "";
@@ -19593,6 +19857,7 @@
       mode: options.mode,
       quantity: options.quantity,
       targetQuantity: options.targetQuantity,
+      minimumCraftsmanship: options.minimumCraftsmanship,
       priority: options.priority,
       materialStrategy: options.materialStrategy,
       allowedMaterialOptionIds: options.allowedMaterialOptionIds,
@@ -19611,6 +19876,7 @@
 
   function claimNextProductionWork() {
     if (scientistIsDead() || (state.tasks || []).some((task) => task.type === "productionWork")) return 0;
+    ensureProductionDependencies();
     const candidates = (state.productionBills || []).filter(productionBillNeedsUnit).map((bill) => ({ bill, plan: productionWorkPlan(bill) }));
     for (const candidate of candidates) candidate.bill.blockedReason = candidate.plan.ok ? "" : candidate.plan.reason;
     const candidate = candidates.filter((entry) => entry.plan.ok)
@@ -19623,6 +19889,9 @@
       bill.blockedReason = "Materials changed before the production unit could reserve them.";
       return 0;
     }
+    const inputSummary = plan.workpiece
+      ? { inputQuality: plan.workpiece.inputQuality, criticalInputQuality: plan.workpiece.criticalInputQuality, materialComposition: plan.workpiece.materialComposition }
+      : productionReservationInputSummary(reservedStackIds, plan.recipe, plan.materialOption);
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
     const requiredSeconds = plan.workpiece?.requiredSeconds || plan.recipe.workSeconds;
@@ -19640,7 +19909,9 @@
         workstationId: plan.workstation.id,
         workpieceId: plan.workpiece?.id || "",
         materialOptionId: plan.materialOption.id,
-        materialComposition: plan.materialOption.composition,
+        materialComposition: inputSummary.materialComposition,
+        inputQuality: inputSummary.inputQuality,
+        criticalInputQuality: inputSummary.criticalInputQuality,
         resourceCosts: plan.materialOption.costs,
         reservedStackIds,
         mapPath: plan.path,
@@ -19690,6 +19961,8 @@
       materialOptionId: task.data.materialOptionId,
       materialComposition: task.data.materialComposition,
       inputCosts: task.data.resourceCosts,
+      inputQuality: task.data.inputQuality,
+      criticalInputQuality: task.data.criticalInputQuality,
       progressSeconds: 0,
       requiredSeconds: recipe.workSeconds,
       status: "working",
@@ -19728,9 +20001,13 @@
       ? tools.reduce((total, entry) => total + clamp(Number(entry.tool.quality) || 50, 0, 100), 0) / tools.length
       : 50;
     const skill = skillLevel(recipe?.skillId || "fabrication");
+    const inputQuality = workpiece.inputQuality || materialOption?.score || 50;
+    const criticalInputQuality = workpiece.criticalInputQuality || inputQuality;
     const rng = seedRng(`${state.seed}:craftsmanship:${workpiece.id}:${task.id}`);
-    const variation = (rng() - 0.5) * 12;
-    return clamp(25 + Math.min(30, skill * 0.6) + toolQuality * 0.16 + (workstation?.condition || 0) * 0.1 + (materialOption?.score || 50) * 0.1 + variation, 0, 100);
+    const variation = (rng() - 0.5) * 8;
+    const processQuality = 18 + Math.min(26, skill * 0.52) + toolQuality * 0.16
+      + (workstation?.condition || 0) * 0.1 + inputQuality * 0.28 + variation;
+    return clamp(Math.min(processQuality, criticalInputQuality + 18), 0, 100);
   }
 
   function completeProductionWork(task) {
@@ -19764,6 +20041,25 @@
       productionWorkpieceId: workpiece.id
     });
     workpiece.outputStackId = output?.id || "";
+    workpiece.byproductStackIds = (recipe.byproducts || []).map((byproduct) => createPhysicalItemStack(
+      byproduct.section || "resources",
+      byproduct.key,
+      byproduct.quantity || 1,
+      {
+        roomId: labMapCellRoomId(workstation.origin) || MAIN_ROOM_ID,
+        cell: outputCell,
+        fixtureId: "",
+        stockpileId: ""
+      },
+      {
+        craftsmanship: workpiece.inputQuality,
+        materialComposition: workpiece.materialComposition,
+        productionBillId: bill.id,
+        productionWorkpieceId: workpiece.id,
+        tags: ["production byproduct", recipe.chainId || "fabrication"],
+        sourceLabels: [recipe.label]
+      }
+    )?.id).filter(Boolean);
     if (recipe.output.fixtureTypeId) {
       state.fabricatedFixtures.push({
         id: `fabricated-fixture-${workpiece.id}`,
@@ -19793,7 +20089,10 @@
     }
     releaseConstructionTaskTools(task, { retain: false });
     awardXp(recipe.skillId || "fabrication", Math.max(4, recipe.workSeconds / 60), recipe.output.fixtureTypeId ? "fixture fabrication" : "receptacle fabrication");
-    addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${INVENTORY_ITEM_BY_KEY[recipe.output.key]?.label || recipe.output.key} produced at ${workstation.name}.`);
+    const byproductText = (recipe.byproducts || []).length
+      ? `; byproducts: ${(recipe.byproducts || []).map((item) => `${item.quantity || 1} ${productionOutputLabel(item)}`).join(", ")}`
+      : "";
+    addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${productionOutputLabel(recipe.output)} produced at ${workstation.name}${byproductText}.`);
     emitMapFeedback("feedbackWork", workstation.origin, {
       label: recipe.label + " completed",
       intensityBand: "medium",
@@ -19856,6 +20155,36 @@
     if (workstation?.productionTaskId === task.id) workstation.productionTaskId = "";
   }
 
+  function setProductionDependencyPause(parentBillId, paused) {
+    for (const dependency of (state.productionBills || []).filter((bill) => bill.parentBillId === parentBillId
+      && !["completed", "canceled"].includes(bill.status))) {
+      if (paused && dependency.status === "active") {
+        const activeTaskId = dependency.activeTaskId;
+        dependency.status = "paused";
+        dependency.pausedByParent = true;
+        dependency.blockedReason = "Parent production bill paused.";
+        if (activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
+      } else if (!paused && dependency.status === "paused" && dependency.pausedByParent) {
+        dependency.status = "active";
+        dependency.pausedByParent = false;
+        dependency.blockedReason = "";
+      }
+      setProductionDependencyPause(dependency.id, paused);
+    }
+  }
+
+  function cancelProductionDependencyBills(parentBillId) {
+    for (const dependency of (state.productionBills || []).filter((bill) => bill.parentBillId === parentBillId
+      && !["completed", "canceled"].includes(bill.status))) {
+      const activeTaskId = dependency.activeTaskId;
+      dependency.status = "canceled";
+      dependency.pausedByParent = false;
+      dependency.blockedReason = "Parent production bill canceled.";
+      if (activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
+      cancelProductionDependencyBills(dependency.id);
+    }
+  }
+
   function setProductionBillStatus(billId, status) {
     const bill = productionBillById(billId);
     if (!bill || !["active", "paused", "canceled"].includes(status)) return false;
@@ -19863,7 +20192,12 @@
     bill.status = status;
     bill.blockedReason = status === "canceled" ? "Canceled by player." : "";
     if (["paused", "canceled"].includes(status) && activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
-    if (status === "active") claimNextProductionWork();
+    if (status === "paused") setProductionDependencyPause(bill.id, true);
+    if (status === "canceled") cancelProductionDependencyBills(bill.id);
+    if (status === "active") {
+      setProductionDependencyPause(bill.id, false);
+      claimNextProductionWork();
+    }
     persist();
     render();
     return true;
@@ -45756,6 +46090,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.productionWorkstationField.hidden = !workstationScope;
     dom.productionQuantityField.firstChild.textContent = dom.productionModeSelect.value === "maintain" ? "Target stock" : "Quantity";
     dom.productionQuantityField.hidden = dom.productionModeSelect.value === "once" || dom.productionModeSelect.value === "repeat";
+    dom.productionQualityField.hidden = dom.productionModeSelect.value !== "maintain";
     dom.productionMaterialRules.textContent = "";
     const legend = document.createElement("legend");
     legend.textContent = "Allowed materials";
@@ -45793,7 +46128,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function productionBillProgressText(bill) {
     if (bill.mode === "repeat") return `${bill.completedQuantity} completed; repeating`;
-    if (bill.mode === "maintain") return `${productionEligibleStockAmount(bill.recipeId)}/${bill.targetQuantity} eligible stock`;
+    if (bill.mode === "maintain") return `${productionEligibleStockAmount(bill.recipeId, bill.minimumCraftsmanship)}/${bill.targetQuantity} eligible stock${bill.minimumCraftsmanship ? ` at ${bill.minimumCraftsmanship}+ quality` : ""}`;
     return `${bill.completedQuantity}/${bill.mode === "once" ? 1 : bill.quantity} completed`;
   }
 
@@ -45816,6 +46151,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (workpiece) card.append(emptyText(`Paused workpiece: ${formatNumber(workpiece.progressSeconds)}/${formatNumber(workpiece.requiredSeconds)} seconds.`));
       else if (bill.blockedReason) card.append(emptyText(`Blocked: ${bill.blockedReason}`));
       if (bill.parentOrderId) card.append(emptyText(`Linked dependency for construction order ${bill.parentOrderId}.`));
+      if (bill.parentBillId) card.append(emptyText(`Prerequisite for ${productionRecipe(productionBillById(bill.parentBillId)?.recipeId)?.label || bill.parentBillId}: ${resourceLabel(bill.dependencyForKey)}.`));
+      const dependencies = (state.productionBills || []).filter((candidate) => candidate.parentBillId === bill.id);
+      if (dependencies.length) card.append(emptyText(`Stages: ${dependencies.map((dependency) => `${productionRecipe(dependency.recipeId)?.label || dependency.recipeId} (${dependency.status})`).join(", ")}.`));
       const actions = document.createElement("div");
       actions.className = "production-card-actions";
       if (bill.status === "active") {
@@ -45833,12 +46171,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderProductionRecipes() {
     dom.productionRecipeList.textContent = "";
-    for (const recipe of PRODUCTION_RECIPE_DEFS) {
-      const output = INVENTORY_ITEM_BY_KEY[recipe.output.key]?.label || recipe.output.key;
-      const card = productionCard(recipe.label, `${formatDuration(recipe.workSeconds)} work; ${output}`);
+    const recipes = [...PRODUCTION_RECIPE_DEFS].sort((a, b) =>
+      String(a.chainId || "equipment").localeCompare(String(b.chainId || "equipment"))
+      || (Number(a.stage) || 0) - (Number(b.stage) || 0)
+      || a.label.localeCompare(b.label)
+    );
+    let currentChain = "";
+    for (const recipe of recipes) {
+      const chainId = recipe.chainId || "equipment";
+      if (chainId !== currentChain) {
+        currentChain = chainId;
+        const heading = textEl("h3", `${titleCase(chainId)} chain`);
+        heading.className = "production-chain-heading";
+        dom.productionRecipeList.append(heading);
+      }
+      const outputQuantity = Math.max(1, Number(recipe.output.quantity) || 1);
+      const output = `${outputQuantity} ${productionOutputLabel(recipe.output)}`;
+      const stage = recipe.stage ? `Stage ${recipe.stage}; ` : "";
+      const card = productionCard(recipe.label, `${stage}${formatDuration(recipe.workSeconds)} work; fixed batch: ${output}`);
+      card.dataset.productionChain = chainId;
       card.append(emptyText(recipe.description));
       const toolLabels = [...new Set([...(recipe.toolRequirements || []), ...recipe.materialOptions.flatMap((option) => option.toolRequirements || [])].map((item) => item.label))];
-      card.append(emptyText(`Workstation: ${recipe.workstationCapabilities.join(", ")}. Tools: ${toolLabels.join(", ") || "none"}. Materials: ${recipe.materialOptions.map((option) => `${option.label} (${formatResourceBundle(option.costs)})`).join("; ")}.`));
+      card.append(emptyText(`Workstation: ${recipe.workstationCapabilities.join(", ")}. Tools: ${toolLabels.join(", ") || "none"}. Inputs: ${recipe.materialOptions.map((option) => `${option.label} (${formatResourceBundle(option.costs)})`).join("; ")}.`));
+      if ((recipe.byproducts || []).length) {
+        card.append(emptyText(`Physical byproducts: ${recipe.byproducts.map((item) => `${item.quantity || 1} ${productionOutputLabel(item)}`).join(", ")}.`));
+      }
+      const prerequisiteKeys = [...new Set(recipe.materialOptions.flatMap((option) => Object.keys(normalizeResourceCosts(option.costs)))
+        .filter((key) => PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]))];
+      if (prerequisiteKeys.length) {
+        card.append(emptyText(`Known prerequisite stages: ${prerequisiteKeys.map((key) => PRODUCTION_RECIPE_BY_OUTPUT_KEY[key].label).join(", ")}.`));
+      }
       const button = storesActionButton("Create Bill", `Create a global ${recipe.label.toLowerCase()} bill.`, () => {
         dom.productionRecipeSelect.value = recipe.id;
         setProductionMenuTab("bills", { render: false });
@@ -45862,7 +46224,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const progress = workpiece.requiredSeconds ? Math.round(workpiece.progressSeconds / workpiece.requiredSeconds * 100) : 0;
       const card = productionCard(recipe?.label || workpiece.recipeId, `${titleCase(workpiece.status)} at ${fixtureById(workpiece.workstationId)?.name || "missing workstation"}`);
       card.dataset.productionWorkpiece = workpiece.id;
-      card.append(emptyText(`${progress}% complete; ${materialCompositionLabel(workpiece.materialComposition)}.${workpiece.status === "completed" ? ` ${craftsmanshipBand(workpiece.craftsmanship).label} craftsmanship (${formatNumber(workpiece.craftsmanship)}).` : ""}`));
+      const qualityDetail = workpiece.inputQuality ? ` Input quality ${formatNumber(workpiece.inputQuality)}; critical cap source ${formatNumber(workpiece.criticalInputQuality)}.` : "";
+      const byproductDetail = workpiece.byproductStackIds?.length ? ` ${workpiece.byproductStackIds.length} physical byproduct stack${workpiece.byproductStackIds.length === 1 ? "" : "s"}.` : "";
+      card.append(emptyText(`${progress}% complete; ${materialCompositionLabel(workpiece.materialComposition)}.${qualityDetail}${workpiece.status === "completed" ? ` ${craftsmanshipBand(workpiece.craftsmanship).label} craftsmanship (${formatNumber(workpiece.craftsmanship)}).${byproductDetail}` : ""}`));
       dom.productionWorkpieceList.append(card);
     }
   }
