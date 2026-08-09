@@ -1353,24 +1353,85 @@
       max: 10,
       material: "rubberized protective gloves",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.thickGloves || { primary: "rubber", lining: "cloth" },
+      equipment: { slots: ["hands"], coverage: ["hands"], protection: { physical: 0.08, corrosive: 0.35, toxic: 0.25, electrical: 0.45 } },
       notes: ["insulating", "direct-contact tool", "poor corrosion and heat endurance"]
+    },
+    stainedLabCoat: {
+      max: 80,
+      material: "stained cloth laboratory coat",
+      materialComposition: { primary: "cloth" },
+      equipment: { slots: ["torso"], coverage: ["torso", "arms"], protection: { physical: 0.06, toxic: 0.18, corrosive: 0.12 }, contaminationCapacity: 30 },
+      notes: ["ordinary laboratory clothing", "broad splash coverage", "not armor"]
+    },
+    safetyGoggles: {
+      max: 60,
+      material: "glass and rubber eye protection",
+      materialComposition: { primary: "glass", lining: "rubber" },
+      equipment: { slots: ["eyes"], coverage: ["head"], protection: { physical: 0.05, corrosive: 0.35, toxic: 0.2 } },
+      notes: ["eye protection", "splash resistant", "does not protect breathing"]
+    },
+    filterMask: {
+      max: 45,
+      material: "cloth and charcoal filter mask",
+      materialComposition: { primary: "cloth", lining: "charcoal" },
+      equipment: { slots: ["face"], coverage: ["head"], protection: { toxic: 0.4, corrosive: 0.12 }, contaminationCapacity: 20 },
+      notes: ["reduces inhaled contamination", "replaceable filter media", "not sealed"]
+    },
+    containmentApron: {
+      max: 110,
+      material: "rubberized containment apron",
+      materialComposition: { primary: "rubber", reinforcement: "cloth" },
+      equipment: { slots: ["torso"], coverage: ["torso", "legs"], protection: { physical: 0.1, corrosive: 0.5, toxic: 0.35, heat: 0.12 }, contaminationCapacity: 55 },
+      notes: ["chemical splash layer", "restricts movement slightly", "not combat armor"]
+    },
+    rubberBoots: {
+      max: 90,
+      material: "rubber laboratory boots",
+      materialComposition: { primary: "rubber", lining: "cloth" },
+      equipment: { slots: ["feet"], coverage: ["legs"], protection: { corrosive: 0.3, toxic: 0.22, electrical: 0.35 } },
+      notes: ["floor-spill protection", "electrical insulation", "limited puncture resistance"]
+    },
+    utilityBelt: {
+      max: 120,
+      material: "cloth and steel utility belt",
+      materialComposition: { primary: "cloth", reinforcement: "steel" },
+      equipment: { slots: ["waist"], coverage: [], protection: {}, capacityMassKg: 3, capacityVolumeL: 5 },
+      notes: ["adds quick-access carrying capacity", "supports future belt attachments"]
+    },
+    fieldBackpack: {
+      max: 140,
+      material: "reinforced cloth field backpack",
+      materialComposition: { primary: "cloth", reinforcement: "steel" },
+      equipment: { slots: ["back"], coverage: ["torso"], protection: { physical: 0.04 }, capacityMassKg: 15, capacityVolumeL: 35 },
+      notes: ["optional back-mounted storage", "never part of the vat-start loadout", "conflicts with other back assemblies"]
+    },
+    articulatedTentacleRig: {
+      max: 220,
+      material: "steel articulated back apparatus",
+      materialComposition: { primary: "steel", lining: "rubber" },
+      equipment: { slots: ["back"], coverage: ["torso"], protection: { physical: 0.1, electrical: 0.08 }, capacityMassKg: 6, capacityVolumeL: 8 },
+      capabilities: { manipulation: 72, reach: 88 },
+      notes: ["prototype articulated tentacle mount", "occupies the back mount", "future powered functions require their own systems"]
     },
     longTongs: {
       max: 12,
       material: "metal reach tongs",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.longTongs || { primary: "steel" },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["reach tool", "heat-tolerant", "conductive", "moderate corrosion risk"]
     },
     hookPole: {
       max: 12,
       material: "reinforced reach pole",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.hookPole || { primary: "wood", reinforcement: "iron" },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["reach tool", "good leverage", "poor precision", "vulnerable to corrosion"]
     },
     scraper: {
       max: 10,
       material: "stiff scraping tool",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.scraper || { primary: "steel" },
+      equipment: { slots: ["mainHand"], coverage: [], protection: {} },
       notes: ["cleanup tool", "handles residue", "poor thermal endurance"]
     },
     miningPick: {
@@ -1378,6 +1439,7 @@
       material: "steel-headed mining pick",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.miningPick || { primary: "steel", reinforcement: "wood" },
       capabilities: { excavation: 88, masonryBreaking: 62 },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["primary mining tool", "effective against ordinary rock and ore", "can break masonry inefficiently"]
     },
     foldingLadder: {
@@ -1392,6 +1454,7 @@
       material: "steel masonry hammer",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.masonryHammer || { primary: "steel", reinforcement: "wood" },
       capabilities: { striking: 88, masonry: 84, masonryBreaking: 74 },
+      equipment: { slots: ["mainHand"], coverage: [], protection: {} },
       notes: ["masonry construction", "stone assembly", "controlled structural breaking"]
     },
     stoneChisel: {
@@ -1399,6 +1462,7 @@
       material: "hardened steel chisel",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.stoneChisel || { primary: "steel" },
       capabilities: { stoneShaping: 86, masonry: 48 },
+      equipment: { slots: ["offHand"], coverage: [], protection: {} },
       notes: ["stone smoothing", "detail shaping", "requires a striking tool for smoothing"]
     },
     woodAxe: {
@@ -1406,6 +1470,7 @@
       material: "steel-headed wood axe",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.woodAxe || { primary: "steel", reinforcement: "wood" },
       capabilities: { woodCutting: 88, woodBreaking: 78 },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["fast rough wood cutting", "effective wooden deconstruction", "poor precision"]
     },
     handSaw: {
@@ -1413,6 +1478,7 @@
       material: "steel hand saw",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.handSaw || { primary: "steel", reinforcement: "wood" },
       capabilities: { woodworking: 86, woodCutting: 72 },
+      equipment: { slots: ["mainHand"], coverage: [], protection: {} },
       notes: ["precise woodworking", "door construction", "slower rough demolition"]
     },
     pryBar: {
@@ -1420,6 +1486,7 @@
       material: "solid steel pry bar",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.pryBar || { primary: "steel" },
       capabilities: { prying: 90, masonryBreaking: 42, woodBreaking: 68 },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["fixture dismantling", "door removal", "high leverage"]
     },
     shovel: {
@@ -1427,24 +1494,28 @@
       material: "steel shovel with wooden haft",
       materialComposition: TOOL_MATERIAL_COMPOSITIONS?.shovel || { primary: "steel", reinforcement: "wood" },
       capabilities: { earthmoving: 88, excavation: 28 },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
       notes: ["earth and loose material", "future rubble clearing", "not adequate for solid rock"]
     },
     environmentalSurveyKit: {
       max: 80,
       material: "brass and glass field sensors",
       materialComposition: { primary: "steel", lining: "glass" },
+      equipment: { slots: ["beltLeft"], coverage: [], protection: {} },
       notes: ["temperature, humidity, light, and electrical sensors", "requires calibration for narrow readings"]
     },
     thaumometer: {
       max: 70,
       material: "glass thaumic resonator",
       materialComposition: { primary: "glass", reinforcement: "steel" },
+      equipment: { slots: ["beltRight"], coverage: [], protection: {} },
       notes: ["ambient mana instrument", "susceptible to drift and physical shock"]
     },
     assayCase: {
       max: 90,
       material: "steel and glass portable assay case",
       materialComposition: { primary: "steel", lining: "glass", seal: "rubber" },
+      equipment: { slots: ["mainHand"], coverage: [], protection: {} },
       notes: ["air and biological sampling", "bench analysis consumes Assay Reagent"]
     }
   };
@@ -2494,7 +2565,24 @@
   const SERVICE_POLICY_DEFAULTS = { mode: "manual", thresholdPercent: 100, clearOverflow: false, priority: 4 };
   const WORK_ORDER_STATUS_IDS = new Set(["open", "claimed", "blocked", "completed", "canceled"]);
   const WORK_ORDER_HISTORY_LIMIT = 160;
-  const ACTOR_INVENTORY_VERSION = 1;
+  const ACTOR_INVENTORY_VERSION = 2;
+  const EQUIPMENT_SLOT_DEFS = [
+    { id: "head", label: "Head" },
+    { id: "eyes", label: "Eyes" },
+    { id: "face", label: "Face" },
+    { id: "torso", label: "Torso" },
+    { id: "hands", label: "Hands" },
+    { id: "legs", label: "Legs" },
+    { id: "feet", label: "Feet" },
+    { id: "mainHand", label: "Main Hand" },
+    { id: "offHand", label: "Off Hand" },
+    { id: "waist", label: "Waist" },
+    { id: "beltLeft", label: "Belt Left" },
+    { id: "beltRight", label: "Belt Right" },
+    { id: "back", label: "Back Mount" }
+  ];
+  const EQUIPMENT_SLOT_BY_ID = Object.fromEntries(EQUIPMENT_SLOT_DEFS.map((slot) => [slot.id, slot]));
+  const EQUIPMENT_LOADOUT_LIMIT = 12;
   const SCIENTIST_CARRY_MASS_KG = 25;
   const SCIENTIST_CARRY_VOLUME_L = 80;
   const SLIME_CARRY_MIN_MASS_KG = 1;
@@ -2985,6 +3073,62 @@
       description: "An eight-liter sealed jar reserved for mixed or poorly classified material."
     },
     ...FIXTURE_CRAFTED_ITEM_DEFS,
+    {
+      key: "stainedLabCoat",
+      label: "Stained lab coat",
+      category: "tools",
+      initial: 1,
+      description: "Ordinary protective laboratory clothing. It begins in storage rather than on the newly spawned scientist."
+    },
+    {
+      key: "safetyGoggles",
+      label: "Safety goggles",
+      category: "tools",
+      initial: 1,
+      description: "Reusable eye protection for splashes and fragments."
+    },
+    {
+      key: "filterMask",
+      label: "Filter mask",
+      category: "tools",
+      initial: 1,
+      description: "A reusable mask with replaceable filter media for airborne laboratory contamination."
+    },
+    {
+      key: "containmentApron",
+      label: "Containment apron",
+      category: "tools",
+      initial: 1,
+      description: "A heavier rubberized splash layer that occupies the torso slot instead of the lab coat."
+    },
+    {
+      key: "rubberBoots",
+      label: "Rubber boots",
+      category: "tools",
+      initial: 1,
+      description: "Insulating laboratory footwear for contaminated or electrically hazardous floors."
+    },
+    {
+      key: "utilityBelt",
+      label: "Utility belt",
+      category: "tools",
+      initial: 1,
+      description: "An optional belt that adds modest carrying capacity and supports future quick-access attachments."
+    },
+    {
+      key: "fieldBackpack",
+      label: "Field backpack",
+      category: "tools",
+      initial: 1,
+      description: "Optional back-mounted storage. It is available when needed but is never equipped by default."
+    },
+    {
+      key: "articulatedTentacleRig",
+      label: "Articulated tentacle rig",
+      category: "tools",
+      initial: 0,
+      description: "A future-capable steel back apparatus with articulated manipulation arms. It shares the Back Mount with backpacks."
+    },
     {
       key: "thickGloves",
       label: "Thick gloves",
@@ -3841,6 +3985,7 @@
     "researchWork",
     "experimentConclusion",
     "toolMaintenance",
+    "equipmentChange",
     "laborWork",
     "injuryTreatment",
     "rest"
@@ -3962,6 +4107,8 @@
       resources: defaultResources(),
       inventory: defaultInventory(),
       toolDurability: defaultToolDurability(),
+      equipmentLoadouts: [],
+      nextEquipmentLoadoutNumber: 1,
       roomStockpiles: defaultRoomStockpiles(),
       floorStockpiles: [],
       inventoryHistory: defaultInventoryHistory(),
@@ -4062,7 +4209,7 @@
   const SCIENTIST_DEFAULT_CARRIED_LIGHT = Object.freeze({
     id: "starter-hand-lamp",
     label: "Hand lamp",
-    enabled: true,
+    enabled: false,
     condition: 100,
     intensity: 60,
     radius: 4,
@@ -4123,7 +4270,8 @@
       maxMassKg: capacity.maxMassKg,
       maxVolumeL: capacity.maxVolumeL,
       stackIds: [],
-      equippedToolInstanceIds: []
+      equippedToolInstanceIds: [],
+      equipmentSlots: Object.fromEntries(EQUIPMENT_SLOT_DEFS.map((slot) => [slot.id, ""]))
     };
   }
 
@@ -4134,7 +4282,11 @@
       maxMassKg: Math.max(0, Number(candidate?.maxMassKg) || fallback.maxMassKg),
       maxVolumeL: Math.max(0, Number(candidate?.maxVolumeL) || fallback.maxVolumeL),
       stackIds: [...new Set((Array.isArray(candidate?.stackIds) ? candidate.stackIds : []).map(String).filter(Boolean))],
-      equippedToolInstanceIds: [...new Set((Array.isArray(candidate?.equippedToolInstanceIds) ? candidate.equippedToolInstanceIds : []).map(String).filter(Boolean))]
+      equippedToolInstanceIds: [...new Set((Array.isArray(candidate?.equippedToolInstanceIds) ? candidate.equippedToolInstanceIds : []).map(String).filter(Boolean))],
+      equipmentSlots: Object.fromEntries(EQUIPMENT_SLOT_DEFS.map((slot) => [
+        slot.id,
+        String(candidate?.equipmentSlots?.[slot.id] || "")
+      ]))
     };
   }
 
@@ -4158,7 +4310,8 @@
       quality: Diagnostics.INSTRUMENT_BY_ID[itemKey] ? 35 : 50,
       roomId: STORAGE_ROOM_ID,
       carriedBy: "",
-      reservedTaskId: ""
+      reservedTaskId: "",
+      contaminationLoad: 0
     };
   }
 
@@ -5696,6 +5849,27 @@
         })
       }),
       actorInventorySnapshot: (actorId = "scientist") => actorInventorySnapshot(actorId),
+      equipmentSnapshot: (actorId = "scientist") => ({
+        slots: { ...actorEquipmentSlots(actorId) },
+        summary: equipmentSummary(actorId),
+        contamination: equipmentContaminationSummary(actorId),
+        encumbrance: actorEncumbranceInfo(actorId),
+        loadouts: normalizeEquipmentLoadouts(state.equipmentLoadouts).map((loadout) => ({ ...loadout, slots: { ...loadout.slots } }))
+      }),
+      queueEquipmentChange: (itemKey, action = "equip") => {
+        const equipped = equippedEquipmentEntries("scientist").find((entry) => entry.itemKey === itemKey);
+        const instance = action === "unequip" ? equipped?.instance : toolInstancesForItem(itemKey).find((candidate) => candidate.current > 0 && !candidate.reservedTaskId);
+        return instance ? Boolean(queueEquipmentChange(itemKey, instance.id, action)) : false;
+      },
+      equipActorToolInstance: (actorId, instanceId) => {
+        const result = equipActorToolInstance(actorId, instanceId);
+        persist();
+        render();
+        return result;
+      },
+      saveEquipmentLoadout: (name) => saveCurrentEquipmentLoadout(name),
+      queueEquipmentLoadout: (loadoutId) => queueEquipmentLoadout(loadoutId),
+      applyScientistEquipmentDamage: (amount, damageTypes = ["physical"]) => scientistEquipmentDamageResult(amount, damageTypes, "debug test"),
       carryActorStack: (actorId, stackId, quantity = 1) => {
         const carried = carryPhysicalStack(actorId, stackId, quantity);
         persist();
@@ -9256,6 +9430,11 @@
 
     if (task.type === "scientistMove") {
       completeScientistMove(task);
+      return;
+    }
+
+    if (task.type === "equipmentChange") {
+      completeEquipmentChange(task);
       return;
     }
 
@@ -17875,6 +18054,18 @@
       }[key] || { volumeL: 1, massKg: 1 };
     }
     if (section === "inventory") {
+      const equipmentMetrics = {
+        stainedLabCoat: { volumeL: 1.5, massKg: 0.7 },
+        safetyGoggles: { volumeL: 0.3, massKg: 0.2 },
+        filterMask: { volumeL: 0.4, massKg: 0.15 },
+        containmentApron: { volumeL: 2, massKg: 1.2 },
+        rubberBoots: { volumeL: 3, massKg: 1.2 },
+        utilityBelt: { volumeL: 1, massKg: 0.5 },
+        fieldBackpack: { volumeL: 4, massKg: 1.2 },
+        articulatedTentacleRig: { volumeL: 18, massKg: 18 },
+        thickGloves: { volumeL: 0.5, massKg: 0.35 }
+      }[key];
+      if (equipmentMetrics) return equipmentMetrics;
       const metrics = {
         lumber: { volumeL: 12, massKg: 5 },
         steelPanels: { volumeL: 6, massKg: 8 },
@@ -18079,6 +18270,20 @@
       if (actor.inventory.stackIds.join("|") !== stackIds.join("|") || actor.inventory.equippedToolInstanceIds.join("|") !== equippedToolInstanceIds.join("|")) changed = true;
       actor.inventory.stackIds = stackIds;
       actor.inventory.equippedToolInstanceIds = equippedToolInstanceIds;
+      const instanceById = new Map(Object.entries(context.toolDurability || {}).flatMap(([itemKey, instances]) =>
+        (instances || []).map((instance) => [instance.id, { itemKey, instance }])
+      ));
+      for (const [slotId, instanceId] of Object.entries(actor.inventory.equipmentSlots)) {
+        if (!instanceId) continue;
+        const found = instanceById.get(instanceId);
+        const valid = found
+          && found.instance.carriedBy === id
+          && (TOOL_DURABILITY_DEFS[found.itemKey]?.equipment?.slots || []).includes(slotId);
+        if (!valid) {
+          actor.inventory.equipmentSlots[slotId] = "";
+          changed = true;
+        }
+      }
     }
     return changed;
   }
@@ -18102,17 +18307,21 @@
     syncActorInventories();
     const inventory = normalizeActorInventory(actor.inventory, actorId === "scientist" ? "scientist" : actor);
     const usage = actorInventoryUsage(actorId);
+    const capacityBonus = actorEquipmentCapacityBonus(actorId);
     return {
       actorId,
       version: inventory.version,
-      capacity: { massKg: inventory.maxMassKg, volumeL: inventory.maxVolumeL },
+      capacity: { massKg: inventory.maxMassKg + capacityBonus.massKg, volumeL: inventory.maxVolumeL + capacityBonus.volumeL },
       usage,
       remaining: {
-        massKg: Math.max(0, inventory.maxMassKg - usage.massKg),
-        volumeL: Math.max(0, inventory.maxVolumeL - usage.volumeL)
+        massKg: Math.max(0, inventory.maxMassKg + capacityBonus.massKg - usage.massKg),
+        volumeL: Math.max(0, inventory.maxVolumeL + capacityBonus.volumeL - usage.volumeL)
       },
       stacks: actorInventoryStacks(actorId).map((stack) => ({ ...stack, cell: { ...stack.cell } })),
-      equippedToolInstanceIds: [...inventory.equippedToolInstanceIds]
+      equippedToolInstanceIds: [...inventory.equippedToolInstanceIds],
+      equipmentSlots: { ...inventory.equipmentSlots },
+      equipped: equippedEquipmentEntries(actorId).map((entry) => ({ itemKey: entry.itemKey, instanceId: entry.instance.id, slots: [...entry.slots] })),
+      encumbrance: actorEncumbranceInfo(actorId)
     };
   }
 
@@ -25374,10 +25583,13 @@
   }
 
   function damageScientistCombat(amount, reason = "combat injury", options = {}) {
-    const damage = Math.max(0, Math.round(Number(amount) || 0));
-    if (!damage || scientistIsDead()) {
+    const incoming = Math.max(0, Math.round(Number(amount) || 0));
+    if (!incoming || scientistIsDead()) {
       return false;
     }
+    const protectedDamage = scientistEquipmentDamageResult(incoming, options.damageTypes || ["physical"], reason);
+    const damage = protectedDamage.damage;
+    if (!damage) return true;
     const health = scientistVital("health");
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
@@ -30376,6 +30588,295 @@
     return null;
   }
 
+  function equipmentDef(itemKey) {
+    return durableToolDef(itemKey)?.equipment || null;
+  }
+
+  function equipmentSlotIds(itemKey) {
+    return (equipmentDef(itemKey)?.slots || []).filter((slotId) => EQUIPMENT_SLOT_BY_ID[slotId]);
+  }
+
+  function actorEquipmentSlots(actorId = "scientist") {
+    const actor = actorInventoryOwner(actorId);
+    if (!actor) return {};
+    actor.inventory = normalizeActorInventory(actor.inventory, actorId === "scientist" ? "scientist" : actor);
+    return actor.inventory.equipmentSlots;
+  }
+
+  function equippedEquipmentEntries(actorId = "scientist") {
+    const slots = actorEquipmentSlots(actorId);
+    const unique = [...new Set(Object.values(slots).filter(Boolean))];
+    return unique.map((instanceId) => {
+      const found = toolInstanceById(instanceId);
+      return found && equipmentDef(found.itemKey)
+        ? { ...found, slots: Object.entries(slots).filter(([, id]) => id === instanceId).map(([slotId]) => slotId) }
+        : null;
+    }).filter(Boolean);
+  }
+
+  function actorEquipmentCapacityBonus(actorId = "scientist") {
+    return equippedEquipmentEntries(actorId).reduce((bonus, entry) => {
+      bonus.massKg += Math.max(0, Number(equipmentDef(entry.itemKey)?.capacityMassKg) || 0);
+      bonus.volumeL += Math.max(0, Number(equipmentDef(entry.itemKey)?.capacityVolumeL) || 0);
+      return bonus;
+    }, { massKg: 0, volumeL: 0 });
+  }
+
+  function actorEncumbranceInfo(actorId = "scientist") {
+    const actor = actorInventoryOwner(actorId);
+    if (!actor) return { id: "unavailable", label: "Unavailable", ratio: 0, speedMultiplier: 1, staminaModifier: 0 };
+    const inventory = normalizeActorInventory(actor.inventory, actorId === "scientist" ? "scientist" : actor);
+    const usage = actorInventoryUsage(actorId);
+    const bonus = actorEquipmentCapacityBonus(actorId);
+    const capacity = {
+      massKg: inventory.maxMassKg + bonus.massKg,
+      volumeL: inventory.maxVolumeL + bonus.volumeL
+    };
+    const ratio = Math.max(
+      usage.massKg / Math.max(0.001, capacity.massKg),
+      usage.volumeL / Math.max(0.001, capacity.volumeL)
+    );
+    if (ratio >= 0.9) return { id: "heavy", label: "Heavily burdened", ratio, speedMultiplier: 0.7, staminaModifier: 2, capacity, usage };
+    if (ratio >= 0.7) return { id: "loaded", label: "Loaded", ratio, speedMultiplier: 0.85, staminaModifier: 1, capacity, usage };
+    return { id: "light", label: "Light burden", ratio, speedMultiplier: 1, staminaModifier: 0, capacity, usage };
+  }
+
+  function equipmentSummary(actorId = "scientist") {
+    const entries = equippedEquipmentEntries(actorId);
+    if (!entries.length) return "None (vat-start loadout)";
+    return entries.map((entry) => {
+      const slots = entry.slots.map((slotId) => EQUIPMENT_SLOT_BY_ID[slotId]?.label || slotId).join(" + ");
+      return `${slots}: ${inventoryItemLabel(entry.itemKey)}`;
+    }).join("; ");
+  }
+
+  function equipActorToolInstance(actorId, instanceId) {
+    const actor = actorInventoryOwner(actorId);
+    const found = toolInstanceById(instanceId);
+    const slots = found ? equipmentSlotIds(found.itemKey) : [];
+    if (!actor || !found || !slots.length || found.instance.current <= 0 || found.instance.carriedBy !== actorId) return false;
+    const equipmentSlots = actorEquipmentSlots(actorId);
+    const displacedIds = new Set(slots.map((slotId) => equipmentSlots[slotId]).filter(Boolean));
+    for (const slotId of Object.keys(equipmentSlots)) {
+      if (displacedIds.has(equipmentSlots[slotId])) equipmentSlots[slotId] = "";
+    }
+    for (const slotId of slots) equipmentSlots[slotId] = found.instance.id;
+    actor.inventory.equipmentSlots = equipmentSlots;
+    syncActorInventories();
+    return true;
+  }
+
+  function unequipActorToolInstance(actorId, instanceId) {
+    const actor = actorInventoryOwner(actorId);
+    if (!actor) return false;
+    const slots = actorEquipmentSlots(actorId);
+    let changed = false;
+    for (const slotId of Object.keys(slots)) {
+      if (slots[slotId] !== instanceId) continue;
+      slots[slotId] = "";
+      changed = true;
+    }
+    actor.inventory.equipmentSlots = slots;
+    return changed;
+  }
+
+  function equipmentSourceStack(itemKey, instanceId, taskId = "") {
+    return ensurePhysicalItemStacks().find((stack) => stack.toolInstanceId === instanceId)
+      || ensurePhysicalItemStacks().find((stack) => stack.section === "inventory" && stack.key === itemKey && stack.quantity > 0 && !stack.carriedBy && (!stack.reservedTaskId || stack.reservedTaskId === taskId))
+      || null;
+  }
+
+  function equipmentChangeBlockReason(itemKey, instanceId, action = "equip", taskId = "") {
+    const found = toolInstanceById(instanceId);
+    if (!found || found.itemKey !== itemKey || !equipmentDef(itemKey)) return "The selected equipment is no longer available.";
+    if (found.instance.current <= 0) return `${inventoryItemLabel(itemKey)} is broken.`;
+    if (found.instance.reservedTaskId && found.instance.reservedTaskId !== taskId) return `${inventoryItemLabel(itemKey)} is reserved for other work.`;
+    if (action === "unequip") return equippedEquipmentEntries("scientist").some((entry) => entry.instance.id === instanceId) ? "" : "That item is no longer equipped.";
+    const stack = equipmentSourceStack(itemKey, instanceId, taskId);
+    if (!stack && found.instance.carriedBy !== "scientist") return `${inventoryItemLabel(itemKey)} has no reachable physical item.`;
+    if (stack?.reservedTaskId && stack.reservedTaskId !== taskId) return `${inventoryItemLabel(itemKey)} is reserved for other work.`;
+    return "";
+  }
+
+  function queueEquipmentChange(itemKey, instanceId, action = "equip", options = {}) {
+    const reason = equipmentChangeBlockReason(itemKey, instanceId, action);
+    if (reason) {
+      addEvent(reason);
+      persist();
+      render();
+      return null;
+    }
+    const found = toolInstanceById(instanceId);
+    const stack = action === "equip" ? equipmentSourceStack(itemKey, instanceId) : null;
+    const fromCell = scientistMapCell();
+    const targetCell = stack && !stack.carriedBy
+      ? cleanMapCell(stockpileHaulAccessCell(stack)) || cleanMapCell(stack.cell)
+      : fromCell;
+    const mapPath = mapCellKey(fromCell) === mapCellKey(targetCell)
+      ? [fromCell]
+      : labMapPathBetweenCells(fromCell, targetCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true });
+    if (!mapPath.length) {
+      addEvent(`No physical route reaches ${inventoryItemLabel(itemKey)}.`);
+      persist();
+      render();
+      return null;
+    }
+    const travelSeconds = Math.max(0, mapPath.length - 1) * ensureLabMap().tileSizeM / scientistMoveSpeedMps();
+    const task = createTask({
+      type: "equipmentChange",
+      label: `${action === "equip" ? "Equip" : "Unequip"} ${inventoryItemLabel(itemKey)}`,
+      duration: Math.max(4, Math.ceil(travelSeconds + 4)),
+      data: {
+        action,
+        itemKey,
+        toolInstanceId: instanceId,
+        stackId: stack?.id || "",
+        fromCell,
+        toCell: targetCell,
+        mapPath,
+        mapPaths: [mapPath],
+        accessOverrideAll: true,
+        loadoutId: String(options.loadoutId || "")
+      }
+    });
+    found.instance.reservedTaskId = task.id;
+    if (stack && !stack.carriedBy) stack.reservedTaskId = task.id;
+    persist();
+    render();
+    return task;
+  }
+
+  function completeEquipmentChange(task) {
+    const action = task.data?.action || "equip";
+    const found = toolInstanceById(task.data?.toolInstanceId);
+    if (!found) {
+      addEvent("Equipment change failed because the item is no longer available.");
+      return false;
+    }
+    if (action === "unequip") {
+      unequipActorToolInstance("scientist", found.instance.id);
+      found.instance.reservedTaskId = "";
+      addEvent(`${inventoryItemLabel(found.itemKey)} removed and retained in the scientist's inventory.`);
+      return true;
+    }
+    let stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+    if (found.instance.carriedBy !== "scientist") {
+      stack = stack && carryPhysicalStack("scientist", stack.id, 1, { allowReserved: true, toolInstanceId: found.instance.id });
+    }
+    if (!stack || !equipActorToolInstance("scientist", found.instance.id)) {
+      found.instance.reservedTaskId = "";
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+      addEvent(`Could not equip ${inventoryItemLabel(found.itemKey)}.`);
+      return false;
+    }
+    found.instance.reservedTaskId = "";
+    stack.reservedTaskId = "";
+    addEvent(`${inventoryItemLabel(found.itemKey)} equipped in ${equipmentSlotIds(found.itemKey).map((slotId) => EQUIPMENT_SLOT_BY_ID[slotId].label).join(" + ")}.`);
+    return true;
+  }
+
+  function normalizeEquipmentLoadouts(candidate) {
+    const source = Array.isArray(candidate) ? candidate : [];
+    const seen = new Set();
+    return source.map((loadout, index) => {
+      const id = String(loadout?.id || `loadout-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "");
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+      const slots = {};
+      for (const [slotId, itemKey] of Object.entries(loadout?.slots || {})) {
+        if (EQUIPMENT_SLOT_BY_ID[slotId] && equipmentSlotIds(itemKey).includes(slotId)) slots[slotId] = itemKey;
+      }
+      return { id, name: String(loadout?.name || `Loadout ${index + 1}`).trim().slice(0, 40), slots };
+    }).filter(Boolean).slice(0, EQUIPMENT_LOADOUT_LIMIT);
+  }
+
+  function saveCurrentEquipmentLoadout(name) {
+    const cleanName = String(name || "").trim().slice(0, 40);
+    if (!cleanName) return false;
+    state.equipmentLoadouts = normalizeEquipmentLoadouts(state.equipmentLoadouts);
+    const slots = {};
+    for (const [slotId, instanceId] of Object.entries(actorEquipmentSlots("scientist"))) {
+      const found = toolInstanceById(instanceId);
+      if (found) slots[slotId] = found.itemKey;
+    }
+    state.equipmentLoadouts.push({ id: `loadout-${state.nextEquipmentLoadoutNumber++}`, name: cleanName, slots });
+    state.equipmentLoadouts = normalizeEquipmentLoadouts(state.equipmentLoadouts);
+    addEvent(`Saved equipment loadout: ${cleanName}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function queueEquipmentLoadout(loadoutId) {
+    const loadout = normalizeEquipmentLoadouts(state.equipmentLoadouts).find((entry) => entry.id === loadoutId);
+    if (!loadout) return false;
+    const desiredKeys = new Set(Object.values(loadout.slots));
+    for (const entry of equippedEquipmentEntries("scientist")) {
+      if (!desiredKeys.has(entry.itemKey)) queueEquipmentChange(entry.itemKey, entry.instance.id, "unequip", { loadoutId });
+    }
+    for (const itemKey of desiredKeys) {
+      if (equippedEquipmentEntries("scientist").some((entry) => entry.itemKey === itemKey)) continue;
+      const instance = toolInstancesForItem(itemKey).find((candidate) => candidate.current > 0 && !candidate.reservedTaskId);
+      if (instance) queueEquipmentChange(itemKey, instance.id, "equip", { loadoutId });
+    }
+    addEvent(`Queued equipment loadout: ${loadout.name}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function scientistEquipmentDamageResult(amount, damageTypes = [], reason = "hazard exposure") {
+    const incoming = Math.max(0, Math.round(Number(amount) || 0));
+    const types = [...new Set((damageTypes || []).map(normalizeDamageTypeId).filter(Boolean))];
+    const entries = equippedEquipmentEntries("scientist").filter((entry) => entry.instance.current > 0);
+    if (!incoming || !types.length || !entries.length) return { incoming, damage: incoming, absorbed: 0, protection: 0 };
+    const typeProtection = types.map((typeId) => {
+      const layers = entries.map((entry) => clamp(Number(equipmentDef(entry.itemKey)?.protection?.[typeId]) || 0, 0, 0.8));
+      return 1 - layers.reduce((remaining, value) => remaining * (1 - value), 1);
+    });
+    const protection = clamp(typeProtection.reduce((sum, value) => sum + value, 0) / typeProtection.length, 0, 0.75);
+    const damage = Math.max(0, Math.round(incoming * (1 - protection)));
+    const absorbed = Math.max(0, incoming - damage);
+    if (absorbed > 0) {
+      const contributing = entries.filter((entry) => types.some((typeId) => Number(equipmentDef(entry.itemKey)?.protection?.[typeId]) > 0));
+      for (const entry of contributing) {
+        const before = entry.instance.current;
+        entry.instance.current = Math.max(0, before - Math.max(1, Math.ceil(absorbed / Math.max(1, contributing.length))));
+        if (types.some((typeId) => ["corrosive", "toxic"].includes(typeId))) {
+          const capacity = Math.max(1, Number(equipmentDef(entry.itemKey)?.contaminationCapacity) || 20);
+          entry.instance.contaminationLoad = clamp(Number(entry.instance.contaminationLoad) + absorbed * 2, 0, capacity);
+        }
+        if (entry.instance.current <= 0) unequipActorToolInstance("scientist", entry.instance.id);
+      }
+      addEvent(`Equipment absorbed ${absorbed} damage during ${reason}.`);
+    }
+    return { incoming, damage, absorbed, protection };
+  }
+
+  function equipmentContaminationSummary(actorId = "scientist") {
+    const entries = equippedEquipmentEntries(actorId).filter((entry) => Number(entry.instance.contaminationLoad) > 0);
+    return entries.length
+      ? entries.map((entry) => `${inventoryItemLabel(entry.itemKey)} ${formatNumber(entry.instance.contaminationLoad)}`).join("; ")
+      : "Clean";
+  }
+
+  function cleanEquipmentInstance(instanceId) {
+    const found = toolInstanceById(instanceId);
+    if (!found || !equipmentDef(found.itemKey) || Number(found.instance.contaminationLoad) <= 0) return false;
+    if (inventoryAmount("neutralizingWash") <= 0) {
+      addEvent("Equipment cleaning requires Neutralizing Wash.");
+      persist();
+      render();
+      return false;
+    }
+    addInventoryItem("neutralizingWash", -1, `Cleaned ${inventoryItemLabel(found.itemKey)}`, STORAGE_ROOM_ID);
+    found.instance.contaminationLoad = 0;
+    addEvent(`${inventoryItemLabel(found.itemKey)} cleaned and neutralized.`);
+    persist();
+    render();
+    return true;
+  }
+
   function toolQualityBand(instance) {
     const quality = clamp(Math.round(Number(instance?.quality) || 0), 0, 100);
     return TOOL_QUALITY_BANDS.find((band) => quality >= band.min) || TOOL_QUALITY_BANDS[TOOL_QUALITY_BANDS.length - 1];
@@ -30478,12 +30979,15 @@
     }
     const amount = inventoryAmount(itemKey);
     const best = bestToolInstance(itemKey, false);
-    const bestUsable = bestToolInstance(itemKey, true);
-    const usableAmount = usableToolCount(itemKey);
+    const wearable = Boolean(equipmentDef(itemKey));
+    const equipped = wearable ? equippedEquipmentEntries("scientist").find((entry) => entry.itemKey === itemKey)?.instance || null : null;
+    const bestUsable = wearable ? (equipped?.current > 0 ? equipped : null) : bestToolInstance(itemKey, true);
+    const usableAmount = wearable ? Number(Boolean(bestUsable)) : usableToolCount(itemKey);
     return {
       itemKey,
       item,
       amount,
+      equipped,
       usableAmount,
       best,
       bestUsable,
@@ -30499,7 +31003,7 @@
     if (info.usableAmount > 0) {
       const tool = info.bestUsable;
       const band = toolConditionBand(tool);
-      return `Tool preview: ${info.item.label} usable (${band.label} ${formatNumber(tool.current)}/${formatNumber(tool.max)})`;
+      return `Tool preview: ${info.item.label} ${equipmentDef(info.itemKey) ? "equipped" : "usable"} (${band.label} ${formatNumber(tool.current)}/${formatNumber(tool.max)})`;
     }
     return info.amount > 0
       ? `Tool preview: ${info.item.label} stocked but broken`
@@ -30544,6 +31048,9 @@
     const info = handlingMethodInventoryInfo(methodId);
     if (!info || info.usableAmount > 0) {
       return "";
+    }
+    if (equipmentDef(info.itemKey) && info.amount > 0 && bestToolInstance(info.itemKey, true)) {
+      return `Procedure blocked: ${info.item.label} must be equipped first.`;
     }
     if (info.amount > 0) {
       return `Procedure blocked: all cataloged ${info.item.label} tools are broken.`;
@@ -31324,10 +31831,12 @@
   }
 
   function damageScientistHealth(amount, reason = "direct handling injury") {
-    const damage = Math.max(0, Math.round(Number(amount) || 0));
-    if (!damage) {
+    const incoming = Math.max(0, Math.round(Number(amount) || 0));
+    if (!incoming) {
       return false;
     }
+    const damage = scientistEquipmentDamageResult(incoming, ["physical"], reason).damage;
+    if (!damage) return true;
     const health = scientistVital("health");
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
@@ -38137,8 +38646,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) {
+    if (!["scientistMove", "equipmentChange", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) return null;
+    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -48010,6 +48519,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!tool) return "The tool is no longer available.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
     }
+    if (task.type === "equipmentChange") {
+      return equipmentChangeBlockReason(task.data?.itemKey, task.data?.toolInstanceId, task.data?.action, task.id);
+    }
     if (task.type === "physicalDiagnostic") {
       return physicalDiagnosticTaskBlockReason(task);
     }
@@ -48145,6 +48657,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "toolMaintenance") {
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+    }
+    if (task.type === "equipmentChange") {
+      const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     if (task.type === "physicalDiagnostic") {
       releaseConstructionTaskTools(task, { retain: false });
@@ -49131,9 +49649,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
+  function equipmentContextCommands() {
+    const commands = [];
+    for (const [itemKey, def] of Object.entries(TOOL_DURABILITY_DEFS)) {
+      if (!def.equipment) continue;
+      const instances = toolInstancesForItem(itemKey);
+      if (!instances.length) continue;
+      const equipped = equippedEquipmentEntries("scientist").find((entry) => entry.itemKey === itemKey);
+      if (equipped) {
+        commands.push(commandDef({
+          id: `equipment.unequip.${equipped.instance.id}`,
+          label: `Unequip ${inventoryItemLabel(itemKey)}`,
+          group: "Equipment",
+          disabledReason: equipmentChangeBlockReason(itemKey, equipped.instance.id, "unequip"),
+          description: `Remove it from ${equipped.slots.map((slotId) => EQUIPMENT_SLOT_BY_ID[slotId].label).join(" + ")} while retaining the physical item in inventory.`,
+          run: () => queueEquipmentChange(itemKey, equipped.instance.id, "unequip")
+        }));
+        if (Number(equipped.instance.contaminationLoad) > 0) {
+          commands.push(commandDef({
+            id: `equipment.clean.${equipped.instance.id}`,
+            label: `Clean ${inventoryItemLabel(itemKey)}`,
+            group: "Equipment Care",
+            disabledReason: inventoryAmount("neutralizingWash") > 0 ? "" : "Neutralizing Wash is required.",
+            description: `Remove ${formatNumber(equipped.instance.contaminationLoad)} contamination load with one Neutralizing Wash.`,
+            run: () => cleanEquipmentInstance(equipped.instance.id)
+          }));
+        }
+      } else {
+        const instance = instances.find((candidate) => candidate.current > 0 && !candidate.reservedTaskId) || instances[0];
+        commands.push(commandDef({
+          id: `equipment.equip.${instance.id}`,
+          label: `Equip ${inventoryItemLabel(itemKey)}`,
+          group: "Equipment",
+          disabledReason: equipmentChangeBlockReason(itemKey, instance.id, "equip"),
+          description: `Retrieve this physical item and equip it in ${equipmentSlotIds(itemKey).map((slotId) => EQUIPMENT_SLOT_BY_ID[slotId].label).join(" + ")}.`,
+          run: () => queueEquipmentChange(itemKey, instance.id, "equip")
+        }));
+      }
+    }
+    commands.push(commandDef({
+      id: "equipment.saveLoadout",
+      label: "Save Current Loadout",
+      group: "Loadouts",
+      disabledReason: (state.equipmentLoadouts || []).length >= EQUIPMENT_LOADOUT_LIMIT ? `Maximum of ${EQUIPMENT_LOADOUT_LIMIT} loadouts reached.` : "",
+      description: "Name and save the currently equipped item types. An empty vat-start loadout is valid.",
+      run: () => {
+        const name = window.prompt("Loadout name:", `Loadout ${state.nextEquipmentLoadoutNumber || 1}`);
+        return name == null ? false : saveCurrentEquipmentLoadout(name);
+      }
+    }));
+    for (const loadout of normalizeEquipmentLoadouts(state.equipmentLoadouts)) {
+      commands.push(commandDef({
+        id: `equipment.loadout.${loadout.id}`,
+        label: `Equip Loadout: ${loadout.name}`,
+        group: "Loadouts",
+        description: "Queue the required removals and routed equipment retrieval tasks.",
+        run: () => queueEquipmentLoadout(loadout.id)
+      }));
+      commands.push(commandDef({
+        id: `equipment.deleteLoadout.${loadout.id}`,
+        label: `Delete Loadout: ${loadout.name}`,
+        group: "Loadouts",
+        description: "Delete this saved equipment plan without changing currently worn items.",
+        danger: true,
+        run: () => {
+          state.equipmentLoadouts = normalizeEquipmentLoadouts(state.equipmentLoadouts).filter((entry) => entry.id !== loadout.id);
+          addEvent(`Deleted equipment loadout: ${loadout.name}.`);
+          persist();
+          render();
+          return true;
+        }
+      }));
+    }
+    return commands;
+  }
+
   function scientistContextCommands() {
     const pending = state.combat?.pendingActions?.scientist;
     return [
+      ...equipmentContextCommands(),
       ...injuryContextCommands("scientist"),
       ...fieldDiagnosticContextCommands("scientist", "scientist", scientistMapCell(), { environment: false, sampleMethods: ["surfaceSwab", "fluidSample"] }),
       commandDef({
@@ -51300,6 +51894,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "scientist") {
       rows.push(["Inventory", actorInventoryContentsLabel("scientist")]);
+      rows.push(["Equipment", equipmentSummary("scientist")]);
+      rows.push(["Burden", `${actorEncumbranceInfo("scientist").label} (${Math.round(actorEncumbranceInfo("scientist").ratio * 100)}%)`]);
+      rows.push(["Equipment contamination", equipmentContaminationSummary("scientist")]);
       rows.push(["Condition", actorIsIncapacitated("scientist") ? "Incapacitated" : actorInjuries("scientist").length ? "Injured" : "Able-bodied"]);
       rows.push(["Injuries", injurySummary("scientist", { internal: true })]);
     } else if (selection.kind === "room") {
@@ -51413,6 +52010,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
         ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`],
         ["Inventory", actorInventoryContentsLabel("scientist")],
+        ["Equipment", equipmentSummary("scientist")],
+        ["Encumbrance", `${actorEncumbranceInfo("scientist").label}; movement ×${formatDecimal(actorEncumbranceInfo("scientist").speedMultiplier, 2)}; +${actorEncumbranceInfo("scientist").staminaModifier} STA when burdened`],
+        ["Equipment contamination", equipmentContaminationSummary("scientist")],
         ["Injuries", injurySummary("scientist", { internal: true })],
         ["Carried light", `${carriedLight.label}; ${carriedLight.enabled && carriedLight.condition > 0 ? `on, warm, ${carriedLight.radius} m nominal radius` : "off or damaged"}`],
         ["Combat action", pending ? `${combatActionDef(pending.actionId)?.label || pending.actionId}; releases ${formatClock(pending.releaseAt)}` : scientistGuarding() ? "Guarding" : "None"],
@@ -56236,6 +56836,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "scientistMove") {
       return "Scientist";
     }
+    if (task.type === "equipmentChange") {
+      return "Equipment";
+    }
     if (task.type === "doorOperation") {
       return "Door Operation";
     }
@@ -59579,6 +60182,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       lines.splice(4, 0, ...craftedStacks.map((stack) => `${craftsmanshipBand(stack.craftsmanship).label} craftsmanship (${formatNumber(stack.craftsmanship)}); ${materialCompositionLabel(stack.materialComposition)}; ${stack.fixtureId ? fixtureById(stack.fixtureId)?.name || "stored fixture" : roomName(stack.roomId)}.`));
     }
     const methodId = handlingMethodIdForInventoryItem(item.key);
+    const slots = equipmentSlotIds(item.key);
+    if (durableToolDef(item.key) && !methodId) {
+      lines.splice(2, 0, toolDurabilityTooltip(item.key));
+    }
+    if (slots.length) {
+      lines.splice(2, 0,
+        `Equipment slots: ${slots.map((slotId) => EQUIPMENT_SLOT_BY_ID[slotId].label).join(" + ")}.`,
+        equippedEquipmentEntries("scientist").some((entry) => entry.itemKey === item.key) ? "Currently equipped." : "Currently stored or carried; not equipped.");
+    }
     if (methodId) {
       lines.splice(
         2,
@@ -60221,7 +60833,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       quality: clamp(Math.round(Number(candidate?.quality ?? fallback.quality) || 0), 0, 100),
       roomId: cleanRoomId(candidate?.roomId) || fallback.roomId,
       carriedBy: normalizeActorInventoryOwnerId(candidate?.carriedBy),
-      reservedTaskId: String(candidate?.reservedTaskId || "")
+      reservedTaskId: String(candidate?.reservedTaskId || ""),
+      contaminationLoad: Math.max(0, Number(candidate?.contaminationLoad) || 0)
     };
   }
 
@@ -61976,7 +62589,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const strain = options.includePhysicalState === false
       ? { label: "Steady", modifier: 0, text: "No Physical State stamina strain." }
       : physicalStateActionStrain();
-    const finalCost = Math.max(1, skillAdjusted + strain.modifier);
+    const encumbrance = options.includeEncumbrance === false ? { label: "Light burden", staminaModifier: 0 } : actorEncumbranceInfo("scientist");
+    const finalCost = Math.max(1, skillAdjusted + strain.modifier + encumbrance.staminaModifier);
     const netDelta = finalCost - base;
     const skillLabels = resolvedSkillIds
       .map((skillId) => SKILL_BY_ID[skillId]?.label || skillId);
@@ -61993,6 +62607,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else {
       lines.push(`Physical State: ${strain.label} +0 STA`);
     }
+    if (encumbrance.staminaModifier > 0) {
+      lines.push(`Encumbrance: ${encumbrance.label} +${encumbrance.staminaModifier} STA`);
+    } else {
+      lines.push(`Encumbrance: ${encumbrance.label} +0 STA`);
+    }
     lines.push(`Final cost: ${finalCost} STA`);
     return {
       baseCost: base,
@@ -62001,6 +62620,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       physicalStateDelta: strain.modifier,
       physicalStateLabel: strain.label,
       physicalStateText: strain.text,
+      encumbranceDelta: encumbrance.staminaModifier,
+      encumbranceLabel: encumbrance.label,
       finalCost,
       netDelta,
       direction: netDelta > 0 ? "negative" : netDelta < 0 ? "positive" : "neutral",
@@ -62895,6 +63516,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resources = normalizeResources(next.resources);
     next.inventory = normalizeInventory(next.inventory);
     next.toolDurability = normalizeToolDurability(next.toolDurability, next.inventory);
+    next.equipmentLoadouts = normalizeEquipmentLoadouts(next.equipmentLoadouts);
+    next.nextEquipmentLoadoutNumber = Math.max(Number(next.nextEquipmentLoadoutNumber) || 1,
+      next.equipmentLoadouts.reduce((max, loadout) => Math.max(max, numericSuffix(loadout.id)), 0) + 1);
     next.inventoryHistory = normalizeInventoryHistory(next.inventoryHistory);
     next.collectedByproducts = normalizeCollectedByproducts(next.collectedByproducts);
     next.collectedByproductHistory = normalizeCollectedByproductHistory(next.collectedByproductHistory);
@@ -63371,7 +63995,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function scientistMoveSpeedMps() {
     state.scientist = normalizeScientist(state.scientist);
     const base = Math.max(0.1, Number(state.scientist.physicalPresence?.moveSpeedMps) || SCIENTIST_MOVE_SPEED_MPS);
-    return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)));
+    const encumbrance = actorEncumbranceInfo("scientist");
+    return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)) * encumbrance.speedMultiplier);
   }
 
   function normalizeScientist(candidate) {
