@@ -167,6 +167,7 @@ test('sampling a living specimen stores harvested material and worsens condition
       bodyIntegrity: slime?.stats?.bodyIntegrity?.current,
       currentMass: slime?.stats?.currentMass?.current,
       stress: slime?.stats?.stress?.current,
+      welfare: window.helixHeresyDebug.welfareSnapshot('harvest-live'),
     };
   }, { key: storageKey });
 
@@ -182,6 +183,10 @@ test('sampling a living specimen stores harvested material and worsens condition
   expect(result.currentMass).toBe(99);
   expect(result.stress).toBeGreaterThanOrEqual(9);
   expect(result.stress).toBeLessThan(9.1);
+  expect(result.welfare.record.interventions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: 'harvest:sample', burden: 18 }),
+  ]));
+  expect(result.welfare.record.history.at(-1).summary).toContain('Sample');
 
   await finishQueuedTask(page, 'Store 1 Caustic tissue');
   await page.locator('[data-workspace-tab="specimens"]').click();
