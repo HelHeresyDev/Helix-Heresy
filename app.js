@@ -1273,6 +1273,24 @@
   const COMBAT_AWARE_PAUSE_COOLDOWN = minutesToSeconds(10);
   const COMBAT_ACTIVE_RECORD_LIMIT = 24;
   const COMBAT_MAX_CYCLES_PER_UPDATE = 20;
+  const INJURY_SEVERITY_DEFS = {
+    minor: { id: "minor", label: "Minor", rank: 1 },
+    moderate: { id: "moderate", label: "Moderate", rank: 2 },
+    severe: { id: "severe", label: "Severe", rank: 3 },
+    critical: { id: "critical", label: "Critical", rank: 4 }
+  };
+  const INJURY_TYPE_DEFS = {
+    bruising: { id: "bruising", label: "Bruising", visible: true, supplyKey: "medicalBandage" },
+    bleeding: { id: "bleeding", label: "Bleeding", visible: true, supplyKey: "medicalBandage", progressive: true },
+    burn: { id: "burn", label: "Burn", visible: true, supplyKey: "neutralizingWash" },
+    corrosion: { id: "corrosion", label: "Corrosive Injury", visible: true, supplyKey: "neutralizingWash", progressive: true },
+    electricalTrauma: { id: "electricalTrauma", label: "Electrical Trauma", visible: true, supplyKey: "medicalBandage" },
+    fracture: { id: "fracture", label: "Suspected Fracture", visible: false, supplyKey: "medicalBandage" },
+    arcaneTrauma: { id: "arcaneTrauma", label: "Arcane/Soul Trauma", visible: false, supplyKey: "neutralizingWash" },
+    membraneTear: { id: "membraneTear", label: "Membrane Tear", visible: true, supplyKey: "membraneSealant", progressive: true },
+    coreTrauma: { id: "coreTrauma", label: "Core Trauma", visible: false, supplyKey: "membraneSealant" }
+  };
+  const SCIENTIST_INJURY_LOCATIONS = ["head", "torso", "left arm", "right arm", "left leg", "right leg"];
   const COMBAT_ACTION_DEFS = {
     strike: {
       id: "strike", label: "Strike", targetKinds: ["creature", "structure"], damageTypes: ["physical"],
@@ -1291,7 +1309,19 @@
       rangeM: COMBAT_SOUL_LASH_RANGE_M, chargeSeconds: 0, channelSeconds: 0, recoverySeconds: 1,
       manaTiming: "activation", movementInterrupts: true, damageInterrupts: false, requiresSoul: true,
       requiresLineOfEffect: true
-    }
+    },
+    shove: {
+      id: "shove", label: "Shove", targetKinds: ["creature"], damageTypes: ["physical", "force"],
+      skillId: "grappling", staminaCost: 8, baseDamage: 6, rangeM: 1,
+      chargeSeconds: 0.5, channelSeconds: 0, recoverySeconds: 3,
+      manaTiming: "none", movementInterrupts: true, damageInterrupts: true, pushesTarget: true
+    },
+    intercept: {
+      id: "intercept", label: "Intercept", targetKinds: ["creature"], damageTypes: ["physical", "force"],
+      skillId: "guarding", staminaCost: 5, baseDamage: 10, rangeM: 1,
+      chargeSeconds: 0, channelSeconds: 0, recoverySeconds: 4,
+      manaTiming: "none", movementInterrupts: true, damageInterrupts: false, interceptsTarget: true
+    },
   };
   const COMBAT_DAMAGE_BY_TYPE = {
     physical: 4,
@@ -2864,6 +2894,27 @@
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
     {
+      key: "medicalBandage",
+      label: "Medical Bandage",
+      category: "receptacles",
+      initial: 8,
+      description: "Clean wraps for first aid, pressure dressings, stabilization, and splinting. Consumed by injury treatment."
+    },
+    {
+      key: "neutralizingWash",
+      label: "Neutralizing Wash",
+      category: "receptacles",
+      initial: 5,
+      description: "A portable wash for cleaning burns, corrosive residue, electrical contact sites, and unstable arcane contamination."
+    },
+    {
+      key: "membraneSealant",
+      label: "Membrane Sealant",
+      category: "receptacles",
+      initial: 5,
+      description: "A biological sealant used to stabilize torn slime membranes and damaged cores without advanced surgery."
+    },
+    {
       key: "biomass",
       label: "Biomass",
       category: "materials",
@@ -3791,6 +3842,7 @@
     "experimentConclusion",
     "toolMaintenance",
     "laborWork",
+    "injuryTreatment",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -3929,6 +3981,7 @@
       containmentEmergencies: [],
       sensoryEvents: [],
       groupSignals: [],
+      injuries: [],
       combat: defaultCombatState(),
       incidents: [],
       policies: defaultPolicies(),
@@ -3950,6 +4003,7 @@
       nextResidueNumber: 1,
       nextIncidentNumber: 1,
       nextContainmentEmergencyNumber: 1,
+      nextInjuryNumber: 1,
       nextTaskNumber: 1,
       nextWorkOrderNumber: 1,
       nextFixtureNumber: 1,
@@ -8954,6 +9008,7 @@
       changes.physicalStateChanged += updateScientistPhysicalExposure(elapsed);
       changes.combatChanged += updateCombat(elapsed);
       const routineSuspended = Boolean(state.combat.routineSuspension);
+      changes.combatChanged += progressInjuries();
       changes.laborOrdersChanged += syncLaborTaskOrders();
       changes.constructionProgressChanged += routineSuspended ? 0 : updateConstructionWorkProgress(fromClock, state.clock);
       changes.productionProgressChanged += routineSuspended ? 0 : updateProductionWorkProgress(fromClock, state.clock);
@@ -9124,6 +9179,10 @@
   }
 
   function completeTask(task) {
+    if (task.type === "injuryTreatment") {
+      completeInjuryTreatment(task);
+      return;
+    }
     if (task.type === "synthesize") {
       const tube = synthesisTube();
       if (!tube || synthesisTubeOccupied()) {
@@ -9285,6 +9344,13 @@
 
     if (task.type === "rest") {
       restoreStamina(task.data.restore);
+      for (const injury of actorInjuries("scientist")) {
+        if (["stabilized", "recovering"].includes(injury.status)) {
+          injury.status = "recovering";
+          injury.nextRecoveryAt = Math.min(injury.nextRecoveryAt, state.clock + minutesToSeconds(30));
+          injury.updatedAt = state.clock;
+        }
+      }
       const quality = task.data?.restQuality || "Unknown";
       if (quality === "Unsafe") {
         addEvent(`Rest complete. Recovered ${formatNumber(task.data.restore)} stamina, but unsafe conditions may have worsened Physical State.`);
@@ -9367,6 +9433,87 @@
       addEvent(`${procedure.label} complete for ${corpse.name} remains. Recovered ${formatNumber(yieldInfo.amount)} ${yieldInfo.label}${procedure.corpseRuins ? "; corpse ruined for further harvest." : "."}`);
     }
     awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), procedure.label);
+  }
+
+  function injuryTreatmentTarget(injury) {
+    if (!injury) return null;
+    if (injury.actorId === "scientist") return { actor: state.scientist, label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId() };
+    const slime = findSlime(injury.actorId);
+    return slime ? { actor: slime, label: slime.name, cell: combatActorCell(slime), roomId: slimeEffectiveRoomId(slime) } : null;
+  }
+
+  function injurySupplyStack(injury) {
+    const key = INJURY_TYPE_DEFS[injury?.typeId]?.supplyKey;
+    return ensurePhysicalItemStacks()
+      .filter((stack) => stack.section === "inventory" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .sort((a, b) => mapCellDistance(scientistMapCell(), a.cell) - mapCellDistance(scientistMapCell(), b.cell))[0] || null;
+  }
+
+  function injuryTreatmentBlockReason(injury, mode = "treat") {
+    if (!injury || injury.status === "healed") return "This injury no longer needs care.";
+    if (scientistIsDead()) return "The scientist is dead.";
+    if (actorIsIncapacitated("scientist") && injury.actorId !== "scientist") return "The scientist is incapacitated and cannot treat another actor.";
+    if (mode === "examine") return injury.diagnosedAt != null ? "This injury has already been examined." : "";
+    if (mode === "stabilize" && injury.status !== "active") return "This injury is already stabilized or recovering.";
+    if (mode === "treat" && injury.status === "recovering") return "This injury is already recovering.";
+    return injurySupplyStack(injury) ? "" : `${inventoryItemLabel(INJURY_TYPE_DEFS[injury.typeId].supplyKey)} is required.`;
+  }
+
+  function startInjuryTreatment(injuryId, mode = "treat") {
+    const injury = (state.injuries || []).find((entry) => entry.id === injuryId);
+    const reason = injuryTreatmentBlockReason(injury, mode);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const target = injuryTreatmentTarget(injury);
+    if (!target?.cell) { addEvent("The patient has no reachable physical position."); persist(); render(); return false; }
+    const supply = mode === "examine" ? null : injurySupplyStack(injury);
+    const start = scientistMapCell();
+    const supplyCell = supply ? nearestOpenMapCellInRoom(supply.roomId, supply.cell, { preferredCell: start }) : start;
+    const targetCell = nearestOpenMapCellInRoom(target.roomId, target.cell, { preferredCell: supplyCell });
+    const firstLeg = labMapPathBetweenCells(start, supplyCell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    const secondLeg = labMapPathBetweenCells(supplyCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    if (!firstLeg.length || !secondLeg.length) { addEvent("No physical route reaches the medical supply and patient."); persist(); render(); return false; }
+    const path = appendMapPath(firstLeg, secondLeg);
+    const staminaCost = adjustedStaminaCost(mode === "examine" ? 2 : 4, ["medicine"]);
+    if (!spendStamina(staminaCost)) { addEvent(`Not enough stamina. ${staminaCost} required.`); persist(); render(); return false; }
+    const workSeconds = mode === "examine" ? 20 : mode === "stabilize" ? 35 : 60;
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    stopScientistGuard({ quiet: true });
+    cancelPendingScientistCombatAction({ quiet: true });
+    const task = createTask({
+      type: "injuryTreatment",
+      label: `${mode === "examine" ? "Examine" : mode === "stabilize" ? "Stabilize" : "Treat"} ${target.label}: ${INJURY_TYPE_DEFS[injury.typeId].label}`,
+      duration: travelSeconds + adjustedActionDuration(workSeconds, "medicine"),
+      data: { injuryId, mode, targetActorId: injury.actorId, supplyStackId: supply?.id || "", mapPath: path, toCell: targetCell, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "medical" }), staminaCost, skillId: "medicine", baseXp: mode === "examine" ? 5 : mode === "stabilize" ? 8 : 12 }
+    });
+    if (supply) supply.reservedTaskId = task.id;
+    persist();
+    render();
+    return true;
+  }
+
+  function completeInjuryTreatment(task) {
+    const injury = (state.injuries || []).find((entry) => entry.id === task.data?.injuryId);
+    if (!injury || injury.status === "healed") { addEvent("Medical care could not complete because the injury is no longer active."); return; }
+    const mode = task.data.mode;
+    if (mode !== "examine") {
+      const stack = (state.physicalItemStacks || []).find((entry) => entry.id === task.data?.supplyStackId && (!entry.reservedTaskId || entry.reservedTaskId === task.id));
+      if (!stack) { addEvent("Medical care failed because the reserved supply was lost."); return; }
+      stack.quantity -= 1;
+      stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
+      stack.reservedTaskId = "";
+      if (stack.quantity <= 0) state.physicalItemStacks = state.physicalItemStacks.filter((entry) => entry.id !== stack.id);
+      syncPhysicalReadModels();
+    }
+    injury.diagnosedAt = state.clock;
+    injury.observedAt ??= state.clock;
+    injury.updatedAt = state.clock;
+    if (mode === "stabilize") { injury.status = "stabilized"; injury.stabilizedAt = state.clock; }
+    if (mode === "treat") { injury.status = "recovering"; injury.treatedAt = state.clock; injury.nextRecoveryAt = state.clock + minutesToSeconds(90); }
+    awardXp("medicine", task.data?.baseXp || 5, task.label);
+    const target = injuryTreatmentTarget(injury);
+    if (mode === "treat" && target?.actor === state.scientist) scientistVital("health").current = clamp(scientistVital("health").current + 4, 0, scientistVital("health").max);
+    if (mode === "treat" && target?.actor && target.actor !== state.scientist) adjustSlimeStat(target.actor, "bodyIntegrity", 4);
+    addEvent(`${task.label} complete. ${mode === "examine" ? "The injury is now diagnosed." : mode === "stabilize" ? "Progressive harm has been stopped." : "Recovery has begun."}`);
   }
 
   function createTask({ type, label, duration, data }) {
@@ -22721,6 +22868,9 @@
     const requirements = [];
     const loose = emergency.creatureIds.map(findSlime).filter((slime) => slime && slime.status !== "dead" && slimeIsUncontained(slime));
     if (loose.length) requirements.push(`Secure ${loose.length} loose creature${loose.length === 1 ? "" : "s"}`);
+    const seriousInjuries = emergency.creatureIds.flatMap((id) => actorInjuries(id)).filter((injury) => injurySeverityRank(injury) >= 3 && !["recovering", "healed"].includes(injury.status));
+    if (seriousInjuries.length) requirements.push(`Treat ${seriousInjuries.length} serious creature injur${seriousInjuries.length === 1 ? "y" : "ies"}`);
+
     if (emergency.sourceKind === "container") {
       const container = containerById(emergency.sourceId);
       if (container && (containerBreachState(container) !== "intact" || containerCondition(container) < 50)) requirements.push(`Repair and reseal ${container.name}`);
@@ -24020,8 +24170,10 @@
     const targetMoving = targetActor === state.scientist
       ? Boolean(activeScientistTravelTask())
       : Boolean(targetActor?.autonomousMovement);
-    const attackScore = 58 + attackSkill * 1.6 + perception * 0.5 + attackerCondition * 0.18;
-    const defenseScore = 24 + evasion * 1.8 + (targetMoving ? 14 : 0);
+    const attackerEffects = injuryEffectTotals(attacker);
+    const targetEffects = injuryEffectTotals(targetActor);
+    const attackScore = 58 + attackSkill * 1.6 + perception * 0.5 + attackerCondition * 0.18 - attackerEffects.attack;
+    const defenseScore = 24 + evasion * 1.8 + (targetMoving ? 14 : 0) - targetEffects.evasion;
     const rng = seedRng(`${state.seed}:combat-action:${action.id}:${attacker.id || "scientist"}:${targetActor.id || "scientist"}:${sequence}`);
     const contest = attackScore - defenseScore + (rng() * 16 - 8);
     return {
@@ -24039,6 +24191,163 @@
 
   function combatGuardDamageMultiplier(actorId) {
     return combatGuardRecord(actorId) ? 0.65 : 1;
+  }
+
+  function normalizeInjury(candidate, index = 0) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const actorKind = candidate.actorKind === "scientist" ? "scientist" : "slime";
+    const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
+    const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
+    const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
+    const status = ["active", "stabilized", "recovering", "healed"].includes(candidate.status) ? candidate.status : "active";
+    const createdAt = finiteTime(candidate.createdAt, state?.clock || 0);
+    if (!actorId) return null;
+    return {
+      id: String(candidate.id || `injury-${index + 1}`), actorKind, actorId, typeId, severityId,
+      location: String(candidate.location || (actorKind === "scientist" ? "torso" : "body mass")),
+      status, cause: String(candidate.cause || "trauma"), damageTypes: idList(candidate.damageTypes),
+      createdAt, updatedAt: finiteTime(candidate.updatedAt, createdAt),
+      observedAt: Number.isFinite(Number(candidate.observedAt)) ? Number(candidate.observedAt) : null,
+      diagnosedAt: Number.isFinite(Number(candidate.diagnosedAt)) ? Number(candidate.diagnosedAt) : null,
+      stabilizedAt: Number.isFinite(Number(candidate.stabilizedAt)) ? Number(candidate.stabilizedAt) : null,
+      treatedAt: Number.isFinite(Number(candidate.treatedAt)) ? Number(candidate.treatedAt) : null,
+      healedAt: Number.isFinite(Number(candidate.healedAt)) ? Number(candidate.healedAt) : null,
+      nextProgressAt: Math.max(createdAt, finiteTime(candidate.nextProgressAt, createdAt + minutesToSeconds(1))),
+      nextRecoveryAt: Math.max(createdAt, finiteTime(candidate.nextRecoveryAt, createdAt + minutesToSeconds(120)))
+    };
+  }
+
+  function normalizeInjuries(candidate = []) {
+    return (Array.isArray(candidate) ? candidate : []).map(normalizeInjury).filter(Boolean).slice(-300);
+  }
+
+  function actorInjuries(actorOrId, options = {}) {
+    const actorId = actorOrId === state.scientist || actorOrId === "scientist" || actorOrId?.physicalPresence
+      ? "scientist" : String(actorOrId?.id || actorOrId || "");
+    return (state.injuries || []).filter((injury) => injury.actorId === actorId && (options.includeHealed || injury.status !== "healed"));
+  }
+
+  function injurySeverityRank(injury) {
+    return INJURY_SEVERITY_DEFS[injury?.severityId]?.rank || 1;
+  }
+
+  function injurySeverityForDamage(amount, vitalPercent) {
+    if (amount >= 24 || vitalPercent <= 12) return "critical";
+    if (amount >= 14 || vitalPercent <= 28) return "severe";
+    if (amount >= 7 || vitalPercent <= 55) return "moderate";
+    return "minor";
+  }
+
+  function slimeInjuryLocations(slime) {
+    const locations = ["core", "body mass", "membrane"];
+    const profile = physicalProfile(slime?.genome || "");
+    if ((profile?.lengthCm || 0) > 35) locations.push("appendages");
+    if (baseOutcomeLabel(evaluateGenome(slime?.genome || "").traits.element) !== "none") locations.push("elemental structures");
+    return locations;
+  }
+
+  function injuryTypeForDamage(actor, damageTypes, amount, location) {
+    const tags = new Set(damageTypes || []);
+    if (tags.has("corrosive") || tags.has("toxic")) return "corrosion";
+    if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
+    if (tags.has("electrical")) return "electricalTrauma";
+    if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
+    if (actor !== state.scientist && location === "core") return "coreTrauma";
+    if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
+    if (actor === state.scientist && amount >= 13 && tags.has("physical")) return "fracture";
+    if (actor === state.scientist && amount >= 8 && tags.has("physical")) return "bleeding";
+    return "bruising";
+  }
+
+  function recordCombatInjury(actor, amount, damageTypes = [], cause = "combat trauma", options = {}) {
+    if (!actor || amount <= 0) return null;
+    state.injuries = normalizeInjuries(state.injuries);
+    const scientist = actor === state.scientist || actor?.physicalPresence;
+    const actorId = scientist ? "scientist" : actor.id;
+    const locations = scientist ? SCIENTIST_INJURY_LOCATIONS : slimeInjuryLocations(actor);
+    const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
+    const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
+    const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
+    const vitalPercent = scientist ? combatActorVitalPercent(state.scientist, "health") : combatActorVitalPercent(actor, "bodyIntegrity");
+    const severityId = injurySeverityForDamage(amount, vitalPercent);
+    const existing = state.injuries.find((injury) => injury.actorId === actorId && injury.typeId === typeId && injury.location === location && injury.status !== "healed");
+    if (existing) {
+      if (INJURY_SEVERITY_DEFS[severityId].rank > injurySeverityRank(existing)) existing.severityId = severityId;
+      existing.status = "active";
+      existing.updatedAt = state.clock;
+      existing.cause = cause;
+      existing.damageTypes = [...new Set([...existing.damageTypes, ...damageTypes])];
+      return existing;
+    }
+    const visible = INJURY_TYPE_DEFS[typeId].visible;
+    const observed = scientist || visible || options.observed;
+    const injury = normalizeInjury({
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : "slime", actorId,
+      typeId, severityId, location, status: "active", cause, damageTypes,
+      createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
+    }, state.nextInjuryNumber);
+    state.injuries.push(injury);
+    addEvent(scientist || visible
+      ? `${scientist ? "Scientist" : actor.name} suffered ${INJURY_SEVERITY_DEFS[severityId].label.toLowerCase()} ${INJURY_TYPE_DEFS[typeId].label.toLowerCase()} at the ${location}.`
+      : `${actor.name} is showing uncertain symptoms of internal trauma; examination is required.`);
+    return injury;
+  }
+
+  function injuryEffectTotals(actorOrId) {
+    const totals = { movement: 0, attack: 0, evasion: 0, work: 0, pain: 0 };
+    for (const injury of actorInjuries(actorOrId)) {
+      const rank = injurySeverityRank(injury);
+      const activeFactor = injury.status === "active" ? 1 : injury.status === "stabilized" ? 0.7 : 0.35;
+      totals.pain += rank * activeFactor;
+      if (/leg|appendages|body mass/.test(injury.location)) { totals.movement += rank * 0.1 * activeFactor; totals.evasion += rank * 4 * activeFactor; }
+      if (/arm|appendages/.test(injury.location)) { totals.attack += rank * 5 * activeFactor; totals.work += rank * 0.1 * activeFactor; }
+      if (/head|torso|core/.test(injury.location)) { totals.attack += rank * 2 * activeFactor; totals.work += rank * 0.05 * activeFactor; }
+    }
+    return totals;
+  }
+
+  function actorIsIncapacitated(actorOrId) {
+    const actor = actorOrId === "scientist" ? state.scientist : actorOrId;
+    if (!actor) return false;
+    const scientist = actor === state.scientist || actor?.physicalPresence;
+    const vital = scientist ? combatActorVitalPercent(state.scientist, "health") : combatActorVitalPercent(actor, "bodyIntegrity");
+    if (vital <= 10 && vital > 0) return true;
+    return actorInjuries(actor).some((injury) => injury.severityId === "critical" && /head|torso|core/.test(injury.location));
+  }
+
+  function injurySummary(actorOrId, options = {}) {
+    const injuries = actorInjuries(actorOrId).filter((injury) => options.internal || INJURY_TYPE_DEFS[injury.typeId].visible || injury.diagnosedAt != null);
+    if (!injuries.length) return "No known active injuries";
+    return injuries.map((injury) => `${INJURY_SEVERITY_DEFS[injury.severityId].label} ${INJURY_TYPE_DEFS[injury.typeId].label.toLowerCase()} (${injury.location}; ${injury.status})`).join("; ");
+  }
+
+  function progressInjuries() {
+    let changed = 0;
+    for (const injury of state.injuries || []) {
+      if (injury.status === "healed") continue;
+      if (injury.status === "recovering" && state.clock >= injury.nextRecoveryAt) {
+        const rank = injurySeverityRank(injury);
+        if (rank <= 1) { injury.status = "healed"; injury.healedAt = state.clock; }
+        else injury.severityId = Object.values(INJURY_SEVERITY_DEFS).find((entry) => entry.rank === rank - 1)?.id || "minor";
+        injury.nextRecoveryAt = state.clock + minutesToSeconds(120);
+        injury.updatedAt = state.clock;
+        changed += 1;
+        continue;
+      }
+      if (injury.status !== "active" || !INJURY_TYPE_DEFS[injury.typeId].progressive || state.clock < injury.nextProgressAt) continue;
+      const actor = injury.actorId === "scientist" ? state.scientist : findSlime(injury.actorId);
+      if (!actor) continue;
+      const damage = Math.max(1, injurySeverityRank(injury) - 1);
+      injury.nextProgressAt = state.clock + minutesToSeconds(1);
+      injury.updatedAt = state.clock;
+      if (actor === state.scientist) damageScientistCombat(damage, `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
+      else {
+        applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
+        if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
+      }
+      changed += 1;
+    }
+    return changed;
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
@@ -24091,8 +24400,8 @@
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
     const guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
     const changed = targetActor === state.scientist
-      ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`)
-      : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label);
+      ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`, { damageTypes: action.damageTypes, observed: actor === state.scientist })
+      : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     if (changed) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
         label: action.label + " hit for " + guardedDamage,
@@ -24106,7 +24415,24 @@
     if (combatGuardRecord(targetId)) {
       awardCombatActionXp(targetActor, "guarding", 4, `guarding against ${action.label.toLowerCase()}`, "success");
     }
+    if (changed && action.pushesTarget) shoveCombatTarget(actor, targetActor);
     return { ok: true, hit: true, damage: changed ? guardedDamage : 0, accuracy };
+  }
+
+  function shoveCombatTarget(attacker, targetActor) {
+    if (!attacker || !targetActor || targetActor === state.scientist || targetActor.containerId) return false;
+    const from = combatActorCell(attacker);
+    const current = combatActorCell(targetActor);
+    if (!from || !current) return false;
+    const dx = Math.sign(current.x - from.x);
+    const dy = Math.sign(current.y - from.y);
+    const destination = mapCellAtOffset(current, dx || (dy ? 0 : 1), dy, 0);
+    if (!labMapCellIsWalkable(destination, ensureLabMap()) || labMapCellIsPathBlocked(destination, { map: ensureLabMap(), actor: targetActor })) return false;
+    targetActor.mapCell = destination;
+    targetActor.roomId = roomIdForMapCell(destination) || targetActor.roomId;
+    targetActor.autonomousMovement = null;
+    emitMapFeedback("feedbackMove", destination, { label: `${targetActor.name} shoved`, fromCell: current, coalesceKey: `shove:${targetActor.id}` });
+    return true;
   }
 
   function normalizePendingCombatAction(candidate, actorId) {
@@ -24188,7 +24514,7 @@
     const guarding = {};
     for (const [actorId, value] of Object.entries(candidate?.guarding || {})) {
       if (!actorId || !value) continue;
-      guarding[actorId] = { startedAt: finiteTime(value.startedAt, state?.clock || 0) };
+      guarding[actorId] = { startedAt: finiteTime(value.startedAt, state?.clock || 0), mode: value.mode === "intercept" ? "intercept" : "guard", targetId: String(value.targetId || "") };
     }
     const suspension = candidate?.routineSuspension && typeof candidate.routineSuspension === "object"
       ? { reason: String(candidate.routineSuspension.reason || "combat"), startedAt: finiteTime(candidate.routineSuspension.startedAt, state?.clock || 0), taskId: String(candidate.routineSuspension.taskId || "") }
@@ -24325,6 +24651,12 @@
       render();
       return false;
     }
+    if (actorIsIncapacitated("scientist")) {
+      addEvent("The scientist is incapacitated and needs stabilization.");
+      persist();
+      render();
+      return false;
+    }
     state.combat = normalizeCombatState(state.combat);
     if (scientistGuarding()) return stopScientistGuardAndRender();
     cancelPendingScientistCombatAction({ quiet: true });
@@ -24357,6 +24689,7 @@
   function scientistCombatActionBlockReason(actionId, slime = null) {
     const action = combatActionDef(actionId);
     if (!action) return "Unknown combat action.";
+    if (actorIsIncapacitated("scientist")) return "The scientist is incapacitated and needs stabilization.";
     if (scientistIsDead()) return "The scientist is dead.";
     state.combat = normalizeCombatState(state.combat);
     if (state.combat.pendingActions.scientist) return `${combatActionDef(state.combat.pendingActions.scientist.actionId)?.label || "Another action"} is already being prepared.`;
@@ -24922,8 +25255,8 @@
     const rightDamage = Math.ceil(slimeCombatDamageAmount(left, 3) * 0.75) * cycleCount;
     awardCreatureDamageSkillXp(left, slimeCombatDamageTypes(left), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "elemental clash", { outcome: "partial" });
     awardCreatureDamageSkillXp(right, slimeCombatDamageTypes(right), CREATURE_PRACTICE_XP.elementalPerCycle * cycleCount, "elemental clash", { outcome: "partial" });
-    applySlimeCombatDamage(left, leftDamage, right.id, `${right.name}'s elemental clash`);
-    applySlimeCombatDamage(right, rightDamage, left.id, `${left.name}'s elemental clash`);
+    applySlimeCombatDamage(left, leftDamage, right.id, `${right.name}'s elemental clash`, { damageTypes: slimeCombatDamageTypes(right).map((type) => type.id) });
+    applySlimeCombatDamage(right, rightDamage, left.id, `${left.name}'s elemental clash`, { damageTypes: slimeCombatDamageTypes(left).map((type) => type.id) });
     addEvent(`Elemental clash injured ${left.name} and ${right.name}.`);
     expireSlimes();
     return 1;
@@ -24932,7 +25265,7 @@
   function resolveCombatAttack(record, cycles = 1) {
     const attacker = findSlime(record.sourceIds?.[0]);
     const targetId = record.targetIds?.[0] || "";
-    if (!attacker || attacker.status === "dead") {
+    if (!attacker || attacker.status === "dead" || actorIsIncapacitated(attacker)) {
       return 0;
     }
     const cycleCount = Math.max(1, Math.round(Number(cycles) || 1));
@@ -24951,6 +25284,18 @@
     };
     let hits = 0;
     if (targetId === "scientist") {
+      const intercept = combatGuardRecord("scientist");
+      if (intercept?.mode === "intercept" && intercept.targetId === attacker.id && !actorIsIncapacitated("scientist")) {
+        const result = resolveSharedCombatAction("scientist", "intercept", scientistCombatTargetForSlime(attacker));
+        delete state.combat.guarding.scientist;
+        state.combat.actorRecoveryUntil.scientist = state.clock + combatActionDef("intercept").recoverySeconds;
+        resumeScientistRoutineWork();
+        addEvent(result.hit ? `Scientist intercepted ${attacker.name} for ${result.damage} damage.` : `Scientist's intercept missed ${attacker.name}.`);
+        if (slimeStat(attacker, "bodyIntegrity").current <= 0 || actorIsIncapacitated(attacker)) {
+          expireSlimes();
+          return 1;
+        }
+      }
       for (let cycle = 0; cycle < cycleCount; cycle += 1) {
         const result = resolveSharedCombatAction(attacker.id, "strike", { kind: "creature", id: "scientist", lastKnownCell: scientistMapCell() }, {
           baseDamage: damagePerHit,
@@ -24997,7 +25342,7 @@
     return 1;
   }
 
-  function applySlimeCombatDamage(slime, amount, attackerId, reason) {
+  function applySlimeCombatDamage(slime, amount, attackerId, reason, options = {}) {
     const damage = Math.max(0, Math.round(Number(amount) || 0));
     if (!slime || slime.status === "dead" || damage <= 0) {
       return false;
@@ -25006,6 +25351,7 @@
       slime.deathCause = "combat trauma";
     }
     adjustSlimeStat(slime, "bodyIntegrity", -damage);
+    if (!options.injuryProgress) recordCombatInjury(slime, damage, options.damageTypes || ["physical"], reason, { observed: options.observed });
     const stressGain = attackerId === "scientist"
       ? COMBAT_SCIENTIST_STRIKE_STRESS
       : Math.max(1, Math.round(damage * 0.45));
@@ -25027,7 +25373,7 @@
     return true;
   }
 
-  function damageScientistCombat(amount, reason = "combat injury") {
+  function damageScientistCombat(amount, reason = "combat injury", options = {}) {
     const damage = Math.max(0, Math.round(Number(amount) || 0));
     if (!damage || scientistIsDead()) {
       return false;
@@ -25036,6 +25382,7 @@
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
     const pending = state.combat?.pendingActions?.scientist;
+    if (!options.injuryProgress) recordCombatInjury(state.scientist, damage, options.damageTypes || ["physical"], reason, { observed: true });
     if (pending && combatActionDef(pending.actionId)?.damageInterrupts) {
       cancelPendingScientistCombatAction({ quiet: true });
       addEvent(`${combatActionDef(pending.actionId)?.label || "The prepared ability"} was interrupted by damage.`);
@@ -25180,6 +25527,40 @@
     return beginScientistCombatAction("strike", slimeId);
   }
 
+
+  function startScientistShove(slimeId) {
+    return beginScientistCombatAction("shove", slimeId);
+  }
+
+  function startScientistIntercept(slimeId) {
+    const slime = findSlime(slimeId);
+    const reason = scientistCombatActionBlockReason("intercept", slime);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const action = combatActionDef("intercept");
+    const cost = adjustedStaminaCost(action.staminaCost, [action.skillId]);
+    if (!spendStamina(cost)) return false;
+    if (scientistGuarding()) stopScientistGuard({ quiet: true });
+    cancelPendingScientistCombatAction({ quiet: true });
+    state.combat.guarding.scientist = { startedAt: state.clock, mode: "intercept", targetId: slime.id };
+    suspendScientistRoutineWork(`intercepting ${slime.name}`);
+    addEvent(`Scientist is ready to intercept ${slime.name}. The reaction will trigger when it attacks.`);
+    persist(); render(); return true;
+  }
+
+  function retreatScientistFrom(slimeId) {
+    const slime = findSlime(slimeId);
+    if (!slime || scientistIsDead() || actorIsIncapacitated("scientist")) return false;
+    const from = scientistMapCell();
+    const threat = combatActorCell(slime);
+    const candidates = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => mapCellAtOffset(from, dx, dy, 0))
+      .filter((cell) => labMapCellIsWalkable(cell, ensureLabMap()) && !labMapCellIsPathBlocked(cell, { map: ensureLabMap(), actor: state.scientist }))
+      .sort((a, b) => mapCellDistance(b, threat) - mapCellDistance(a, threat));
+    const destination = candidates[0];
+    if (!destination) { addEvent("No open adjacent tile is available for retreat."); persist(); render(); return false; }
+    stopScientistGuard({ quiet: true });
+    cancelPendingScientistCombatAction({ quiet: true });
+    return Boolean(startScientistMove(roomIdForMapCell(destination) || scientistRoomId(), { toCell: destination, allowMultiRoom: true, allowUnassignedCell: true, urgent: true }));
+  }
   function startScientistSoulLash(slimeId) {
     return beginScientistCombatAction("soulLash", slimeId);
   }
@@ -30951,6 +31332,7 @@
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
     addEvent(`Scientist hurt during handling: ${reason}.`);
+    recordCombatInjury(state.scientist, damage, ["physical"], reason, { observed: true });
     if (health.current <= 0 && before > 0) {
       state.runEnded = true;
       state.paused = true;
@@ -37755,8 +38137,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) return null;
-    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic"].includes(task.type)) {
+    if (!["scientistMove", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) return null;
+    if (["recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -38868,7 +39250,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function slimeMoveSpeedMps(slime) {
-    return slimeMovementProfile(slime).speedMps;
+    const base = slimeMovementProfile(slime).speedMps;
+    return Math.max(CREATURE_AUTONOMOUS_MIN_SPEED_MPS, base * (1 - clamp(injuryEffectTotals(slime).movement, 0, 0.8)));
   }
 
   function slimeMovementProfile(slime) {
@@ -40310,6 +40693,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     let changes = 0;
     for (const slime of state.slimes || []) {
       if (!slimeIsUncontained(slime) || slime.status === "dead") {
+        continue;
+      }
+      if (actorIsIncapacitated(slime)) {
+        slime.autonomousMovement = null;
+        slime.roomActivity = { type: "incapacitated", label: "incapacitated", roomId: slimeEffectiveRoomId(slime), updatedAt: state.clock };
+        syncSlimeAi(slime);
+        changes += 1;
         continue;
       }
       slime.roomId ||= MAIN_ROOM_ID;
@@ -47506,6 +47896,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
+    if (actorIsIncapacitated("scientist") && task.type !== "rest" && !(task.type === "injuryTreatment" && task.data?.targetActorId === "scientist")) {
+      return "The scientist is incapacitated and must be stabilized before resuming work.";
+    }
     const activeTrade = activeBlackMarketTradeTask();
     if (activeTrade && activeTrade.id !== task.id) {
       return "The scientist is outside the lab for a black market trade.";
@@ -47625,6 +48018,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "researchWork") {
       return researchWorkTaskBlockReason(task);
+    if (task.type === "injuryTreatment") {
+      const injury = (state.injuries || []).find((entry) => entry.id === task.data?.injuryId);
+      if (!injury || injury.status === "healed") return "The selected injury no longer needs care.";
+      const stackId = task.data?.supplyStackId;
+      if (stackId) {
+        const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+        if (!stack || stack.reservedTaskId !== task.id || stack.quantity <= 0) return "The reserved medical supply is no longer available.";
+      }
+    }
     }
     if (task.type === "laborWork") {
       return laborWorkTaskBlockReason(task);
@@ -47750,6 +48152,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "experimentConclusion") {
       cleanupCanceledExperimentConclusion(task);
+    if (task.type === "injuryTreatment") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.supplyStackId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+    }
     }
     if (task.type === "researchWork") {
       cleanupCanceledResearchTask(task);
@@ -48690,9 +49096,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return commands;
   }
 
+  function injuryContextCommands(actorOrId) {
+    const injuries = actorInjuries(actorOrId);
+    const commands = [];
+    for (const injury of injuries) {
+      const known = INJURY_TYPE_DEFS[injury.typeId].visible || injury.diagnosedAt != null || injury.actorId === "scientist";
+      const label = known ? `${INJURY_SEVERITY_DEFS[injury.severityId].label} ${INJURY_TYPE_DEFS[injury.typeId].label} — ${injury.location}` : "Suspected internal injury";
+      commands.push(commandDef({
+        id: `injury.examine.${injury.id}`,
+        label: `Examine: ${label}`,
+        group: "Medical Care",
+        disabledReason: injuryTreatmentBlockReason(injury, "examine"),
+        description: known ? "Confirm the wound and its treatment needs using Medicine." : "Examine symptoms without revealing an unobserved internal injury in advance.",
+        run: () => startInjuryTreatment(injury.id, "examine")
+      }));
+      if (!known) continue;
+      commands.push(commandDef({
+        id: `injury.stabilize.${injury.id}`,
+        label: `Stabilize: ${label}`,
+        group: "Medical Care",
+        disabledReason: injuryTreatmentBlockReason(injury, "stabilize"),
+        description: `Use ${inventoryItemLabel(INJURY_TYPE_DEFS[injury.typeId].supplyKey)} to stop bleeding, leakage, corrosion, or other progressive harm.`,
+        run: () => startInjuryTreatment(injury.id, "stabilize")
+      }));
+      commands.push(commandDef({
+        id: `injury.treat.${injury.id}`,
+        label: `Treat: ${label}`,
+        group: "Medical Care",
+        disabledReason: injuryTreatmentBlockReason(injury, "treat"),
+        description: `Use ${inventoryItemLabel(INJURY_TYPE_DEFS[injury.typeId].supplyKey)} and Medicine to begin recovery.`,
+        run: () => startInjuryTreatment(injury.id, "treat")
+      }));
+    }
+    return commands;
+  }
+
   function scientistContextCommands() {
     const pending = state.combat?.pendingActions?.scientist;
     return [
+      ...injuryContextCommands("scientist"),
       ...fieldDiagnosticContextCommands("scientist", "scientist", scientistMapCell(), { environment: false, sampleMethods: ["surfaceSwab", "fluidSample"] }),
       commandDef({
         id: "scientist.guard",
@@ -49733,6 +50175,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         run: () => startScientistStrike(slime.id)
       }),
       commandDef({
+        id: `slime.shove.${slime.id}`,
+        label: "Shove",
+        group: "Combat",
+        disabledReason: scientistCombatActionBlockReason("shove", slime),
+        description: `Use Grappling to force the target one tile away. ${combatActionTimingText(combatActionDef("shove"))}; 8 base Stamina.`,
+        danger: true,
+        run: () => startScientistShove(slime.id)
+      }),
+      commandDef({
+        id: `slime.intercept.${slime.id}`,
+        label: "Intercept",
+        group: "Combat",
+        disabledReason: scientistCombatActionBlockReason("intercept", slime),
+        description: "Prepare a Guarding reaction that strikes this creature when it attacks the scientist.",
+        run: () => startScientistIntercept(slime.id)
+      }),
+      commandDef({
+        id: `slime.retreat.${slime.id}`,
+        label: "Retreat",
+        group: "Combat",
+        disabledReason: scientistIsDead() ? "The scientist is dead." : actorIsIncapacitated("scientist") ? "The scientist is incapacitated." : "",
+        description: "Cancel the current stance or prepared action and urgently move one open tile away from this creature.",
+        run: () => retreatScientistFrom(slime.id)
+      }),
+      commandDef({
         id: `slime.soulLash.${slime.id}`,
         label: `Soul Lash (${COMBAT_SOUL_LASH_MANA} MANA)`,
         group: "Combat",
@@ -49769,6 +50236,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         description: "Open testing and research actions."
       })
     ];
+    commands.push(...injuryContextCommands(slime));
     if (slimeIsUncontained(slime) && slime.status !== "dead") {
       commands.splice(5, 0, ...recaptureContextCommands(slime));
     }
@@ -50832,6 +51300,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "scientist") {
       rows.push(["Inventory", actorInventoryContentsLabel("scientist")]);
+      rows.push(["Condition", actorIsIncapacitated("scientist") ? "Incapacitated" : actorInjuries("scientist").length ? "Injured" : "Able-bodied"]);
+      rows.push(["Injuries", injurySummary("scientist", { internal: true })]);
     } else if (selection.kind === "room") {
       const room = roomById(selection.roomId);
       const evaluation = roomPurposeEvaluation(room);
@@ -50892,6 +51362,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["State", slimeStateLabel(slime)]);
         rows.push(["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")]);
         rows.push(["Inventory", actorInventoryContentsLabel(slime.id)]);
+        rows.push(["Condition", actorIsIncapacitated(slime) ? "Incapacitated" : injurySummary(slime)]);
       }
     } else if (selection.kind === "corpse") {
       const corpse = findCorpse(selection.id);
@@ -50942,6 +51413,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Stamina", `${formatNumber(vitals.stamina?.current || 0)} / ${formatNumber(vitals.stamina?.max || DEFAULT_VITAL_MAX)}`],
         ["Mana", `${formatNumber(vitals.mana?.current || 0)} / ${formatNumber(vitals.mana?.max || DEFAULT_VITAL_MAX)}`],
         ["Inventory", actorInventoryContentsLabel("scientist")],
+        ["Injuries", injurySummary("scientist", { internal: true })],
         ["Carried light", `${carriedLight.label}; ${carriedLight.enabled && carriedLight.condition > 0 ? `on, warm, ${carriedLight.radius} m nominal radius` : "off or damaged"}`],
         ["Combat action", pending ? `${combatActionDef(pending.actionId)?.label || pending.actionId}; releases ${formatClock(pending.releaseAt)}` : scientistGuarding() ? "Guarding" : "None"],
         ["Routine work", state.combat?.routineSuspension ? `Suspended: ${state.combat.routineSuspension.reason}` : "Available"]
@@ -51185,6 +51657,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Role source", roleSourceLabel(slime)],
         ["Activity", slimeActivityLabel(slime).replace(/^Activity:\s*/i, "")],
         ["Inventory", actorInventoryContentsLabel(slime.id)],
+        ["Known injuries", injurySummary(slime)],
         ["Known traits", slimeKnownTraitSummary(slime)],
         ["Automation", slime.automationExcluded ? "Excluded from global automation" : "Follows global automation"]
       ];
@@ -55730,6 +56203,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (continuation.kind === "staminaTask") {
       return continuation.task?.label || "queued action";
+    if (task.type === "injuryTreatment") return "Medical Care";
     }
     if (continuation.kind === "reproductionProcedure") {
       return Heredity.METHOD_BY_ID[continuation.options?.methodId]?.label || "controlled reproduction";
@@ -61375,11 +61849,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
 
   function adjustedActionDuration(baseSeconds, skillId) {
-    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId))));
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1))));
   }
 
   function adjustedSecondsDuration(baseSeconds, skillId) {
-    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId))));
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1))));
   }
 
   function adjustedStaminaCost(baseCost, skillIds, options = {}) {
@@ -62454,6 +62928,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       Number(next.nextContainmentEmergencyNumber) || 1,
       next.containmentEmergencies.reduce((max, emergency) => Math.max(max, numericSuffix(emergency.id)), 0) + 1
     );
+    next.injuries = normalizeInjuries(next.injuries);
+    next.nextInjuryNumber = Math.max(
+      Number(next.nextInjuryNumber) || 1,
+      next.injuries.reduce((max, injury) => Math.max(max, numericSuffix(injury.id)), 0) + 1
+    );
     next.combat = normalizeCombatState(next.combat);
     next.policies = normalizePolicies(next.policies);
     next.timeSpeed = timeSpeedById(next.timeSpeed).id;
@@ -62891,7 +63370,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function scientistMoveSpeedMps() {
     state.scientist = normalizeScientist(state.scientist);
-    return Math.max(0.1, Number(state.scientist.physicalPresence?.moveSpeedMps) || SCIENTIST_MOVE_SPEED_MPS);
+    const base = Math.max(0.1, Number(state.scientist.physicalPresence?.moveSpeedMps) || SCIENTIST_MOVE_SPEED_MPS);
+    return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)));
   }
 
   function normalizeScientist(candidate) {

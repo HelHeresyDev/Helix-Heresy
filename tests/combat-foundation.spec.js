@@ -225,6 +225,7 @@ test('@smoke scientist strike damages body integrity and can create a combat cor
       deathReason: state.corpses[0]?.deathReason,
       stamina: state.scientist.vitals.stamina.current,
       eventText: state.events.map((event) => event.message).join('\n'),
+      injuryCount: state.injuries.filter((injury) => injury.actorId === 'strike-target').length,
     };
   }, { key: storageKey });
 
@@ -233,9 +234,10 @@ test('@smoke scientist strike damages body integrity and can create a combat cor
   expect(result.deathReason).toBe('combat trauma');
   expect(result.stamina).toBeLessThan(100);
   expect(result.eventText).toContain('Scientist struck STRIKE-TARGET');
+  expect(result.injuryCount).toBeGreaterThan(0);
 });
 
-test('starving hunting slime feed-attacks a contacted scientist', async ({ page }) => {
+test('starving hunting slime feed-attacks and triggers a prepared Intercept', async ({ page }) => {
   await startRun(page);
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -289,10 +291,17 @@ test('starving hunting slime feed-attacks a contacted scientist', async ({ page 
     }];
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
+    state.injuries = [];
+    state.nextInjuryNumber = 1;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: storageKey, genome });
   await loadSavedRun(page);
 
+  await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'slime', id: 'feed-attacker' }));
+  await page.locator('[data-selection-inspector-tab="actions"]').click();
+  const intercept = page.locator('[data-context-command="slime.intercept.feed-attacker"]');
+  await expect(intercept).toBeEnabled();
+  await intercept.click();
   await skipSeconds(page, 90);
 
   await expect(page.locator('[data-slime-combat-intent="feed-attacker"]')).toContainText('Combat intent: Feed-attack');
@@ -304,6 +313,10 @@ test('starving hunting slime feed-attacks a contacted scientist', async ({ page 
     const slime = state.slimes.find((entry) => entry.id === 'feed-attacker');
     return {
       scientistHealth: state.scientist.vitals.health.current,
+      slimeIntegrity: slime.stats.bodyIntegrity.current,
+      guarding: state.combat.guarding.scientist,
+      guardingXp: state.scientist.skills.guarding?.xp || 0,
+      scientistInjuries: state.injuries.filter((injury) => injury.actorId === 'scientist'),
       paused: state.paused,
       timeSpeed: state.timeSpeed,
       ai: slime.ai,
@@ -314,6 +327,10 @@ test('starving hunting slime feed-attacks a contacted scientist', async ({ page 
 
   expect(result.scientistHealth).toBeLessThan(100);
   expect(result.paused).toBe(true);
+  expect(result.slimeIntegrity).toBeLessThan(100);
+  expect(result.guarding).toBeUndefined();
+  expect(result.guardingXp).toBeGreaterThan(0);
+  expect(result.scientistInjuries.length).toBeGreaterThan(0);
   expect(result.timeSpeed).toBe('realtime');
   expect(result.ai.state).toBe('combat');
   expect(result.ai.intent).toBe('feedAttack');
