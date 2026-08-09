@@ -14,49 +14,44 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Expanded Production Chains and Material Processing
-2. Utility Networks, Power Failures, and Maintenance
-3. Black-Market Contracts, Deadlines, and Consequences
-4. Suspicion, Investigations, and Evidence Management
-5. Campaign Objectives, Milestones, and End States
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound Design, Notifications, and Accessibility Audit
-8. Production Sprite Replacement and Art-Direction Pass
+1. Utility Networks, Power Failures, and Maintenance
+2. Black-Market Contracts, Deadlines, and Consequences
+3. Suspicion, Investigations, and Evidence Management
+4. Campaign Objectives, Milestones, and End States
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound Design, Notifications, and Accessibility Audit
+7. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Expanded Production Chains and Material Processing
-
-Build multi-stage recipes, intermediate materials, quality propagation, byproducts, workstation dependencies, bills, stock targets, and physical hauling into a broader production economy.
-
-## 2. Utility Networks, Power Failures, and Maintenance
+## 1. Utility Networks, Power Failures, and Maintenance
 
 Deepen electricity, ventilation, drainage, heat, mana, fuel, capacity, faults, redundancy, inspection, repair, and scheduled maintenance across connected physical networks.
 
-## 3. Black-Market Contracts, Deadlines, and Consequences
+## 2. Black-Market Contracts, Deadlines, and Consequences
 
 Add negotiated contracts, delivery requirements, deadlines, reputation, unreliable contacts, payment risk, contraband logistics, and consequences for failed or suspicious deals.
 
-## 4. Suspicion, Investigations, and Evidence Management
+## 3. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 5. Campaign Objectives, Milestones, and End States
+## 4. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 7. Sound Design, Notifications, and Accessibility Audit
+## 6. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 8. Production Sprite Replacement and Art-Direction Pass
+## 7. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 

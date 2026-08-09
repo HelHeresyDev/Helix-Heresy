@@ -4241,6 +4241,14 @@ html[data-reduced-motion="true"] *::after {
   gap: 0.55rem;
 }
 
+.production-chain-heading {
+  margin: 0.65rem 0 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .production-menu-panel[hidden],
 .production-bill-form > label[hidden] {
   display: none;

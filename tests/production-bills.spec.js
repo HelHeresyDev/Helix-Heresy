@@ -30,12 +30,39 @@ async function finishProductionTask(page) {
     return state.tasks.find((task) => task.type === 'productionWork')?.id || '';
   }, { key: storageKey });
   expect(taskId).toBeTruthy();
-  await page.locator('[data-workspace-tab="tasks"]').click();
-  const row = page.locator(`[data-task-row="${taskId}"]`);
-  await expect(row).toBeVisible();
-  await row.getByRole('button', { name: 'Finish' }).click();
+  const seconds = await page.evaluate(({ key, id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const task = state.tasks.find((entry) => entry.id === id);
+    return Math.max(1, Math.ceil(task.dueAt - state.clock + 1));
+  }, { key: storageKey, id: taskId });
+  await page.evaluate((amount) => window.helixHeresyDebug.advanceSimulation(amount), seconds);
 }
 
+async function finishProductionChain(page, recipeId, maximumTasks = 12) {
+  for (let count = 0; count < maximumTasks; count += 1) {
+    const status = await page.evaluate(({ key, recipeId: targetRecipeId }) => {
+      const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+      const parent = state.productionBills.find((bill) => bill.recipeId === targetRecipeId && !bill.parentBillId);
+      return { parentStatus: parent?.status || '', hasTask: state.tasks.some((task) => task.type === 'productionWork') };
+    }, { key: storageKey, recipeId });
+    if (status.parentStatus === 'completed') return;
+    if (!status.hasTask) throw new Error(`Production chain for ${recipeId} stopped before completion.`);
+    await finishProductionTask(page);
+  }
+  throw new Error(`Production chain for ${recipeId} exceeded ${maximumTasks} tasks.`);
+}
+
+async function finishProductionUntilIdle(page, maximumTasks = 12) {
+  for (let count = 0; count < maximumTasks; count += 1) {
+    const hasTask = await page.evaluate(({ key }) => {
+      const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+      return state.tasks.some((task) => task.type === 'productionWork');
+    }, { key: storageKey });
+    if (!hasTask) return;
+    await finishProductionTask(page);
+  }
+  throw new Error(`Production remained active after ${maximumTasks} tasks.`);
+}
 test('global bill physically consumes material and produces craftsmanship-rated stock', async ({ page }) => {
   await startRun(page);
   await page.locator('[data-workspace-tab="production"]').click();
@@ -88,7 +115,9 @@ test('global bill physically consumes material and produces craftsmanship-rated 
   expect(completed.output.materialComposition.primary).toBeTruthy();
   expect(completed.fabrication).toBeTruthy();
 
-  await page.locator('[data-workspace-tab="production"]').click();
+  if (!await page.locator('[data-workspace-panel="production"]').isVisible()) {
+    await page.locator('[data-workspace-tab="production"]').click();
+  }
   await page.locator('[data-production-menu-tab="workpieces"]').click();
   await expect(page.locator(`[data-production-workpiece="${completed.workpiece.id}"]`)).toContainText('craftsmanship');
 });
@@ -153,10 +182,10 @@ test('maintain-stock counts only empty eligible receptacles', async ({ page }) =
     scope: 'global', materialStrategy: 'closest', allowedMaterialOptionIds: ['glass'],
   }));
 
-  await finishProductionTask(page);
+  await finishProductionUntilIdle(page);
   const result = await page.evaluate(({ key }) => {
     const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
-    const bill = state.productionBills.at(-1);
+    const bill = state.productionBills.find((entry) => entry.recipeId === 'receptacle:sealedCollectionJar' && !entry.parentBillId);
     return {
       bill,
       activeProductionTasks: state.tasks.filter((task) => task.type === 'productionWork').length,
@@ -247,4 +276,135 @@ test('canceling started work leaves physical scrap and releases the workstation'
     return state.tasks.find((entry) => entry.type === 'productionWork');
   }, { key: storageKey });
   expect(replacementTask.data.workstationId).toBe('starter-workbench');
+});
+
+test('glassware bill creates visible prerequisite stages and physical byproducts', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.createProductionBill({
+    recipeId: 'receptacle:sealedCollectionJar', mode: 'once', scope: 'global',
+    materialStrategy: 'closest', allowedMaterialOptionIds: ['glass'],
+  }));
+
+  const planned = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.recipeId === 'receptacle:sealedCollectionJar' && !bill.parentBillId);
+    return {
+      parent,
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === parent.id).map((bill) => bill.recipeId).sort(),
+      activeRecipe: state.tasks.find((task) => task.type === 'productionWork')?.data.recipeId,
+    };
+  }, { key: storageKey });
+  expect(planned.dependencies).toEqual(['process:glasswareComponents', 'process:rubberSeals']);
+  expect(['process:glasswareComponents', 'process:rubberSeals']).toContain(planned.activeRecipe);
+
+  await finishProductionChain(page, 'receptacle:sealedCollectionJar');
+  const completed = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.recipeId === 'receptacle:sealedCollectionJar' && !bill.parentBillId);
+    return {
+      parent,
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === parent.id),
+      recipes: state.productionWorkpieces.map((workpiece) => workpiece.recipeId),
+      jar: state.physicalItemStacks.find((stack) => stack.key === 'sealedCollectionJar' && stack.productionBillId === parent.id),
+      byproducts: state.physicalItemStacks.filter((stack) => stack.tags?.includes('production-byproduct')).map((stack) => stack.key).sort(),
+      workpieces: state.productionWorkpieces,
+    };
+  }, { key: storageKey });
+  expect(completed.parent.status).toBe('completed');
+  expect(completed.dependencies.every((bill) => bill.status === 'completed')).toBe(true);
+  expect(completed.recipes).toEqual(expect.arrayContaining(['process:glasswareComponents', 'process:rubberSeals', 'receptacle:sealedCollectionJar']));
+  expect(completed.jar).toMatchObject({ quantity: 1, materialComposition: { primary: 'glass', seal: 'rubber' } });
+  expect(completed.byproducts).toEqual(expect.arrayContaining(['glassFragments', 'rubberOffcuts']));
+  expect(completed.workpieces.every((workpiece) => workpiece.inputQuality > 0 && workpiece.craftsmanship > 0)).toBe(true);
+});
+
+
+test('parent bill pause resume and cancellation propagate to generated prerequisites', async ({ page }) => {
+  await startRun(page);
+  const parentId = await page.evaluate(() => window.helixHeresyDebug.createProductionBill({
+    recipeId: 'receptacle:sealedCollectionJar', mode: 'once', scope: 'global',
+    materialStrategy: 'closest', allowedMaterialOptionIds: ['glass'],
+  }).id);
+
+  await page.evaluate((id) => window.helixHeresyDebug.setProductionBillStatus(id, 'paused'), parentId);
+  let snapshot = await page.evaluate(({ key, id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      children: state.productionBills.filter((bill) => bill.parentBillId === id),
+      tasks: state.tasks.filter((task) => task.type === 'productionWork'),
+    };
+  }, { key: storageKey, id: parentId });
+  expect(snapshot.children.length).toBeGreaterThan(0);
+  expect(snapshot.children.every((bill) => bill.status === 'paused' && bill.pausedByParent)).toBe(true);
+  expect(snapshot.tasks).toHaveLength(0);
+
+  await page.evaluate((id) => window.helixHeresyDebug.setProductionBillStatus(id, 'active'), parentId);
+  snapshot = await page.evaluate(({ key, id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      children: state.productionBills.filter((bill) => bill.parentBillId === id),
+      tasks: state.tasks.filter((task) => task.type === 'productionWork'),
+    };
+  }, { key: storageKey, id: parentId });
+  expect(snapshot.children.every((bill) => bill.status === 'active' && !bill.pausedByParent)).toBe(true);
+  expect(snapshot.tasks).toHaveLength(1);
+
+  await page.evaluate((id) => window.helixHeresyDebug.setProductionBillStatus(id, 'canceled'), parentId);
+  snapshot = await page.evaluate(({ key, id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      children: state.productionBills.filter((bill) => bill.parentBillId === id),
+      tasks: state.tasks.filter((task) => task.type === 'productionWork'),
+      workstationTaskId: state.fixtures.find((fixture) => fixture.id === 'starter-workbench').productionTaskId,
+    };
+  }, { key: storageKey, id: parentId });
+  expect(snapshot.children.every((bill) => bill.status === 'canceled')).toBe(true);
+  expect(snapshot.tasks).toHaveLength(0);
+  expect(snapshot.workstationTaskId).toBe('');
+});
+test('wood fixture recursively produces fixed-batch intermediates without reserving the whole chain', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.createProductionBill({
+    recipeId: 'fixture:bed', mode: 'once', scope: 'global',
+    materialStrategy: 'closest', allowedMaterialOptionIds: ['wood'],
+  }));
+  await finishProductionChain(page, 'fixture:bed');
+
+  const result = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.recipeId === 'fixture:bed' && !bill.parentBillId);
+    return {
+      parent,
+      dependencyRecipes: state.productionBills.filter((bill) => bill.autoGenerated && bill.parentBillId).map((bill) => bill.recipeId),
+      bed: state.physicalItemStacks.find((stack) => stack.key === 'bedComponents' && stack.productionBillId === parent.id),
+      sawdust: state.physicalItemStacks.filter((stack) => stack.key === 'sawdust').reduce((total, stack) => total + stack.quantity, 0),
+      workpieces: state.productionWorkpieces,
+    };
+  }, { key: storageKey });
+  expect(result.parent.status).toBe('completed');
+  expect(result.dependencyRecipes).toEqual(expect.arrayContaining(['process:woodenComponents', 'process:cutBoards']));
+  expect(result.bed).toMatchObject({ quantity: 1, materialComposition: { primary: 'wood' } });
+  expect(result.sawdust).toBeGreaterThanOrEqual(2);
+  for (const workpiece of result.workpieces) {
+    expect(workpiece.craftsmanship).toBeLessThanOrEqual(workpiece.criticalInputQuality + 18.01);
+  }
+});
+
+test('maintain-stock quality floor excludes unrated starter stock', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.createProductionBill({
+    recipeId: 'receptacle:filterBag', mode: 'maintain', targetQuantity: 1, minimumCraftsmanship: 40,
+    scope: 'global', materialStrategy: 'closest', allowedMaterialOptionIds: ['cloth'],
+  }));
+  await finishProductionTask(page);
+  const result = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const bill = state.productionBills.find((entry) => entry.recipeId === 'receptacle:filterBag' && !entry.parentBillId);
+    const eligible = state.physicalItemStacks.filter((stack) => stack.key === 'filterBag' && stack.craftsmanship >= 40)
+      .reduce((total, stack) => total + stack.quantity, 0);
+    return { bill, eligible, active: state.tasks.some((task) => task.type === 'productionWork') };
+  }, { key: storageKey });
+  expect(result.bill).toMatchObject({ status: 'active', minimumCraftsmanship: 40, completedQuantity: 1 });
+  expect(result.eligible).toBeGreaterThanOrEqual(1);
+  expect(result.active).toBe(false);
 });
