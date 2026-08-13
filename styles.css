@@ -2254,6 +2254,17 @@ body.map-dragging .lab-map-canvas-host {
   box-shadow: inset 0 0 0 1px rgba(255, 139, 115, 0.18);
 }
 
+.lab-map-cell.map-overlay-evidence {
+  background: #33263b;
+  border-color: rgba(214, 151, 255, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(214, 151, 255, 0.15);
+}
+
+.lab-map-cell.map-overlay-evidence-serious,
+.lab-map-cell.map-overlay-evidence-critical {
+  border-color: rgba(255, 139, 115, 0.9);
+}
+
 .lab-map-cell[class*="map-overlay-temperature-"] {
   border-color: rgba(181, 178, 155, 0.58);
 }

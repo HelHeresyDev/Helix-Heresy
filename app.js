@@ -4226,6 +4226,10 @@
   if (!Simulation) {
     throw new Error("HelixSimulation must load before app.js");
   }
+  const InvestigativeEvidence = window.HelixInvestigativeEvidence;
+  if (!InvestigativeEvidence) {
+    throw new Error("HelixInvestigativeEvidence must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4313,7 +4317,7 @@
   let measuredMapViewportPixels = null;
   let mapViewportMeasureFrame = 0;
   let mapViewportResizeFrame = 0;
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "research", "specimens", "containers", "resources", "economy", "policies", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "research", "specimens", "containers", "resources", "economy", "policies", "evidence", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
     { id: "living", label: "Living" },
@@ -4470,6 +4474,7 @@
       key: "R",
       label: "Records",
       items: [
+        { key: "E", label: "Site Evidence", workspaceTab: "evidence" },
         { key: "J", label: "Journal", workspaceTab: "journal" },
         { key: "M", label: "Messages", workspaceTab: "log" }
       ]
@@ -4495,6 +4500,7 @@
     resources: "I",
     economy: "B",
     policies: "P",
+    evidence: "R E",
     journal: "R J",
     log: "R M",
     cheats: "G"
@@ -4665,6 +4671,11 @@
       id: "resources",
       label: "Resources",
       description: "Known room stockpiles for one selected material or category."
+    },
+    {
+      id: "evidence",
+      label: "Evidence",
+      description: "Known physical, documentary, and commercial traces with persistent provenance."
     },
     {
       id: "incidents",
@@ -4867,6 +4878,7 @@
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
       company: null,
+      investigativeEvidence: InvestigativeEvidence.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -5120,6 +5132,7 @@
     next.startingLiabilities = startingLiabilityRecords(scenario);
     next.siteAccessPoints = normalizeSiteAccessPoints(next.siteAccessPoints, next);
     next.company = defaultCompanyState(options.seed || next.seed, next.siteIdentity);
+    seedStartingInvestigativeEvidence(next);
     return next;
   }
 
@@ -5666,7 +5679,219 @@
     }, company.variances.length);
     company.variances.push(variance);
     company.variances = company.variances.slice(-COMPANY_VARIANCE_LIMIT);
+    recordInvestigativeEvidence("documentVariance", {
+      category: "documentary", label, significance: variance.severity,
+      subject: { kind: "companyVariance", id: variance.id },
+      origin: { kind: "companyRecord", id: variance.sourceId, label: variance.details },
+      locus: { kind: "companyBooks", label: `${company.legalName} records` },
+      refs: { batchIds: [variance.batchId], stackIds: [variance.stackId], varianceIds: [variance.id] },
+      traits: [variance.kind, "reconciliation variance", variance.severity],
+      magnitude: { band: variance.severity === "serious" ? "large" : "moderate", amount: 1, unit: "variance" },
+      discoverability: { level: "subtle", methods: ["recordReview", "reconciliation"] },
+      persistence: { kind: "permanent" }, knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true },
+      coalesceKey: `company-variance:${variance.id}`
+    });
     return variance;
+  }
+
+  function ensureInvestigativeEvidence(target = state) {
+    if (target.investigativeEvidence?.version === InvestigativeEvidence.VERSION
+      && Array.isArray(target.investigativeEvidence.records)
+      && Number.isFinite(Number(target.investigativeEvidence.nextEvidenceNumber))) {
+      return target.investigativeEvidence;
+    }
+    target.investigativeEvidence = InvestigativeEvidence.normalizeState(target.investigativeEvidence);
+    return target.investigativeEvidence;
+  }
+
+  function investigativeEvidenceSubjectExists(record) {
+    if (!record?.subject?.id) return true;
+    if (record.subject.kind === "physicalStack") return ensurePhysicalItemStacks().some((stack) => stack.id === record.subject.id && stack.quantity > 0);
+    if (record.subject.kind === "corpse") return Boolean(findCorpse(record.subject.id));
+    return true;
+  }
+
+  function investigativeEvidenceIntegrity(record, clock = state.clock) {
+    if (record?.persistence?.kind === "subject" && ["contained", "transformed", "externalized"].includes(record.lifecycle)) return record.integrity;
+    return InvestigativeEvidence.integrityAt(record, clock, investigativeEvidenceSubjectExists(record));
+  }
+
+  function recordInvestigativeEvidence(type, options = {}) {
+    if (!state) return null;
+    const evidence = ensureInvestigativeEvidence();
+    const coalesceKey = String(options.coalesceKey || "").trim();
+    const existing = coalesceKey
+      ? evidence.records.find((record) => record.coalesceKey === coalesceKey && !["exhausted", "lost"].includes(record.lifecycle))
+      : null;
+    const at = Number.isFinite(Number(options.at)) ? Number(options.at) : state.clock;
+    if (existing) {
+      existing.updatedAt = at;
+      existing.integrity = Math.max(existing.integrity, Math.max(0, Math.min(100, Number(options.integrity ?? existing.integrity) || 0)));
+      existing.significance = InvestigativeEvidence.significanceRank(options.significance) > InvestigativeEvidence.significanceRank(existing.significance)
+        ? options.significance : existing.significance;
+      existing.traits = [...new Set([...existing.traits, ...(options.traits || [])].filter(Boolean))];
+      for (const [key, values] of Object.entries(options.refs || {})) {
+        if (!Array.isArray(existing.refs[key])) continue;
+        existing.refs[key] = [...new Set([...existing.refs[key], ...(Array.isArray(values) ? values : [])].filter(Boolean))];
+      }
+      existing.provenance.push({
+        at, action: options.action || "repeated", actorId: options.actorId || "",
+        from: InvestigativeEvidence.normalizeLocus(options.from), to: InvestigativeEvidence.normalizeLocus(options.locus || options.to),
+        details: String(options.details || options.origin?.label || "Repeated trace reinforced the record.")
+      });
+      return existing;
+    }
+    const id = `site-evidence-${evidence.nextEvidenceNumber++}`;
+    const record = InvestigativeEvidence.normalizeRecord({
+      id, type, createdAt: at, updatedAt: at, ...options,
+      provenance: [{
+        at, action: options.action || "created", actorId: options.actorId || "",
+        from: options.from, to: options.locus,
+        details: String(options.details || options.origin?.label || options.label || "Trace recorded.")
+      }, ...(options.provenance || [])]
+    }, evidence.records.length);
+    if (!record) return null;
+    evidence.records.unshift(record);
+    return record;
+  }
+
+  function seedStartingInvestigativeEvidence(target = state) {
+    if (!target) return 0;
+    const previous = state;
+    let before = 0;
+    try {
+      state = target;
+      before = ensureInvestigativeEvidence().records.length;
+      const liability = (target.startingLiabilities || []).find((entry) => entry.id === "incomplete-business-records" && entry.status === "active");
+      if (liability) {
+        recordInvestigativeEvidence("incompleteInheritedBooks", {
+          category: "documentary", label: liability.label, significance: "material",
+          subject: { kind: "startingLiability", id: liability.id },
+          origin: { kind: "inheritance", id: liability.id, label: liability.description },
+          locus: { kind: "companyBooks", label: `${target.siteIdentity?.legalName || "Front company"} inherited records` },
+          traits: ["missing operating history", "incomplete books", "inherited"],
+          magnitude: { band: "large", amount: 1, unit: "record gap" }, discoverability: { level: "ordinary", methods: ["recordReview"] },
+          persistence: { kind: "permanent" }, knowledge: { state: "known", source: "inherited", sourceIdentityKnown: true },
+          coalesceKey: "starting-liability:incomplete-business-records"
+        });
+      }
+    } finally {
+      state = previous;
+    }
+    return ensureInvestigativeEvidence(target).records.length - before;
+  }
+
+  function physicalStackEvidenceProfile(stack) {
+    if (!stack) return null;
+    const tags = new Set([...(stack.tags || []), ...(stack.chemicalBatch?.tags || []), ...(stack.chemicalBatch?.hazards || [])]);
+    const biological = stack.section === "specimenMaterials" || stack.sourceSlimeIds?.length || tags.has("biological") || tags.has("corpse");
+    const chemical = stack.section === "chemicalBatches" || tags.has("chemical") || tags.has("chemistry") || tags.has("toxic") || tags.has("corrosive");
+    const waste = stack.form === "spill" || stack.form === "waste" || tags.has("waste") || stack.chemicalBatch?.stage === "waste";
+    const illicit = stack.chemicalBatch?.classification?.actual === "prohibited" || tags.has("contraband");
+    if (!biological && !chemical && !waste && !illicit) return null;
+    const category = chemical || illicit ? "chemical" : "biological";
+    const type = illicit ? "illicitChemicalBatch" : stack.form === "spill" ? (category === "chemical" ? "chemicalResidue" : "biologicalTrace")
+      : waste ? "processWaste" : "harvestedBiologicalMaterial";
+    const significance = illicit ? "serious" : waste ? "material" : "minor";
+    return { category, type, significance, traits: [...tags, stack.phase, stack.form].filter(Boolean) };
+  }
+
+  function recordPhysicalStackEvidence(stack, options = {}) {
+    const profile = physicalStackEvidenceProfile(stack);
+    if (!profile || !state?.started) return null;
+    const known = options.known !== false && (stack.knownQuantity > 0 || scientistObservesRoom(stack.roomId));
+    return recordInvestigativeEvidence(profile.type, {
+      category: profile.category,
+      label: `${physicalStackLabel(stack)} ${stack.form === "spill" ? "trace" : "material"}`,
+      significance: profile.significance,
+      subject: { kind: "physicalStack", id: stack.id },
+      origin: { kind: options.originKind || "physicalCreation", id: stack.productionWorkpieceId || stack.id, label: options.originLabel || (stack.sourceLabels || []).join(", ") },
+      locus: { kind: stack.containerId ? "container" : "mapCell", roomId: stack.roomId, cell: stack.cell, fixtureId: stack.fixtureId, containerId: stack.containerId, label: roomName(stack.roomId) },
+      refs: {
+        stackIds: [stack.id], batchIds: [stack.chemicalBatch?.id], slimeIds: stack.sourceSlimeIds,
+        fixtureIds: [stack.fixtureId], predecessorEvidenceIds: options.predecessorEvidenceIds
+      },
+      traits: profile.traits,
+      magnitude: { band: stack.quantity >= 10 ? "large" : stack.quantity >= 3 ? "moderate" : stack.quantity >= 1 ? "small" : "trace", amount: stack.quantity, unit: stack.phase === "liquid" ? "L" : "units" },
+      discoverability: { level: stack.form === "spill" ? "obvious" : "ordinary", methods: stack.form === "spill" ? ["visual", "inspection"] : ["inventory", "inspection"] },
+      persistence: { kind: "subject" },
+      knowledge: {
+        state: known ? "known" : "unknown", source: known ? (stack.productionWorkpieceId ? "produced" : "observed") : "unobserved",
+        sourceIdentityKnown: Boolean(options.sourceIdentityKnown || stack.productionWorkpieceId)
+      },
+      coalesceKey: `physical-stack:${stack.id}`
+    });
+  }
+
+  function transformInvestigativeEvidence(fromStack, toStacks, action = "contained") {
+    const sourceRecords = ensureInvestigativeEvidence().records.filter((record) => record.subject.kind === "physicalStack" && record.subject.id === fromStack?.id);
+    const successors = (toStacks || []).map((stack) => recordPhysicalStackEvidence(stack, { predecessorEvidenceIds: sourceRecords.map((record) => record.id), originKind: "transformation", originLabel: action })).filter(Boolean);
+    for (const sourceRecord of sourceRecords) {
+      sourceRecord.lifecycle = action === "contained" ? "contained" : "transformed";
+      sourceRecord.updatedAt = state.clock;
+      sourceRecord.refs.successorEvidenceIds = [...new Set([...sourceRecord.refs.successorEvidenceIds, ...successors.map((record) => record.id)])];
+      sourceRecord.provenance.push({ at: state.clock, action, actorId: "scientist", from: sourceRecord.locus, to: successors[0]?.locus || {}, details: `${fromStack.id} became ${successors.map((record) => record.subject.id).join(", ") || "a transformed output"}.` });
+    }
+    return successors;
+  }
+
+  function linkInvestigativeEvidenceTransformation(fromStackIds, toStacks, action = "transformed") {
+    const ids = new Set((fromStackIds || []).filter(Boolean));
+    const sourceRecords = ensureInvestigativeEvidence().records.filter((record) => record.refs.stackIds.some((id) => ids.has(id)));
+    const successors = (toStacks || []).map((stack) => {
+      const record = ensureInvestigativeEvidence().records.find((entry) => entry.subject.kind === "physicalStack" && entry.subject.id === stack?.id)
+        || recordPhysicalStackEvidence(stack, { predecessorEvidenceIds: sourceRecords.map((entry) => entry.id), originKind: "transformation", originLabel: action });
+      if (record) record.refs.predecessorEvidenceIds = [...new Set([...record.refs.predecessorEvidenceIds, ...sourceRecords.map((entry) => entry.id)])];
+      return record;
+    }).filter(Boolean);
+    for (const record of sourceRecords) {
+      record.lifecycle = "transformed";
+      record.updatedAt = state.clock;
+      record.refs.successorEvidenceIds = [...new Set([...record.refs.successorEvidenceIds, ...successors.map((entry) => entry.id)])];
+      record.provenance.push({ at: state.clock, action, actorId: "scientist", from: record.locus, to: successors[0]?.locus || {}, details: `Evidence-bearing input became ${successors.map((entry) => entry.label).join(", ") || "a production output"}.` });
+    }
+    return successors;
+  }
+
+  function updateInvestigativeEvidence() {
+    const evidence = ensureInvestigativeEvidence();
+    let changes = 0;
+    for (const record of evidence.records) {
+      if (record.knowledge.state === "unknown" && record.locus.roomId && scientistObservesRoom(record.locus.roomId)) {
+        record.knowledge.state = "known";
+        record.knowledge.learnedAt = state.clock;
+        record.knowledge.source = "observation";
+        changes += 1;
+      }
+      if (record.persistence.kind === "subject" && !investigativeEvidenceSubjectExists(record) && !["contained", "transformed", "externalized"].includes(record.lifecycle)) {
+        record.lifecycle = "lost";
+        record.updatedAt = state.clock;
+        changes += 1;
+      }
+      if (investigativeEvidenceIntegrity(record) <= 0 && !["exhausted", "lost"].includes(record.lifecycle)) {
+        record.lifecycle = "exhausted";
+        changes += 1;
+      }
+    }
+    const period = activeCompanyPeriod();
+    if (period && companyReportingPeriodState(period) === "overdue") {
+      const coalesceKey = `overdue-period:${period.id}`;
+      const existed = evidence.records.some((record) => record.coalesceKey === coalesceKey);
+      if (!existed) recordInvestigativeEvidence("overdueCompanyFiling", {
+        category: "documentary", label: `Overdue filing for ${period.label}`, significance: "material",
+        subject: { kind: "companyPeriod", id: period.id }, origin: { kind: "deadline", id: period.id, label: "Required company filing passed its deadline." },
+        locus: { kind: "companyBooks", label: `${ensureCompany().legalName} records` }, refs: { companyRecordIds: period.recordIds },
+        traits: ["overdue filing", "missing declaration"], persistence: { kind: "permanent" },
+        knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true }, coalesceKey
+      });
+      if (!existed) changes += 1;
+    }
+    return changes;
+  }
+
+  function knownInvestigativeEvidence(options = {}) {
+    return ensureInvestigativeEvidence().records.filter((record) => record.knowledge.state !== "unknown"
+      && (options.includeExhausted || investigativeEvidenceIntegrity(record) > 0));
   }
 
   function companyReportingPeriodState(period) {
@@ -7230,6 +7455,8 @@
       "mapPopulationBenchmarkReadout",
       "journalModeReadout",
       "journalContent",
+      "evidenceSummary",
+      "evidenceList",
       "queueToggleBtn",
       "queueBadge",
       "queueNextReadout",
@@ -7448,6 +7675,26 @@
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
+      investigativeEvidenceSnapshot: () => clonePlainObject({
+        ...ensureInvestigativeEvidence(),
+        records: ensureInvestigativeEvidence().records.map((record) => ({ ...record, currentIntegrity: investigativeEvidenceIntegrity(record) })),
+        knownRecordIds: knownInvestigativeEvidence({ includeExhausted: true }).map((record) => record.id)
+      }),
+      addInvestigativeTestResidue: (options = {}) => {
+        const roomId = options.roomId || scientistRoomId();
+        const added = addFeedingResidue(options.typeKey || "slimeTrace", Math.max(1, Number(options.amount) || 1), {
+          location: { type: "room", roomId, cell: cleanMapCell(options.cell) || scientistMapCell() },
+          tags: options.tags || ["biological", "hazard"], sourceLabels: options.sourceLabels || ["Debug specimen"],
+          sourceSlimeIds: options.sourceSlimeIds || []
+        });
+        persist(); render();
+        return added ? clonePlainObject(ensurePhysicalItemStacks().filter((stack) => stack.section === "residue").at(-1)) : null;
+      },
+      queueInvestigativeTestCleanup: (stackId) => {
+        const task = startSpillCleanup(stackId);
+        persist(); render();
+        return task ? clonePlainObject(task) : null;
+      },
       generatedCompanyName: (seed, variant = 0) => generatedCompanyName(seed, variant),
       setCompanyOperatingState: (operatingState) => setCompanyOperatingState(operatingState),
       makeCompanyPeriodDue: () => {
@@ -11350,6 +11597,7 @@
     if (overlay === "combat") return Boolean(changes.combatChanged);
     if (overlay === "incidents") return Boolean(changes.incidentAlertChanged || changes.incidentUrgencyChanged);
     if (overlay === "resources") return Boolean(changes.feedstockChanged || changes.feedingChanged || changes.collectionChanged || changes.completed);
+    if (overlay === "evidence") return Boolean(changes.evidenceChanged || changes.completed || changes.corpseChanges);
     if (overlay === "construction") return Boolean(changes.constructionProgressChanged || changes.constructionClaimed || changes.completed);
     return false;
   }
@@ -11597,6 +11845,7 @@
       vitalsChanged: 0,
       physicalStateChanged: 0,
       suspicionChanged: 0,
+      evidenceChanged: 0,
       economyChanged: 0,
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
@@ -11741,6 +11990,7 @@
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.suspicionChanged += updateSuspicionDecay();
+      changes.evidenceChanged += updateInvestigativeEvidence();
       changes.economyChanged += updateBlackMarketEconomy();
       changes.economyChanged += updateCommodityMarket();
       changes.economyChanged += updateCompanyState();
@@ -11812,6 +12062,7 @@
       + changes.scientistMovementChanged
       + changes.aiChanged
       + changes.economyChanged
+      + changes.evidenceChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -12129,7 +12380,7 @@
       recordSlimeWelfareIntervention(slime, `harvest:${procedure.id}`, burden, `${procedure.label} imposed tissue loss and handling strain.`);
     }
     if (yieldInfo.amount > 0) {
-      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`, slimeEffectiveRoomId(slime));
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${slime.name}`, slimeEffectiveRoomId(slime), { sourceSlimeIds: [slime.id] });
     }
     recordResearchEvidence({
       methodId: `harvest:${procedure.id}`, category: "harvest", specimenId: slime.id, specimenName: slime.name,
@@ -12168,8 +12419,18 @@
     }
     const yieldInfo = specimenHarvestYieldForCorpse(corpse, procedure);
     if (yieldInfo.amount > 0) {
-      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`, corpse.roomId || scientistRoomId());
+      addSpecimenMaterial(yieldInfo.label, yieldInfo.amount, yieldInfo.tags, `${procedure.label}: ${corpse.name} remains`, corpse.roomId || scientistRoomId(), { sourceSlimeIds: [corpse.specimenId] });
     }
+    const remainsEvidence = ensureInvestigativeEvidence().records.filter((record) => record.subject.kind === "corpse" && record.subject.id === corpse.id);
+    const harvestedEvidence = ensureInvestigativeEvidence().records.filter((record) => record.subject.kind === "physicalStack"
+      && record.refs.slimeIds.includes(corpse.specimenId) && record.updatedAt === state.clock);
+    for (const record of remainsEvidence) {
+      record.updatedAt = state.clock;
+      if (procedure.corpseConsumes) record.lifecycle = "transformed";
+      record.refs.successorEvidenceIds = [...new Set([...record.refs.successorEvidenceIds, ...harvestedEvidence.map((entry) => entry.id)])];
+      record.provenance.push({ at: state.clock, action: "harvested", actorId: "scientist", from: record.locus, to: harvestedEvidence[0]?.locus || record.locus, details: `${procedure.label} produced ${yieldInfo.label}.` });
+    }
+    for (const record of harvestedEvidence) record.refs.predecessorEvidenceIds = [...new Set([...record.refs.predecessorEvidenceIds, ...remainsEvidence.map((entry) => entry.id)])];
     recordResearchEvidence({
       methodId: `harvest:${procedure.id}`, category: "harvest", specimenId: corpse.specimenId || corpse.id, specimenName: corpse.name,
       sourceKey: `harvest:${task.id}`, summary: `${procedure.label} yielded ${formatNumber(yieldInfo.amount)} ${yieldInfo.label} from remains.`,
@@ -16626,6 +16887,17 @@
     applyCorpseDecayWindows(corpse);
     corpse.lastFreshness = corpseFreshness(corpse);
     state.corpses.unshift(corpse);
+    recordInvestigativeEvidence("biologicalRemains", {
+      category: "biological", label: `${corpse.name} remains`, significance: corpse.storage === "overflow" ? "serious" : "material",
+      subject: { kind: "corpse", id: corpse.id }, origin: { kind: "death", id: slime.id, label: deathReason },
+      locus: { kind: corpse.containerId ? "container" : "mapCell", roomId: corpse.roomId, cell: corpse.mapCell, containerId: corpse.containerId, label: roomName(corpse.roomId) },
+      refs: { slimeIds: [slime.id], corpseIds: [corpse.id] },
+      traits: ["biological remains", deathReason, corpse.storage], persistence: { kind: "subject" },
+      magnitude: { band: corpse.deathMassPercent >= 60 ? "large" : "moderate", amount: corpse.deathMassPercent, unit: "% specimen mass" },
+      discoverability: { level: corpse.storage === "overflow" ? "obvious" : "ordinary", methods: ["visual", "inspection"] },
+      knowledge: { state: scientistObservesRoom(corpse.roomId) ? "known" : "unknown", source: "observation", sourceIdentityKnown: true },
+      coalesceKey: `corpse:${corpse.id}`
+    });
     if (corpseHandlingPolicy().autoMoveToDrums) {
       tryAutoMoveCorpse(corpse, { automatic: true, quiet: true });
     }
@@ -17644,8 +17916,19 @@
     const checks = Math.floor(fixture.utility.dischargedLoad / UTILITY_EXPOSURE_LOAD_STEP);
     while (fixture.utility.exposureChecks < checks) {
       fixture.utility.exposureChecks += 1;
-      const roll = seedRng(`${state.seed}:utility-discharge:${fixture.id}:${fixture.utility.exposureChecks}`)();
       const hazardous = Object.keys(loads).some((id) => /hazard|toxic|acid|poison|corpse|waste|sludge|contamin/.test(id));
+      recordInvestigativeEvidence(kind === "drain" ? "exteriorDrainageTrace" : "exteriorExhaustTrace", {
+        category: "chemical", label: `${kind === "drain" ? "Exterior drainage" : "Exterior exhaust"} trace`, significance: hazardous ? "material" : "minor",
+        subject: { kind: "externalTrace", id: `${fixture.id}:${kind}` }, origin: { kind: "utilityDischarge", id: fixture.id, label: Object.keys(loads).join(", ") },
+        locus: { kind: "fixture", roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin, fixtureId: fixture.id, label: fixture.name },
+        refs: { fixtureIds: [fixture.id] }, traits: [kind, ...Object.keys(loads), hazardous ? "hazardous" : "process emission"],
+        magnitude: { band: total >= UTILITY_EXPOSURE_LOAD_STEP * 4 ? "large" : "moderate", amount: total, unit: "load" },
+        discoverability: { level: "subtle", methods: ["sampling", "inspection"] },
+        persistence: { kind: "transient", decaySeconds: kind === "drain" ? SECONDS_PER_DAY * 7 : SECONDS_PER_DAY * 2 },
+        knowledge: { state: "known", source: "operated", sourceIdentityKnown: true }, lifecycle: "externalized",
+        coalesceKey: `utility-discharge:${fixture.id}:${kind}`
+      });
+      const roll = seedRng(`${state.seed}:utility-discharge:${fixture.id}:${fixture.utility.exposureChecks}`)();
       const chance = hazardous ? 0.35 : 0.08;
       if (roll < chance) {
         addSuspicion(hazardous ? 3 : 1);
@@ -22008,6 +22291,7 @@
       updatedAt: state.clock
     };
     ensurePhysicalItemStacks().push(stack);
+    recordPhysicalStackEvidence(stack, options);
     if (state?.started && stack.form === "spill" && !stack.containerId) {
       emitMapFeedback("feedbackHazard", stack.cell, {
         label: "New " + stack.key + " spill",
@@ -22071,6 +22355,10 @@
         existing.knownQuantity = existing.quantity;
         existing.observedAt = state.clock;
         existing.stockpileId = stockpileId;
+        existing.updatedAt = state.clock;
+        existing.sourceLabels = normalizeResidueSourceLabels([...(existing.sourceLabels || []), ...(options.sourceLabels || []), options.sourceLabel]);
+        existing.sourceSlimeIds = [...new Set([...(existing.sourceSlimeIds || []), ...(options.sourceSlimeIds || [])].filter(Boolean))];
+        recordPhysicalStackEvidence(existing, options);
       } else {
         createPhysicalItemStack(section, key, amount, {
           roomId: destination.roomId || normalizeStockpileRoomId(roomId),
@@ -23539,6 +23827,11 @@
         sourceLabels: [recipe.label]
       }
     )?.id).filter(Boolean);
+    linkInvestigativeEvidenceTransformation(
+      [...(task.data.reservedStackIds || []), ...(task.data.inputReservations || []).map((entry) => entry.stackId)],
+      [output, ...workpiece.byproductStackIds.map((id) => ensurePhysicalItemStacks().find((stack) => stack.id === id))].filter(Boolean),
+      "productionTransform"
+    );
     if (recipe.output.fixtureTypeId) {
       state.fabricatedFixtures.push({
         id: `fabricated-fixture-${workpiece.id}`,
@@ -37080,6 +37373,12 @@
       }
       if (corpse.storage === "overflow" && state.clock >= (corpse.nextOverflowEventAt || state.clock)) {
         addEvent(`${corpse.name} overflow corpse is leaking contamination and evidence.`);
+        recordInvestigativeEvidence("biologicalRemains", {
+          significance: "serious", coalesceKey: `corpse:${corpse.id}`,
+          locus: { kind: "mapCell", roomId: corpse.roomId, cell: corpse.mapCell, label: roomName(corpse.roomId) },
+          refs: { corpseIds: [corpse.id], slimeIds: [corpse.specimenId] }, traits: ["overflow", "leaking", corpseFreshness(corpse)],
+          action: "leaked", details: "Overflow remains produced another persistent local trace."
+        });
         addSuspicion(OVERFLOW_SUSPICION);
         corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
         changes += 1;
@@ -38997,6 +39296,7 @@
     renderTasks();
     renderProduction();
     renderResearch();
+    renderInvestigativeEvidence();
     renderJournal();
     renderEvents();
     renderMapOverlayHud();
@@ -40469,6 +40769,20 @@
 
     if (risk.label === "Failing") {
       suspicion += 1;
+    }
+
+    if (["fouling", "leak"].includes(incident)) {
+      recordInvestigativeEvidence(incident === "leak" ? "containmentSeepTrace" : "containmentFouling", {
+        category: "biological", label: `${container.name} ${incidentLabel}`, significance: suspicion > 1 ? "material" : "minor",
+        subject: { kind: "containerTrace", id: `${container.id}:${slime.id}` }, origin: { kind: "containmentIncident", id: slime.id, label: incidentLabel },
+        locus: { kind: "container", roomId: container.roomId || slime.roomId, cell: objectMapCell(container), containerId: container.id, label: container.name },
+        refs: { slimeIds: [slime.id] }, traits: [incident, "biological trace", risk.label],
+        magnitude: { band: incident === "leak" ? "small" : "moderate", amount: incident === "leak" ? 2 : 8, unit: "contamination" },
+        discoverability: { level: incident === "leak" ? "ordinary" : "subtle", methods: ["visual", "inspection"] },
+        persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 7 },
+        knowledge: { state: scientistObservesRoom(container.roomId || slime.roomId) ? "known" : "unknown", source: "observation", sourceIdentityKnown: false },
+        coalesceKey: `containment-trace:${container.id}:${slime.id}:${incident}`
+      });
     }
 
     if (suspicion) {
@@ -42237,6 +42551,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       persist();
       render();
       return;
+    }
+    const sourceEvidence = ensureInvestigativeEvidence().records.filter((record) => record.subject.kind === "corpse" && record.subject.id === corpse.id);
+    const dumped = recordInvestigativeEvidence("dumpedBiologicalRemains", {
+      category: "biological", label: `Dumped remains linked to ${corpse.name}`, significance: "serious",
+      subject: { kind: "externalTrace", id: `dump:${corpse.id}` }, origin: { kind: "dumping", id: corpse.id, label: "Remains removed from the site and abandoned outside." },
+      locus: { kind: "exterior", label: "Outside the facility" },
+      refs: { corpseIds: [corpse.id], slimeIds: [corpse.specimenId], predecessorEvidenceIds: sourceEvidence.map((record) => record.id) },
+      traits: ["biological remains", "external disposal", corpseFreshness(corpse)], persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 },
+      magnitude: { band: "large", amount: corpse.deathMassPercent, unit: "% specimen mass" }, discoverability: { level: "ordinary", methods: ["visual", "sampling"] },
+      knowledge: { state: "known", source: "handled", sourceIdentityKnown: true }, lifecycle: "externalized", coalesceKey: `dumped-corpse:${corpse.id}`
+    });
+    for (const record of sourceEvidence) {
+      record.lifecycle = "externalized";
+      record.refs.successorEvidenceIds = [...new Set([...record.refs.successorEvidenceIds, dumped?.id].filter(Boolean))];
+      record.provenance.push({ at: state.clock, action: "externalized", actorId: "scientist", from: record.locus, to: dumped?.locus || {}, details: "Corpse was dumped outside." });
     }
     removeCorpseRecord(corpse.id);
     addEvent(`${corpse.name} was dumped outside. Evidence risk increased.`);
@@ -52222,6 +52551,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return assignments;
   }
 
+  function investigativeEvidenceSpatialView(record) {
+    if (record.subject.kind === "physicalStack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === record.subject.id);
+      if (stack) return { cell: cleanMapCell(stack.cell), target: { kind: "itemStack", id: stack.id, label: physicalStackLabel(stack) }, label: roomName(stack.roomId) };
+    }
+    if (record.subject.kind === "corpse") {
+      const corpse = findCorpse(record.subject.id);
+      if (corpse) return { cell: objectMapCell(corpse), target: { kind: "corpse", id: corpse.id, label: corpse.name }, label: roomName(corpse.roomId) };
+    }
+    if (record.locus.fixtureId) {
+      const fixture = fixtureById(record.locus.fixtureId);
+      if (fixture) return { cell: cleanMapCell(fixture.origin), target: { kind: "fixture", id: fixture.id, label: fixture.name }, label: fixture.name };
+    }
+    const cell = cleanMapCell(record.locus.cell) || (record.locus.roomId ? labMapRoomAnchor(record.locus.roomId) : null);
+    return cell ? { cell, target: { kind: "tile", tile: cell }, label: record.locus.label || roomName(record.locus.roomId) } : null;
+  }
+
+  function investigativeEvidenceOverlayAssignments(map) {
+    const byCell = new Map();
+    for (const record of knownInvestigativeEvidence().filter((entry) => !["contained", "transformed", "exhausted", "lost"].includes(entry.lifecycle))) {
+      const spatial = investigativeEvidenceSpatialView(record);
+      if (!spatial?.cell || !mapCellInBounds(spatial.cell, map)) continue;
+      const key = mapCellKey(spatial.cell);
+      const entries = byCell.get(key) || [];
+      entries.push({ record, spatial });
+      byCell.set(key, entries);
+    }
+    const assignments = new Map();
+    for (const [key, entries] of byCell) {
+      entries.sort((a, b) => InvestigativeEvidence.significanceRank(b.record.significance) - InvestigativeEvidence.significanceRank(a.record.significance));
+      const primary = entries[0];
+      const labels = entries.map(({ record }) => `${record.label} (${record.significance}, ${Math.round(investigativeEvidenceIntegrity(record))}% integrity)`);
+      const [x, y, z] = key.split(",").map(Number);
+      setLabMapOverlayEntry(assignments, { x, y, z }, {
+        overlayId: "evidence",
+        classNames: ["map-overlay-evidence", `map-overlay-evidence-${primary.record.significance}`, ...(entries.length > 1 ? ["map-overlay-evidence-stacked"] : [])],
+        label: labels.join(" · "), source: "Known site evidence",
+        title: `Overlay: Evidence - ${labels.join("; ")}. Selects the underlying physical subject when one remains.`,
+        value: entries.length, knowledge: { state: "current", observedAt: primary.record.knowledge.learnedAt, confidence: 1, source: primary.record.knowledge.source },
+        target: primary.spatial.target
+      }, map);
+    }
+    return assignments;
+  }
+
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const normalized = normalizeMapOverlayId(overlayId);
     if (normalized === "none") {
@@ -52241,6 +52615,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (normalized === "resources") {
       return resourcesOverlayAssignments(map, context.resourceFocus || currentResourceOverlayFocusDef());
+    }
+    if (normalized === "evidence") {
+      return investigativeEvidenceOverlayAssignments(map);
     }
     if (normalized === "incidents") {
       return incidentOverlayAssignments(map, context.incidentAssignments || labMapIncidentAssignments(map));
@@ -60475,6 +60852,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         "Medium and high bands reflect known amount, not hidden actual certainty.",
         "Pit contents are shown separately from clean inventory."
       ],
+      evidence: [
+        "Known: player-observed physical, documentary, and commercial traces only.",
+        "Color intensity reflects significance; tooltips show current deterministic integrity.",
+        "Physical evidence markers select the underlying item, remains, or fixture."
+      ],
       incidents: [
         "Known: unresolved and last-known spatial incidents.",
         "Stacked markers show multiple alerts on one tile.",
@@ -62188,6 +62570,54 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     element.className = "task-chip";
     element.textContent = text;
     return element;
+  }
+
+  function evidencePersistenceLabel(record) {
+    if (record.persistence.kind === "permanent") return "Permanent record";
+    if (record.persistence.kind === "subject") return "Persists with physical subject";
+    if (!record.persistence.decaySeconds) return record.persistence.kind;
+    return `${record.persistence.kind}; fades over ${formatDuration(record.persistence.decaySeconds)}`;
+  }
+
+  function renderInvestigativeEvidence() {
+    if (!dom.evidenceList || !dom.evidenceSummary) return;
+    const records = knownInvestigativeEvidence({ includeExhausted: true }).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    const active = records.filter((record) => !["exhausted", "lost"].includes(record.lifecycle));
+    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; records are observational and do not assign guilt`;
+    dom.evidenceList.replaceChildren();
+    if (!records.length) {
+      dom.evidenceList.append(emptyText("No site evidence is currently known to the player."));
+      return;
+    }
+    for (const category of InvestigativeEvidence.CATEGORIES) {
+      const categoryRecords = records.filter((record) => record.category === category);
+      if (!categoryRecords.length) continue;
+      const section = document.createElement("section");
+      section.className = "subpanel";
+      section.append(textEl("div", `${category[0].toUpperCase()}${category.slice(1)} Evidence (${categoryRecords.length})`));
+      section.firstElementChild.className = "subpanel-title";
+      for (const record of categoryRecords) {
+        const row = document.createElement("article");
+        row.className = "journal-row evidence-row";
+        row.dataset.evidenceId = record.id;
+        const heading = document.createElement("span");
+        heading.append(textEl("strong", record.label), chip(record.significance), chip(record.lifecycle));
+        const source = record.knowledge.sourceIdentityKnown && record.origin.label ? record.origin.label : "Source identity not established";
+        const details = document.createElement("span");
+        details.className = "journal-entry-list";
+        const currentLocus = investigativeEvidenceSpatialView(record)?.label || record.locus.label || record.locus.kind || "Site";
+        details.append(
+          textEl("span", `${currentLocus} · ${Math.round(investigativeEvidenceIntegrity(record))}% integrity · ${evidencePersistenceLabel(record)}`),
+          textEl("span", `Observed ${formatClock(record.knowledge.learnedAt ?? record.createdAt)} · Age: ${formatDuration(state.clock - record.createdAt)} · Origin: ${source}`),
+          textEl("span", `Magnitude: ${record.magnitude.band}${record.magnitude.amount ? ` (${formatNumber(record.magnitude.amount)} ${record.magnitude.unit || "units"})` : ""} · Discoverability: ${record.discoverability.level}`),
+          textEl("span", `Traits: ${record.traits.join(", ") || "none recorded"}`),
+          textEl("span", `Provenance events: ${record.provenance.length} · Record ${record.id}`)
+        );
+        row.append(heading, details);
+        section.append(row);
+      }
+      dom.evidenceList.append(section);
+    }
   }
 
   function renderJournal() {
@@ -66152,6 +66582,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     economy.exposures.unshift(exposure);
     economy.exposures = economy.exposures.slice(0, BLACK_MARKET_EXPOSURE_LIMIT);
+    recordInvestigativeEvidence("observedCovertHandoff", {
+      category: "commercial", label: exposure.summary, significance: exposure.severity === "serious" ? "serious" : "material",
+      subject: { kind: "commercialHandoff", id: exposure.id }, origin: { kind: "blackMarketContract", id: contract.id, label: exposure.summary },
+      locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
+      refs: { contractIds: [contract.id], batchIds: [contract.reservations?.find((entry) => entry.batchId)?.batchId], stackIds: [contract.selectedStackId] },
+      traits: ["off-books contract", "observed handoff", contract.commodityKind, contract.material],
+      magnitude: { band: contract.commodityKind === "specimen" ? "large" : "moderate", amount: contract.amount, unit: contract.commodityKind === "specimen" ? "specimen" : "units" },
+      discoverability: { level: "obvious", methods: ["witness", "commerceCorrelation"] },
+      persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
+      lifecycle: "externalized", coalesceKey: `market-exposure:${contract.id}`
+    });
     addSuspicion(exposure.suspicion);
     if (contact && exposure.severity === "serious") {
       contact.unavailableUntil = Math.max(Number(contact.unavailableUntil) || 0, state.clock + SECONDS_PER_DAY);
@@ -66429,6 +66870,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         details: `The exact manufactured batch reserved by ${contract.id} was removed through the covert market rather than the Loading Bay.`
       });
     }
+    recordInvestigativeEvidence("covertCommercialDelivery", {
+      category: "commercial", label: `Off-books delivery of ${contract.material}`, significance: contract.commodityKind === "specimen" ? "critical" : "serious",
+      subject: { kind: "commercialHandoff", id: contract.id }, origin: { kind: "blackMarketContract", id: contract.id, label: `Delivery to ${contact.name}` },
+      locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
+      refs: { contractIds: [contract.id], batchIds: [manufacturedBatchId], stackIds: [contract.selectedStackId], slimeIds: [contract.selectedSlimeId] },
+      traits: ["off-books contract", contract.commodityKind, contract.material, "physical handoff"],
+      magnitude: { band: contract.commodityKind === "specimen" ? "large" : "moderate", amount: contract.amount, unit: contract.commodityKind === "specimen" ? "specimen" : "units" },
+      discoverability: { level: "subtle", methods: ["witness", "commerceCorrelation"] },
+      persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
+      lifecycle: "externalized", coalesceKey: `market-delivery:${contract.id}`
+    });
     contract.deliveredAt = task.dueAt;
     contract.taskId = "";
     contract.reservations = [];
@@ -66545,6 +66997,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (observed) {
       addSuspicion(deal.suspicionOnObserved);
     }
+    recordInvestigativeEvidence("covertSpotSale", {
+      category: "commercial", label: `Off-books sale of ${deal.material}`, significance: "material",
+      subject: { kind: "commercialHandoff", id: deal.id }, origin: { kind: "blackMarketOffer", id: deal.id, label: `Spot sale to ${contact.name}` },
+      locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
+      refs: { contractIds: [deal.id] }, traits: ["off-books sale", deal.material, observed ? "observed" : "unobserved"],
+      magnitude: { band: "moderate", amount: deal.amount, unit: "units" }, discoverability: { level: observed ? "obvious" : "subtle", methods: ["witness", "commerceCorrelation"] },
+      persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 21 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
+      lifecycle: "externalized", coalesceKey: `market-spot-sale:${deal.id}`
+    });
     deal.status = "completed";
     deal.completedAt = state.clock;
     deal.taskId = "";
@@ -66750,7 +67211,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return clamp(Math.sqrt(volume / 1000), 0.35, 4);
   }
 
-  function addSpecimenMaterial(label, amount, tags = [], source = "Specimen harvest", roomId = STORAGE_ROOM_ID) {
+  function addSpecimenMaterial(label, amount, tags = [], source = "Specimen harvest", roomId = STORAGE_ROOM_ID, options = {}) {
     const cleanLabel = String(label || "Slime tissue").trim();
     const delta = Math.max(0, Math.round(Number(amount) || 0));
     if (!cleanLabel || !delta) {
@@ -66759,7 +67220,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const cleanTags = normalizeSpecimenMaterialTags(tags);
     const key = specimenMaterialKey(cleanLabel, cleanTags);
     const prior = state.specimenMaterials?.[key];
-    addPhysicalItemQuantity("specimenMaterials", key, delta, roomId);
+    addPhysicalItemQuantity("specimenMaterials", key, delta, roomId, {
+      tags: cleanTags,
+      sourceLabels: [source],
+      sourceSlimeIds: options.sourceSlimeIds || []
+    });
     const entry = state.specimenMaterials?.[key];
     if (entry) {
       entry.label = cleanLabel;
@@ -67535,6 +68000,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       existing.updatedAt = state.clock;
       existing.sourceLabels = normalizeResidueSourceLabels([...(existing.sourceLabels || []), ...sourceLabels]);
       existing.sourceSlimeIds = [...new Set([...(existing.sourceSlimeIds || []), ...sourceSlimeIds])].slice(0, 8);
+      recordPhysicalStackEvidence(existing, { known: scientistObservesRoom(location.roomId), originLabel: sourceLabels.join(", ") });
       syncPhysicalReadModels();
     } else {
       createPhysicalItemStack("residue", typeKey, units, {
@@ -67782,6 +68248,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       syncPhysicalReadModels();
       return false;
     }
+    transformInvestigativeEvidence(stack, filled, "contained");
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
     state.scientist.roomId = stack.roomId;
     state.scientist.mapCell = cleanMapCell(stack.cell) || labMapRoomAnchor(stack.roomId);
@@ -69809,6 +70276,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       next.siteIdentity.operatingState = next.company.operatingState;
     }
     next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
+    next.investigativeEvidence = InvestigativeEvidence.normalizeState(candidate?.investigativeEvidence);
     next.navigation = normalizeNavigationState(next.navigation);
     next.simulation = normalizeSimulationState(next.simulation, next.clock);
     next.discoveries ||= {};
@@ -70106,6 +70574,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     syncActorInventories(next);
     syncPhysicalReadModels(next);
+    seedStartingInvestigativeEvidence(next);
     next.creatureRecords = normalizeCreatureRecords(next.creatureRecords, next);
     const previousState = state;
     try {

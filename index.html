@@ -52,6 +52,7 @@
             <symbol id="workspace-icon-economy" viewBox="0 0 24 24"><path d="M8 7c0-2 2-4 4-4s4 2 4 4 M7 8h10l3 11c0 1-1 2-2 2H6c-1 0-2-1-2-2Z M12 11v7 M15 13c-1-2-5-2-5 0s5 1 5 3-4 2-6 0"/></symbol>
             <symbol id="workspace-icon-policies" viewBox="0 0 24 24"><path d="M4 6h5 M13 6h7 M4 12h9 M17 12h3 M4 18h2 M10 18h10 M9 4v4 M13 10v4 M6 16v4"/></symbol>
             <symbol id="workspace-icon-journal" viewBox="0 0 24 24"><path d="M3 5c4-2 7-1 9 1v15c-2-2-5-3-9-1Z M21 5c-4-2-7-1-9 1v15c2-2 5-3 9-1Z"/></symbol>
+            <symbol id="workspace-icon-evidence" viewBox="0 0 24 24"><path d="M9 3h6v4l4 11c.5 2-.5 3-2 3H7c-1.5 0-2.5-1-2-3L9 7Z M8 15h8 M10 10h4"/></symbol>
             <symbol id="workspace-icon-log" viewBox="0 0 24 24"><path d="M4 4h16v11H9l-5 4Z M8 8h8 M8 11h5"/></symbol>
             <symbol id="workspace-icon-cheats" viewBox="0 0 24 24"><path d="M4 5h16v14H4Z M8 9l3 3-3 3 M13 15h4"/></symbol>
           </svg>
@@ -90,6 +91,7 @@
           </div>
           <div class="workspace-tab-group" role="group" aria-label="Records" data-workspace-category="records">
             <span class="workspace-category-label">Records</span>
+            <button class="workspace-tab" type="button" aria-label="Site Evidence" data-workspace-tab="evidence" title="Site Evidence"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-evidence"/></svg><span class="workspace-tab-label">Evidence</span></button>
             <button class="workspace-tab" type="button" aria-label="Journal" data-workspace-tab="journal" title="Journal"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-journal"/></svg><span class="workspace-tab-label">Journal</span></button>
             <button class="workspace-tab" type="button" aria-label="Messages" data-workspace-tab="log" title="Messages"><svg class="workspace-tab-icon" aria-hidden="true"><use href="#workspace-icon-log"/></svg><span class="workspace-tab-label">Messages</span></button>
           </div>
@@ -236,6 +238,16 @@
             </div>
           </div>
           <div id="journalContent"></div>
+        </section>
+
+        <section class="panel journal-panel" aria-labelledby="evidenceTitle" data-workspace-panel="evidence">
+          <div class="panel-heading">
+            <div>
+              <h2 id="evidenceTitle">Site Evidence</h2>
+              <p id="evidenceSummary">Known physical and documentary traces</p>
+            </div>
+          </div>
+          <div id="evidenceList" class="journal-map"></div>
         </section>
 
         <section class="panel policy-panel" aria-labelledby="policyTitle" data-workspace-panel="policies">
@@ -739,6 +751,7 @@
     <script src="navigation.js"></script>
     <script src="vertical-systems.js"></script>
     <script src="simulation-runtime.js"></script>
+    <script src="investigative-evidence.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

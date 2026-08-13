@@ -191,6 +191,7 @@
     if (overlay.id === "infrastructure") return withStyle(style, { fill: "#202722", stroke: "#aebba6" });
     if (overlay.id === "movement") return withStyle(style, { fill: "#1f302d", stroke: "#68c8d8" });
     if (overlay.id === "resources") return withStyle(style, { fill: "#26311f", stroke: "#9abe60" });
+    if (overlay.id === "evidence") return withStyle(style, { fill: "#33263b", stroke: states.has("evidence-critical") || states.has("evidence-serious") ? "#ff8b73" : "#d697ff" });
     if (overlay.id === "incidents") return withStyle(style, { fill: "#39221f", stroke: "#ff8b73" });
     if (overlay.id === "combat") return withStyle(style, { fill: "#3a1717", stroke: "#ff8b73" });
     if (overlay.id === "construction") return withStyle(style, { fill: "#302618", stroke: "#e1b75f" });
