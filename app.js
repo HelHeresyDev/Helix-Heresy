@@ -6291,7 +6291,8 @@
     state.scientist.mapCell = labMapRoomAnchor(SURFACE_LOADING_ROOM_ID);
     if (consignment.direction === "inbound") {
       createPhysicalItemStack(def.section, def.key, consignment.quantity, physicalFallbackLocation(SURFACE_LOADING_ROOM_ID), {
-        phase: def.section === "chemicalBatches" ? CHEMICAL_PRODUCT_BY_ID[def.key]?.phase : "solid"
+        phase: def.section === "chemicalBatches" ? CHEMICAL_PRODUCT_BY_ID[def.key]?.phase : "solid",
+        tags: ["legalfreight"]
       });
       consignment.status = "received";
       consignment.completedAt = state.clock;
@@ -7583,6 +7584,10 @@
         setMapRendererMode(mode);
         return currentMapRendererMode();
       },
+      setMapOverlay: (overlayId) => {
+        setMapOverlay(overlayId);
+        return normalizeMapOverlayId(ensureUiState().mapOverlay);
+      },
       simulateCanvasMapFailure: () => handleCanvasMapFailure(new Error("Simulated Canvas map failure.")),
       terrainConnectivitySnapshot: (cell, options = {}) => {
         const map = ensureLabMap();
@@ -7840,6 +7845,11 @@
         const current = mapViewportForUi().z;
         setMapLayer(Number(z) - current);
         return mapViewportForUi().z;
+      },
+      centerMapOnCell: (cell) => {
+        centerMapCameraOnCell(cell);
+        renderMapInteraction();
+        return mapViewportForUi();
       },
       designateVerticalExcavation: (mode, cell, options = {}) => {
         if (!["stairUp", "stairDown", "channelDown", "ramp"].includes(mode)) return false;
@@ -8217,6 +8227,15 @@
         workpieces: (state.productionWorkpieces || []).filter((workpiece) => productionRecipe(workpiece.recipeId)?.chemistry),
         activeTask: (state.tasks || []).find((task) => task.type === "productionWork") || null
       }),
+      physicalItemVisualSnapshot: () => clonePlainObject(ensurePhysicalItemStacks().map((stack) => ({
+        id: stack.id,
+        section: stack.section,
+        key: stack.key,
+        form: stack.form,
+        tags: stack.tags,
+        roomId: stack.roomId,
+        visualKey: itemStackSceneVisualKey(stack)
+      }))),
       commodityMarketSnapshot: () => clonePlainObject({
         money: ensureEconomy().money,
         businessReputation: ensureEconomy().businessReputation,
@@ -52639,6 +52658,82 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return cues;
   }
 
+  function surfaceServiceTrunkVisual(fixture) {
+    if (fixture?.typeId !== "surfaceServiceTrunk") return null;
+    const origin = cleanMapCell(fixture.origin);
+    const directions = [
+      { id: "north", dx: 0, dy: -1 },
+      { id: "east", dx: 1, dy: 0 },
+      { id: "south", dx: 0, dy: 1 },
+      { id: "west", dx: -1, dy: 0 }
+    ];
+    const connected = new Set(directions.filter((direction) =>
+      fixturesAtCell(mapCellAtOffset(origin, direction.dx, direction.dy), { exceptFixtureId: fixture.id })
+        .some((candidate) => candidate.typeId === "surfaceServiceTrunk")
+    ).map((direction) => direction.id));
+    if (connected.size >= 4) return { key: "fixture.surfaceServiceTrunk.cross", orientation: { quarterTurns: 0 } };
+    if (connected.size === 3) {
+      const missing = directions.find((direction) => !connected.has(direction.id))?.id;
+      return { key: "fixture.surfaceServiceTrunk.tee", orientation: { quarterTurns: { south: 0, west: 1, north: 2, east: 3 }[missing] || 0 } };
+    }
+    if (connected.size === 2) {
+      if (connected.has("east") && connected.has("west")) return { key: "fixture.surfaceServiceTrunk.straight", orientation: { quarterTurns: 0 } };
+      if (connected.has("north") && connected.has("south")) return { key: "fixture.surfaceServiceTrunk.straight", orientation: { quarterTurns: 1 } };
+      const turns = connected.has("east") && connected.has("south") ? 0
+        : connected.has("south") && connected.has("west") ? 1
+        : connected.has("west") && connected.has("north") ? 2 : 3;
+      return { key: "fixture.surfaceServiceTrunk.corner", orientation: { quarterTurns: turns } };
+    }
+    const direction = directions.find((candidate) => connected.has(candidate.id))?.id;
+    return { key: "fixture.surfaceServiceTrunk.endpoint", orientation: { quarterTurns: { east: 0, south: 1, west: 2, north: 3 }[direction] || 0 } };
+  }
+
+  function surfaceDoorVisualKey(door, stateDoor) {
+    if (cleanMapCell(door?.cell)?.z !== ensureLabMap().surfaceZ) return "";
+    const id = String(door?.key || door?.id || "");
+    const family = id === "door-surface-front" ? "public"
+      : id === "door-surface-loading" ? "freight"
+      : id.includes("hazard") ? "hazard"
+      : id.includes("basement") ? "basement" : "staff";
+    const stateId = doorMapClassName(stateDoor).replace(/^door-/, "");
+    return `door.surface.${family}.${stateId}`;
+  }
+
+  function surfaceDoorOrientation(door) {
+    if (String(door?.key || door?.id || "") === "door-surface-loading") return { quarterTurns: 0 };
+    return { quarterTurns: door?.frameAxis === "northSouth" ? 1 : 0 };
+  }
+
+  function itemStackSceneVisualKey(stack) {
+    if ((stack.tags || []).includes("legalfreight")) return "item.surface.freight.lawful";
+    if (stack.form === "spill") {
+      const tags = new Set(stack.tags || []);
+      if (tags.has("corrosive")) return "item.chemical.spill.corrosive";
+      if (["reactive", "volatile", "flammable", "arcane"].some((tag) => tags.has(tag))) return "item.chemical.spill.reactive";
+      return "item.chemical.spill";
+    }
+    const byproductContent = (stack.contents || []).find((content) => content.kind === "byproduct");
+    if (byproductContent) return byproductContent.phase === "vapor" ? "item.chemical.vapor" : "item.chemical.raw";
+    const wasteContent = (stack.contents || []).find((content) => ["waste", "residue"].includes(content.kind));
+    if (wasteContent) return ["liquid", "sludge"].includes(wasteContent.phase) ? "item.chemical.sludge" : "item.chemical.waste";
+    if (stack.section === "collectedByproducts") {
+      return stack.phase === "vapor" ? "item.chemical.vapor" : "item.chemical.raw";
+    }
+    if (stack.section === "chemicalBatches" && stack.chemicalBatch) {
+      const batch = stack.chemicalBatch;
+      if (batch.stage === "raw") return "item.chemical.raw";
+      if (batch.stage === "intermediate") return "item.chemical.intermediate";
+      if (batch.stage === "waste") return stack.phase === "sludge" || stack.phase === "liquid" ? "item.chemical.sludge" : "item.chemical.waste";
+      return batch.packaging?.state === "packaged" || (batch.tags || []).includes("packaged")
+        ? "item.chemical.packaged" : "item.chemical.bulk";
+    }
+    if (stack.section === "inventory" && stack.key === "sealedReagentBottle") return "item.chemical.emptyBottle";
+    if (stack.section === "residue") return stack.phase === "sludge" || stack.phase === "liquid" ? "item.chemical.sludge" : "item.chemical.residue";
+    if (stack.form === "waste" || (stack.tags || []).includes("waste")) return "item.chemical.waste";
+    if (stack.phase === "vapor") return "item.chemical.vapor";
+    return stack.form === "receptacle" ? "item.receptacle" : "item.stack";
+  }
+
   function mapSceneEntitySeedForTarget(target, footprintCells, options = {}) {
     const targetKey = selectionKey(target);
     const anchorFallback = footprintCells[0] || null;
@@ -52649,6 +52744,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const roomId = labMapCellRoomId(fixture.origin);
       const knowledge = mapSceneKnowledgeForRoom(roomId, { ...options, cell: fixture.origin });
       const current = ["current", "debug"].includes(knowledge.state);
+      const trunkVisual = surfaceServiceTrunkVisual(fixture);
       return {
         id: targetKey,
         kind: "fixture",
@@ -52657,14 +52753,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         target,
         anchorCell: fixture.origin,
         footprintCells,
-        orientation: fixture.rotation,
+        orientation: trunkVisual?.orientation || fixture.rotation,
         pose: "installed",
         activity: current ? { id: fixture.operationalState, label: titleCase(fixture.operationalState) } : null,
         condition: current ? { ratio: clamp(fixture.condition / 100, 0, 1), band: structureConditionBand(fixture.condition).toLowerCase() } : null,
         statusCues: current ? fixtureSceneStatusCues(fixture) : [],
         knowledge,
         visual: {
-          key: `fixture.${def.id}`,
+          key: trunkVisual?.key || `fixture.${def.id}`,
           glyph: def.glyph || "F",
           recipeKey: `fixture:${def.id}:${fixture.rotation}`,
           layer: def.layer
@@ -52713,7 +52809,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         statusCues: [],
         knowledge,
         visual: {
-          key: stack.form === "spill" ? "item.spill" : stack.form === "receptacle" ? "item.receptacle" : "item.stack",
+          key: itemStackSceneVisualKey(stack),
           glyph: stack.form === "spill" ? "~" : stack.form === "receptacle" ? "v" : "P",
           recipeKey: `item:${stack.section}:${stack.key}:${stack.form}`
         },
@@ -52944,13 +53040,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         target: { kind: "door", key: door.key },
         anchorCell: door.cell,
         footprintCells: labMapDoorCells(door),
-        orientation: door.frameAxis,
+        orientation: surfaceDoorVisualKey(door, stateDoor) ? surfaceDoorOrientation(door) : door.frameAxis,
         pose: current ? doorMapClassName(stateDoor).replace(/^door-/, "") : "remembered",
         activity: null,
         condition: current ? { ratio: clamp(doorCondition(stateDoor) / 100, 0, 1), band: doorConditionLabel(stateDoor).toLowerCase() } : null,
         statusCues: current ? doorSceneStatusCues(stateDoor) : [],
         knowledge,
-        visual: { key: current ? `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}` : "door.remembered", glyph: current ? doorMapGlyph(stateDoor) : "d", recipeKey: `door:${stateDoor.typeId || "door"}:${door.frameAxis}` },
+        visual: { key: current ? surfaceDoorVisualKey(door, stateDoor) || `door.${doorMapClassName(stateDoor).replace(/^door-/, "")}` : "door.remembered", glyph: current ? doorMapGlyph(stateDoor) : "d", recipeKey: `door:${stateDoor.typeId || "door"}:${door.frameAxis}` },
         blocking: current ? stateDoor.state !== DOOR_STATE_OPEN : true
       });
     }
@@ -58588,6 +58684,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
+  function surfaceGroundSpriteKey(cell, roomId, surfaceGround, constructedFloor, envelope, verticalDirection) {
+    if (verticalDirection === "down") return "tile.surface.vertical.down";
+    if (constructedFloor) {
+      return roomId === SURFACE_LOADING_ROOM_ID
+        ? "tile.surface.interior.loading.constructed"
+        : "tile.surface.interior.constructed";
+    }
+    if (surfaceGround?.terrainId === "gravel") {
+      const variation = Math.abs((Number(cell?.x) || 0) * 17 + (Number(cell?.y) || 0) * 31) % 19;
+      if (variation === 0) return "tile.surface.outdoor.gravel.drainage";
+      if (variation === 1) return "tile.surface.outdoor.gravel.weeds";
+    }
+    return `tile.surface.outdoor.${surfaceGround?.terrainId || "grass"}`;
+  }
+
+  function surfaceWallSpriteKey(cell, wall, map, envelopeContext) {
+    const condition = structureConditionBand(wall.condition).toLowerCase();
+    if (cell.z !== map.surfaceZ || wall.materialId !== "stoneBlocks") {
+      return `tile.wall.constructed.${wall.materialId}.${condition}`;
+    }
+    const exterior = [[0, -1], [1, 0], [0, 1], [-1, 0]].some(([dx, dy]) => {
+      const adjacent = mapCellAtOffset(cell, dx, dy);
+      return Boolean(surfaceGroundAtCell(adjacent, map)
+        && surfaceEnvelopeAtCell(adjacent, map, envelopeContext)?.openSky);
+    });
+    return `tile.wall.surface.${exterior ? "exterior" : "partition"}.${wall.materialId}.${condition}`;
+  }
+
   function labMapCellBaseView(roomId, hasFloor = false, plannedEntry = null, draftEntry = null, known = true, cell = null, map = null, envelopeContext = null) {
     if (!known) {
       return {
@@ -58641,7 +58765,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         attackTransmission: constructedWall.condition > 0 && constructedWall.condition < STRUCTURE_BREACH_THRESHOLD,
         enclosure: envelope?.kind || "",
         supportStatus: structuralFailure?.status || "supported",
-        spriteKey: `tile.wall.constructed.${constructedWall.materialId}.${structureConditionBand(constructedWall.condition).toLowerCase()}`
+        spriteKey: surfaceWallSpriteKey(cell, constructedWall, map, envelopeContext)
       };
     }
     if (roomId) {
@@ -58661,7 +58785,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ramp: ramp ? { id: ramp.id, grade: ramp.grade, length: ramp.length, width: ramp.width, direction: ramp.direction, angleDegrees: ramp.angleDegrees, condition: ramp.condition } : null,
         supportStatus: structuralFailure?.status || "supported",
         spriteKey: surfaceGround
-          ? `tile.surface.${envelope?.kind || "outdoor"}.${constructedFloor ? "constructed" : surfaceGround.terrainId}`
+          ? surfaceGroundSpriteKey(cell, roomId, surfaceGround, constructedFloor, envelope, verticalDirection)
           : constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
       };
     }
@@ -58675,7 +58799,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         openSky: Boolean(envelope?.openSky),
         verticalDirection,
         supportStatus: structuralFailure?.status || "supported",
-        spriteKey: `tile.surface.${envelope?.kind || "outdoor"}.${constructedFloor ? "constructed" : surfaceGround.terrainId}`
+        spriteKey: surfaceGroundSpriteKey(cell, roomId, surfaceGround, constructedFloor, envelope, verticalDirection)
       };
     }
     if (constructedFloor?.purpose === "roof") {

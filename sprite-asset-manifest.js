@@ -9,7 +9,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixSpriteAssetManifest() {
   "use strict";
 
-  const MANIFEST_VERSION = 3;
+  const MANIFEST_VERSION = 4;
   const ASSET_CATEGORIES = Object.freeze([
     "terrain",
     "fixture",
@@ -61,6 +61,69 @@
       placeholder: true
     };
   }
+
+  function authoredAtlasAsset(options) {
+    return {
+      key: options.key,
+      category: options.category,
+      source: { type: "atlas", path: options.path },
+      sourceSize: { ...options.sourceSize },
+      sourceRect: { ...options.sourceRect },
+      logicalSize: { ...(options.logicalSize || { width: 1, height: 1, layers: 1 }) },
+      placement: {
+        anchorTile: { ...(options.anchorTile || { x: 0, y: 0, z: 0 }) },
+        rotation: options.rotation || "none",
+        mirror: options.mirror || "none"
+      },
+      variants: [...(options.variants || [])],
+      placeholder: false,
+      development: true,
+      generated: true
+    };
+  }
+
+  const surfaceTerrainPath = "assets/sprites/development/chemistry-front/atlas-surface-terrain.png";
+  const surfaceEquipmentPath = "assets/sprites/development/chemistry-front/atlas-surface-equipment.png";
+  const surfaceAccessPath = "assets/sprites/development/chemistry-front/atlas-surface-access.png";
+  const surfaceGoodsPath = "assets/sprites/development/chemistry-front/atlas-surface-goods-hazards.png";
+  const tileRect = (column, row) => ({ x: column * 256, y: row * 256, width: 256, height: 256 });
+  const terrainAsset = (key, column, row, options = {}) => authoredAtlasAsset({ key, category: "terrain", path: surfaceTerrainPath, sourceSize: { width: 1024, height: 1024 }, sourceRect: tileRect(column, row), ...options });
+  const equipmentRectByKey = Object.freeze({
+    utilityServiceHead: { x: 8, y: 8, width: 240, height: 240 },
+    surfaceUtilityRiser: { x: 264, y: 8, width: 240, height: 240 },
+    waterCisternPump: { x: 580, y: 8, width: 120, height: 240 },
+    wetChemistryBench: { x: 8, y: 324, width: 240, height: 120 },
+    reactionVessel: { x: 264, y: 264, width: 240, height: 240 },
+    fumeHood: { x: 520, y: 324, width: 240, height: 120 },
+    analysisStation: { x: 8, y: 580, width: 240, height: 120 },
+    packagingStation: { x: 264, y: 580, width: 240, height: 120 },
+    wasteTreatmentStation: { x: 520, y: 520, width: 240, height: 240 }
+  });
+  const equipmentLogicalSizeByKey = Object.freeze({
+    utilityServiceHead: { width: 1, height: 1, layers: 1 },
+    surfaceUtilityRiser: { width: 1, height: 1, layers: 1 },
+    waterCisternPump: { width: 1, height: 2, layers: 1 },
+    wetChemistryBench: { width: 2, height: 1, layers: 1 },
+    reactionVessel: { width: 2, height: 2, layers: 1 },
+    fumeHood: { width: 2, height: 1, layers: 1 },
+    analysisStation: { width: 2, height: 1, layers: 1 },
+    packagingStation: { width: 2, height: 1, layers: 1 },
+    wasteTreatmentStation: { width: 2, height: 2, layers: 1 }
+  });
+  const surfaceEquipmentAssets = Object.keys(equipmentRectByKey).map((id) => authoredAtlasAsset({
+    key: `fixture.${id}`,
+    category: "fixture",
+    path: surfaceEquipmentPath,
+    sourceSize: { width: 768, height: 768 },
+    sourceRect: equipmentRectByKey[id],
+    logicalSize: equipmentLogicalSizeByKey[id],
+    rotation: "quarterTurns"
+  }));
+  const accessRect = (column, row) => row < 2
+    ? { x: column * 256 + 8, y: row * 256 + 8, width: 240, height: 240 }
+    : { x: column * 256 + 88, y: 520, width: 80, height: 240 };
+  const doorAsset = (key, column, row, options = {}) => authoredAtlasAsset({ key, category: "fixture", path: surfaceAccessPath, sourceSize: { width: 1024, height: 768 }, sourceRect: accessRect(column, row), rotation: "quarterTurns", ...options });
+  const goodsAsset = (key, column, row, category = "item") => authoredAtlasAsset({ key, category, path: surfaceGoodsPath, sourceSize: { width: 1024, height: 1024 }, sourceRect: tileRect(column, row) });
 
   const manifest = {
     id: "helix-heresy-map-sprites",
@@ -239,7 +302,66 @@
       atlasPlaceholder({ key: "effect.combatAction", category: "effect", path: "assets/sprites/placeholders/atlas-effects-placeholders.png", column: 2, row: 1 }),
       atlasPlaceholder({ key: "effect.task.urgent", category: "effect", path: "assets/sprites/placeholders/atlas-effects-placeholders.png", column: 0, row: 2 }),
       atlasPlaceholder({ key: "effect.task.blocked", category: "effect", path: "assets/sprites/placeholders/atlas-effects-placeholders.png", column: 1, row: 2 }),
-      atlasPlaceholder({ key: "effect.task", category: "effect", path: "assets/sprites/placeholders/atlas-effects-placeholders.png", column: 2, row: 2 })
+      atlasPlaceholder({ key: "effect.task", category: "effect", path: "assets/sprites/placeholders/atlas-effects-placeholders.png", column: 2, row: 2 }),
+
+      terrainAsset("tile.surface.outdoor.grass", 0, 0),
+      terrainAsset("tile.surface.outdoor.gravel", 1, 0),
+      terrainAsset("tile.surface.interior.constructed", 2, 0),
+      terrainAsset("tile.surface.interior.loading.constructed", 3, 0),
+      terrainAsset("tile.surface.roof.constructed", 0, 1),
+      terrainAsset("tile.surface.wall.exterior", 1, 1),
+      terrainAsset("tile.surface.wall.partition", 2, 1),
+      terrainAsset("tile.surface.vertical.down", 3, 1),
+      terrainAsset("fixture.surfaceServiceTrunk.endpoint", 0, 2, { category: "fixture", rotation: "quarterTurns" }),
+      terrainAsset("fixture.surfaceServiceTrunk.straight", 1, 2, { category: "fixture", rotation: "quarterTurns" }),
+      terrainAsset("fixture.surfaceServiceTrunk.corner", 2, 2, { category: "fixture", rotation: "quarterTurns" }),
+      terrainAsset("fixture.surfaceServiceTrunk.tee", 3, 2, { category: "fixture", rotation: "quarterTurns" }),
+      terrainAsset("fixture.surfaceServiceTrunk.cross", 0, 3, { category: "fixture", rotation: "quarterTurns" }),
+      terrainAsset("tile.surface.roof.edge", 1, 3),
+      terrainAsset("tile.surface.outdoor.gravel.drainage", 2, 3),
+      terrainAsset("tile.surface.outdoor.gravel.weeds", 3, 3),
+      ...["intact", "worn", "damaged", "breached", "destroyed"].flatMap((condition) => [
+        terrainAsset(`tile.wall.surface.exterior.stoneBlocks.${condition}`, 1, 1),
+        terrainAsset(`tile.wall.surface.partition.stoneBlocks.${condition}`, 2, 1),
+        terrainAsset(`tile.roof.stoneBlocks.${condition}`, 0, 1)
+      ]),
+      ...surfaceEquipmentAssets,
+      ...["closed", "locked"].map((state) => doorAsset(`door.surface.public.${state}`, 0, 0)),
+      doorAsset("door.surface.public.open", 1, 0),
+      doorAsset("door.surface.public.sealed", 1, 1),
+      doorAsset("door.surface.public.breached", 3, 1),
+      ...["closed", "locked"].map((state) => doorAsset(`door.surface.staff.${state}`, 2, 0)),
+      doorAsset("door.surface.staff.open", 3, 0),
+      doorAsset("door.surface.staff.sealed", 1, 1),
+      doorAsset("door.surface.staff.breached", 3, 1),
+      ...["closed", "locked"].map((state) => doorAsset(`door.surface.hazard.${state}`, 0, 1)),
+      doorAsset("door.surface.hazard.open", 3, 0),
+      doorAsset("door.surface.hazard.sealed", 1, 1),
+      doorAsset("door.surface.hazard.breached", 3, 1),
+      ...["closed", "locked"].map((state) => doorAsset(`door.surface.basement.${state}`, 2, 1)),
+      doorAsset("door.surface.basement.open", 3, 0),
+      doorAsset("door.surface.basement.sealed", 1, 1),
+      doorAsset("door.surface.basement.breached", 3, 1),
+      ...["closed", "open", "locked", "sealed", "breached"].map((state) => {
+        const column = state === "open" ? 1 : state === "locked" || state === "sealed" ? 2 : state === "breached" ? 3 : 0;
+        return doorAsset(`door.surface.freight.${state}`, column, 2, { logicalSize: { width: 1, height: 3, layers: 1 }, anchorTile: { x: 0, y: 1, z: 0 }, rotation: "none" });
+      }),
+      goodsAsset("item.chemical.raw", 0, 0),
+      goodsAsset("item.chemical.intermediate", 1, 0),
+      goodsAsset("item.chemical.bulk", 2, 0),
+      goodsAsset("item.chemical.packaged", 3, 0),
+      goodsAsset("item.surface.freight", 0, 1),
+      goodsAsset("item.chemical.emptyBottle", 1, 1),
+      goodsAsset("item.chemical.waste", 2, 1),
+      goodsAsset("item.chemical.sludge", 3, 1),
+      goodsAsset("item.chemical.spill", 0, 2),
+      goodsAsset("item.chemical.spill.corrosive", 1, 2),
+      goodsAsset("item.chemical.spill.reactive", 2, 2),
+      goodsAsset("item.chemical.vapor", 3, 2),
+      goodsAsset("effect.fume.exhaust", 0, 3, "effect"),
+      goodsAsset("effect.leak.water", 1, 3, "effect"),
+      goodsAsset("item.chemical.residue", 2, 3),
+      goodsAsset("item.surface.freight.lawful", 3, 3)
     ],
     aliases: [
       {
