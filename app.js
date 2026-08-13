@@ -91,6 +91,19 @@
   const COLLECTION_BAY_ROOM_ID = "collectionBay";
   const CONCEALED_EXIT_ROOM_ID = "concealedExit";
   const SURFACE_FACILITY_ROOM_ID = "surfaceFacility";
+  const SURFACE_RECEPTION_ROOM_ID = "surfaceReception";
+  const SURFACE_STAFF_ROOM_ID = "surfaceStaffOperations";
+  const SURFACE_HAZARD_ROOM_ID = "surfaceHazardousStorage";
+  const SURFACE_LOADING_ROOM_ID = "surfaceLoadingBay";
+  const SURFACE_BASEMENT_ROOM_ID = "surfaceBasementVestibule";
+  const SURFACE_ROOM_IDS = [
+    SURFACE_FACILITY_ROOM_ID,
+    SURFACE_RECEPTION_ROOM_ID,
+    SURFACE_STAFF_ROOM_ID,
+    SURFACE_HAZARD_ROOM_ID,
+    SURFACE_LOADING_ROOM_ID,
+    SURFACE_BASEMENT_ROOM_ID
+  ];
   const EXCAVATED_ROOM_ROLE = "excavated";
   const EXCAVATION_BASE_DURATION_MINUTES = 4;
   const EXCAVATION_MINUTES_PER_TILE = 6;
@@ -693,10 +706,21 @@
   const LAB_MAP_LAYER_HEIGHT_M = 4;
   const LAB_MAP_DEFAULT_SURFACE_Z = 1;
   const SURFACE_PARCEL_RECT = { x: 43, y: 38, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 18, height: 16 };
-  const SURFACE_BUILDING_RECT = { x: 46, y: 41, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 12, height: 10 };
-  const SURFACE_BUILDING_INTERIOR_RECT = { x: 47, y: 42, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 10, height: 8 };
-  const SURFACE_BASEMENT_STAIR_CELL = { x: 52, y: 47, z: LAB_MAP_DEFAULT_SURFACE_Z };
-  const SURFACE_BUILDING_DOOR_CELL = { x: 52, y: 50, z: LAB_MAP_DEFAULT_SURFACE_Z };
+  const SURFACE_BUILDING_RECT = { x: 44, y: 39, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 16, height: 14 };
+  const SURFACE_BUILDING_INTERIOR_RECT = { x: 45, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 14, height: 12 };
+  const SURFACE_PROCESS_RECT = { x: 45, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 5, height: 6 };
+  const SURFACE_BASEMENT_RECT = { x: 51, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 4, height: 6 };
+  const SURFACE_HAZARD_RECT = { x: 56, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 3, height: 6 };
+  const SURFACE_RECEPTION_RECT = { x: 45, y: 47, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 5, height: 5 };
+  const SURFACE_STAFF_RECT = { x: 51, y: 47, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 4, height: 5 };
+  const SURFACE_LOADING_RECT = { x: 56, y: 47, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 3, height: 5 };
+  const SURFACE_BASEMENT_STAIR_CELL = { x: 53, y: 43, z: LAB_MAP_DEFAULT_SURFACE_Z };
+  const SURFACE_BUILDING_DOOR_CELL = { x: 47, y: 52, z: LAB_MAP_DEFAULT_SURFACE_Z };
+  const SURFACE_LOADING_DOOR_CELLS = [
+    { x: 59, y: 48, z: LAB_MAP_DEFAULT_SURFACE_Z },
+    { x: 59, y: 49, z: LAB_MAP_DEFAULT_SURFACE_Z },
+    { x: 59, y: 50, z: LAB_MAP_DEFAULT_SURFACE_Z }
+  ];
   const SURFACE_OUTSIDE_TEMPERATURE_C = 12;
   const SURFACE_OUTSIDE_HUMIDITY = 45;
   const SURFACE_OUTSIDE_MANA_DENSITY = 24;
@@ -725,7 +749,12 @@
     [STORAGE_ROOM_ID]: { x: 48, y: 40, width: 7, height: 5 },
     [COLLECTION_BAY_ROOM_ID]: { x: 58, y: 45, width: 9, height: 6 },
     [CONCEALED_EXIT_ROOM_ID]: { x: 43, y: 41, width: 4, height: 4 },
-    [SURFACE_FACILITY_ROOM_ID]: { ...SURFACE_BUILDING_INTERIOR_RECT }
+    [SURFACE_FACILITY_ROOM_ID]: { ...SURFACE_PROCESS_RECT },
+    [SURFACE_RECEPTION_ROOM_ID]: { ...SURFACE_RECEPTION_RECT },
+    [SURFACE_STAFF_ROOM_ID]: { ...SURFACE_STAFF_RECT },
+    [SURFACE_HAZARD_ROOM_ID]: { ...SURFACE_HAZARD_RECT },
+    [SURFACE_LOADING_ROOM_ID]: { ...SURFACE_LOADING_RECT },
+    [SURFACE_BASEMENT_ROOM_ID]: { ...SURFACE_BASEMENT_RECT }
   };
   const LAB_MAP_DOOR_DEFS = [
     { id: "door-menagerie-main", roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], cell: { x: 45, y: 50 } },
@@ -734,7 +763,15 @@
     { id: "door-collection-main", roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], cell: { x: 58, y: 48 } },
     { id: "door-pits-main", roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], cell: { x: 58, y: 53 } },
     { id: "door-exit-storage", roomIds: [CONCEALED_EXIT_ROOM_ID, STORAGE_ROOM_ID], cell: { x: 47, y: 43 } },
-    { id: "door-surface-front", roomIds: [SURFACE_FACILITY_ROOM_ID], cell: SURFACE_BUILDING_DOOR_CELL, frameAxis: "eastWest", passageAxis: "northSouth" }
+    { id: "door-surface-process-basement", roomIds: [SURFACE_FACILITY_ROOM_ID, SURFACE_BASEMENT_ROOM_ID], cell: { x: 50, y: 42, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "northSouth" },
+    { id: "door-surface-basement-hazard", roomIds: [SURFACE_BASEMENT_ROOM_ID, SURFACE_HAZARD_ROOM_ID], cell: { x: 55, y: 42, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "northSouth" },
+    { id: "door-surface-process-reception", roomIds: [SURFACE_FACILITY_ROOM_ID, SURFACE_RECEPTION_ROOM_ID], cell: { x: 47, y: 46, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "eastWest" },
+    { id: "door-surface-basement-staff", roomIds: [SURFACE_BASEMENT_ROOM_ID, SURFACE_STAFF_ROOM_ID], cell: { x: 52, y: 46, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "eastWest" },
+    { id: "door-surface-hazard-loading", roomIds: [SURFACE_HAZARD_ROOM_ID, SURFACE_LOADING_ROOM_ID], cell: { x: 57, y: 46, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "eastWest" },
+    { id: "door-surface-reception-staff", roomIds: [SURFACE_RECEPTION_ROOM_ID, SURFACE_STAFF_ROOM_ID], cell: { x: 50, y: 49, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "northSouth" },
+    { id: "door-surface-staff-loading", roomIds: [SURFACE_STAFF_ROOM_ID, SURFACE_LOADING_ROOM_ID], cell: { x: 55, y: 49, z: LAB_MAP_DEFAULT_SURFACE_Z }, frameAxis: "northSouth" },
+    { id: "door-surface-front", roomIds: [SURFACE_RECEPTION_ROOM_ID], cell: SURFACE_BUILDING_DOOR_CELL, frameAxis: "eastWest", passageAxis: "northSouth", clearance: { widthM: 1, heightM: 2.1 }, accessPointId: "publicEntrance" },
+    { id: "door-surface-loading", roomIds: [SURFACE_LOADING_ROOM_ID], cell: SURFACE_LOADING_DOOR_CELLS[1], cells: SURFACE_LOADING_DOOR_CELLS, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 3, heightM: 3.2 }, accessPointId: "loadingBay" }
   ];
   const DOOR_POLICY_DEFS = [
     { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
@@ -746,6 +783,7 @@
   const DOOR_ACCESS_RULE_DEFS = [
     { id: "unrestricted", label: "Unrestricted", description: "Any intelligent actor may operate this door when physically capable." },
     { id: "staff", label: "Laboratory Staff", description: "Only actors assigned laboratory staff access may operate this door." },
+    { id: "restricted", label: "Restricted Staff", description: "Only actors explicitly authorized for restricted basement and records areas may operate this door." },
     { id: "containment", label: "Containment", description: "Only actors with containment access may operate this door." },
     { id: "exterior", label: "Exterior", description: "Only actors authorized to use laboratory exits may operate this door." }
   ];
@@ -933,22 +971,23 @@
     },
     {
       id: SURFACE_FACILITY_ROOM_ID,
-      name: "Surface Facility",
-      articleName: "the Surface Facility",
+      name: "Process Hall",
+      articleName: "the Process Hall",
       role: EXCAVATED_ROOM_ROLE,
-      roleLabel: "Unassigned surface interior",
-      purposeId: "unassigned",
-      description: "An empty inherited building shell awaiting a declared business purpose and installed equipment.",
+      roleLabel: "Future chemical processing",
+      purposeId: "workroom",
+      facilityClass: "staff",
+      description: "An empty, staff-only production hall reserved for later chemistry equipment.",
       geometry: {
-        shape: "rectangular building shell",
-        lengthM: SURFACE_BUILDING_INTERIOR_RECT.width,
-        widthM: SURFACE_BUILDING_INTERIOR_RECT.height,
+        shape: "open process hall",
+        lengthM: SURFACE_PROCESS_RECT.width,
+        widthM: SURFACE_PROCESS_RECT.height,
         heightM: 3,
-        floorAreaM2: SURFACE_BUILDING_INTERIOR_RECT.width * SURFACE_BUILDING_INTERIOR_RECT.height,
-        volumeM3: SURFACE_BUILDING_INTERIOR_RECT.width * SURFACE_BUILDING_INTERIOR_RECT.height * 3,
-        notes: "prebuilt surface shell; no declared operating purpose"
+        floorAreaM2: SURFACE_PROCESS_RECT.width * SURFACE_PROCESS_RECT.height,
+        volumeM3: SURFACE_PROCESS_RECT.width * SURFACE_PROCESS_RECT.height * 3,
+        notes: "empty inherited process floor"
       },
-      connections: [],
+      connections: [SURFACE_BASEMENT_ROOM_ID, SURFACE_RECEPTION_ROOM_ID],
       attributes: {
         temperature: { current: 15, baseline: 15 },
         light: { current: 18, baseline: 18 },
@@ -957,6 +996,71 @@
         contamination: { current: 0, baseline: 0 },
         electricalCharge: { current: 1, baseline: 1 }
       }
+    },
+    {
+      id: SURFACE_RECEPTION_ROOM_ID,
+      name: "Public Reception",
+      articleName: "Public Reception",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Public-facing entrance",
+      purposeId: "corridor",
+      facilityClass: "public",
+      description: "The lawful public entrance and personnel reception area for Helix Applied Reagents.",
+      geometry: { shape: "front office", lengthM: 5, widthM: 5, heightM: 3, floorAreaM2: 25, volumeM3: 75 },
+      connections: [SURFACE_FACILITY_ROOM_ID, SURFACE_STAFF_ROOM_ID],
+      attributes: { temperature: { current: 15, baseline: 15 }, light: { current: 22, baseline: 22 }, ambientMana: { current: 25, baseline: 25 }, humidity: { current: 47, baseline: 47 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
+    },
+    {
+      id: SURFACE_STAFF_ROOM_ID,
+      name: "Staff Operations",
+      articleName: "Staff Operations",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Staff administration",
+      purposeId: "workroom",
+      facilityClass: "staff",
+      description: "A private office and records area connecting public, loading, and basement circulation.",
+      geometry: { shape: "staff office", lengthM: 4, widthM: 5, heightM: 3, floorAreaM2: 20, volumeM3: 60 },
+      connections: [SURFACE_RECEPTION_ROOM_ID, SURFACE_BASEMENT_ROOM_ID, SURFACE_LOADING_ROOM_ID],
+      attributes: { temperature: { current: 15, baseline: 15 }, light: { current: 18, baseline: 18 }, ambientMana: { current: 27, baseline: 27 }, humidity: { current: 48, baseline: 48 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
+    },
+    {
+      id: SURFACE_HAZARD_ROOM_ID,
+      name: "Hazardous Storage",
+      articleName: "Hazardous Storage",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Restricted hazardous handling",
+      purposeId: "storage",
+      facilityClass: "hazardous",
+      description: "A secured surface room for hazardous inputs, waste, and later chemical staging.",
+      geometry: { shape: "hazard store", lengthM: 3, widthM: 6, heightM: 3, floorAreaM2: 18, volumeM3: 54 },
+      connections: [SURFACE_BASEMENT_ROOM_ID, SURFACE_LOADING_ROOM_ID],
+      attributes: { temperature: { current: 14, baseline: 14 }, light: { current: 14, baseline: 14 }, ambientMana: { current: 26, baseline: 26 }, humidity: { current: 45, baseline: 45 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
+    },
+    {
+      id: SURFACE_LOADING_ROOM_ID,
+      name: "Loading Bay",
+      articleName: "the Loading Bay",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Freight staging",
+      purposeId: "storage",
+      facilityClass: "loading",
+      description: "A freight staging room with a wide rear portal for lawful deliveries and shipments.",
+      geometry: { shape: "loading bay", lengthM: 3, widthM: 5, heightM: 3.5, floorAreaM2: 15, volumeM3: 52.5 },
+      connections: [SURFACE_STAFF_ROOM_ID, SURFACE_HAZARD_ROOM_ID],
+      attributes: { temperature: { current: 13, baseline: 13 }, light: { current: 16, baseline: 16 }, ambientMana: { current: 24, baseline: 24 }, humidity: { current: 46, baseline: 46 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
+    },
+    {
+      id: SURFACE_BASEMENT_ROOM_ID,
+      name: "Secured Basement Vestibule",
+      articleName: "the Secured Basement Vestibule",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Restricted basement access",
+      purposeId: "access",
+      facilityClass: "restricted",
+      description: "A controlled staff vestibule around the ordinary stair into the undeclared underground laboratory.",
+      geometry: { shape: "secured stair vestibule", lengthM: 4, widthM: 6, heightM: 3, floorAreaM2: 24, volumeM3: 72 },
+      connections: [SURFACE_FACILITY_ROOM_ID, SURFACE_STAFF_ROOM_ID, SURFACE_HAZARD_ROOM_ID],
+      attributes: { temperature: { current: 14, baseline: 14 }, light: { current: 12, baseline: 12 }, ambientMana: { current: 30, baseline: 30 }, humidity: { current: 49, baseline: 49 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
     }
   ];
   const ROOM_SPATIAL_FEEL_BANDS = [
@@ -1289,7 +1393,8 @@
     roughWoodDoor: { primary: "wood" }, reinforcedWoodDoor: { primary: "wood", reinforcement: "iron" },
     ironBandDoor: { primary: "iron", reinforcement: "steel" }, stoneSlabDoor: { primary: "stone" },
     glassObservationDoor: { primary: "reinforcedGlass", reinforcement: "steel", seal: "rubber" },
-    wardedContainmentDoor: { primary: "steel", coating: "wardedComposite", seal: "rubber" }
+    wardedContainmentDoor: { primary: "steel", coating: "wardedComposite", seal: "rubber" },
+    freightDoor: { primary: "steel", reinforcement: "iron" }
   };
   const TOOL_MATERIAL_COMPOSITIONS = {
     thickGloves: { primary: "rubber", lining: "cloth" }, longTongs: { primary: "steel" },
@@ -2294,6 +2399,15 @@
       seal: 85,
       lockStrength: 80,
       notes: ["Purpose-built", "Ward-ready", "Strong baseline"]
+    },
+    {
+      id: "freightDoor",
+      label: "Sliding Freight Door",
+      material: "steel",
+      durability: 82,
+      seal: 25,
+      lockStrength: 70,
+      notes: ["Three-meter portal", "Freight clearance", "Manual sliding hardware"]
     }
   ];
   const DOOR_BASE_TYPE_BY_ID = Object.fromEntries(DOOR_BASE_TYPE_DEFS.map((type) => [type.id, type]));
@@ -4241,17 +4355,23 @@
   const DEFAULT_STARTING_SCENARIO_ID = "chemistryFront";
   const LEGACY_STARTING_SCENARIO_ID = "undergroundLaboratory";
   const STARTING_LOADOUT_PROFILE_ID = "inherited-laboratory-v1";
+  const SITE_ACCESS_POINT_DEFS = [
+    { id: "publicEntrance", label: "Public Entrance", kind: "public", lawful: true, roomId: SURFACE_RECEPTION_ROOM_ID, doorId: "door-surface-front", cell: SURFACE_BUILDING_DOOR_CELL, clearance: { widthM: 1, heightM: 2.1 } },
+    { id: "loadingBay", label: "Loading Bay Freight Portal", kind: "freight", lawful: true, roomId: SURFACE_LOADING_ROOM_ID, doorId: "door-surface-loading", cell: SURFACE_LOADING_DOOR_CELLS[1], clearance: { widthM: 3, heightM: 3.2 } },
+    { id: "concealedExit", label: "Concealed Exit", kind: "covert", lawful: false, roomId: CONCEALED_EXIT_ROOM_ID, fixtureId: "concealed-exit", cell: { x: 44, y: 42, z: 0 }, clearance: { widthM: 1, heightM: 2 } }
+  ];
   const SITE_BLUEPRINT_DEFS = [
     {
-      id: "chemistry-front-site-v1",
-      version: 1,
+      id: "chemistry-front-site-v2",
+      version: 2,
       label: "Chemistry Front Site",
       surfaceMode: "boundedFacility",
       loadoutProfileId: STARTING_LOADOUT_PROFILE_ID,
       spawn: { roomId: MAIN_ROOM_ID, cell: scientistDefaultMapCell(MAIN_ROOM_ID) },
       roomIds: ROOM_BASE_DEFS.map((room) => room.id),
       doorIds: LAB_MAP_DOOR_DEFS.map((door) => door.id),
-      verticalConnectorIds: ["stairs-basement-surface"]
+      verticalConnectorIds: ["stairs-basement-surface"],
+      accessPointIds: SITE_ACCESS_POINT_DEFS.map((entry) => entry.id)
     },
     {
       id: "underground-laboratory-site-v1",
@@ -4260,22 +4380,23 @@
       surfaceMode: "none",
       loadoutProfileId: STARTING_LOADOUT_PROFILE_ID,
       spawn: { roomId: MAIN_ROOM_ID, cell: scientistDefaultMapCell(MAIN_ROOM_ID) },
-      roomIds: ROOM_BASE_DEFS.filter((room) => room.id !== SURFACE_FACILITY_ROOM_ID).map((room) => room.id),
-      doorIds: LAB_MAP_DOOR_DEFS.filter((door) => door.id !== "door-surface-front").map((door) => door.id),
-      verticalConnectorIds: []
+      roomIds: ROOM_BASE_DEFS.filter((room) => !SURFACE_ROOM_IDS.includes(room.id)).map((room) => room.id),
+      doorIds: LAB_MAP_DOOR_DEFS.filter((door) => (door.cell?.z ?? 0) !== LAB_MAP_DEFAULT_SURFACE_Z).map((door) => door.id),
+      verticalConnectorIds: [],
+      accessPointIds: ["concealedExit"]
     }
   ];
   const SITE_BLUEPRINT_BY_ID = Object.fromEntries(SITE_BLUEPRINT_DEFS.map((blueprint) => [blueprint.id, blueprint]));
   const STARTING_SCENARIO_DEFS = [
     {
       id: DEFAULT_STARTING_SCENARIO_ID,
-      version: 1,
+      version: 2,
       label: "Chemistry Front",
       difficulty: "Standard",
-      blueprintId: "chemistry-front-site-v1",
+      blueprintId: "chemistry-front-site-v2",
       debugOnly: false,
       premise: "Inherit a legal specialty-chemistry front above a concealed research laboratory.",
-      surfaceFacility: "Bounded parcel with an empty roofed chemistry-business shell.",
+      surfaceFacility: "A divided chemistry front with public, staff, hazardous, freight, processing, and secured-basement areas.",
       undergroundFacility: "Operational inherited slime laboratory with a separate concealed exit.",
       startingAssets: ["Surface business property", "Underground research rooms", "Inherited laboratory tools and supplies"],
       liabilities: [
@@ -4289,7 +4410,7 @@
         operatingState: "Inherited shell",
         publicFacing: true
       },
-      deferredFeatures: ["Chemistry production", "Lawful sales", "Cover credibility", "Public access logistics"]
+      deferredFeatures: ["Chemistry production", "Lawful sales", "Cover credibility", "Visitors and vehicles"]
     },
     {
       id: LEGACY_STARTING_SCENARIO_ID,
@@ -4379,6 +4500,7 @@
       incidents: [],
       policies: defaultPolicies(),
       accessControl: defaultAccessControlState(),
+      siteAccessPoints: [],
       creatureRecords: {},
       currentGenome: "",
       slimes: [],
@@ -4464,13 +4586,48 @@
     const requested = legacyMigration ? LEGACY_STARTING_SCENARIO_ID : String(candidate.id || "");
     const scenario = STARTING_SCENARIO_BY_ID[requested] || STARTING_SCENARIO_BY_ID[LEGACY_STARTING_SCENARIO_ID];
     const blueprint = siteBlueprintDef(scenario.blueprintId);
-    return {
+    const normalized = {
       ...startingScenarioRecord(scenario, blueprint, {
         materialized: legacyMigration ? false : candidate.materialized !== false,
         legacyMigration: legacyMigration || candidate.legacyMigration
       }),
       selectedAt: finiteTime(candidate?.selectedAt, 0)
     };
+    if (!legacyMigration && STARTING_SCENARIO_BY_ID[requested]) {
+      normalized.version = Math.max(1, Math.floor(Number(candidate.version) || normalized.version));
+      normalized.blueprintId = String(candidate.blueprintId || normalized.blueprintId);
+      normalized.blueprintVersion = Math.max(1, Math.floor(Number(candidate.blueprintVersion) || normalized.blueprintVersion));
+      normalized.loadoutProfileId = String(candidate.loadoutProfileId || normalized.loadoutProfileId);
+    }
+    return normalized;
+  }
+
+  function normalizeSiteAccessPoints(candidate, context = state) {
+    const source = Array.isArray(candidate) ? candidate : SITE_ACCESS_POINT_DEFS;
+    const availableRoomIds = new Set((context?.rooms || []).map((room) => room.id));
+    const availableDoorIds = new Set(Object.keys(context?.labMap?.doors || {}));
+    const availableFixtureIds = new Set((context?.fixtures || []).map((fixture) => fixture.id));
+    return source.map((entry) => {
+      const definition = SITE_ACCESS_POINT_DEFS.find((item) => item.id === entry?.id) || entry;
+      const cell = cleanMapCell(entry?.cell || definition?.cell);
+      if (!definition?.id || !cell || !availableRoomIds.has(definition.roomId)) return null;
+      if (definition.doorId && !availableDoorIds.has(definition.doorId)) return null;
+      if (definition.fixtureId && !availableFixtureIds.has(definition.fixtureId)) return null;
+      return {
+        id: String(definition.id),
+        label: String(entry?.label || definition.label),
+        kind: ["public", "freight", "covert"].includes(entry?.kind) ? entry.kind : definition.kind,
+        lawful: entry?.lawful === undefined ? Boolean(definition.lawful) : Boolean(entry.lawful),
+        roomId: definition.roomId,
+        doorId: String(definition.doorId || ""),
+        fixtureId: String(definition.fixtureId || ""),
+        cell,
+        clearance: {
+          widthM: Math.max(0.5, Number(entry?.clearance?.widthM ?? definition.clearance?.widthM) || 1),
+          heightM: Math.max(1, Number(entry?.clearance?.heightM ?? definition.clearance?.heightM) || 2)
+        }
+      };
+    }).filter(Boolean);
   }
 
   function normalizeSiteIdentity(candidate, scenario) {
@@ -4535,9 +4692,12 @@
     next.labMap.doors = Object.fromEntries(Object.entries(next.labMap.doors || {}).filter(([doorId]) => doorIds.has(doorId)));
     next.doors = Object.fromEntries(Object.entries(next.doors || {}).filter(([doorId]) => doorIds.has(doorId)));
     next.labMap.terrain.verticalConnectors = (next.labMap.terrain.verticalConnectors || []).filter((connector) => connectorIds.has(connector.id));
+    const accessPointIds = new Set(blueprint.accessPointIds || []);
+    next.siteAccessPoints = SITE_ACCESS_POINT_DEFS.filter((entry) => accessPointIds.has(entry.id)).map((entry) => clonePlainObject(entry));
     if (blueprint.surfaceMode === "none") {
       next.labMap.surfaceZ = null;
       next.labMap.layers = Object.fromEntries(Object.entries(next.labMap.layers || {}).filter(([, layer]) => layer.kind === "subterranean"));
+      next.labMap.terrain.excavated = (next.labMap.terrain.excavated || []).filter((cell) => cell.z < LAB_MAP_DEFAULT_SURFACE_Z);
       next.labMap.terrain.surfaceGround = [];
       next.labMap.terrain.constructedFloors = (next.labMap.terrain.constructedFloors || []).filter((entry) => entry.cell.z < LAB_MAP_DEFAULT_SURFACE_Z);
       next.labMap.terrain.constructedWalls = (next.labMap.terrain.constructedWalls || []).filter((entry) => entry.cell.z < LAB_MAP_DEFAULT_SURFACE_Z);
@@ -4561,6 +4721,7 @@
     next.startingScenario = startingScenarioRecord(scenario, blueprint);
     next.siteIdentity = { ...scenario.identity, sourceScenarioId: scenario.id };
     next.startingLiabilities = startingLiabilityRecords(scenario);
+    next.siteAccessPoints = normalizeSiteAccessPoints(next.siteAccessPoints, next);
     return next;
   }
 
@@ -5255,6 +5416,7 @@
       articleName: roomDef.articleName,
       role: roomDef.role,
       roleLabel: roomDef.roleLabel,
+      facilityClass: String(roomDef.facilityClass || "laboratory"),
       description: roomDef.description,
       geometry: normalizeRoomGeometry(roomDef.geometry),
       connections: normalizeRoomConnections(roomDef.connections, roomDef.id),
@@ -5289,14 +5451,24 @@
   }
 
   function defaultSurfaceBuildingWalls() {
-    const cells = rectangularRoomCells(SURFACE_BUILDING_RECT).filter((cell) => {
+    const doorKeys = new Set(LAB_MAP_DOOR_DEFS
+      .filter((door) => (door.cell?.z ?? 0) === LAB_MAP_DEFAULT_SURFACE_Z)
+      .flatMap((door) => door.cells || [door.cell])
+      .map(mapCellKey));
+    const exterior = rectangularRoomCells(SURFACE_BUILDING_RECT).filter((cell) => {
       const edge = cell.x === SURFACE_BUILDING_RECT.x
         || cell.x === SURFACE_BUILDING_RECT.x + SURFACE_BUILDING_RECT.width - 1
         || cell.y === SURFACE_BUILDING_RECT.y
         || cell.y === SURFACE_BUILDING_RECT.y + SURFACE_BUILDING_RECT.height - 1;
-      return edge && !sameMapCell(cell, SURFACE_BUILDING_DOOR_CELL);
+      return edge && !doorKeys.has(mapCellKey(cell));
     });
-    return cells.map((cell) => ({ cell, materialId: "stoneBlocks", condition: 100, builtAt: 0 }));
+    const partitions = [
+      ...rectangularRoomCells({ x: 50, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 1, height: 12 }),
+      ...rectangularRoomCells({ x: 55, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 1, height: 12 }),
+      ...rectangularRoomCells({ x: 45, y: 46, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 14, height: 1 })
+    ].filter((cell) => !doorKeys.has(mapCellKey(cell)));
+    return normalizeDigCells([...exterior, ...partitions])
+      .map((cell) => ({ cell, materialId: "stoneBlocks", condition: 100, builtAt: 0 }));
   }
 
   function defaultSurfaceBuildingFloors() {
@@ -5333,8 +5505,8 @@
       doors[doorDef.id] = normalizeLabMapDoor(doorDef, doorDef.id, rooms);
     }
     const excavated = normalizeDigCells([
-      ...Object.values(rooms).filter((room) => room.roomId !== SURFACE_FACILITY_ROOM_ID).flatMap((room) => room.cells || []),
-      ...Object.values(doors).filter((door) => door.cell.z !== LAB_MAP_DEFAULT_SURFACE_Z).map((door) => door.cell)
+      ...Object.values(rooms).filter((room) => !SURFACE_ROOM_IDS.includes(room.roomId)).flatMap((room) => room.cells || []),
+      ...Object.values(doors).filter((door) => door.cell.z !== LAB_MAP_DEFAULT_SURFACE_Z).flatMap(labMapDoorCells)
     ]);
     const surfaceGround = normalizeSurfaceGround(defaultSurfaceGround(), LAB_MAP_DEFAULT_SURFACE_Z);
     const constructedFloors = normalizeConstructedSurfaces([
@@ -5822,6 +5994,42 @@
         identity: state.siteIdentity,
         liabilities: state.startingLiabilities
       }),
+      siteAccessSnapshot: () => clonePlainObject({
+        points: normalizeSiteAccessPoints(state.siteAccessPoints, state),
+        rooms: state.rooms.filter((room) => SURFACE_ROOM_IDS.includes(room.id)).map((room) => ({ id: room.id, name: room.name, facilityClass: room.facilityClass, connections: room.connections })),
+        portals: Object.values(ensureLabMap().doors || {}).filter((door) => door.accessPointId).map((door) => ({ ...door, cells: labMapDoorCells(door), state: doorFixtureState(door) })),
+        doors: Object.values(ensureLabMap().doors || {}).map((door) => ({ ...door, cells: labMapDoorCells(door), state: doorFixtureState(door) }))
+      }),
+      payloadClearanceSnapshot: (fromCell, toCell, carriedLoad) => {
+        const plan = labNavigationPlanBetweenCells(fromCell, toCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, carriedLoad });
+        return {
+          ...plan,
+          directReason: mapPathPayloadBlockReason([fromCell, toCell], carriedLoad),
+          verticalReason: verticalConnectorTraversalBlockReason(verticalConnectorBetween(fromCell, toCell), state.scientist, { carriedLoad })
+        };
+      },
+      payloadPathBlockReason: (path, carriedLoad) => mapPathPayloadBlockReason(path, carriedLoad),
+      queueExactResourceTransfer: (key, amount, fromRoomId, toRoomId, options = {}) => {
+        const result = queueExactResourceTransfer(key, amount, fromRoomId, toRoomId, { ...options, quiet: true });
+        persist();
+        render();
+        return clonePlainObject(result);
+      },
+      exactTransferSnapshot: () => clonePlainObject({
+        tasks: scientistQueueTasks().filter((task) => task.type === "resourceHaul" && task.data?.exactTransfer),
+        carried: ensurePhysicalItemStacks().filter((stack) => stack.carriedBy === "scientist"),
+        physicalStacks: ensurePhysicalItemStacks().filter((stack) => stack.section === "resources"),
+        scientistCell: scientistMapCell(),
+        rooms: Object.fromEntries(roomStockpileIds().map((roomId) => [roomId, normalizeRoomStockpile(roomStockpile(roomId))]))
+      }),
+      containerHaulClearanceSnapshot: (containerId, toRoomId) => {
+        const container = containerById(containerId);
+        return clonePlainObject({
+          carriedLoad: container ? containerHaulCarriedLoad(container) : null,
+          plan: containerHaulMapPlan(container, toRoomId),
+          blockReason: containerHaulBlockReason(container, toRoomId)
+        });
+      },
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       marketAvailableByproduct: (material) => blackMarketAvailableByproductAmount(material),
@@ -6130,6 +6338,7 @@
           roofs: (map.terrain?.constructedFloors || []).filter((entry) => entry.purpose === "roof").map((entry) => ({ ...entry, cell: { ...entry.cell } })),
           walls: (map.terrain?.constructedWalls || []).filter((entry) => entry.cell.z === map.surfaceZ).map((entry) => ({ ...entry, cell: { ...entry.cell } })),
           frontDoor: map.doors?.["door-surface-front"] ? { ...map.doors["door-surface-front"], cell: { ...map.doors["door-surface-front"].cell } } : null,
+          loadingDoor: map.doors?.["door-surface-loading"] ? { ...map.doors["door-surface-loading"], cells: labMapDoorCells(map.doors["door-surface-loading"]) } : null,
           basementStair: (map.terrain?.verticalConnectors || []).find((entry) => entry.id === "stairs-basement-surface") || null
         };
       },
@@ -6284,6 +6493,14 @@
       },
       setDoorPhysicalState: (doorId, nextState) => {
         const changed = setDoorState("", "", nextState, { doorId, event: false });
+        if (changed) {
+          persist();
+          render();
+        }
+        return changed;
+      },
+      setDoorLockPhysicalState: (doorId, nextState) => {
+        const changed = setDoorLockState("", "", nextState, { doorId, event: false });
         if (changed) {
           persist();
           render();
@@ -16127,13 +16344,13 @@
       const roomA = roomMap.get(roomAId);
       const roomB = roomMap.get(roomBId);
       const door = state.doors[mapDoor.key];
-      if (roomA && roomB && door && labMapCellIsExcavated(mapDoor.cell, map)) {
+      if (roomA && roomB && door && labMapCellIsWalkable(mapDoor.cell, map)) {
         pairs.push({ roomA, roomB, door, source: "door", cell: mapDoor.cell });
       }
     }
 
     const floorByKey = new Map((map.terrain?.excavated || []).map((cell) => [mapCellKey(cell), cell]));
-    const doorCellKeys = new Set(Object.values(map.doors || {}).map((door) => mapCellKey(door.cell)));
+    const doorCellKeys = new Set(Object.values(map.doors || {}).flatMap(labMapDoorCells).map(mapCellKey));
     const visited = new Set();
     const openPairs = new Set();
     for (const [startKey, startCell] of floorByKey) {
@@ -18117,14 +18334,27 @@
     const frameAxis = ["eastWest", "northSouth"].includes(candidate?.frameAxis)
       ? candidate.frameAxis
       : inferredDoorFrameAxis(cell, rooms);
+    const cells = normalizeDigCells([cell, ...(Array.isArray(candidate?.cells) ? candidate.cells : [])])
+      .filter((entry) => entry.z === cell.z);
     return {
       id,
       key: id,
       roomIds,
       cell,
+      cells,
       frameAxis,
-      passageAxis: TerrainConnectivity.passageAxisForFrame(frameAxis)
+      passageAxis: TerrainConnectivity.passageAxisForFrame(frameAxis),
+      clearance: {
+        widthM: Math.max(1, Number(candidate?.clearance?.widthM) || cells.length || 1),
+        heightM: Math.max(1, Number(candidate?.clearance?.heightM) || 2.1)
+      },
+      accessPointId: String(candidate?.accessPointId || "")
     };
+  }
+
+  function labMapDoorCells(door) {
+    const primary = cleanMapCell(door?.cell);
+    return normalizeDigCells([...(Array.isArray(door?.cells) ? door.cells : []), primary].filter(Boolean));
   }
 
   function normalizeVerticalConnectors(candidate) {
@@ -18255,7 +18485,7 @@
     const terrainSource = physicalSource ? source.terrain?.excavated : fallback.terrain?.excavated;
     const excavated = normalizeDigCells([
       ...(Array.isArray(terrainSource) ? terrainSource : []),
-      ...Object.values(normalizedDoors).map((door) => door.cell).filter((cell) => !surfaceGroundKeys.has(mapCellKey(cell)))
+      ...Object.values(normalizedDoors).flatMap(labMapDoorCells).filter((cell) => !surfaceGroundKeys.has(mapCellKey(cell)))
     ]).filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height && !surfaceGroundKeys.has(mapCellKey(cell)));
     const floorBaseKeys = new Set([...excavated.map(mapCellKey), ...surfaceGroundKeys]);
     const constructedFloors = normalizeConstructedSurfaces(source.terrain?.constructedFloors)
@@ -18541,9 +18771,11 @@
     for (const mapDoor of Object.values(map.doors || {})) {
       if (mapDoor.cell.z !== surfaceZ) continue;
       const door = doorFixtureState(mapDoor) || mapDoor;
-      const key = mapCellKey(mapDoor.cell);
-      if (doorIsBreached(door)) breachedDoorKeys.add(key);
-      else structuralBlocks.add(key);
+      for (const cell of labMapDoorCells(mapDoor)) {
+        const key = mapCellKey(cell);
+        if (doorIsBreached(door)) breachedDoorKeys.add(key);
+        else structuralBlocks.add(key);
+      }
     }
     const outsideReachable = new Set();
     const queue = cells.filter((cell) => !roofed.has(mapCellKey(cell)) && !structuralBlocks.has(mapCellKey(cell)));
@@ -18605,7 +18837,7 @@
     if (connector.type === "ramp") return Vertical.rampTraversalBlockReason(connector, footprint, load);
     const bodyWidth = Math.max(Number(footprint.width) || 1, Number(footprint.height) || 1);
     if (bodyWidth > 1) return "The actor is too wide for the one-meter carved stair.";
-    if (Number(load.widthM) > 1 || Number(load.lengthM) > 2) return "The carried object cannot fit through the carved stair.";
+    if (Number(load.widthM) > 1 || Number(load.lengthM) > 2 || Number(load.volumeL) > 200) return "The carried object cannot fit through the carved stair.";
     if (Number(load.massKg) > 250) return "This load requires a ramp, hoist, or disassembly between levels.";
     return "";
   }
@@ -18650,7 +18882,7 @@
   }
 
   function inferLabCompartments(map = ensureLabMap()) {
-    const doorByCell = new Map(Object.values(map.doors || {}).map((door) => [mapCellKey(door.cell), door]));
+    const doorByCell = new Map(Object.values(map.doors || {}).flatMap((door) => labMapDoorCells(door).map((cell) => [mapCellKey(cell), door])));
     const floorCells = (map.terrain?.excavated || []).filter((cell) => !doorByCell.has(mapCellKey(cell)) && !constructedWallAtCell(cell, map));
     const cellByKey = new Map(floorCells.map((cell) => [mapCellKey(cell), cell]));
     const floorKeys = new Set(cellByKey.keys());
@@ -18767,8 +18999,8 @@
         for (let b = a + 1; b < ids.length; b += 1) connect(ids[a], ids[b], portal);
       }
     }
-    for (const door of doorByCell.values()) {
-      const ids = [...new Set(orthogonalMapNeighbors(door.cell)
+    for (const door of new Set(doorByCell.values())) {
+      const ids = [...new Set(labMapDoorCells(door).flatMap((doorCell) => orthogonalMapNeighbors(doorCell))
         .map((cell) => cellToCompartment.get(mapCellKey(cell)))
         .filter(Boolean))];
       const liveDoor = state?.doors?.[door.key] || door;
@@ -18956,7 +19188,7 @@
   function labMapDoorAtCell(cell, map = ensureLabMap()) {
     const clean = cleanMapCell(cell);
     return clean
-      ? Object.values(map.doors || {}).find((door) => sameMapCell(door.cell, clean)) || null
+      ? Object.values(map.doors || {}).find((door) => labMapDoorCells(door).some((entry) => sameMapCell(entry, clean))) || null
       : null;
   }
 
@@ -22824,6 +23056,9 @@
     if (ids.has(COLLECTION_BAY_ROOM_ID)) {
       return "glassObservationDoor";
     }
+    if (ids.has(SURFACE_LOADING_ROOM_ID)) {
+      return "freightDoor";
+    }
     return "reinforcedWoodDoor";
   }
 
@@ -22842,7 +23077,7 @@
     const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
     const isMainRoomDoor = ids.has(MAIN_ROOM_ID);
     const startsClosed =
-      ids.has(SURFACE_FACILITY_ROOM_ID)
+      [...ids].some((id) => SURFACE_ROOM_IDS.includes(id))
       || isMainRoomDoor && (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID) || ids.has(COLLECTION_BAY_ROOM_ID));
     return startsClosed ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
   }
@@ -22851,9 +23086,13 @@
     const typeId = defaultDoorTypeId(roomAId, roomBId);
     const doorId = cleanDoorId(id) || `door-${cleanRoomId(roomAId)}-${cleanRoomId(roomBId)}`;
     const connectedIds = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
-    const accessRuleId = connectedIds.has(CONCEALED_EXIT_ROOM_ID) || connectedIds.has(SURFACE_FACILITY_ROOM_ID)
-      ? "exterior"
-      : [MENAGERIE_ROOM_ID, PITS_ROOM_ID, COLLECTION_BAY_ROOM_ID].some((roomId) => connectedIds.has(roomId))
+    const accessRuleId = doorId === "door-surface-front"
+      ? "unrestricted"
+      : doorId === "door-surface-loading" || connectedIds.has(CONCEALED_EXIT_ROOM_ID)
+        ? "exterior"
+        : connectedIds.has(SURFACE_BASEMENT_ROOM_ID)
+          ? "restricted"
+          : connectedIds.has(SURFACE_HAZARD_ROOM_ID) || [MENAGERIE_ROOM_ID, PITS_ROOM_ID, COLLECTION_BAY_ROOM_ID].some((roomId) => connectedIds.has(roomId))
         ? "containment"
         : DEFAULT_DOOR_ACCESS_RULE_ID;
     return {
@@ -22861,7 +23100,7 @@
       key: doorId,
       roomIds: normalizeRoomConnections([roomAId, roomBId]),
       state: defaultDoorState(roomAId, roomBId),
-      lockState: DOOR_LOCK_UNLOCKED,
+      lockState: doorId === "door-surface-loading" ? DOOR_LOCK_LOCKED : DOOR_LOCK_UNLOCKED,
       sealState: DOOR_SEAL_UNSEALED,
       typeId,
       materialId: typeId === "roughWoodDoor" || typeId === "reinforcedWoodDoor" ? "lumber" : DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown",
@@ -22869,7 +23108,7 @@
       condition: CONTAINER_CONDITION_DEFAULT,
       wardIds: defaultDoorWardIds(roomAId, roomBId),
       accessRuleId,
-      lockdownAction: accessRuleId === "containment" || accessRuleId === "exterior" ? "lock" : "close",
+      lockdownAction: ["containment", "restricted", "exterior"].includes(accessRuleId) ? "lock" : "close",
       breached: false
     };
   }
@@ -22979,6 +23218,21 @@
     return "";
   }
 
+  function mapPathPayloadBlockReason(path, carriedLoad = null) {
+    if (!carriedLoad) return "";
+    for (let index = 0; index < (path || []).length; index += 1) {
+      const cell = path[index];
+      const doorReason = doorPayloadClearanceBlockReason(labMapDoorAtCell(cell), carriedLoad);
+      if (doorReason) return doorReason;
+      if (index > 0 && cleanMapCell(path[index - 1])?.z !== cleanMapCell(cell)?.z) {
+        const connector = verticalConnectorBetween(path[index - 1], cell);
+        const connectorReason = verticalConnectorTraversalBlockReason(connector, state.scientist, { carriedLoad });
+        if (connectorReason) return connectorReason;
+      }
+    }
+    return "";
+  }
+
   function doorAllowsPassage(roomAId, roomBId, options = {}) {
     const door = doorForConnection(roomAId, roomBId);
     if (!door) {
@@ -23011,12 +23265,27 @@
   function doorFixtureAllowsPassage(mapDoor, options = {}) {
     const door = doorFixtureState(mapDoor);
     if (!door) return false;
+    if (doorPayloadClearanceBlockReason(mapDoor, options.carriedLoad)) return false;
     if (doorIsBreached(door)) return true;
     if (options.ignoreDoorSecurity) return Boolean(options.ignoreDoors || door.state === DOOR_STATE_OPEN);
     if (door.sealState === DOOR_SEAL_SEALED) return false;
     if (door.state === DOOR_STATE_OPEN) return true;
     if (door.lockState === DOOR_LOCK_LOCKED) return false;
     return Boolean(options.ignoreDoors);
+  }
+
+  function doorPayloadClearanceBlockReason(mapDoor, carriedLoad = null) {
+    if (!mapDoor || !carriedLoad) return "";
+    const clearance = mapDoor.clearance || { widthM: 1, heightM: 2.1 };
+    const widthM = Math.max(0, Number(carriedLoad.widthM) || 0);
+    const heightM = Math.max(0, Number(carriedLoad.heightM) || 0);
+    if (widthM > Number(clearance.widthM) + 0.001) {
+      return `${doorActionLabel(mapDoor)} has ${formatDecimal(clearance.widthM, 1)} m width clearance; this load requires ${formatDecimal(widthM, 1)} m.`;
+    }
+    if (heightM > Number(clearance.heightM) + 0.001) {
+      return `${doorActionLabel(mapDoor)} has ${formatDecimal(clearance.heightM, 1)} m height clearance; this load requires ${formatDecimal(heightM, 1)} m.`;
+    }
+    return "";
   }
 
   function firstDoorSecurityBlockReason(route) {
@@ -33814,6 +34083,29 @@
     return containerOccupants(container?.id).length + containerCorpses(container?.id).length;
   }
 
+  function containerHaulCarriedLoad(container) {
+    const geometry = containerGeometry(container);
+    const dimensions = geometry?.internalCm || {};
+    const lengthM = Math.max(0.1, Number(dimensions.length ?? dimensions.diameter ?? dimensions.width ?? 100) / 100 + 0.15);
+    const widthM = Math.max(0.1, Number(dimensions.width ?? dimensions.diameter ?? dimensions.length ?? 100) / 100 + 0.15);
+    const heightM = Math.max(0.1, Number(dimensions.height ?? 100) / 100 + 0.15);
+    const occupantMassKg = containerOccupants(container?.id).reduce((total, slime) => {
+      const profile = physicalProfile(slime?.genome || "");
+      const massFraction = clamp(slimeStatPercent(slime, "currentMass") / 100, 0.02, 1.5);
+      return total + Math.max(0, Number(profile?.weightKg) || 0) * massFraction;
+    }, 0);
+    const corpseMassKg = containerCorpses(container?.id).reduce((total, corpse) => total + corpseCarryMassKg(corpse), 0);
+    const emptyMassKg = Math.max(2, containerEffectiveWeightLimit(container) * 0.12);
+    return {
+      massKg: emptyMassKg + occupantMassKg + corpseMassKg,
+      volumeL: lengthM * widthM * heightM * 1000,
+      widthM,
+      lengthM,
+      heightM,
+      label: container?.name || "container"
+    };
+  }
+
   function containerHaulMapPlan(container, toRoomId) {
     if (!container) {
       return { ok: false, reason: "No container selected." };
@@ -33826,6 +34118,7 @@
     }
     const fromRoomId = container.roomId || MAIN_ROOM_ID;
     const footprint = containerFootprintDimensions(container);
+    const carriedLoad = containerHaulCarriedLoad(container);
     const fromCell = objectMapCell(container) || findMapObjectPlacement(fromRoomId, footprint, map, new Set(), labMapRoomAnchor(fromRoomId, map));
     const blockedCellKeys = labMapBlockingCellKeys(map, { excludeContainerIds: [container.id] });
     const toCell = findMapObjectPlacement(toRoom.id, footprint, map, blockedCellKeys, labMapRoomAnchor(toRoom.id, map));
@@ -33844,8 +34137,10 @@
     });
     const mapPath = labMapPathBetweenCells(fromAccessCell, toAccessCell, {
       map,
+      actor: state.scientist,
       ignoreDoors: true,
-      blockedCellKeys
+      blockedCellKeys,
+      carriedLoad
     });
     if (!mapPath.length) {
       return {
@@ -33859,6 +34154,7 @@
       fromRoomId,
       toRoomId: toRoom.id,
       footprint,
+      carriedLoad,
       fromCell,
       toCell,
       fromAccessCell,
@@ -33966,6 +34262,7 @@
         fromAccessCell: haulPlan.fromAccessCell,
         toAccessCell: haulPlan.toAccessCell,
         footprint: haulPlan.footprint,
+        carriedLoad: haulPlan.carriedLoad,
         mapPath: haulPlan.mapPath,
         doorTransit: doorTransitPlan(haulRoute)
       }
@@ -34071,6 +34368,20 @@
     );
   }
 
+  function resourceHaulCarriedLoad(transfer) {
+    const metrics = physicalItemUnitMetrics("resources", transfer?.key);
+    const tripCapacity = Math.max(1, Math.floor(Math.min(SCIENTIST_CARRY_MASS_KG / metrics.massKg, SCIENTIST_CARRY_VOLUME_L / metrics.volumeL)));
+    const amount = Math.min(Math.max(0, Number(transfer?.amount) || 0), tripCapacity);
+    return {
+      massKg: amount * metrics.massKg,
+      volumeL: amount * metrics.volumeL,
+      widthM: 0.65,
+      lengthM: 0.5,
+      heightM: 0.7,
+      label: `${formatNumber(amount)} ${resourceLabel(transfer?.key)}`
+    };
+  }
+
   function resourceHaulDuration(transfers, options = {}) {
     const movementPath = Array.isArray(options.movementPath) ? options.movementPath : [];
     if (movementPath.length) {
@@ -34111,7 +34422,8 @@
         map,
         actor,
         ignoreDoors: true,
-        ignoreAccessPolicy: true
+        ignoreAccessPolicy: true,
+        carriedLoad: resourceHaulCarriedLoad(transfer)
       });
       if (outbound.length < 2) {
         return { ok: false, reason: `No physical hauling route exists from ${roomArticleName(transfer.fromRoomId)} to ${roomArticleName(transfer.toRoomId)}.`, movementPath: [], mapPaths: [], transferMapPaths: [], haulLegs: [] };
@@ -34248,6 +34560,85 @@
     persist();
     render();
     return true;
+  }
+
+  function queueExactResourceTransfer(key, amount, fromRoomId, toRoomId, options = {}) {
+    const sourceRoom = roomById(fromRoomId);
+    const destinationRoom = roomById(toRoomId);
+    const units = Math.max(0, Math.floor(Number(amount) || 0));
+    if (scientistIsDead()) {
+      const reason = "The scientist is dead.";
+      if (!options.quiet) addEvent(reason);
+      return { ok: false, reason };
+    }
+    if (!RESOURCE_BY_KEY[key] || !sourceRoom || !destinationRoom || sourceRoom.id === destinationRoom.id || !units) {
+      const reason = "Choose a resource, a positive exact quantity, and two different rooms.";
+      if (!options.quiet) addEvent(reason);
+      return { ok: false, reason };
+    }
+    if (resourceAmountInRoom(key, sourceRoom.id) < units) {
+      const reason = `${sourceRoom.name} has only ${formatNumber(resourceAmountInRoom(key, sourceRoom.id))} ${resourceLabel(key)}.`;
+      if (!options.quiet) addEvent(reason);
+      return { ok: false, reason };
+    }
+    const transfer = { key, amount: units, fromRoomId: sourceRoom.id, toRoomId: destinationRoom.id };
+    const movementPlan = resourceHaulMovementPlan([transfer], { startCell: scientistMapCell(), map: ensureLabMap() });
+    if (!movementPlan.ok) {
+      if (!options.quiet) addEvent(movementPlan.reason);
+      return { ok: false, reason: movementPlan.reason };
+    }
+    const accessViolations = movementPlan.mapPaths.flatMap((path) => pathAccessViolations(state.scientist, path));
+    if (accessViolations.length && !options.accessOverride) {
+      const reason = accessViolations[0].reason;
+      if (!options.quiet) addEvent(`Transfer not queued: ${reason}`);
+      return { ok: false, reason };
+    }
+    const physicalBlock = physicalStateRiskBlockReason(`transferring ${resourceLabel(key)}`);
+    if (physicalBlock) {
+      if (!options.quiet) addEvent(physicalBlock);
+      return { ok: false, reason: physicalBlock };
+    }
+    const staminaCost = adjustedStaminaCost(RESOURCE_HAUL_STAMINA, ["fabrication", "creatureHandling"]);
+    if (!spendStamina(staminaCost)) {
+      const reason = `Not enough stamina. ${staminaCost} required.`;
+      if (!options.quiet) addEvent(reason);
+      return { ok: false, reason };
+    }
+    const route = roomRouteBetween(sourceRoom.id, destinationRoom.id, { ignoreDoors: true, ignoreAccessPolicy: true, carriedLoad: resourceHaulCarriedLoad(transfer) });
+    const duration = resourceHaulDuration([transfer], { movementPath: movementPlan.movementPath, map: ensureLabMap() });
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "resourceHaul",
+      label: `Transfer ${formatNumber(units)} ${resourceLabel(key)} to ${destinationRoom.name}`,
+      createdAt: state.clock,
+      dueAt: state.clock + duration,
+      data: {
+        transfers: [transfer],
+        exactTransfer: true,
+        staminaCost,
+        toRoomId: destinationRoom.id,
+        routes: [route],
+        fromCell: movementPlan.movementPath[0],
+        toCell: movementPlan.movementPath.at(-1),
+        mapPath: movementPlan.movementPath,
+        mapPaths: movementPlan.mapPaths,
+        transferMapPaths: movementPlan.transferMapPaths,
+        haulLegs: movementPlan.haulLegs,
+        carriedLoad: resourceHaulCarriedLoad(transfer),
+        movement: createScientistMovementRecord(movementPlan.movementPath, duration, state.clock, { intent: "haul", speedMps: RESOURCE_HAUL_SPEED_MPS }),
+        pacingVersion: ACTIVE_TASK_PACING_VERSION,
+        doorTransit: doorTransitPlan(route),
+        accessOverride: Boolean(options.accessOverride),
+        accessOverrideKeys: accessViolations.map((entry) => entry.key)
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`Exact transfer queued: ${formatNumber(units)} ${resourceLabel(key)} from ${sourceRoom.name} to ${destinationRoom.name} in ${resourceHaulTripCount(transfer)} physical trip${resourceHaulTripCount(transfer) === 1 ? "" : "s"}.`);
+    if (!options.quiet) {
+      persist();
+      render();
+    }
+    return { ok: true, task };
   }
 
   function completeResourceHaul(task) {
@@ -40179,7 +40570,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       map: ensureLabMap(),
       actor: state.scientist,
       ignoreDoors: true,
-      ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll)
+      ignoreAccessPolicy: Boolean(task.data?.accessOverride || task.data?.accessOverrideAll),
+      carriedLoad: taskCarriedLoad(task)
     });
     if (!plan.found || plan.steps.length < 2) return false;
     const segmentSeconds = Math.max(0.25, ensureLabMap().tileSizeM / Math.max(0.1, Number(movement.speedMps) || scientistMoveSpeedMps()));
@@ -47744,10 +48136,69 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.storesToolsList.append(crafted);
   }
 
+  function exactResourceTransferFormEl() {
+    const section = storesSectionEl("Exact Material Transfer", "Queue an exact physical quantity between room stockpiles. Carry limits create repeated trips; doors, access rules, and vertical clearance are rechecked while work proceeds.", { inventoryCategory: "exactTransfer" });
+    const form = document.createElement("form");
+    form.className = "exact-transfer-form";
+    form.dataset.exactTransferForm = "true";
+    const resourceLabelEl = document.createElement("label");
+    resourceLabelEl.append(textEl("span", "Resource"));
+    const resourceSelect = document.createElement("select");
+    resourceSelect.name = "resourceKey";
+    resourceSelect.setAttribute("aria-label", "Transfer resource");
+    for (const resource of RESOURCE_DEFS) resourceSelect.append(new Option(resource.label, resource.key));
+    resourceLabelEl.append(resourceSelect);
+    const sourceLabel = document.createElement("label");
+    sourceLabel.append(textEl("span", "From"));
+    const sourceSelect = document.createElement("select");
+    sourceSelect.name = "fromRoomId";
+    sourceSelect.setAttribute("aria-label", "Transfer source room");
+    const destinationLabel = document.createElement("label");
+    destinationLabel.append(textEl("span", "To"));
+    const destinationSelect = document.createElement("select");
+    destinationSelect.name = "toRoomId";
+    destinationSelect.setAttribute("aria-label", "Transfer destination room");
+    for (const roomId of roomStockpileIds()) {
+      const room = roomById(roomId);
+      if (!room) continue;
+      sourceSelect.append(new Option(room.name, room.id));
+      destinationSelect.append(new Option(room.name, room.id));
+    }
+    sourceSelect.value = STORAGE_ROOM_ID;
+    destinationSelect.value = roomById(SURFACE_LOADING_ROOM_ID) ? SURFACE_LOADING_ROOM_ID : MAIN_ROOM_ID;
+    sourceLabel.append(sourceSelect);
+    destinationLabel.append(destinationSelect);
+    const amountLabel = document.createElement("label");
+    amountLabel.append(textEl("span", "Exact quantity"));
+    const amountInput = document.createElement("input");
+    amountInput.name = "amount";
+    amountInput.type = "number";
+    amountInput.min = "1";
+    amountInput.step = "1";
+    amountInput.value = "1";
+    amountInput.setAttribute("aria-label", "Exact transfer quantity");
+    amountLabel.append(amountInput);
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Queue Transfer";
+    form.append(resourceLabelEl, sourceLabel, destinationLabel, amountLabel, submit);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const result = queueExactResourceTransfer(resourceSelect.value, amountInput.value, sourceSelect.value, destinationSelect.value);
+      if (!result.ok) {
+        persist();
+        render();
+      }
+    });
+    section.append(form);
+    return section;
+  }
+
   function renderStoreRoomStockpiles(stockedRoomIds = []) {
     if (!dom.roomStockpileList) {
       return;
     }
+    dom.roomStockpileList.append(exactResourceTransferFormEl());
     const stocked = new Set(stockedRoomIds);
     for (const roomId of roomStockpileIds()) {
       const room = roomById(roomId);
@@ -49736,7 +50187,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         subtype: stateDoor.typeId || "door",
         target: { kind: "door", key: door.key },
         anchorCell: door.cell,
-        footprintCells: [door.cell],
+        footprintCells: labMapDoorCells(door),
         orientation: door.frameAxis,
         pose: current ? doorMapClassName(stateDoor).replace(/^door-/, "") : "remembered",
         activity: null,
@@ -49947,6 +50398,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
+  function taskCarriedLoad(task) {
+    if (task?.data?.carriedLoad) return task.data.carriedLoad;
+    if (task?.type === "resourceHaul" && task.data?.transfers?.length) {
+      return resourceHaulCarriedLoad(task.data.transfers[0]);
+    }
+    return null;
+  }
+
   function synthesisTaskBlockReason() {
     const tube = synthesisTube();
     if (!tube) {
@@ -50020,6 +50479,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const doorReason = taskDoorBlockReason(task);
     if (doorReason) {
       return doorReason;
+    }
+    const carriedLoad = taskCarriedLoad(task);
+    if (carriedLoad) {
+      for (const path of taskPathList(task)) {
+        const payloadReason = mapPathPayloadBlockReason(path, carriedLoad);
+        if (payloadReason) return payloadReason;
+      }
     }
     if (!task.data?.accessOverrideAll) {
       const allowedOverrideKeys = new Set(Array.isArray(task.data?.accessOverrideKeys) ? task.data.accessOverrideKeys : []);
@@ -54666,7 +55132,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     for (const door of Object.values(map.doors || {})) {
-      addKnownWithWalls(door.cell);
+      for (const cell of labMapDoorCells(door)) addKnownWithWalls(cell);
     }
     for (const entry of map.terrain?.constructedWalls || []) addKnownWithWalls(entry.cell);
     for (const entry of map.terrain?.constructedFloors || []) {
@@ -54951,6 +55417,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (!connectorsByCell.get(key).some((entry) => entry.id === connector.id)) connectorsByCell.get(key).push(connector);
       }
     }
+    const doorsByCell = new Map();
+    for (const door of Object.values(map.doors || {})) {
+      for (const cell of labMapDoorCells(door)) doorsByCell.set(mapCellKey(cell), door);
+    }
     return {
       map,
       geologySeed: state.seed,
@@ -54966,7 +55436,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       smoothedWalls: new Set((map.terrain?.smoothedWalls || []).map(mapCellKey)),
       naturalDepositsByCell: byCell(map.terrain?.naturalDeposits),
       naturalDamageByCell: byCell(map.terrain?.naturalDamage),
-      doorsByCell: byCell(Object.values(map.doors || [])),
+      doorsByCell,
       connectorsByCell
     };
   }
@@ -64128,7 +64598,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const normalized = rooms
       .map(normalizeRoom)
       .filter(Boolean);
-    for (const required of defaultRooms()) {
+    const hasModernSurface = normalized.some((room) => SURFACE_ROOM_IDS.includes(room.id) && room.id !== SURFACE_FACILITY_ROOM_ID);
+    const requiredRooms = defaultRooms().filter((room) => !SURFACE_ROOM_IDS.includes(room.id) || !rooms.length || hasModernSurface);
+    for (const required of requiredRooms) {
       if (!normalized.some((room) => room.id === required.id)) {
         normalized.push(required);
       }
@@ -64281,6 +64753,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       articleName: String(candidate.articleName || base?.articleName || `the ${name}`).trim(),
       role: purpose.role,
       roleLabel: purpose.roleLabel,
+      facilityClass: String(candidate.facilityClass || base?.facilityClass || "laboratory"),
       description: String(candidate.description || base?.description || purpose.description).trim(),
       geometry: normalizeRoomGeometry(candidate.geometry || base?.geometry),
       connections: normalizeRoomConnections(candidate.connections || base?.connections, id),
@@ -65967,6 +66440,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       container.roomId = next.rooms.some((room) => room.id === container.roomId) ? container.roomId : MAIN_ROOM_ID;
     }
     next.fixtures = normalizeFixtures(next.fixtures);
+    next.siteAccessPoints = normalizeSiteAccessPoints(candidate?.siteAccessPoints, next);
     next.stockpileDesignations = normalizeStockpileDesignations(next.stockpileDesignations);
     next.productionBills = normalizeProductionBills(next.productionBills);
     next.productionWorkpieces = normalizeProductionWorkpieces(next.productionWorkpieces);

@@ -44,9 +44,9 @@ test('Chemistry Front materializes immutable scenario, blueprint, identity, and 
   expect(result.current).toMatchObject({
     scenario: {
       id: 'chemistryFront',
-      version: 1,
-      blueprintId: 'chemistry-front-site-v1',
-      blueprintVersion: 1,
+      version: 2,
+      blueprintId: 'chemistry-front-site-v2',
+      blueprintVersion: 2,
       loadoutProfileId: 'inherited-laboratory-v1',
       materialized: true,
       legacyMigration: false,
@@ -73,6 +73,53 @@ test('Chemistry Front materializes immutable scenario, blueprint, identity, and 
   expect(result.catalog.find((entry) => entry.id === 'chemistryFront').loadout.resources.biomass).toBeGreaterThan(0);
   expect(result.surface.ground.length).toBeGreaterThan(250);
   await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/);
+});
+
+test('version-one Chemistry Front saves keep their provenance and do not gain the divided surface topology', async ({ page }) => {
+  await openFreshSetup(page);
+  await page.locator('#startRunSubmitBtn').click();
+  await page.evaluate((key) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.startingScenario = {
+      ...state.startingScenario,
+      version: 1,
+      blueprintId: 'chemistry-front-site-v1',
+      blueprintVersion: 1,
+    };
+    const modernSurfaceIds = new Set([
+      'surfaceReception',
+      'surfaceStaffOperations',
+      'surfaceHazardousStorage',
+      'surfaceLoadingBay',
+      'surfaceBasementVestibule',
+    ]);
+    state.rooms = state.rooms.filter((room) => !modernSurfaceIds.has(room.id));
+    state.labMap.rooms = Object.fromEntries(Object.entries(state.labMap.rooms).filter(([roomId]) => !modernSurfaceIds.has(roomId)));
+    state.labMap.doors = Object.fromEntries(Object.entries(state.labMap.doors).filter(([doorId, door]) =>
+      doorId === 'door-surface-front' || (door.cell?.z ?? 0) === 0));
+    state.labMap.doors['door-surface-front'].roomIds = ['surfaceFacility'];
+    state.doors = Object.fromEntries(Object.entries(state.doors).filter(([doorId]) => state.labMap.doors[doorId]));
+    delete state.siteAccessPoints;
+    window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
+  }, storageKey);
+
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  const restored = await page.evaluate(() => ({
+    scenario: window.helixHeresyDebug.startingScenarioSnapshot().scenario,
+    access: window.helixHeresyDebug.siteAccessSnapshot(),
+    surface: window.helixHeresyDebug.surfaceMapSnapshot(),
+  }));
+  expect(restored.scenario).toMatchObject({
+    id: 'chemistryFront',
+    version: 1,
+    blueprintId: 'chemistry-front-site-v1',
+    blueprintVersion: 1,
+  });
+  expect(restored.access.rooms.map((room) => room.id)).toEqual(['surfaceFacility']);
+  expect(restored.access.doors.filter((door) => door.cell.z === 1).map((door) => door.id)).toEqual(['door-surface-front']);
+  expect(restored.surface.loadingDoor).toBeNull();
 });
 
 test('Debug Underground Laboratory removes surface topology and persists its choice', async ({ page }) => {
