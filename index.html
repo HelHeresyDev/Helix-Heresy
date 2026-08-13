@@ -509,6 +509,7 @@
 
           <div id="economyMenuTabs" class="record-tabs economy-menu-tabs" role="tablist" aria-label="Economy sections">
             <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-economy-menu-tab="overview">Overview <span id="economyOverviewBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="company">Company <span id="economyCompanyBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="exchange">Exchange <span id="economyExchangeBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="orders">Orders <span id="economyOrdersBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="freight">Freight <span id="economyFreightBadge" class="record-tab-badge">0</span></button>
@@ -522,6 +523,9 @@
           <div class="economy-menu-body inventory-list">
             <div class="economy-menu-panel" data-economy-menu-panel="overview" role="tabpanel">
               <div id="economyOverviewList" class="stores-overview-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="company" role="tabpanel" hidden>
+              <div id="economyCompanyList" class="inventory-list"></div>
             </div>
             <div class="economy-menu-panel" data-economy-menu-panel="exchange" role="tabpanel" hidden>
               <div id="economyExchangeList" class="inventory-list"></div>
@@ -680,6 +684,15 @@
           <p class="journal-meta">Choose the inherited site and circumstances for this run. The choice becomes permanent once the run begins.</p>
           <div id="startingScenarioList" class="starting-scenario-list"></div>
         </fieldset>
+
+        <div id="companyNameField">
+          <label class="field-label" for="companyNameInput">Company Name</label>
+          <p class="journal-meta">Use the seeded generated identity or enter a custom legal name for this run.</p>
+          <div class="sequence-row">
+            <input id="companyNameInput" type="text" autocomplete="organization" maxlength="64">
+            <button id="randomCompanyNameBtn" type="button">Generate</button>
+          </div>
+        </div>
 
         <label class="field-label" for="seedInput">Seed</label>
         <div class="sequence-row">

@@ -14,44 +14,39 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Front Company Operations, Corporate Records, and Cover Credibility
-2. Above-Ground Sprite Generation and Visual Integration
-3. Suspicion, Investigations, and Evidence Management
-4. Campaign Objectives, Milestones, and End States
-5. New-Run Onboarding and Contextual Tutorial
-6. Sound Design, Notifications, and Accessibility Audit
-7. Production Sprite Replacement and Art-Direction Pass
+1. Above-Ground Sprite Generation and Visual Integration
+2. Suspicion, Investigations, and Evidence Management
+3. Campaign Objectives, Milestones, and End States
+4. New-Run Onboarding and Contextual Tutorial
+5. Sound Design, Notifications, and Accessibility Audit
+6. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Front Company Operations, Corporate Records, and Cover Credibility
-
-Model the chemistry company's legal identity, operating state, declared activity, purchase/production/shipment/waste records, public and restricted spaces, and qualitative cover credibility derived from actual facility conditions and legitimate work.
-
-## 2. Above-Ground Sprite Generation and Visual Integration
+## 1. Above-Ground Sprite Generation and Visual Integration
 
 Generate and integrate a coherent development-quality bitmap sprite set for the Chemistry Front's surface terrain, building envelope, access/logistics fixtures, chemistry equipment, products, hazards, and exterior details while preserving semantic asset keys, footprint anchors, transforms, glyph fallbacks, and Canvas/DOM parity.
 
-## 3. Suspicion, Investigations, and Evidence Management
+## 2. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 4. Campaign Objectives, Milestones, and End States
+## 3. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 5. New-Run Onboarding and Contextual Tutorial
+## 4. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 6. Sound Design, Notifications, and Accessibility Audit
+## 5. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 7. Production Sprite Replacement and Art-Direction Pass
+## 6. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
