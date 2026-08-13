@@ -44,9 +44,9 @@ test('Chemistry Front materializes immutable scenario, blueprint, identity, and 
   expect(result.current).toMatchObject({
     scenario: {
       id: 'chemistryFront',
-      version: 2,
-      blueprintId: 'chemistry-front-site-v2',
-      blueprintVersion: 2,
+      version: 3,
+      blueprintId: 'chemistry-front-site-v3',
+      blueprintVersion: 3,
       loadoutProfileId: 'inherited-laboratory-v1',
       materialized: true,
       legacyMigration: false,
@@ -120,6 +120,37 @@ test('version-one Chemistry Front saves keep their provenance and do not gain th
   expect(restored.access.rooms.map((room) => room.id)).toEqual(['surfaceFacility']);
   expect(restored.access.doors.filter((door) => door.cell.z === 1).map((door) => door.id)).toEqual(['door-surface-front']);
   expect(restored.surface.loadingDoor).toBeNull();
+});
+
+test('version-two Chemistry Front saves do not acquire the later chemistry equipment line', async ({ page }) => {
+  await openFreshSetup(page);
+  await page.locator('#startRunSubmitBtn').click();
+  await page.evaluate((key) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state || payload;
+    state.startingScenario = {
+      ...state.startingScenario,
+      version: 2,
+      blueprintId: 'chemistry-front-site-v2',
+      blueprintVersion: 2,
+    };
+    state.fixtures = state.fixtures.filter((fixture) => !fixture.id.startsWith('starter-surface-'));
+    window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
+  }, storageKey);
+
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  const restored = await page.evaluate(() => ({
+    scenario: window.helixHeresyDebug.startingScenarioSnapshot().scenario,
+    chemistry: window.helixHeresyDebug.chemistryEquipmentSnapshot(),
+  }));
+  expect(restored.scenario).toMatchObject({
+    id: 'chemistryFront',
+    version: 2,
+    blueprintId: 'chemistry-front-site-v2',
+    blueprintVersion: 2,
+  });
+  expect(restored.chemistry.fixtures).toEqual([]);
 });
 
 test('Debug Underground Laboratory removes surface topology and persists its choice', async ({ page }) => {
