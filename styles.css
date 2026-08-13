@@ -529,6 +529,66 @@ h2 {
   font-size: 1.2rem;
 }
 
+.commodity-listing-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.commodity-listing-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+}
+
+.commodity-price-chart {
+  width: 100%;
+  min-height: 6rem;
+  color: var(--cyan);
+  background: rgba(4, 12, 13, 0.42);
+  border-radius: 5px;
+}
+
+.commodity-chart-axis {
+  stroke: rgba(190, 218, 210, 0.28);
+  stroke-width: 1;
+}
+
+.commodity-chart-area {
+  fill: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.commodity-chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.commodity-order-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.commodity-order-field {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 6.5rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.commodity-order-field input {
+  width: 7rem;
+}
+
 .stores-overview-card small,
 .stores-row-main small,
 .stores-section-header small {

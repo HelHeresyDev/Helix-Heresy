@@ -3023,6 +3023,34 @@
   };
   const BLACK_MARKET_FIRST_NAMES = ["Vey", "Mara", "Corvin", "Ilen", "Sable", "Orra", "Lucan", "Nix", "Bryn", "Tamsin", "Calder", "Ysra"];
   const BLACK_MARKET_LAST_NAMES = ["Blackglass", "Vell", "Underhook", "Mire", "Ashen", "Lowbell", "Cask", "Noct", "Thorn", "Harrow", "Grin", "Vale"];
+  const COMMODITY_MARKET_TICK_SECONDS = SECONDS_PER_HOUR * 6;
+  const COMMODITY_MARKET_HISTORY_LIMIT = 80;
+  const COMMODITY_MARKET_LEDGER_LIMIT = 100;
+  const COMMODITY_MARKET_FREIGHT_SECONDS = minutesToSeconds(20);
+  const COMMODITY_MARKET_MAX_OUTSTANDING = 6;
+  const COMMODITY_MARKET_LISTING_DEFS = [
+    { id: "biomass", section: "resources", key: "biomass", label: "Biomass", basePrice: 9, supply: 90, liquidity: 35, buyable: true, sellable: true },
+    { id: "stoneBlocks", section: "resources", key: "stoneBlocks", label: "Stone Blocks", basePrice: 7, supply: 120, liquidity: 50, buyable: true, sellable: true },
+    { id: "lumber", section: "resources", key: "lumber", label: "Lumber", basePrice: 11, supply: 80, liquidity: 36, buyable: true, sellable: true },
+    { id: "steelPanels", section: "resources", key: "steelPanels", label: "Steel Panels", basePrice: 24, supply: 55, liquidity: 24, buyable: true, sellable: true },
+    { id: "metalParts", section: "resources", key: "metalParts", label: "Metal Parts", basePrice: 19, supply: 60, liquidity: 28, buyable: true, sellable: true },
+    { id: "bricks", section: "resources", key: "bricks", label: "Bricks", basePrice: 6, supply: 130, liquidity: 55, buyable: true, sellable: true },
+    { id: "glass", section: "resources", key: "glass", label: "Glass", basePrice: 14, supply: 70, liquidity: 30, buyable: true, sellable: true },
+    { id: "cloth", section: "resources", key: "cloth", label: "Cloth", basePrice: 10, supply: 90, liquidity: 38, buyable: true, sellable: true },
+    { id: "rubber", section: "resources", key: "rubber", label: "Rubber", basePrice: 13, supply: 75, liquidity: 32, buyable: true, sellable: true },
+    { id: "assayReagent", section: "resources", key: "assayReagent", label: "Assay Reagent", basePrice: 31, supply: 40, liquidity: 18, buyable: true, sellable: true },
+    { id: "medicalBandage", section: "inventory", key: "medicalBandage", label: "Medical Bandage", basePrice: 16, supply: 45, liquidity: 20, buyable: true, sellable: true },
+    { id: "neutralizingWash", section: "inventory", key: "neutralizingWash", label: "Neutralizing Wash", basePrice: 22, supply: 35, liquidity: 16, buyable: true, sellable: true },
+    { id: "membraneSealant", section: "inventory", key: "membraneSealant", label: "Membrane Sealant", basePrice: 27, supply: 30, liquidity: 14, buyable: true, sellable: true },
+    { id: "sealedCollectionJar", section: "inventory", key: "sealedCollectionJar", label: "Sealed Collection Jar", basePrice: 15, supply: 48, liquidity: 20, buyable: true, sellable: true },
+    { id: "linedScrapeJar", section: "inventory", key: "linedScrapeJar", label: "Lined Scrape Jar", basePrice: 17, supply: 42, liquidity: 18, buyable: true, sellable: true },
+    { id: "condenserFlask", section: "inventory", key: "condenserFlask", label: "Condenser Flask", basePrice: 21, supply: 38, liquidity: 16, buyable: true, sellable: true },
+    { id: "filterBag", section: "inventory", key: "filterBag", label: "Filter Bag", basePrice: 9, supply: 60, liquidity: 26, buyable: true, sellable: true },
+    { id: "mixedOutputJar", section: "inventory", key: "mixedOutputJar", label: "Mixed-output Jar", basePrice: 14, supply: 45, liquidity: 20, buyable: true, sellable: true },
+    { id: "sealedReagentBottle", section: "inventory", key: "sealedReagentBottle", label: "Sealed Reagent Bottle", basePrice: 12, supply: 55, liquidity: 24, buyable: true, sellable: true },
+    { id: "helixBufferSolution", section: "chemicalBatches", key: "helixBufferSolution", label: "Helix Buffer Solution", basePrice: 74, supply: 22, liquidity: 10, buyable: false, sellable: true }
+  ];
+  const COMMODITY_MARKET_LISTING_BY_ID = Object.fromEntries(COMMODITY_MARKET_LISTING_DEFS.map((listing) => [listing.id, listing]));
   const ENVIRONMENTAL_SUSTENANCE_DEFS = [
     {
       id: "heat",
@@ -4278,6 +4306,10 @@
   const DEFAULT_STORE_MENU_TAB = "overview";
   const ECONOMY_MENU_TAB_DEFS = [
     { id: "overview", label: "Overview" },
+    { id: "exchange", label: "Exchange" },
+    { id: "orders", label: "Orders" },
+    { id: "freight", label: "Freight" },
+    { id: "legalLedger", label: "Legal Ledger" },
     { id: "deals", label: "Offers" },
     { id: "contracts", label: "Contracts" },
     { id: "contacts", label: "Contacts" },
@@ -4447,6 +4479,10 @@
   };
   const ECONOMY_MENU_TAB_HOTKEYS = {
     overview: "B O",
+    exchange: "B X",
+    orders: "B U",
+    freight: "B F",
+    legalLedger: "B G",
     deals: "B L",
     contracts: "B K",
     contacts: "B C",
@@ -4518,6 +4554,7 @@
     "collectionBayTransfer",
     "spillCleanup",
     "blackMarketTrade",
+    "commodityFreight",
     "physicalDiagnostic",
     "excavate",
     "constructionWork",
@@ -5295,6 +5332,11 @@
     );
     const economy = {
       money: 0,
+      businessReputation: 0,
+      commodityMarket: createDefaultCommodityMarket(seed),
+      commodityOrders: [],
+      commodityConsignments: [],
+      legalLedger: [],
       blackMarketReputation: 0,
       contacts,
       deals: [],
@@ -5305,6 +5347,9 @@
       nextDealNumber: 1,
       nextContractNumber: 1,
       nextLedgerNumber: 1,
+      nextCommodityOrderNumber: 1,
+      nextCommodityConsignmentNumber: 1,
+      nextLegalLedgerNumber: 1,
       lastContactRefreshAt: 0,
       lastOfferRefreshAt: 0
     };
@@ -5314,6 +5359,396 @@
       }
     }
     return economy;
+  }
+
+  function createDefaultCommodityMarket(seed = "seed") {
+    const listings = {};
+    for (const def of COMMODITY_MARKET_LISTING_DEFS) {
+      const rng = seedRng(`${seed}:commodity:${def.id}`);
+      const supply = Math.max(1, Math.round(def.supply * (0.82 + rng() * 0.36)));
+      const demand = roundOutputValue(0.88 + rng() * 0.24);
+      const mid = commodityMidPrice(def, supply, demand);
+      listings[def.id] = {
+        id: def.id,
+        supply,
+        demand,
+        lastTickAt: 0,
+        history: [{ at: 0, mid, bid: commodityQuoteValues(def, mid, 0).bid, ask: commodityQuoteValues(def, mid, 0).ask, supply }]
+      };
+    }
+    return { listings, lastTickAt: 0 };
+  }
+
+  function commodityMidPrice(def, supply, demand = 1) {
+    const scarcity = Math.pow(Math.max(0.2, def.supply) / Math.max(1, Number(supply) || 1), 0.42);
+    return Math.max(1, roundOutputValue(def.basePrice * clamp(Number(demand) || 1, 0.55, 1.8) * scarcity));
+  }
+
+  function commodityFeeRate(reputation = ensureEconomy()?.businessReputation || 0) {
+    return clamp(0.04 - Math.max(0, Number(reputation) || 0) / 20000, 0.015, 0.04);
+  }
+
+  function commoditySpreadRate(reputation = ensureEconomy()?.businessReputation || 0) {
+    return clamp(0.08 - Math.max(0, Number(reputation) || 0) / 10000, 0.03, 0.08);
+  }
+
+  function commodityQuoteValues(def, mid, reputation = ensureEconomy()?.businessReputation || 0) {
+    const spread = commoditySpreadRate(reputation);
+    const fee = commodityFeeRate(reputation);
+    return {
+      mid: Math.max(1, roundOutputValue(mid)),
+      bid: Math.max(1, roundOutputValue(mid * (1 - spread / 2) * (1 - fee))),
+      ask: Math.max(1, roundOutputValue(mid * (1 + spread / 2) * (1 + fee))),
+      fee,
+      spread
+    };
+  }
+
+  function commodityListingState(listingId) {
+    const economy = ensureEconomy();
+    return economy.commodityMarket?.listings?.[listingId] || null;
+  }
+
+  function commodityQuote(listingId) {
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    const listing = commodityListingState(listingId);
+    if (!def || !listing) return null;
+    return { ...commodityQuoteValues(def, commodityMidPrice(def, listing.supply, listing.demand)), supply: listing.supply };
+  }
+
+  function commodityBusinessReputationLabel(value = ensureEconomy().businessReputation) {
+    if (value >= 500) return "Preferred Counterparty";
+    if (value >= 150) return "Established Business";
+    if (value >= 40) return "Known Customer";
+    if (value > 0) return "New Account";
+    return "Unrated Business";
+  }
+
+  function recordLegalLedger(kind, label, options = {}) {
+    const economy = ensureEconomy();
+    const entry = {
+      id: `legal-ledger-${economy.nextLegalLedgerNumber++}`,
+      kind,
+      label,
+      listingId: String(options.listingId || ""),
+      orderId: String(options.orderId || ""),
+      consignmentId: String(options.consignmentId || ""),
+      amount: Math.round(Number(options.amount) || 0),
+      at: state.clock
+    };
+    economy.legalLedger.unshift(entry);
+    economy.legalLedger = economy.legalLedger.slice(0, COMMODITY_MARKET_LEDGER_LIMIT);
+    return entry;
+  }
+
+  function commodityInboundAmount(listingId) {
+    return roundOutputValue(ensureEconomy().commodityConsignments
+      .filter((consignment) => consignment.listingId === listingId && ["inTransit", "arrived", "unloading"].includes(consignment.status))
+      .reduce((total, consignment) => total + consignment.quantity, 0));
+  }
+
+  function commodityOwnedAmount(listingId) {
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    if (!def) return 0;
+    return physicalKnownAmount(def.section, def.key);
+  }
+
+  function commodityOutstandingCount() {
+    return ensureEconomy().commodityConsignments.filter((consignment) => ["inTransit", "arrived", "unloading", "dispatching"].includes(consignment.status)).length;
+  }
+
+  function executeCommodityBuy(listingId, requestedQuantity, options = {}) {
+    const economy = ensureEconomy();
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    const listing = commodityListingState(listingId);
+    const quote = commodityQuote(listingId);
+    if (!def?.buyable || !listing || !quote) return { filled: 0, reason: "This good is not offered for public purchase." };
+    if (commodityOutstandingCount() >= COMMODITY_MARKET_MAX_OUTSTANDING) return { filled: 0, reason: "The Loading Bay already has the maximum outstanding freight." };
+    const wholeUnits = def.section !== "chemicalBatches";
+    let quantity = Math.max(0, Number(requestedQuantity) || 0);
+    if (wholeUnits) quantity = Math.floor(quantity);
+    quantity = Math.min(quantity, wholeUnits ? Math.floor(listing.supply) : listing.supply);
+    const protectedCash = Math.max(0, Math.round(Number(options.protectedCash) || 0));
+    const affordable = Math.floor(Math.max(0, economy.money - protectedCash) / quote.ask);
+    quantity = Math.min(quantity, affordable);
+    if (quantity <= 0) return { filled: 0, reason: economy.money <= protectedCash ? "Protected cash floor prevents this purchase." : "No affordable public supply is available." };
+    const total = Math.round(quantity * quote.ask);
+    economy.money = Math.max(0, economy.money - total);
+    listing.supply = roundOutputValue(Math.max(0, listing.supply - quantity));
+    listing.demand = roundOutputValue(clamp(listing.demand + quantity / Math.max(20, def.liquidity * 5), 0.55, 1.8));
+    const number = economy.nextCommodityConsignmentNumber++;
+    const consignment = {
+      id: `legal-consignment-${number}`,
+      direction: "inbound",
+      listingId,
+      quantity,
+      unitPrice: quote.ask,
+      total,
+      orderId: String(options.orderId || ""),
+      stackId: "",
+      status: "inTransit",
+      createdAt: state.clock,
+      eta: state.clock + COMMODITY_MARKET_FREIGHT_SECONDS + (number % 4) * minutesToSeconds(5),
+      completedAt: null,
+      taskId: ""
+    };
+    economy.commodityConsignments.push(consignment);
+    recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; inbound freight booked.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total });
+    addEvent(`Open market purchase: ${formatNumber(quantity)} ${def.label} for ${formatMoney(total)}; delivery inbound to the Loading Bay.`);
+    return { filled: quantity, total, consignment };
+  }
+
+  function commoditySaleEligibleStacks(listingId) {
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    if (!def?.sellable) return [];
+    return ensurePhysicalItemStacks().filter((stack) =>
+      stack.section === def.section
+      && stack.key === def.key
+      && stack.quantity > 0
+      && !stack.reservedTaskId
+      && (!stack.carriedBy)
+      && (def.section !== "chemicalBatches" || (
+        stack.chemicalBatch?.classification?.known === "ordinary"
+        && stack.chemicalBatch?.classification?.actual === "ordinary"
+        && stack.chemicalBatch?.packaging?.state === "packaged"
+        && stack.chemicalBatch?.documentation?.status === "certified"
+      ))
+    );
+  }
+
+  function commoditySaleEligibleStack(listingId, stackId = "") {
+    return commoditySaleEligibleStacks(listingId).find((stack) => !stackId || stack.id === stackId) || null;
+  }
+
+  function commoditySaleUnitPrice(listingId, stack) {
+    const quote = commodityQuote(listingId);
+    if (!quote) return 0;
+    if (stack?.section !== "chemicalBatches") return quote.bid;
+    const purity = clamp(Number(stack.chemicalBatch?.purity) || 0, 0, 100);
+    const craftsmanship = clamp(Number(stack.chemicalBatch?.craftsmanship) || 0, 0, 100);
+    const quality = purity * 0.65 + craftsmanship * 0.35;
+    return Math.max(1, roundOutputValue(quote.bid * (0.8 + quality * 0.004)));
+  }
+
+  function createCommoditySellOrder(listingId, quantity = 1, limitPrice = 0, stackId = "") {
+    const economy = ensureEconomy();
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    const stack = commoditySaleEligibleStack(listingId, stackId);
+    if (!def?.sellable || !stack) return { order: null, reason: "No unreserved, legally saleable physical stack is available." };
+    const indivisible = def.section === "chemicalBatches";
+    const amount = indivisible ? stack.quantity : Math.min(Math.floor(Math.max(1, Number(quantity) || 1)), Math.floor(stack.quantity));
+    const order = {
+      id: `legal-order-${economy.nextCommodityOrderNumber++}`,
+      kind: "limitSell",
+      listingId,
+      quantity: amount,
+      remaining: amount,
+      limitPrice: Math.max(0, Number(limitPrice) || 0),
+      targetQuantity: 0,
+      protectedCash: 0,
+      priority: 3,
+      maxOutstanding: 1,
+      stackId: stack.id,
+      status: "open",
+      createdAt: state.clock,
+      updatedAt: state.clock
+    };
+    stack.reservedTaskId = order.id;
+    economy.commodityOrders.push(order);
+    recordLegalLedger("sellOrder", `${limitPrice > 0 ? "Limit" : "Market"} sell staged: ${formatNumber(amount)} ${def.label}${limitPrice > 0 ? ` at ${formatMoney(limitPrice)} net or better` : ""}.`, { listingId, orderId: order.id });
+    processCommodityOrders();
+    persist();
+    render();
+    return { order, reason: "" };
+  }
+
+  function createCommodityBuyOrder(listingId, options = {}) {
+    const economy = ensureEconomy();
+    const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
+    const kind = options.kind === "maintainStock" ? "maintainStock" : "limitBuy";
+    if (!def?.buyable) return { order: null, reason: "This listing cannot be purchased." };
+    const quantity = Math.max(1, Math.floor(Number(options.quantity) || 1));
+    const order = {
+      id: `legal-order-${economy.nextCommodityOrderNumber++}`,
+      kind,
+      listingId,
+      quantity,
+      remaining: quantity,
+      limitPrice: Math.max(1, Number(options.limitPrice) || commodityQuote(listingId)?.ask || def.basePrice),
+      targetQuantity: kind === "maintainStock" ? Math.max(1, Math.floor(Number(options.targetQuantity) || quantity)) : 0,
+      protectedCash: Math.max(0, Math.round(Number(options.protectedCash) || 0)),
+      priority: clamp(Math.floor(Number(options.priority) || 3), 1, 5),
+      maxOutstanding: clamp(Math.floor(Number(options.maxOutstanding) || 2), 1, COMMODITY_MARKET_MAX_OUTSTANDING),
+      stackId: "",
+      status: "open",
+      createdAt: state.clock,
+      updatedAt: state.clock
+    };
+    economy.commodityOrders.push(order);
+    recordLegalLedger("buyOrder", `${kind === "maintainStock" ? "Maintain-stock" : "Limit buy"} order opened for ${def.label} at ${formatMoney(order.limitPrice)} landed or less.`, { listingId, orderId: order.id });
+    processCommodityOrders();
+    persist();
+    render();
+    return { order, reason: "" };
+  }
+
+  function cancelCommodityOrder(orderId) {
+    const order = ensureEconomy().commodityOrders.find((entry) => entry.id === orderId);
+    if (!order || order.status !== "open") return false;
+    order.status = "canceled";
+    order.updatedAt = state.clock;
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === order.stackId && entry.reservedTaskId === order.id);
+    if (stack) stack.reservedTaskId = "";
+    recordLegalLedger("orderCanceled", `Canceled ${order.kind === "limitSell" ? "sale" : "purchase"} order ${order.id}.`, { listingId: order.listingId, orderId: order.id });
+    persist();
+    render();
+    return true;
+  }
+
+  function queueCommodityFreight(consignment) {
+    if (!consignment || consignment.taskId || !["arrived", "dispatching"].includes(consignment.status)) return false;
+    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "commodityFreight",
+      label: consignment.direction === "inbound" ? `Receive ${def?.label || "legal freight"}` : `Dispatch ${def?.label || "legal freight"}`,
+      createdAt: state.clock,
+      dueAt: state.clock + minutesToSeconds(5),
+      data: { consignmentId: consignment.id, targetCell: labMapRoomAnchor(SURFACE_LOADING_ROOM_ID), toRoomId: SURFACE_LOADING_ROOM_ID, staminaCost: 1 }
+    };
+    consignment.taskId = task.id;
+    consignment.status = consignment.direction === "inbound" ? "unloading" : "dispatching";
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === consignment.stackId);
+    if (stack) stack.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`${task.label} queued at the Loading Bay.`);
+    return true;
+  }
+
+  function processCommodityOrders() {
+    const economy = ensureEconomy();
+    let changes = 0;
+    const orders = economy.commodityOrders.filter((order) => order.status === "open")
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    for (const order of orders) {
+      const quote = commodityQuote(order.listingId);
+      if (!quote) continue;
+      if (order.kind === "limitSell") {
+        const stack = ensurePhysicalItemStacks().find((entry) => entry.id === order.stackId && (entry.reservedTaskId === order.id || !entry.reservedTaskId));
+        if (!stack) { order.status = "failed"; order.updatedAt = state.clock; changes += 1; continue; }
+        const saleUnitPrice = commoditySaleUnitPrice(order.listingId, stack);
+        if (saleUnitPrice + 1e-6 < order.limitPrice) continue;
+        const consignment = {
+          id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`,
+          direction: "outbound", listingId: order.listingId, quantity: order.remaining, unitPrice: saleUnitPrice,
+          total: Math.round(order.remaining * saleUnitPrice), orderId: order.id, stackId: stack.id,
+          status: "dispatching", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: ""
+        };
+        economy.commodityConsignments.push(consignment);
+        order.status = "executing";
+        order.updatedAt = state.clock;
+        queueCommodityFreight(consignment);
+        changes += 1;
+        continue;
+      }
+      if (quote.ask > order.limitPrice || commodityOutstandingCount() >= order.maxOutstanding) continue;
+      let wanted = order.remaining;
+      if (order.kind === "maintainStock") wanted = Math.max(0, order.targetQuantity - commodityOwnedAmount(order.listingId) - commodityInboundAmount(order.listingId));
+      if (wanted <= 0) continue;
+      const result = executeCommodityBuy(order.listingId, wanted, { orderId: order.id, protectedCash: order.protectedCash });
+      if (result.filled > 0) {
+        order.remaining = roundOutputValue(Math.max(0, order.remaining - result.filled));
+        order.updatedAt = state.clock;
+        if (order.kind === "limitBuy" && order.remaining <= 0) order.status = "filled";
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function completeCommodityFreight(task) {
+    const economy = ensureEconomy();
+    const consignment = economy.commodityConsignments.find((entry) => entry.id === task.data?.consignmentId);
+    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment?.listingId];
+    if (!consignment || !def) return false;
+    state.scientist.roomId = SURFACE_LOADING_ROOM_ID;
+    state.scientist.mapCell = labMapRoomAnchor(SURFACE_LOADING_ROOM_ID);
+    if (consignment.direction === "inbound") {
+      createPhysicalItemStack(def.section, def.key, consignment.quantity, physicalFallbackLocation(SURFACE_LOADING_ROOM_ID), {
+        phase: def.section === "chemicalBatches" ? CHEMICAL_PRODUCT_BY_ID[def.key]?.phase : "solid"
+      });
+      consignment.status = "received";
+      consignment.completedAt = state.clock;
+      economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 100)));
+      recordLegalLedger("received", `Received ${formatNumber(consignment.quantity)} ${def.label} at the Loading Bay.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id });
+      addEvent(`${formatNumber(consignment.quantity)} ${def.label} received at the Loading Bay; normal stockpile hauling can move it onward.`);
+    } else {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === consignment.stackId);
+      if (!stack || stack.quantity + 1e-6 < consignment.quantity) {
+        consignment.status = "failed";
+        recordLegalLedger("dispatchFailed", `${def.label} dispatch failed because the reserved stack was unavailable.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id });
+        return false;
+      }
+      stack.quantity = roundOutputValue(stack.quantity - consignment.quantity);
+      stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
+      stack.reservedTaskId = "";
+      if (stack.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+      const listing = commodityListingState(def.id);
+      listing.supply = roundOutputValue(listing.supply + consignment.quantity);
+      listing.demand = roundOutputValue(clamp(listing.demand - consignment.quantity / Math.max(20, def.liquidity * 5), 0.55, 1.8));
+      economy.money += consignment.total;
+      economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 80)));
+      consignment.status = "sold";
+      consignment.completedAt = state.clock;
+      const order = economy.commodityOrders.find((entry) => entry.id === consignment.orderId);
+      if (order) { order.status = "filled"; order.remaining = 0; order.updatedAt = state.clock; }
+      syncPhysicalReadModels();
+      recordLegalLedger("sale", `Sold ${formatNumber(consignment.quantity)} ${def.label} at ${formatMoney(consignment.unitPrice)} net per unit.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, amount: consignment.total });
+      addEvent(`Legal shipment sold: ${formatNumber(consignment.quantity)} ${def.label} for ${formatMoney(consignment.total)}.`);
+    }
+    return true;
+  }
+
+  function updateCommodityMarket() {
+    const economy = ensureEconomy();
+    let changes = 0;
+    for (const consignment of economy.commodityConsignments) {
+      if (consignment.status === "inTransit" && state.clock >= consignment.eta) {
+        consignment.status = "arrived";
+        changes += 1;
+      }
+      if (consignment.status === "arrived" && queueCommodityFreight(consignment)) changes += 1;
+    }
+    while (economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS <= state.clock) {
+      const tickAt = economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS;
+      for (const def of COMMODITY_MARKET_LISTING_DEFS) {
+        const listing = economy.commodityMarket.listings[def.id];
+        const tickNumber = Math.round(tickAt / COMMODITY_MARKET_TICK_SECONDS);
+        const rng = seedRng(`${state.seed}:commodity-tick:${def.id}:${tickNumber}`);
+        const supplyReturn = (def.supply - listing.supply) * 0.12;
+        listing.supply = roundOutputValue(Math.max(1, listing.supply + supplyReturn + (rng() - 0.48) * def.liquidity * 0.12));
+        listing.demand = roundOutputValue(clamp(listing.demand * 0.82 + (0.82 + rng() * 0.36) * 0.18, 0.55, 1.8));
+        listing.lastTickAt = tickAt;
+        const quote = commodityQuote(def.id);
+        listing.history.push({ at: tickAt, mid: quote.mid, bid: quote.bid, ask: quote.ask, supply: listing.supply });
+        listing.history = listing.history.slice(-COMMODITY_MARKET_HISTORY_LIMIT);
+      }
+      economy.commodityMarket.lastTickAt = tickAt;
+      changes += 1;
+    }
+    changes += processCommodityOrders();
+    economy.commodityOrders = economy.commodityOrders.slice(-200);
+    economy.commodityConsignments = economy.commodityConsignments.slice(-200);
+    return changes;
+  }
+
+  function nextCommodityMarketEvent() {
+    const economy = ensureEconomy();
+    const events = [{ time: economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS, label: "Commodity exchange update", type: "market" }];
+    for (const consignment of economy.commodityConsignments) {
+      if (consignment.status === "inTransit" && consignment.eta >= state.clock) events.push({ time: consignment.eta, label: `${COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId]?.label || "Freight"} arrives`, type: "freight" });
+    }
+    return events.filter((event) => event.time >= state.clock).sort((a, b) => a.time - b.time)[0] || null;
   }
 
   function createBlackMarketContact(seed, number = 1) {
@@ -6054,11 +6489,19 @@
       "economySummary",
       "economyMenuTabs",
       "economyOverviewBadge",
+      "economyExchangeBadge",
+      "economyOrdersBadge",
+      "economyFreightBadge",
+      "economyLegalLedgerBadge",
       "economyContactsBadge",
       "economyDealsBadge",
       "economyContractsBadge",
       "economyLedgerBadge",
       "economyOverviewList",
+      "economyExchangeList",
+      "economyOrdersList",
+      "economyFreightList",
+      "economyLegalLedgerList",
       "economyContactsList",
       "economyDealsList",
       "economyContractsList",
@@ -7000,6 +7443,30 @@
         workpieces: (state.productionWorkpieces || []).filter((workpiece) => productionRecipe(workpiece.recipeId)?.chemistry),
         activeTask: (state.tasks || []).find((task) => task.type === "productionWork") || null
       }),
+      commodityMarketSnapshot: () => clonePlainObject({
+        money: ensureEconomy().money,
+        businessReputation: ensureEconomy().businessReputation,
+        market: ensureEconomy().commodityMarket,
+        quotes: Object.fromEntries(COMMODITY_MARKET_LISTING_DEFS.map((listing) => [listing.id, commodityQuote(listing.id)])),
+        orders: ensureEconomy().commodityOrders,
+        consignments: ensureEconomy().commodityConsignments,
+        legalLedger: ensureEconomy().legalLedger
+      }),
+      setMarketCash: (amount) => {
+        ensureEconomy().money = Math.max(0, Math.round(Number(amount) || 0));
+        persist(); render(); return ensureEconomy().money;
+      },
+      buyCommodity: (listingId, quantity = 1, options = {}) => {
+        const result = executeCommodityBuy(listingId, quantity, options);
+        persist(); render(); return clonePlainObject(result);
+      },
+      createCommodityBuyOrder: (listingId, options = {}) => clonePlainObject(createCommodityBuyOrder(listingId, options)),
+      createCommoditySellOrder: (listingId, quantity = 1, limitPrice = 0, stackId = "") => clonePlainObject(createCommoditySellOrder(listingId, quantity, limitPrice, stackId)),
+      cancelCommodityOrder: (orderId) => cancelCommodityOrder(orderId),
+      processCommodityOrders: () => {
+        const changed = processCommodityOrders();
+        persist(); render(); return changed;
+      },
       setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
       addInfrastructureFixture: (typeId, cell, options = {}) => {
         const def = fixtureDef(typeId);
@@ -10241,6 +10708,8 @@
     }
     const marketEvent = nextBlackMarketEvent();
     if (marketEvent) events.push(marketEvent);
+    const commodityEvent = nextCommodityMarketEvent();
+    if (commodityEvent) events.push(commodityEvent);
     const jobEvent = nextCreatureJobEvent();
     if (jobEvent) {
       events.push(jobEvent);
@@ -10453,6 +10922,7 @@
       changes.jobExpired += expireSlimes();
       changes.suspicionChanged += updateSuspicionDecay();
       changes.economyChanged += updateBlackMarketEconomy();
+      changes.economyChanged += updateCommodityMarket();
       changes.incidentAlertChanged += refreshIncidentAlerts();
       changes.incidentUrgencyChanged += handleIncidentUrgency();
       syncRoomObservationMemory();
@@ -10726,6 +11196,11 @@
       return;
     }
 
+    if (task.type === "commodityFreight") {
+      completeCommodityFreight(task);
+      return;
+    }
+
     if (task.type === "physicalDiagnostic") {
       completePhysicalDiagnostic(task);
       return;
@@ -10788,6 +11263,22 @@
         addEvent(`Rest complete. Recovered ${formatNumber(task.data.restore)} stamina, but unsafe conditions may have worsened Physical State.`);
       } else {
         addEvent(`Rest complete. Rest quality ${quality}. Recovered ${formatNumber(task.data.restore)} stamina.`);
+      }
+    }
+    if (task.type === "commodityFreight") {
+      const economy = ensureEconomy();
+      const consignment = economy.commodityConsignments.find((entry) => entry.id === task.data?.consignmentId);
+      if (consignment) {
+        consignment.taskId = "";
+        if (consignment.direction === "inbound") {
+          consignment.status = "arrived";
+        } else {
+          consignment.status = "failed";
+          const order = economy.commodityOrders.find((entry) => entry.id === consignment.orderId);
+          const stack = ensurePhysicalItemStacks().find((entry) => entry.id === consignment.stackId);
+          if (order) { order.status = "open"; order.updatedAt = state.clock; }
+          if (stack?.reservedTaskId === task.id) stack.reservedTaskId = order?.id || "";
+        }
       }
     }
   }
@@ -49341,6 +49832,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function clearEconomyMenuLists() {
     for (const element of [
       dom.economyOverviewList,
+      dom.economyExchangeList,
+      dom.economyOrdersList,
+      dom.economyFreightList,
+      dom.economyLegalLedgerList,
       dom.economyContactsList,
       dom.economyDealsList,
       dom.economyContractsList,
@@ -49356,6 +49851,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeTab = currentEconomyMenuTab();
     const badgeMap = {
       overview: dom.economyOverviewBadge,
+      exchange: dom.economyExchangeBadge,
+      orders: dom.economyOrdersBadge,
+      freight: dom.economyFreightBadge,
+      legalLedger: dom.economyLegalLedgerBadge,
       contacts: dom.economyContactsBadge,
       deals: dom.economyDealsBadge,
       contracts: dom.economyContractsBadge,
@@ -49402,8 +49901,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       {
         label: "Cash",
         value: formatMoney(economy.money),
-        note: "Money is a prototype currency for illegal sales, bribes, facilities, and future supply chains.",
-        action: storesActionButton("View Offers", "Open currently available illicit buyer requests.", () => setEconomyMenuTab("deals"))
+        note: "Shared cash funds legal purchases, freight, illicit dealings, and future company operations.",
+        action: storesActionButton("Open Exchange", "View live legal bid and ask quotes.", () => setEconomyMenuTab("exchange"))
+      },
+      {
+        label: "Business reputation",
+        value: commodityBusinessReputationLabel(economy.businessReputation),
+        note: `${formatNumber(economy.businessReputation)} reputation; stronger history narrows legal fees and spreads without gating essential goods.`,
+        action: storesActionButton("Legal Ledger", "Review reliable purchase, receipt, dispatch, and payment records.", () => setEconomyMenuTab("legalLedger"))
       },
       {
         label: "Black market reputation",
@@ -49445,6 +49950,180 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       grid.append(panel);
     }
     dom.economyOverviewList.append(grid);
+  }
+
+  function commodityChartEl(def, listing) {
+    const history = listing.history.length ? listing.history : [{ at: state.clock, ...commodityQuote(def.id) }];
+    const values = history.map((entry) => Number(entry.mid) || def.basePrice);
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const range = Math.max(1, high - low);
+    const width = 360;
+    const height = 96;
+    const pad = 8;
+    const points = values.map((value, index) => {
+      const x = pad + (width - pad * 2) * (values.length <= 1 ? 1 : index / (values.length - 1));
+      const y = height - pad - (height - pad * 2) * ((value - low) / range);
+      return [roundOutputValue(x), roundOutputValue(y)];
+    });
+    if (points.length === 1) points.unshift([pad, points[0][1]]);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `${def.label} mid-price history. Low ${formatMoney(low)}, high ${formatMoney(high)}, latest ${formatMoney(values.at(-1))}.`);
+    svg.classList.add("commodity-price-chart");
+    svg.dataset.commodityChart = def.id;
+    const baseline = document.createElementNS(svg.namespaceURI, "line");
+    baseline.setAttribute("x1", String(pad)); baseline.setAttribute("x2", String(width - pad)); baseline.setAttribute("y1", String(height - pad)); baseline.setAttribute("y2", String(height - pad));
+    baseline.classList.add("commodity-chart-axis");
+    const area = document.createElementNS(svg.namespaceURI, "path");
+    area.setAttribute("d", `M ${points[0][0]} ${height - pad} L ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} L ${points.at(-1)[0]} ${height - pad} Z`);
+    area.classList.add("commodity-chart-area");
+    const line = document.createElementNS(svg.namespaceURI, "polyline");
+    line.setAttribute("points", points.map(([x, y]) => `${x},${y}`).join(" "));
+    line.classList.add("commodity-chart-line");
+    svg.append(baseline, area, line);
+    return svg;
+  }
+
+  function commodityNumberInput(label, value, min = 0, step = 1) {
+    const wrapper = document.createElement("label");
+    wrapper.className = "commodity-order-field";
+    wrapper.append(textEl("span", label));
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = String(min);
+    input.step = String(step);
+    input.value = String(value);
+    input.setAttribute("aria-label", label);
+    wrapper.append(input);
+    return { wrapper, input };
+  }
+
+  function renderCommodityExchange(economy) {
+    if (!dom.economyExchangeList) return;
+    const intro = document.createElement("p");
+    intro.className = "journal-meta";
+    intro.textContent = "Quotes are all-in: asks include legal purchasing fees and bids show net sale proceeds. Purchases lift prices; sales add public supply and depress prices. Every fill becomes physical Loading Bay freight.";
+    dom.economyExchangeList.append(intro);
+    for (const def of COMMODITY_MARKET_LISTING_DEFS) {
+      const listing = economy.commodityMarket.listings[def.id];
+      const quote = commodityQuote(def.id);
+      const card = document.createElement("section");
+      card.className = "commodity-listing-card";
+      card.dataset.commodityListing = def.id;
+      const heading = document.createElement("div");
+      heading.className = "commodity-listing-heading";
+      const direction = listing.history.length > 1 ? quote.mid - listing.history.at(-2).mid : 0;
+      heading.append(textEl("strong", def.label), textEl("span", `Bid ${formatMoney(quote.bid)} · Ask ${formatMoney(quote.ask)} · ${direction > 0 ? "▲" : direction < 0 ? "▼" : "—"} ${formatMoney(Math.abs(direction))}`));
+      const summary = textEl("p", `Public supply ${formatNumber(listing.supply)} · Owned ${formatNumber(commodityOwnedAmount(def.id))} · Inbound ${formatNumber(commodityInboundAmount(def.id))} · ${listing.history.length} saved price samples`);
+      summary.className = "journal-meta";
+      card.append(heading, commodityChartEl(def, listing), summary);
+      const controls = document.createElement("div");
+      controls.className = "commodity-order-controls";
+      const quantity = commodityNumberInput(def.section === "chemicalBatches" ? "Package" : "Quantity", 1, 1, 1);
+      const price = commodityNumberInput("Limit price", Math.ceil(def.buyable ? quote.ask : quote.bid), 1, 1);
+      const cashFloor = commodityNumberInput("Cash floor", 0, 0, 1);
+      controls.append(quantity.wrapper, price.wrapper, cashFloor.wrapper);
+      if (def.buyable) {
+        const priority = commodityNumberInput("Priority (1–5)", 3, 1, 1);
+        const maxOutstanding = commodityNumberInput("Max freight", 2, 1, 1);
+        priority.input.max = "5";
+        maxOutstanding.input.max = String(COMMODITY_MARKET_MAX_OUTSTANDING);
+        controls.append(priority.wrapper, maxOutstanding.wrapper);
+        const buy = storesActionButton("Buy Now", `Buy available units at the current all-in ask of ${formatMoney(quote.ask)}. Partial fills are allowed.`, () => {
+          executeCommodityBuy(def.id, Number(quantity.input.value), { protectedCash: Number(cashFloor.input.value) });
+          processCommodityOrders(); persist(); render();
+        });
+        setActionButtonState(buy, economy.money - Number(cashFloor.input.value) < quote.ask, "Available cash above the protected floor cannot cover one unit.");
+        controls.append(buy);
+        controls.append(storesActionButton("Limit Buy", "Keep a fixed-quantity order open until the all-in ask is at or below the limit.", () => createCommodityBuyOrder(def.id, { quantity: Number(quantity.input.value), limitPrice: Number(price.input.value), protectedCash: Number(cashFloor.input.value), priority: Number(priority.input.value), maxOutstanding: Number(maxOutstanding.input.value) })));
+        controls.append(storesActionButton("Maintain Stock", "Automatically refill owned plus inbound stock to this target while the all-in ask remains under the limit.", () => createCommodityBuyOrder(def.id, { kind: "maintainStock", quantity: Number(quantity.input.value), targetQuantity: Number(quantity.input.value), limitPrice: Number(price.input.value), protectedCash: Number(cashFloor.input.value), priority: Number(priority.input.value), maxOutstanding: Number(maxOutstanding.input.value) })));
+      }
+      if (def.sellable) {
+        const candidates = commoditySaleEligibleStacks(def.id);
+        const eligible = candidates[0] || null;
+        const lotField = document.createElement("label");
+        lotField.className = "commodity-order-field commodity-sale-lot-field";
+        lotField.append(textEl("span", "Exact sale lot"));
+        const lotSelect = document.createElement("select");
+        lotSelect.setAttribute("aria-label", `${def.label} exact physical sale lot`);
+        for (const stack of candidates) {
+          const option = document.createElement("option");
+          option.value = stack.id;
+          option.textContent = `${stack.id} · ${formatNumber(stack.quantity)} at ${roomName(stack.roomId)}${stack.chemicalBatch ? ` · purity ${formatNumber(stack.chemicalBatch.purity)} · quality ${formatNumber(stack.chemicalBatch.craftsmanship)}` : ""}`;
+          lotSelect.append(option);
+        }
+        if (!candidates.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No eligible physical lot";
+          lotSelect.append(option);
+          lotSelect.disabled = true;
+        }
+        lotField.append(lotSelect);
+        controls.append(lotField);
+        const saleUnitPrice = commoditySaleUnitPrice(def.id, eligible);
+        const sell = storesActionButton("Sell Now", `Reserve the selected physical stack and dispatch it at ${formatMoney(saleUnitPrice)} net per unit${def.section === "chemicalBatches" ? ", including its saved purity and craftsmanship valuation" : ""}.`, () => createCommoditySellOrder(def.id, Number(quantity.input.value), 0, lotSelect.value));
+        setActionButtonState(sell, !eligible, "No unreserved, legally saleable physical stack is available. Finished chemicals must be ordinary, packaged, and certified.");
+        controls.append(sell);
+        const limitSell = storesActionButton("Limit Sell", "Reserve the selected physical stack until its net quality-adjusted bid reaches this price, then dispatch it automatically.", () => createCommoditySellOrder(def.id, Number(quantity.input.value), Number(price.input.value), lotSelect.value));
+        setActionButtonState(limitSell, !eligible, "No unreserved, legally saleable physical stack is available.");
+        controls.append(limitSell);
+      }
+      card.append(controls);
+      dom.economyExchangeList.append(card);
+    }
+  }
+
+  function renderCommodityOrders(economy) {
+    if (!dom.economyOrdersList) return;
+    const section = storesSectionEl("Standing Orders", "Orders evaluate in saved priority and creation order. Maintain-stock counts owned and inbound goods; limit sales reserve exact physical stacks.", { economyCategory: "legalOrders" });
+    const orders = [...economy.commodityOrders].reverse();
+    if (!orders.length) section.append(emptyText("No legal market orders yet."));
+    for (const order of orders) {
+      const def = COMMODITY_MARKET_LISTING_BY_ID[order.listingId];
+      const actions = [];
+      if (order.status === "open") actions.push(storesActionButton("Cancel", "Cancel this standing order and release any reserved sale stack.", () => cancelCommodityOrder(order.id)));
+      const behavior = order.kind === "maintainStock"
+        ? `Target ${formatNumber(order.targetQuantity)}; owned + inbound ${formatNumber(commodityOwnedAmount(order.listingId) + commodityInboundAmount(order.listingId))}; cash floor ${formatMoney(order.protectedCash)}`
+        : order.kind === "limitSell" ? `Exact stack ${order.stackId}; ${formatNumber(order.remaining)} staged` : `${formatNumber(order.remaining)} remaining`;
+      section.append(storesRowEl(`${titleCase(order.kind.replace(/([A-Z])/g, " $1"))}: ${def?.label || order.listingId}`, titleCase(order.status), {
+        subtitle: `${behavior}; limit ${formatMoney(order.limitPrice)}; priority ${order.priority}; created ${formatClock(order.createdAt)}`,
+        dataset: { commodityOrder: order.id, commodityListing: order.listingId, orderStatus: order.status }, actions
+      }));
+    }
+    dom.economyOrdersList.append(section);
+  }
+
+  function renderCommodityFreight(economy) {
+    if (!dom.economyFreightList) return;
+    const section = storesSectionEl("Loading Bay Freight", "Executed purchases arrive before a scientist receiving task materializes them. Outbound sales pay only after the exact reserved stack is dispatched.", { economyCategory: "freight" });
+    const consignments = [...economy.commodityConsignments].reverse();
+    if (!consignments.length) section.append(emptyText("No legal freight booked."));
+    for (const consignment of consignments) {
+      const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+      const timing = consignment.status === "inTransit" ? `ETA ${formatClock(consignment.eta)}` : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : "Loading Bay handling pending";
+      section.append(storesRowEl(`${consignment.direction === "inbound" ? "Inbound" : "Outbound"}: ${def?.label || consignment.listingId}`, titleCase(consignment.status), {
+        subtitle: `${formatNumber(consignment.quantity)} units at ${formatMoney(consignment.unitPrice)}; ${formatMoney(consignment.total)} total; ${timing}`,
+        dataset: { commodityConsignment: consignment.id, commodityListing: consignment.listingId, freightStatus: consignment.status },
+        actions: [storesFocusRoomButton(SURFACE_LOADING_ROOM_ID, "Focus Loading Bay")]
+      }));
+    }
+    dom.economyFreightList.append(section);
+  }
+
+  function renderLegalLedger(economy) {
+    if (!dom.economyLegalLedgerList) return;
+    const section = storesSectionEl("Legal Ledger", "Reliable exchange orders, charges, receipts, dispatches, and payments remain separate from illicit records.", { economyCategory: "legalLedger" });
+    if (!economy.legalLedger.length) section.append(emptyText("No legal market history yet."));
+    for (const entry of economy.legalLedger) {
+      section.append(storesRowEl(entry.label, formatClock(entry.at), {
+        subtitle: `${titleCase(entry.kind.replace(/([A-Z])/g, " $1"))}${entry.amount ? `; ${entry.amount > 0 ? "+" : ""}${formatMoney(entry.amount)}` : ""}`,
+        dataset: { legalLedger: entry.id, commodityOrder: entry.orderId, commodityListing: entry.listingId }
+      }));
+    }
+    dom.economyLegalLedgerList.append(section);
   }
 
   function renderEconomyContacts(economy, openDeals) {
@@ -49579,18 +50258,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const openDeals = blackMarketOpenDeals();
     const activeTrade = activeBlackMarketTradeTask();
     if (dom.economySummary) {
-      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${blackMarketReputationLabel(economy.blackMarketReputation)}; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers; ${blackMarketActiveContracts().filter((contract) => ["active", "queued"].includes(contract.status)).length} obligations`;
-      dom.economySummary.title = "Offers expire without penalty. Accepted contracts reserve physical receptacles, carry deadlines, and may create payment or exposure consequences.";
+      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${commodityBusinessReputationLabel(economy.businessReputation)}; ${economy.commodityOrders.filter((order) => order.status === "open").length} standing legal orders; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers`;
+      dom.economySummary.title = "The lawful exchange uses saved supply and demand, all-in quotes, physical freight, and reliable settlement. Black-market contacts remain a separate channel.";
     }
     clearEconomyMenuLists();
     renderEconomyMenuTabs({
       overview: economy.contacts.length + openDeals.length,
+      exchange: COMMODITY_MARKET_LISTING_DEFS.length,
+      orders: economy.commodityOrders.filter((order) => ["open", "executing"].includes(order.status)).length,
+      freight: economy.commodityConsignments.filter((consignment) => !["received", "sold", "failed"].includes(consignment.status)).length,
+      legalLedger: economy.legalLedger.length,
       contacts: economy.contacts.length,
       deals: openDeals.length,
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
     });
     renderEconomyOverview(economy, openDeals, activeTrade);
+    renderCommodityExchange(economy);
+    renderCommodityOrders(economy);
+    renderCommodityFreight(economy);
+    renderLegalLedger(economy);
     renderEconomyContacts(economy, openDeals);
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
@@ -51555,6 +52242,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "blackMarketTrade") {
       return blackMarketTradeTaskBlockReason(task);
+    }
+    if (task.type === "commodityFreight") {
+      return ensureEconomy().commodityConsignments.some((entry) => entry.id === task.data?.consignmentId)
+        ? ""
+        : "The legal consignment no longer exists.";
     }
     if (task.type === "synthesize") {
       return synthesisTaskBlockReason(task);
@@ -60292,6 +60984,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "blackMarketTrade") {
       return "Black Market";
     }
+    if (task.type === "commodityFreight") {
+      return "Legal Freight";
+    }
     if (task.type === "constructionWork" || task.type === "excavate") {
       return "Construction";
     }
@@ -64973,10 +65668,91 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     })).sort((a, b) => b.at - a.at).slice(0, BLACK_MARKET_EXPOSURE_LIMIT);
   }
 
+  function normalizeCommodityMarket(candidate, seed = state?.seed || "seed") {
+    const fallback = createDefaultCommodityMarket(seed);
+    const listings = {};
+    for (const def of COMMODITY_MARKET_LISTING_DEFS) {
+      const source = candidate?.listings?.[def.id] || fallback.listings[def.id];
+      const history = (Array.isArray(source?.history) ? source.history : fallback.listings[def.id].history)
+        .map((entry) => ({
+          at: finiteTime(entry?.at, 0),
+          mid: Math.max(1, Number(entry?.mid) || def.basePrice),
+          bid: Math.max(1, Number(entry?.bid) || def.basePrice),
+          ask: Math.max(1, Number(entry?.ask) || def.basePrice),
+          supply: Math.max(0, Number(entry?.supply) || 0)
+        }))
+        .sort((a, b) => a.at - b.at)
+        .slice(-COMMODITY_MARKET_HISTORY_LIMIT);
+      listings[def.id] = {
+        id: def.id,
+        supply: Math.max(0, Number(source?.supply) || 0),
+        demand: clamp(Number(source?.demand) || 1, 0.55, 1.8),
+        lastTickAt: finiteTime(source?.lastTickAt, 0),
+        history: history.length ? history : fallback.listings[def.id].history
+      };
+    }
+    return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0) };
+  }
+
+  function normalizeCommodityOrders(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((order, index) => ({
+      id: String(order?.id || `legal-order-${index + 1}`),
+      kind: ["limitBuy", "maintainStock", "limitSell"].includes(order?.kind) ? order.kind : "limitBuy",
+      listingId: COMMODITY_MARKET_LISTING_BY_ID[order?.listingId] ? order.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
+      quantity: Math.max(0, Number(order?.quantity) || 0),
+      remaining: Math.max(0, Number(order?.remaining) || 0),
+      limitPrice: Math.max(0, Number(order?.limitPrice) || 0),
+      targetQuantity: Math.max(0, Number(order?.targetQuantity) || 0),
+      protectedCash: Math.max(0, Math.round(Number(order?.protectedCash) || 0)),
+      priority: clamp(Math.floor(Number(order?.priority) || 3), 1, 5),
+      maxOutstanding: clamp(Math.floor(Number(order?.maxOutstanding) || 2), 1, COMMODITY_MARKET_MAX_OUTSTANDING),
+      stackId: String(order?.stackId || ""),
+      status: ["open", "executing", "filled", "canceled", "failed"].includes(order?.status) ? order.status : "open",
+      createdAt: finiteTime(order?.createdAt, 0),
+      updatedAt: finiteTime(order?.updatedAt, order?.createdAt || 0)
+    })).slice(-200);
+  }
+
+  function normalizeCommodityConsignments(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
+      id: String(entry?.id || `legal-consignment-${index + 1}`),
+      direction: entry?.direction === "outbound" ? "outbound" : "inbound",
+      listingId: COMMODITY_MARKET_LISTING_BY_ID[entry?.listingId] ? entry.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
+      quantity: Math.max(0, Number(entry?.quantity) || 0),
+      unitPrice: Math.max(0, Number(entry?.unitPrice) || 0),
+      total: Math.max(0, Math.round(Number(entry?.total) || 0)),
+      orderId: String(entry?.orderId || ""),
+      stackId: String(entry?.stackId || ""),
+      status: ["inTransit", "arrived", "unloading", "dispatching", "received", "sold", "failed"].includes(entry?.status) ? entry.status : "inTransit",
+      createdAt: finiteTime(entry?.createdAt, 0),
+      eta: finiteTime(entry?.eta, entry?.createdAt || 0),
+      completedAt: entry?.completedAt === null || entry?.completedAt === undefined ? null : finiteTime(entry.completedAt, 0),
+      taskId: String(entry?.taskId || "")
+    })).slice(-200);
+  }
+
+  function normalizeLegalLedger(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
+      id: String(entry?.id || `legal-ledger-${index + 1}`),
+      kind: String(entry?.kind || "event"),
+      label: String(entry?.label || "Legal market event"),
+      listingId: String(entry?.listingId || ""),
+      orderId: String(entry?.orderId || ""),
+      consignmentId: String(entry?.consignmentId || ""),
+      amount: Math.round(Number(entry?.amount) || 0),
+      at: finiteTime(entry?.at, 0)
+    })).sort((a, b) => b.at - a.at).slice(0, COMMODITY_MARKET_LEDGER_LIMIT);
+  }
+
   function normalizeEconomyState(candidate, seed = state?.seed || "seed", clock = 0) {
     const fallback = defaultEconomyState(seed);
     const economy = {
       money: Math.max(0, Math.round(Number(candidate?.money ?? fallback.money) || 0)),
+      businessReputation: clamp(Math.round(Number(candidate?.businessReputation ?? fallback.businessReputation) || 0), 0, 1000),
+      commodityMarket: normalizeCommodityMarket(candidate?.commodityMarket, seed),
+      commodityOrders: normalizeCommodityOrders(candidate?.commodityOrders),
+      commodityConsignments: normalizeCommodityConsignments(candidate?.commodityConsignments),
+      legalLedger: normalizeLegalLedger(candidate?.legalLedger),
       blackMarketReputation: clamp(Math.round(Number(candidate?.blackMarketReputation ?? fallback.blackMarketReputation) || 0), 0, BLACK_MARKET_REPUTATION_MAX),
       contacts: [],
       deals: [],
@@ -64987,6 +65763,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       nextDealNumber: Math.max(1, Math.round(Number(candidate?.nextDealNumber) || fallback.nextDealNumber)),
       nextContractNumber: Math.max(1, Math.round(Number(candidate?.nextContractNumber) || fallback.nextContractNumber)),
       nextLedgerNumber: Math.max(1, Math.round(Number(candidate?.nextLedgerNumber) || fallback.nextLedgerNumber)),
+      nextCommodityOrderNumber: Math.max(1, Math.round(Number(candidate?.nextCommodityOrderNumber) || fallback.nextCommodityOrderNumber)),
+      nextCommodityConsignmentNumber: Math.max(1, Math.round(Number(candidate?.nextCommodityConsignmentNumber) || fallback.nextCommodityConsignmentNumber)),
+      nextLegalLedgerNumber: Math.max(1, Math.round(Number(candidate?.nextLegalLedgerNumber) || fallback.nextLegalLedgerNumber)),
       lastContactRefreshAt: finiteTime(candidate?.lastContactRefreshAt, 0),
       lastOfferRefreshAt: finiteTime(candidate?.lastOfferRefreshAt, 0)
     };
@@ -65015,10 +65794,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const maxDealSuffix = economy.deals.reduce((max, deal) => Math.max(max, numericSuffix(deal.id)), 0);
     const maxContractSuffix = economy.contracts.reduce((max, contract) => Math.max(max, numericSuffix(contract.id)), 0);
     const maxLedgerSuffix = economy.ledger.reduce((max, entry) => Math.max(max, numericSuffix(entry.id)), 0);
+    const maxCommodityOrderSuffix = economy.commodityOrders.reduce((max, entry) => Math.max(max, numericSuffix(entry.id)), 0);
+    const maxCommodityConsignmentSuffix = economy.commodityConsignments.reduce((max, entry) => Math.max(max, numericSuffix(entry.id)), 0);
+    const maxLegalLedgerSuffix = economy.legalLedger.reduce((max, entry) => Math.max(max, numericSuffix(entry.id)), 0);
     economy.nextContactNumber = Math.max(economy.nextContactNumber, maxContactSuffix + 1);
     economy.nextDealNumber = Math.max(economy.nextDealNumber, maxDealSuffix + 1);
     economy.nextContractNumber = Math.max(economy.nextContractNumber, maxContractSuffix + 1);
     economy.nextLedgerNumber = Math.max(economy.nextLedgerNumber, maxLedgerSuffix + 1);
+    economy.nextCommodityOrderNumber = Math.max(economy.nextCommodityOrderNumber, maxCommodityOrderSuffix + 1);
+    economy.nextCommodityConsignmentNumber = Math.max(economy.nextCommodityConsignmentNumber, maxCommodityConsignmentSuffix + 1);
+    economy.nextLegalLedgerNumber = Math.max(economy.nextLegalLedgerNumber, maxLegalLedgerSuffix + 1);
     return economy;
   }
 

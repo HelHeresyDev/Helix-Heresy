@@ -502,13 +502,17 @@
         <section class="panel economy-panel scientist-panel" aria-labelledby="economyTitle" data-workspace-panel="economy">
           <div class="panel-heading">
             <div>
-              <h2 id="economyTitle">Black Market</h2>
-              <p id="economySummary">Illicit contact network</p>
+              <h2 id="economyTitle">Economy</h2>
+              <p id="economySummary">Legal exchange and illicit contact network</p>
             </div>
           </div>
 
-          <div id="economyMenuTabs" class="record-tabs economy-menu-tabs" role="tablist" aria-label="Black market sections">
+          <div id="economyMenuTabs" class="record-tabs economy-menu-tabs" role="tablist" aria-label="Economy sections">
             <button class="record-tab active-record-tab" type="button" role="tab" aria-selected="true" data-economy-menu-tab="overview">Overview <span id="economyOverviewBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="exchange">Exchange <span id="economyExchangeBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="orders">Orders <span id="economyOrdersBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="freight">Freight <span id="economyFreightBadge" class="record-tab-badge">0</span></button>
+            <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="legalLedger">Legal Ledger <span id="economyLegalLedgerBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="deals">Offers <span id="economyDealsBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="contracts">Contracts <span id="economyContractsBadge" class="record-tab-badge">0</span></button>
             <button class="record-tab" type="button" role="tab" aria-selected="false" data-economy-menu-tab="contacts">Contacts <span id="economyContactsBadge" class="record-tab-badge">0</span></button>
@@ -518,6 +522,18 @@
           <div class="economy-menu-body inventory-list">
             <div class="economy-menu-panel" data-economy-menu-panel="overview" role="tabpanel">
               <div id="economyOverviewList" class="stores-overview-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="exchange" role="tabpanel" hidden>
+              <div id="economyExchangeList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="orders" role="tabpanel" hidden>
+              <div id="economyOrdersList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="freight" role="tabpanel" hidden>
+              <div id="economyFreightList" class="inventory-list"></div>
+            </div>
+            <div class="economy-menu-panel" data-economy-menu-panel="legalLedger" role="tabpanel" hidden>
+              <div id="economyLegalLedgerList" class="inventory-list"></div>
             </div>
             <div class="economy-menu-panel" data-economy-menu-panel="contacts" role="tabpanel" hidden>
               <div id="economyContactsList" class="inventory-list"></div>
