@@ -14,74 +14,69 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Starting Scenarios and Site Blueprints
-2. Surface Access, Security, and Cross-Layer Logistics
-3. Chemistry Equipment, Utilities, and Processing Hazards
-4. Chemical Recipes, Batch Provenance, and Product Classification
-5. Open Market, Business Reputation, and Legal Fulfillment
-6. Illegal Processed Goods and Black-Market Expansion
-7. Front Company Operations, Corporate Records, and Cover Credibility
-8. Above-Ground Sprite Generation and Visual Integration
-9. Suspicion, Investigations, and Evidence Management
-10. Campaign Objectives, Milestones, and End States
-11. New-Run Onboarding and Contextual Tutorial
-12. Sound Design, Notifications, and Accessibility Audit
-13. Production Sprite Replacement and Art-Direction Pass
+1. Surface Access, Security, and Cross-Layer Logistics
+2. Chemistry Equipment, Utilities, and Processing Hazards
+3. Chemical Recipes, Batch Provenance, and Product Classification
+4. Open Market, Business Reputation, and Legal Fulfillment
+5. Illegal Processed Goods and Black-Market Expansion
+6. Front Company Operations, Corporate Records, and Cover Credibility
+7. Above-Ground Sprite Generation and Visual Integration
+8. Suspicion, Investigations, and Evidence Management
+9. Campaign Objectives, Milestones, and End States
+10. New-Run Onboarding and Contextual Tutorial
+11. Sound Design, Notifications, and Accessibility Audit
+12. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Starting Scenarios and Site Blueprints
-
-Create data-driven Kenshi-style starting scenarios that define site blueprints, spawn state, resources, fixtures, identities, and liabilities; ship the Chemistry Front as the first complete start and retain the underground-only setup for Debug.
-
-## 2. Surface Access, Security, and Cross-Layer Logistics
+## 1. Surface Access, Security, and Cross-Layer Logistics
 
 Distinguish public entrances, loading bays, staff and hazardous areas, secured basement access, and the separate Concealed Exit while making scientist movement, hauling, doors, access policy, and repeated loads work physically across layers.
 
-## 3. Chemistry Equipment, Utilities, and Processing Hazards
+## 2. Chemistry Equipment, Utilities, and Processing Hazards
 
 Add wet-chemistry, reaction, ventilation, analysis, packaging, and waste-handling fixtures with real utility demand, local hazards, condition, faults, maintenance, routed work, spills, emissions, and cleanup.
 
-## 4. Chemical Recipes, Batch Provenance, and Product Classification
+## 3. Chemical Recipes, Batch Provenance, and Product Classification
 
 Add tag- and phase-compatible chemical transformations whose physical intermediates and finished batches retain exact provenance, craftsmanship, contamination, hazards, packaging, assay/documentation status, waste, and legal classification.
 
-## 5. Open Market, Business Reputation, and Legal Fulfillment
+## 4. Open Market, Business Reputation, and Legal Fulfillment
 
 Add a lawful economy with finite wholesale purchase orders, business reputation, deadlines, quality/documentation requirements, exact finished-batch reservations, loading-bay fulfillment, reliable payment, and a legal ledger.
 
-## 6. Illegal Processed Goods and Black-Market Expansion
+## 5. Illegal Processed Goods and Black-Market Expansion
 
 Extend black-market offers and contracts from raw byproducts to typed manufactured contraband, preserving quality, provenance, physical reservations, contact preferences, payout, handling risk, and exposure.
 
-## 7. Front Company Operations, Corporate Records, and Cover Credibility
+## 6. Front Company Operations, Corporate Records, and Cover Credibility
 
 Model the chemistry company's legal identity, operating state, declared activity, purchase/production/shipment/waste records, public and restricted spaces, and qualitative cover credibility derived from actual facility conditions and legitimate work.
 
-## 8. Above-Ground Sprite Generation and Visual Integration
+## 7. Above-Ground Sprite Generation and Visual Integration
 
 Generate and integrate a coherent development-quality bitmap sprite set for the Chemistry Front's surface terrain, building envelope, access/logistics fixtures, chemistry equipment, products, hazards, and exterior details while preserving semantic asset keys, footprint anchors, transforms, glyph fallbacks, and Canvas/DOM parity.
 
-## 9. Suspicion, Investigations, and Evidence Management
+## 8. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 10. Campaign Objectives, Milestones, and End States
+## 9. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 11. New-Run Onboarding and Contextual Tutorial
+## 10. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 12. Sound Design, Notifications, and Accessibility Audit
+## 11. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 13. Production Sprite Replacement and Art-Direction Pass
+## 12. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
