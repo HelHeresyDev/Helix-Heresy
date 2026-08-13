@@ -2996,6 +2996,8 @@
     escrow: { id: "escrow", label: "Demand Escrow", payoutMod: 1, windowMod: 1, exposureMod: 1, acceptanceBase: 0.64, paymentTerm: "escrow" }
   };
   const BLACK_MARKET_BYPRODUCT_LABELS = [...new Set(Object.values(BYPRODUCT_POOLS_BY_ELEMENT).flat())].sort();
+  const BLACK_MARKET_MANUFACTURED_PRODUCT_IDS = ["unlicensedMutagenicPrimer", "arcaneCatalyticSuspension", "numbingIndustrialSolvent", "industrialCleaningConcentrate"];
+  const BLACK_MARKET_SPECIMEN_TRAIT_KEYS = ["element", "size", "shape", "appendages", "behavior"];
   const BLACK_MARKET_RISK_BANDS = [
     { id: "low", label: "Low", maxChance: 0.08 },
     { id: "moderate", label: "Moderate", maxChance: 0.18 },
@@ -3010,11 +3012,11 @@
     { min: -Infinity, label: "No Reputation" }
   ];
   const BLACK_MARKET_CONTACT_ARCHETYPES = [
-    { id: "backAlleyApothecary", label: "Back-alley Apothecary", tags: ["toxic", "medical", "sludge"], risk: "cautious" },
-    { id: "graveBroker", label: "Grave Broker", tags: ["organic", "decay", "dry"], risk: "steady" },
-    { id: "occultFactor", label: "Occult Factor", tags: ["arcane", "vapor", "glow"], risk: "cautious" },
-    { id: "industrialSmuggler", label: "Industrial Smuggler", tags: ["corrosive", "solvent", "metal"], risk: "reckless" },
-    { id: "nobleRetainer", label: "Noble Retainer", tags: ["rare", "clean", "glow"], risk: "steady" }
+    { id: "backAlleyApothecary", label: "Back-alley Apothecary", tags: ["toxic", "medical", "sludge", "mutagenic", "biological"], risk: "cautious" },
+    { id: "graveBroker", label: "Grave Broker", tags: ["organic", "decay", "dry", "specimen", "lineage"], risk: "steady" },
+    { id: "occultFactor", label: "Occult Factor", tags: ["arcane", "vapor", "glow", "catalyst", "specimen"], risk: "cautious" },
+    { id: "industrialSmuggler", label: "Industrial Smuggler", tags: ["corrosive", "solvent", "metal", "volatile"], risk: "reckless" },
+    { id: "nobleRetainer", label: "Noble Retainer", tags: ["rare", "clean", "glow", "specimen", "lineage"], risk: "steady" }
   ];
   const BLACK_MARKET_RISK_PROFILES = {
     cautious: { label: "Cautious", chanceMod: -0.03, payoutMod: 0.9 },
@@ -3466,6 +3468,13 @@
       initial: 6,
       description: "A clean labeled product bottle used to divide a finished bulk chemical batch into a traceable package."
     },
+    {
+      key: "specimenTransportPod",
+      label: "Specimen Transport Pod",
+      category: "crafted",
+      initial: 0,
+      description: "A portable opaque, shock-lined, filtered containment pod consumed when a living specimen is transferred through the Concealed Exit."
+    },
     ...FIXTURE_CRAFTED_ITEM_DEFS,
     {
       key: "stainedLabCoat",
@@ -3650,6 +3659,9 @@
     { id: "stabilizedCatalystBase", label: "Stabilized Catalyst Base", phase: "liquid", stage: "intermediate", tags: ["chemical", "intermediate", "active", "stabilized"], baseClassification: "controlled" },
     { id: "helixBufferSolution", label: "Helix Buffer Solution", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "legal-candidate", "buffer", "clean"], baseClassification: "ordinary" },
     { id: "industrialCleaningConcentrate", label: "Industrial Cleaning Concentrate", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "legal-candidate", "cleaner", "corrosive"], baseClassification: "controlled" },
+    { id: "unlicensedMutagenicPrimer", label: "Unlicensed Mutagenic Primer", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "contraband", "biological", "toxic", "mutagenic"], baseClassification: "prohibited" },
+    { id: "arcaneCatalyticSuspension", label: "Arcane Catalytic Suspension", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "contraband", "arcane", "volatile", "catalyst"], baseClassification: "prohibited" },
+    { id: "numbingIndustrialSolvent", label: "Numbing Industrial Solvent", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "contraband", "toxic", "volatile", "solvent"], baseClassification: "controlled" },
     { id: "treatedChemicalEffluent", label: "Treated Chemical Effluent", phase: "liquid", stage: "waste", tags: ["chemical", "waste", "treated"], baseClassification: "controlled" },
     { id: "unfinishedChemicalMixture", label: "Unfinished Chemical Mixture", phase: "sludge", stage: "waste", tags: ["chemical", "waste", "unfinished"], baseClassification: "unclassified" }
   ];
@@ -3700,6 +3712,36 @@
         { id: "active", label: "stabilized active batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["stabilized"] }
       ],
       output: { section: "chemicalBatches", key: "industrialCleaningConcentrate", quantity: 1 }, materialOptions: [{ id: "standard", label: "Declared cleaner formulation", costs: {}, composition: { primary: "chemical" }, score: 70 }], basePurityGain: 2
+    },
+    {
+      id: "chemistry:formulateMutagenicPrimer", label: "Formulate unlicensed mutagenic primer", description: "Bind a clarified carrier to a stabilized reactive fraction and biological substrate, producing a prohibited mutagenic reagent with full ancestry.",
+      chainId: "contrabandChemistry", stage: 3, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(10),
+      inputSelectors: [
+        { id: "carrier", label: "clarified carrier batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["carrier"] },
+        { id: "active", label: "stabilized catalyst batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["stabilized"] }
+      ],
+      output: { section: "chemicalBatches", key: "unlicensedMutagenicPrimer", quantity: 1 }, materialOptions: [{ id: "biological", label: "Biological mutagen formulation", costs: { biomass: 2 }, composition: { primary: "chemical", substrate: "biological" }, score: 82 }],
+      byproducts: [{ section: "residue", key: "mutagenicReactionWaste", quantity: 1 }], basePurityGain: 1
+    },
+    {
+      id: "chemistry:formulateArcaneSuspension", label: "Formulate arcane catalytic suspension", description: "Suspend a condensed volatile fraction in a stabilized catalyst base, preserving its prohibited arcane and volatile hazards.",
+      chainId: "contrabandChemistry", stage: 3, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(11),
+      inputSelectors: [
+        { id: "volatile", label: "condensed volatile fraction", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["volatile", "condensed"] },
+        { id: "active", label: "stabilized catalyst batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["stabilized"] }
+      ],
+      output: { section: "chemicalBatches", key: "arcaneCatalyticSuspension", quantity: 1 }, materialOptions: [{ id: "arcane", label: "Arcane catalytic formulation", costs: { assayReagent: 1 }, composition: { primary: "chemical", catalyst: "arcane" }, score: 86 }],
+      byproducts: [{ section: "residue", key: "arcaneCatalystResidue", quantity: 1 }], basePurityGain: 0
+    },
+    {
+      id: "chemistry:formulateNumbingSolvent", label: "Formulate numbing industrial solvent", description: "Combine clarified carrier and condensed volatiles into a controlled toxic solvent traded outside licensed channels.",
+      chainId: "contrabandChemistry", stage: 3, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(9),
+      inputSelectors: [
+        { id: "carrier", label: "clarified carrier batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["carrier"] },
+        { id: "volatile", label: "condensed volatile fraction", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["volatile", "condensed"] }
+      ],
+      output: { section: "chemicalBatches", key: "numbingIndustrialSolvent", quantity: 1 }, materialOptions: [{ id: "numbing", label: "Numbing solvent formulation", costs: {}, composition: { primary: "chemical", carrier: "volatile" }, score: 78 }],
+      byproducts: [{ section: "residue", key: "toxicSolventWaste", quantity: 1 }], basePurityGain: 2
     },
     {
       id: "chemistry:assayBatch", label: "Assay finished chemical batch", description: "Consume a representative sample and reagent to record a confidence-bounded assay against a traceable finished batch.",
@@ -3847,6 +3889,14 @@
       workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
       chainId: "glassware", stage: 2,
       output: { section: "inventory", key: "mixedOutputJar", quantity: 1 }, materialOptions: [{ id: "glass", label: "Glass and rubber", costs: { glasswareComponents: 2, rubberSeals: 1 }, composition: { primary: "glass", seal: "rubber" }, score: 76 }]
+    },
+    {
+      id: "containment:specimenTransportPod", label: "Fabricate specimen transport pod", description: "Build an opaque filtered handoff pod with a reinforced shell, shock lining, and tamper-resistant seals for one illicit living-specimen transfer.",
+      chainId: "containment", stage: 2, dependencyEligible: true,
+      workstationCapabilities: ["workbench", "fabrication"], toolRequirements: [{ label: "controlled assembly", any: ["striking", "prying"], minimum: 32 }], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(12),
+      output: { section: "inventory", key: "specimenTransportPod", quantity: 1 },
+      criticalInputKeys: ["steelPanels", "rubberSeals"],
+      materialOptions: [{ id: "reinforced", label: "Reinforced opaque transport pod", costs: { steelPanels: 2, metalParts: 2, rubberSeals: 2, cloth: 2 }, composition: { primary: "steel", lining: "cloth", seal: "rubber" }, score: 84 }]
     }
   ];
   const PRODUCTION_RECIPE_BY_ID = Object.fromEntries(PRODUCTION_RECIPE_DEFS.map((recipe) => [recipe.id, recipe]));
@@ -5822,17 +5872,64 @@
     return matches.length ? matches : BLACK_MARKET_BYPRODUCT_LABELS;
   }
 
+  function blackMarketManufacturedPoolForContact(contact) {
+    const wanted = new Set(contact?.preferredTags || []);
+    const matching = BLACK_MARKET_MANUFACTURED_PRODUCT_IDS.filter((productId) =>
+      (CHEMICAL_PRODUCT_BY_ID[productId]?.tags || []).some((tag) => wanted.has(tag))
+    );
+    return matching.length ? matching : BLACK_MARKET_MANUFACTURED_PRODUCT_IDS;
+  }
+
+  function createBlackMarketSpecimenRequirements(rng) {
+    const knownCandidates = (state?.slimes || [])
+      .filter((slime) => slime.status !== "dead")
+      .flatMap((slime) => BLACK_MARKET_SPECIMEN_TRAIT_KEYS
+        .filter((traitKey) => slime.revealed?.[traitKey])
+        .map((traitKey) => ({ traitKey, label: String(slime.revealed[traitKey]) })));
+    const desired = knownCandidates.length ? knownCandidates[Math.floor(rng() * knownCandidates.length)] : null;
+    return {
+      mature: rng() < 0.72,
+      minimumGeneration: rng() < 0.28 ? 1 : 0,
+      traitKey: desired?.traitKey || "",
+      traitLabel: desired?.label || "",
+      maximumStress: rng() < 0.5 ? 70 : 100,
+      documentationRequired: Boolean(desired)
+    };
+  }
+
   function createBlackMarketDeal(seed, contact, number = 1, slot = 0, reputation = 0, clock = 0) {
     const rng = seedRng(`${seed}:black-market-deal:${contact?.id || "contact"}:${number}:${slot}:${contact?.trust || 0}:${reputation}`);
+    const contractCategory = (Math.max(1, numericSuffix(contact?.id)) - 1) % 3;
+    const commodityKind = slot % BLACK_MARKET_DEALS_PER_CONTACT === 0
+      ? "rawByproduct"
+      : contractCategory === 1
+        ? "manufactured"
+        : contractCategory === 2
+          ? "specimen"
+          : "rawByproduct";
     const pool = blackMarketMaterialPoolForContact(contact);
-    const material = pool[Math.floor(rng() * pool.length)] || BLACK_MARKET_BYPRODUCT_LABELS[0] || "trace slime";
-    const tags = blackMarketByproductTags(material);
-    const amount = roundOutputValue(2 + rng() * 5 + Math.min(3, (Number(reputation) || 0) / 120));
+    const rawMaterial = pool[Math.floor(rng() * pool.length)] || BLACK_MARKET_BYPRODUCT_LABELS[0] || "trace slime";
+    const productPool = blackMarketManufacturedPoolForContact(contact);
+    const productId = commodityKind === "manufactured" ? productPool[Math.floor(rng() * productPool.length)] : "";
+    const product = CHEMICAL_PRODUCT_BY_ID[productId];
+    const specimenRequirements = commodityKind === "specimen" ? createBlackMarketSpecimenRequirements(rng) : null;
+    const material = product?.label || (commodityKind === "specimen" ? "Living slime specimen" : rawMaterial);
+    const tags = commodityKind === "manufactured" ? [...(product.tags || [])] : commodityKind === "specimen" ? ["specimen", "living", "rare"] : blackMarketByproductTags(material);
+    const amount = commodityKind === "rawByproduct" ? roundOutputValue(2 + rng() * 5 + Math.min(3, (Number(reputation) || 0) / 120)) : 1;
     const demand = 0.85 + rng() * 0.6;
     const profile = BLACK_MARKET_RISK_PROFILES[contact?.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
     const danger = tags.filter((tag) => ["corrosive", "toxic", "arcane", "rare", "vapor"].includes(tag)).length;
-    const payout = Math.max(1, Math.round(amount * blackMarketByproductUnitValue(material) * demand * profile.payoutMod * (1 + (Number(contact?.trust) || 0) / 260)));
-    const exposureChance = clamp(0.04 + danger * 0.035 + amount * 0.006 + profile.chanceMod - (Number(contact?.trust) || 0) / 800 - (Number(reputation) || 0) / 4000, 0.02, 0.55);
+    const baseValue = commodityKind === "manufactured"
+      ? 110 + (CHEMICAL_CLASSIFICATION_DEFS[product?.baseClassification]?.rank || 1) * 45
+      : commodityKind === "specimen"
+        ? 260 + (specimenRequirements?.traitKey ? 90 : 0) + specimenRequirements.minimumGeneration * 55
+        : amount * blackMarketByproductUnitValue(material);
+    const payout = Math.max(1, Math.round(baseValue * demand * profile.payoutMod * (1 + (Number(contact?.trust) || 0) / 260)));
+    const exposureChance = commodityKind === "specimen"
+      ? clamp(0.42 + profile.chanceMod - (Number(contact?.trust) || 0) / 900 - (Number(reputation) || 0) / 5000, 0.32, 0.78)
+      : commodityKind === "manufactured"
+        ? clamp(0.18 + danger * 0.045 + profile.chanceMod - (Number(contact?.trust) || 0) / 850 - (Number(reputation) || 0) / 4500, 0.12, 0.65)
+        : clamp(0.04 + danger * 0.035 + amount * 0.006 + profile.chanceMod - (Number(contact?.trust) || 0) / 800 - (Number(reputation) || 0) / 4000, 0.02, 0.55);
     const offerKind = slot % BLACK_MARKET_DEALS_PER_CONTACT === 0 ? "spot" : "contract";
     const offerLife = Math.round(BLACK_MARKET_OFFER_MIN_SECONDS + rng() * (BLACK_MARKET_OFFER_MAX_SECONDS - BLACK_MARKET_OFFER_MIN_SECONDS));
     const deliveryWindow = Math.round(clamp(
@@ -5852,12 +5949,22 @@
       offerKind,
       slot: Math.max(0, Math.floor(Number(slot) || 0)),
       contactId: contact?.id || "",
+      commodityKind,
       material,
+      productId,
+      batchRequirements: commodityKind === "manufactured" ? {
+        minimumPurity: Math.round(45 + rng() * 30),
+        minimumCraftsmanship: Math.round(30 + rng() * 30),
+        requireAssay: rng() < 0.72,
+        requirePackaging: true,
+        allowUnverified: false
+      } : null,
+      specimenRequirements,
       tags,
       amount,
       payout,
       exposureChance: roundOutputValue(exposureChance),
-      suspicionOnObserved: Math.max(1, Math.round(3 + danger * 2 + amount * 0.7)),
+      suspicionOnObserved: commodityKind === "specimen" ? Math.round(16 + rng() * 10) : commodityKind === "manufactured" ? Math.round(8 + danger * 2 + rng() * 5) : Math.max(1, Math.round(3 + danger * 2 + amount * 0.7)),
       reputationGain: Math.max(1, Math.round(2 + danger + payout / 45)),
       trustGain: Math.max(1, Math.round(1 + payout / 80)),
       paymentTerm,
@@ -5874,6 +5981,12 @@
 
   function blackMarketDealFlavor(contact, material, tags = []) {
     const type = contact?.archetypeLabel || "Buyer";
+    if (tags.includes("specimen")) {
+      return `${type} wants a living specimen in an opaque transfer pod and accepts the severe handoff risk.`;
+    }
+    if (tags.includes("contraband")) {
+      return `${type} wants a traceable manufactured lot kept outside licensed distribution records.`;
+    }
     if (tags.includes("toxic")) {
       return `${type} needs carefully stoppered ${material}.`;
     }
@@ -5931,7 +6044,18 @@
       id,
       offerId: String(deal?.id || ""),
       contactId: String(deal?.contactId || ""),
-      material: byproductInventoryKey(deal?.material),
+      commodityKind: ["rawByproduct", "manufactured", "specimen"].includes(deal?.commodityKind) ? deal.commodityKind : "rawByproduct",
+      material: deal?.commodityKind === "rawByproduct" || !deal?.commodityKind ? byproductInventoryKey(deal?.material) : String(deal?.material || "Contraband shipment"),
+      productId: String(deal?.productId || ""),
+      batchRequirements: deal?.batchRequirements ? clonePlainObject(deal.batchRequirements) : null,
+      specimenRequirements: deal?.specimenRequirements ? clonePlainObject(deal.specimenRequirements) : null,
+      selectedStackId: "",
+      selectedSlimeId: "",
+      selectedPodStackId: "",
+      shipmentValueModifier: 1,
+      transportOutcome: "pending",
+      transportFailureChance: 0,
+      transportRoll: roundOutputValue(seedRng(`${state.seed}:black-market-transport:${id}:${deal?.id}`)()),
       tags: [...(deal?.tags || [])],
       amount: roundOutputValue(Number(deal?.amount) || 0),
       payout: terms.payout,
@@ -6752,13 +6876,82 @@
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       marketAvailableByproduct: (material) => blackMarketAvailableByproductAmount(material),
-      acceptMarketContract: (dealId, negotiationId = "standard") => acceptBlackMarketContract(dealId, negotiationId),
+      acceptMarketContract: (dealId, negotiationId = "standard", selectedId = "") => acceptBlackMarketContract(dealId, negotiationId, selectedId),
+      addBlackMarketManufacturedBatch: (dealId, options = {}) => {
+        const deal = blackMarketDealById(dealId);
+        const product = CHEMICAL_PRODUCT_BY_ID[deal?.productId];
+        if (!deal || deal.commodityKind !== "manufactured" || !product) return null;
+        const purity = clamp(Number(options.purity ?? Math.max(82, Number(deal.batchRequirements?.minimumPurity) + 5)) || 82, 0, 100);
+        const craftsmanship = clamp(Number(options.craftsmanship ?? Math.max(78, Number(deal.batchRequirements?.minimumCraftsmanship) + 5)) || 78, 0, 100);
+        const stack = createPhysicalItemStack("chemicalBatches", product.id, Math.max(0.01, Number(options.quantity) || 1), physicalFallbackLocation(STORAGE_ROOM_ID), {
+          craftsmanship,
+          tags: [...(product.tags || []), "contraband", "packaged"],
+          chemicalBatch: {
+            id: `debug-contraband-${state.nextPhysicalItemStackNumber}`,
+            productId: product.id,
+            recipeId: "debug:blackMarket",
+            stage: product.stage,
+            phase: product.phase,
+            tags: [...(product.tags || []), "contraband", "packaged"],
+            purity,
+            craftsmanship,
+            assays: [{ id: `debug-assay-${state.nextPhysicalItemStackNumber}`, testedAt: state.clock, confidence: 96, purityBand: chemicalPurityBand(purity), classification: product.baseClassification, analyst: "scientist" }],
+            packaging: { state: "packaged", containerKey: "sealedReagentBottle", packagedAt: state.clock },
+            classification: { actual: product.baseClassification, known: product.baseClassification, reasons: ["Debug test batch"] },
+            producedAt: state.clock
+          }
+        });
+        persist();
+        render();
+        return stack ? clonePlainObject(stack) : null;
+      },
+      addBlackMarketTransportPod: (craftsmanship = 85) => {
+        const stack = createPhysicalItemStack("inventory", "specimenTransportPod", 1, physicalFallbackLocation(STORAGE_ROOM_ID), {
+          craftsmanship: clamp(Number(craftsmanship) || 85, 0, 100),
+          tags: ["containment", "transport"]
+        });
+        persist();
+        render();
+        return stack ? clonePlainObject(stack) : null;
+      },
+      addBlackMarketSpecimen: (dealId, options = {}) => {
+        const deal = blackMarketDealById(dealId);
+        const container = firstOpenPermanentContainer();
+        if (!deal || deal.commodityKind !== "specimen" || !container) return null;
+        const requirements = deal.specimenRequirements || {};
+        let genome = randomGenome(seedRng(`${state.seed}:debug-market-specimen:${state.nextSlimeNumber}`));
+        const requestedSize = requirements.traitKey === "size" ? requirements.traitLabel : "seedling";
+        const sizeCode = Object.entries(geneMap.traitMaps.size || {}).find(([, outcome]) => baseOutcomeLabel(outcome) === requestedSize)?.[0];
+        if (sizeCode) genome = replaceRegionCode(genome, "size", sizeCode);
+        const slime = createSlime(genome, "Debug black-market specimen", {
+          containerId: container.id,
+          roomId: container.roomId,
+          mature: requirements.mature !== false,
+          generation: Math.max(Number(requirements.minimumGeneration) || 0, Number(options.generation) || 0),
+          stats: {
+            ...defaultSlimeStats(),
+            stress: { current: clamp(Number(options.stress) || 0, 0, 100), max: 100 },
+            currentMass: { current: clamp(Number(options.mass) || 20, 2, 100), max: 100 }
+          }
+        });
+        slime.deathAt = Math.max(slime.deathAt, state.clock + SECONDS_PER_DAY * 10);
+        if (requirements.traitKey) slime.revealed[requirements.traitKey] = requirements.traitLabel;
+        if (requirements.documentationRequired && !Object.keys(slime.revealed).length) {
+          const evaluated = evaluateGenome(slime.genome);
+          slime.revealed.size = baseOutcomeLabel(evaluated.traits.size);
+        }
+        observeCreatureRecord(slime);
+        persist();
+        render();
+        return clonePlainObject({ id: slime.id, name: slime.name, containerId: slime.containerId, revealed: slime.revealed });
+      },
       startMarketContractDelivery: (contractId) => startBlackMarketContractDelivery(contractId),
       setMarketContractOutcome: (contractId, options = {}) => {
         const contract = blackMarketContractById(contractId);
         if (!contract) return false;
         if (Number.isFinite(Number(options.paymentFraction))) contract.paymentFraction = clamp(Number(options.paymentFraction), 0, 1);
         if (Number.isFinite(Number(options.exposureRoll))) contract.exposureRoll = clamp(Number(options.exposureRoll), 0, 1);
+        if (Number.isFinite(Number(options.transportRoll)) && contract.transportOutcome === "pending") contract.transportRoll = clamp(Number(options.transportRoll), 0, 1);
         if (Number.isFinite(Number(options.dueAt))) contract.dueAt = Math.max(state.clock, Number(options.dueAt));
         persist();
         render();
@@ -14109,6 +14302,7 @@
       reproductionEventId: Heredity.cleanId(options.reproductionEventId),
       inheritance: Heredity.normalizeInheritance(options.inheritance),
       automationExcluded: Boolean(options.automationExcluded),
+      blackMarketContractId: String(options.blackMarketContractId || ""),
       roleId: "idle",
       roleSource: "automatic",
       roleKnowledge: {},
@@ -29626,7 +29820,7 @@
 
   function assignSlimeToContainer(slime, containerId) {
     const container = containerById(containerId);
-    if (!slime || slime.status === "dead" || !container) {
+    if (!slime || slime.status === "dead" || !container || slimeBlackMarketReservationReason(slime)) {
       return false;
     }
     slime.status = "contained";
@@ -29645,7 +29839,7 @@
 
 
   function releaseSlime(slime) {
-    if (!slime || slime.status === "dead") {
+    if (!slime || slime.status === "dead" || slimeBlackMarketReservationReason(slime)) {
       return false;
     }
     ensurePhysicalObjectPlacements();
@@ -49883,7 +50077,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const contact = blackMarketContactById(deal.contactId);
     const risk = blackMarketRiskBand(deal.exposureChance);
     return [
-      `${contact?.name || "Unknown contact"} wants ${formatCollectionAmount(deal.amount)} ${deal.material}.`,
+      `${contact?.name || "Unknown contact"} wants ${blackMarketShipmentAmountLabel(deal)}.`,
+      blackMarketOfferRequirementLabel(deal),
       `Payout: ${formatMoney(deal.payout)}.`,
       `${deal.offerKind === "contract" ? "Formal delivery contract" : "Spot sale"}; offer expires ${formatClock(deal.expiresAt)}.`,
       `Exposure risk: ${risk.label}. Exact odds remain uncertain.`,
@@ -49891,6 +50086,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "Suspicion only increases if authorities observe the exchange.",
       deal.flavor
     ].filter(Boolean).join("\n");
+  }
+
+  function blackMarketOfferRequirementLabel(deal) {
+    if (deal?.commodityKind === "manufactured") {
+      const requirements = deal.batchRequirements || {};
+      return `Exact packaged ${deal.material}; purity ${formatNumber(requirements.minimumPurity)}+; craftsmanship ${formatNumber(requirements.minimumCraftsmanship)}+; ${requirements.requireAssay ? "saved assay required" : "assay optional"}.`;
+    }
+    if (deal?.commodityKind === "specimen") {
+      const requirements = deal.specimenRequirements || {};
+      return [
+        "One exact contained living slime",
+        requirements.mature ? "mature" : "any maturity",
+        requirements.minimumGeneration ? `generation ${requirements.minimumGeneration}+` : "any generation",
+        requirements.traitKey ? `confirmed ${getRegionLabel(requirements.traitKey)}: ${requirements.traitLabel}` : "no hidden trait requirement",
+        `Stress no higher than ${formatNumber(requirements.maximumStress)}`,
+        "one physical Specimen Transport Pod"
+      ].join("; ") + ".";
+    }
+    return `${formatCollectionAmount(deal?.amount)} raw ${deal?.material}.`;
+  }
+
+  function blackMarketOfferSelection(deal) {
+    if (!deal || deal.offerKind !== "contract" || deal.commodityKind === "rawByproduct") return null;
+    const wrapper = document.createElement("label");
+    wrapper.className = "commodity-order-field black-market-shipment-field";
+    wrapper.append(textEl("span", deal.commodityKind === "specimen" ? "Exact creature" : "Exact batch"));
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `${deal.material} exact contract shipment`);
+    const candidates = deal.commodityKind === "specimen" ? blackMarketSpecimenCandidates(deal) : blackMarketManufacturedCandidates(deal);
+    for (const candidate of candidates) {
+      const option = document.createElement("option");
+      option.value = candidate.id;
+      option.textContent = deal.commodityKind === "specimen"
+        ? `${candidate.name} · generation ${candidate.generation} · ${slimeLocationLabel(candidate)}`
+        : `${candidate.id} · purity ${formatNumber(candidate.chemicalBatch?.purity)} · craftsmanship ${formatNumber(candidate.chemicalBatch?.craftsmanship)} · ${roomName(candidate.roomId)}`;
+      select.append(option);
+    }
+    if (!candidates.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No eligible exact shipment";
+      select.append(option);
+      select.disabled = true;
+    }
+    wrapper.append(select);
+    return { wrapper, select, candidates };
   }
 
   function renderEconomyOverview(economy, openDeals, activeTrade) {
@@ -50154,13 +50395,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyDealsList) {
       return;
     }
-    const section = storesSectionEl("Available Offers", "Spot sales dispatch immediately. Formal offers may be accepted as saved obligations or answered with one structured counteroffer.", { economyCategory: "deals" });
     const deals = openDeals.filter((deal) => deal.status === "open" || deal.status === "queued");
     if (!deals.length) {
+      const section = storesSectionEl("Available Offers", "Spot sales dispatch immediately. Formal offers may be accepted as saved obligations or answered with one structured counteroffer.", { economyCategory: "deals" });
       section.append(emptyText("No black market deals are currently available."));
       dom.economyDealsList.append(section);
       return;
     }
+    const categorySections = {
+      rawByproduct: storesSectionEl("Raw Materials", "Collected natural byproducts sold directly from designated physical receptacles.", { economyCategory: "rawByproducts" }),
+      manufactured: storesSectionEl("Manufactured Goods", "Processed contraband must meet the buyer's saved purity, craftsmanship, assay, packaging, and classification terms.", { economyCategory: "manufacturedContraband" }),
+      specimen: storesSectionEl("Living Specimens", "Buyers request exact contained creatures. Every shipment consumes a transport pod and carries an additional breach risk.", { economyCategory: "livingSpecimens" })
+    };
+    const categoryCounts = { rawByproduct: 0, manufactured: 0, specimen: 0 };
     for (const deal of deals) {
       const contact = blackMarketContactById(deal.contactId);
       const available = blackMarketAvailableByproductAmount(deal.material);
@@ -50176,32 +50423,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         setActionButtonState(button, Boolean(reason), reason);
         actions.push(button);
       } else {
-        const reason = blackMarketContractAcceptanceBlockReason(deal);
+        const shipmentSelection = blackMarketOfferSelection(deal);
+        if (shipmentSelection) actions.push(shipmentSelection.wrapper);
+        const selectedId = shipmentSelection?.select.value || "";
+        const reason = blackMarketContractAcceptanceBlockReason(deal, selectedId);
         for (const negotiationId of ["standard", "higherPayout", "moreTime", "discreet", "escrow"]) {
           const negotiation = BLACK_MARKET_NEGOTIATION_DEFS[negotiationId];
           const terms = blackMarketContractTerms(deal, negotiationId);
           const button = storesActionButton(
             negotiation.label,
             reason || `${formatMoney(terms.payout)}; ${formatDuration(terms.deliveryWindow)} delivery window; ${BLACK_MARKET_PAYMENT_TERMS[terms.paymentTerm].label}. Counteroffers may be rejected and close the offer.`,
-            () => acceptBlackMarketContract(deal.id, negotiationId)
+            () => acceptBlackMarketContract(deal.id, negotiationId, shipmentSelection?.select.value || "")
           );
           setActionButtonState(button, Boolean(reason), reason);
           actions.push(button);
         }
       }
+      const availabilityText = deal.commodityKind === "rawByproduct"
+        ? `${formatCollectionAmount(available)} unreserved`
+        : deal.commodityKind === "manufactured"
+          ? `${blackMarketManufacturedCandidates(deal).length} eligible exact batches`
+          : `${blackMarketSpecimenCandidates(deal).length} eligible creatures; ${blackMarketTransportPodCandidates().length} pods`;
+      const section = categorySections[deal.commodityKind] || categorySections.rawByproduct;
+      categoryCounts[deal.commodityKind] = (categoryCounts[deal.commodityKind] || 0) + 1;
       section.append(storesRowEl(`${deal.material} for ${contact?.name || "Unknown contact"}`, formatMoney(deal.payout), {
         title: economyDealTitle(deal),
-        subtitle: `${deal.offerKind === "contract" ? "Contract" : "Spot sale"}; ${formatCollectionAmount(deal.amount)} wanted; ${formatCollectionAmount(available)} unreserved; ${risk.label} exposure; expires ${formatClock(deal.expiresAt)}; ${deal.flavor}`,
-        dataset: { blackMarketDeal: deal.id, blackMarketContact: deal.contactId, blackMarketMaterial: deal.material, dealStatus: deal.status },
+        subtitle: `${deal.offerKind === "contract" ? "Contract" : "Spot sale"}; ${blackMarketOfferRequirementLabel(deal)} ${availabilityText}; ${risk.label} exposure; expires ${formatClock(deal.expiresAt)}; ${deal.flavor}`,
+        dataset: { blackMarketDeal: deal.id, blackMarketContact: deal.contactId, blackMarketMaterial: deal.material, blackMarketCommodityKind: deal.commodityKind, dealStatus: deal.status },
         actions
       }));
     }
-    dom.economyDealsList.append(section);
+    for (const kind of ["rawByproduct", "manufactured", "specimen"]) {
+      if (categoryCounts[kind]) dom.economyDealsList.append(categorySections[kind]);
+    }
   }
 
   function renderEconomyContracts(economy) {
     if (!dom.economyContractsList) return;
-    const section = storesSectionEl("Accepted Contracts", "Designated receptacles are protected from other black market sales. Dispatch routes through every physical source and the Concealed Exit.", { economyCategory: "contracts" });
+    const section = storesSectionEl("Accepted Contracts", "Exact raw receptacles, manufactured batches, living creatures, and specimen transport pods are protected from conflicting work. Dispatch routes through every physical source and the Concealed Exit.", { economyCategory: "contracts" });
     const contracts = [...economy.contracts]
       .filter((contract) => ["active", "queued", "delivered"].includes(contract.status))
       .sort((a, b) => a.dueAt - b.dueAt || String(a.id).localeCompare(String(b.id)));
@@ -50209,7 +50468,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const contract of contracts) {
       const contact = blackMarketContactById(contract.contactId);
       const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
-      const reserved = roundOutputValue((contract.reservations || []).reduce((total, reservation) => total + reservation.amount, 0));
       const actions = [];
       if (contract.status === "active") {
         const reason = blackMarketContractDeliveryBlockReason(contract);
@@ -50228,10 +50486,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const timing = contract.status === "delivered"
         ? `Payment due ${formatClock(contract.paymentDueAt)}`
         : `${formatDuration(Math.max(0, contract.dueAt - state.clock))} remaining; due ${formatClock(contract.dueAt)}`;
+      const reservationLabel = contract.commodityKind === "specimen"
+        ? `${findSlime(contract.selectedSlimeId)?.name || contract.selectedSlimeId || "specimen"} and pod ${contract.selectedPodStackId}`
+        : contract.commodityKind === "manufactured"
+          ? `batch ${contract.selectedStackId}; value ×${formatDecimal(contract.shipmentValueModifier, 2)}`
+          : `${formatCollectionAmount(contract.amount)} designated across ${contract.reservations.length} physical receptacle${contract.reservations.length === 1 ? "" : "s"}`;
       section.append(storesRowEl(`${contract.material} for ${contact?.name || "Unknown contact"}`, formatMoney(contract.payout), {
-        title: `${contract.id}\n${formatCollectionAmount(contract.amount)} ${contract.material}.\n${timing}.\nPayment: ${paymentTerm.label}; security ${paymentTerm.riskLabel}.\nExposure: ${blackMarketRiskBand(contract.exposureChance).label}.\nNegotiation: ${BLACK_MARKET_NEGOTIATION_DEFS[contract.negotiationId]?.label || "Accepted terms"}.`,
-        subtitle: `${titleCase(contract.status)}; ${formatCollectionAmount(reserved)} designated in ${contract.reservations.length} physical receptacle${contract.reservations.length === 1 ? "" : "s"}; ${timing}; ${paymentTerm.label}`,
-        dataset: { blackMarketContract: contract.id, blackMarketContact: contract.contactId, contractStatus: contract.status },
+        title: `${contract.id}\n${blackMarketShipmentAmountLabel(contract)}.\n${timing}.\nPayment: ${paymentTerm.label}; security ${paymentTerm.riskLabel}.\nExposure: ${blackMarketRiskBand(contract.exposureChance).label}.\nNegotiation: ${BLACK_MARKET_NEGOTIATION_DEFS[contract.negotiationId]?.label || "Accepted terms"}.`,
+        subtitle: `${titleCase(contract.status)}; ${reservationLabel}; ${timing}; ${paymentTerm.label}${contract.commodityKind === "specimen" ? `; transport risk ${blackMarketRiskBand(contract.transportFailureChance).label}` : ""}`,
+        dataset: { blackMarketContract: contract.id, blackMarketContact: contract.contactId, blackMarketCommodityKind: contract.commodityKind, contractStatus: contract.status },
         actions
       }));
     }
@@ -52204,6 +52467,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
+  function taskBlackMarketSpecimenReservationReason(task) {
+    const data = task?.data || {};
+    const referencedSlimeIds = new Set([
+      data.slimeId,
+      data.parentAId,
+      data.parentBId,
+      ...(Array.isArray(data.parentIds) ? data.parentIds : [])
+    ].filter(Boolean));
+    for (const slimeId of referencedSlimeIds) {
+      const slime = findSlime(slimeId);
+      if (slime?.blackMarketContractId && slime.blackMarketContractId !== data.contractId) {
+        return `${slime.name} is reserved for ${slime.blackMarketContractId} and cannot be used for other work.`;
+      }
+    }
+    const referencedContainerIds = new Set([
+      data.containerId,
+      data.sourceContainerId,
+      data.destinationContainerId,
+      ...(Array.isArray(data.destinationContainerIds) ? data.destinationContainerIds : [])
+    ].filter(Boolean));
+    for (const containerId of referencedContainerIds) {
+      const reserved = containerOccupants(containerId).find((slime) => slime?.blackMarketContractId && slime.blackMarketContractId !== data.contractId);
+      if (reserved) return `${reserved.name} is reserved for ${reserved.blackMarketContractId}; its container cannot be moved or serviced by conflicting work.`;
+    }
+    return "";
+  }
+
   function taskBlockReason(task) {
     if (!task || !isScientistQueueTask(task)) {
       return "";
@@ -52218,6 +52508,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (activeTrade && activeTrade.id !== task.id) {
       return "The scientist is outside the lab for a black market trade.";
     }
+    const specimenReservationReason = taskBlackMarketSpecimenReservationReason(task);
+    if (specimenReservationReason) return specimenReservationReason;
     const laborAdapter = laborTaskAdapterInfo(task);
     if (laborAdapter && !scientistLaborCategoryEnabled(laborAdapter.category)) {
       return `${laborCategoryLabel(laborAdapter.category)} is disabled for the scientist.`;
@@ -64567,8 +64859,109 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : total, 0));
   }
 
-  function reserveBlackMarketShipment(contract) {
+  function blackMarketManufacturedCandidates(dealOrContract, ignoreContractId = "") {
+    const productId = String(dealOrContract?.productId || "");
+    const requirements = dealOrContract?.batchRequirements || {};
+    return ensurePhysicalItemStacks().filter((stack) => {
+      const batch = stack.chemicalBatch;
+      if (stack.section !== "chemicalBatches" || stack.key !== productId || !batch || stack.quantity <= 0 || stack.carriedBy || stack.reservedTaskId && stack.reservedTaskId !== ignoreContractId) return false;
+      if (requirements.requirePackaging && batch.packaging?.state !== "packaged") return false;
+      if (requirements.requireAssay && !(batch.assays || []).length) return false;
+      if (!requirements.allowUnverified && batch.classification?.known === "unclassified") return false;
+      if (Number(batch.purity) + 0.001 < (Number(requirements.minimumPurity) || 0)) return false;
+      if (Number(batch.craftsmanship) + 0.001 < (Number(requirements.minimumCraftsmanship) || 0)) return false;
+      return batch.classification?.actual !== "ordinary" || (batch.tags || []).includes("contraband");
+    }).sort((a, b) => Number(b.chemicalBatch?.purity) - Number(a.chemicalBatch?.purity) || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function slimeBlackMarketReservationReason(slime, ignoreContractId = "") {
+    return slime?.blackMarketContractId && slime.blackMarketContractId !== ignoreContractId
+      ? `${slime.name} is reserved for ${slime.blackMarketContractId}.`
+      : "";
+  }
+
+  function blackMarketSpecimenMatches(slime, requirements = {}, ignoreContractId = "") {
+    if (!slime || slime.status !== "contained" || slime.status === "dead" || !slime.containerId || slimeBlackMarketReservationReason(slime, ignoreContractId)) return false;
+    if (!containerById(slime.containerId) || isContainerInTransit(slime.containerId)) return false;
+    if (requirements.mature && !slime.mature) return false;
+    if ((Number(slime.generation) || 0) < (Number(requirements.minimumGeneration) || 0)) return false;
+    if (requirements.traitKey && String(slime.revealed?.[requirements.traitKey] || "") !== String(requirements.traitLabel || "")) return false;
+    if (requirements.documentationRequired && !Object.keys(slime.revealed || {}).length) return false;
+    if ((Number(slimeStat(slime, "stress")?.current) || 0) > (Number(requirements.maximumStress) || 100)) return false;
+    return !(state.tasks || []).some((task) => {
+      const data = task.data || {};
+      return data.slimeId === slime.id
+        || data.parentAId === slime.id
+        || data.parentBId === slime.id
+        || (data.parentIds || []).includes(slime.id)
+        || data.containerId === slime.containerId
+        || data.sourceContainerId === slime.containerId
+        || data.destinationContainerId === slime.containerId;
+    });
+  }
+
+  function blackMarketSpecimenCandidates(dealOrContract, ignoreContractId = "") {
+    return (state.slimes || []).filter((slime) => blackMarketSpecimenMatches(slime, dealOrContract?.specimenRequirements, ignoreContractId))
+      .sort((a, b) => Number(b.generation) - Number(a.generation) || a.name.localeCompare(b.name));
+  }
+
+  function blackMarketTransportPodCandidates() {
+    return ensurePhysicalItemStacks().filter((stack) => stack.section === "inventory" && stack.key === "specimenTransportPod" && stack.quantity >= 1 && !stack.carriedBy && !stack.reservedTaskId)
+      .sort((a, b) => Number(b.craftsmanship) - Number(a.craftsmanship) || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function blackMarketShipmentValueModifier(contract, selected) {
+    if (contract.commodityKind === "manufactured") {
+      const batch = selected?.chemicalBatch;
+      return clamp(0.72 + (Number(batch?.purity) || 0) * 0.0035 + (Number(batch?.craftsmanship) || 0) * 0.0025, 0.75, 1.35);
+    }
+    if (contract.commodityKind === "specimen") {
+      const condition = (Number(slimeStat(selected, "bodyIntegrity")?.current) || 0) / Math.max(1, Number(slimeStat(selected, "bodyIntegrity")?.max) || 100);
+      const knownTraits = Object.keys(selected?.revealed || {}).length;
+      return clamp(0.78 + condition * 0.22 + Math.min(0.2, knownTraits * 0.015) + Math.min(0.18, (Number(selected?.generation) || 0) * 0.06), 0.75, 1.38);
+    }
+    return 1;
+  }
+
+  function blackMarketSpecimenTransportFailureChance(slime, podStack) {
+    const evaluated = evaluateGenome(slime?.genome || "");
+    const sizeLabel = String(slime?.revealed?.size || "").toLowerCase();
+    const knownLarge = /large|huge|massive|giant/.test(sizeLabel);
+    const hazardous = ["arcane", "toxic", "corrosive", "volatile"].filter((tag) =>
+      Object.values(slime?.revealed || {}).some((label) => String(label).toLowerCase().includes(tag))
+    ).length;
+    const mass = Number(evaluated?.physical?.weightKg || slimeStat(slime, "currentMass")?.current) || 10;
+    const quality = Number(podStack?.craftsmanship) || 0;
+    return clamp((knownLarge ? 0.12 : 0) + Math.max(0, mass - 40) / 260 + hazardous * 0.05 + Math.max(0, 45 - quality) / 300, 0.01, 0.42);
+  }
+
+  function reserveBlackMarketShipment(contract, selectedId = "") {
     if (!contract) return [];
+    if (contract.commodityKind === "manufactured") {
+      const stack = blackMarketManufacturedCandidates(contract).find((candidate) => candidate.id === selectedId);
+      if (!stack) return [];
+      stack.reservedTaskId = contract.id;
+      contract.selectedStackId = stack.id;
+      contract.shipmentValueModifier = roundOutputValue(blackMarketShipmentValueModifier(contract, stack));
+      contract.payout = Math.max(1, Math.round(contract.payout * contract.shipmentValueModifier));
+      return [{ kind: "chemicalBatch", stackId: stack.id, amount: stack.quantity, roomId: stack.roomId, cell: cleanMapCell(stack.cell), itemKey: stack.key, batchId: stack.chemicalBatch?.id || "" }];
+    }
+    if (contract.commodityKind === "specimen") {
+      const slime = blackMarketSpecimenCandidates(contract, contract.id).find((candidate) => candidate.id === selectedId);
+      const pod = blackMarketTransportPodCandidates()[0];
+      if (!slime || !pod) return [];
+      slime.blackMarketContractId = contract.id;
+      pod.reservedTaskId = contract.id;
+      contract.selectedSlimeId = slime.id;
+      contract.selectedPodStackId = pod.id;
+      contract.shipmentValueModifier = roundOutputValue(blackMarketShipmentValueModifier(contract, slime));
+      contract.payout = Math.max(1, Math.round(contract.payout * contract.shipmentValueModifier));
+      contract.transportFailureChance = roundOutputValue(blackMarketSpecimenTransportFailureChance(slime, pod));
+      return [
+        { kind: "creature", slimeId: slime.id, containerId: slime.containerId, amount: 1, roomId: slimeEffectiveRoomId(slime), cell: objectMapCell(containerById(slime.containerId)), itemKey: "livingSpecimen" },
+        { kind: "transportPod", stackId: pod.id, amount: 1, roomId: pod.roomId, cell: cleanMapCell(pod.cell), itemKey: pod.key }
+      ];
+    }
     const reservedByStack = blackMarketReservedAmountsByStack(contract.id, contract.material);
     let remaining = roundOutputValue(contract.amount);
     const reservations = [];
@@ -64581,6 +64974,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const amount = roundOutputValue(Math.min(remaining, available));
       if (amount <= 0) continue;
       reservations.push({
+        kind: "rawByproduct",
         stackId: stack.id,
         amount,
         roomId: stack.roomId,
@@ -64594,6 +64988,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function blackMarketContractReservationReason(contract) {
     if (!contract?.reservations?.length) return "No physical shipment is designated.";
+    if (contract.commodityKind === "manufactured") {
+      const reservation = contract.reservations.find((entry) => entry.kind === "chemicalBatch") || contract.reservations[0];
+      const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === reservation?.stackId);
+      if (!stack || stack.reservedTaskId !== contract.id || stack.section !== "chemicalBatches" || stack.key !== contract.productId || Math.abs(stack.quantity - reservation.amount) > 0.0001) {
+        return "The exact manufactured batch is no longer intact or reserved for this contract.";
+      }
+      return blackMarketManufacturedCandidates(contract, contract.id).some((candidate) => candidate.id === stack.id)
+        ? ""
+        : "The exact manufactured batch no longer satisfies the saved quality, assay, packaging, or classification requirements.";
+    }
+    if (contract.commodityKind === "specimen") {
+      const slime = findSlime(contract.selectedSlimeId);
+      const pod = ensurePhysicalItemStacks().find((stack) => stack.id === contract.selectedPodStackId);
+      if (!slime || slime.status !== "contained" || slime.blackMarketContractId !== contract.id) return "The designated living specimen is dead, loose, missing, or no longer reserved.";
+      if (!blackMarketSpecimenMatches(slime, contract.specimenRequirements, contract.id)) return "The designated living specimen no longer satisfies the contract or safe handoff conditions.";
+      if (!pod || pod.section !== "inventory" || pod.key !== "specimenTransportPod" || pod.quantity < 1 || pod.reservedTaskId !== contract.id) return "The exact specimen transport pod is no longer available.";
+      return "";
+    }
     const reservedByStack = blackMarketReservedAmountsByStack(contract.id, contract.material);
     for (const reservation of contract.reservations) {
       const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === reservation.stackId);
@@ -64607,6 +65019,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function spendBlackMarketContractShipment(contract, source) {
     if (blackMarketContractReservationReason(contract)) return 0;
+    if (contract.commodityKind === "manufactured") {
+      const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === contract.selectedStackId);
+      if (!stack) return 0;
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((candidate) => candidate.id !== stack.id);
+      syncPhysicalReadModels();
+      return contract.amount;
+    }
+    if (contract.commodityKind === "specimen") {
+      const slime = findSlime(contract.selectedSlimeId);
+      const pod = ensurePhysicalItemStacks().find((candidate) => candidate.id === contract.selectedPodStackId);
+      if (!slime || !pod) return 0;
+      pod.quantity -= 1;
+      pod.knownQuantity = Math.min(pod.knownQuantity, pod.quantity);
+      pod.reservedTaskId = "";
+      if (pod.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((candidate) => candidate.id !== pod.id);
+      state.slimes = (state.slimes || []).filter((candidate) => candidate.id !== slime.id);
+      if (currentSelection()?.kind === "slime" && currentSelection().id === slime.id) setSelection(null);
+      syncPhysicalReadModels();
+      return 1;
+    }
     let spent = 0;
     for (const reservation of contract.reservations || []) {
       const stack = ensurePhysicalItemStacks().find((candidate) => candidate.id === reservation.stackId);
@@ -64626,6 +65058,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     syncPhysicalReadModels();
     if (spent > 0) recordCollectedByproductChange(contract.material, -spent, source);
     return spent;
+  }
+
+  function releaseBlackMarketShipment(contract) {
+    if (!contract) return;
+    const stackIds = new Set((contract.reservations || []).map((reservation) => reservation.stackId).filter(Boolean));
+    for (const stack of ensurePhysicalItemStacks()) {
+      if (stackIds.has(stack.id) && stack.reservedTaskId === contract.id) stack.reservedTaskId = "";
+    }
+    const slime = findSlime(contract.selectedSlimeId);
+    if (slime?.blackMarketContractId === contract.id) slime.blackMarketContractId = "";
   }
 
   function formatMoney(value) {
@@ -64674,22 +65116,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return BLACK_MARKET_REPUTATION_BANDS.find((band) => score >= band.min)?.label || "No Reputation";
   }
 
-  function blackMarketContractAcceptanceBlockReason(deal) {
+  function blackMarketShipmentAmountLabel(dealOrContract) {
+    if (dealOrContract?.commodityKind === "specimen") {
+      const slime = findSlime(dealOrContract.selectedSlimeId);
+      return slime ? `${slime.name}, one living specimen` : "one living slime specimen";
+    }
+    if (dealOrContract?.commodityKind === "manufactured") return `one exact package of ${dealOrContract.material}`;
+    return `${formatCollectionAmount(dealOrContract?.amount)} ${dealOrContract?.material || "byproduct"}`;
+  }
+
+  function blackMarketContractAcceptanceBlockReason(deal, selectedId = "") {
     if (!deal || deal.offerKind !== "contract") return "This is not a contract offer.";
     if (deal.status !== "open") return "Offer is no longer open.";
     if (state.clock >= deal.expiresAt) return "Offer has expired.";
     const availability = blackMarketContactAvailability(blackMarketContactById(deal.contactId));
     if (!availability.available) return availability.reason;
+    if (deal.commodityKind === "manufactured") {
+      const candidates = blackMarketManufacturedCandidates(deal);
+      if (!candidates.length) return `No unreserved ${deal.material} batch meets the saved purity, craftsmanship, assay, packaging, and classification requirements.`;
+      if (!selectedId) return "Select an exact manufactured batch for this contract.";
+      if (!candidates.some((stack) => stack.id === selectedId)) return "The selected manufactured batch is no longer eligible.";
+      return "";
+    }
+    if (deal.commodityKind === "specimen") {
+      const candidates = blackMarketSpecimenCandidates(deal);
+      if (!blackMarketTransportPodCandidates().length) return "A physical Specimen Transport Pod must be fabricated and unreserved before accepting this contract.";
+      if (!candidates.length) return "No unreserved contained living creature satisfies the discovered specimen requirements.";
+      if (!selectedId) return "Select an exact living creature for this contract.";
+      if (!candidates.some((slime) => slime.id === selectedId)) return "The selected creature is no longer eligible.";
+      return "";
+    }
     if (blackMarketReservableByproductAmount(deal.material) < deal.amount) {
       return `Need ${formatCollectionAmount(deal.amount)} unreserved ${deal.material} in compatible physical receptacles; ${formatCollectionAmount(blackMarketReservableByproductAmount(deal.material))} available.`;
     }
     return "";
   }
 
-  function acceptBlackMarketContract(dealId, negotiationId = "standard") {
+  function acceptBlackMarketContract(dealId, negotiationId = "standard", selectedId = "") {
     const economy = ensureEconomy();
     const deal = blackMarketDealById(dealId);
-    const reason = blackMarketContractAcceptanceBlockReason(deal);
+    const reason = blackMarketContractAcceptanceBlockReason(deal, selectedId);
     if (reason) {
       addEvent(reason);
       persist();
@@ -64710,10 +65176,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const contract = createBlackMarketContract(deal, negotiation.id, economy.nextContractNumber++, state.clock);
-    contract.reservations = reserveBlackMarketShipment(contract);
+    contract.reservations = reserveBlackMarketShipment(contract, selectedId);
     if (!contract.reservations.length) {
       economy.nextContractNumber = Math.max(1, economy.nextContractNumber - 1);
-      addEvent(`Contract acceptance failed: ${deal.material} is not available in compatible physical receptacles.`);
+      releaseBlackMarketShipment(contract);
+      addEvent(`Contract acceptance failed: the selected ${deal.material} shipment could not be reserved.`);
       persist();
       render();
       return false;
@@ -64722,8 +65189,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     deal.status = "accepted";
     deal.completedAt = state.clock;
     contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
-    recordBlackMarketLedger("contractAccepted", `Accepted ${contact.name}'s contract for ${formatCollectionAmount(contract.amount)} ${contract.material}.`, { contactId: contact.id, offerId: deal.id, contractId: contract.id });
-    addEvent(`Contract accepted with ${contact.name}: ${formatCollectionAmount(contract.amount)} ${contract.material} due ${formatClock(contract.dueAt)}; ${formatMoney(contract.payout)} by ${BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm].label}.`);
+    const shipmentLabel = blackMarketShipmentAmountLabel(contract);
+    recordBlackMarketLedger("contractAccepted", `Accepted ${contact.name}'s contract for ${shipmentLabel}.`, { contactId: contact.id, offerId: deal.id, contractId: contract.id });
+    addEvent(`Contract accepted with ${contact.name}: ${shipmentLabel} due ${formatClock(contract.dueAt)}; quality-adjusted payout ${formatMoney(contract.payout)} by ${BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm].label}.`);
     persist();
     render();
     return true;
@@ -64743,6 +65211,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     contract.status = options.status || "canceled";
     contract.failedAt = state.clock;
     contract.taskId = "";
+    releaseBlackMarketShipment(contract);
     contract.reservations = [];
     contract.outcome = String(options.outcome || "Canceled by seller");
     const reputationLoss = Math.max(1, Math.ceil(contract.reputationGain / 2));
@@ -64772,6 +65241,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     contract.status = "failed";
     contract.failedAt = state.clock;
     contract.taskId = "";
+    releaseBlackMarketShipment(contract);
     contract.reservations = [];
     contract.outcome = reason;
     const reputationLoss = Math.max(2, contract.reputationGain);
@@ -64907,7 +65377,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .map((stackId) => ensurePhysicalItemStacks().find((stack) => stack.id === stackId))
       .filter(Boolean)
       .sort((a, b) => String(a.roomId).localeCompare(String(b.roomId)) || String(a.id).localeCompare(String(b.id)));
-    const targets = uniqueStacks.map((stack) => cleanMapCell(stack.cell)).filter(Boolean);
+    const targets = (contract.reservations || []).map((reservation) => {
+      if (reservation.kind === "creature") {
+        const container = containerById(reservation.containerId);
+        return container
+          ? nearestObjectAccessCell(objectMapCell(container), containerFootprintDimensions(container), container.roomId || reservation.roomId, { preferredCell: scientistMapCell() })
+          : null;
+      }
+      return cleanMapCell(reservation.cell);
+    }).filter(Boolean)
+      .filter((cell, index, values) => values.findIndex((candidate) => sameMapCell(candidate, cell)) === index);
     targets.push(labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID));
     let current = scientistMapCell();
     const mapPaths = [];
@@ -64918,7 +65397,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const path = sameMapCell(current, target)
         ? [cleanMapCell(current)]
         : labMapPathBetweenCells(current, target, { ignoreDoors: true, actor: state.scientist });
-      if (!path.length) return { ok: false, reason: "No physical route reaches every designated receptacle and the Concealed Exit.", mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
+      if (!path.length) return { ok: false, reason: "No physical route reaches every designated shipment source and the Concealed Exit.", mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
       const route = [labMapCellRoomId(path[0]), ...roomsFromMapPath(path)].filter(Boolean).filter((roomId, index, values) => index === 0 || roomId !== values[index - 1]);
       const doorReason = firstDoorSecurityBlockReason(route);
       if (doorReason) return { ok: false, reason: doorReason, mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0 };
@@ -64934,11 +65413,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       total.volumeL += Math.max(0.01, Number(stack.unitVolumeL) || 0.01) * Math.max(1, Number(stack.quantity) || 1);
       return total;
     }, { massKg: 0, volumeL: 0 });
+    if (contract.commodityKind === "specimen") {
+      const slime = findSlime(contract.selectedSlimeId);
+      const dimensions = navigationFootprintForActor(slime);
+      cargo.massKg += Math.max(1, Number(slimeStat(slime, "currentMass")?.current) || 10);
+      cargo.volumeL += Math.max(5, (Number(dimensions.width) || 1) * (Number(dimensions.height) || 1) * 35);
+    }
     const massCapacity = Math.max(0.01, Number(snapshot?.remaining?.massKg) || 0);
     const volumeCapacity = Math.max(0.01, Number(snapshot?.remaining?.volumeL) || 0);
+    if (contract.commodityKind === "specimen" && (cargo.massKg > massCapacity || cargo.volumeL > volumeCapacity)) {
+      return { ok: false, reason: `The sealed specimen pod exceeds the scientist's remaining ${cargo.massKg > massCapacity ? "mass" : "volume"} capacity and cannot be divided across trips.`, mapPaths: [], routes: [], doorTransit: [], duration: 0, trips: 0, cargo };
+    }
     const trips = Math.max(1, Math.ceil(cargo.massKg / massCapacity), Math.ceil(cargo.volumeL / volumeCapacity));
     const travelSeconds = distance * trips / Math.max(0.01, scientistMoveSpeedMps());
-    const handlingSeconds = uniqueStacks.length * minutesToSeconds(2) * trips;
+    const handlingSeconds = (uniqueStacks.length + (contract.commodityKind === "specimen" ? 1 : 0)) * minutesToSeconds(2) * trips;
     const duration = Math.max(1, Math.round(BLACK_MARKET_TRADE_BASE_SECONDS + contract.amount * BLACK_MARKET_TRADE_AMOUNT_SECONDS + travelSeconds + handlingSeconds + contract.extraSeconds));
     return { ok: true, reason: "", mapPaths, routes, doorTransit, duration, trips, cargo };
   }
@@ -64971,6 +65459,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const plan = blackMarketContractRoutePlan(contract);
     const cost = adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]);
     if (!spendStamina(cost)) return false;
+    if (contract.commodityKind === "specimen" && contract.transportOutcome === "pending") {
+      contract.transportOutcome = contract.transportRoll < contract.transportFailureChance ? "breach" : "secure";
+    }
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "blackMarketTrade",
@@ -65016,6 +65507,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       failBlackMarketContract(contract, "Contract delivery arrived after its deadline");
       return false;
     }
+    if (contract.commodityKind === "specimen" && contract.transportOutcome === "breach") {
+      const slime = findSlime(contract.selectedSlimeId);
+      const pod = ensurePhysicalItemStacks().find((stack) => stack.id === contract.selectedPodStackId);
+      if (pod) {
+        pod.quantity -= 1;
+        pod.knownQuantity = Math.min(pod.knownQuantity, pod.quantity);
+        pod.reservedTaskId = "";
+        if (pod.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.id !== pod.id);
+      }
+      if (slime) {
+        slime.status = "released";
+        slime.containerId = null;
+        slime.roomId = CONCEALED_EXIT_ROOM_ID;
+        slime.mapCell = labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID);
+        slime.blackMarketContractId = "";
+        slime.nextAutonomousDecisionAt = state.clock;
+        syncSlimeAi(slime, { force: true });
+      }
+      recordBlackMarketExposure(contract, contact);
+      syncPhysicalReadModels();
+      failBlackMarketContract(contract, "Specimen transport pod breached before the handoff");
+      addEvent(`${slime?.name || "The specimen"} escaped at the Concealed Exit after the reserved transport pod failed.`);
+      return false;
+    }
     const spent = spendBlackMarketContractShipment(contract, `Delivered under ${contract.id} to ${contact.name}`);
     if (spent + 0.0001 < contract.amount) {
       failBlackMarketContract(contract, "Designated contract shipment was incomplete");
@@ -65032,7 +65547,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[contract.paymentTerm] || BLACK_MARKET_PAYMENT_TERMS.delivery;
     contract.status = "delivered";
     contract.paymentDueAt = paymentTerm.delaySeconds ? state.clock + paymentTerm.delaySeconds : state.clock;
-    recordBlackMarketLedger("delivered", `Delivered ${formatCollectionAmount(contract.amount)} ${contract.material} to ${contact.name}.`, { contactId: contact.id, contractId: contract.id });
+    recordBlackMarketLedger("delivered", `Delivered ${blackMarketShipmentAmountLabel(contract)} to ${contact.name}.`, { contactId: contact.id, contractId: contract.id });
     addEvent(`Contract delivered to ${contact.name}: +${repGain} reputation, +${trustGain} trust${observed ? `; handoff observed (+${contract.suspicionOnObserved} Suspicion)` : "; handoff unobserved"}.`);
     if (!paymentTerm.delaySeconds) settleBlackMarketContractPayment(contract);
     else addEvent(`${formatMoney(contract.payout)} credit payment is due ${formatClock(contract.paymentDueAt)}.`);
@@ -65158,7 +65673,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (deal.status === "open" && deal.expiresAt >= state.clock) events.push({ time: deal.expiresAt, label: `${blackMarketContactById(deal.contactId)?.name || "Black market"} offer expires`, type: "market" });
     }
     for (const contract of economy.contracts) {
-      if (["active", "queued"].includes(contract.status) && contract.dueAt >= state.clock) events.push({ time: contract.dueAt, label: `${contract.material} contract deadline`, type: "market" });
+      if (["active", "queued"].includes(contract.status) && contract.dueAt >= state.clock) events.push({ time: contract.dueAt, label: `${blackMarketShipmentAmountLabel(contract)} contract deadline`, type: "market" });
       if (contract.status === "delivered" && contract.paymentDueAt >= state.clock) events.push({ time: contract.paymentDueAt, label: `${contract.material} contract payment`, type: "market" });
     }
     return events.sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
@@ -65182,7 +65697,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         for (const [id, threshold] of [["24h", SECONDS_PER_DAY], ["6h", SECONDS_PER_HOUR * 6], ["1h", SECONDS_PER_HOUR]]) {
           if (remaining > 0 && remaining <= threshold && !contract.warnings.includes(id)) {
             contract.warnings.push(id);
-            addEvent(`Black market deadline warning: ${formatCollectionAmount(contract.amount)} ${contract.material} is due in ${formatDuration(remaining)}.`);
+            addEvent(`Black market deadline warning: ${blackMarketShipmentAmountLabel(contract)} is due in ${formatDuration(remaining)}.`);
             changes += 1;
           }
         }
@@ -65568,18 +66083,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function normalizeBlackMarketDeal(candidate, contacts = [], index = 0, seed = state?.seed || "seed", reputation = 0) {
     const contact = contacts.find((item) => item.id === candidate?.contactId) || contacts[index % Math.max(1, contacts.length)] || createBlackMarketContact(seed, 1);
     const fallback = createBlackMarketDeal(seed, contact, index + 1, index % BLACK_MARKET_DEALS_PER_CONTACT, reputation, candidate?.createdAt || 0);
-    const material = byproductInventoryKey(candidate?.material || fallback.material) || fallback.material;
+    const commodityKind = ["rawByproduct", "manufactured", "specimen"].includes(candidate?.commodityKind) ? candidate.commodityKind : fallback.commodityKind || "rawByproduct";
+    const material = commodityKind === "rawByproduct" ? byproductInventoryKey(candidate?.material || fallback.material) || fallback.material : String(candidate?.material || fallback.material);
     const amount = roundOutputValue(Math.max(0.001, Number(candidate?.amount ?? fallback.amount) || fallback.amount));
     const status = ["open", "queued", "accepted", "completed", "expired", "declined"].includes(candidate?.status) ? candidate.status : fallback.status;
     const tags = Array.isArray(candidate?.tags) && candidate.tags.length
       ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
-      : blackMarketByproductTags(material);
+      : [...(fallback.tags || (commodityKind === "rawByproduct" ? blackMarketByproductTags(material) : []))];
     return {
       id: String(candidate?.id || fallback.id),
       offerKind: candidate?.offerKind === "contract" ? "contract" : candidate?.offerKind === "spot" ? "spot" : fallback.offerKind,
       slot: Math.max(0, Math.floor(Number(candidate?.slot ?? fallback.slot) || 0)),
       contactId: contact.id,
+      commodityKind,
       material,
+      productId: CHEMICAL_PRODUCT_BY_ID[candidate?.productId] ? candidate.productId : fallback.productId || "",
+      batchRequirements: commodityKind === "manufactured" ? {
+        minimumPurity: clamp(Number(candidate?.batchRequirements?.minimumPurity ?? fallback.batchRequirements?.minimumPurity) || 0, 0, 100),
+        minimumCraftsmanship: clamp(Number(candidate?.batchRequirements?.minimumCraftsmanship ?? fallback.batchRequirements?.minimumCraftsmanship) || 0, 0, 100),
+        requireAssay: Boolean(candidate?.batchRequirements?.requireAssay ?? fallback.batchRequirements?.requireAssay),
+        requirePackaging: Boolean(candidate?.batchRequirements?.requirePackaging ?? fallback.batchRequirements?.requirePackaging),
+        allowUnverified: Boolean(candidate?.batchRequirements?.allowUnverified ?? fallback.batchRequirements?.allowUnverified)
+      } : null,
+      specimenRequirements: commodityKind === "specimen" ? {
+        mature: Boolean(candidate?.specimenRequirements?.mature ?? fallback.specimenRequirements?.mature),
+        minimumGeneration: Math.max(0, Math.floor(Number(candidate?.specimenRequirements?.minimumGeneration ?? fallback.specimenRequirements?.minimumGeneration) || 0)),
+        traitKey: BLACK_MARKET_SPECIMEN_TRAIT_KEYS.includes(candidate?.specimenRequirements?.traitKey) ? candidate.specimenRequirements.traitKey : fallback.specimenRequirements?.traitKey || "",
+        traitLabel: String(candidate?.specimenRequirements?.traitLabel || fallback.specimenRequirements?.traitLabel || ""),
+        maximumStress: clamp(Number(candidate?.specimenRequirements?.maximumStress ?? fallback.specimenRequirements?.maximumStress) || 100, 0, 100),
+        documentationRequired: Boolean(candidate?.specimenRequirements?.documentationRequired ?? fallback.specimenRequirements?.documentationRequired)
+      } : null,
       tags,
       amount,
       payout: Math.max(1, Math.round(Number(candidate?.payout ?? fallback.payout) || fallback.payout)),
@@ -65603,13 +66136,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const contact = contacts.find((entry) => entry.id === candidate?.contactId) || contacts[0] || createBlackMarketContact(seed, 1);
     const status = ["active", "queued", "delivered", "completed", "defaulted", "failed", "canceled"].includes(candidate?.status) ? candidate.status : "active";
     const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[candidate?.paymentTerm] ? candidate.paymentTerm : "delivery";
-    const material = byproductInventoryKey(candidate?.material || "trace slime") || "trace slime";
+    const commodityKind = ["rawByproduct", "manufactured", "specimen"].includes(candidate?.commodityKind) ? candidate.commodityKind : "rawByproduct";
+    const material = commodityKind === "rawByproduct" ? byproductInventoryKey(candidate?.material || "trace slime") || "trace slime" : String(candidate?.material || "Contraband shipment");
     return {
       id: String(candidate?.id || `contract-${index + 1}`),
       offerId: String(candidate?.offerId || ""),
       contactId: contact.id,
+      commodityKind,
       material,
-      tags: Array.isArray(candidate?.tags) ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean) : blackMarketByproductTags(material),
+      productId: String(candidate?.productId || ""),
+      batchRequirements: candidate?.batchRequirements ? clonePlainObject(candidate.batchRequirements) : null,
+      specimenRequirements: candidate?.specimenRequirements ? clonePlainObject(candidate.specimenRequirements) : null,
+      selectedStackId: String(candidate?.selectedStackId || ""),
+      selectedSlimeId: String(candidate?.selectedSlimeId || ""),
+      selectedPodStackId: String(candidate?.selectedPodStackId || ""),
+      shipmentValueModifier: clamp(Number(candidate?.shipmentValueModifier) || 1, 0.5, 2),
+      transportOutcome: ["pending", "secure", "breach"].includes(candidate?.transportOutcome) ? candidate.transportOutcome : "pending",
+      transportFailureChance: clamp(Number(candidate?.transportFailureChance) || 0, 0, 1),
+      transportRoll: clamp(Number(candidate?.transportRoll) || 0, 0, 1),
+      tags: Array.isArray(candidate?.tags)
+        ? candidate.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+        : commodityKind === "manufactured"
+          ? [...(CHEMICAL_PRODUCT_BY_ID[String(candidate?.productId || "")]?.tags || []), "contraband"]
+          : commodityKind === "specimen"
+            ? ["living-specimen", "high-risk"]
+            : blackMarketByproductTags(material),
       amount: roundOutputValue(Math.max(0.001, Number(candidate?.amount) || 0.001)),
       payout: Math.max(1, Math.round(Number(candidate?.payout) || 1)),
       paymentTerm,
@@ -65630,12 +66181,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       status,
       taskId: status === "queued" ? String(candidate?.taskId || "") : "",
       reservations: (Array.isArray(candidate?.reservations) ? candidate.reservations : []).map((reservation) => ({
+        kind: ["rawByproduct", "chemicalBatch", "creature", "transportPod"].includes(reservation?.kind) ? reservation.kind : "rawByproduct",
         stackId: String(reservation?.stackId || ""),
+        slimeId: String(reservation?.slimeId || ""),
+        containerId: String(reservation?.containerId || ""),
+        batchId: String(reservation?.batchId || ""),
         amount: roundOutputValue(Math.max(0, Number(reservation?.amount) || 0)),
         roomId: cleanRoomId(reservation?.roomId),
         cell: cleanMapCell(reservation?.cell),
         itemKey: String(reservation?.itemKey || "")
-      })).filter((reservation) => reservation.stackId && reservation.amount > 0),
+      })).filter((reservation) => (reservation.stackId || reservation.slimeId) && reservation.amount > 0),
       warnings: [...new Set((Array.isArray(candidate?.warnings) ? candidate.warnings : []).map(String))],
       outcome: String(candidate?.outcome || ""),
       notes: String(candidate?.notes || "")
@@ -68507,6 +69062,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const stack of next.physicalItemStacks || []) {
       if (stack.reservedTaskId && stack.reservedTaskId.startsWith("task-") && !next.tasks.some((task) => task.id === stack.reservedTaskId)) stack.reservedTaskId = "";
+      if (stack.reservedTaskId && stack.reservedTaskId.startsWith("contract-") && !next.economy.contracts.some((contract) => contract.id === stack.reservedTaskId && ["active", "queued"].includes(contract.status))) stack.reservedTaskId = "";
     }
     const activeBlackMarketTaskIds = new Set(next.tasks.filter((task) => task?.type === "blackMarketTrade").map((task) => String(task.id || "")));
     for (const deal of next.economy.deals || []) {
@@ -68602,6 +69158,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       slime.automationExcluded = Boolean(slime.automationExcluded);
+      slime.blackMarketContractId = String(slime.blackMarketContractId || "");
+      if (slime.blackMarketContractId && !next.economy.contracts.some((contract) => contract.id === slime.blackMarketContractId && contract.selectedSlimeId === slime.id && ["active", "queued"].includes(contract.status))) slime.blackMarketContractId = "";
       slime.inventory = normalizeActorInventory(slime.inventory, slime);
       slime.accessibleFeedingProgress = Math.max(0, Number(slime.accessibleFeedingProgress) || 0);
       slime.stats = normalizeSlimeStats(slime.stats);
