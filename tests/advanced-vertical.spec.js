@@ -132,7 +132,8 @@ test('a breached slab transmits attacks but still blocks movement', async ({ pag
 
 test('unexcavated space above a carved tile remains a natural rock boundary', async ({ page }) => {
   await startRun(page);
-  const lower = await page.evaluate(() => window.helixHeresyDebug.navigationSnapshot().actors.find((actor) => actor.id === 'scientist').cell);
+  const lower = { x: 10, y: 10, z: 0 };
+  await page.evaluate((cell) => window.helixHeresyDebug.setExcavatedCells([cell]), lower);
   const upper = { ...lower, z: lower.z + 1 };
   const boundary = await page.evaluate((cell) => window.helixHeresyDebug.horizontalBoundarySnapshot(cell), upper);
   expect(boundary).toMatchObject({ type: 'naturalRock', open: false, movement: false, attackTransmission: false });

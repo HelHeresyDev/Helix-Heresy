@@ -29,8 +29,11 @@
   });
   const BASE_STYLES = Object.freeze({
     unknownDark: { fill: "#030403", stroke: "#050605", text: "transparent" },
+    offsite: { fill: "#080a08", stroke: "#111510", text: "transparent" },
     solidEarth: { fill: "#0b0b08", stroke: "#14150f", text: "#6f7566" },
     floor: { fill: "#242822", stroke: "#30362d", text: "#879080" },
+    surface: { fill: "#34412b", stroke: "#536247", text: "#b8c5aa" },
+    roof: { fill: "#3a3b35", stroke: "#74766d", text: "#d1d2ca" },
     room: { fill: "#1d2119", stroke: "#2c3128", text: "#adb4a7" },
     constructedWall: { fill: "#1c1f1c", stroke: "#697067", text: "#aeb6aa" },
     plannedExcavation: { fill: "#302618", stroke: "#b78f4d", text: "#e1b75f" },
@@ -205,6 +208,13 @@
     let style = BASE_STYLES[base.kind] || BASE_STYLES.solidEarth;
     if (base.kind === "room") {
       style = withStyle(style, { fill: ROOM_COLORS[base.role] || style.fill });
+      if (base.surface) style = withStyle(style, { fill: "#353a34", stroke: "#596158" });
+    }
+    if (base.kind === "surface") {
+      if (base.terrainId === "gravel") style = withStyle(style, { fill: "#45443b", stroke: "#626157" });
+      if (base.terrainId === "soil") style = withStyle(style, { fill: "#3b3023", stroke: "#574734" });
+      if (["interior", "exposedInterior"].includes(base.enclosure)) style = withStyle(style, { fill: "#353a34", stroke: "#596158" });
+      if (base.enclosure === "coveredExterior") style = withStyle(style, { fill: "#3b4037", stroke: "#5a6256", dashed: true });
     }
     if (base.kind === "floor" && base.smoothed) style = withStyle(style, { fill: "#2d332c", stroke: "#444d42" });
     if ((base.kind === "floor" || base.kind === "room") && base.constructedFloor) {

@@ -90,6 +90,7 @@
   const STORAGE_ROOM_ID = "storageRoom";
   const COLLECTION_BAY_ROOM_ID = "collectionBay";
   const CONCEALED_EXIT_ROOM_ID = "concealedExit";
+  const SURFACE_FACILITY_ROOM_ID = "surfaceFacility";
   const EXCAVATED_ROOM_ROLE = "excavated";
   const EXCAVATION_BASE_DURATION_MINUTES = 4;
   const EXCAVATION_MINUTES_PER_TILE = 6;
@@ -690,6 +691,18 @@
   const LAB_MAP_ZOOM_LEVELS = [8, 10, 12, 14, 16, 20, 24, 32, 40, 48, 64, 72];
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
   const LAB_MAP_LAYER_HEIGHT_M = 4;
+  const LAB_MAP_DEFAULT_SURFACE_Z = 1;
+  const SURFACE_PARCEL_RECT = { x: 43, y: 38, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 18, height: 16 };
+  const SURFACE_BUILDING_RECT = { x: 46, y: 41, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 12, height: 10 };
+  const SURFACE_BUILDING_INTERIOR_RECT = { x: 47, y: 42, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 10, height: 8 };
+  const SURFACE_BASEMENT_STAIR_CELL = { x: 52, y: 47, z: LAB_MAP_DEFAULT_SURFACE_Z };
+  const SURFACE_BUILDING_DOOR_CELL = { x: 52, y: 50, z: LAB_MAP_DEFAULT_SURFACE_Z };
+  const SURFACE_OUTSIDE_TEMPERATURE_C = 12;
+  const SURFACE_OUTSIDE_HUMIDITY = 45;
+  const SURFACE_OUTSIDE_MANA_DENSITY = 24;
+  const SURFACE_DAY_START_HOUR = 8;
+  const SURFACE_AMBIENT_RELAXATION_PER_HOUR = 0.65;
+  const SURFACE_AIRBORNE_DISPERSAL_PER_HOUR = 0.5;
   const LAB_MAP_PAN_PIXELS_PER_SECOND = 420;
   const LAB_MAP_FAST_PAN_PIXELS_PER_SECOND = 900;
   const LAB_MAP_DRAG_THRESHOLD_PX = 4;
@@ -711,7 +724,8 @@
     [BEDROOM_ROOM_ID]: { x: 49, y: 55, width: 5, height: 4 },
     [STORAGE_ROOM_ID]: { x: 48, y: 40, width: 7, height: 5 },
     [COLLECTION_BAY_ROOM_ID]: { x: 58, y: 45, width: 9, height: 6 },
-    [CONCEALED_EXIT_ROOM_ID]: { x: 43, y: 41, width: 4, height: 4 }
+    [CONCEALED_EXIT_ROOM_ID]: { x: 43, y: 41, width: 4, height: 4 },
+    [SURFACE_FACILITY_ROOM_ID]: { ...SURFACE_BUILDING_INTERIOR_RECT }
   };
   const LAB_MAP_DOOR_DEFS = [
     { id: "door-menagerie-main", roomIds: [MENAGERIE_ROOM_ID, MAIN_ROOM_ID], cell: { x: 45, y: 50 } },
@@ -719,7 +733,8 @@
     { id: "door-bedroom-main", roomIds: [BEDROOM_ROOM_ID, MAIN_ROOM_ID], cell: { x: 51, y: 55 } },
     { id: "door-collection-main", roomIds: [COLLECTION_BAY_ROOM_ID, MAIN_ROOM_ID], cell: { x: 58, y: 48 } },
     { id: "door-pits-main", roomIds: [PITS_ROOM_ID, MAIN_ROOM_ID], cell: { x: 58, y: 53 } },
-    { id: "door-exit-storage", roomIds: [CONCEALED_EXIT_ROOM_ID, STORAGE_ROOM_ID], cell: { x: 47, y: 43 } }
+    { id: "door-exit-storage", roomIds: [CONCEALED_EXIT_ROOM_ID, STORAGE_ROOM_ID], cell: { x: 47, y: 43 } },
+    { id: "door-surface-front", roomIds: [SURFACE_FACILITY_ROOM_ID], cell: SURFACE_BUILDING_DOOR_CELL, frameAxis: "eastWest", passageAxis: "northSouth" }
   ];
   const DOOR_POLICY_DEFS = [
     { id: "leaveAsSet", label: "Leave as set", description: "Movement opens doors as needed, then returns each door to its previous state." },
@@ -914,6 +929,33 @@
         humidity: { current: 36, baseline: 36 },
         contamination: { current: 5, baseline: 5, recoveryPerHour: 0.65 },
         electricalCharge: { current: 3, baseline: 3 }
+      }
+    },
+    {
+      id: SURFACE_FACILITY_ROOM_ID,
+      name: "Surface Facility",
+      articleName: "the Surface Facility",
+      role: EXCAVATED_ROOM_ROLE,
+      roleLabel: "Unassigned surface interior",
+      purposeId: "unassigned",
+      description: "An empty inherited building shell awaiting a declared business purpose and installed equipment.",
+      geometry: {
+        shape: "rectangular building shell",
+        lengthM: SURFACE_BUILDING_INTERIOR_RECT.width,
+        widthM: SURFACE_BUILDING_INTERIOR_RECT.height,
+        heightM: 3,
+        floorAreaM2: SURFACE_BUILDING_INTERIOR_RECT.width * SURFACE_BUILDING_INTERIOR_RECT.height,
+        volumeM3: SURFACE_BUILDING_INTERIOR_RECT.width * SURFACE_BUILDING_INTERIOR_RECT.height * 3,
+        notes: "prebuilt surface shell; no declared operating purpose"
+      },
+      connections: [],
+      attributes: {
+        temperature: { current: 15, baseline: 15 },
+        light: { current: 18, baseline: 18 },
+        ambientMana: { current: 28, baseline: 28 },
+        humidity: { current: 48, baseline: 48 },
+        contamination: { current: 0, baseline: 0 },
+        electricalCharge: { current: 1, baseline: 1 }
       }
     }
   ];
@@ -5004,6 +5046,48 @@
     return doors;
   }
 
+  function defaultSurfaceGround() {
+    return rectangularRoomCells(SURFACE_PARCEL_RECT).map((cell) => {
+      const nearBuilding = cell.x >= SURFACE_BUILDING_RECT.x - 2
+        && cell.x < SURFACE_BUILDING_RECT.x + SURFACE_BUILDING_RECT.width + 2
+        && cell.y >= SURFACE_BUILDING_RECT.y - 2
+        && cell.y < SURFACE_BUILDING_RECT.y + SURFACE_BUILDING_RECT.height + 3;
+      return { cell, terrainId: nearBuilding ? "gravel" : "grass" };
+    });
+  }
+
+  function defaultSurfaceBuildingWalls() {
+    const cells = rectangularRoomCells(SURFACE_BUILDING_RECT).filter((cell) => {
+      const edge = cell.x === SURFACE_BUILDING_RECT.x
+        || cell.x === SURFACE_BUILDING_RECT.x + SURFACE_BUILDING_RECT.width - 1
+        || cell.y === SURFACE_BUILDING_RECT.y
+        || cell.y === SURFACE_BUILDING_RECT.y + SURFACE_BUILDING_RECT.height - 1;
+      return edge && !sameMapCell(cell, SURFACE_BUILDING_DOOR_CELL);
+    });
+    return cells.map((cell) => ({ cell, materialId: "stoneBlocks", condition: 100, builtAt: 0 }));
+  }
+
+  function defaultSurfaceBuildingFloors() {
+    return rectangularRoomCells(SURFACE_BUILDING_INTERIOR_RECT).map((cell) => ({
+      cell,
+      materialId: "stoneBlocks",
+      purpose: "floor",
+      condition: 100,
+      builtAt: 0
+    }));
+  }
+
+  function defaultSurfaceBuildingRoofs() {
+    return rectangularRoomCells(SURFACE_BUILDING_RECT).map((cell) => ({
+      cell: mapCellAtOffset(cell, 0, 0, 1),
+      materialId: "stoneBlocks",
+      purpose: "roof",
+      supportSpanM: 8,
+      condition: 100,
+      builtAt: 0
+    }));
+  }
+
   function defaultLabMap() {
     const rooms = {};
     for (const room of ROOM_BASE_DEFS) {
@@ -5017,26 +5101,44 @@
       doors[doorDef.id] = normalizeLabMapDoor(doorDef, doorDef.id, rooms);
     }
     const excavated = normalizeDigCells([
-      ...Object.values(rooms).flatMap((room) => room.cells || []),
-      ...Object.values(doors).map((door) => door.cell)
+      ...Object.values(rooms).filter((room) => room.roomId !== SURFACE_FACILITY_ROOM_ID).flatMap((room) => room.cells || []),
+      ...Object.values(doors).filter((door) => door.cell.z !== LAB_MAP_DEFAULT_SURFACE_Z).map((door) => door.cell)
     ]);
+    const surfaceGround = normalizeSurfaceGround(defaultSurfaceGround(), LAB_MAP_DEFAULT_SURFACE_Z);
+    const constructedFloors = normalizeConstructedSurfaces([
+      ...defaultSurfaceBuildingFloors(),
+      ...defaultSurfaceBuildingRoofs()
+    ]);
+    const constructedWalls = normalizeConstructedSurfaces(defaultSurfaceBuildingWalls());
     return {
-      version: 9,
+      version: 10,
       tileSizeM: LAB_MAP_TILE_SIZE_M,
       layerHeightM: LAB_MAP_LAYER_HEIGHT_M,
+      surfaceZ: LAB_MAP_DEFAULT_SURFACE_Z,
+      layers: {
+        "0": { id: "undergroundLab", kind: "subterranean", label: "Underground Lab" },
+        [String(LAB_MAP_DEFAULT_SURFACE_Z)]: { id: "surface", kind: "surface", label: "Surface" },
+        [String(LAB_MAP_DEFAULT_SURFACE_Z + 1)]: { id: "roofLevel", kind: "structure", label: "Roof Level" }
+      },
       width: LAB_MAP_DEFAULT_WIDTH,
       height: LAB_MAP_DEFAULT_HEIGHT,
       terrain: {
         excavated,
+        surfaceGround,
         smoothedFloors: [],
         smoothedWalls: [],
-        constructedFloors: [],
-        constructedWalls: [],
+        constructedFloors,
+        constructedWalls,
         naturalDeposits: [],
         geologyEncounters: [],
         naturalDamage: [],
         rubble: [],
-        verticalConnectors: [],
+        verticalConnectors: normalizeVerticalConnectors([{
+          id: "stairs-basement-surface",
+          type: "carvedStairs",
+          lowerCell: mapCellAtOffset(SURFACE_BASEMENT_STAIR_CELL, 0, 0, -1),
+          upperCell: SURFACE_BASEMENT_STAIR_CELL
+        }]),
         structuralFailures: []
       },
       rooms,
@@ -5748,6 +5850,34 @@
         excavated: (ensureLabMap().terrain?.excavated || []).map((cell) => ({ ...cell })),
         failures: (ensureLabMap().terrain?.structuralFailures || []).map((failure) => ({ ...failure, cell: { ...failure.cell } }))
       }),
+      surfaceMapSnapshot: () => {
+        const map = ensureLabMap();
+        const envelopeContext = buildSurfaceEnvelopeContext(map);
+        const ground = (map.terrain?.surfaceGround || []).map((entry) => ({ ...entry, cell: { ...entry.cell } }));
+        const envelopeCounts = {};
+        for (const entry of ground) {
+          const kind = surfaceEnvelopeAtCell(entry.cell, map, envelopeContext).kind;
+          envelopeCounts[kind] = (envelopeCounts[kind] || 0) + 1;
+        }
+        const sample = (kind) => ground.find((entry) => surfaceEnvelopeAtCell(entry.cell, map, envelopeContext).kind === kind)?.cell || null;
+        return {
+          surfaceZ: map.surfaceZ,
+          layer: { ...labMapLayerMeta(map.surfaceZ, map) },
+          daylight: surfaceDaylightIntensity(state.clock),
+          ground,
+          envelopeCounts,
+          samples: {
+            outdoor: sample("outdoor"),
+            interior: sample("interior"),
+            threshold: sample("threshold")
+          },
+          roofs: (map.terrain?.constructedFloors || []).filter((entry) => entry.purpose === "roof").map((entry) => ({ ...entry, cell: { ...entry.cell } })),
+          walls: (map.terrain?.constructedWalls || []).filter((entry) => entry.cell.z === map.surfaceZ).map((entry) => ({ ...entry, cell: { ...entry.cell } })),
+          frontDoor: map.doors?.["door-surface-front"] ? { ...map.doors["door-surface-front"], cell: { ...map.doors["door-surface-front"].cell } } : null,
+          basementStair: (map.terrain?.verticalConnectors || []).find((entry) => entry.id === "stairs-basement-surface") || null
+        };
+      },
+      surfaceDaylightAtClock: (clock) => surfaceDaylightIntensity(clock),
       setMapLayer: (z) => {
         const current = mapViewportForUi().z;
         setMapLayer(Number(z) - current);
@@ -10715,7 +10845,7 @@
     if (!cells.length) return "Select a valid fixture origin tile.";
     const containerKeys = new Set((state.containers || []).flatMap((container) => containerFootprintCells(container, map)).map(mapCellKey));
     for (const cell of cells) {
-      if (!mapCellInBounds(cell, map) || !labMapCellIsExcavated(cell, map)) return `${def.label} requires excavated floor across its full ${fixtureRotatedFootprint(def, rotation).width} x ${fixtureRotatedFootprint(def, rotation).height} footprint.`;
+      if (!mapCellInBounds(cell, map) || !labMapCellHasFloor(cell, map)) return `${def.label} requires walkable floor across its full ${fixtureRotatedFootprint(def, rotation).width} x ${fixtureRotatedFootprint(def, rotation).height} footprint.`;
       if (constructedWallAtCell(cell, map) || labMapDoorAtCell(cell, map)) return "A wall or door occupies part of this fixture footprint.";
       if (containerKeys.has(mapCellKey(cell))) return "A containment vessel occupies part of this fixture footprint.";
       const existing = fixturesAtCell(cell, { exceptFixtureId: options.exceptFixtureId }).find((fixture) => fixtureDef(fixture)?.layer === def.layer);
@@ -10727,7 +10857,7 @@
       const planned = plannedFixtureAtCell(cell, options.exceptOrderId, def.layer);
       if (planned) return `${constructionOrderFixtureDef(planned.order).label} is already planned across this tile.`;
     }
-    if (def.requiresAdjacentWall && !cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map) || constructedWallAtCell(neighbor, map)))) {
+    if (def.requiresAdjacentWall && !cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellHasFloor(neighbor, map) || constructedWallAtCell(neighbor, map)))) {
       return `${def.label} must be anchored beside a natural or constructed wall.`;
     }
     const ports = fixturePortCells(origin, def, rotation).filter((port) => mapCellInBounds(port.cell, map) && labMapCellIsWalkable(port.cell, map));
@@ -10760,7 +10890,7 @@
   }
 
   function doorHasPhysicalAnchor(cell, map = ensureLabMap()) {
-    return cardinalMapCells(cell).some((neighbor) => mapCellInBounds(neighbor, map) && (!labMapCellIsExcavated(neighbor, map) || Boolean(constructedWallAtCell(neighbor, map))));
+    return cardinalMapCells(cell).some((neighbor) => mapCellInBounds(neighbor, map) && (!labMapCellHasFloor(neighbor, map) || Boolean(constructedWallAtCell(neighbor, map))));
   }
 
   function constructionOrderLabel(mode, cells, buildType = state.construction?.buildType) {
@@ -10783,13 +10913,14 @@
       && order.tiles.some((tile) => ["planned", "queued"].includes(tile.status) && mapCellKey(tile.cell) === key));
     if (conflict) return `${constructionModeLabel(conflict.mode)} priority ${conflict.priority} is already designated here.`;
     const excavated = labMapCellIsExcavated(clean, map);
+    const hasFloor = labMapCellHasFloor(clean, map);
     const buildDef = constructionBuildDef(options.buildType || options.order?.buildType);
-    if (mode === "mine") return excavated ? "This tile is already excavated floor." : "";
+    if (mode === "mine") return surfaceGroundAtCell(clean, map) ? "Surface ground is not an underground mining face." : excavated ? "This tile is already excavated floor." : "";
     if (["stairUp", "stairDown", "channelDown"].includes(mode)) {
-      if (!excavated) return "Vertical excavation must begin from existing excavated space.";
+      if (!hasFloor) return "Vertical excavation must begin from existing floor space.";
       if (constructedWallAtCell(clean, map)) return "A constructed wall blocks this vertical excavation.";
       const target = verticalExcavationTargetCell(mode, clean);
-      if (labMapCellIsExcavated(target, map)) {
+      if (labMapCellHasFloor(target, map)) {
         if (mode === "channelDown" && !labMapCellHasSupport(clean, map)) return "This tile is already an unsupported open shaft.";
         return `The layer ${mode === "stairUp" ? "above" : "below"} is already excavated.`;
       }
@@ -10812,7 +10943,7 @@
       return exposed ? "" : "Only exposed natural rock beside excavated floor can be smoothed.";
     }
     if (mode === "build") {
-      if (!excavated) return `${buildDef.label} requires excavated floor.`;
+      if (!hasFloor) return `${buildDef.label} requires walkable floor.`;
       if (buildDef.kind === "fixture") {
         return fixturePlacementBlockReason(fixtureDef(buildDef.fixtureTypeId), clean, options.order?.rotation ?? state.construction?.fixtureRotation, { exceptOrderId: options.exceptOrderId, map });
       } else if (buildDef.kind === "wall") {
@@ -10824,7 +10955,7 @@
         if (labMapDoorAtCell(clean, map)) return "Deconstruct the door before laying flooring here.";
       } else if (buildDef.kind === "ceiling") {
         const above = mapCellAtOffset(clean, 0, 0, 1);
-        if (!labMapCellIsExcavated(above, map)) return "Natural rock already forms the ceiling above this tile.";
+        if (!labMapCellHasFloor(above, map) && clean.z < map.surfaceZ) return "Natural rock already forms the ceiling above this tile.";
         if (constructedFloorAtCell(above, map)) return "A constructed slab already separates these layers.";
         if (verticalConnectorBetween(clean, above, map)) return "Remove the stair or ramp connection before closing this vertical boundary.";
       } else if (buildDef.kind === "door") {
@@ -12038,7 +12169,11 @@
     const queue = [];
     for (const [key, floor] of floors) {
       const below = mapCellAtOffset(floor.cell, 0, 0, -1);
-      if (!labMapCellIsExcavated(below, map) || cardinalMapCells(floor.cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map))) {
+      const grounded = Boolean(surfaceGroundAtCell(floor.cell, map))
+        || Boolean(constructedWallAtCell(below, map))
+        || !labMapCellHasFloor(below, map)
+        || cardinalMapCells(floor.cell).some((neighbor) => !labMapCellHasFloor(neighbor, map));
+      if (grounded) {
         supported.add(key);
         distance.set(key, 0);
         queue.push(floor.cell);
@@ -12052,7 +12187,7 @@
         const floor = floors.get(key);
         if (!floor || supported.has(key)) continue;
         const composition = floor.materialComposition || { primary: normalizeMaterialId(floor.materialId) };
-        const span = clamp(1 + Math.floor((compositionPropertyScore(composition, "toughness") + compositionPropertyScore(composition, "hardness")) / 40), 1, 6);
+        const span = floor.supportSpanM || clamp(1 + Math.floor((compositionPropertyScore(composition, "toughness") + compositionPropertyScore(composition, "hardness")) / 40), 1, 6);
         if (currentDistance + 1 > span) continue;
         supported.add(key);
         distance.set(key, currentDistance + 1);
@@ -12067,13 +12202,13 @@
     const cells = fixtureFootprintCells(fixture);
     if (!def || def.id === "concealedExit") return "";
     if (["wallMounted", "wallControl", "utilityAir"].includes(def.layer)) {
-      const anchored = cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellIsExcavated(neighbor, map) || constructedWallAtCell(neighbor, map)));
+      const anchored = cells.some((cell) => cardinalMapCells(cell).some((neighbor) => !labMapCellHasFloor(neighbor, map) || constructedWallAtCell(neighbor, map)));
       return anchored ? "" : "Its wall anchors no longer reach solid rock or a constructed wall.";
     }
     if (def.layer === "overhead") {
       const anchored = cells.every((cell) => {
         const above = mapCellAtOffset(cell, 0, 0, 1);
-        return !labMapCellIsExcavated(above, map) || floorSupportKeys.has(mapCellKey(above));
+        return !labMapCellHasFloor(above, map) || floorSupportKeys.has(mapCellKey(above));
       });
       return anchored ? "" : "Its ceiling anchors have lost structural support.";
     }
@@ -12270,7 +12405,13 @@
         map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: tile.cell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
       } else if (buildDef.kind === "ceiling") {
         const boundaryCell = mapCellAtOffset(tile.cell, 0, 0, 1);
-        map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), { cell: boundaryCell, materialId: buildDef.materialId, condition: 100, builtAt: state.clock }]);
+        map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), {
+          cell: boundaryCell,
+          materialId: buildDef.materialId,
+          purpose: tile.cell.z >= map.surfaceZ ? "roof" : "ceiling",
+          condition: 100,
+          builtAt: state.clock
+        }]);
       } else if (buildDef.kind === "door") {
         createConstructedDoor(tile.cell, buildDef, map);
       } else if (buildDef.kind === "fixture") {
@@ -14538,22 +14679,27 @@
   }
 
   function tileEnvironmentCells(map = ensureLabMap()) {
-    return (map.terrain?.excavated || []).filter((cell) => !constructedWallAtCell(cell, map));
+    return normalizeDigCells([
+      ...(map.terrain?.excavated || []),
+      ...(map.terrain?.surfaceGround || []).map((entry) => entry.cell)
+    ]).filter((cell) => !constructedWallAtCell(cell, map));
   }
 
-  function initialTileEnvironmentRecord(cell, map = ensureLabMap(), rooms = state.rooms || []) {
+  function initialTileEnvironmentRecord(cell, map = ensureLabMap(), rooms = state.rooms || [], envelopeContext = null) {
     const roomId = labMapCellRoomId(cell, map);
     const room = rooms.find((entry) => entry.id === roomId);
     const attributes = normalizeRoomAttributes(room?.attributes);
     const contamination = Math.max(0, Number(attributes.contamination.current) || 0);
+    const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
+    const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
     return {
       cell: cleanMapCell(cell),
-      temperatureC: Number(attributes.temperature.current),
-      rockTemperatureC: Number(attributes.temperature.baseline),
+      temperatureC: exterior ? SURFACE_OUTSIDE_TEMPERATURE_C : Number(attributes.temperature.current),
+      rockTemperatureC: exterior ? SURFACE_OUTSIDE_TEMPERATURE_C : Number(attributes.temperature.baseline),
       lightLevel: Number(attributes.light.current),
-      humidity: Number(attributes.humidity.current),
-      manaDensity: Number(attributes.ambientMana.current),
-      rockManaDensity: Number(attributes.ambientMana.baseline),
+      humidity: exterior ? SURFACE_OUTSIDE_HUMIDITY : Number(attributes.humidity.current),
+      manaDensity: exterior ? SURFACE_OUTSIDE_MANA_DENSITY : Number(attributes.ambientMana.current),
+      rockManaDensity: exterior ? SURFACE_OUTSIDE_MANA_DENSITY : Number(attributes.ambientMana.baseline),
       airborne: contamination >= TILE_ENVIRONMENT_EPSILON
         ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: contamination }
         : {},
@@ -14581,9 +14727,10 @@
   function normalizeTileEnvironments(candidate, map = ensureLabMap(), rooms = state.rooms || []) {
     const source = candidate && typeof candidate === "object" ? candidate : {};
     const normalized = {};
+    const envelopeContext = buildSurfaceEnvelopeContext(map);
     for (const cell of tileEnvironmentCells(map)) {
       const key = mapCellKey(cell);
-      const fallback = initialTileEnvironmentRecord(cell, map, rooms);
+      const fallback = initialTileEnvironmentRecord(cell, map, rooms, envelopeContext);
       normalized[key] = normalizeTileEnvironmentRecord(source[key], cell, fallback);
     }
     return normalized;
@@ -14602,7 +14749,7 @@
 
   function tileEnvironmentAtCell(cell, map = ensureLabMap()) {
     const clean = cleanMapCell(cell);
-    if (!clean || !labMapCellIsExcavated(clean, map) || constructedWallAtCell(clean, map)) return null;
+    if (!clean || !labMapCellHasFloor(clean, map) || constructedWallAtCell(clean, map)) return null;
     return ensureTileEnvironments(map)[mapCellKey(clean)] || null;
   }
 
@@ -14686,7 +14833,7 @@
         const barrierCell = mapCellAtOffset(record.cell, direction.x, direction.y, direction.z);
         const farCell = mapCellAtOffset(record.cell, direction.x * 2, direction.y * 2, direction.z * 2);
         const far = environments[mapCellKey(farCell)];
-        if (!far || labMapCellIsExcavated(barrierCell, map) && !constructedWallAtCell(barrierCell, map)) continue;
+        if (!far || labMapCellHasFloor(barrierCell, map) && !constructedWallAtCell(barrierCell, map)) continue;
         const pairKey = [mapCellKey(record.cell), mapCellKey(farCell)].sort().join("::");
         if (seen.has(pairKey)) continue;
         seen.add(pairKey);
@@ -14744,6 +14891,7 @@
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
     const environments = ensureTileEnvironments(map);
+    const envelopeContext = buildSurfaceEnvelopeContext(map);
     const deltas = Object.fromEntries(Object.keys(environments).map((key) => [key, environmentDeltaRecord()]));
     const edges = [...tileEnvironmentOpenEdges(map, environments), ...tileEnvironmentBarrierEdges(map, environments)];
     for (const edge of edges) {
@@ -14760,11 +14908,23 @@
       const rockManaFraction = 1 - Math.exp(-TILE_ENVIRONMENT_ROCK_MANA_RATE_PER_HOUR * elapsedHours);
       delta.temperatureC += (record.rockTemperatureC - record.temperatureC) * rockHeatFraction;
       delta.manaDensity += (record.rockManaDensity - record.manaDensity) * rockManaFraction;
+      const envelope = surfaceEnvelopeAtCell(record.cell, map, envelopeContext);
+      const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
+      if (exterior) {
+        const ambientFraction = 1 - Math.exp(-SURFACE_AMBIENT_RELAXATION_PER_HOUR * elapsedHours);
+        delta.temperatureC += (SURFACE_OUTSIDE_TEMPERATURE_C - record.temperatureC) * ambientFraction;
+        delta.humidity += (SURFACE_OUTSIDE_HUMIDITY - record.humidity) * ambientFraction;
+        delta.manaDensity += (SURFACE_OUTSIDE_MANA_DENSITY - record.manaDensity) * ambientFraction;
+      }
       const before = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}|${JSON.stringify(record.chemicalTraces)}`;
       record.temperatureC = clamp(record.temperatureC + delta.temperatureC, -100, 500);
       record.humidity = clamp(record.humidity + delta.humidity, 0, 100);
       record.manaDensity = clamp(record.manaDensity + delta.manaDensity, 0, 1000);
       for (const [id, amount] of Object.entries(delta.airborne)) record.airborne[id] = Math.max(0, (record.airborne[id] || 0) + amount);
+      if (exterior) {
+        const remainingFraction = Math.exp(-SURFACE_AIRBORNE_DISPERSAL_PER_HOUR * elapsedHours);
+        for (const id of Object.keys(record.airborne)) record.airborne[id] *= remainingFraction;
+      }
       record.airborne = normalizeAirborneLoads(record.airborne);
       const traceDecay = Math.exp(-TILE_ENVIRONMENT_CHEMICAL_TRACE_DECAY_PER_HOUR * elapsedHours);
       for (const [id, amount] of Object.entries(delta.chemicalTraces)) record.chemicalTraces[id] = Math.max(0, (record.chemicalTraces[id] || 0) + amount);
@@ -15146,6 +15306,12 @@
 
   let physicalLightingSignature = "";
 
+  function surfaceDaylightIntensity(clock = state.clock) {
+    const hour = ((Number(clock) || 0) / 3600 + SURFACE_DAY_START_HOUR) % 24;
+    if (hour <= 6 || hour >= 18) return 0;
+    return clamp(Math.sin((hour - 6) / 12 * Math.PI) * 100, 0, 100);
+  }
+
   function currentPhysicalLightingSignature(map = ensureLabMap()) {
     const carried = normalizeScientistCarriedLight(state.scientist?.carriedLight);
     const fixtures = (state.fixtures || [])
@@ -15174,6 +15340,7 @@
       carried.spectrum,
       Number(state.navigation?.topologyRevision) || 0,
       Number(state.navigation?.doorRevision) || 0,
+      Math.round(surfaceDaylightIntensity(state.clock) * 10),
       fixtures
     ].join(":");
   }
@@ -15184,6 +15351,14 @@
     const previousLevels = new Map(Object.entries(environments).map(([key, record]) => [key, Number(record.lightLevel) || 0]));
     for (const record of Object.values(environments)) record.lightLevel = 0;
     let changes = 0;
+    const daylight = surfaceDaylightIntensity(state.clock);
+    if (daylight > 0) {
+      const envelopeContext = buildSurfaceEnvelopeContext(map);
+      const openSkyOrigins = Object.values(environments)
+        .filter((record) => surfaceEnvelopeAtCell(record.cell, map, envelopeContext).openSky)
+        .map((record) => record.cell);
+      addLightFromOrigins(openSkyOrigins, daylight, 6, environments, map);
+    }
     for (const fixture of state.fixtures || []) {
       const infrastructure = fixtureInfrastructureDef(fixture);
       if (infrastructure?.role !== "light") continue;
@@ -16011,6 +16186,8 @@
       return {
         cell,
         materialId,
+        purpose: ["floor", "roof", "ceiling"].includes(entry?.purpose) ? entry.purpose : "floor",
+        supportSpanM: Number.isFinite(Number(entry?.supportSpanM)) ? clamp(Number(entry.supportSpanM), 1, 24) : null,
         materialComposition: normalizeMaterialComposition(entry?.materialComposition, { primary: normalizeMaterialId(materialId) }),
         condition: clamp(Number.isFinite(Number(entry?.condition)) ? Number(entry.condition) : 100, 0, 100),
         wardIds: normalizeContainerWardIds(entry?.wardIds),
@@ -16018,6 +16195,17 @@
         builtAt: finiteTime(entry?.builtAt, 0)
       };
     }).filter(Boolean).sort((a, b) => (a.cell.z - b.cell.z) || (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
+  }
+
+  function normalizeSurfaceGround(candidate, surfaceZ = LAB_MAP_DEFAULT_SURFACE_Z) {
+    const seen = new Set();
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => {
+      const cell = cleanMapCell(entry?.cell || entry);
+      if (!cell || cell.z !== surfaceZ || seen.has(mapCellKey(cell))) return null;
+      seen.add(mapCellKey(cell));
+      const terrainId = ["grass", "soil", "gravel"].includes(entry?.terrainId) ? entry.terrainId : "grass";
+      return { cell, terrainId };
+    }).filter(Boolean).sort((a, b) => (a.cell.y - b.cell.y) || (a.cell.x - b.cell.x));
   }
 
   function normalizeNaturalDeposits(candidate) {
@@ -17786,23 +17974,44 @@
       const door = normalizeLabMapDoor(candidateDoor, key, normalizedRooms);
       if (door) normalizedDoors[door.id] = door;
     }
+    const surfaceZ = Math.round(Number.isFinite(Number(source.surfaceZ)) ? Number(source.surfaceZ) : fallback.surfaceZ);
+    const surfaceGround = normalizeSurfaceGround(source.terrain?.surfaceGround || fallback.terrain?.surfaceGround, surfaceZ)
+      .filter((entry) => entry.cell.x >= 0 && entry.cell.y >= 0 && entry.cell.x < width && entry.cell.y < height);
+    const surfaceGroundKeys = new Set(surfaceGround.map((entry) => mapCellKey(entry.cell)));
     const terrainSource = physicalSource ? source.terrain?.excavated : fallback.terrain?.excavated;
     const excavated = normalizeDigCells([
       ...(Array.isArray(terrainSource) ? terrainSource : []),
-      ...Object.values(normalizedDoors).map((door) => door.cell)
-    ]).filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height);
+      ...Object.values(normalizedDoors).map((door) => door.cell).filter((cell) => !surfaceGroundKeys.has(mapCellKey(cell)))
+    ]).filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height && !surfaceGroundKeys.has(mapCellKey(cell)));
+    const floorBaseKeys = new Set([...excavated.map(mapCellKey), ...surfaceGroundKeys]);
     const constructedFloors = normalizeConstructedSurfaces(source.terrain?.constructedFloors)
-      .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
+      .filter((entry) => entry.purpose === "roof" || floorBaseKeys.has(mapCellKey(entry.cell)));
     const constructedWalls = normalizeConstructedSurfaces(source.terrain?.constructedWalls)
-      .filter((entry) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(entry.cell)));
+      .filter((entry) => floorBaseKeys.has(mapCellKey(entry.cell)));
+    const layerSource = source.layers && typeof source.layers === "object" ? source.layers : fallback.layers;
+    const layers = {};
+    for (const [rawZ, entry] of Object.entries(layerSource || {})) {
+      const z = Math.round(Number(rawZ));
+      if (!Number.isFinite(z)) continue;
+      const kind = ["subterranean", "surface", "structure"].includes(entry?.kind) ? entry.kind : "subterranean";
+      layers[String(z)] = {
+        id: String(entry?.id || `layer-${z}`).replace(/[^a-zA-Z0-9_-]/g, "") || `layer-${z}`,
+        kind,
+        label: String(entry?.label || (kind === "surface" ? "Surface" : kind === "structure" ? "Structure" : "Underground"))
+      };
+    }
+    layers[String(surfaceZ)] ||= { id: "surface", kind: "surface", label: "Surface" };
     return {
-      version: 9,
+      version: 10,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
       layerHeightM: Math.max(1, Number(source.layerHeightM) || LAB_MAP_LAYER_HEIGHT_M),
+      surfaceZ,
+      layers,
       width,
       height,
       terrain: {
         excavated,
+        surfaceGround,
         smoothedFloors: normalizeDigCells(source.terrain?.smoothedFloors)
           .filter((cell) => excavated.some((floor) => mapCellKey(floor) === mapCellKey(cell))),
         smoothedWalls: normalizeDigCells(source.terrain?.smoothedWalls)
@@ -17829,8 +18038,10 @@
   }
 
   function ensureLabMap() {
-    state.rooms = normalizeRooms(state.rooms);
-    state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    if (!state.labMap || Number(state.labMap.version) !== 10) {
+      state.rooms = normalizeRooms(state.rooms);
+      state.labMap = normalizeLabMap(state.labMap, state.rooms);
+    }
     return state.labMap;
   }
 
@@ -17886,14 +18097,49 @@
     return keys.has(mapCellKey(cell));
   }
 
+  const mapCellArrayIndexCache = new WeakMap();
+
+  function indexedMapCellEntry(entries, cell, cellFor = (entry) => entry?.cell || entry) {
+    if (!Array.isArray(entries)) return null;
+    let index = mapCellArrayIndexCache.get(entries);
+    if (!index) {
+      index = new Map(entries.map((entry) => [mapCellKey(cellFor(entry)), entry]));
+      mapCellArrayIndexCache.set(entries, index);
+    }
+    return index.get(mapCellKey(cell)) || null;
+  }
+
   function constructedFloorAtCell(cell, map = ensureLabMap()) {
-    const key = mapCellKey(cell);
-    return (map.terrain?.constructedFloors || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+    return indexedMapCellEntry(map.terrain?.constructedFloors, cell);
+  }
+
+  function surfaceGroundAtCell(cell, map = ensureLabMap()) {
+    return indexedMapCellEntry(map.terrain?.surfaceGround, cell);
+  }
+
+  function labMapCellHasFloor(cell, map = ensureLabMap(), excavatedKeys = null) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !mapCellInBounds(clean, map)) return false;
+    return labMapCellIsExcavated(clean, map, excavatedKeys)
+      || Boolean(surfaceGroundAtCell(clean, map))
+      || Boolean(constructedFloorAtCell(clean, map));
+  }
+
+  function labMapLayerMeta(z, map = ensureLabMap()) {
+    const layer = map.layers?.[String(Math.round(Number(z) || 0))];
+    if (layer) return layer;
+    const cleanZ = Math.round(Number(z) || 0);
+    return cleanZ === map.surfaceZ
+      ? { id: "surface", kind: "surface", label: "Surface" }
+      : { id: `layer-${cleanZ}`, kind: cleanZ > map.surfaceZ ? "structure" : "subterranean", label: cleanZ > map.surfaceZ ? "Structure" : "Underground" };
+  }
+
+  function labMapLayerLabel(z, map = ensureLabMap()) {
+    return `${labMapLayerMeta(z, map).label} · Z ${Math.round(Number(z) || 0)}`;
   }
 
   function constructedWallAtCell(cell, map = ensureLabMap()) {
-    const key = mapCellKey(cell);
-    return (map.terrain?.constructedWalls || []).find((entry) => mapCellKey(entry.cell) === key) || null;
+    return indexedMapCellEntry(map.terrain?.constructedWalls, cell);
   }
 
   function horizontalBoundaryAtCell(upperCell, map = ensureLabMap()) {
@@ -17903,7 +18149,7 @@
     const connector = verticalConnectorBetween(lower, upper, map);
     const floor = constructedFloorAtCell(upper, map);
     if (connector) return { key: Vertical.boundaryKey(upper), type: connector.type, upperCell: upper, lowerCell: lower, open: true, movement: true, attackTransmission: true };
-    const solidCell = !labMapCellIsExcavated(lower, map) ? lower : !labMapCellIsExcavated(upper, map) ? upper : null;
+    const solidCell = !labMapCellHasFloor(lower, map) ? lower : !labMapCellHasFloor(upper, map) ? upper : null;
     if (solidCell) return { key: Vertical.boundaryKey(upper), type: "naturalRock", upperCell: upper, lowerCell: lower, open: false, movement: false, attackTransmission: false, condition: 100, materialComposition: { primary: naturalWallMaterialId(solidCell, map) } };
     if (!floor) return { key: Vertical.boundaryKey(upper), type: "openShaft", upperCell: upper, lowerCell: lower, open: true, movement: false, attackTransmission: true };
     const condition = clamp(Number(floor.condition) || 0, 0, 100);
@@ -17974,7 +18220,7 @@
   }
 
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
-    return labMapCellIsExcavated(cell, map, excavatedKeys)
+    return labMapCellHasFloor(cell, map, excavatedKeys)
       && !constructedWallAtCell(cell, map)
       && labMapCellHasSupport(cell, map, excavatedKeys);
   }
@@ -17991,12 +18237,87 @@
   function labMapCellHasSupport(cell, map = ensureLabMap(), excavatedKeys = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return false;
+    if (surfaceGroundAtCell(clean, map)) return true;
     if (constructedFloorAtCell(clean, map)) return true;
     const below = mapCellAtOffset(clean, 0, 0, -1);
     if (verticalConnectorBetween(below, clean, map)) return true;
     const endpoint = verticalConnectorAtEndpoint(clean, map);
     if (endpoint?.type === "ramp" && sameMapCell(endpoint.upperCell, clean)) return true;
-    return !labMapCellIsExcavated(below, map, excavatedKeys);
+    return !labMapCellHasFloor(below, map, excavatedKeys);
+  }
+
+  function buildSurfaceEnvelopeContext(map = ensureLabMap()) {
+    const surfaceZ = Number(map.surfaceZ) || LAB_MAP_DEFAULT_SURFACE_Z;
+    const cells = normalizeDigCells([
+      ...(map.terrain?.surfaceGround || []).map((entry) => entry.cell),
+      ...(map.terrain?.constructedFloors || []).filter((entry) => entry.cell.z === surfaceZ).map((entry) => entry.cell)
+    ]);
+    const cellsByKey = new Map(cells.map((cell) => [mapCellKey(cell), cell]));
+    const roofed = new Set(cells.filter((cell) => {
+      const roof = constructedFloorAtCell(mapCellAtOffset(cell, 0, 0, 1), map);
+      return Boolean(roof && roof.condition > 0);
+    }).map(mapCellKey));
+    const structuralBlocks = new Set((map.terrain?.constructedWalls || [])
+      .filter((entry) => entry.cell.z === surfaceZ && entry.condition > 0)
+      .map((entry) => mapCellKey(entry.cell)));
+    const breachedDoorKeys = new Set();
+    for (const mapDoor of Object.values(map.doors || {})) {
+      if (mapDoor.cell.z !== surfaceZ) continue;
+      const door = doorFixtureState(mapDoor) || mapDoor;
+      const key = mapCellKey(mapDoor.cell);
+      if (doorIsBreached(door)) breachedDoorKeys.add(key);
+      else structuralBlocks.add(key);
+    }
+    const outsideReachable = new Set();
+    const queue = cells.filter((cell) => !roofed.has(mapCellKey(cell)) && !structuralBlocks.has(mapCellKey(cell)));
+    for (const cell of queue) outsideReachable.add(mapCellKey(cell));
+    for (let index = 0; index < queue.length; index += 1) {
+      const cell = queue[index];
+      for (const neighbor of cardinalMapCells(cell)) {
+        const key = mapCellKey(neighbor);
+        if (!cellsByKey.has(key) || structuralBlocks.has(key) || outsideReachable.has(key)) continue;
+        outsideReachable.add(key);
+        queue.push(cellsByKey.get(key));
+      }
+    }
+    const exposedInterior = new Set();
+    for (const breachedKey of breachedDoorKeys) {
+      const doorCell = cellsByKey.get(breachedKey);
+      if (!doorCell || !outsideReachable.has(breachedKey)) continue;
+      const breachQueue = cardinalMapCells(doorCell).filter((cell) => roofed.has(mapCellKey(cell)) && outsideReachable.has(mapCellKey(cell)));
+      for (const cell of breachQueue) exposedInterior.add(mapCellKey(cell));
+      for (let index = 0; index < breachQueue.length; index += 1) {
+        for (const neighbor of cardinalMapCells(breachQueue[index])) {
+          const key = mapCellKey(neighbor);
+          if (!roofed.has(key) || !outsideReachable.has(key) || exposedInterior.has(key)) continue;
+          exposedInterior.add(key);
+          breachQueue.push(cellsByKey.get(key));
+        }
+      }
+    }
+    return { surfaceZ, cellsByKey, roofed, structuralBlocks, outsideReachable, exposedInterior, breachedDoorKeys };
+  }
+
+  function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
+    const clean = cleanMapCell(cell);
+    if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    const envelope = context || buildSurfaceEnvelopeContext(map);
+    const key = mapCellKey(clean);
+    const floor = constructedFloorAtCell(clean, map);
+    if (clean.z > envelope.surfaceZ && floor?.purpose === "roof") {
+      return { kind: "roof", roofed: false, openSky: true };
+    }
+    if (clean.z !== envelope.surfaceZ || !envelope.cellsByKey.has(key)) {
+      return { kind: clean.z < envelope.surfaceZ ? "subterranean" : "openAir", roofed: false, openSky: clean.z >= envelope.surfaceZ };
+    }
+    if (constructedWallAtCell(clean, map)) return { kind: "buildingEnvelope", roofed: envelope.roofed.has(key), openSky: !envelope.roofed.has(key) };
+    if (labMapDoorAtCell(clean, map)) {
+      return { kind: envelope.breachedDoorKeys.has(key) ? "exposedInterior" : "threshold", roofed: envelope.roofed.has(key), openSky: false };
+    }
+    if (!envelope.roofed.has(key)) return { kind: "outdoor", roofed: false, openSky: true };
+    if (!envelope.outsideReachable.has(key)) return { kind: "interior", roofed: true, openSky: false };
+    if (envelope.exposedInterior.has(key)) return { kind: "exposedInterior", roofed: true, openSky: false };
+    return { kind: "coveredExterior", roofed: true, openSky: false };
   }
 
   function verticalConnectorTraversalBlockReason(connector, actor = null, options = {}) {
@@ -21791,7 +22112,7 @@
       }
       for (let dz = 1; dz < footprint.heightLayers; dz += 1) {
         const volumeCell = mapCellAtOffset(cell, 0, 0, dz);
-        if (!labMapCellIsExcavated(volumeCell, map, options.excavatedKeys) || constructedWallAtCell(volumeCell, map)) return false;
+        if (!labMapCellHasFloor(volumeCell, map, options.excavatedKeys) || constructedWallAtCell(volumeCell, map)) return false;
       }
     }
     return true;
@@ -22243,8 +22564,8 @@
     const ids = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
     const isMainRoomDoor = ids.has(MAIN_ROOM_ID);
     const startsClosed =
-      isMainRoomDoor &&
-      (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID) || ids.has(COLLECTION_BAY_ROOM_ID));
+      ids.has(SURFACE_FACILITY_ROOM_ID)
+      || isMainRoomDoor && (ids.has(BEDROOM_ROOM_ID) || ids.has(STORAGE_ROOM_ID) || ids.has(COLLECTION_BAY_ROOM_ID));
     return startsClosed ? DOOR_STATE_CLOSED : DOOR_STATE_OPEN;
   }
 
@@ -22252,7 +22573,7 @@
     const typeId = defaultDoorTypeId(roomAId, roomBId);
     const doorId = cleanDoorId(id) || `door-${cleanRoomId(roomAId)}-${cleanRoomId(roomBId)}`;
     const connectedIds = new Set([cleanRoomId(roomAId), cleanRoomId(roomBId)]);
-    const accessRuleId = connectedIds.has(CONCEALED_EXIT_ROOM_ID)
+    const accessRuleId = connectedIds.has(CONCEALED_EXIT_ROOM_ID) || connectedIds.has(SURFACE_FACILITY_ROOM_ID)
       ? "exterior"
       : [MENAGERIE_ROOM_ID, PITS_ROOM_ID, COLLECTION_BAY_ROOM_ID].some((roomId) => connectedIds.has(roomId))
         ? "containment"
@@ -28309,7 +28630,7 @@
     const directConnector = verticalConnectorBetween(from, to, ensureLabMap());
     if (directConnector?.type === "ramp") {
       return [...(directConnector.footprintCells || []), ...(directConnector.upperCells || [])]
-        .every((cell) => labMapCellIsExcavated(cell) && !constructedWallAtCell(cell));
+        .every((cell) => labMapCellHasFloor(cell) && !constructedWallAtCell(cell));
     }
     const cells = mapLineCells(from, to);
     if (cells.length < 2) return Boolean(cells.length);
@@ -28323,7 +28644,7 @@
       if (tileEnvironmentVerticalModifiers(lower, upper, map).air < 0.5) return false;
     }
     for (const cell of cells.slice(1, -1)) {
-      if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
+      if (!labMapCellHasFloor(cell, map) || constructedWallAtCell(cell, map)) return false;
       const mapDoor = labMapDoorAtCell(cell, map);
       if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(doorForConnection(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]))) return false;
     }
@@ -28335,7 +28656,7 @@
     const directConnector = verticalConnectorBetween(from, to, map);
     if (directConnector?.type === "ramp") {
       return [...(directConnector.footprintCells || []), ...(directConnector.upperCells || [])]
-        .every((cell) => labMapCellIsExcavated(cell, map) && !constructedWallAtCell(cell, map));
+        .every((cell) => labMapCellHasFloor(cell, map) && !constructedWallAtCell(cell, map));
     }
     const cells = mapLineCells(from, to);
     if (cells.length < 2) return Boolean(cells.length);
@@ -28349,7 +28670,7 @@
     }
     for (const cell of cells.slice(1, -1)) {
       if (wallAllowsAttackTransmission(cell, map)) continue;
-      if (!labMapCellIsExcavated(cell, map) || constructedWallAtCell(cell, map)) return false;
+      if (!labMapCellHasFloor(cell, map) || constructedWallAtCell(cell, map)) return false;
       const mapDoor = labMapDoorAtCell(cell, map);
       const door = mapDoor ? doorFixtureState(mapDoor) : null;
       if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(door)) return false;
@@ -47638,7 +47959,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return door?.state === DOOR_STATE_OPEN ? "" : "x";
   }
 
-  function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null, excavatedKeys = null) {
+  function labMapCellTooltipParts(cell, map, objectEntry = null, pathEntry = null, plannedEntry = null, draftEntry = null, incidentEntry = null, overlayEntry = null, excavatedKeys = null, envelopeContext = null) {
     const roomId = labMapCellRoomId(cell, map);
     const door = labMapDoorAtCell(cell, map);
     const parts = [`${cell.x}, ${cell.y}, Z ${cell.z}`];
@@ -47648,10 +47969,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       parts.push(`${plannedEntry.label}${plannedEntry.blockedReason ? `; blocked: ${plannedEntry.blockedReason}` : ""}`);
     } else if (roomId) {
       parts.push(roomName(roomId));
+      const surface = surfaceGroundAtCell(cell, map);
+      if (surface) {
+        const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
+        parts.push(`${titleCase(envelope.kind)}; ${surface.terrainId} ground${constructedFloorAtCell(cell, map) ? "; constructed floor" : ""}`);
+      }
     } else if (labMapCellIsExcavated(cell, map, excavatedKeys)) {
       const floor = constructedFloorAtCell(cell, map);
       const wall = constructedWallAtCell(cell, map);
       parts.push(wall ? `${materialCompositionLabel(wall.materialComposition)} constructed wall; ${structureConditionBand(wall.condition)}` : floor ? `${materialCompositionLabel(floor.materialComposition)} constructed floor; ${structureConditionBand(floor.condition)}` : "rough excavated floor");
+    } else if (surfaceGroundAtCell(cell, map)) {
+      const surface = surfaceGroundAtCell(cell, map);
+      const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
+      parts.push(`${titleCase(envelope.kind)} ${surface.terrainId} ground${constructedFloorAtCell(cell, map) ? "; constructed floor" : ""}`);
+    } else if (constructedFloorAtCell(cell, map)?.purpose === "roof") {
+      const roof = constructedFloorAtCell(cell, map);
+      parts.push(`${materialCompositionLabel(roof.materialComposition)} roof; ${structureConditionBand(roof.condition)}`);
+    } else if (cell.z >= map.surfaceZ) {
+      parts.push("outside the mapped property");
     } else {
       parts.push("solid earth");
     }
@@ -47662,7 +47997,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         parts.push(`${doorTypeLabel(stateDoor.typeId)}, ${doorConditionLabel(stateDoor)}`);
       }
     }
-    const verticalBase = labMapCellBaseView(roomId, labMapCellIsExcavated(cell, map, excavatedKeys), null, null, true, cell, map);
+    const verticalBase = labMapCellBaseView(roomId, labMapCellHasFloor(cell, map, excavatedKeys), null, null, true, cell, map, envelopeContext);
     const verticalDirection = verticalBase.verticalDirection;
     if (verticalDirection === "up") parts.push(`stairs up to Z ${cell.z + 1}`);
     if (verticalDirection === "down") parts.push(`stairs down to Z ${cell.z - 1}`);
@@ -47673,7 +48008,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
-    if (!labMapCellIsExcavated(cell, map, excavatedKeys)) {
+    if (!labMapCellHasFloor(cell, map, excavatedKeys) && cell.z < map.surfaceZ) {
       const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
       const face = Geology.faceKnowledge(Geology.profileForCell(state.seed, cell));
       parts.push(`${face?.label || MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${face?.hardnessBand || "hardness unknown"}; ${face?.stabilityBand || "stability unknown"}; ${structureConditionBand(naturalCondition)}`);
@@ -53086,6 +53421,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const roomId = selection.roomId || labMapCellRoomId(selection.tile);
       const door = labMapDoorAtCell(selection.tile);
       const excavated = labMapCellIsExcavated(selection.tile);
+      const surfaceGround = surfaceGroundAtCell(selection.tile);
+      const envelope = surfaceEnvelopeAtCell(selection.tile);
       const constructedWall = constructedWallAtCell(selection.tile);
       const constructedFloor = constructedFloorAtCell(selection.tile);
       const structuralTarget = structuralTargetAtCell(selection.tile);
@@ -53096,7 +53433,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const orderTile = constructionOrderTile(order, selection.tile);
       const productionBill = productionBillForOrder(order);
       const key = mapCellKey(selection.tile);
-      const surface = constructedWall
+      const surfaceDescription = constructedWall
         ? `${resourceLabel(constructedWall.materialId)} constructed wall; ${formatNumber(constructedWall.condition)}% condition`
         : constructedFloor
           ? `${resourceLabel(constructedFloor.materialId)} constructed floor; ${formatNumber(constructedFloor.condition)}% condition`
@@ -53104,15 +53441,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? "Smoothed floor"
         : (ensureLabMap().terrain?.smoothedWalls || []).some((cell) => mapCellKey(cell) === key)
           ? "Smoothed natural wall"
-          : excavated ? "Rough floor" : "Natural rock";
-      const geologyFace = !excavated ? Geology.faceKnowledge(Geology.profileForCell(state.seed, selection.tile)) : null;
+          : surfaceGround ? `${titleCase(surfaceGround.terrainId)} ground; ${titleCase(envelope.kind)}` : excavated ? "Rough floor" : "Natural rock";
+      const geologyFace = !excavated && !surfaceGround && !constructedFloor ? Geology.faceKnowledge(Geology.profileForCell(state.seed, selection.tile)) : null;
       const rows = [
         ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
-        ["Room", roomId ? roomName(roomId) : excavated ? "Unassigned floor" : "Solid earth"],
+        ["Room", roomId ? roomName(roomId) : surfaceGround ? "Outdoor site" : excavated ? "Unassigned floor" : "Solid earth"],
         ["Inferred compartment", compartment ? `${compartment.kind}; ${compartment.status}; ${compartment.cells.length} tiles` : "None"],
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
-        ["Surface", surface],
-        ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : excavated ? "Excavated ground" : geologyFace?.label || MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
+        ["Surface", surfaceDescription],
+        ["Envelope", titleCase(envelope.kind)],
+        ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : surfaceGround ? titleCase(surfaceGround.terrainId) : excavated ? "Excavated ground" : geologyFace?.label || MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
         ["Material properties", structuralComposition ? materialPropertySummary(structuralComposition) : geologyFace ? `Hardness: ${geologyFace.hardnessBand}; Stability: ${geologyFace.stabilityBand}; Permeability: ${geologyFace.permeabilityBand}; Mana response: ${geologyFace.manaResponseBand}` : "No constructed material profile"],
         ["Damage resistance", structuralComposition ? damageResistanceSummary(damageResistanceEntriesForComposition(structuralComposition, structuralCondition), "none") : "None"],
         ["Structural state", structuralTarget ? structureConditionBand(structuralCondition) : "Not a damageable structure"],
@@ -53122,7 +53460,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Work progress", orderTile?.workRequiredSeconds ? `${formatDuration(orderTile.workCompletedSeconds)} / ${formatDuration(orderTile.workRequiredSeconds)}` : order ? "Not started" : "None"],
         ["Last interruption", orderTile?.lastInterruptionReason || "None"],
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
-        ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : excavated ? "Blocked by constructed wall" : "Solid"]
+        ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : labMapCellHasFloor(selection.tile) ? "Blocked by structure" : "Solid"]
       ];
       const environment = tileEnvironmentAtCell(selection.tile);
       const environmentKnown = Boolean(environment && (mapDebugOverlayActive() || (roomId && scientistObservesRoom(roomId))));
@@ -54052,6 +54390,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const door of Object.values(map.doors || {})) {
       addKnownWithWalls(door.cell);
     }
+    for (const entry of map.terrain?.constructedWalls || []) addKnownWithWalls(entry.cell);
+    for (const entry of map.terrain?.constructedFloors || []) {
+      if (entry.purpose === "roof") addKnown(entry.cell);
+    }
+    for (const connector of map.terrain?.verticalConnectors || []) {
+      addKnownWithWalls(connector.lowerCell);
+      addKnownWithWalls(connector.upperCell);
+    }
     for (const [key] of plannedExcavationAssignments()) {
       const [x, y, z] = key.split(",").map((part) => Number(part));
       addKnownWithWalls({ x, y, z });
@@ -54179,10 +54525,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const knownCellKeys = null;
     const excavatedKeys = labMapExcavatedCellKeys(map);
     const compartmentInference = inferLabCompartments(map);
+    const envelopeContext = buildSurfaceEnvelopeContext(map);
     return {
       anchors: labMapAnchorAssignments(map),
       objects: labMapObjectAssignments(map, { debug: true }),
       excavatedKeys,
+      envelopeContext,
       terrainContext: buildTerrainConnectivityContext(map, {
         fullReveal: true,
         knownCellKeys,
@@ -54194,8 +54542,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function mapCellObservationSnapshot(cell, map, context, objectEntry = null) {
     const roomId = labMapCellRoomId(cell, map);
-    const excavated = labMapCellIsExcavated(cell, map, context.excavatedKeys);
-    const base = labMapCellBaseView(roomId, excavated, null, null, true, cell, map);
+    const hasFloor = labMapCellHasFloor(cell, map, context.excavatedKeys);
+    const base = labMapCellBaseView(roomId, hasFloor, null, null, true, cell, map, context.envelopeContext);
     const terrainConnectivity = terrainConnectivityViewAtCell(cell, context.terrainContext);
     const door = labMapDoorAtCell(cell, map);
     const stateDoor = door ? doorFixtureState(door) || door : null;
@@ -54331,6 +54679,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       fullReveal: Boolean(options.fullReveal),
       knownCellKeys: options.knownCellKeys ?? null,
       excavatedKeys: options.excavatedKeys || labMapExcavatedCellKeys(map),
+      surfaceGroundByCell: byCell(map.terrain?.surfaceGround),
       roomsByCell,
       compartmentsByCell: options.compartmentInference?.cellToCompartment || new Map(),
       constructedFloorsByCell: byCell(map.terrain?.constructedFloors),
@@ -54364,6 +54713,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const door = context.doorsByCell.get(key) || null;
     const constructedWall = context.constructedWallsByCell.get(key) || null;
     const constructedFloor = context.constructedFloorsByCell.get(key) || null;
+    const surfaceGround = context.surfaceGroundByCell.get(key) || null;
     const excavated = context.excavatedKeys.has(key);
     const roomId = context.roomsByCell.get(key) || "";
     const compartmentId = context.compartmentsByCell.get(key) || "";
@@ -54380,7 +54730,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         conditionBand: structureConditionBand(constructedWall.condition).toLowerCase()
       };
     }
-    if (!excavated) {
+    if (!excavated && !surfaceGround && !constructedFloor && clean.z >= context.map.surfaceZ) {
+      return { known: true, kind: "offsite", cell: clean, roomId: "", compartmentId: "", door: null, materialId: "", surfaceStyle: "boundary", conditionBand: "intact" };
+    }
+    if (!excavated && !surfaceGround && !constructedFloor) {
       const deposit = context.naturalDepositsByCell.get(key);
       const damage = context.naturalDamageByCell.get(key);
       const procedural = Geology.profileForCell(context.geologySeed, clean);
@@ -54395,6 +54748,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         depositId: context.fullReveal ? String(deposit?.oreId || procedural?.deposit?.materialId || "") : "",
         surfaceStyle: context.smoothedWalls.has(key) ? "smoothed" : "rough",
         conditionBand: structureConditionBand(damage?.condition ?? 100).toLowerCase()
+      };
+    }
+    if (surfaceGround) {
+      return {
+        known: true,
+        kind: "surface",
+        cell: clean,
+        roomId,
+        compartmentId,
+        door,
+        materialId: constructedFloor?.materialId || surfaceGround.terrainId,
+        terrainId: surfaceGround.terrainId,
+        surfaceStyle: constructedFloor ? "constructed" : "natural",
+        conditionBand: constructedFloor ? structureConditionBand(constructedFloor.condition).toLowerCase() : "intact"
+      };
+    }
+    if (constructedFloor && constructedFloor.purpose === "roof") {
+      return {
+        known: true,
+        kind: "roof",
+        cell: clean,
+        roomId,
+        compartmentId,
+        door,
+        materialId: constructedFloor.materialId,
+        surfaceStyle: "constructed",
+        conditionBand: structureConditionBand(constructedFloor.condition).toLowerCase()
       };
     }
     const floorKind = constructedFloor
@@ -54414,7 +54794,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function terrainSurfaceSignature(cell) {
-    return cell?.kind === "floor" ? `${cell.surfaceStyle}:${cell.materialId}` : "";
+    return ["floor", "surface", "roof"].includes(cell?.kind) ? `${cell.kind}:${cell.surfaceStyle}:${cell.materialId}` : "";
   }
 
   function terrainRelationForLayer(center, neighbor, layer) {
@@ -54434,7 +54814,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "exposed";
     }
     if (layer === "floor") {
-      if (neighbor.kind !== "floor") return neighbor.door ? "portal" : "exposed";
+      if (!["floor", "surface", "roof"].includes(neighbor.kind)) return neighbor.door ? "portal" : "exposed";
       return terrainSurfaceSignature(neighbor) === terrainSurfaceSignature(center) ? "joined" : "transition";
     }
     return "exposed";
@@ -54501,6 +54881,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function terrainCellHasSupport(cell, context) {
     const key = mapCellKey(cell);
     if (context.constructedFloorsByCell.has(key)) return true;
+    if (context.surfaceGroundByCell.has(key)) return true;
     const below = mapCellAtOffset(cell, 0, 0, -1);
     const connectors = context.connectorsByCell.get(key) || [];
     if (connectors.some((entry) => sameMapCell(entry.lowerCell, below) && sameMapCell(entry.upperCell, cell))) {
@@ -54509,7 +54890,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (connectors.some((entry) => entry.type === "ramp" && sameMapCell(entry.upperCell, cell))) {
       return true;
     }
-    return !context.excavatedKeys.has(mapCellKey(below));
+    return !context.excavatedKeys.has(mapCellKey(below)) && !context.surfaceGroundByCell.has(mapCellKey(below));
   }
 
   function terrainVerticalConnectivity(cell, center, context) {
@@ -54519,10 +54900,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stairDown = stairs.some((entry) => sameMapCell(entry.upperCell, cell));
     const ramp = connectors.find((entry) => entry.type === "ramp" && TerrainConnectivity.rampSegment(entry, cell));
     const rampSegment = ramp ? TerrainConnectivity.rampSegment(ramp, cell) : null;
-    const openBelow = center.kind === "floor" && !terrainCellHasSupport(cell, context);
+    const openBelow = ["floor", "surface", "roof"].includes(center.kind) && !terrainCellHasSupport(cell, context);
     const above = mapCellAtOffset(cell, 0, 0, 1);
     const openAbove = terrainCellKnown(above, context)
-      && context.excavatedKeys.has(mapCellKey(above))
+      && (context.excavatedKeys.has(mapCellKey(above)) || context.surfaceGroundByCell.has(mapCellKey(above)) || context.constructedFloorsByCell.has(mapCellKey(above)))
       && !terrainCellHasSupport(above, context);
     if (!stairUp && !stairDown && !rampSegment && !openBelow && !openAbove) return null;
     return {
@@ -54548,7 +54929,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!center.known) return { version: 1, known: false };
     const layer = center.kind === "naturalRock"
       ? "naturalRock"
-      : center.kind === "constructedWall" ? "constructedWall" : center.kind === "floor" ? "floor" : "";
+      : center.kind === "constructedWall" ? "constructedWall" : ["floor", "surface", "roof"].includes(center.kind) ? "floor" : "";
     const physicalLayer = layer ? {
       kind: center.kind,
       materialId: center.materialId,
@@ -54562,19 +54943,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       version: 1,
       known: true,
       solid: center.kind === "naturalRock" ? physicalLayer : null,
-      floor: center.kind === "floor" ? physicalLayer : null,
+      floor: ["floor", "surface", "roof"].includes(center.kind) ? physicalLayer : null,
       wall: center.kind === "constructedWall" ? physicalLayer : null,
       door: terrainDoorConnectivity(center.door, cell, context),
       vertical: terrainVerticalConnectivity(cell, center, context),
       fluid: null,
-      boundaries: center.kind === "floor" ? {
+      boundaries: ["floor", "surface", "roof"].includes(center.kind) ? {
         room: terrainBoundaryConnectivity(cell, center, "roomId", context),
         compartment: terrainBoundaryConnectivity(cell, center, "compartmentId", context)
       } : { room: null, compartment: null }
     };
   }
 
-  function labMapCellBaseView(roomId, excavated = false, plannedEntry = null, draftEntry = null, known = true, cell = null, map = null) {
+  function labMapCellBaseView(roomId, hasFloor = false, plannedEntry = null, draftEntry = null, known = true, cell = null, map = null, envelopeContext = null) {
     if (!known) {
       return {
         kind: "unknownDark",
@@ -54605,6 +54986,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const constructedWall = cell && map ? constructedWallAtCell(cell, map) : null;
     const constructedFloor = cell && map ? constructedFloorAtCell(cell, map) : null;
+    const surfaceGround = cell && map ? surfaceGroundAtCell(cell, map) : null;
+    const envelope = cell && map ? surfaceEnvelopeAtCell(cell, map, envelopeContext) : null;
     const structuralFailure = cell && map ? structuralFailureAtCell(cell, map) : null;
     const verticalConnector = cell && map
       ? verticalConnectorAtEndpoint(cell, map)
@@ -54615,7 +54998,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? sameMapCell(verticalConnector.lowerCell, cell) ? "rampUp" : "rampDown"
         : sameMapCell(verticalConnector.lowerCell, cell) ? "up" : "down"
       : ramp ? "ramp"
-      : excavated && cell && map && !labMapCellHasSupport(cell, map) ? "shaft" : "";
+      : hasFloor && cell && map && !labMapCellHasSupport(cell, map) ? "shaft" : "";
     if (constructedWall) {
       return {
         kind: "constructedWall",
@@ -54623,6 +55006,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         condition: constructedWall.condition,
         state: structureConditionBand(constructedWall.condition).toLowerCase(),
         attackTransmission: constructedWall.condition > 0 && constructedWall.condition < STRUCTURE_BREACH_THRESHOLD,
+        enclosure: envelope?.kind || "",
         supportStatus: structuralFailure?.status || "supported",
         spriteKey: `tile.wall.constructed.${constructedWall.materialId}.${structureConditionBand(constructedWall.condition).toLowerCase()}`
       };
@@ -54635,13 +55019,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         role: roomRole(roomId),
         smoothed,
         constructedFloor: constructedFloor?.materialId || "",
+        surface: Boolean(surfaceGround),
+        surfaceTerrainId: surfaceGround?.terrainId || "",
+        enclosure: envelope?.kind || "",
+        roofed: Boolean(envelope?.roofed),
+        openSky: Boolean(envelope?.openSky),
         verticalDirection,
         ramp: ramp ? { id: ramp.id, grade: ramp.grade, length: ramp.length, width: ramp.width, direction: ramp.direction, angleDegrees: ramp.angleDegrees, condition: ramp.condition } : null,
         supportStatus: structuralFailure?.status || "supported",
-        spriteKey: constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
+        spriteKey: surfaceGround
+          ? `tile.surface.${envelope?.kind || "outdoor"}.${constructedFloor ? "constructed" : surfaceGround.terrainId}`
+          : constructedFloor ? `tile.room.${roomRole(roomId)}.constructedFloor.${constructedFloor.materialId}` : smoothed ? `tile.room.${roomRole(roomId)}.smoothed` : `tile.room.${roomRole(roomId)}`
       };
     }
-    if (excavated) {
+    if (surfaceGround) {
+      return {
+        kind: "surface",
+        terrainId: surfaceGround.terrainId,
+        constructedFloor: constructedFloor?.materialId || "",
+        enclosure: envelope?.kind || "outdoor",
+        roofed: Boolean(envelope?.roofed),
+        openSky: Boolean(envelope?.openSky),
+        verticalDirection,
+        supportStatus: structuralFailure?.status || "supported",
+        spriteKey: `tile.surface.${envelope?.kind || "outdoor"}.${constructedFloor ? "constructed" : surfaceGround.terrainId}`
+      };
+    }
+    if (constructedFloor?.purpose === "roof") {
+      return {
+        kind: "roof",
+        materialId: constructedFloor.materialId,
+        constructedFloor: constructedFloor.materialId,
+        enclosure: "roof",
+        roofed: false,
+        openSky: true,
+        verticalDirection,
+        supportStatus: structuralFailure?.status || "supported",
+        spriteKey: `tile.roof.${constructedFloor.materialId}.${structureConditionBand(constructedFloor.condition).toLowerCase()}`
+      };
+    }
+    if (hasFloor) {
       const smoothed = Boolean(cell && (map?.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
       return {
         kind: "floor",
@@ -54652,6 +55069,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         supportStatus: structuralFailure?.status || "supported",
         spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
+    }
+    if (cell && map && cell.z >= map.surfaceZ) {
+      return { kind: "offsite", spriteKey: "tile.offsite" };
     }
     const smoothedWall = Boolean(cell && (map?.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
     const naturalCondition = cell && map ? naturalDamageAtCell(cell, map)?.condition ?? 100 : 100;
@@ -54790,7 +55210,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     knowledge,
     remembered,
     excavatedKeys,
-    terrainContext
+    terrainContext,
+    envelopeContext
   }) {
     const memory = remembered?.snapshot || remembered || null;
     const cellKnowledge = knowledge || {
@@ -54804,9 +55225,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const playerAuthored = Boolean(routeEntry || plannedEntry || draftEntry);
     const visible = currentKnowledge || Boolean(memory) || playerAuthored;
     const roomId = currentKnowledge ? labMapCellRoomId(cell, map) : String(memory?.roomId || "");
-    const excavated = currentKnowledge
-      ? labMapCellIsExcavated(cell, map, excavatedKeys)
-      : ["room", "floor"].includes(memory?.base?.kind);
+    const hasFloor = currentKnowledge
+      ? labMapCellHasFloor(cell, map, excavatedKeys)
+      : ["room", "floor", "surface", "roof"].includes(memory?.base?.kind);
     const door = currentKnowledge ? labMapDoorAtCell(cell, map) : null;
     const stateDoor = door ? doorFixtureState(door) || door : null;
     const scientistHere = currentKnowledge && sameMapCell(scientistCell, cell);
@@ -54834,7 +55255,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const base = visiblePlannedEntry || visibleDraftEntry
       ? labMapCellBaseView("", false, visiblePlannedEntry, visibleDraftEntry, true, cell, map)
       : currentKnowledge
-        ? labMapCellBaseView(roomId, excavated, null, null, true, cell, map)
+        ? labMapCellBaseView(roomId, hasFloor, null, null, true, cell, map, envelopeContext)
         : memory?.base || labMapCellBaseView("", false, null, null, false, cell, map);
     const terrainConnectivity = currentKnowledge
       ? terrainConnectivityViewAtCell(cell, terrainContext)
@@ -54898,7 +55319,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     const cursor = visible && sameMapCell(cursorCell, cell);
     const tooltipParts = currentKnowledge
-      ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry, excavatedKeys)
+      ? labMapCellTooltipParts(cell, map, visibleObjectEntry, visibleRouteEntry, visiblePlannedEntry, visibleDraftEntry, visibleIncidentEntry, visibleOverlayEntry, excavatedKeys, envelopeContext)
       : memory
         ? [
             `${cell.x}, ${cell.y}, Z ${cell.z}`,
@@ -55028,11 +55449,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (cellView.base.kind === "room") {
       classNames.push("room-cell", `room-${cellView.base.role}`);
+      if (cellView.base.surface) classNames.push("surface-cell", `surface-${cellView.base.surfaceTerrainId || "ground"}`, `enclosure-${cellView.base.enclosure || "interior"}`);
       if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
       if (cellView.base.smoothed) classNames.push("smoothed-floor-cell");
       if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
       if (cellView.base.supportStatus && cellView.base.supportStatus !== "supported") classNames.push(`structure-support-${cellView.base.supportStatus}`);
       dataset.mapRoom = cellView.base.roomId;
+      if (cellView.base.surface) {
+        dataset.mapSurface = cellView.base.surfaceTerrainId || "ground";
+        dataset.mapEnclosure = cellView.base.enclosure || "interior";
+      }
       if (cellView.base.ramp) dataset.mapRamp = cellView.base.ramp.id;
     } else if (cellView.base.kind === "floor") {
       classNames.push("floor-cell");
@@ -55042,6 +55468,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (cellView.base.supportStatus && cellView.base.supportStatus !== "supported") classNames.push(`structure-support-${cellView.base.supportStatus}`);
       dataset.mapFloor = "true";
       if (cellView.base.ramp) dataset.mapRamp = cellView.base.ramp.id;
+    } else if (cellView.base.kind === "surface") {
+      classNames.push("surface-cell", `surface-${cellView.base.terrainId || "ground"}`, `enclosure-${cellView.base.enclosure || "outdoor"}`);
+      if (cellView.base.constructedFloor) classNames.push("constructed-floor-cell", `constructed-floor-${cellView.base.constructedFloor}`);
+      if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
+      dataset.mapSurface = cellView.base.terrainId || "ground";
+      dataset.mapEnclosure = cellView.base.enclosure || "outdoor";
+    } else if (cellView.base.kind === "roof") {
+      classNames.push("roof-cell", `roof-${cellView.base.materialId || "constructed"}`);
+      if (cellView.base.verticalDirection) classNames.push("vertical-connector-cell", `vertical-${cellView.base.verticalDirection}-cell`);
+      dataset.mapRoof = cellView.base.materialId || "constructed";
+    } else if (cellView.base.kind === "offsite") {
+      classNames.push("offsite-cell");
+      dataset.mapOffsite = "true";
     } else if (cellView.base.kind === "constructedWall") {
       classNames.push("constructed-wall-cell", `constructed-wall-${cellView.base.materialId}`, `structure-${cellView.base.state}`);
       if (cellView.base.attackTransmission) classNames.push("attack-transmitting-breach");
@@ -55395,7 +55834,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
   }
 
-  function mapSceneLightingAtCell(cell, knowledge, map = ensureLabMap(), environments = null, solid = false) {
+  function mapSceneLightingAtCell(cell, knowledge, map = ensureLabMap(), environments = null, solid = false, envelopeContext = null) {
     if (!["current", "debug"].includes(knowledge?.state)) {
       return {
         band: knowledge?.state === "stale" ? "remembered" : "unknown",
@@ -55403,16 +55842,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         spectrum: "neutral"
       };
     }
-    const level = solid
+    const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
+    let level = solid
       ? Math.max(0, ...cardinalMapCells(cell)
         .map((neighbor) => (Number(environments?.[mapCellKey(neighbor)]?.lightLevel) || 0) * 0.85))
       : Number(environments?.[mapCellKey(cell)]?.lightLevel) || 0;
+    if (envelope.openSky) level = Math.max(level, surfaceDaylightIntensity(state.clock));
     const band = MapKnowledge.lightVisibilityBand(level);
     return {
       band: band.id,
       intensity: clamp(level / 100, 0, 1),
       visualRangeTiles: band.range,
-      spectrum: level > 0 ? "warm" : "neutral"
+      spectrum: level > 0 && envelope.openSky ? "daylight" : level > 0 ? "warm" : "neutral"
     };
   }
 
@@ -55617,7 +56058,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function mapSceneFeedbackEffectSeeds(map, options = {}) {
     const effects = [];
-    for (const event of mapFeedbackSnapshot()) {
+    const feedbackEvents = Array.isArray(options.feedbackEvents)
+      ? options.feedbackEvents
+      : mapFeedbackSnapshot();
+    for (const event of feedbackEvents) {
       const visibleCells = event.cells.filter((cell) => {
         const knowledge = mapSceneKnowledgeForRoom(labMapCellRoomId(cell, map), {
           ...options,
@@ -55685,6 +56129,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function buildLabMapView(map = ensureLabMap()) {
     const sceneBuildStartedAt = performance.now();
+    // Preserve feedback that was live when this frame began even when a busy
+    // scene build takes longer than a short effect's display duration.
+    const feedbackEvents = mapFeedbackSnapshot();
     const overlay = currentMapOverlayDef();
     const scientistCell = scientistMapCell();
     const fullReveal = mapFullRevealActive() || overlay.id === "debug";
@@ -55728,6 +56175,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? excavatedKeys
       : new Set([...excavatedKeys].filter((key) => perceivedCellKeys.has(key)));
     const compartmentInference = inferLabCompartments(map);
+    const envelopeContext = buildSurfaceEnvelopeContext(map);
     const terrainContext = buildTerrainConnectivityContext(map, {
       fullReveal,
       knownCellKeys,
@@ -55769,7 +56217,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           knowledge,
           remembered: observation,
           excavatedKeys,
-          terrainContext
+          terrainContext,
+          envelopeContext
         });
         cellView.compartmentId = compartmentInference.cellToCompartment.get(key) || "";
         cellView.environment = mapSceneEnvironmentAtCell(cell, cellView.roomId, known, {
@@ -55783,7 +56232,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           knowledge,
           map,
           sceneEnvironments,
-          cellView.base?.kind === "constructedWall"
+          cellView.base?.kind === "constructedWall",
+          envelopeContext
         );
         cellView.atmosphere = current || fullReveal ? cellView.environment?.atmosphere || null : null;
         sceneCells.push(cellView);
@@ -55817,7 +56267,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       effects: mapSceneEffectSeeds(visibleIncidents, {
         map,
         debug: fullReveal,
-        perceivedCellKeys
+        perceivedCellKeys,
+        feedbackEvents
       }),
       overlays: mapSceneOverlaySeeds(knowledgeFilteredOverlays),
       selection: { target: selectedTarget }
@@ -55841,7 +56292,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         canZoomOut: viewport.zoomIndex > minimumMapZoomIndex()
       },
       fullReveal,
-      headerMeta: `${map.width} x ${map.height} m grid; Z ${viewport.z}; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m; layer = ${formatDecimal(map.layerHeightM, 0)} m`,
+      headerMeta: `${map.width} x ${map.height} m grid; ${labMapLayerLabel(viewport.z, map)}; viewing ${viewport.width} x ${viewport.height}; 1 tile = ${formatDecimal(map.tileSizeM, 0)} m; layer = ${formatDecimal(map.layerHeightM, 0)} m`,
       cursor: cursorCell,
       cursorTarget: mapCursorTarget(scene),
       construction: normalizeConstructionState(state.construction, state),
@@ -56154,7 +56605,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
     const layerReadout = document.createElement("span");
     layerReadout.dataset.mapLayerReadout = "true";
-    layerReadout.textContent = `Z ${mapView.viewport.z}`;
+    layerReadout.textContent = labMapLayerLabel(mapView.viewport.z);
 
     const layerUp = document.createElement("button");
     layerUp.type = "button";

@@ -32,6 +32,7 @@ For story background, long-term systems, current design direction, and open ques
 - Icon-based management windows with accessible labels, keyboard shortcuts, and right-click back/dismiss behavior shared with Escape.
 - Saved player map knowledge with light-aware line-of-sight perception, physical room lighting, no magically equipped vat-start lamp, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
 - Seeded, lazily generated underground geology with distinct rock strata, hidden ore veins and environmental pockets, geology-aware excavation time and tool wear, physical rubble outputs, and derived room-expansion readiness.
+- A saved bounded surface parcel above the starter laboratory with first-class outdoor terrain, an empty roofed facility shell, an exterior door, a separate ordinary basement stair, derived interior/covered/outdoor envelope state, open-sky daylight, exterior atmospheric exchange, and knowledge-safe layer rendering.
 - Knowledge-safe physical lighting and selected temperature, humidity, ambient-mana, light, and aggregate airborne-contamination overlays shared by the DOM and Canvas renderers.
 - Renderer-neutral ground, world, and alert effects for known spills, structural failures, active abilities, incidents, and actionable task endpoints, with severity-ranked equipment status cues.
 - Persistent map accessibility controls for glyph-first rendering, reduced motion, high contrast, effect intensity, readable zoom floors, and scalable markers. Color-independent shapes and glyphs remain active in every mode.
@@ -67,7 +68,7 @@ npm run benchmark:map
 npm run benchmark:map:full
 ```
 
-The 14-test smoke command is the quick cross-system check for routine iteration. The 160-test correctness command is the focused Chromium regression suite and uses four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+The 14-test smoke command is the quick cross-system check for routine iteration. The 163-test correctness command is the focused Chromium regression suite and uses four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
 
 ## Project Files
 
