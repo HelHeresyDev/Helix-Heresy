@@ -39,12 +39,17 @@ function fakeImageFactory(calls, errorKey = '') {
 }
 
 test('@smoke development sprite manifest is valid and covers every asset category', () => {
-  expect(Manifest.manifest.version).toBe(3);
+  expect(Manifest.manifest.version).toBe(4);
   expect(SpriteAssets.validateManifest(Manifest.manifest)).toEqual([]);
   expect(new Set(Manifest.manifest.assets.map((entry) => entry.category))).toEqual(
     new Set(SpriteAssets.CATEGORIES)
   );
-  expect(Manifest.manifest.assets.every((entry) => entry.placeholder)).toBe(true);
+  expect(Manifest.manifest.assets.some((entry) => entry.placeholder)).toBe(true);
+  const authoredSurfaceAssets = Manifest.manifest.assets.filter((entry) =>
+    entry.source.path.startsWith('assets/sprites/development/chemistry-front/'));
+  expect(authoredSurfaceAssets.length).toBeGreaterThan(50);
+  expect(authoredSurfaceAssets.every((entry) => entry.placeholder === false
+    && entry.development === true && entry.generated === true)).toBe(true);
 
   const invalid = structuredClone(Manifest.manifest);
   invalid.assets[1].key = invalid.assets[0].key;
@@ -168,6 +173,38 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
   expect(Manifest.manifest.assets.find((entry) => entry.key === 'corpse.remains.large')?.logicalSize)
     .toEqual({ width: 2, height: 2, layers: 1 });
 
+  const authoredKeys = [
+    'tile.surface.outdoor.grass',
+    'tile.surface.interior.loading.constructed',
+    'tile.wall.surface.exterior.stoneBlocks.intact',
+    'tile.surface.vertical.down',
+    'fixture.surfaceServiceTrunk.tee',
+    'fixture.waterCisternPump',
+    'fixture.wetChemistryBench',
+    'fixture.reactionVessel',
+    'fixture.wasteTreatmentStation',
+    'door.surface.public.closed',
+    'door.surface.staff.open',
+    'door.surface.hazard.sealed',
+    'door.surface.basement.locked',
+    'door.surface.freight.breached',
+    'item.chemical.raw',
+    'item.chemical.packaged',
+    'item.surface.freight.lawful',
+    'item.chemical.spill.corrosive',
+    'effect.fume.exhaust',
+  ];
+  for (const key of authoredKeys) {
+    expect(loader.resolve(key), key).toMatchObject({ resolvedKey: key, resolution: 'exact', status: 'ready' });
+    expect(loader.resolve(key).entry).toMatchObject({ placeholder: false, development: true, generated: true });
+  }
+  expect(loader.resolve('fixture.waterCisternPump').entry.logicalSize).toEqual({ width: 1, height: 2, layers: 1 });
+  expect(loader.resolve('fixture.reactionVessel').entry.logicalSize).toEqual({ width: 2, height: 2, layers: 1 });
+  expect(loader.resolve('door.surface.freight.closed').entry).toMatchObject({
+    logicalSize: { width: 1, height: 3, layers: 1 },
+    placement: { anchorTile: { x: 0, y: 1, z: 0 }, rotation: 'none' },
+  });
+
   const failedCalls = [];
   const failedLoader = SpriteAssets.createAssetLoader(Manifest.manifest, {
     baseUrl: appUrl,
@@ -188,6 +225,62 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
     image: null,
     fallback: { category: 'item', type: 'glyph', glyph: 'P' },
   });
+});
+
+test('surface scene emits exact authored keys with footprint-safe geometry', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => {
+    const surface = window.helixHeresyDebug.surfaceMapSnapshot();
+    window.helixHeresyDebug.centerMapOnCell(surface.samples.interior);
+    window.helixHeresyDebug.setMapOverlay('debug');
+    window.helixHeresyDebug.setMapLayer(1);
+    window.helixHeresyDebug.setMapRenderer('canvas');
+    window.helixHeresyDebug.addChemicalRawByproduct('acid droplets', 1);
+  });
+
+  const snapshot = await page.evaluate(() => {
+    const scene = window.helixHeresyDebug.mapSceneSnapshot();
+    return {
+      cells: scene.cells.map((cell) => cell.base.spriteKey),
+      fixtures: scene.entities.filter((entity) => entity.kind === 'fixture').map((entity) => ({
+        subtype: entity.subtype,
+        visual: entity.visual.key,
+        bounds: entity.bounds,
+      })),
+      doors: scene.entities.filter((entity) => entity.kind === 'door').map((entity) => ({
+        id: entity.id,
+        visual: entity.visual.key,
+        bounds: entity.bounds,
+        orientation: entity.orientation,
+      })),
+      items: scene.entities.filter((entity) => entity.kind === 'itemStack').map((entity) => entity.visual.key),
+      renderer: window.helixHeresyDebug.mapRendererSnapshot(),
+    };
+  });
+
+  expect(snapshot.cells).toEqual(expect.arrayContaining([
+    'tile.surface.outdoor.gravel',
+    'tile.surface.interior.constructed',
+    'tile.surface.interior.loading.constructed',
+    'tile.surface.vertical.down',
+  ]));
+  for (const fixture of snapshot.fixtures.filter((entry) => [
+    'utilityServiceHead', 'surfaceUtilityRiser', 'surfaceServiceTrunk', 'waterCisternPump',
+    'wetChemistryBench', 'reactionVessel', 'fumeHood', 'analysisStation',
+    'packagingStation', 'wasteTreatmentStation',
+  ].includes(entry.subtype))) {
+    expect(fixture.visual, fixture.subtype).not.toBe('fixture.generic');
+    expect(fixture.visual, fixture.subtype).toMatch(/^fixture\./);
+  }
+  expect(snapshot.fixtures.find((entry) => entry.subtype === 'reactionVessel')).toMatchObject({ bounds: { width: 2, height: 2, depth: 1 } });
+  expect(snapshot.fixtures.find((entry) => entry.subtype === 'waterCisternPump')).toMatchObject({ bounds: { width: 1, height: 2, depth: 1 } });
+  expect(snapshot.doors.find((entry) => entry.id === 'door:door-surface-front')).toMatchObject({ visual: 'door.surface.public.closed' });
+  expect(snapshot.doors.find((entry) => entry.id === 'door:door-surface-loading')).toMatchObject({
+    visual: 'door.surface.freight.locked',
+    bounds: { width: 1, height: 3, depth: 1 },
+  });
+  expect(snapshot.items).toContain('item.chemical.raw');
+  expect(snapshot.renderer.canvas.spritePlacementMismatches).toBe(0);
 });
 
 test('browser loads declared images and Canvas reports authored sprites', async ({ page }) => {

@@ -52,6 +52,8 @@ test('manufactured contracts reserve and deliver one exact qualifying batch', as
   expect(offer).toBeTruthy();
   const batch = await page.evaluate((offerId) => window.helixHeresyDebug.addBlackMarketManufacturedBatch(offerId), offer.id);
   expect(batch).toBeTruthy();
+  expect(await page.evaluate((stackId) => window.helixHeresyDebug.physicalItemVisualSnapshot()
+    .find((stack) => stack.id === stackId)?.visualKey, batch.id)).toBe('item.chemical.packaged');
 
   expect(await page.evaluate(({ offerId, stackId }) => window.helixHeresyDebug.acceptMarketContract(offerId, 'standard', stackId), { offerId: offer.id, stackId: batch.id })).toBe(true);
   const accepted = await savedState(page);

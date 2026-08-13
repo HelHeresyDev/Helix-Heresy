@@ -55,11 +55,16 @@ test('@smoke market buys become paid inbound Loading Bay freight and affect publ
   const final = await page.evaluate(() => ({
     market: window.helixHeresyDebug.commodityMarketSnapshot(),
     stacks: window.helixHeresyDebug.physicalStockSnapshot().stacks,
+    visuals: window.helixHeresyDebug.physicalItemVisualSnapshot(),
     state: (JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state || {}),
   }));
   expect(final.market.consignments.at(-1).status).toBe('received');
   expect(final.market.businessReputation).toBeGreaterThan(0);
   expect(final.stacks.some((stack) => stack.section === 'resources' && stack.key === 'steelPanels' && stack.roomId === 'surfaceLoadingBay' && stack.quantity === 3)).toBe(true);
+  expect(final.visuals.find((stack) => stack.section === 'resources' && stack.key === 'steelPanels' && stack.roomId === 'surfaceLoadingBay')).toMatchObject({
+    tags: expect.arrayContaining(['legalfreight']),
+    visualKey: 'item.surface.freight.lawful',
+  });
   expect(final.state.taskHistory[0].type).toBe('commodityFreight');
 });
 
