@@ -674,7 +674,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Bench Operator", x: 0, y: 1 }, { id: "service", label: "Bench Service", x: 1, y: 1 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "wetChemistry"],
       infrastructure: { role: "processEquipment", networks: ["water", "drain", "electricity"], waterDemandPerHour: 4, drainDemandPerHour: 4, electricDemandPerHour: 1 },
       process: { hardUtilities: ["water", "drain"], degradedUtilities: ["electricity"], testSeconds: 55, spill: 0.35, fumes: 0.12 },
       workMinutes: 22,
@@ -690,7 +690,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Vessel Controls", x: 0, y: 2 }, { id: "service", label: "Vessel Service", x: 1, y: 2 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "chemicalReaction"],
       infrastructure: { role: "processEquipment", networks: ["electricity", "mana", "air"], powerModes: ["electric", "mana"], defaultPowerMode: "electric", electricDemandPerHour: 6, manaPerHour: 6, airDemandPerHour: 5 },
       process: { hardUtilities: ["power"], degradedUtilities: ["air"], testSeconds: 90, spill: 0.45, fumes: 0.7 },
       workMinutes: 28,
@@ -706,7 +706,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Hood Sash", x: 0, y: 1 }, { id: "service", label: "Hood Service", x: 1, y: 1 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "chemicalCondensation"],
       infrastructure: { role: "processEquipment", networks: ["electricity", "air"], powerModes: ["electric"], defaultPowerMode: "electric", electricDemandPerHour: 3, airDemandPerHour: 9 },
       process: { hardUtilities: ["electricity", "air"], degradedUtilities: [], testSeconds: 50, spill: 0.12, fumes: 0.25 },
       workMinutes: 24,
@@ -722,7 +722,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Analysis Controls", x: 0, y: 1 }, { id: "service", label: "Instrument Service", x: 1, y: 1 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "chemicalAnalysis"],
       infrastructure: { role: "processEquipment", networks: ["electricity", "mana"], powerModes: ["electric", "mana"], defaultPowerMode: "electric", electricDemandPerHour: 4, manaPerHour: 4 },
       process: { hardUtilities: ["power"], degradedUtilities: [], testSeconds: 65, spill: 0.08, fumes: 0.08 },
       workMinutes: 20,
@@ -738,7 +738,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Packaging Operator", x: 0, y: 1 }, { id: "service", label: "Packaging Service", x: 1, y: 1 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "chemicalPackaging"],
       infrastructure: { role: "processEquipment", networks: ["electricity"], powerModes: ["electric"], defaultPowerMode: "electric", electricDemandPerHour: 2 },
       process: { hardUtilities: ["electricity"], degradedUtilities: [], testSeconds: 45, spill: 0.1, fumes: 0.04 },
       workMinutes: 18,
@@ -754,7 +754,7 @@
       collision: "blocking",
       layer: "floor",
       ports: [{ id: "operator", label: "Treatment Controls", x: 0, y: 2 }, { id: "service", label: "Treatment Service", x: 1, y: 2 }],
-      capabilities: ["chemistryEquipment"],
+      capabilities: ["chemistryEquipment", "chemicalWasteTreatment"],
       infrastructure: { role: "processEquipment", networks: ["drain", "air", "electricity"], drainDemandPerHour: 7, airDemandPerHour: 6, electricDemandPerHour: 2 },
       process: { hardUtilities: ["drain", "air"], degradedUtilities: ["electricity"], testSeconds: 80, spill: 0.8, fumes: 0.45 },
       workMinutes: 26,
@@ -3431,6 +3431,13 @@
       initial: 4,
       description: "An eight-liter sealed jar reserved for mixed or poorly classified material."
     },
+    {
+      key: "sealedReagentBottle",
+      label: "Sealed reagent bottle",
+      category: "receptacles",
+      initial: 6,
+      description: "A clean labeled product bottle used to divide a finished bulk chemical batch into a traceable package."
+    },
     ...FIXTURE_CRAFTED_ITEM_DEFS,
     {
       key: "stainedLabCoat",
@@ -3602,7 +3609,102 @@
     }
   ];
   const INVENTORY_ITEM_BY_KEY = Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, item]));
+  const CHEMICAL_CLASSIFICATION_DEFS = {
+    unclassified: { label: "Unclassified", rank: 0 },
+    ordinary: { label: "Ordinary legal product", rank: 1 },
+    controlled: { label: "Controlled product", rank: 2 },
+    prohibited: { label: "Prohibited product", rank: 3 }
+  };
+  const CHEMICAL_PRODUCT_DEFS = [
+    { id: "clarifiedReagentBase", label: "Clarified Reagent Base", phase: "liquid", stage: "intermediate", tags: ["chemical", "intermediate", "carrier", "clarified"], baseClassification: "unclassified" },
+    { id: "mineralReagentFraction", label: "Mineral Reagent Fraction", phase: "powder", stage: "intermediate", tags: ["chemical", "intermediate", "active", "mineral", "dry"], baseClassification: "unclassified" },
+    { id: "condensedVolatileFraction", label: "Condensed Volatile Fraction", phase: "liquid", stage: "intermediate", tags: ["chemical", "intermediate", "active", "volatile", "condensed"], baseClassification: "controlled" },
+    { id: "stabilizedCatalystBase", label: "Stabilized Catalyst Base", phase: "liquid", stage: "intermediate", tags: ["chemical", "intermediate", "active", "stabilized"], baseClassification: "controlled" },
+    { id: "helixBufferSolution", label: "Helix Buffer Solution", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "legal-candidate", "buffer", "clean"], baseClassification: "ordinary" },
+    { id: "industrialCleaningConcentrate", label: "Industrial Cleaning Concentrate", phase: "liquid", stage: "finished", tags: ["chemical", "finished", "legal-candidate", "cleaner", "corrosive"], baseClassification: "controlled" },
+    { id: "treatedChemicalEffluent", label: "Treated Chemical Effluent", phase: "liquid", stage: "waste", tags: ["chemical", "waste", "treated"], baseClassification: "controlled" },
+    { id: "unfinishedChemicalMixture", label: "Unfinished Chemical Mixture", phase: "sludge", stage: "waste", tags: ["chemical", "waste", "unfinished"], baseClassification: "unclassified" }
+  ];
+  const CHEMICAL_PRODUCT_BY_ID = Object.fromEntries(CHEMICAL_PRODUCT_DEFS.map((product) => [product.id, product]));
+  const CHEMISTRY_RECIPE_DEFS = [
+    {
+      id: "chemistry:clarifyLiquid", label: "Clarify liquid byproduct", description: "Wash and clarify one unit of collected liquid or sludge into a traceable carrier fraction.",
+      chainId: "chemistry", stage: 1, chemistry: true, recipeVersion: 1, workstationCapabilities: ["wetChemistry"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(4),
+      inputSelectors: [{ id: "raw-liquid", label: "liquid or sludge natural byproduct", amount: 1, sourceKinds: ["rawByproduct"], phases: ["liquid", "sludge"] }],
+      output: { section: "chemicalBatches", key: "clarifiedReagentBase", quantity: 0.8 }, materialOptions: [{ id: "standard", label: "Standard clarification", costs: {}, composition: { primary: "chemical" }, score: 58 }],
+      byproducts: [{ section: "residue", key: "chemicalClarificationWaste", quantity: 1 }], basePurityGain: 12
+    },
+    {
+      id: "chemistry:recoverMineral", label: "Recover mineral fraction", description: "Separate one unit of dry collected byproduct into a purified mineral-active fraction.",
+      chainId: "chemistry", stage: 1, chemistry: true, recipeVersion: 1, workstationCapabilities: ["wetChemistry"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(5),
+      inputSelectors: [{ id: "raw-dry", label: "dry natural byproduct", amount: 1, sourceKinds: ["rawByproduct"], phases: ["powder", "solid", "dry"], anyTags: ["dry"] }],
+      output: { section: "chemicalBatches", key: "mineralReagentFraction", quantity: 0.7 }, materialOptions: [{ id: "standard", label: "Standard separation", costs: {}, composition: { primary: "chemical" }, score: 62 }],
+      byproducts: [{ section: "residue", key: "chemicalSeparationWaste", quantity: 1 }], basePurityGain: 16
+    },
+    {
+      id: "chemistry:condenseVapor", label: "Condense volatile byproduct", description: "Capture one unit of vapor-phase natural byproduct as a sealed volatile liquid fraction.",
+      chainId: "chemistry", stage: 1, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalCondensation"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(5),
+      inputSelectors: [{ id: "raw-vapor", label: "vapor natural byproduct", amount: 1, sourceKinds: ["rawByproduct"], phases: ["vapor"], anyTags: ["vapor"] }],
+      output: { section: "chemicalBatches", key: "condensedVolatileFraction", quantity: 0.65 }, materialOptions: [{ id: "standard", label: "Closed condensation", costs: {}, composition: { primary: "chemical" }, score: 64 }],
+      byproducts: [{ section: "residue", key: "spentCondenserResidue", quantity: 1 }], basePurityGain: 14
+    },
+    {
+      id: "chemistry:stabilizeReactive", label: "Stabilize reactive fraction", description: "Convert a hazardous raw or intermediate fraction into a more predictable catalyst base without erasing its ancestry.",
+      chainId: "chemistry", stage: 2, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(7),
+      inputSelectors: [{ id: "reactive", label: "corrosive, toxic, or arcane fraction", amount: 1, sourceKinds: ["rawByproduct", "chemicalBatch"], anyTags: ["corrosive", "toxic", "arcane", "volatile"] }],
+      output: { section: "chemicalBatches", key: "stabilizedCatalystBase", quantity: 0.75 }, materialOptions: [{ id: "standard", label: "Controlled stabilization", costs: { assayReagent: 1 }, composition: { primary: "chemical" }, score: 66 }],
+      byproducts: [{ section: "residue", key: "reactiveTreatmentWaste", quantity: 1 }], basePurityGain: 8
+    },
+    {
+      id: "chemistry:formulateBuffer", label: "Formulate Helix buffer solution", description: "Combine a clarified carrier and mineral-active fraction into a lawful bulk specialty buffer candidate.",
+      chainId: "chemistry", stage: 3, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(8),
+      inputSelectors: [
+        { id: "carrier", label: "clarified carrier batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["carrier"] },
+        { id: "active", label: "mineral active batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["mineral"] }
+      ],
+      output: { section: "chemicalBatches", key: "helixBufferSolution", quantity: 1 }, materialOptions: [{ id: "standard", label: "Declared buffer formulation", costs: {}, composition: { primary: "chemical" }, score: 72 }], basePurityGain: 4
+    },
+    {
+      id: "chemistry:formulateCleaner", label: "Formulate industrial cleaning concentrate", description: "Combine a clarified carrier and stabilized active fraction into a controlled bulk cleaning product.",
+      chainId: "chemistry", stage: 3, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalReaction"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(8),
+      inputSelectors: [
+        { id: "carrier", label: "clarified carrier batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["carrier"] },
+        { id: "active", label: "stabilized active batch", amount: 0.5, sourceKinds: ["chemicalBatch"], allTags: ["stabilized"] }
+      ],
+      output: { section: "chemicalBatches", key: "industrialCleaningConcentrate", quantity: 1 }, materialOptions: [{ id: "standard", label: "Declared cleaner formulation", costs: {}, composition: { primary: "chemical" }, score: 70 }], basePurityGain: 2
+    },
+    {
+      id: "chemistry:assayBatch", label: "Assay finished chemical batch", description: "Consume a representative sample and reagent to record a confidence-bounded assay against a traceable finished batch.",
+      chainId: "chemistry", stage: 4, chemistry: true, assay: true, recipeVersion: 1, workstationCapabilities: ["chemicalAnalysis"], toolRequirements: [], skillId: "materialsScience", minimumSkillLevel: 0, workSeconds: minutesToSeconds(4),
+      inputSelectors: [{ id: "finished", label: "unassayed finished bulk batch", amount: 1, sourceKinds: ["chemicalBatch"], allTags: ["finished"], excludeTags: ["assayed", "packaged"] }],
+      output: { section: "chemicalBatches", key: "inputProduct", quantity: 0.9, inheritProduct: true, addTags: ["assayed"] }, materialOptions: [{ id: "standard", label: "Standard bench assay", costs: { assayReagent: 1 }, composition: { primary: "chemical" }, score: 74 }],
+      byproducts: [{ section: "residue", key: "spentAssaySample", quantity: 1 }]
+    },
+    {
+      id: "chemistry:packageFinished", label: "Package finished chemical batch", description: "Divide one unit of an assayed finished bulk batch into a labeled, traceable reagent bottle.",
+      chainId: "chemistry", stage: 4, chemistry: true, packaging: true, recipeVersion: 1, workstationCapabilities: ["chemicalPackaging"], toolRequirements: [], skillId: "fabrication", minimumSkillLevel: 0, workSeconds: minutesToSeconds(3),
+      inputSelectors: [
+        { id: "finished", label: "assayed finished bulk batch", amount: 0.9, sourceKinds: ["chemicalBatch"], allTags: ["finished"], requireAssay: true, excludeTags: ["packaged"] },
+        { id: "package", label: "empty sealed reagent bottle", amount: 1, sourceKinds: ["inventory"], keys: ["sealedReagentBottle"] }
+      ],
+      output: { section: "chemicalBatches", key: "inputProduct", quantity: 0.9, inheritProduct: true, addTags: ["packaged"] }, materialOptions: [{ id: "bottle", label: "Sealed labeled bottle", costs: {}, composition: { primary: "glass", seal: "rubber" }, score: 76 }]
+    },
+    {
+      id: "chemistry:certifyBatch", label: "Issue truthful certificate of analysis", description: "Issue a certificate from the recorded assay for a sealed finished batch; no values can be edited or invented.",
+      chainId: "chemistry", stage: 5, chemistry: true, documentation: true, recipeVersion: 1, workstationCapabilities: ["chemicalPackaging"], toolRequirements: [], skillId: "materialsScience", minimumSkillLevel: 0, workSeconds: minutesToSeconds(2),
+      inputSelectors: [{ id: "packaged", label: "assayed packaged batch", amount: 0.9, sourceKinds: ["chemicalBatch"], allTags: ["finished", "packaged"], requireAssay: true, excludeTags: ["certified"] }],
+      output: { section: "chemicalBatches", key: "inputProduct", quantity: 0.9, inheritProduct: true, addTags: ["certified"] }, materialOptions: [{ id: "truthful", label: "Truthful certificate", costs: {}, composition: { primary: "paper" }, score: 80 }]
+    },
+    {
+      id: "chemistry:treatWaste", label: "Treat chemical waste", description: "Process one unit of chemical residue or waste into classified effluent and a smaller hazardous sludge stream.",
+      chainId: "chemistry", stage: 1, chemistry: true, recipeVersion: 1, workstationCapabilities: ["chemicalWasteTreatment"], toolRequirements: [], skillId: "alchemy", minimumSkillLevel: 0, workSeconds: minutesToSeconds(6),
+      inputSelectors: [{ id: "waste", label: "chemical waste or residue", amount: 1, sourceKinds: ["chemicalBatch", "residue"], anyTags: ["waste", "chemistry", "chemical"] }],
+      output: { section: "chemicalBatches", key: "treatedChemicalEffluent", quantity: 0.6 }, materialOptions: [{ id: "standard", label: "Neutralization treatment", costs: {}, composition: { primary: "chemical" }, score: 55 }],
+      byproducts: [{ section: "residue", key: "hazardousTreatmentSludge", quantity: 1 }], basePurityGain: 4
+    }
+  ];
   const PRODUCTION_RECIPE_DEFS = [
+    ...CHEMISTRY_RECIPE_DEFS,
     ...FIXTURE_DEFS.filter((fixture) => fixture.assemblyClass !== "siteBuilt").map((fixture) => ({
       id: `fixture:${fixture.id}`,
       label: `Fabricate ${FIXTURE_CRAFTED_ITEM_BY_TYPE[fixture.id].label}`,
@@ -6872,6 +6974,32 @@
         render();
         return true;
       },
+      prepareChemistryEquipment: () => {
+        for (const fixture of (state.fixtures || []).filter(chemistryProcessDef)) {
+          fixture.process.commissioned = true;
+          fixture.process.online = true;
+          fixture.process.calibrated = 82;
+          fixture.process.cleanliness = 88;
+          fixture.utility.enabled = true;
+        }
+        persist();
+        render();
+        return true;
+      },
+      addChemicalRawByproduct: (label, amount = 1) => {
+        const added = addCollectedByproduct(label, amount, "Debug chemistry input", SURFACE_FACILITY_ROOM_ID);
+        persist();
+        render();
+        return added;
+      },
+      chemicalBatchSnapshot: () => clonePlainObject({
+        batches: ensurePhysicalItemStacks().filter((stack) => stack.section === "chemicalBatches").map((stack) => ({
+          stackId: stack.id, quantity: stack.quantity, cell: stack.cell, reservedTaskId: stack.reservedTaskId, batch: stack.chemicalBatch
+        })),
+        bills: (state.productionBills || []).filter((bill) => productionRecipe(bill.recipeId)?.chemistry),
+        workpieces: (state.productionWorkpieces || []).filter((workpiece) => productionRecipe(workpiece.recipeId)?.chemistry),
+        activeTask: (state.tasks || []).find((task) => task.type === "productionWork") || null
+      }),
       setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
       addInfrastructureFixture: (typeId, cell, options = {}) => {
         const def = fixtureDef(typeId);
@@ -19778,6 +19906,7 @@
       return INVENTORY_ITEM_BY_KEY[key]?.category === "tools" ? { volumeL: 5, massKg: 3 } : { volumeL: 2, massKg: 1 };
     }
     if (section === "collectedByproducts") return { volumeL: 1, massKg: 1 };
+    if (section === "chemicalBatches") return { volumeL: 1, massKg: 1 };
     if (section === "specimenMaterials") return { volumeL: 1.25, massKg: 1.1 };
     return { volumeL: 1, massKg: 1 };
   }
@@ -19799,6 +19928,90 @@
         };
       })
       .filter(Boolean);
+  }
+
+  function normalizeChemicalLoads(candidate) {
+    const normalized = {};
+    for (const [key, amount] of Object.entries(candidate || {})) {
+      const id = String(key || "").trim();
+      const value = roundOutputValue(Math.max(0, Number(amount) || 0));
+      if (id && value > 0) normalized[id] = value;
+    }
+    return normalized;
+  }
+
+  function normalizeChemicalLineage(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((entry) => ({
+      stackId: String(entry?.stackId || ""),
+      batchId: String(entry?.batchId || ""),
+      productId: String(entry?.productId || entry?.key || ""),
+      label: String(entry?.label || entry?.productId || entry?.key || "input"),
+      amount: roundOutputValue(Math.max(0, Number(entry?.amount) || 0)),
+      phase: String(entry?.phase || "unknown"),
+      sourceSlimeIds: idList(entry?.sourceSlimeIds),
+      ancestorBatchIds: idList(entry?.ancestorBatchIds)
+    })).filter((entry) => entry.amount > 0 && (entry.stackId || entry.batchId || entry.productId));
+  }
+
+  function normalizeChemicalAssays(candidate) {
+    return (Array.isArray(candidate) ? candidate : []).map((assay, index) => ({
+      id: String(assay?.id || `assay-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, ""),
+      testedAt: finiteTime(assay?.testedAt, 0),
+      confidence: clamp(Number(assay?.confidence) || 0, 0, 100),
+      purityBand: String(assay?.purityBand || "Unknown"),
+      classification: CHEMICAL_CLASSIFICATION_DEFS[assay?.classification] ? assay.classification : "unclassified",
+      contaminantIds: idList(assay?.contaminantIds),
+      analyst: String(assay?.analyst || "scientist")
+    })).filter((assay) => assay.id);
+  }
+
+  function normalizeChemicalBatch(candidate, fallback = {}) {
+    if (!candidate && !fallback.productId) return null;
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const productId = CHEMICAL_PRODUCT_BY_ID[source.productId] ? source.productId : CHEMICAL_PRODUCT_BY_ID[fallback.productId] ? fallback.productId : "";
+    const product = CHEMICAL_PRODUCT_BY_ID[productId];
+    if (!product) return null;
+    const actual = CHEMICAL_CLASSIFICATION_DEFS[source.classification?.actual] ? source.classification.actual : product.baseClassification;
+    const known = CHEMICAL_CLASSIFICATION_DEFS[source.classification?.known] ? source.classification.known : "unclassified";
+    return {
+      id: String(source.id || fallback.id || "chemical-batch").replace(/[^a-zA-Z0-9:_-]/g, ""),
+      productId,
+      label: String(source.label || product.label),
+      recipeId: String(source.recipeId || fallback.recipeId || ""),
+      recipeVersion: Math.max(1, Math.floor(Number(source.recipeVersion) || 1)),
+      stage: String(source.stage || product.stage),
+      phase: String(source.phase || product.phase),
+      tags: [...new Set([...(product.tags || []), ...normalizeResidueTags(source.tags)])],
+      purity: clamp(Number(source.purity) || 0, 0, 100),
+      craftsmanship: clamp(Number(source.craftsmanship) || 0, 0, 100),
+      contaminants: normalizeChemicalLoads(source.contaminants),
+      hazards: normalizeResidueTags(source.hazards),
+      lineage: normalizeChemicalLineage(source.lineage),
+      ancestorBatchIds: idList(source.ancestorBatchIds),
+      sourceSlimeIds: idList(source.sourceSlimeIds),
+      sourceLabels: normalizeResidueSourceLabels(source.sourceLabels),
+      workstationId: String(source.workstationId || ""),
+      operatorId: String(source.operatorId || "scientist"),
+      assays: normalizeChemicalAssays(source.assays),
+      packaging: {
+        state: ["bulk", "packaged"].includes(source.packaging?.state) ? source.packaging.state : source.tags?.includes("packaged") ? "packaged" : "bulk",
+        containerKey: String(source.packaging?.containerKey || ""),
+        packagedAt: source.packaging?.packagedAt == null ? null : finiteTime(source.packaging.packagedAt, 0)
+      },
+      documentation: {
+        status: source.documentation?.status === "certified" ? "certified" : "none",
+        certificateId: String(source.documentation?.certificateId || ""),
+        issuedAt: source.documentation?.issuedAt == null ? null : finiteTime(source.documentation.issuedAt, 0),
+        assayId: String(source.documentation?.assayId || "")
+      },
+      classification: {
+        actual,
+        known,
+        reasons: (Array.isArray(source.classification?.reasons) ? source.classification.reasons : []).map(String).filter(Boolean).slice(0, 8)
+      },
+      outcomeSeed: String(source.outcomeSeed || ""),
+      producedAt: finiteTime(source.producedAt, 0)
+    };
   }
 
   function normalizeStockpileDesignation(candidate, index = 0) {
@@ -19830,11 +20043,11 @@
 
   function normalizePhysicalItemStack(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const section = ["resources", "inventory", "collectedByproducts", "specimenMaterials", "residue"].includes(candidate.section) ? candidate.section : "";
+    const section = ["resources", "inventory", "collectedByproducts", "specimenMaterials", "residue", "chemicalBatches"].includes(candidate.section) ? candidate.section : "";
     const key = String(candidate.key || "");
     const fixtureId = String(candidate.fixtureId || "").replace(/[^a-zA-Z0-9:_-]/g, "");
     const cell = cleanMapCell(candidate.cell) || labMapRoomAnchor(candidate.roomId || STORAGE_ROOM_ID);
-    const allowFractional = section === "collectedByproducts";
+    const allowFractional = ["collectedByproducts", "chemicalBatches"].includes(section);
     const quantity = allowFractional ? roundOutputValue(Math.max(0, Number(candidate.quantity) || 0)) : Math.max(0, Math.floor(Number(candidate.quantity) || 0));
     const knownQuantity = allowFractional
       ? roundOutputValue(Math.max(0, Number(candidate.knownQuantity ?? quantity) || 0))
@@ -19880,6 +20093,7 @@
       processingProgress: Math.max(0, Number(candidate.processingProgress) || 0),
       processingContributions: normalizeProcessingContributions(candidate.processingContributions),
       processingResidueProgress: Math.max(0, Number(candidate.processingResidueProgress) || 0),
+      chemicalBatch: normalizeChemicalBatch(candidate.chemicalBatch, { productId: section === "chemicalBatches" ? key : "", id: candidate.id }),
       createdAt: finiteTime(candidate.createdAt, 0),
       updatedAt: finiteTime(candidate.updatedAt, candidate.createdAt || 0)
     };
@@ -20223,6 +20437,7 @@
     if (stack?.section === "resources") return resourceLabel(stack.key);
     if (stack?.section === "inventory") return inventoryItemLabel(stack.key);
     if (stack?.section === "specimenMaterials") return state.specimenMaterials?.[stack.key]?.label || stack.key;
+    if (stack?.section === "chemicalBatches") return stack.chemicalBatch?.label || CHEMICAL_PRODUCT_BY_ID[stack.key]?.label || stack.key;
     if (stack?.section === "residue") return feedingResidueLabel(stack.key);
     return stack?.key || "Supplies";
   }
@@ -20413,7 +20628,7 @@
   }
 
   function createPhysicalItemStack(section, key, quantity, location, options = {}) {
-    const allowFractional = section === "collectedByproducts";
+    const allowFractional = ["collectedByproducts", "chemicalBatches"].includes(section);
     const amount = allowFractional ? roundOutputValue(quantity) : Math.max(0, Math.floor(quantity));
     if (amount <= 0) return null;
     const metrics = physicalItemUnitMetrics(section, key);
@@ -20456,6 +20671,7 @@
       processingProgress: Math.max(0, Number(options.processingProgress) || 0),
       processingContributions: normalizeProcessingContributions(options.processingContributions),
       processingResidueProgress: Math.max(0, Number(options.processingResidueProgress) || 0),
+      chemicalBatch: normalizeChemicalBatch(options.chemicalBatch, { productId: section === "chemicalBatches" ? key : "", id: options.chemicalBatch?.id }),
       createdAt: state.clock,
       updatedAt: state.clock
     };
@@ -20875,6 +21091,7 @@
       pausedByParent: Boolean(candidate.pausedByParent),
       scope: candidate.scope === "workstation" ? "workstation" : "global",
       workstationId: String(candidate.workstationId || ""),
+      inputStackId: String(candidate.inputStackId || ""),
       mode,
       quantity: mode === "once" ? 1 : quantity,
       targetQuantity: Math.max(1, Math.floor(Number(candidate.targetQuantity) || quantity)),
@@ -20917,6 +21134,30 @@
       craftsmanship: clamp(Number(candidate.craftsmanship) || 0, 0, 100),
       inputQuality: clamp(Number(candidate.inputQuality) || 0, 0, 100),
       criticalInputQuality: clamp(Number(candidate.criticalInputQuality) || 0, 0, 100),
+      chemicalInputs: normalizeChemicalLineage(candidate.chemicalInputs),
+      chemicalAncestorBatchIds: idList(candidate.chemicalAncestorBatchIds),
+      chemicalSourceSlimeIds: idList(candidate.chemicalSourceSlimeIds),
+      chemicalSourceLabels: normalizeResidueSourceLabels(candidate.chemicalSourceLabels),
+      chemicalInputTags: normalizeResidueTags(candidate.chemicalInputTags),
+      chemicalContaminants: normalizeChemicalLoads(candidate.chemicalContaminants),
+      chemicalHazards: normalizeResidueTags(candidate.chemicalHazards),
+      inheritedAssays: normalizeChemicalAssays(candidate.inheritedAssays),
+      inputProductId: String(candidate.inputProductId || ""),
+      inputBatchId: String(candidate.inputBatchId || ""),
+      inputRecipeId: String(candidate.inputRecipeId || ""),
+      inputRecipeVersion: Math.max(1, Math.floor(Number(candidate.inputRecipeVersion) || 1)),
+      inputProducedAt: candidate.inputProducedAt == null ? null : finiteTime(candidate.inputProducedAt, 0),
+      inputOutcomeSeed: String(candidate.inputOutcomeSeed || ""),
+      inputBatchTags: normalizeResidueTags(candidate.inputBatchTags),
+      inputOriginalLineage: normalizeChemicalLineage(candidate.inputOriginalLineage),
+      inputOriginalCraftsmanship: clamp(Number(candidate.inputOriginalCraftsmanship) || 0, 0, 100),
+      inputWorkstationId: String(candidate.inputWorkstationId || ""),
+      inputOperatorId: String(candidate.inputOperatorId || "scientist"),
+      inputActualClassification: CHEMICAL_CLASSIFICATION_DEFS[candidate.inputActualClassification] ? candidate.inputActualClassification : "unclassified",
+      inputClassificationReasons: (Array.isArray(candidate.inputClassificationReasons) ? candidate.inputClassificationReasons : []).map(String).filter(Boolean).slice(0, 8),
+      inputPackagedAt: candidate.inputPackagedAt == null ? null : finiteTime(candidate.inputPackagedAt, 0),
+      inputContainerKey: String(candidate.inputContainerKey || ""),
+      outcomeSeed: String(candidate.outcomeSeed || ""),
       outputStackId: String(candidate.outputStackId || ""),
       scrapStackId: String(candidate.scrapStackId || ""),
       byproductStackIds: idList(candidate.byproductStackIds),
@@ -21077,6 +21318,7 @@
       if (!def || fixture.condition <= 0 || fixture.operationalState !== "operational") return false;
       if (bill?.scope === "workstation" && fixture.id !== bill.workstationId) return false;
       if (!(recipe.workstationCapabilities || []).every((capability) => def.capabilities.includes(capability))) return false;
+      if (recipe.chemistry && (!fixture.process?.commissioned || !fixture.process?.online || fixture.utility?.enabled === false || !chemistryProcessReadiness(fixture).operational)) return false;
       const research = ensureResearchState();
       if (research.activeProjectId && research.projects[research.activeProjectId]?.workstationId === fixture.id) return false;
       if (!fixtureAccessCells(fixture).length) return false;
@@ -21105,7 +21347,8 @@
   }
 
   function productionOutputLabel(output) {
-    return INVENTORY_ITEM_BY_KEY[output?.key]?.label || RESOURCE_BY_KEY[output?.key]?.label || output?.key || "output";
+    if (output?.inheritProduct) return "same traceable chemical batch";
+    return CHEMICAL_PRODUCT_BY_ID[output?.key]?.label || INVENTORY_ITEM_BY_KEY[output?.key]?.label || RESOURCE_BY_KEY[output?.key]?.label || output?.key || "output";
   }
 
   function productionAvailableResourceAmount(key) {
@@ -21262,7 +21505,53 @@
     };
   }
 
-  function productionMaterialRoute(costs, startCell, workstationCell) {
+  function productionChemicalSourceEntries() {
+    return ensurePhysicalItemStacks().flatMap((stack) => {
+      if (stack.reservedTaskId || stack.carriedBy || (stack.fixtureId && !storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))) return [];
+      if (stack.section === "chemicalBatches" && stack.chemicalBatch) {
+        const batch = stack.chemicalBatch;
+        return [{
+          stack, entryId: "batch", sourceKind: "chemicalBatch", key: batch.productId, label: batch.label,
+          amount: stack.quantity, phase: batch.phase, tags: [...new Set([...(batch.tags || []), ...(batch.hazards || [])])],
+          chemicalBatch: batch, retainContainer: false
+        }];
+      }
+      if (stack.section === "residue") {
+        return [{ stack, entryId: "residue", sourceKind: "residue", key: stack.key, label: physicalStackLabel(stack), amount: stack.quantity,
+          phase: "solid", tags: [...new Set(["residue", ...(stack.tags || [])])], chemicalBatch: null, retainContainer: false }];
+      }
+      if (stack.section === "inventory") {
+        const contents = normalizePhysicalContents(stack.contents).flatMap((content, contentIndex) => content.kind === "byproduct" ? [{
+          stack, entryId: `content:${contentIndex}`, contentIndex, sourceKind: "rawByproduct", key: content.key, label: content.label,
+          amount: content.amount, phase: content.phase, tags: [...new Set(["byproduct", ...(content.tags || []), ...blackMarketByproductTags(content.label)])],
+          chemicalBatch: null, retainContainer: true
+        }] : []);
+        if (contents.length) return contents;
+        return [{ stack, entryId: "inventory", sourceKind: "inventory", key: stack.key, label: physicalStackLabel(stack), amount: stack.quantity,
+          phase: "solid", tags: ["inventory"], chemicalBatch: null, retainContainer: false }];
+      }
+      if (stack.section === "collectedByproducts") {
+        return [{ stack, entryId: "raw", sourceKind: "rawByproduct", key: stack.key, label: physicalStackLabel(stack), amount: stack.quantity,
+          phase: stack.form === "vapor" ? "vapor" : stack.form === "spill" ? "liquid" : "solid",
+          tags: [...new Set(["byproduct", ...(stack.tags || []), ...blackMarketByproductTags(stack.key)])], chemicalBatch: null, retainContainer: false }];
+      }
+      return [];
+    });
+  }
+
+  function productionChemicalEntryMatches(entry, selector) {
+    const tags = new Set(entry.tags || []);
+    if (selector.sourceKinds?.length && !selector.sourceKinds.includes(entry.sourceKind)) return false;
+    if (selector.keys?.length && !selector.keys.includes(entry.key)) return false;
+    if (selector.phases?.length && !selector.phases.includes(entry.phase)) return false;
+    if (selector.allTags?.some((tag) => !tags.has(tag))) return false;
+    if (selector.anyTags?.length && !selector.anyTags.some((tag) => tags.has(tag))) return false;
+    if (selector.excludeTags?.some((tag) => tags.has(tag))) return false;
+    if (selector.requireAssay && !(entry.chemicalBatch?.assays || []).length) return false;
+    return true;
+  }
+
+  function productionMaterialRoute(costs, startCell, workstationCell, recipe = null, bill = null) {
     const reservations = [];
     let path = [startCell];
     let cursor = startCell;
@@ -21284,6 +21573,36 @@
       }
       if (remaining > 0) return { ok: false, reason: `Not enough reachable ${resourceLabel(key)} is available.`, reservations: [], path: [] };
     }
+    const remainingByEntry = new Map(productionChemicalSourceEntries().map((entry) => [`${entry.stack.id}:${entry.entryId}`, entry.amount]));
+    for (const [selectorIndex, selector] of (recipe?.inputSelectors || []).entries()) {
+      let remaining = Math.max(0, Number(selector.amount) || 0);
+      const candidates = productionChemicalSourceEntries()
+        .filter((entry) => productionChemicalEntryMatches(entry, selector))
+        .filter((entry) => !bill?.inputStackId || selectorIndex > 0 || entry.stack.id === bill.inputStackId)
+        .map((entry) => {
+          const accessCell = stockpileHaulAccessCell(entry.stack);
+          const route = accessCell ? labMapPathBetweenCells(cursor, accessCell, { map: ensureLabMap(), ignoreDoors: true }) : [];
+          return { entry, accessCell, route };
+        }).filter((candidate) => candidate.route.length)
+        .sort((a, b) => a.route.length - b.route.length || a.entry.stack.observedAt - b.entry.stack.observedAt);
+      for (const candidate of candidates) {
+        if (remaining <= 0) break;
+        const entryKey = `${candidate.entry.stack.id}:${candidate.entry.entryId}`;
+        const available = remainingByEntry.get(entryKey) || 0;
+        if (available <= 0) continue;
+        const quantity = roundOutputValue(Math.min(available, remaining));
+        reservations.push({
+          stackId: candidate.entry.stack.id, key: candidate.entry.key, quantity, sourceCell: candidate.accessCell,
+          selectorId: selector.id, entryId: candidate.entry.entryId, contentIndex: candidate.entry.contentIndex,
+          sourceKind: candidate.entry.sourceKind, retainContainer: candidate.entry.retainContainer
+        });
+        remainingByEntry.set(entryKey, roundOutputValue(available - quantity));
+        path = appendMapPath(path, candidate.route);
+        cursor = candidate.accessCell;
+        remaining = roundOutputValue(remaining - quantity);
+      }
+      if (remaining > 0) return { ok: false, reason: `No reachable ${selector.label || selector.id || "compatible chemical input"} satisfies the required phase and tags.`, reservations: [], path: [] };
+    }
     const toWorkstation = labMapPathBetweenCells(cursor, workstationCell, { map: ensureLabMap(), ignoreDoors: true });
     if (!toWorkstation.length) return { ok: false, reason: "No route connects the materials to the selected workstation.", reservations: [], path: [] };
     return { ok: true, reason: "", reservations, path: appendMapPath(path, toWorkstation) };
@@ -21297,6 +21616,7 @@
     const workstations = productionWorkstations(recipe, bill).filter((fixture) => !paused || fixture.id === paused.workstationId);
     if (!workstations.length) return { ok: false, reason: bill.scope === "workstation" ? "The assigned workstation is unavailable or inaccessible." : "No compatible operational workstation is available." };
     const plans = [];
+    const failureReasons = [];
     for (const workstation of workstations) {
       const accessCells = fixtureAccessCells(workstation).map((port) => port.cell);
       for (const materialOption of paused ? [productionAllowedMaterialOptions(bill, recipe).find((option) => option.id === paused.materialOptionId) || productionAllowedMaterialOptions(bill, recipe)[0]] : productionAllowedMaterialOptions(bill, recipe)) {
@@ -21309,8 +21629,11 @@
                 const route = labMapPathBetweenCells(toolPlan.endpoint, accessCell, { map: ensureLabMap(), ignoreDoors: true });
                 return route.length ? { ok: true, reservations: [], path: appendMapPath(toolPlan.path, route), reason: "" } : { ok: false, reason: "Workpiece is unreachable." };
               })()
-            : productionMaterialRoute(materialOption.costs, toolPlan.endpoint, accessCell);
-          if (!materials.ok) continue;
+            : productionMaterialRoute(materialOption.costs, toolPlan.endpoint, accessCell, recipe, bill);
+          if (!materials.ok) {
+            if (materials.reason) failureReasons.push(materials.reason);
+            continue;
+          }
           const path = paused ? materials.path : appendMapPath(toolPlan.path, materials.path);
           plans.push({
             ok: true,
@@ -21337,7 +21660,7 @@
       }
       const options = productionAllowedMaterialOptions(bill, recipe);
       const missing = options.map((option) => resourceBlockReason(option.costs)).filter(Boolean)[0];
-      return { ok: false, reason: missing || "Required tools, materials, or a route to the workstation are unavailable." };
+      return { ok: false, reason: missing || failureReasons[0] || "Required tools, materials, or a route to the workstation are unavailable." };
     }
     return plans.sort((a, b) => bill.materialStrategy === "best"
       ? b.materialScore - a.materialScore || a.score - b.score
@@ -21346,7 +21669,7 @@
 
   function reserveProductionMaterialSlices(reservations, taskId) {
     const requestedByStack = new Map();
-    for (const reservation of reservations || []) {
+    for (const reservation of (reservations || []).filter((entry) => !entry.retainContainer)) {
       requestedByStack.set(reservation.stackId, (requestedByStack.get(reservation.stackId) || 0) + reservation.quantity);
     }
     for (const [stackId, quantity] of requestedByStack) {
@@ -21354,7 +21677,14 @@
       if (!stack || stack.reservedTaskId || stack.quantity < quantity) return null;
     }
     const reservedIds = [];
-    for (const reservation of reservations || []) {
+    for (const reservation of (reservations || []).filter((entry) => entry.retainContainer)) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === reservation.stackId);
+      const content = normalizePhysicalContents(stack?.contents)[reservation.contentIndex];
+      if (!stack || stack.reservedTaskId || !content || content.amount < reservation.quantity) return null;
+      stack.reservedTaskId = taskId;
+      if (!reservedIds.includes(stack.id)) reservedIds.push(stack.id);
+    }
+    for (const reservation of (reservations || []).filter((entry) => !entry.retainContainer)) {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === reservation.stackId);
       if (!stack || stack.reservedTaskId || stack.quantity < reservation.quantity) return null;
       if (stack.quantity === reservation.quantity) {
@@ -21373,10 +21703,94 @@
         };
         ensurePhysicalItemStacks().push(reserved);
         reservedIds.push(reserved.id);
+        reservation.stackId = reserved.id;
       }
     }
     syncPhysicalReadModels();
     return reservedIds;
+  }
+
+  function productionChemicalInputSummary(reservations) {
+    const chemicalInputs = [];
+    const ancestorBatchIds = new Set();
+    const sourceSlimeIds = new Set();
+    const sourceLabels = new Set();
+    const tags = new Set();
+    const hazards = new Set();
+    const contaminants = {};
+    const inheritedAssays = [];
+    let inputProductId = "";
+    let inputBatchId = "";
+    let inputRecipeId = "";
+    let inputRecipeVersion = 1;
+    let inputProducedAt = null;
+    let inputOutcomeSeed = "";
+    let inputBatchTags = [];
+    let inputOriginalLineage = [];
+    let inputOriginalCraftsmanship = 0;
+    let inputWorkstationId = "";
+    let inputOperatorId = "scientist";
+    let inputActualClassification = "unclassified";
+    let inputClassificationReasons = [];
+    let inputPackagedAt = null;
+    let inputContainerKey = "";
+    let weightedPurity = 0;
+    let total = 0;
+    for (const reservation of (reservations || []).filter((entry) => entry.selectorId)) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === reservation.stackId);
+      if (!stack) continue;
+      const batch = stack.chemicalBatch;
+      const content = reservation.retainContainer ? normalizePhysicalContents(stack.contents)[reservation.contentIndex] : null;
+      const label = batch?.label || content?.label || physicalStackLabel(stack);
+      const phase = batch?.phase || content?.phase || "solid";
+      const entryTags = batch ? [...(batch.tags || []), ...(batch.hazards || [])] : [...(content?.tags || stack.tags || []), ...blackMarketByproductTags(label)];
+      const purity = batch?.purity || 45;
+      chemicalInputs.push({
+        stackId: stack.id, batchId: batch?.id || "", productId: batch?.productId || content?.key || stack.key,
+        label, amount: reservation.quantity, phase,
+        sourceSlimeIds: batch?.sourceSlimeIds || stack.sourceSlimeIds || [],
+        ancestorBatchIds: batch ? [batch.id, ...(batch.ancestorBatchIds || [])] : []
+      });
+      if (batch && !inputProductId) {
+        inputProductId = batch.productId;
+        inputBatchId = batch.id;
+        inputRecipeId = batch.recipeId;
+        inputRecipeVersion = batch.recipeVersion;
+        inputProducedAt = batch.producedAt;
+        inputOutcomeSeed = batch.outcomeSeed;
+        inputBatchTags = batch.tags;
+        inputOriginalLineage = batch.lineage;
+        inputOriginalCraftsmanship = batch.craftsmanship;
+        inputWorkstationId = batch.workstationId;
+        inputOperatorId = batch.operatorId;
+        inputActualClassification = batch.classification.actual;
+        inputClassificationReasons = batch.classification.reasons;
+      }
+      if (batch?.packaging?.state === "packaged" && inputPackagedAt == null) {
+        inputPackagedAt = batch.packaging.packagedAt;
+        inputContainerKey = batch.packaging.containerKey;
+      }
+      for (const id of batch ? [batch.id, ...(batch.ancestorBatchIds || [])] : []) ancestorBatchIds.add(id);
+      for (const id of batch?.sourceSlimeIds || stack.sourceSlimeIds || []) sourceSlimeIds.add(id);
+      for (const source of batch?.sourceLabels || stack.sourceLabels || [label]) sourceLabels.add(source);
+      for (const tag of entryTags) tags.add(tag);
+      for (const hazard of batch?.hazards || entryTags.filter((tag) => ["corrosive", "toxic", "arcane", "volatile"].includes(tag))) hazards.add(hazard);
+      for (const [key, amount] of Object.entries(batch?.contaminants || {})) contaminants[key] = roundOutputValue((contaminants[key] || 0) + amount * reservation.quantity);
+      for (const assay of batch?.assays || []) inheritedAssays.push(assay);
+      weightedPurity += purity * reservation.quantity;
+      total += reservation.quantity;
+    }
+    return {
+      chemicalInputs, chemicalAncestorBatchIds: [...ancestorBatchIds], chemicalSourceSlimeIds: [...sourceSlimeIds],
+      chemicalSourceLabels: [...sourceLabels], chemicalInputTags: [...tags], chemicalHazards: [...hazards],
+      chemicalContaminants: contaminants, inheritedAssays, inputProductId,
+      inputBatchId, inputRecipeId, inputRecipeVersion, inputProducedAt, inputOutcomeSeed,
+      inputBatchTags, inputOriginalLineage, inputOriginalCraftsmanship,
+      inputWorkstationId, inputOperatorId,
+      inputActualClassification, inputClassificationReasons,
+      inputPackagedAt, inputContainerKey,
+      chemicalInputPurity: total ? weightedPurity / total : 0
+    };
   }
 
   function productionReservationInputSummary(stackIds, recipe, materialOption) {
@@ -21414,7 +21828,18 @@
   }
 
   function consumeProductionMaterialReservations(task) {
-    const ids = new Set(task?.data?.reservedStackIds || []);
+    const retained = new Set((task?.data?.inputReservations || []).filter((entry) => entry.retainContainer).map((entry) => entry.stackId));
+    for (const reservation of (task?.data?.inputReservations || []).filter((entry) => entry.retainContainer)) {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === reservation.stackId);
+      if (!stack) continue;
+      const contents = normalizePhysicalContents(stack.contents);
+      const content = contents[reservation.contentIndex];
+      if (content) content.amount = roundOutputValue(Math.max(0, content.amount - reservation.quantity));
+      stack.contents = contents.filter((entry) => entry.amount > 0);
+      stack.reservedTaskId = "";
+      stack.updatedAt = state.clock;
+    }
+    const ids = new Set((task?.data?.reservedStackIds || []).filter((id) => !retained.has(id)));
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => !ids.has(stack.id));
     syncPhysicalReadModels();
   }
@@ -21427,6 +21852,7 @@
       recipeId: recipe.id,
       scope: options.scope,
       workstationId: options.workstationId,
+      inputStackId: options.inputStackId,
       mode: options.mode,
       quantity: options.quantity,
       targetQuantity: options.targetQuantity,
@@ -21465,6 +21891,20 @@
     const inputSummary = plan.workpiece
       ? { inputQuality: plan.workpiece.inputQuality, criticalInputQuality: plan.workpiece.criticalInputQuality, materialComposition: plan.workpiece.materialComposition }
       : productionReservationInputSummary(reservedStackIds, plan.recipe, plan.materialOption);
+    const chemicalSummary = plan.workpiece ? {
+      chemicalInputs: plan.workpiece.chemicalInputs, chemicalAncestorBatchIds: plan.workpiece.chemicalAncestorBatchIds,
+      chemicalSourceSlimeIds: plan.workpiece.chemicalSourceSlimeIds, chemicalSourceLabels: plan.workpiece.chemicalSourceLabels,
+      chemicalInputTags: plan.workpiece.chemicalInputTags, chemicalHazards: plan.workpiece.chemicalHazards,
+      chemicalContaminants: plan.workpiece.chemicalContaminants, inheritedAssays: plan.workpiece.inheritedAssays,
+      inputProductId: plan.workpiece.inputProductId, chemicalInputPurity: plan.workpiece.inputQuality,
+      inputBatchId: plan.workpiece.inputBatchId, inputRecipeId: plan.workpiece.inputRecipeId,
+      inputRecipeVersion: plan.workpiece.inputRecipeVersion, inputProducedAt: plan.workpiece.inputProducedAt,
+      inputOutcomeSeed: plan.workpiece.inputOutcomeSeed, inputBatchTags: plan.workpiece.inputBatchTags,
+      inputOriginalLineage: plan.workpiece.inputOriginalLineage, inputOriginalCraftsmanship: plan.workpiece.inputOriginalCraftsmanship,
+      inputWorkstationId: plan.workpiece.inputWorkstationId, inputOperatorId: plan.workpiece.inputOperatorId,
+      inputActualClassification: plan.workpiece.inputActualClassification, inputClassificationReasons: plan.workpiece.inputClassificationReasons,
+      inputPackagedAt: plan.workpiece.inputPackagedAt, inputContainerKey: plan.workpiece.inputContainerKey
+    } : productionChemicalInputSummary(plan.reservations);
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
     const requiredSeconds = plan.workpiece?.requiredSeconds || plan.recipe.workSeconds;
@@ -21485,8 +21925,10 @@
         materialComposition: inputSummary.materialComposition,
         inputQuality: inputSummary.inputQuality,
         criticalInputQuality: inputSummary.criticalInputQuality,
+        ...chemicalSummary,
         resourceCosts: plan.materialOption.costs,
         reservedStackIds,
+        inputReservations: plan.reservations,
         mapPath: plan.path,
         route: roomsFromMapPath(plan.path),
         toCell: plan.accessCell,
@@ -21536,6 +21978,34 @@
       inputCosts: task.data.resourceCosts,
       inputQuality: task.data.inputQuality,
       criticalInputQuality: task.data.criticalInputQuality,
+      chemicalInputs: task.data.chemicalInputs,
+      chemicalAncestorBatchIds: task.data.chemicalAncestorBatchIds,
+      chemicalSourceSlimeIds: task.data.chemicalSourceSlimeIds,
+      chemicalSourceLabels: task.data.chemicalSourceLabels,
+      chemicalInputTags: task.data.chemicalInputTags,
+      chemicalContaminants: task.data.chemicalContaminants,
+      chemicalHazards: task.data.chemicalHazards,
+      inheritedAssays: task.data.inheritedAssays,
+      inputProductId: task.data.inputProductId,
+      inputBatchId: task.data.inputBatchId,
+      inputRecipeId: task.data.inputRecipeId,
+      inputRecipeVersion: task.data.inputRecipeVersion,
+      inputProducedAt: task.data.inputProducedAt,
+      inputOutcomeSeed: task.data.inputOutcomeSeed,
+      inputBatchTags: task.data.inputBatchTags,
+      inputOriginalLineage: task.data.inputOriginalLineage,
+      inputOriginalCraftsmanship: task.data.inputOriginalCraftsmanship,
+      inputWorkstationId: task.data.inputWorkstationId,
+      inputOperatorId: task.data.inputOperatorId,
+      inputActualClassification: task.data.inputActualClassification,
+      inputClassificationReasons: task.data.inputClassificationReasons,
+      inputPackagedAt: task.data.inputPackagedAt,
+      inputContainerKey: task.data.inputContainerKey,
+      outcomeSeed: `${state.seed}:chemistry:${task.id}:${state.clock}`,
+      ...(recipe.chemistry && task.data.chemicalInputPurity > 0 ? {
+        inputQuality: task.data.chemicalInputPurity,
+        criticalInputQuality: Math.min(task.data.chemicalInputPurity, task.data.criticalInputQuality || 100)
+      } : {}),
       progressSeconds: 0,
       requiredSeconds: recipe.workSeconds,
       status: "working",
@@ -21578,9 +22048,110 @@
     const criticalInputQuality = workpiece.criticalInputQuality || inputQuality;
     const rng = seedRng(`${state.seed}:craftsmanship:${workpiece.id}:${task.id}`);
     const variation = (rng() - 0.5) * 8;
+    const chemistryProcess = recipe?.chemistry && workstation?.process
+      ? ((workstation.process.calibrated || 0) + (workstation.process.cleanliness || 0)) * 0.08
+      : 0;
     const processQuality = 18 + Math.min(26, skill * 0.52) + toolQuality * 0.16
-      + (workstation?.condition || 0) * 0.1 + inputQuality * 0.28 + variation;
+      + (workstation?.condition || 0) * 0.1 + inputQuality * 0.28 + chemistryProcess + variation;
     return clamp(Math.min(processQuality, criticalInputQuality + 18), 0, 100);
+  }
+
+  function chemicalPurityBand(purity) {
+    const value = clamp(Number(purity) || 0, 0, 100);
+    if (value >= 90) return "90-100% (very high)";
+    if (value >= 75) return "75-89% (high)";
+    if (value >= 55) return "55-74% (serviceable)";
+    if (value >= 35) return "35-54% (impure)";
+    return "0-34% (heavily contaminated)";
+  }
+
+  function chemicalBatchClassification(product, hazards, contaminants) {
+    const hazardSet = new Set(hazards || []);
+    const reasons = [];
+    let actual = product?.baseClassification || "unclassified";
+    if (hazardSet.has("toxic") && hazardSet.has("arcane")) {
+      actual = "prohibited";
+      reasons.push("Combined toxic and arcane hazard profile requires prohibited handling.");
+    } else if (["toxic", "corrosive", "arcane", "volatile"].some((tag) => hazardSet.has(tag))) {
+      if ((CHEMICAL_CLASSIFICATION_DEFS[actual]?.rank || 0) < CHEMICAL_CLASSIFICATION_DEFS.controlled.rank) actual = "controlled";
+      reasons.push("Hazardous composition requires controlled handling.");
+    }
+    if (Object.keys(contaminants || {}).length) {
+      if ((CHEMICAL_CLASSIFICATION_DEFS[actual]?.rank || 0) < CHEMICAL_CLASSIFICATION_DEFS.controlled.rank) actual = "controlled";
+      reasons.push("Recorded contaminants require controlled handling and disclosure.");
+    }
+    if (!reasons.length) reasons.push(`${product?.label || "Product"} follows its declared product classification.`);
+    return { actual, reasons };
+  }
+
+  function chemicalBatchFromProduction(task, workpiece, recipe, workstation) {
+    const productId = recipe.output.inheritProduct ? workpiece.inputProductId : recipe.output.key;
+    const product = CHEMICAL_PRODUCT_BY_ID[productId];
+    if (!product) return null;
+    const unchanged = recipe.assay || recipe.packaging || recipe.documentation;
+    const rng = seedRng(workpiece.outcomeSeed || `${state.seed}:chemistry:${workpiece.id}`);
+    const cleanliness = workstation.process?.cleanliness ?? 50;
+    const calibration = workstation.process?.calibrated ?? 50;
+    const purity = unchanged
+      ? clamp(workpiece.inputQuality, 0, 100)
+      : clamp(workpiece.inputQuality + (Number(recipe.basePurityGain) || 0) + (cleanliness - 50) * 0.08 + (calibration - 50) * 0.04 + (rng() - 0.5) * 5, 0, 100);
+    const contaminants = { ...(workpiece.chemicalContaminants || {}) };
+    if (!unchanged && cleanliness < 65) contaminants.crossContamination = roundOutputValue((contaminants.crossContamination || 0) + (65 - cleanliness) / 25);
+    const hazards = new Set(workpiece.chemicalHazards || []);
+    for (const tag of product.tags || []) if (["corrosive", "toxic", "arcane", "volatile"].includes(tag)) hazards.add(tag);
+    if (recipe.id === "chemistry:stabilizeReactive") hazards.delete("volatile");
+    const classification = unchanged && CHEMICAL_CLASSIFICATION_DEFS[workpiece.inputActualClassification]
+      ? { actual: workpiece.inputActualClassification, reasons: workpiece.inputClassificationReasons }
+      : chemicalBatchClassification(product, [...hazards], contaminants);
+    const previousAssays = unchanged ? normalizeChemicalAssays(workpiece.inheritedAssays) : [];
+    const assays = [...previousAssays];
+    if (recipe.assay) {
+      const confidence = clamp(55 + skillLevel("materialsScience") * 0.6 + calibration * 0.25 + cleanliness * 0.08, 45, 98);
+      assays.push({
+        id: `chemical-assay-${workpiece.id}`, testedAt: state.clock, confidence,
+        purityBand: chemicalPurityBand(purity), classification: classification.actual,
+        contaminantIds: Object.keys(contaminants), analyst: "scientist"
+      });
+    }
+    const latestAssay = assays.at(-1) || null;
+    const packaged = recipe.packaging || recipe.documentation || (workpiece.chemicalInputTags || []).includes("packaged");
+    const certified = recipe.documentation;
+    const batchId = unchanged && workpiece.inputBatchId ? workpiece.inputBatchId : `chemical-batch-${workpiece.id}`;
+    return normalizeChemicalBatch({
+      id: batchId,
+      productId,
+      recipeId: unchanged ? workpiece.inputRecipeId : recipe.id,
+      recipeVersion: unchanged ? workpiece.inputRecipeVersion : recipe.recipeVersion || 1,
+      stage: product.stage,
+      phase: product.phase,
+      tags: [...(unchanged ? workpiece.inputBatchTags : []), ...(recipe.output.addTags || [])],
+      purity,
+      craftsmanship: unchanged ? workpiece.inputOriginalCraftsmanship : workpiece.craftsmanship,
+      contaminants,
+      hazards: [...hazards],
+      lineage: unchanged ? workpiece.inputOriginalLineage : workpiece.chemicalInputs,
+      ancestorBatchIds: unchanged ? workpiece.chemicalAncestorBatchIds.filter((id) => id !== batchId) : workpiece.chemicalAncestorBatchIds,
+      sourceSlimeIds: workpiece.chemicalSourceSlimeIds,
+      sourceLabels: workpiece.chemicalSourceLabels,
+      workstationId: unchanged ? workpiece.inputWorkstationId : workstation.id,
+      operatorId: unchanged ? workpiece.inputOperatorId : "scientist",
+      assays,
+      packaging: packaged ? {
+        state: "packaged",
+        containerKey: recipe.packaging ? "sealedReagentBottle" : workpiece.inputContainerKey || "sealedReagentBottle",
+        packagedAt: recipe.packaging ? state.clock : workpiece.inputPackagedAt
+      } : { state: "bulk" },
+      documentation: certified ? {
+        status: "certified", certificateId: `coa-${batchId}`, issuedAt: state.clock, assayId: latestAssay?.id || ""
+      } : { status: "none" },
+      classification: {
+        actual: classification.actual,
+        known: latestAssay ? classification.actual : "unclassified",
+        reasons: classification.reasons
+      },
+      outcomeSeed: unchanged ? workpiece.inputOutcomeSeed : workpiece.outcomeSeed,
+      producedAt: unchanged ? workpiece.inputProducedAt : state.clock
+    });
   }
 
   function completeProductionWork(task) {
@@ -21602,7 +22173,9 @@
     workpiece.completedAt = state.clock;
     workpiece.reservedTaskId = "";
     const outputCell = cleanMapCell(task.data?.toCell) || workstation.origin;
-    const output = createPhysicalItemStack(recipe.output.section, recipe.output.key, recipe.output.quantity || 1, {
+    const chemicalBatch = recipe.chemistry ? chemicalBatchFromProduction(task, workpiece, recipe, workstation) : null;
+    const outputKey = chemicalBatch?.productId || recipe.output.key;
+    const output = createPhysicalItemStack(recipe.output.section, outputKey, recipe.output.quantity || 1, {
       roomId: labMapCellRoomId(workstation.origin) || MAIN_ROOM_ID,
       cell: outputCell,
       fixtureId: "",
@@ -21611,7 +22184,8 @@
       craftsmanship: workpiece.craftsmanship,
       materialComposition: workpiece.materialComposition,
       productionBillId: bill.id,
-      productionWorkpieceId: workpiece.id
+      productionWorkpieceId: workpiece.id,
+      chemicalBatch
     });
     workpiece.outputStackId = output?.id || "";
     workpiece.byproductStackIds = (recipe.byproducts || []).map((byproduct) => createPhysicalItemStack(
@@ -21648,7 +22222,7 @@
       });
       if (bill.parentOrderId && output) output.reservedTaskId = `order:${bill.parentOrderId}`;
     }
-    bill.completedQuantity += recipe.output.quantity || 1;
+    bill.completedQuantity += recipe.chemistry ? 1 : recipe.output.quantity || 1;
     bill.activeTaskId = "";
     bill.blockedReason = "";
     const target = bill.mode === "once" ? 1 : bill.quantity;
@@ -21657,6 +22231,18 @@
       bill.completedAt = state.clock;
     }
     workstation.productionTaskId = "";
+    if (recipe.chemistry && workstation.process) {
+      workstation.process.cycleCount += 1;
+      workstation.process.cleanliness = clamp(workstation.process.cleanliness - (recipe.packaging || recipe.documentation ? 1 : 4), 0, 100);
+      workstation.process.calibrated = clamp(workstation.process.calibrated - (recipe.assay ? 2 : 1), 0, 100);
+      workstation.utility.wear = clamp((workstation.utility.wear || 0) + 1, 0, 250);
+      const incidentRng = seedRng(`${workpiece.outcomeSeed}:incident`);
+      const incidentRisk = clamp(((60 - workstation.process.cleanliness) + (50 - workstation.process.calibrated)) / 250, 0, 0.35);
+      if (incidentRng() < incidentRisk) {
+        chemistryCreateResidue(workstation, "chemicalProcessSpill", 1, ["chemistry", "hazard", ...(chemicalBatch?.hazards || [])]);
+        addEvent(`${workstation.name} released a small process spill; the batch record retains the contributing hazard profile.`);
+      }
+    }
     for (const selection of task.data.toolSelections || []) {
       damageSpecificTool(selection.instanceId, 1, recipe.label.toLowerCase());
     }
@@ -21680,9 +22266,17 @@
 
   function productionWorkTaskBlockReason(task) {
     const bill = productionBillById(task?.data?.billId);
+    const recipe = productionRecipe(task?.data?.recipeId);
     const workstation = fixtureById(task?.data?.workstationId);
     if (!bill || bill.status === "canceled") return "The production bill was canceled or removed.";
     if (!workstation || workstation.condition <= 0 || workstation.operationalState !== "operational") return "The selected workstation is unavailable.";
+    if (recipe?.chemistry) {
+      if (!workstation.process?.commissioned) return "The chemistry equipment has not been commissioned.";
+      if (!workstation.process?.online) return "The chemistry equipment is shut down; the physical workpiece remains at the station.";
+      if (workstation.utility?.enabled === false) return "The chemistry equipment is disabled; the physical workpiece remains at the station.";
+      const readiness = chemistryProcessReadiness(workstation);
+      if (!readiness.operational) return `${readiness.blockers[0] || "Required utility service is unavailable"} The physical workpiece remains at the station.`;
+    }
     if (!fixtureAccessCells(workstation).length) return "No reachable operator position remains at the workstation.";
     for (const stackId of task.data?.reservedStackIds || []) {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
@@ -21703,15 +22297,36 @@
     if (workpiece) {
       if (bill?.status === "canceled") {
         workpiece.status = "canceled";
-        const scrapAmount = Math.max(1, Math.ceil(Object.values(workpiece.inputCosts || {}).reduce((total, amount) => total + (Number(amount) || 0), 0) * 0.5));
-        const scrap = createPhysicalItemStack("resources", "waste", scrapAmount, {
+        const canceledRecipe = productionRecipe(workpiece.recipeId);
+        const scrapAmount = canceledRecipe?.chemistry ? 1 : Math.max(1, Math.ceil(Object.values(workpiece.inputCosts || {}).reduce((total, amount) => total + (Number(amount) || 0), 0) * 0.5));
+        const canceledBatch = canceledRecipe?.chemistry ? normalizeChemicalBatch({
+          id: `chemical-batch-canceled-${workpiece.id}`,
+          productId: "unfinishedChemicalMixture",
+          recipeId: canceledRecipe.id,
+          recipeVersion: canceledRecipe.recipeVersion || 1,
+          tags: ["waste", "unfinished"],
+          purity: workpiece.inputQuality,
+          craftsmanship: workpiece.craftsmanship,
+          contaminants: { ...workpiece.chemicalContaminants, interruptedProcess: 1 },
+          hazards: workpiece.chemicalHazards,
+          lineage: workpiece.chemicalInputs,
+          ancestorBatchIds: workpiece.chemicalAncestorBatchIds,
+          sourceSlimeIds: workpiece.chemicalSourceSlimeIds,
+          sourceLabels: workpiece.chemicalSourceLabels,
+          workstationId: workpiece.workstationId,
+          classification: { actual: "controlled", known: "unclassified", reasons: ["Interrupted process requires controlled waste handling."] },
+          outcomeSeed: workpiece.outcomeSeed,
+          producedAt: state.clock
+        }) : null;
+        const scrap = createPhysicalItemStack(canceledRecipe?.chemistry ? "chemicalBatches" : "resources", canceledRecipe?.chemistry ? "unfinishedChemicalMixture" : "waste", scrapAmount, {
           roomId: labMapCellRoomId(workpiece.cell) || MAIN_ROOM_ID,
           cell: workpiece.cell,
           fixtureId: "",
           stockpileId: ""
         }, {
           tags: ["crafting scrap", workpiece.materialOptionId],
-          sourceLabels: [productionRecipe(workpiece.recipeId)?.label || "canceled production"]
+          sourceLabels: [canceledRecipe?.label || "canceled production"],
+          chemicalBatch: canceledBatch
         });
         workpiece.scrapStackId = scrap?.id || "";
       } else {
@@ -48139,14 +48754,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         heading.className = "production-chain-heading";
         dom.productionRecipeList.append(heading);
       }
-      const outputQuantity = Math.max(1, Number(recipe.output.quantity) || 1);
+      const outputQuantity = Math.max(0.01, Number(recipe.output.quantity) || 1);
       const output = `${outputQuantity} ${productionOutputLabel(recipe.output)}`;
       const stage = recipe.stage ? `Stage ${recipe.stage}; ` : "";
       const card = productionCard(recipe.label, `${stage}${formatDuration(recipe.workSeconds)} work; fixed batch: ${output}`);
       card.dataset.productionChain = chainId;
       card.append(emptyText(recipe.description));
       const toolLabels = [...new Set([...(recipe.toolRequirements || []), ...recipe.materialOptions.flatMap((option) => option.toolRequirements || [])].map((item) => item.label))];
-      card.append(emptyText(`Workstation: ${recipe.workstationCapabilities.join(", ")}. Tools: ${toolLabels.join(", ") || "none"}. Inputs: ${recipe.materialOptions.map((option) => `${option.label} (${formatResourceBundle(option.costs)})`).join("; ")}.`));
+      const selectorInputs = (recipe.inputSelectors || []).map((selector) => `${formatNumber(selector.amount)} ${selector.label}`).join(" + ");
+      const resourceInputs = recipe.materialOptions.map((option) => `${option.label} (${formatResourceBundle(option.costs)})`).join("; ");
+      card.append(emptyText(`Workstation: ${recipe.workstationCapabilities.join(", ")}. Tools: ${toolLabels.join(", ") || "none"}. Inputs: ${[selectorInputs, resourceInputs].filter(Boolean).join("; ") || "none"}.`));
       if ((recipe.byproducts || []).length) {
         card.append(emptyText(`Physical byproducts: ${recipe.byproducts.map((item) => `${item.quantity || 1} ${productionOutputLabel(item)}`).join(", ")}.`));
       }
@@ -48180,7 +48797,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       card.dataset.productionWorkpiece = workpiece.id;
       const qualityDetail = workpiece.inputQuality ? ` Input quality ${formatNumber(workpiece.inputQuality)}; critical cap source ${formatNumber(workpiece.criticalInputQuality)}.` : "";
       const byproductDetail = workpiece.byproductStackIds?.length ? ` ${workpiece.byproductStackIds.length} physical byproduct stack${workpiece.byproductStackIds.length === 1 ? "" : "s"}.` : "";
-      card.append(emptyText(`${progress}% complete; ${materialCompositionLabel(workpiece.materialComposition)}.${qualityDetail}${workpiece.status === "completed" ? ` ${craftsmanshipBand(workpiece.craftsmanship).label} craftsmanship (${formatNumber(workpiece.craftsmanship)}).${byproductDetail}` : ""}`));
+      const lineageDetail = workpiece.chemicalInputs?.length ? ` Inputs: ${workpiece.chemicalInputs.map((entry) => `${formatNumber(entry.amount)} ${entry.label}`).join(" + ")}; ${workpiece.chemicalAncestorBatchIds.length} ancestor batch${workpiece.chemicalAncestorBatchIds.length === 1 ? "" : "es"}.` : "";
+      card.append(emptyText(`${progress}% complete; ${materialCompositionLabel(workpiece.materialComposition)}.${qualityDetail}${lineageDetail}${workpiece.status === "completed" ? ` ${craftsmanshipBand(workpiece.craftsmanship).label} craftsmanship (${formatNumber(workpiece.craftsmanship)}).${byproductDetail}` : ""}`));
       dom.productionWorkpieceList.append(card);
     }
   }
@@ -48525,6 +49143,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       section.append(emptyText("No collected byproducts yet."));
     }
     dom.storesByproductList.append(section);
+    const batches = storesSectionEl("Chemical Batches", "Physical intermediates and finished goods retain exact ancestry, process quality, assay, packaging, documentation, hazards, and classification.", { inventoryCategory: "chemicalBatches" });
+    const stacks = ensurePhysicalItemStacks().filter((stack) => stack.section === "chemicalBatches" && stack.quantity > 0);
+    if (!stacks.length) batches.append(emptyText("No processed chemical batches yet."));
+    for (const stack of stacks) {
+      const batch = stack.chemicalBatch;
+      const card = productionCard(batch?.label || physicalStackLabel(stack), `${formatNumber(stack.quantity)} ${batch?.phase || "material"}; ${batch?.stage || "unknown stage"}`);
+      const assay = batch?.assays?.at(-1);
+      card.append(emptyText(`Purity ${assay?.purityBand || "not assayed"}; craftsmanship ${craftsmanshipBand(batch?.craftsmanship || 0).label}; ${batch?.packaging?.state || "bulk"}; ${batch?.documentation?.status || "no certificate"}.`));
+      card.append(emptyText(`Known classification: ${CHEMICAL_CLASSIFICATION_DEFS[batch?.classification?.known]?.label || "Unclassified"}. Hazards: ${batch?.hazards?.join(", ") || "none recorded"}.`));
+      batches.append(card);
+    }
+    dom.storesByproductList.append(batches);
   }
 
   function renderStoreSpecimenMaterials(specimenEntries) {
@@ -53768,6 +54398,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           persist();
           render();
           requestAnimationFrame(() => {
+            const compatibleRecipe = PRODUCTION_RECIPE_DEFS.find((recipe) => (recipe.workstationCapabilities || []).every((capability) => def.capabilities.includes(capability)));
+            if (compatibleRecipe) dom.productionRecipeSelect.value = compatibleRecipe.id;
             dom.productionScopeSelect.value = "workstation";
             renderProductionBillEditor();
             dom.productionWorkstationSelect.value = fixture.id;
@@ -54084,6 +54716,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === selection?.id);
     if (!stack) return [];
     const commands = [];
+    if (stack.section === "chemicalBatches" && stack.chemicalBatch) {
+      const batch = stack.chemicalBatch;
+      const action = !(batch.assays || []).length && batch.stage === "finished"
+        ? { recipeId: "chemistry:assayBatch", label: "Assay This Batch", description: "Reserve this exact batch for a confidence-bounded bench assay." }
+        : batch.stage === "finished" && batch.packaging.state !== "packaged"
+          ? { recipeId: "chemistry:packageFinished", label: "Package This Batch", description: "Reserve this exact assayed batch and one empty reagent bottle for packaging." }
+          : batch.packaging.state === "packaged" && batch.documentation.status !== "certified"
+            ? { recipeId: "chemistry:certifyBatch", label: "Issue Certificate of Analysis", description: "Issue an immutable truthful certificate from this exact batch's recorded assay." }
+            : null;
+      if (action) commands.push(commandDef({
+        id: `itemStack.chemistry.${action.recipeId}.${stack.id}`,
+        label: action.label,
+        group: "Chemistry",
+        disabledReason: stack.reservedTaskId ? "This physical batch is already reserved." : "",
+        description: action.description,
+        run: () => createProductionBill({ recipeId: action.recipeId, inputStackId: stack.id, scope: "global", mode: "once", createdBy: "batch command" })
+      }));
+    }
     if (stack.section === "inventory" && stack.key === "diagnosticSample") {
       commands.push(commandDef({
         id: `itemStack.assay.${stack.id}`,
@@ -54143,7 +54793,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       group: "Open Menu",
       workspaceTab: "resources",
       tabKind: "stores",
-      tabId: stack.section === "collectedByproducts" ? "byproducts" : stack.section === "specimenMaterials" ? "specimens" : "materials",
+      tabId: ["collectedByproducts", "chemicalBatches"].includes(stack.section) ? "byproducts" : stack.section === "specimenMaterials" ? "specimens" : "materials",
       description: "Open the relevant inventory ledger for this physical stack."
     }));
     return commands;
@@ -54575,6 +55225,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rows.push(["Known amount", `${physicalStackQuantityText(stack)} ${physicalStackLabel(stack)}`]);
         rows.push(["Form", titleCase(stack.form || "stack")]);
         if (stack.contents?.length) rows.push(["Contents", physicalStackContentsLabel(stack)]);
+        if (stack.chemicalBatch) {
+          const batch = stack.chemicalBatch;
+          const assay = batch.assays.at(-1);
+          rows.push(["Batch ID", batch.id]);
+          rows.push(["Recipe", `${productionRecipe(batch.recipeId)?.label || batch.recipeId || "Unknown"} revision ${batch.recipeVersion}`]);
+          rows.push(["Quality", `${assay?.purityBand || "Purity not assayed"}; ${craftsmanshipBand(batch.craftsmanship).label} craftsmanship`]);
+          rows.push(["Hazards", batch.hazards.join(", ") || "None recorded"]);
+          rows.push(["Contaminants", Object.keys(batch.contaminants).join(", ") || "None recorded"]);
+          rows.push(["Provenance", `${batch.lineage.length} direct input${batch.lineage.length === 1 ? "" : "s"}; ${batch.ancestorBatchIds.length} ancestor batch${batch.ancestorBatchIds.length === 1 ? "" : "es"}; ${batch.sourceSlimeIds.length} source specimen${batch.sourceSlimeIds.length === 1 ? "" : "s"}`]);
+          rows.push(["Packaging", batch.packaging.state === "packaged" ? `Sealed in ${inventoryItemLabel(batch.packaging.containerKey)}` : "Bulk"]);
+          rows.push(["Documentation", batch.documentation.status === "certified" ? `Certificate ${batch.documentation.certificateId}` : "No certificate"]);
+          rows.push(["Classification", batch.classification.known === "unclassified"
+            ? "Unclassified; actual handling category awaits a completed assay"
+            : CHEMICAL_CLASSIFICATION_DEFS[batch.classification.known].label]);
+        }
         rows.push(["Knowledge", physicalStackKnowledgeLabel(stack)]);
         rows.push(["Storage", physicalStackStorageLabel(stack)]);
       }
