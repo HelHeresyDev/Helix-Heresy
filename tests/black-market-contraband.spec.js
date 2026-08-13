@@ -72,6 +72,13 @@ test('manufactured contracts reserve and deliver one exact qualifying batch', as
   expect(['delivered', 'completed']).toContain(delivered.status);
   expect(finalState.physicalItemStacks.some((stack) => stack.id === batch.id)).toBe(false);
   expect(finalState.economy.ledger.some((entry) => entry.contractId === contract.id && entry.kind === 'delivered')).toBe(true);
+  expect(finalState.company.variances).toContainEqual(expect.objectContaining({
+    kind: 'unexplainedInventoryLoss',
+    severity: 'serious',
+    batchId: batch.chemicalBatch.id,
+    sourceId: contract.id,
+    status: 'open',
+  }));
 });
 
 test('living-specimen contracts reserve a creature and pod, freeze high transport risk, and transfer both', async ({ page }) => {

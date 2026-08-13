@@ -1161,7 +1161,7 @@
       roleLabel: "Public-facing entrance",
       purposeId: "corridor",
       facilityClass: "public",
-      description: "The lawful public entrance and personnel reception area for Helix Applied Reagents.",
+      description: "The lawful public entrance and personnel reception area for the surface company.",
       geometry: { shape: "front office", lengthM: 5, widthM: 5, heightM: 3, floorAreaM2: 25, volumeM3: 75 },
       connections: [SURFACE_FACILITY_ROOM_ID, SURFACE_STAFF_ROOM_ID],
       attributes: { temperature: { current: 15, baseline: 15 }, light: { current: 22, baseline: 22 }, ambientMana: { current: 25, baseline: 25 }, humidity: { current: 47, baseline: 47 }, contamination: { current: 0, baseline: 0 }, electricalCharge: { current: 1, baseline: 1 } }
@@ -4356,6 +4356,7 @@
   const DEFAULT_STORE_MENU_TAB = "overview";
   const ECONOMY_MENU_TAB_DEFS = [
     { id: "overview", label: "Overview" },
+    { id: "company", label: "Company" },
     { id: "exchange", label: "Exchange" },
     { id: "orders", label: "Orders" },
     { id: "freight", label: "Freight" },
@@ -4529,6 +4530,7 @@
   };
   const ECONOMY_MENU_TAB_HOTKEYS = {
     overview: "B O",
+    company: "B M",
     exchange: "B X",
     orders: "B U",
     freight: "B F",
@@ -4605,6 +4607,7 @@
     "spillCleanup",
     "blackMarketTrade",
     "commodityFreight",
+    "companyFiling",
     "physicalDiagnostic",
     "excavate",
     "constructionWork",
@@ -4700,6 +4703,34 @@
   const DEFAULT_STARTING_SCENARIO_ID = "chemistryFront";
   const LEGACY_STARTING_SCENARIO_ID = "undergroundLaboratory";
   const STARTING_LOADOUT_PROFILE_ID = "inherited-laboratory-v1";
+  const COMPANY_REPORTING_PERIOD_SECONDS = SECONDS_PER_DAY * 7;
+  const COMPANY_RECORD_LIMIT = 480;
+  const COMPANY_PERIOD_LIMIT = 24;
+  const COMPANY_VARIANCE_LIMIT = 120;
+  const COMPANY_CREDIBILITY_HISTORY_LIMIT = 80;
+  const COMPANY_ASSESSMENT_INTERVAL = SECONDS_PER_HOUR * 6;
+  const COMPANY_OPERATING_STATE_DEFS = {
+    renovation: { id: "renovation", label: "Closed for Renovation", description: "Purchasing, commissioning, maintenance, and records work continue without an expectation of regular customer shipments.", commercialExpectation: 0 },
+    limited: { id: "limited", label: "Limited Operations", description: "The company may produce and ship lawful goods while maintaining a modest public operating profile.", commercialExpectation: 1 },
+    open: { id: "open", label: "Fully Open", description: "The company presents itself as an active chemical business and is expected to sustain credible production, sales, safety, and records.", commercialExpectation: 2 }
+  };
+  const COMPANY_DECLARATION_DEFS = [
+    { id: "specialtyReagents", label: "Specialty reagent blending", description: "Lawful specialty buffers and related reagent preparations." },
+    { id: "industrialChemicals", label: "Industrial cleaning chemicals", description: "Controlled industrial cleaner formulation and handling." },
+    { id: "analysisPackaging", label: "Chemical analysis and packaging", description: "Batch assays, sealed packaging, and truthful certificates." },
+    { id: "wasteTreatment", label: "Chemical-waste treatment", description: "Documented treatment and containment of process waste." }
+  ];
+  const COMPANY_DECLARATION_BY_ID = Object.fromEntries(COMPANY_DECLARATION_DEFS.map((entry) => [entry.id, entry]));
+  const COMPANY_CREDIBILITY_BANDS = [
+    { id: "convincing", label: "Convincing", min: 88 },
+    { id: "credible", label: "Credible", min: 70 },
+    { id: "plausible", label: "Plausible", min: 50 },
+    { id: "thin", label: "Thin", min: 30 },
+    { id: "nonviable", label: "Nonviable", min: 0 }
+  ];
+  const COMPANY_NAME_PREFIXES = ["Aster", "Calder", "Crown", "Greybridge", "Lattice", "Meridian", "Northglass", "Orison", "Palisade", "Redwater", "Vale", "Vesper"];
+  const COMPANY_NAME_SPECIALTIES = ["Applied", "Analytical", "Industrial", "Precision", "Specialty", "Technical"];
+  const COMPANY_NAME_SUFFIXES = ["Chemicals", "Laboratories", "Materials", "Reagents", "Sciences", "Solutions", "Synthesis Works"];
   const SITE_ACCESS_POINT_DEFS = [
     { id: "publicEntrance", label: "Public Entrance", kind: "public", lawful: true, roomId: SURFACE_RECEPTION_ROOM_ID, doorId: "door-surface-front", cell: SURFACE_BUILDING_DOOR_CELL, clearance: { widthM: 1, heightM: 2.1 } },
     { id: "loadingBay", label: "Loading Bay Freight Portal", kind: "freight", lawful: true, roomId: SURFACE_LOADING_ROOM_ID, doorId: "door-surface-loading", cell: SURFACE_LOADING_DOOR_CELLS[1], clearance: { widthM: 3, heightM: 3.2 } },
@@ -4750,12 +4781,13 @@
       ],
       identity: {
         kind: "frontCompany",
-        legalName: "Helix Applied Reagents",
-        declaredActivity: "Specialty reagent development",
-        operatingState: "Inherited shell",
+        legalName: "",
+        nameSource: "seeded",
+        declaredActivity: "Specialty reagent blending and chemical services",
+        operatingState: "renovation",
         publicFacing: true
       },
-      deferredFeatures: ["Chemistry recipes and production", "Lawful sales", "Cover credibility", "Visitors and vehicles"]
+      deferredFeatures: ["Visitors and vehicles", "Inspections and evidence responses"]
     },
     {
       id: LEGACY_STARTING_SCENARIO_ID,
@@ -4774,8 +4806,9 @@
       identity: {
         kind: "unregisteredResearchSite",
         legalName: "None",
+        nameSource: "scenario",
         declaredActivity: "None",
-        operatingState: "Hidden laboratory",
+        operatingState: "hidden",
         publicFacing: false
       },
       deferredFeatures: []
@@ -4833,6 +4866,7 @@
       heredity: Heredity.defaultState(),
       collectionBay: defaultCollectionBayState(),
       economy: defaultEconomyState(seed),
+      company: null,
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -4980,6 +5014,7 @@
     return {
       kind: String(candidate?.kind || fallback.kind),
       legalName: String(candidate?.legalName || fallback.legalName),
+      nameSource: ["seeded", "generated", "custom", "scenario"].includes(candidate?.nameSource) ? candidate.nameSource : fallback.nameSource || "scenario",
       declaredActivity: String(candidate?.declaredActivity || fallback.declaredActivity),
       operatingState: String(candidate?.operatingState || fallback.operatingState),
       publicFacing: candidate?.publicFacing === undefined ? Boolean(fallback.publicFacing) : Boolean(candidate.publicFacing),
@@ -5059,14 +5094,32 @@
     return next;
   }
 
-  function createStartingScenarioState(scenarioId = DEFAULT_STARTING_SCENARIO_ID) {
+  function cleanCompanyName(value) {
+    return String(value || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 64);
+  }
+
+  function generatedCompanyName(seed, variant = 0) {
+    const rng = seedRng(`${cleanSeed(seed) || "company"}:front-company-name:${Math.max(0, Math.floor(Number(variant) || 0))}`);
+    const prefix = COMPANY_NAME_PREFIXES[Math.floor(rng() * COMPANY_NAME_PREFIXES.length)];
+    const specialty = COMPANY_NAME_SPECIALTIES[Math.floor(rng() * COMPANY_NAME_SPECIALTIES.length)];
+    const suffix = COMPANY_NAME_SUFFIXES[Math.floor(rng() * COMPANY_NAME_SUFFIXES.length)];
+    return `${prefix} ${specialty} ${suffix}`;
+  }
+
+  function createStartingScenarioState(scenarioId = DEFAULT_STARTING_SCENARIO_ID, options = {}) {
     const scenario = startingScenarioDef(scenarioId);
     const blueprint = siteBlueprintDef(scenario.blueprintId);
     const next = applySiteBlueprint(createBaseState(), blueprint);
     next.startingScenario = startingScenarioRecord(scenario, blueprint);
     next.siteIdentity = { ...scenario.identity, sourceScenarioId: scenario.id };
+    if (scenario.identity.kind === "frontCompany") {
+      const requestedName = cleanCompanyName(options.companyName);
+      next.siteIdentity.legalName = requestedName || generatedCompanyName(options.seed || next.seed, options.companyNameVariant);
+      next.siteIdentity.nameSource = requestedName ? options.companyNameGenerated ? "generated" : "custom" : "seeded";
+    }
     next.startingLiabilities = startingLiabilityRecords(scenario);
     next.siteAccessPoints = normalizeSiteAccessPoints(next.siteAccessPoints, next);
+    next.company = defaultCompanyState(options.seed || next.seed, next.siteIdentity);
     return next;
   }
 
@@ -5411,6 +5464,513 @@
     return economy;
   }
 
+  function defaultCompanyState(seed = "seed", identity = {}) {
+    const enabled = identity?.kind === "frontCompany" && identity?.publicFacing !== false;
+    const legalName = enabled ? cleanCompanyName(identity.legalName) || generatedCompanyName(seed) : "None";
+    const records = enabled ? [{
+      id: "company-record-1",
+      periodId: "company-period-1",
+      kind: "inheritance",
+      category: "corporate",
+      label: `${legalName} inherited with incomplete prior operating records.`,
+      at: 0,
+      lawful: true,
+      amount: 0,
+      quantity: 0,
+      listingId: "",
+      orderId: "",
+      consignmentId: "",
+      recipeId: "",
+      batchId: "",
+      fixtureId: "",
+      roomId: SURFACE_STAFF_ROOM_ID,
+      details: "The current books begin with the inherited site; earlier source records are incomplete."
+    }] : [];
+    return {
+      enabled,
+      legalName,
+      nameSource: String(identity?.nameSource || (enabled ? "seeded" : "scenario")),
+      operatingState: enabled && COMPANY_OPERATING_STATE_DEFS[identity?.operatingState] ? identity.operatingState : enabled ? "renovation" : "hidden",
+      operatingStateChangedAt: 0,
+      declarationIds: enabled ? COMPANY_DECLARATION_DEFS.map((entry) => entry.id) : [],
+      records,
+      periods: enabled ? [{
+        id: "company-period-1",
+        number: 1,
+        openedAt: 0,
+        closesAt: COMPANY_REPORTING_PERIOD_SECONDS,
+        status: "open",
+        taskId: "",
+        filedAt: null,
+        recordIds: records.map((record) => record.id),
+        snapshot: null
+      }] : [],
+      activePeriodId: enabled ? "company-period-1" : "",
+      variances: [],
+      credibilityHistory: [],
+      lastAssessmentAt: 0,
+      cleanFiledPeriods: 0,
+      nextRecordNumber: records.length + 1,
+      nextPeriodNumber: enabled ? 2 : 1,
+      nextVarianceNumber: 1
+    };
+  }
+
+  function normalizeCompanyRecord(candidate, index = 0) {
+    return {
+      id: String(candidate?.id || `company-record-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "") || `company-record-${index + 1}`,
+      periodId: String(candidate?.periodId || ""),
+      kind: String(candidate?.kind || "note"),
+      category: String(candidate?.category || "corporate"),
+      label: String(candidate?.label || "Company record"),
+      at: finiteTime(candidate?.at, 0),
+      lawful: candidate?.lawful !== false,
+      amount: Math.round(Number(candidate?.amount) || 0),
+      quantity: roundOutputValue(Math.max(0, Number(candidate?.quantity) || 0)),
+      listingId: String(candidate?.listingId || ""),
+      orderId: String(candidate?.orderId || ""),
+      consignmentId: String(candidate?.consignmentId || ""),
+      recipeId: String(candidate?.recipeId || ""),
+      batchId: String(candidate?.batchId || ""),
+      fixtureId: String(candidate?.fixtureId || ""),
+      roomId: cleanRoomId(candidate?.roomId),
+      details: String(candidate?.details || "")
+    };
+  }
+
+  function normalizeCompanyPeriod(candidate, index = 0) {
+    const openedAt = finiteTime(candidate?.openedAt, index * COMPANY_REPORTING_PERIOD_SECONDS);
+    return {
+      id: String(candidate?.id || `company-period-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "") || `company-period-${index + 1}`,
+      number: Math.max(1, Math.floor(Number(candidate?.number) || index + 1)),
+      openedAt,
+      closesAt: Math.max(openedAt + 1, finiteTime(candidate?.closesAt, openedAt + COMPANY_REPORTING_PERIOD_SECONDS)),
+      status: ["open", "filing", "filed"].includes(candidate?.status) ? candidate.status : "open",
+      taskId: String(candidate?.taskId || ""),
+      filedAt: candidate?.filedAt == null ? null : finiteTime(candidate.filedAt, openedAt),
+      recordIds: idList(candidate?.recordIds),
+      snapshot: candidate?.snapshot && typeof candidate.snapshot === "object" ? clonePlainObject(candidate.snapshot) : null
+    };
+  }
+
+  function normalizeCompanyVariance(candidate, index = 0) {
+    return {
+      id: String(candidate?.id || `company-variance-${index + 1}`).replace(/[^a-zA-Z0-9:_-]/g, "") || `company-variance-${index + 1}`,
+      kind: String(candidate?.kind || "inventoryVariance"),
+      severity: ["minor", "material", "serious"].includes(candidate?.severity) ? candidate.severity : "material",
+      label: String(candidate?.label || "Unresolved company-record variance"),
+      createdAt: finiteTime(candidate?.createdAt, 0),
+      resolvedAt: candidate?.resolvedAt == null ? null : finiteTime(candidate.resolvedAt, 0),
+      status: candidate?.status === "resolved" ? "resolved" : "open",
+      batchId: String(candidate?.batchId || ""),
+      stackId: String(candidate?.stackId || ""),
+      sourceId: String(candidate?.sourceId || ""),
+      details: String(candidate?.details || "")
+    };
+  }
+
+  function normalizeCompanyState(candidate, identity, seed = "seed", clock = 0) {
+    const fallback = defaultCompanyState(seed, identity);
+    const source = candidate && typeof candidate === "object" ? candidate : fallback;
+    const enabled = identity?.kind === "frontCompany" && identity?.publicFacing !== false && source.enabled !== false;
+    if (!enabled) return { ...fallback, enabled: false, legalName: "None", operatingState: "hidden", records: [], periods: [], activePeriodId: "", variances: [], credibilityHistory: [] };
+    const records = (Array.isArray(source.records) ? source.records : fallback.records).map(normalizeCompanyRecord).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)).slice(-COMPANY_RECORD_LIMIT);
+    const periods = (Array.isArray(source.periods) && source.periods.length ? source.periods : fallback.periods).map(normalizeCompanyPeriod).sort((a, b) => a.number - b.number).slice(-COMPANY_PERIOD_LIMIT);
+    let active = periods.find((period) => period.id === source.activePeriodId && period.status !== "filed") || periods.find((period) => period.status !== "filed") || null;
+    if (!active) {
+      const number = Math.max(1, ...periods.map((period) => period.number + 1));
+      active = normalizeCompanyPeriod({ id: `company-period-${number}`, number, openedAt: clock, closesAt: clock + COMPANY_REPORTING_PERIOD_SECONDS }, periods.length);
+      periods.push(active);
+    }
+    const legalName = cleanCompanyName(source.legalName || identity.legalName) || generatedCompanyName(seed);
+    return {
+      enabled: true,
+      legalName,
+      nameSource: ["seeded", "generated", "custom", "scenario"].includes(source.nameSource) ? source.nameSource : identity.nameSource || "seeded",
+      operatingState: COMPANY_OPERATING_STATE_DEFS[source.operatingState] ? source.operatingState : "renovation",
+      operatingStateChangedAt: finiteTime(source.operatingStateChangedAt, 0),
+      declarationIds: [...new Set((Array.isArray(source.declarationIds) ? source.declarationIds : fallback.declarationIds).filter((id) => COMPANY_DECLARATION_BY_ID[id]))],
+      records,
+      periods,
+      activePeriodId: active.id,
+      variances: (Array.isArray(source.variances) ? source.variances : []).map(normalizeCompanyVariance).slice(-COMPANY_VARIANCE_LIMIT),
+      credibilityHistory: (Array.isArray(source.credibilityHistory) ? source.credibilityHistory : []).map((entry) => ({
+        at: finiteTime(entry?.at, 0),
+        score: clamp(Number(entry?.score) || 0, 0, 100),
+        bandId: String(entry?.bandId || "nonviable")
+      })).sort((a, b) => a.at - b.at).slice(-COMPANY_CREDIBILITY_HISTORY_LIMIT),
+      lastAssessmentAt: finiteTime(source.lastAssessmentAt, 0),
+      cleanFiledPeriods: Math.max(0, Math.floor(Number(source.cleanFiledPeriods) || 0)),
+      nextRecordNumber: Math.max(Math.floor(Number(source.nextRecordNumber) || 1), records.reduce((max, record) => Math.max(max, numericSuffix(record.id) + 1), 1)),
+      nextPeriodNumber: Math.max(Math.floor(Number(source.nextPeriodNumber) || 1), periods.reduce((max, period) => Math.max(max, period.number + 1), 1)),
+      nextVarianceNumber: Math.max(Math.floor(Number(source.nextVarianceNumber) || 1), (Array.isArray(source.variances) ? source.variances : []).reduce((max, variance) => Math.max(max, numericSuffix(variance?.id) + 1), 1))
+    };
+  }
+
+  function ensureCompany() {
+    if (!state.company || typeof state.company !== "object") state.company = normalizeCompanyState(state.company, state.siteIdentity, state.seed, state.clock);
+    return state.company;
+  }
+
+  function activeCompanyPeriod(company = ensureCompany()) {
+    return company.periods.find((period) => period.id === company.activePeriodId && period.status !== "filed") || null;
+  }
+
+  function recordCompanyEvent(kind, label, options = {}) {
+    const company = ensureCompany();
+    if (!company.enabled) return null;
+    const period = activeCompanyPeriod(company);
+    if (!period) return null;
+    const record = normalizeCompanyRecord({
+      id: `company-record-${company.nextRecordNumber++}`,
+      periodId: period.id,
+      kind,
+      category: options.category || "operations",
+      label,
+      at: state.clock,
+      lawful: options.lawful !== false,
+      amount: options.amount,
+      quantity: options.quantity,
+      listingId: options.listingId,
+      orderId: options.orderId,
+      consignmentId: options.consignmentId,
+      recipeId: options.recipeId,
+      batchId: options.batchId,
+      fixtureId: options.fixtureId,
+      roomId: options.roomId,
+      details: options.details
+    }, company.records.length);
+    company.records.push(record);
+    company.records = company.records.slice(-COMPANY_RECORD_LIMIT);
+    period.recordIds.push(record.id);
+    return record;
+  }
+
+  function recordCompanyVariance(kind, label, options = {}) {
+    const company = ensureCompany();
+    if (!company.enabled) return null;
+    const duplicate = company.variances.find((variance) => variance.status === "open" && variance.kind === kind
+      && String(variance.batchId || "") === String(options.batchId || "")
+      && String(variance.sourceId || "") === String(options.sourceId || ""));
+    if (duplicate) return duplicate;
+    const variance = normalizeCompanyVariance({
+      id: `company-variance-${company.nextVarianceNumber++}`,
+      kind,
+      severity: options.severity,
+      label,
+      createdAt: state.clock,
+      batchId: options.batchId,
+      stackId: options.stackId,
+      sourceId: options.sourceId,
+      details: options.details
+    }, company.variances.length);
+    company.variances.push(variance);
+    company.variances = company.variances.slice(-COMPANY_VARIANCE_LIMIT);
+    return variance;
+  }
+
+  function companyReportingPeriodState(period) {
+    if (!period) return "missing";
+    if (period.status === "filed") return "filed";
+    if (period.status === "filing") return "filing";
+    if (state.clock > period.closesAt + SECONDS_PER_DAY) return "overdue";
+    if (state.clock >= period.closesAt) return "ready";
+    return "open";
+  }
+
+  function companyReconciliationExceptions(company = ensureCompany()) {
+    if (!company.enabled) return [];
+    const exceptions = company.variances.filter((variance) => variance.status === "open").map((variance) => ({
+      id: variance.id,
+      kind: variance.kind,
+      severity: variance.severity,
+      label: variance.label,
+      details: variance.details,
+      createdAt: variance.createdAt,
+      batchId: variance.batchId,
+      sourceId: variance.sourceId,
+      source: "savedVariance"
+    }));
+    const inherited = (state.startingLiabilities || []).find((liability) => liability.id === "incomplete-business-records" && liability.status === "active");
+    if (inherited) exceptions.push({ id: "incomplete-inherited-records", kind: "incompleteRecords", severity: "material", label: inherited.label, details: inherited.description, createdAt: 0, source: "liability" });
+    const period = activeCompanyPeriod(company);
+    if (companyReportingPeriodState(period) === "overdue") {
+      exceptions.push({ id: `overdue:${period.id}`, kind: "overdueFiling", severity: "material", label: `Reporting period ${period.number} is overdue`, details: `Books were due ${formatClock(period.closesAt)} and remain open.`, createdAt: period.closesAt, source: "derived" });
+    }
+    const recordedBatchIds = new Set(company.records.map((record) => record.batchId).filter(Boolean));
+    for (const stack of ensurePhysicalItemStacks()) {
+      const batch = stack.chemicalBatch;
+      if (!batch || !SURFACE_ROOM_IDS.includes(stack.roomId) || stack.quantity <= 0) continue;
+      const illicit = batch.classification?.actual === "prohibited" || (batch.tags || []).includes("contraband");
+      if (illicit && !exceptions.some((entry) => entry.batchId === batch.id)) {
+        exceptions.push({
+          id: `undeclared-batch:${batch.id}`,
+          kind: "undeclaredChemicalInventory",
+          severity: "serious",
+          label: `${batch.label} is undeclared surface inventory`,
+          details: `Batch ${batch.id} is physically held at ${roomName(stack.roomId)} but is outside the company's declared lawful product lines.`,
+          createdAt: stack.createdAt,
+          batchId: batch.id,
+          source: "derived"
+        });
+      } else if (batch.stage === "finished" && batch.classification?.actual === "controlled" && batch.documentation?.status !== "certified") {
+        exceptions.push({
+          id: `uncertified-controlled:${batch.id}`,
+          kind: "uncertifiedControlledInventory",
+          severity: "material",
+          label: `${batch.label} is controlled and uncertified`,
+          details: `Batch ${batch.id} is held at ${roomName(stack.roomId)} without a truthful certificate tied to its saved assay.`,
+          createdAt: stack.createdAt,
+          batchId: batch.id,
+          source: "derived"
+        });
+      } else if (!illicit && batch.stage === "finished" && !recordedBatchIds.has(batch.id)) {
+        exceptions.push({
+          id: `unrecorded-batch:${batch.id}`,
+          kind: "unrecordedFinishedBatch",
+          severity: "material",
+          label: `${batch.label} lacks a company production record`,
+          details: `Finished batch ${batch.id} is physically present at ${roomName(stack.roomId)} without a matching production entry in the current retained books.`,
+          createdAt: stack.createdAt,
+          batchId: batch.id,
+          source: "derived"
+        });
+      }
+    }
+    const untreatedWaste = ensurePhysicalItemStacks().filter((stack) => {
+      const tags = stack.tags || [];
+      const chemicalResidue = stack.section === "residue" && tags.includes("chemistry");
+      const hazardousWaste = tags.some((tag) => ["waste", "processWaste"].includes(tag))
+        && tags.some((tag) => ["hazard", "hazardous", "toxic", "corrosive"].includes(tag));
+      return SURFACE_ROOM_IDS.includes(stack.roomId) && stack.quantity > 0
+        && (chemicalResidue || hazardousWaste) && stack.key !== "treatedChemicalEffluent";
+    });
+    if (untreatedWaste.length >= 4) {
+      exceptions.push({
+        id: "surface-waste-backlog",
+        kind: "wasteBacklog",
+        severity: untreatedWaste.length >= 8 ? "serious" : "material",
+        label: `${untreatedWaste.length} untreated hazardous or process-waste stocks have accumulated`,
+        details: "The declared waste-treatment activity is not keeping pace with physical surface waste.",
+        createdAt: Math.min(...untreatedWaste.map((stack) => stack.createdAt)),
+        source: "derived"
+      });
+    }
+    return exceptions.sort((a, b) => ({ serious: 3, material: 2, minor: 1 }[b.severity] || 0) - ({ serious: 3, material: 2, minor: 1 }[a.severity] || 0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  }
+
+  function companyCredibilityBand(score) {
+    return COMPANY_CREDIBILITY_BANDS.find((band) => score >= band.min) || COMPANY_CREDIBILITY_BANDS.at(-1);
+  }
+
+  function companyCredibilityDimension(id, label, score, reasons) {
+    const value = clamp(Math.round(Number(score) || 0), 0, 100);
+    return { id, label, score: value, band: companyCredibilityBand(value).label, reasons: reasons.filter(Boolean) };
+  }
+
+  function companyCredibilityAssessment(company = ensureCompany()) {
+    if (!company.enabled) return { score: 0, band: { id: "nonviable", label: "No Registered Front", min: 0 }, trend: "stable", dimensions: [], exceptions: [] };
+    const exceptions = companyReconciliationExceptions(company);
+    const severityPenalty = exceptions.reduce((total, entry) => total + ({ serious: 24, material: 12, minor: 5 }[entry.severity] || 0), 0);
+    const filed = company.periods.filter((period) => period.status === "filed");
+    const recordsScore = clamp(74 + Math.min(16, filed.length * 6) - severityPenalty, 0, 100);
+    const recordsReasons = [
+      filed.length ? `${filed.length} reporting period${filed.length === 1 ? "" : "s"} filed.` : "No reporting period has been filed yet.",
+      exceptions.length ? `${exceptions.length} unresolved reconciliation exception${exceptions.length === 1 ? "" : "s"}.` : "Current records reconcile without an identified exception."
+    ];
+
+    const recentCutoff = Math.max(0, state.clock - SECONDS_PER_DAY * 14);
+    const recent = company.records.filter((record) => record.at >= recentCutoff);
+    const productionCount = recent.filter((record) => record.kind === "production").length;
+    const saleCount = recent.filter((record) => record.kind === "sale").length;
+    const receiptCount = recent.filter((record) => record.kind === "received").length;
+    const expectation = COMPANY_OPERATING_STATE_DEFS[company.operatingState]?.commercialExpectation || 0;
+    const activityUnits = productionCount * 2 + saleCount * 3 + receiptCount;
+    const commercialBase = expectation === 0 ? 62 : expectation === 1 ? 38 : 18;
+    const commercialScore = clamp(commercialBase + Math.min(expectation === 2 ? 76 : 52, activityUnits * 8), 0, 100);
+    const commercialReasons = expectation === 0
+      ? ["Renovation status limits current commercial expectations.", activityUnits ? `${activityUnits} weighted lawful activity units recorded recently.` : "Preparatory purchasing or facility work can support the renovation narrative."]
+      : [`${productionCount} production, ${saleCount} sale, and ${receiptCount} receipt records in the recent window.`, activityUnits ? "Recorded lawful activity supports the declared operating state." : "The declared operating state has no recent lawful throughput."];
+
+    const chemistryFixtures = (state.fixtures || []).filter((fixture) => chemistryProcessDef(fixture));
+    const commissioned = chemistryFixtures.filter((fixture) => fixture.process?.commissioned).length;
+    const online = chemistryFixtures.filter((fixture) => fixture.process?.online && fixture.utility?.enabled !== false).length;
+    const ready = chemistryFixtures.filter((fixture) => fixture.process?.commissioned && chemistryProcessReadiness(fixture).operational).length;
+    const averageCondition = chemistryFixtures.length ? chemistryFixtures.reduce((total, fixture) => total + (Number(fixture.condition) || 0), 0) / chemistryFixtures.length : 0;
+    const facilityScore = chemistryFixtures.length ? clamp(averageCondition * 0.42 + commissioned / chemistryFixtures.length * 30 + ready / chemistryFixtures.length * 22 + online / chemistryFixtures.length * 6, 0, 100) : 0;
+    const facilityReasons = chemistryFixtures.length
+      ? [`${commissioned}/${chemistryFixtures.length} chemistry machines commissioned; ${ready}/${chemistryFixtures.length} have required physical services.`, `Average chemistry-equipment condition is ${formatNumber(averageCondition)}%.`]
+      : ["No declared chemistry equipment exists at the site."];
+
+    const surfaceSpills = ensurePhysicalItemStacks().filter((stack) => stack.form === "spill" && SURFACE_ROOM_IDS.includes(stack.roomId) && stack.quantity > 0);
+    const hazardousSurfaceWaste = ensurePhysicalItemStacks().filter((stack) => SURFACE_ROOM_IDS.includes(stack.roomId) && stack.quantity > 0 && (stack.tags || []).some((tag) => ["hazard", "hazardous", "toxic", "corrosive", "chemical"].includes(tag)));
+    const surfaceContamination = SURFACE_ROOM_IDS.filter((roomId) => roomById(roomId)).map((roomId) => Number(roomEnvironmentAttributes(roomId)?.contamination?.current) || 0);
+    const averageContamination = surfaceContamination.length ? surfaceContamination.reduce((total, value) => total + value, 0) / surfaceContamination.length : 100;
+    const surfaceFaults = chemistryFixtures.filter((fixture) => normalizeUtilityFault(fixture.utility?.fault)).length;
+    const safetyScore = clamp(96 - surfaceSpills.length * 18 - hazardousSurfaceWaste.length * 4 - averageContamination * 1.2 - surfaceFaults * 8, 0, 100);
+    const safetyReasons = [
+      surfaceSpills.length ? `${surfaceSpills.length} uncontained surface spill${surfaceSpills.length === 1 ? "" : "s"}.` : "No uncontained surface spills.",
+      `${hazardousSurfaceWaste.length} hazardous surface stock${hazardousSurfaceWaste.length === 1 ? "" : "s"}; average airborne contamination ${formatDecimal(averageContamination, 1)}.`
+    ];
+
+    const reception = roomById(SURFACE_RECEPTION_ROOM_ID);
+    const publicEntrance = (state.siteAccessPoints || []).find((point) => point.id === "publicEntrance" && point.lawful);
+    const receptionEnvironment = roomEnvironmentAttributes(SURFACE_RECEPTION_ROOM_ID);
+    const receptionLight = Number(receptionEnvironment?.light?.current) || 0;
+    const receptionContamination = Number(receptionEnvironment?.contamination?.current) || 0;
+    const publicScore = reception && publicEntrance ? clamp(78 + Math.min(14, receptionLight / 5) - receptionContamination * 1.5, 0, 100) : 0;
+    const publicReasons = reception && publicEntrance
+      ? [`Reception is physically connected to the lawful Public Entrance.`, `Reception light ${formatNumber(receptionLight)} and contamination ${formatNumber(receptionContamination)}.`]
+      : ["The company lacks a complete lawful public reception route."];
+
+    const publicPoint = (state.siteAccessPoints || []).find((point) => point.id === "publicEntrance" && point.lawful);
+    const freightPoint = (state.siteAccessPoints || []).find((point) => point.id === "loadingBay" && point.lawful);
+    const covertPoint = (state.siteAccessPoints || []).find((point) => point.id === "concealedExit" && !point.lawful);
+    const separated = publicPoint && freightPoint && covertPoint && new Set([publicPoint.roomId, freightPoint.roomId, covertPoint.roomId]).size === 3;
+    const basementDoor = state.doors?.["door-surface-basement-staff"] || null;
+    const accessScore = clamp((separated ? 82 : 30) + (basementDoor && ["restricted", "staff"].includes(basementDoor.accessRuleId) ? 18 : 0), 0, 100);
+    const accessReasons = [separated ? "Public, lawful freight, and covert access remain physically separate." : "Public, freight, and covert routes are not fully separated.", basementDoor ? `The basement boundary uses ${DOOR_ACCESS_RULE_BY_ID[basementDoor.accessRuleId]?.label || "a saved access rule"}.` : "No controlled basement boundary is present."];
+
+    const dimensions = [
+      companyCredibilityDimension("commercial", "Commercial Activity", commercialScore, commercialReasons),
+      companyCredibilityDimension("records", "Records and Reconciliation", recordsScore, recordsReasons),
+      companyCredibilityDimension("facility", "Facility Readiness", facilityScore, facilityReasons),
+      companyCredibilityDimension("safety", "Safety and Waste Handling", safetyScore, safetyReasons),
+      companyCredibilityDimension("public", "Public Presentation", publicScore, publicReasons),
+      companyCredibilityDimension("access", "Access Separation", accessScore, accessReasons)
+    ];
+    const weights = { commercial: 0.2, records: 0.25, facility: 0.2, safety: 0.15, public: 0.1, access: 0.1 };
+    const score = clamp(Math.round(dimensions.reduce((total, dimension) => total + dimension.score * weights[dimension.id], 0)), 0, 100);
+    const previous = company.credibilityHistory.at(-1)?.score;
+    const trend = previous == null || Math.abs(score - previous) < 3 ? "stable" : score > previous ? "improving" : "declining";
+    return { score, band: companyCredibilityBand(score), trend, dimensions, exceptions };
+  }
+
+  function updateCompanyState() {
+    const company = ensureCompany();
+    if (!company.enabled || state.clock < company.lastAssessmentAt + COMPANY_ASSESSMENT_INTERVAL) return 0;
+    const assessment = companyCredibilityAssessment(company);
+    company.credibilityHistory.push({ at: state.clock, score: assessment.score, bandId: assessment.band.id });
+    company.credibilityHistory = company.credibilityHistory.slice(-COMPANY_CREDIBILITY_HISTORY_LIMIT);
+    company.lastAssessmentAt = state.clock;
+    return 1;
+  }
+
+  function setCompanyOperatingState(operatingState) {
+    const company = ensureCompany();
+    const definition = COMPANY_OPERATING_STATE_DEFS[operatingState];
+    if (!company.enabled || !definition || company.operatingState === definition.id) return false;
+    const previous = COMPANY_OPERATING_STATE_DEFS[company.operatingState]?.label || titleCase(company.operatingState);
+    company.operatingState = definition.id;
+    company.operatingStateChangedAt = state.clock;
+    state.siteIdentity.operatingState = definition.id;
+    recordCompanyEvent("operatingState", `Operating state changed from ${previous} to ${definition.label}.`, { category: "corporate", roomId: SURFACE_STAFF_ROOM_ID, details: definition.description });
+    addEvent(`${company.legalName} is now ${definition.label}.`);
+    persist();
+    render();
+    return true;
+  }
+
+  function companyFilingTask() {
+    return scientistQueueTasks().find((task) => task.type === "companyFiling") || null;
+  }
+
+  function companyFilingBlockReason(period = activeCompanyPeriod()) {
+    if (!ensureCompany().enabled) return "No registered front company exists.";
+    if (!period || period.status === "filed") return "No open reporting period exists.";
+    if (period.status === "filing" || companyFilingTask()) return "Company books are already queued for filing.";
+    if (state.clock < period.closesAt) return `Reporting period ${period.number} cannot close until ${formatClock(period.closesAt)}.`;
+    if (!roomById(SURFACE_STAFF_ROOM_ID)) return "Staff Operations is unavailable.";
+    if (scientistIsDead()) return "The scientist is dead.";
+    return staminaBlockReason(adjustedStaminaCost(2, ["analysis"]));
+  }
+
+  function startCompanyFiling() {
+    const company = ensureCompany();
+    const period = activeCompanyPeriod(company);
+    const reason = companyFilingBlockReason(period);
+    if (reason) {
+      addEvent(reason); persist(); render(); return false;
+    }
+    const targetCell = labMapRoomAnchor(SURFACE_STAFF_ROOM_ID);
+    const path = labMapPathBetweenCells(scientistMapCell(), targetCell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    if (!path.length) {
+      addEvent("No physical route reaches Staff Operations for company filing."); persist(); render(); return false;
+    }
+    const route = [scientistRoomId(), ...roomsFromMapPath(path)].filter(Boolean).filter((roomId, index, values) => index === 0 || roomId !== values[index - 1]);
+    const doorReason = firstDoorSecurityBlockReason(route);
+    if (doorReason) { addEvent(doorReason); persist(); render(); return false; }
+    const staminaCost = adjustedStaminaCost(2, ["analysis"]);
+    if (!spendStamina(staminaCost)) return false;
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    const workSeconds = adjustedActionDuration(minutesToSeconds(20), "analysis");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "companyFiling",
+      label: `Close company books: period ${period.number}`,
+      createdAt: state.clock,
+      dueAt: queueTail + travelSeconds + workSeconds,
+      data: {
+        periodId: period.id,
+        toRoomId: SURFACE_STAFF_ROOM_ID,
+        toCell: targetCell,
+        mapPath: path,
+        route,
+        doorTransit: doorTransitPlan(route),
+        movementStartedAt: queueTail,
+        movement: createScientistMovementRecord(path, travelSeconds, queueTail, { intent: "research" }),
+        workStartsAt: queueTail + travelSeconds,
+        staminaCost,
+        skillId: "analysis",
+        baseXp: 10
+      }
+    };
+    state.tasks.push(task);
+    period.status = "filing";
+    period.taskId = task.id;
+    addEvent(`Company reporting period ${period.number} queued for filing in Staff Operations.`);
+    persist(); render(); return true;
+  }
+
+  function completeCompanyFiling(task) {
+    const company = ensureCompany();
+    const period = company.periods.find((entry) => entry.id === task.data?.periodId);
+    if (!period || period.status !== "filing" || period.taskId !== task.id) return false;
+    applyDoorTransitPolicy(task.data?.doorTransit, "Company records filing");
+    state.scientist.roomId = SURFACE_STAFF_ROOM_ID;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || labMapRoomAnchor(SURFACE_STAFF_ROOM_ID);
+    const assessment = companyCredibilityAssessment(company);
+    period.status = "filed";
+    period.taskId = "";
+    period.filedAt = state.clock;
+    period.recordIds = company.records.filter((record) => record.periodId === period.id).map((record) => record.id);
+    period.snapshot = {
+      recordCount: period.recordIds.length,
+      filedAt: state.clock,
+      exceptionCount: assessment.exceptions.length,
+      exceptions: assessment.exceptions.map((entry) => ({ id: entry.id, kind: entry.kind, severity: entry.severity, label: entry.label })),
+      credibilityBandId: assessment.band.id,
+      credibilityScore: assessment.score,
+      operatingState: company.operatingState
+    };
+    const serious = assessment.exceptions.some((entry) => entry.kind !== "incompleteRecords" && ["material", "serious"].includes(entry.severity));
+    company.cleanFiledPeriods = serious ? 0 : company.cleanFiledPeriods + 1;
+    if (company.cleanFiledPeriods >= 2) {
+      const inherited = (state.startingLiabilities || []).find((liability) => liability.id === "incomplete-business-records" && liability.status === "active");
+      if (inherited) inherited.status = "resolved";
+    }
+    const number = company.nextPeriodNumber++;
+    const nextPeriod = normalizeCompanyPeriod({ id: `company-period-${number}`, number, openedAt: state.clock, closesAt: state.clock + COMPANY_REPORTING_PERIOD_SECONDS }, company.periods.length);
+    company.periods.push(nextPeriod);
+    company.periods = company.periods.slice(-COMPANY_PERIOD_LIMIT);
+    company.activePeriodId = nextPeriod.id;
+    recordCompanyEvent("periodFiled", `Reporting period ${period.number} filed with ${period.snapshot.exceptionCount} exception${period.snapshot.exceptionCount === 1 ? "" : "s"}.`, { category: "records", roomId: SURFACE_STAFF_ROOM_ID, details: `Credibility at filing: ${assessment.band.label}.` });
+    awardXp("analysis", task.data?.baseXp || 10, "company records filing");
+    addEvent(`Company books filed for period ${period.number}: ${period.recordIds.length} records and ${period.snapshot.exceptionCount} reconciliation exception${period.snapshot.exceptionCount === 1 ? "" : "s"}.`);
+    return true;
+  }
+
   function createDefaultCommodityMarket(seed = "seed") {
     const listings = {};
     for (const def of COMMODITY_MARKET_LISTING_DEFS) {
@@ -5488,6 +6048,12 @@
     };
     economy.legalLedger.unshift(entry);
     economy.legalLedger = economy.legalLedger.slice(0, COMMODITY_MARKET_LEDGER_LIMIT);
+    recordCompanyEvent(kind, label, {
+      ...options,
+      category: "legalExchange",
+      lawful: true,
+      roomId: options.roomId || (kind === "received" || kind === "sale" ? SURFACE_LOADING_ROOM_ID : SURFACE_STAFF_ROOM_ID)
+    });
     return entry;
   }
 
@@ -5543,7 +6109,7 @@
       taskId: ""
     };
     economy.commodityConsignments.push(consignment);
-    recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; inbound freight booked.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total });
+    recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; inbound freight booked.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total, quantity });
     addEvent(`Open market purchase: ${formatNumber(quantity)} ${def.label} for ${formatMoney(total)}; delivery inbound to the Loading Bay.`);
     return { filled: quantity, total, consignment };
   }
@@ -5730,7 +6296,7 @@
       consignment.status = "received";
       consignment.completedAt = state.clock;
       economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 100)));
-      recordLegalLedger("received", `Received ${formatNumber(consignment.quantity)} ${def.label} at the Loading Bay.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id });
+      recordLegalLedger("received", `Received ${formatNumber(consignment.quantity)} ${def.label} at the Loading Bay.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, quantity: consignment.quantity });
       addEvent(`${formatNumber(consignment.quantity)} ${def.label} received at the Loading Bay; normal stockpile hauling can move it onward.`);
     } else {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === consignment.stackId);
@@ -5753,7 +6319,7 @@
       const order = economy.commodityOrders.find((entry) => entry.id === consignment.orderId);
       if (order) { order.status = "filled"; order.remaining = 0; order.updatedAt = state.clock; }
       syncPhysicalReadModels();
-      recordLegalLedger("sale", `Sold ${formatNumber(consignment.quantity)} ${def.label} at ${formatMoney(consignment.unitPrice)} net per unit.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, amount: consignment.total });
+      recordLegalLedger("sale", `Sold ${formatNumber(consignment.quantity)} ${def.label} at ${formatMoney(consignment.unitPrice)} net per unit.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, amount: consignment.total, quantity: consignment.quantity, batchId: stack.chemicalBatch?.id || "" });
       addEvent(`Legal shipment sold: ${formatNumber(consignment.quantity)} ${def.label} for ${formatMoney(consignment.total)}.`);
     }
     return true;
@@ -6613,6 +7179,7 @@
       "economySummary",
       "economyMenuTabs",
       "economyOverviewBadge",
+      "economyCompanyBadge",
       "economyExchangeBadge",
       "economyOrdersBadge",
       "economyFreightBadge",
@@ -6622,6 +7189,7 @@
       "economyContractsBadge",
       "economyLedgerBadge",
       "economyOverviewList",
+      "economyCompanyList",
       "economyExchangeList",
       "economyOrdersList",
       "economyFreightList",
@@ -6725,6 +7293,9 @@
       "setupOverlay",
       "setupForm",
       "startingScenarioList",
+      "companyNameField",
+      "companyNameInput",
+      "randomCompanyNameBtn",
       "startRunSubmitBtn",
       "loadLastSaveBtn",
       "loadLastSaveStatus",
@@ -6875,6 +7446,16 @@
       },
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
+      companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
+      generatedCompanyName: (seed, variant = 0) => generatedCompanyName(seed, variant),
+      setCompanyOperatingState: (operatingState) => setCompanyOperatingState(operatingState),
+      makeCompanyPeriodDue: () => {
+        const period = activeCompanyPeriod();
+        if (!period) return false;
+        period.closesAt = state.clock;
+        persist(); render(); return true;
+      },
+      startCompanyFiling: () => startCompanyFiling(),
       marketAvailableByproduct: (material) => blackMarketAvailableByproductAmount(material),
       acceptMarketContract: (dealId, negotiationId = "standard", selectedId = "") => acceptBlackMarketContract(dealId, negotiationId, selectedId),
       addBlackMarketManufacturedBatch: (dealId, options = {}) => {
@@ -8061,11 +8642,17 @@
       const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
         ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
         : requestedScenario;
-      const next = createStartingScenarioState(scenario.id);
+      const nextSeed = cleanSeed(dom.seedInput.value) || makeSeed();
+      const next = createStartingScenarioState(scenario.id, {
+        seed: nextSeed,
+        companyName: scenario.identity.kind === "frontCompany" ? dom.companyNameInput?.value : "",
+        companyNameGenerated: dom.companyNameInput?.dataset.generated === "true",
+        companyNameVariant: Number(dom.companyNameInput?.dataset.variant) || 0
+      });
       next.started = true;
       next.paused = true;
       next.timeSpeed = DEFAULT_TIME_SPEED;
-      next.seed = cleanSeed(dom.seedInput.value) || makeSeed();
+      next.seed = nextSeed;
       next.journalMode = dom.journalModeSelect.value;
       next.complexity = dom.complexitySelect.value;
       next.economy = defaultEconomyState(next.seed);
@@ -8092,6 +8679,7 @@
       if (scenario.debugOnly && !debugToolsEnabled()) return;
       selectedStartingScenarioId = scenario.id;
       syncStartingScenarioSubmit();
+      syncCompanyNameSetup();
     });
 
     dom.loadLastSaveBtn.addEventListener("click", () => {
@@ -8117,6 +8705,22 @@
 
     dom.randomSeedBtn.addEventListener("click", () => {
       dom.seedInput.value = makeSeed();
+      if (dom.companyNameInput?.dataset.generated !== "false") syncCompanyNameSetup({ regenerate: true });
+    });
+
+    dom.seedInput.addEventListener("change", () => {
+      if (dom.companyNameInput?.dataset.generated !== "false") syncCompanyNameSetup({ regenerate: true });
+    });
+
+    dom.companyNameInput?.addEventListener("input", () => {
+      dom.companyNameInput.dataset.generated = "false";
+    });
+
+    dom.randomCompanyNameBtn?.addEventListener("click", () => {
+      const variant = (Number(dom.companyNameInput.dataset.variant) || 0) + 1;
+      dom.companyNameInput.dataset.variant = String(variant);
+      dom.companyNameInput.dataset.generated = "true";
+      dom.companyNameInput.value = generatedCompanyName(dom.seedInput.value || state.seed, variant);
     });
 
     dom.pauseBtn.addEventListener("click", () => {
@@ -10903,6 +11507,10 @@
     if (marketEvent) events.push(marketEvent);
     const commodityEvent = nextCommodityMarketEvent();
     if (commodityEvent) events.push(commodityEvent);
+    const companyPeriod = activeCompanyPeriod();
+    if (companyPeriod?.status === "open" && companyPeriod.closesAt >= state.clock) {
+      events.push({ time: companyPeriod.closesAt, label: `company reporting period ${companyPeriod.number} closes`, type: "company" });
+    }
     const jobEvent = nextCreatureJobEvent();
     if (jobEvent) {
       events.push(jobEvent);
@@ -11116,6 +11724,7 @@
       changes.suspicionChanged += updateSuspicionDecay();
       changes.economyChanged += updateBlackMarketEconomy();
       changes.economyChanged += updateCommodityMarket();
+      changes.economyChanged += updateCompanyState();
       changes.incidentAlertChanged += refreshIncidentAlerts();
       changes.incidentUrgencyChanged += handleIncidentUrgency();
       syncRoomObservationMemory();
@@ -11394,6 +12003,11 @@
       return;
     }
 
+    if (task.type === "companyFiling") {
+      completeCompanyFiling(task);
+      return;
+    }
+
     if (task.type === "physicalDiagnostic") {
       completePhysicalDiagnostic(task);
       return;
@@ -11456,6 +12070,13 @@
         addEvent(`Rest complete. Recovered ${formatNumber(task.data.restore)} stamina, but unsafe conditions may have worsened Physical State.`);
       } else {
         addEvent(`Rest complete. Rest quality ${quality}. Recovered ${formatNumber(task.data.restore)} stamina.`);
+      }
+    }
+    if (task.type === "companyFiling") {
+      const period = ensureCompany().periods.find((entry) => entry.id === task.data?.periodId);
+      if (period?.taskId === task.id) {
+        period.status = "open";
+        period.taskId = "";
       }
     }
     if (task.type === "commodityFreight") {
@@ -12269,9 +12890,16 @@
         fixture.operationalState = "operational";
         addEvent(`${fixture.name} ${UTILITY_FAULT_DEFS[fault.id].label.toLowerCase()} repaired; the fixture returned to service.`);
       }
+      if (SURFACE_ROOM_IDS.includes(labMapCellRoomId(fixture.origin))) {
+        recordCompanyEvent(order.kind, `${order.label} completed.`, { category: "equipment", fixtureId: fixture.id, roomId: labMapCellRoomId(fixture.origin) });
+      }
     } else if (CHEMISTRY_PROCESS_WORK_KINDS.has(order.kind)) {
       const fixture = fixtureById(order.target.id);
       if (!fixture || !completeChemistryProcessWork(order, fixture)) return false;
+      const roomId = labMapCellRoomId(fixture.origin);
+      if (SURFACE_ROOM_IDS.includes(roomId)) {
+        recordCompanyEvent(order.kind, `${order.label} completed.`, { category: "equipment", fixtureId: fixture.id, roomId, details: fixture.process?.lastResult || "" });
+      }
     } else if (order.kind === "serviceFixture") {
       if (!emptyFixtureUtilityWaste(order.target.id, order.data?.field, order.data?.label || "service waste", { quiet: true })) return false;
     } else if (order.kind === "collectionTransfer") {
@@ -22936,6 +23564,28 @@
     const byproductText = (recipe.byproducts || []).length
       ? `; byproducts: ${(recipe.byproducts || []).map((item) => `${item.quantity || 1} ${productionOutputLabel(item)}`).join(", ")}`
       : "";
+    if (recipe.chemistry && chemicalBatch) {
+      const illicit = chemicalBatch.classification?.actual === "prohibited" || (chemicalBatch.tags || []).includes("contraband");
+      if (illicit) {
+        recordCompanyVariance("undeclaredProduction", `${chemicalBatch.label} was produced outside declared company activity`, {
+          severity: "serious",
+          batchId: chemicalBatch.id,
+          stackId: output?.id,
+          sourceId: workpiece.id,
+          details: `Batch ${chemicalBatch.id} was produced at ${workstation.name} without a lawful declared product record.`
+        });
+      } else {
+        recordCompanyEvent("production", `${recipe.label} completed: ${formatNumber(output?.quantity || recipe.output.quantity || 1)} ${chemicalBatch.label}.`, {
+          category: recipe.assay ? "analysis" : recipe.packaging ? "packaging" : recipe.documentation ? "certification" : chemicalBatch.stage === "waste" ? "waste" : "production",
+          quantity: output?.quantity || recipe.output.quantity || 1,
+          recipeId: recipe.id,
+          batchId: chemicalBatch.id,
+          fixtureId: workstation.id,
+          roomId: labMapCellRoomId(workstation.origin),
+          details: `Purity ${formatNumber(chemicalBatch.purity)}; craftsmanship ${formatNumber(chemicalBatch.craftsmanship)}; classification ${CHEMICAL_CLASSIFICATION_DEFS[chemicalBatch.classification?.known]?.label || "Unclassified"}.`
+        });
+      }
+    }
     addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${productionOutputLabel(recipe.output)} produced at ${workstation.name}${byproductText}.`);
     emitMapFeedback("feedbackWork", workstation.origin, {
       label: recipe.label + " completed",
@@ -50026,6 +50676,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function clearEconomyMenuLists() {
     for (const element of [
       dom.economyOverviewList,
+      dom.economyCompanyList,
       dom.economyExchangeList,
       dom.economyOrdersList,
       dom.economyFreightList,
@@ -50045,6 +50696,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeTab = currentEconomyMenuTab();
     const badgeMap = {
       overview: dom.economyOverviewBadge,
+      company: dom.economyCompanyBadge,
       exchange: dom.economyExchangeBadge,
       orders: dom.economyOrdersBadge,
       freight: dom.economyFreightBadge,
@@ -50191,6 +50843,97 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       grid.append(panel);
     }
     dom.economyOverviewList.append(grid);
+  }
+
+  function renderCompany() {
+    if (!dom.economyCompanyList) return;
+    const company = ensureCompany();
+    if (!company.enabled) {
+      const section = storesSectionEl("No Registered Front", "This starting scenario has no public company identity or above-ground business operation.", { economyCategory: "company" });
+      section.append(emptyText("Company records and cover credibility are unavailable for this site."));
+      dom.economyCompanyList.append(section);
+      return;
+    }
+    const assessment = companyCredibilityAssessment(company);
+    const operating = COMPANY_OPERATING_STATE_DEFS[company.operatingState];
+    const period = activeCompanyPeriod(company);
+    const periodState = companyReportingPeriodState(period);
+
+    const identity = storesSectionEl("Legal Identity", "The company name and declarations are authoritative saved facts for this run. Operating state changes expectations but does not fabricate activity.", { economyCategory: "companyIdentity" });
+    const operatingField = document.createElement("label");
+    operatingField.className = "commodity-order-field";
+    operatingField.append(textEl("span", "Operating state"));
+    const operatingSelect = document.createElement("select");
+    operatingSelect.setAttribute("aria-label", "Company operating state");
+    for (const definition of Object.values(COMPANY_OPERATING_STATE_DEFS)) operatingSelect.append(new Option(definition.label, definition.id));
+    operatingSelect.value = company.operatingState;
+    operatingSelect.addEventListener("change", () => setCompanyOperatingState(operatingSelect.value));
+    operatingField.append(operatingSelect);
+    identity.append(storesRowEl(company.legalName, operating.label, {
+      subtitle: `${state.siteIdentity.declaredActivity}; name source ${titleCase(company.nameSource)}; public-facing registered front`,
+      dataset: { companyIdentity: company.legalName, companyOperatingState: company.operatingState },
+      actions: [operatingField]
+    }));
+    for (const declarationId of company.declarationIds) {
+      const declaration = COMPANY_DECLARATION_BY_ID[declarationId];
+      if (declaration) identity.append(storesRowEl(declaration.label, "Declared", { subtitle: declaration.description, dataset: { companyDeclaration: declaration.id } }));
+    }
+    dom.economyCompanyList.append(identity);
+
+    const credibility = storesSectionEl("Cover Credibility", "A qualitative recent-window assessment derived from actual lawful activity, reconciled books, physical equipment, safety, public presentation, and access separation. Exact aggregate math is not shown in normal play.", { economyCategory: "coverCredibility" });
+    credibility.append(storesRowEl(assessment.band.label, titleCase(assessment.trend), {
+      subtitle: `${assessment.dimensions.length} derived dimensions; ${assessment.exceptions.length} current reconciliation exception${assessment.exceptions.length === 1 ? "" : "s"}`,
+      dataset: { companyCredibility: assessment.band.id, credibilityTrend: assessment.trend }
+    }));
+    for (const dimension of assessment.dimensions) {
+      credibility.append(storesRowEl(dimension.label, dimension.band, {
+        title: dimension.reasons.join("\n"),
+        subtitle: dimension.reasons.join(" "),
+        dataset: { companyCredibilityDimension: dimension.id, credibilityBand: companyCredibilityBand(dimension.score).id }
+      }));
+    }
+    dom.economyCompanyList.append(credibility);
+
+    const reconciliation = storesSectionEl("Reconciliation", "Exceptions compare retained company records with current physical surface inventory, declared activity, filing status, and saved unexplained losses.", { economyCategory: "companyReconciliation" });
+    if (!assessment.exceptions.length) reconciliation.append(emptyText("No current reconciliation exceptions."));
+    for (const exception of assessment.exceptions) {
+      reconciliation.append(storesRowEl(exception.label, titleCase(exception.severity), {
+        subtitle: exception.details,
+        dataset: { companyException: exception.id, exceptionSeverity: exception.severity, exceptionKind: exception.kind }
+      }));
+    }
+    dom.economyCompanyList.append(reconciliation);
+
+    const periods = storesSectionEl("Reporting Periods", "Open books accumulate automatic immutable records. Closing a due period is routed scientist work in Staff Operations and freezes its filing summary.", { economyCategory: "companyPeriods" });
+    if (period) {
+      const actions = [];
+      const filing = storesActionButton(period.status === "filing" ? "Filing Queued" : "Close Company Books", companyFilingBlockReason(period) || "Queue physical records work in Staff Operations.", () => startCompanyFiling());
+      const filingReason = companyFilingBlockReason(period);
+      setActionButtonState(filing, Boolean(filingReason), filingReason);
+      actions.push(filing);
+      periods.append(storesRowEl(`Period ${period.number}`, titleCase(periodState), {
+        subtitle: `${formatClock(period.openedAt)}–${formatClock(period.closesAt)}; ${period.recordIds.length} retained record${period.recordIds.length === 1 ? "" : "s"}${periodState === "overdue" ? "; overdue filing weakens credibility" : ""}`,
+        dataset: { companyPeriod: period.id, companyPeriodStatus: periodState }, actions
+      }));
+    }
+    for (const filedPeriod of [...company.periods].filter((entry) => entry.status === "filed").reverse()) {
+      periods.append(storesRowEl(`Period ${filedPeriod.number}`, `Filed ${formatClock(filedPeriod.filedAt)}`, {
+        subtitle: `${filedPeriod.snapshot?.recordCount || 0} records; ${filedPeriod.snapshot?.exceptionCount || 0} exceptions; ${companyCredibilityBand(filedPeriod.snapshot?.credibilityScore || 0).label} at filing`,
+        dataset: { companyPeriod: filedPeriod.id, companyPeriodStatus: "filed" }
+      }));
+    }
+    dom.economyCompanyList.append(periods);
+
+    const records = storesSectionEl("Corporate Records", "Automatic entries preserve what actually occurred. Routine books cannot be rewritten here; future investigation mechanics may add explicit evidence-handling choices.", { economyCategory: "companyRecords" });
+    if (!company.records.length) records.append(emptyText("No company records retained."));
+    for (const record of [...company.records].reverse().slice(0, 80)) {
+      records.append(storesRowEl(record.label, formatClock(record.at), {
+        title: [record.details, record.batchId ? `Batch ${record.batchId}.` : "", record.recipeId ? `Recipe ${record.recipeId}.` : ""].filter(Boolean).join("\n"),
+        subtitle: `${titleCase(record.category)}${record.amount ? `; ${record.amount > 0 ? "+" : ""}${formatMoney(record.amount)}` : ""}${record.quantity ? `; ${formatNumber(record.quantity)} units` : ""}${record.roomId ? `; ${roomName(record.roomId)}` : ""}`,
+        dataset: { companyRecord: record.id, companyRecordKind: record.kind, companyPeriod: record.periodId }
+      }));
+    }
+    dom.economyCompanyList.append(records);
   }
 
   function commodityChartEl(def, listing) {
@@ -50521,12 +51264,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const openDeals = blackMarketOpenDeals();
     const activeTrade = activeBlackMarketTradeTask();
     if (dom.economySummary) {
-      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${commodityBusinessReputationLabel(economy.businessReputation)}; ${economy.commodityOrders.filter((order) => order.status === "open").length} standing legal orders; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers`;
+      const company = ensureCompany();
+      const companyLabel = company.enabled ? `${company.legalName}; ${companyCredibilityAssessment(company).band.label} cover` : "No registered front";
+      dom.economySummary.textContent = `${formatMoney(economy.money)}; ${companyLabel}; ${economy.commodityOrders.filter((order) => order.status === "open").length} standing legal orders; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers`;
       dom.economySummary.title = "The lawful exchange uses saved supply and demand, all-in quotes, physical freight, and reliable settlement. Black-market contacts remain a separate channel.";
     }
     clearEconomyMenuLists();
     renderEconomyMenuTabs({
       overview: economy.contacts.length + openDeals.length,
+      company: ensureCompany().enabled ? companyCredibilityAssessment().exceptions.length + 1 : 0,
       exchange: COMMODITY_MARKET_LISTING_DEFS.length,
       orders: economy.commodityOrders.filter((order) => ["open", "executing"].includes(order.status)).length,
       freight: economy.commodityConsignments.filter((consignment) => !["received", "sold", "failed"].includes(consignment.status)).length,
@@ -50537,6 +51283,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ledger: economy.ledger.length
     });
     renderEconomyOverview(economy, openDeals, activeTrade);
+    renderCompany();
     renderCommodityExchange(economy);
     renderCommodityOrders(economy);
     renderCommodityFreight(economy);
@@ -52539,6 +53286,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return ensureEconomy().commodityConsignments.some((entry) => entry.id === task.data?.consignmentId)
         ? ""
         : "The legal consignment no longer exists.";
+    }
+    if (task.type === "companyFiling") {
+      const period = ensureCompany().periods.find((entry) => entry.id === task.data?.periodId);
+      return period && period.status === "filing" && period.taskId === task.id
+        ? ""
+        : "The company reporting period is no longer assigned to this filing task.";
     }
     if (task.type === "synthesize") {
       return synthesisTaskBlockReason(task);
@@ -61279,6 +62032,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "commodityFreight") {
       return "Legal Freight";
     }
+    if (task.type === "companyFiling") {
+      return "Company Records";
+    }
     if (task.type === "constructionWork" || task.type === "excavate") {
       return "Construction";
     }
@@ -65531,10 +66287,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addEvent(`${slime?.name || "The specimen"} escaped at the Concealed Exit after the reserved transport pod failed.`);
       return false;
     }
+    const manufacturedBatchId = contract.commodityKind === "manufactured"
+      ? ensurePhysicalItemStacks().find((stack) => stack.id === contract.selectedStackId)?.chemicalBatch?.id
+        || contract.reservations.find((entry) => entry.kind === "chemicalBatch")?.batchId
+      : "";
     const spent = spendBlackMarketContractShipment(contract, `Delivered under ${contract.id} to ${contact.name}`);
     if (spent + 0.0001 < contract.amount) {
       failBlackMarketContract(contract, "Designated contract shipment was incomplete");
       return false;
+    }
+    if (contract.commodityKind === "manufactured") {
+      recordCompanyVariance("unexplainedInventoryLoss", `${contract.material} left inventory without a lawful shipment record`, {
+        severity: "serious",
+        batchId: manufacturedBatchId,
+        stackId: contract.selectedStackId,
+        sourceId: contract.id,
+        details: `The exact manufactured batch reserved by ${contract.id} was removed through the covert market rather than the Loading Bay.`
+      });
     }
     contract.deliveredAt = task.dueAt;
     contract.taskId = "";
@@ -66894,6 +67663,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.scientist.mapCell = cleanMapCell(stack.cell) || labMapRoomAnchor(stack.roomId);
     syncPhysicalReadModels();
     claimNextStockpileHaul();
+    if (SURFACE_ROOM_IDS.includes(stack.roomId)) {
+      recordCompanyEvent("wasteContained", `${formatNumber(amount)} ${feedingResidueLabel(stack.key)} sealed after surface cleanup.`, { category: "waste", quantity: amount, roomId: stack.roomId, details: `${filled.length} physical waste receptacle${filled.length === 1 ? "" : "s"} produced.` });
+    }
     addEvent(`Cleanup complete: ${feedingResidueLabel(stack.key)} sealed in ${formatNumber(filled.length)} ${inventoryItemLabel(itemKey)}${filled.length === 1 ? "" : "s"}; lingering environmental contamination remains.`);
     return true;
   }
@@ -68789,6 +69561,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (dom.startRunSubmitBtn) dom.startRunSubmitBtn.textContent = `Begin ${scenario.label}`;
   }
 
+  function syncCompanyNameSetup(options = {}) {
+    const scenario = startingScenarioDef(selectedStartingScenarioId);
+    const enabled = scenario.identity.kind === "frontCompany";
+    if (dom.companyNameField) dom.companyNameField.hidden = !enabled;
+    if (!dom.companyNameInput || !enabled) return;
+    const shouldGenerate = options.regenerate || !cleanCompanyName(dom.companyNameInput.value) || dom.companyNameInput.dataset.generated !== "false";
+    if (shouldGenerate) {
+      const variant = options.regenerate ? 0 : Number(dom.companyNameInput.dataset.variant) || 0;
+      dom.companyNameInput.dataset.variant = String(variant);
+      dom.companyNameInput.dataset.generated = "true";
+      dom.companyNameInput.value = generatedCompanyName(dom.seedInput?.value || state.seed, variant);
+    }
+  }
+
   function renderStartingScenarioOptions() {
     if (!dom.startingScenarioList) return;
     const visible = STARTING_SCENARIO_DEFS.filter((scenario) => !scenario.debugOnly || debugToolsEnabled());
@@ -68797,11 +69583,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     dom.startingScenarioList.replaceChildren(...visible.map(startingScenarioCard));
     syncStartingScenarioSubmit();
+    syncCompanyNameSetup();
   }
 
   function syncSetupForm() {
     renderStartingScenarioOptions();
     dom.seedInput.value = state.seed;
+    if (dom.companyNameInput) {
+      dom.companyNameInput.value = state.started && state.siteIdentity?.kind === "frontCompany"
+        ? state.siteIdentity.legalName
+        : generatedCompanyName(state.seed);
+      dom.companyNameInput.dataset.generated = String(!state.started || state.siteIdentity?.nameSource !== "custom");
+      dom.companyNameInput.dataset.variant = "0";
+    }
+    syncCompanyNameSetup();
     dom.journalModeSelect.value = state.journalMode;
     dom.complexitySelect.value = state.complexity;
     const hasSave = hasLocalSave();
@@ -68879,6 +69674,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.startingScenario = normalizeStartingScenarioRecord(candidate?.startingScenario);
     const normalizedScenario = startingScenarioDef(next.startingScenario.id);
     next.siteIdentity = normalizeSiteIdentity(candidate?.siteIdentity, normalizedScenario);
+    if (next.siteIdentity.kind === "frontCompany" && !cleanCompanyName(next.siteIdentity.legalName)) {
+      next.siteIdentity.legalName = generatedCompanyName(next.seed);
+      next.siteIdentity.nameSource = "seeded";
+    }
+    next.company = normalizeCompanyState(candidate?.company, next.siteIdentity, next.seed, next.clock);
+    if (next.company.enabled) {
+      next.siteIdentity.legalName = next.company.legalName;
+      next.siteIdentity.nameSource = next.company.nameSource;
+      next.siteIdentity.operatingState = next.company.operatingState;
+    }
     next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
     next.navigation = normalizeNavigationState(next.navigation);
     next.simulation = normalizeSimulationState(next.simulation, next.clock);

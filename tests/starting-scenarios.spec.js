@@ -31,8 +31,12 @@ test('New Run presents data-driven scenario cards and hides Debug starts with De
   await expect(page.locator('#startRunSubmitBtn')).toHaveText('Begin Chemistry Front');
 });
 
-test('Chemistry Front materializes immutable scenario, blueprint, identity, and liability provenance', async ({ page }) => {
+test('Chemistry Front materializes immutable scenario, blueprint, generated identity, and liability provenance', async ({ page }) => {
   await openFreshSetup(page);
+  const setup = await page.evaluate(() => ({
+    seed: document.querySelector('#seedInput').value,
+    name: document.querySelector('#companyNameInput').value,
+  }));
   await page.locator('#startRunSubmitBtn').click();
 
   const result = await page.evaluate(() => ({
@@ -53,12 +57,15 @@ test('Chemistry Front materializes immutable scenario, blueprint, identity, and 
     },
     identity: {
       kind: 'frontCompany',
-      legalName: 'Helix Applied Reagents',
-      declaredActivity: 'Specialty reagent development',
+      legalName: setup.name,
+      nameSource: 'generated',
+      declaredActivity: 'Specialty reagent blending and chemical services',
       publicFacing: true,
       sourceScenarioId: 'chemistryFront',
     },
   });
+  expect(setup.name).toBeTruthy();
+  expect(result.current.identity.legalName).toBe(await page.evaluate((seed) => window.helixHeresyDebug.generatedCompanyName(seed), setup.seed));
   expect(result.current.liabilities.map((entry) => entry.id)).toEqual([
     'incomplete-business-records',
     'concealed-research-basement',
