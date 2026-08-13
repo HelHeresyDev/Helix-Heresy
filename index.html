@@ -659,6 +659,12 @@
           <p id="loadLastSaveStatus" class="journal-meta">No local save found.</p>
         </div>
 
+        <fieldset class="starting-scenario-fieldset">
+          <legend>Starting Scenario</legend>
+          <p class="journal-meta">Choose the inherited site and circumstances for this run. The choice becomes permanent once the run begins.</p>
+          <div id="startingScenarioList" class="starting-scenario-list"></div>
+        </fieldset>
+
         <label class="field-label" for="seedInput">Seed</label>
         <div class="sequence-row">
           <input id="seedInput" type="text" autocomplete="off">
@@ -679,7 +685,7 @@
           <option value="entangled">Entangled</option>
         </select>
 
-        <button class="primary full-width" type="submit">Enter Lab</button>
+        <button id="startRunSubmitBtn" class="primary full-width" type="submit">Begin Chemistry Front</button>
       </form>
     </div>
 

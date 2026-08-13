@@ -3795,6 +3795,7 @@
   });
   let state;
   let geneMap;
+  let selectedStartingScenarioId = "";
   let uiPreferences = null;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
@@ -4237,8 +4238,86 @@
   const MAP_OVERLAY_BY_ID = Object.fromEntries(MAP_OVERLAY_DEFS.map((overlay) => [overlay.id, overlay]));
   const DEFAULT_MAP_OVERLAY_ID = "none";
   const DEFAULT_RESOURCE_OVERLAY_FOCUS_ID = "resource:biomass";
+  const DEFAULT_STARTING_SCENARIO_ID = "chemistryFront";
+  const LEGACY_STARTING_SCENARIO_ID = "undergroundLaboratory";
+  const STARTING_LOADOUT_PROFILE_ID = "inherited-laboratory-v1";
+  const SITE_BLUEPRINT_DEFS = [
+    {
+      id: "chemistry-front-site-v1",
+      version: 1,
+      label: "Chemistry Front Site",
+      surfaceMode: "boundedFacility",
+      loadoutProfileId: STARTING_LOADOUT_PROFILE_ID,
+      spawn: { roomId: MAIN_ROOM_ID, cell: scientistDefaultMapCell(MAIN_ROOM_ID) },
+      roomIds: ROOM_BASE_DEFS.map((room) => room.id),
+      doorIds: LAB_MAP_DOOR_DEFS.map((door) => door.id),
+      verticalConnectorIds: ["stairs-basement-surface"]
+    },
+    {
+      id: "underground-laboratory-site-v1",
+      version: 1,
+      label: "Underground Laboratory Site",
+      surfaceMode: "none",
+      loadoutProfileId: STARTING_LOADOUT_PROFILE_ID,
+      spawn: { roomId: MAIN_ROOM_ID, cell: scientistDefaultMapCell(MAIN_ROOM_ID) },
+      roomIds: ROOM_BASE_DEFS.filter((room) => room.id !== SURFACE_FACILITY_ROOM_ID).map((room) => room.id),
+      doorIds: LAB_MAP_DOOR_DEFS.filter((door) => door.id !== "door-surface-front").map((door) => door.id),
+      verticalConnectorIds: []
+    }
+  ];
+  const SITE_BLUEPRINT_BY_ID = Object.fromEntries(SITE_BLUEPRINT_DEFS.map((blueprint) => [blueprint.id, blueprint]));
+  const STARTING_SCENARIO_DEFS = [
+    {
+      id: DEFAULT_STARTING_SCENARIO_ID,
+      version: 1,
+      label: "Chemistry Front",
+      difficulty: "Standard",
+      blueprintId: "chemistry-front-site-v1",
+      debugOnly: false,
+      premise: "Inherit a legal specialty-chemistry front above a concealed research laboratory.",
+      surfaceFacility: "Bounded parcel with an empty roofed chemistry-business shell.",
+      undergroundFacility: "Operational inherited slime laboratory with a separate concealed exit.",
+      startingAssets: ["Surface business property", "Underground research rooms", "Inherited laboratory tools and supplies"],
+      liabilities: [
+        { id: "incomplete-business-records", label: "Incomplete inherited records", description: "The former owner left a plausible company identity but an incomplete operating history." },
+        { id: "concealed-research-basement", label: "Concealed research basement", description: "The legal property sits above an undeclared laboratory whose discovery would demand an explanation." }
+      ],
+      identity: {
+        kind: "frontCompany",
+        legalName: "Helix Applied Reagents",
+        declaredActivity: "Specialty reagent development",
+        operatingState: "Inherited shell",
+        publicFacing: true
+      },
+      deferredFeatures: ["Chemistry production", "Lawful sales", "Cover credibility", "Public access logistics"]
+    },
+    {
+      id: LEGACY_STARTING_SCENARIO_ID,
+      version: 1,
+      label: "Underground Laboratory",
+      difficulty: "Debug",
+      blueprintId: "underground-laboratory-site-v1",
+      debugOnly: true,
+      premise: "Begin with the inherited underground laboratory and no above-ground facility.",
+      surfaceFacility: "None. Positive layers remain unexcavated earth.",
+      undergroundFacility: "Operational inherited slime laboratory and concealed exit.",
+      startingAssets: ["Underground research rooms", "Inherited laboratory tools and supplies"],
+      liabilities: [
+        { id: "no-surface-cover", label: "No surface cover", description: "This Debug start has no legitimate above-ground facility or public business premise." }
+      ],
+      identity: {
+        kind: "unregisteredResearchSite",
+        legalName: "None",
+        declaredActivity: "None",
+        operatingState: "Hidden laboratory",
+        publicFacing: false
+      },
+      deferredFeatures: []
+    }
+  ];
+  const STARTING_SCENARIO_BY_ID = Object.fromEntries(STARTING_SCENARIO_DEFS.map((scenario) => [scenario.id, scenario]));
 
-  function defaultState() {
+  function createBaseState() {
     const seed = makeSeed();
     return {
       started: false,
@@ -4334,6 +4413,159 @@
       resultRepeats: {},
       events: []
     };
+  }
+
+  function startingScenarioDef(scenarioId = DEFAULT_STARTING_SCENARIO_ID) {
+    return STARTING_SCENARIO_BY_ID[String(scenarioId || "")] || STARTING_SCENARIO_BY_ID[DEFAULT_STARTING_SCENARIO_ID];
+  }
+
+  function siteBlueprintDef(blueprintId) {
+    return SITE_BLUEPRINT_BY_ID[String(blueprintId || "")] || SITE_BLUEPRINT_BY_ID[startingScenarioDef().blueprintId];
+  }
+
+  function startingLoadoutProfile(profileId = STARTING_LOADOUT_PROFILE_ID) {
+    const fixtures = defaultFixtures();
+    return {
+      id: profileId === STARTING_LOADOUT_PROFILE_ID ? profileId : STARTING_LOADOUT_PROFILE_ID,
+      version: 1,
+      resources: Object.fromEntries(RESOURCE_DEFS.map((resource) => [resource.key, Number(resource.initial) || 0])),
+      inventory: Object.fromEntries(INVENTORY_ITEM_DEFS.map((item) => [item.key, Number(item.initial) || 0])),
+      fixtureIds: fixtures.map((fixture) => fixture.id),
+      containerIds: defaultContainers().map((container) => container.id),
+      stockpileIds: defaultStockpileDesignations().map((designation) => designation.id)
+    };
+  }
+
+  function startingLiabilityRecords(scenario) {
+    return (scenario?.liabilities || []).map((liability) => ({
+      id: String(liability.id || "starting-liability"),
+      label: String(liability.label || "Starting liability"),
+      description: String(liability.description || ""),
+      status: "active",
+      sourceScenarioId: scenario.id
+    }));
+  }
+
+  function startingScenarioRecord(scenario, blueprint, options = {}) {
+    return {
+      id: scenario.id,
+      version: scenario.version,
+      blueprintId: blueprint.id,
+      blueprintVersion: blueprint.version,
+      loadoutProfileId: blueprint.loadoutProfileId,
+      selectedAt: 0,
+      materialized: options.materialized !== false,
+      legacyMigration: Boolean(options.legacyMigration)
+    };
+  }
+
+  function normalizeStartingScenarioRecord(candidate) {
+    const legacyMigration = !candidate || typeof candidate !== "object";
+    const requested = legacyMigration ? LEGACY_STARTING_SCENARIO_ID : String(candidate.id || "");
+    const scenario = STARTING_SCENARIO_BY_ID[requested] || STARTING_SCENARIO_BY_ID[LEGACY_STARTING_SCENARIO_ID];
+    const blueprint = siteBlueprintDef(scenario.blueprintId);
+    return {
+      ...startingScenarioRecord(scenario, blueprint, {
+        materialized: legacyMigration ? false : candidate.materialized !== false,
+        legacyMigration: legacyMigration || candidate.legacyMigration
+      }),
+      selectedAt: finiteTime(candidate?.selectedAt, 0)
+    };
+  }
+
+  function normalizeSiteIdentity(candidate, scenario) {
+    const fallback = scenario.identity;
+    return {
+      kind: String(candidate?.kind || fallback.kind),
+      legalName: String(candidate?.legalName || fallback.legalName),
+      declaredActivity: String(candidate?.declaredActivity || fallback.declaredActivity),
+      operatingState: String(candidate?.operatingState || fallback.operatingState),
+      publicFacing: candidate?.publicFacing === undefined ? Boolean(fallback.publicFacing) : Boolean(candidate.publicFacing),
+      sourceScenarioId: scenario.id
+    };
+  }
+
+  function normalizeStartingLiabilities(candidate, scenario) {
+    const source = Array.isArray(candidate) ? candidate : startingLiabilityRecords(scenario);
+    const seen = new Set();
+    return source.map((liability) => ({
+      id: String(liability?.id || "starting-liability").replace(/[^a-zA-Z0-9:_-]/g, "") || "starting-liability",
+      label: String(liability?.label || "Starting liability"),
+      description: String(liability?.description || ""),
+      status: liability?.status === "resolved" ? "resolved" : "active",
+      sourceScenarioId: scenario.id
+    })).filter((liability) => {
+      if (seen.has(liability.id)) return false;
+      seen.add(liability.id);
+      return true;
+    });
+  }
+
+  function applyStartingLoadout(next, blueprint) {
+    const profile = startingLoadoutProfile(blueprint.loadoutProfileId);
+    const fixtureIds = new Set(profile.fixtureIds);
+    const containerIds = new Set(profile.containerIds);
+    const stockpileIds = new Set(profile.stockpileIds);
+    next.fixtures = next.fixtures.filter((fixture) => fixtureIds.has(fixture.id));
+    next.containers = next.containers.filter((container) => containerIds.has(container.id));
+    next.stockpileDesignations = next.stockpileDesignations.filter((designation) => stockpileIds.has(designation.id));
+    next.physicalItemStacks = next.physicalItemStacks.filter((stack) => {
+      if (stack.section === "resources") return Object.hasOwn(profile.resources, stack.key) && profile.resources[stack.key] > 0;
+      if (stack.section === "inventory") return Object.hasOwn(profile.inventory, stack.key) && profile.inventory[stack.key] > 0;
+      return true;
+    });
+    for (const stack of next.physicalItemStacks) {
+      if (stack.section === "resources" && Object.hasOwn(profile.resources, stack.key)) {
+        stack.quantity = profile.resources[stack.key];
+        stack.knownQuantity = stack.quantity;
+      }
+      if (stack.section === "inventory" && Object.hasOwn(profile.inventory, stack.key)) {
+        stack.quantity = profile.inventory[stack.key];
+        stack.knownQuantity = stack.quantity;
+      }
+    }
+  }
+
+  function applySiteBlueprint(next, blueprint) {
+    const roomIds = new Set(blueprint.roomIds);
+    const doorIds = new Set(blueprint.doorIds);
+    const connectorIds = new Set(blueprint.verticalConnectorIds);
+    next.rooms = next.rooms.filter((room) => roomIds.has(room.id));
+    next.labMap.rooms = Object.fromEntries(Object.entries(next.labMap.rooms || {}).filter(([roomId]) => roomIds.has(roomId)));
+    next.labMap.doors = Object.fromEntries(Object.entries(next.labMap.doors || {}).filter(([doorId]) => doorIds.has(doorId)));
+    next.doors = Object.fromEntries(Object.entries(next.doors || {}).filter(([doorId]) => doorIds.has(doorId)));
+    next.labMap.terrain.verticalConnectors = (next.labMap.terrain.verticalConnectors || []).filter((connector) => connectorIds.has(connector.id));
+    if (blueprint.surfaceMode === "none") {
+      next.labMap.surfaceZ = null;
+      next.labMap.layers = Object.fromEntries(Object.entries(next.labMap.layers || {}).filter(([, layer]) => layer.kind === "subterranean"));
+      next.labMap.terrain.surfaceGround = [];
+      next.labMap.terrain.constructedFloors = (next.labMap.terrain.constructedFloors || []).filter((entry) => entry.cell.z < LAB_MAP_DEFAULT_SURFACE_Z);
+      next.labMap.terrain.constructedWalls = (next.labMap.terrain.constructedWalls || []).filter((entry) => entry.cell.z < LAB_MAP_DEFAULT_SURFACE_Z);
+    }
+    next.scientist.roomId = blueprint.spawn.roomId;
+    next.scientist.mapCell = { ...blueprint.spawn.cell };
+    next.roomStockpiles = Object.fromEntries(Object.entries(next.roomStockpiles || {}).filter(([roomId]) => roomIds.has(roomId)));
+    next.mapCellObservations = {};
+    next.mapBlueprintMemorySeeded = false;
+    next.tileEnvironments = {};
+    next.compartmentEnvironments = {};
+    applyStartingLoadout(next, blueprint);
+    syncPhysicalReadModels(next);
+    return next;
+  }
+
+  function createStartingScenarioState(scenarioId = DEFAULT_STARTING_SCENARIO_ID) {
+    const scenario = startingScenarioDef(scenarioId);
+    const blueprint = siteBlueprintDef(scenario.blueprintId);
+    const next = applySiteBlueprint(createBaseState(), blueprint);
+    next.startingScenario = startingScenarioRecord(scenario, blueprint);
+    next.siteIdentity = { ...scenario.identity, sourceScenarioId: scenario.id };
+    next.startingLiabilities = startingLiabilityRecords(scenario);
+    return next;
+  }
+
+  function defaultState() {
+    return createStartingScenarioState(DEFAULT_STARTING_SCENARIO_ID);
   }
 
   function defaultNavigationState() {
@@ -5477,6 +5709,8 @@
       "eventLog",
       "setupOverlay",
       "setupForm",
+      "startingScenarioList",
+      "startRunSubmitBtn",
       "loadLastSaveBtn",
       "loadLastSaveStatus",
       "seedInput",
@@ -5566,6 +5800,28 @@
 
   function installDebugHooks() {
     window.helixHeresyDebug = {
+      startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
+        const blueprint = siteBlueprintDef(scenario.blueprintId);
+        const loadout = startingLoadoutProfile(blueprint.loadoutProfileId);
+        return clonePlainObject({
+          ...scenario,
+          blueprint,
+          loadout: {
+            id: loadout.id,
+            version: loadout.version,
+            resources: loadout.resources,
+            inventory: loadout.inventory,
+            fixtureIds: loadout.fixtureIds,
+            containerIds: loadout.containerIds,
+            stockpileIds: loadout.stockpileIds
+          }
+        });
+      }),
+      startingScenarioSnapshot: () => clonePlainObject({
+        scenario: state.startingScenario,
+        identity: state.siteIdentity,
+        liabilities: state.startingLiabilities
+      }),
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       marketAvailableByproduct: (material) => blackMarketAvailableByproductAmount(material),
@@ -6595,7 +6851,11 @@
 
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      const next = defaultState();
+      const requestedScenario = startingScenarioDef(selectedStartingScenarioId);
+      const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
+        ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
+        : requestedScenario;
+      const next = createStartingScenarioState(scenario.id);
       next.started = true;
       next.paused = true;
       next.timeSpeed = DEFAULT_TIME_SPEED;
@@ -6611,10 +6871,21 @@
       rebuildActorSpatialIndex();
       syncRoomObservationMemory();
       observeScientistRoom();
-      addEvent("Run initialized.");
+      addEvent(`${scenario.label} initialized.`);
       setActiveWorkspaceTab("map", { scroll: false });
       persist();
       render();
+    });
+
+    dom.startingScenarioList?.addEventListener("change", (event) => {
+      const input = event.target instanceof HTMLInputElement
+        ? event.target.closest("[data-starting-scenario-input]")
+        : null;
+      if (!input) return;
+      const scenario = startingScenarioDef(input.value);
+      if (scenario.debugOnly && !debugToolsEnabled()) return;
+      selectedStartingScenarioId = scenario.id;
+      syncStartingScenarioSubmit();
     });
 
     dom.loadLastSaveBtn.addEventListener("click", () => {
@@ -6806,6 +7077,7 @@
         return;
       }
       state = defaultState();
+      selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
       markAnimationDiscontinuity("new-run");
       geneMap = buildGeneMap(state.seed, state.complexity);
       setActiveWorkspaceTab("map", { scroll: false });
@@ -10955,7 +11227,7 @@
         if (labMapDoorAtCell(clean, map)) return "Deconstruct the door before laying flooring here.";
       } else if (buildDef.kind === "ceiling") {
         const above = mapCellAtOffset(clean, 0, 0, 1);
-        if (!labMapCellHasFloor(above, map) && clean.z < map.surfaceZ) return "Natural rock already forms the ceiling above this tile.";
+        if (!labMapCellHasFloor(above, map) && (map.surfaceZ === null || clean.z < map.surfaceZ)) return "Natural rock already forms the ceiling above this tile.";
         if (constructedFloorAtCell(above, map)) return "A constructed slab already separates these layers.";
         if (verticalConnectorBetween(clean, above, map)) return "Remove the stair or ramp connection before closing this vertical boundary.";
       } else if (buildDef.kind === "door") {
@@ -12408,7 +12680,7 @@
         map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), {
           cell: boundaryCell,
           materialId: buildDef.materialId,
-          purpose: tile.cell.z >= map.surfaceZ ? "roof" : "ceiling",
+          purpose: map.surfaceZ !== null && tile.cell.z >= map.surfaceZ ? "roof" : "ceiling",
           condition: 100,
           builtAt: state.clock
         }]);
@@ -17974,8 +18246,10 @@
       const door = normalizeLabMapDoor(candidateDoor, key, normalizedRooms);
       if (door) normalizedDoors[door.id] = door;
     }
-    const surfaceZ = Math.round(Number.isFinite(Number(source.surfaceZ)) ? Number(source.surfaceZ) : fallback.surfaceZ);
-    const surfaceGround = normalizeSurfaceGround(source.terrain?.surfaceGround || fallback.terrain?.surfaceGround, surfaceZ)
+    const surfaceZ = source.surfaceZ === null
+      ? null
+      : Math.round(Number.isFinite(Number(source.surfaceZ)) ? Number(source.surfaceZ) : fallback.surfaceZ);
+    const surfaceGround = surfaceZ === null ? [] : normalizeSurfaceGround(source.terrain?.surfaceGround || fallback.terrain?.surfaceGround, surfaceZ)
       .filter((entry) => entry.cell.x >= 0 && entry.cell.y >= 0 && entry.cell.x < width && entry.cell.y < height);
     const surfaceGroundKeys = new Set(surfaceGround.map((entry) => mapCellKey(entry.cell)));
     const terrainSource = physicalSource ? source.terrain?.excavated : fallback.terrain?.excavated;
@@ -18000,7 +18274,7 @@
         label: String(entry?.label || (kind === "surface" ? "Surface" : kind === "structure" ? "Structure" : "Underground"))
       };
     }
-    layers[String(surfaceZ)] ||= { id: "surface", kind: "surface", label: "Surface" };
+    if (surfaceZ !== null) layers[String(surfaceZ)] ||= { id: "surface", kind: "surface", label: "Surface" };
     return {
       version: 10,
       tileSizeM: Math.max(0.25, Number(source.tileSizeM) || LAB_MAP_TILE_SIZE_M),
@@ -18129,9 +18403,9 @@
     const layer = map.layers?.[String(Math.round(Number(z) || 0))];
     if (layer) return layer;
     const cleanZ = Math.round(Number(z) || 0);
-    return cleanZ === map.surfaceZ
+    return map.surfaceZ !== null && cleanZ === map.surfaceZ
       ? { id: "surface", kind: "surface", label: "Surface" }
-      : { id: `layer-${cleanZ}`, kind: cleanZ > map.surfaceZ ? "structure" : "subterranean", label: cleanZ > map.surfaceZ ? "Structure" : "Underground" };
+      : { id: `layer-${cleanZ}`, kind: map.surfaceZ !== null && cleanZ > map.surfaceZ ? "structure" : "subterranean", label: map.surfaceZ !== null && cleanZ > map.surfaceZ ? "Structure" : "Underground" };
   }
 
   function labMapLayerLabel(z, map = ensureLabMap()) {
@@ -18247,7 +18521,10 @@
   }
 
   function buildSurfaceEnvelopeContext(map = ensureLabMap()) {
-    const surfaceZ = Number(map.surfaceZ) || LAB_MAP_DEFAULT_SURFACE_Z;
+    const surfaceZ = map.surfaceZ === null ? null : Number(map.surfaceZ) || LAB_MAP_DEFAULT_SURFACE_Z;
+    if (surfaceZ === null) {
+      return { surfaceZ, cellsByKey: new Map(), roofed: new Set(), structuralBlocks: new Set(), outsideReachable: new Set(), exposedInterior: new Set(), breachedDoorKeys: new Set() };
+    }
     const cells = normalizeDigCells([
       ...(map.terrain?.surfaceGround || []).map((entry) => entry.cell),
       ...(map.terrain?.constructedFloors || []).filter((entry) => entry.cell.z === surfaceZ).map((entry) => entry.cell)
@@ -18304,6 +18581,7 @@
     const envelope = context || buildSurfaceEnvelopeContext(map);
     const key = mapCellKey(clean);
     const floor = constructedFloorAtCell(clean, map);
+    if (envelope.surfaceZ === null) return { kind: "subterranean", roofed: true, openSky: false };
     if (clean.z > envelope.surfaceZ && floor?.purpose === "roof") {
       return { kind: "roof", roofed: false, openSky: true };
     }
@@ -47985,7 +48263,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (constructedFloorAtCell(cell, map)?.purpose === "roof") {
       const roof = constructedFloorAtCell(cell, map);
       parts.push(`${materialCompositionLabel(roof.materialComposition)} roof; ${structureConditionBand(roof.condition)}`);
-    } else if (cell.z >= map.surfaceZ) {
+    } else if (map.surfaceZ !== null && cell.z >= map.surfaceZ) {
       parts.push("outside the mapped property");
     } else {
       parts.push("solid earth");
@@ -48008,7 +48286,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const key = mapCellKey(cell);
     if ((map.terrain?.smoothedFloors || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed floor surface");
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
-    if (!labMapCellHasFloor(cell, map, excavatedKeys) && cell.z < map.surfaceZ) {
+    if (!labMapCellHasFloor(cell, map, excavatedKeys) && (map.surfaceZ === null || cell.z < map.surfaceZ)) {
       const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
       const face = Geology.faceKnowledge(Geology.profileForCell(state.seed, cell));
       parts.push(`${face?.label || MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${face?.hardnessBand || "hardness unknown"}; ${face?.stabilityBand || "stability unknown"}; ${structureConditionBand(naturalCondition)}`);
@@ -54730,7 +55008,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         conditionBand: structureConditionBand(constructedWall.condition).toLowerCase()
       };
     }
-    if (!excavated && !surfaceGround && !constructedFloor && clean.z >= context.map.surfaceZ) {
+    if (!excavated && !surfaceGround && !constructedFloor && context.map.surfaceZ !== null && clean.z >= context.map.surfaceZ) {
       return { known: true, kind: "offsite", cell: clean, roomId: "", compartmentId: "", door: null, materialId: "", surfaceStyle: "boundary", conditionBand: "intact" };
     }
     if (!excavated && !surfaceGround && !constructedFloor) {
@@ -55070,7 +55348,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
     }
-    if (cell && map && cell.z >= map.surfaceZ) {
+    if (cell && map && map.surfaceZ !== null && cell.z >= map.surfaceZ) {
       return { kind: "offsite", spriteKey: "tile.offsite" };
     }
     const smoothedWall = Boolean(cell && (map?.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === mapCellKey(cell)));
@@ -65510,7 +65788,58 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return element;
   }
 
+  function startingScenarioCard(scenario) {
+    const label = document.createElement("label");
+    label.className = "starting-scenario-card";
+    label.dataset.startingScenario = scenario.id;
+    label.dataset.debugOnly = String(Boolean(scenario.debugOnly));
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "startingScenarioId";
+    input.value = scenario.id;
+    input.checked = selectedStartingScenarioId === scenario.id;
+    input.dataset.startingScenarioInput = scenario.id;
+    const copy = document.createElement("span");
+    copy.className = "starting-scenario-copy";
+    const title = document.createElement("span");
+    title.className = "starting-scenario-title";
+    title.append(textEl("strong", scenario.label), chip(scenario.difficulty));
+    if (scenario.debugOnly) title.append(chip("Debug only"));
+    const facts = document.createElement("ul");
+    facts.className = "starting-scenario-facts";
+    for (const fact of [
+      `Surface: ${scenario.surfaceFacility}`,
+      `Underground: ${scenario.undergroundFacility}`,
+      `Assets: ${scenario.startingAssets.join("; ")}`,
+      `Liabilities: ${scenario.liabilities.map((liability) => liability.label).join("; ")}`
+    ]) facts.append(textEl("li", fact));
+    copy.append(title, textEl("span", scenario.premise), facts);
+    if (scenario.deferredFeatures.length) {
+      const deferred = textEl("span", `Later passes: ${scenario.deferredFeatures.join(", ")}.`);
+      deferred.className = "starting-scenario-deferred";
+      copy.append(deferred);
+    }
+    label.append(input, copy);
+    return label;
+  }
+
+  function syncStartingScenarioSubmit() {
+    const scenario = startingScenarioDef(selectedStartingScenarioId);
+    if (dom.startRunSubmitBtn) dom.startRunSubmitBtn.textContent = `Begin ${scenario.label}`;
+  }
+
+  function renderStartingScenarioOptions() {
+    if (!dom.startingScenarioList) return;
+    const visible = STARTING_SCENARIO_DEFS.filter((scenario) => !scenario.debugOnly || debugToolsEnabled());
+    if (!visible.some((scenario) => scenario.id === selectedStartingScenarioId)) {
+      selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
+    }
+    dom.startingScenarioList.replaceChildren(...visible.map(startingScenarioCard));
+    syncStartingScenarioSubmit();
+  }
+
   function syncSetupForm() {
+    renderStartingScenarioOptions();
     dom.seedInput.value = state.seed;
     dom.journalModeSelect.value = state.journalMode;
     dom.complexitySelect.value = state.complexity;
@@ -65586,6 +65915,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     navigationService.clear();
     movementReservations.clear();
     const next = { ...defaultState(), ...candidate };
+    next.startingScenario = normalizeStartingScenarioRecord(candidate?.startingScenario);
+    const normalizedScenario = startingScenarioDef(next.startingScenario.id);
+    next.siteIdentity = normalizeSiteIdentity(candidate?.siteIdentity, normalizedScenario);
+    next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
     next.navigation = normalizeNavigationState(next.navigation);
     next.simulation = normalizeSimulationState(next.simulation, next.clock);
     next.discoveries ||= {};
