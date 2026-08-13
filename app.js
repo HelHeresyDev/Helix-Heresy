@@ -157,7 +157,7 @@
   const UTILITY_SUMP_CAPACITY = 120;
   const UTILITY_FUEL_CAPACITY = 24;
   const UTILITY_MANA_CAPACITY = 160;
-  const UTILITY_NETWORK_MEDIA = ["air", "drain", "electricity", "mana"];
+  const UTILITY_NETWORK_MEDIA = ["air", "drain", "electricity", "mana", "water"];
   const UTILITY_PRIORITY_MIN = 1;
   const UTILITY_PRIORITY_MAX = 7;
   const UTILITY_DEFAULT_PRIORITY = 4;
@@ -604,6 +604,162 @@
         steel: { composition: { primary: "steel", lining: "glass" }, costs: { steelPanels: 1, metalParts: 2, glass: 1 }, score: 85 }
       },
       description: "A controlled outlet that spends stored network mana to raise the density on its exact tile."
+    },
+    {
+      id: "utilityServiceHead",
+      label: "Underground Utility Service Head",
+      glyph: "SH",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilityService",
+      ports: [{ id: "maintenance", label: "Service Head Access", x: 0, y: 0 }],
+      capabilities: ["surfaceUtilityLink"],
+      infrastructure: { role: "buildingService", networks: ["air", "drain", "electricity", "mana"], sourceCapacities: { air: 24, drain: 18, electricity: 24, mana: 10 }, throughputPerHour: 24 },
+      workMinutes: 20,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "rubber", reinforcement: "glass" }, costs: { steelPanels: 3, metalParts: 4, rubber: 2, glass: 1 }, score: 88 } },
+      description: "The inherited underground manifold that carries laboratory air, drainage, electricity, and mana to a paired surface riser."
+    },
+    {
+      id: "surfaceUtilityRiser",
+      label: "Surface Utility Riser",
+      glyph: "SR",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilityService",
+      ports: [{ id: "maintenance", label: "Riser Access", x: 0, y: 0 }],
+      capabilities: ["surfaceUtilityLink"],
+      infrastructure: { role: "conduit", networks: ["air", "drain", "electricity", "mana", "water"], throughputPerHour: 24 },
+      workMinutes: 18,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "rubber", reinforcement: "glass" }, costs: { steelPanels: 3, metalParts: 3, rubber: 2, glass: 1 }, score: 88 } },
+      description: "A secured vertical service chase physically paired with the underground manifold."
+    },
+    {
+      id: "surfaceServiceTrunk",
+      label: "Surface Service Trunk",
+      glyph: "+",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "utilitySurface",
+      ports: [{ id: "maintenance", label: "Floor Service Access", x: 0, y: 0 }],
+      capabilities: ["surfaceUtilityNetwork"],
+      infrastructure: { role: "conduit", networks: ["air", "drain", "electricity", "mana", "water"], throughputPerHour: 20 },
+      workMinutes: 5,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "rubber", reinforcement: "glass" }, costs: { metalParts: 2, rubber: 1 }, score: 84 } },
+      description: "A covered, walk-over bundle of pipes, ducting, cable, and warded mana line serving the chemistry floor."
+    },
+    {
+      id: "waterCisternPump",
+      label: "Clean-Water Cistern and Pump",
+      glyph: "CW",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 2 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Pump and Cistern Access", x: 0, y: 2 }],
+      capabilities: ["waterStorage", "waterSupply"],
+      infrastructure: { role: "waterSource", networks: ["water", "electricity"], outputPerHour: 16, electricDemandPerHour: 2, capacity: 120 },
+      workMinutes: 18,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "ceramic", seal: "rubber" }, costs: { steelPanels: 4, metalParts: 3, rubber: 2 }, score: 87 } },
+      description: "A small inherited clean-water reserve with a finite tank, quality reading, and powered delivery pump."
+    },
+    {
+      id: "wetChemistryBench",
+      label: "Wet Chemistry Bench",
+      glyph: "WB",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Bench Operator", x: 0, y: 1 }, { id: "service", label: "Bench Service", x: 1, y: 1 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["water", "drain", "electricity"], waterDemandPerHour: 4, drainDemandPerHour: 4, electricDemandPerHour: 1 },
+      process: { hardUtilities: ["water", "drain"], degradedUtilities: ["electricity"], testSeconds: 55, spill: 0.35, fumes: 0.12 },
+      workMinutes: 22,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "ceramic", seal: "rubber" }, costs: { steelPanels: 4, metalParts: 3, glass: 2, rubber: 2 }, score: 88 } },
+      description: "A plumbed bench for washing, separation, and ordinary liquid handling."
+    },
+    {
+      id: "reactionVessel",
+      label: "Reaction Vessel",
+      glyph: "RV",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 2 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Vessel Controls", x: 0, y: 2 }, { id: "service", label: "Vessel Service", x: 1, y: 2 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["electricity", "mana", "air"], powerModes: ["electric", "mana"], defaultPowerMode: "electric", electricDemandPerHour: 6, manaPerHour: 6, airDemandPerHour: 5 },
+      process: { hardUtilities: ["power"], degradedUtilities: ["air"], testSeconds: 90, spill: 0.45, fumes: 0.7 },
+      workMinutes: 28,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "glass", seal: "rubber" }, costs: { steelPanels: 6, metalParts: 5, glass: 4, rubber: 2 }, score: 90 } },
+      description: "A jacketed vessel for controlled reactions, inherited with worn seals and uncertain calibration."
+    },
+    {
+      id: "fumeHood",
+      label: "Fume Hood",
+      glyph: "FH",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Hood Sash", x: 0, y: 1 }, { id: "service", label: "Hood Service", x: 1, y: 1 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["electricity", "air"], powerModes: ["electric"], defaultPowerMode: "electric", electricDemandPerHour: 3, airDemandPerHour: 9 },
+      process: { hardUtilities: ["electricity", "air"], degradedUtilities: [], testSeconds: 50, spill: 0.12, fumes: 0.25 },
+      workMinutes: 24,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "glass", seal: "rubber" }, costs: { steelPanels: 4, metalParts: 4, glass: 3, rubber: 2 }, score: 89 } },
+      description: "A powered capture enclosure whose safe operation depends on real electrical and ventilation service."
+    },
+    {
+      id: "analysisStation",
+      label: "Analysis Station",
+      glyph: "AS",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Analysis Controls", x: 0, y: 1 }, { id: "service", label: "Instrument Service", x: 1, y: 1 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["electricity", "mana"], powerModes: ["electric", "mana"], defaultPowerMode: "electric", electricDemandPerHour: 4, manaPerHour: 4 },
+      process: { hardUtilities: ["power"], degradedUtilities: [], testSeconds: 65, spill: 0.08, fumes: 0.08 },
+      workMinutes: 20,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "glass" }, costs: { steelPanels: 3, metalParts: 5, glass: 3 }, score: 90 } },
+      description: "Sensitive analytical instruments that require stable power and periodic calibration."
+    },
+    {
+      id: "packagingStation",
+      label: "Packaging Station",
+      glyph: "PS",
+      assemblyClass: "componentBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Packaging Operator", x: 0, y: 1 }, { id: "service", label: "Packaging Service", x: 1, y: 1 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["electricity"], powerModes: ["electric"], defaultPowerMode: "electric", electricDemandPerHour: 2 },
+      process: { hardUtilities: ["electricity"], degradedUtilities: [], testSeconds: 45, spill: 0.1, fumes: 0.04 },
+      workMinutes: 18,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "rubber" }, costs: { steelPanels: 3, metalParts: 4, rubber: 1 }, score: 86 } },
+      description: "A powered legal-goods filling, sealing, and labeling line in the loading area."
+    },
+    {
+      id: "wasteTreatmentStation",
+      label: "Waste Treatment Station",
+      glyph: "WT",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 2 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "operator", label: "Treatment Controls", x: 0, y: 2 }, { id: "service", label: "Treatment Service", x: 1, y: 2 }],
+      capabilities: ["chemistryEquipment"],
+      infrastructure: { role: "processEquipment", networks: ["drain", "air", "electricity"], drainDemandPerHour: 7, airDemandPerHour: 6, electricDemandPerHour: 2 },
+      process: { hardUtilities: ["drain", "air"], degradedUtilities: ["electricity"], testSeconds: 80, spill: 0.8, fumes: 0.45 },
+      workMinutes: 26,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "ceramic", seal: "rubber" }, costs: { steelPanels: 6, metalParts: 4, rubber: 3 }, score: 88 } },
+      description: "A ventilated neutralization and waste-handling skid physically tied to the facility drain."
     },
     {
       id: "concealedExit",
@@ -4362,8 +4518,8 @@
   ];
   const SITE_BLUEPRINT_DEFS = [
     {
-      id: "chemistry-front-site-v2",
-      version: 2,
+      id: "chemistry-front-site-v3",
+      version: 3,
       label: "Chemistry Front Site",
       surfaceMode: "boundedFacility",
       loadoutProfileId: STARTING_LOADOUT_PROFILE_ID,
@@ -4390,10 +4546,10 @@
   const STARTING_SCENARIO_DEFS = [
     {
       id: DEFAULT_STARTING_SCENARIO_ID,
-      version: 2,
+      version: 3,
       label: "Chemistry Front",
       difficulty: "Standard",
-      blueprintId: "chemistry-front-site-v2",
+      blueprintId: "chemistry-front-site-v3",
       debugOnly: false,
       premise: "Inherit a legal specialty-chemistry front above a concealed research laboratory.",
       surfaceFacility: "A divided chemistry front with public, staff, hazardous, freight, processing, and secured-basement areas.",
@@ -4410,7 +4566,7 @@
         operatingState: "Inherited shell",
         publicFacing: true
       },
-      deferredFeatures: ["Chemistry production", "Lawful sales", "Cover credibility", "Visitors and vehicles"]
+      deferredFeatures: ["Chemistry recipes and production", "Lawful sales", "Cover credibility", "Visitors and vehicles"]
     },
     {
       id: LEGACY_STARTING_SCENARIO_ID,
@@ -4660,7 +4816,7 @@
 
   function applyStartingLoadout(next, blueprint) {
     const profile = startingLoadoutProfile(blueprint.loadoutProfileId);
-    const fixtureIds = new Set(profile.fixtureIds);
+    const fixtureIds = new Set(profile.fixtureIds.filter((id) => blueprint.surfaceMode !== "none" || !id.startsWith("starter-surface-")));
     const containerIds = new Set(profile.containerIds);
     const stockpileIds = new Set(profile.stockpileIds);
     next.fixtures = next.fixtures.filter((fixture) => fixtureIds.has(fixture.id));
@@ -4880,7 +5036,7 @@
   }
 
   function defaultFixtures() {
-    return [
+    const fixtures = [
       defaultFixtureInstance("starter-workbench", "basicWorkbench", { x: 55, y: 46 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-bed", "bed", { x: 49, y: 57 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-slime-enrichment", "slimeEnrichmentStation", { x: 33, y: 47 }, 0, { materialPolicy: "wood" }),
@@ -4904,8 +5060,25 @@
       defaultFixtureInstance("starter-mana-collector", "manaCollector", { x: 48, y: 52 }, 0, { materialPolicy: "steel", utility: { enabled: false, mode: "rock", storedMana: 40 } }),
       defaultFixtureInstance("starter-fuel-generator", "fuelGenerator", { x: 54, y: 53 }, 0, { materialPolicy: "steel", utility: { enabled: false, fuel: 18 } }),
       defaultFixtureInstance("starter-power-conduit", "powerConduit", { x: 56, y: 53 }, 0, { materialPolicy: "steel" }),
-      defaultFixtureInstance("concealed-exit", "concealedExit", { x: 44, y: 42 }, 0, { materialPolicy: "stone" })
+      defaultFixtureInstance("concealed-exit", "concealedExit", { x: 44, y: 42 }, 0, { materialPolicy: "stone" }),
+      defaultFixtureInstance("starter-surface-service-head", "utilityServiceHead", { x: 54, y: 43, z: 0 }, 0, { materialPolicy: "steel", condition: 68, utility: { enabled: true, linkId: "chemistry-front-riser", wear: 42, maintenanceIntervalHours: 72 } }),
+      defaultFixtureInstance("starter-surface-riser", "surfaceUtilityRiser", { x: 54, y: 43, z: 1 }, 0, { materialPolicy: "steel", condition: 64, utility: { enabled: true, linkId: "chemistry-front-riser", wear: 48, maintenanceIntervalHours: 72 } }),
+      defaultFixtureInstance("starter-surface-water", "waterCisternPump", { x: 53, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 61, utility: { enabled: true, contents: { cleanWater: 90 }, waterQuality: 82, wear: 55, maintenanceIntervalHours: 72 } }),
+      defaultFixtureInstance("starter-surface-wet-bench", "wetChemistryBench", { x: 45, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 58, utility: { enabled: false, wear: 62, maintenanceIntervalHours: 72 }, process: { calibrated: 42, cleanliness: 57 } }),
+      defaultFixtureInstance("starter-surface-reaction-vessel", "reactionVessel", { x: 47, y: 43, z: 1 }, 0, { materialPolicy: "steel", condition: 52, utility: { enabled: false, powerMode: "electric", wear: 70, maintenanceIntervalHours: 72 }, process: { calibrated: 31, cleanliness: 46 } }),
+      defaultFixtureInstance("starter-surface-fume-hood", "fumeHood", { x: 45, y: 44, z: 1 }, 0, { materialPolicy: "steel", condition: 63, utility: { enabled: false, powerMode: "electric", wear: 58, maintenanceIntervalHours: 72 }, process: { calibrated: 48, cleanliness: 51 } }),
+      defaultFixtureInstance("starter-surface-analysis", "analysisStation", { x: 53, y: 47, z: 1 }, 0, { materialPolicy: "steel", condition: 55, utility: { enabled: false, powerMode: "electric", wear: 65, maintenanceIntervalHours: 72 }, process: { calibrated: 28, cleanliness: 68 } }),
+      defaultFixtureInstance("starter-surface-packaging", "packagingStation", { x: 56, y: 50, z: 1 }, 0, { materialPolicy: "steel", condition: 67, utility: { enabled: false, powerMode: "electric", wear: 44, maintenanceIntervalHours: 72 }, process: { calibrated: 54, cleanliness: 61 } }),
+      defaultFixtureInstance("starter-surface-waste-treatment", "wasteTreatmentStation", { x: 56, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 49, utility: { enabled: false, wear: 76, maintenanceIntervalHours: 72 }, process: { calibrated: 36, cleanliness: 39 } })
     ];
+    const trunkCells = [
+      { x: 51, y: 42, z: 1 }, { x: 50, y: 42, z: 1 }, { x: 49, y: 42, z: 1 }, { x: 48, y: 42, z: 1 }, { x: 47, y: 42, z: 1 }, { x: 46, y: 42, z: 1 }, { x: 45, y: 42, z: 1 },
+      { x: 45, y: 41, z: 1 }, { x: 46, y: 41, z: 1 }, { x: 45, y: 43, z: 1 }, { x: 52, y: 42, z: 1 }, { x: 53, y: 42, z: 1 }, { x: 54, y: 42, z: 1 }, { x: 55, y: 42, z: 1 }, { x: 56, y: 42, z: 1 }, { x: 57, y: 42, z: 1 },
+      { x: 52, y: 43, z: 1 }, { x: 52, y: 44, z: 1 }, { x: 52, y: 45, z: 1 }, { x: 52, y: 46, z: 1 }, { x: 52, y: 47, z: 1 }, { x: 52, y: 48, z: 1 }, { x: 52, y: 49, z: 1 }, { x: 53, y: 48, z: 1 },
+      { x: 53, y: 49, z: 1 }, { x: 54, y: 49, z: 1 }, { x: 55, y: 49, z: 1 }, { x: 56, y: 49, z: 1 }, { x: 57, y: 49, z: 1 }
+    ];
+    trunkCells.forEach((cell, index) => fixtures.push(defaultFixtureInstance(`starter-surface-trunk-${index + 1}`, "surfaceServiceTrunk", cell, 0, { materialPolicy: "steel", condition: 70, utility: { enabled: true, wear: 35, maintenanceIntervalHours: 168 } })));
+    return fixtures;
   }
 
   function defaultFixtureInstance(id, typeId, origin, rotation = 0, options = {}) {
@@ -4927,6 +5100,7 @@
       productionTaskId: "",
       wardIds: normalizeContainerWardIds(options.wardIds || []),
       utility: normalizeFixtureUtility(options.utility, def),
+      process: normalizeFixtureProcess(options.process, def),
       installedAt: finiteTime(options.installedAt, 0)
     };
   }
@@ -6670,6 +6844,33 @@
             }))
           }))
         };
+      },
+      chemistryEquipmentSnapshot: () => {
+        const context = utilityNetworkContext();
+        return clonePlainObject({
+          fixtures: (state.fixtures || []).filter(chemistryProcessDef).map((fixture) => ({
+            id: fixture.id,
+            typeId: fixture.typeId,
+            name: fixture.name,
+            origin: fixture.origin,
+            condition: fixture.condition,
+            process: fixture.process,
+            utility: fixture.utility,
+            readiness: chemistryProcessReadiness(fixture),
+            components: Object.fromEntries(fixtureUtilityNetworks(fixture).map((medium) => [medium, utilityComponentForFixture(fixture, medium, context)?.fixtures.map((member) => member.id) || []]))
+          })),
+          residues: ensurePhysicalItemStacks().filter((stack) => stack.tags?.includes("chemistry")),
+          fumes: Object.values(ensureTileEnvironments()).filter((record) => Number(record.airborne?.["chemistry-test-fumes"]) > 0).map((record) => ({ cell: record.cell, concentration: record.airborne["chemistry-test-fumes"] }))
+        });
+      },
+      queueChemistryWork: (fixtureId, kind) => startChemistryProcessWork(fixtureById(fixtureId), kind),
+      setChemistryProcess: (fixtureId, changes = {}) => {
+        const fixture = fixtureById(fixtureId);
+        if (!fixture || !chemistryProcessDef(fixture)) return false;
+        fixture.process = normalizeFixtureProcess({ ...fixture.process, ...changes }, fixtureDef(fixture));
+        persist();
+        render();
+        return true;
       },
       setFixtureUtility: (fixtureId, changes = {}) => updateFixtureUtility(fixtureId, changes),
       addInfrastructureFixture: (typeId, cell, options = {}) => {
@@ -11012,13 +11213,36 @@
       const mapPath = laborPathViaCells([targetCell]);
       if (!mapPath.length) return { ok: false, reason: "No physical route reaches the utility service point." };
       const costs = order.kind === "repairUtility"
-        ? { metalParts: 1, ...(fixtureUtilityNetworks(fixture).some((medium) => ["air", "drain"].includes(medium)) ? { rubber: 1 } : {}) }
+        ? { metalParts: 1, ...(fixtureUtilityNetworks(fixture).some((medium) => ["air", "drain", "water"].includes(medium)) ? { rubber: 1 } : {}) }
         : {};
       const haul = resourceHaulPlan(costs, roomId);
       if (!haul.ok) return { ok: false, reason: haul.reason };
       const workSeconds = order.kind === "inspectUtility" ? 30 : order.kind === "maintainUtility" ? 55 : 90;
       return { ok: true, mapPath, targetCell, roomId, costs, materialTransfers: haul.transfers,
         duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + adjustedActionDuration(workSeconds, "materialsScience")) };
+    }
+    if (CHEMISTRY_PROCESS_WORK_KINDS.has(order.kind)) {
+      const fixture = fixtureById(order.target?.id);
+      if (!fixture || !chemistryProcessDef(fixture) || !fixture.process) return { ok: false, reason: "The chemistry equipment no longer exists." };
+      if (order.kind === "commissionEquipment" && fixture.process.commissioned) return { ok: false, reason: "This equipment is already commissioned." };
+      if (order.kind === "startEquipment" && !fixture.process.commissioned) return { ok: false, reason: "Commission the inherited equipment before startup." };
+      if (order.kind === "startEquipment" && fixture.process.online) return { ok: false, reason: "This equipment is already online." };
+      if (order.kind === "shutdownEquipment" && !fixture.process.online) return { ok: false, reason: "This equipment is already shut down." };
+      if (order.kind === "testEquipment" && !fixture.process.online) return { ok: false, reason: "Start the equipment before running a test cycle." };
+      if (["commissionEquipment", "startEquipment", "testEquipment"].includes(order.kind)) {
+        const readiness = chemistryProcessReadiness(fixture);
+        if (!readiness.operational) return { ok: false, reason: readiness.blockers.join(" ") };
+      }
+      const roomId = labMapCellRoomId(fixture.origin) || MAIN_ROOM_ID;
+      const targetCell = laborTargetAccessCell(fixture.origin, fixtureRotatedFootprint(fixtureDef(fixture), fixture.rotation), roomId);
+      const mapPath = laborPathViaCells([targetCell]);
+      if (!mapPath.length) return { ok: false, reason: "No physical route reaches the equipment controls." };
+      const baseSeconds = order.kind === "testEquipment" ? chemistryProcessDef(fixture).testSeconds
+        : order.kind === "commissionEquipment" ? 100
+          : order.kind === "calibrateEquipment" ? 70
+            : order.kind === "cleanEquipment" ? 60 : 25;
+      return { ok: true, mapPath, targetCell, roomId,
+        duration: Math.ceil(LABOR_BASE_SECONDS + mapPathTravelDistanceMeters(mapPath) / scientistMoveSpeedMps() + adjustedActionDuration(baseSeconds, "materialsScience")) };
     }
     if (order.kind === "serviceFixture") {
       const fixture = fixtureById(order.target?.id);
@@ -11233,6 +11457,9 @@
         fixture.operationalState = "operational";
         addEvent(`${fixture.name} ${UTILITY_FAULT_DEFS[fault.id].label.toLowerCase()} repaired; the fixture returned to service.`);
       }
+    } else if (CHEMISTRY_PROCESS_WORK_KINDS.has(order.kind)) {
+      const fixture = fixtureById(order.target.id);
+      if (!fixture || !completeChemistryProcessWork(order, fixture)) return false;
     } else if (order.kind === "serviceFixture") {
       if (!emptyFixtureUtilityWaste(order.target.id, order.data?.field, order.data?.label || "service waste", { quiet: true })) return false;
     } else if (order.kind === "collectionTransfer") {
@@ -15454,6 +15681,7 @@
   }
 
   function utilityFixturesConnect(left, right) {
+    if (left?.utility?.linkId && left.utility.linkId === right?.utility?.linkId) return true;
     const rightKeys = new Set(fixtureFootprintCells(right).map(mapCellKey));
     return fixtureFootprintCells(left).some((cell) => rightKeys.has(mapCellKey(cell))
       || cardinalMapCells(cell).some((neighbor) => rightKeys.has(mapCellKey(neighbor))));
@@ -15491,6 +15719,9 @@
     if (medium === "electricity" && fixture.utility.powerMode === "electric") {
       return Math.max(0, Number(infrastructure.electricDemandPerHour ?? infrastructure.manaPerHour) || 0);
     }
+    if (medium === "electricity" && infrastructure.role === "waterSource") {
+      return Math.max(0, Number(infrastructure.electricDemandPerHour) || 0);
+    }
     if (medium === "mana") {
       if (fixture.utility.powerMode === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (infrastructure.role === "manaEmitter") return Math.max(0, Number(infrastructure.outputPerHour) || 0);
@@ -15501,12 +15732,17 @@
     if (medium === "drain" && infrastructure.role === "drainInlet") {
       return Math.max(0, Number(infrastructure.flowUnitsPerHour) || 0);
     }
+    if (medium === "water") return Math.max(0, Number(infrastructure.waterDemandPerHour) || 0);
+    if (medium === "air") return Math.max(0, Number(infrastructure.airDemandPerHour) || 0);
+    if (medium === "drain") return Math.max(0, Number(infrastructure.drainDemandPerHour) || 0);
     return 0;
   }
 
   function utilityFixtureSourceCapacityPerHour(fixture, medium) {
     const infrastructure = fixtureInfrastructureDef(fixture);
     if (!infrastructure || !utilityFixtureEnabled(fixture)) return 0;
+    const declaredCapacity = Math.max(0, Number(infrastructure.sourceCapacities?.[medium]) || 0);
+    if (declaredCapacity > 0) return declaredCapacity * utilityFaultPerformance(fixture);
     if (medium === "electricity" && infrastructure.role === "electricSource" && fixture.utility.fuel > 0) {
       return Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture);
     }
@@ -15520,6 +15756,9 @@
       return infrastructure.role === "drainExterior"
         ? Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture)
         : (Math.max(0, Number(infrastructure.capacity) || UTILITY_SUMP_CAPACITY) - utilityContentsTotal(fixture.utility.contents)) * utilityFaultPerformance(fixture);
+    }
+    if (medium === "water" && infrastructure.role === "waterSource" && (Number(fixture.utility.contents?.cleanWater) || 0) > 0 && fixture.utility.waterQuality >= 50) {
+      return Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture);
     }
     return 0;
   }
@@ -15626,9 +15865,10 @@
 
   function drawManaFromComponent(component, amount) {
     let remaining = Math.max(0, Number(amount) || 0);
-    for (const source of component?.fixtures?.filter((fixture) => fixtureInfrastructureDef(fixture)?.role === "manaSource" && utilityFixtureEnabled(fixture)) || []) {
-      const taken = Math.min(source.utility.storedMana, remaining);
-      source.utility.storedMana -= taken;
+    for (const source of component?.fixtures?.filter((fixture) => utilityFixtureSourceCapacityPerHour(fixture, "mana") > 0) || []) {
+      const stored = fixtureInfrastructureDef(source)?.role === "manaSource" ? source.utility.storedMana : remaining;
+      const taken = Math.min(stored, remaining);
+      if (fixtureInfrastructureDef(source)?.role === "manaSource") source.utility.storedMana -= taken;
       remaining -= taken;
       if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
     }
@@ -15652,21 +15892,22 @@
     }
     if (fixture.utility.powerMode === "electric") {
       const component = utilityComponentForFixture(fixture, "electricity", context);
-      const generators = component?.fixtures?.filter((candidate) => fixtureInfrastructureDef(candidate)?.role === "electricSource" && utilityFixtureEnabled(candidate) && candidate.utility.fuel > 0) || [];
+      const generators = component?.fixtures?.filter((candidate) => utilityFixtureSourceCapacityPerHour(candidate, "electricity") > 0) || [];
       if (!generators.length) return 0;
       const allocation = clamp(component?.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture);
       let remaining = demand * allocation;
       let deliveredTotal = 0;
       for (const generator of generators) {
         const generatorDef = fixtureInfrastructureDef(generator);
-        const outputRate = Math.max(1, Number(generatorDef.outputPerHour) || 1);
+        const outputRate = Math.max(1, utilityFixtureSourceCapacityPerHour(generator, "electricity"));
+        const meteredService = generatorDef.role !== "electricSource";
         const fuelRate = Math.max(0.001, Number(generatorDef.fuelPerHour) || 0.1);
         if (!Number.isFinite(context.electricityBudget[generator.id])) context.electricityBudget[generator.id] = outputRate * elapsedHours;
-        const availableFuelOutput = generator.utility.fuel / fuelRate * outputRate;
+        const availableFuelOutput = meteredService ? context.electricityBudget[generator.id] : generator.utility.fuel / fuelRate * outputRate;
         const delivered = Math.min(remaining, context.electricityBudget[generator.id], availableFuelOutput) * utilityFaultPerformance(generator);
         if (delivered <= 0) continue;
-        const fuelUsed = delivered / outputRate * fuelRate;
-        generator.utility.fuel = Math.max(0, generator.utility.fuel - fuelUsed);
+        const fuelUsed = meteredService ? 0 : delivered / outputRate * fuelRate;
+        if (!meteredService) generator.utility.fuel = Math.max(0, generator.utility.fuel - fuelUsed);
         context.electricityBudget[generator.id] = Math.max(0, context.electricityBudget[generator.id] - delivered);
         utilityCombustionAtFixture(generator, fuelUsed);
         remaining -= delivered;
@@ -15690,19 +15931,13 @@
     if (fixture.utility.powerMode === "fuel") return fixture.utility.fuel > 0 ? utilityFaultPerformance(fixture) : 0;
     if (fixture.utility.powerMode === "electric") {
       const component = utilityComponentForFixture(fixture, "electricity", context);
-      return component?.fixtures?.some((candidate) =>
-        fixtureInfrastructureDef(candidate)?.role === "electricSource"
-        && utilityFixtureEnabled(candidate)
-        && candidate.utility.fuel > 0
-      ) ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
+      return component?.fixtures?.some((candidate) => utilityFixtureSourceCapacityPerHour(candidate, "electricity") > 0)
+        ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
     }
     if (fixture.utility.powerMode === "mana") {
       const component = utilityComponentForFixture(fixture, "mana", context);
-      return component?.fixtures?.some((candidate) =>
-        fixtureInfrastructureDef(candidate)?.role === "manaSource"
-        && utilityFixtureEnabled(candidate)
-        && candidate.utility.storedMana > 0
-      ) ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
+      return component?.fixtures?.some((candidate) => utilityFixtureSourceCapacityPerHour(candidate, "mana") > 0)
+        ? clamp(component.allocations?.[fixture.id] ?? 0, 0, 1) * utilityFaultPerformance(fixture) : 0;
     }
     return 0;
   }
@@ -16160,6 +16395,12 @@
       }
       if (infrastructure.role === "electricSource") {
         changes += utilitySetStatus(fixture, fixture.utility.fuel > 0 ? "available" : "unpowered", fixture.utility.fuel > 0 ? "Ready to power its connected electrical network." : "No Fuel Reagent is loaded.");
+        continue;
+      }
+      if (infrastructure.role === "waterSource") {
+        const stored = Number(fixture.utility.contents?.cleanWater) || 0;
+        const quality = fixture.utility.waterQuality;
+        changes += utilitySetStatus(fixture, !stored ? "empty" : quality < 50 ? "contaminated" : "available", !stored ? "The clean-water cistern is empty." : quality < 50 ? `Water quality ${formatNumber(quality)}%; process service is isolated.` : `${formatDecimal(stored, 1)} units of clean water at ${formatNumber(quality)}% quality.`);
         continue;
       }
       const network = fixtureUtilityNetworks(fixture)[0];
@@ -19267,6 +19508,7 @@
       : "";
     return {
       enabled: source.enabled !== false,
+      linkId: String(source.linkId || "").replace(/[^a-zA-Z0-9:_-]/g, ""),
       powerMode,
       mode,
       climateSetting,
@@ -19278,6 +19520,7 @@
       feedstock: clamp(Number(source.feedstock) || 0, 0, feedstockCapacity || UTILITY_FUEL_CAPACITY),
       storedMana: clamp(Number(source.storedMana) || 0, 0, manaCapacity || UTILITY_MANA_CAPACITY),
       contents: normalizeUtilityContents(source.contents),
+      waterQuality: clamp(Number.isFinite(Number(source.waterQuality)) ? Number(source.waterQuality) : 100, 0, 100),
       capturedAirborne: normalizeAirborneLoads(source.capturedAirborne),
       dischargedLoad: Math.max(0, Number(source.dischargedLoad) || 0),
       exposureChecks: Math.max(0, Math.floor(Number(source.exposureChecks) || 0)),
@@ -19294,6 +19537,24 @@
       failureChecks: Math.max(0, Math.floor(Number(source.failureChecks) || 0)),
       status: String(source.status || "idle"),
       statusReason: String(source.statusReason || "")
+    };
+  }
+
+  function normalizeFixtureProcess(candidate, def = null) {
+    if (!def?.process) return null;
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    return {
+      commissioned: Boolean(source.commissioned),
+      online: Boolean(source.online),
+      calibrated: clamp(Number.isFinite(Number(source.calibrated)) ? Number(source.calibrated) : 50, 0, 100),
+      cleanliness: clamp(Number.isFinite(Number(source.cleanliness)) ? Number(source.cleanliness) : 50, 0, 100),
+      cycleCount: Math.max(0, Math.floor(Number(source.cycleCount) || 0)),
+      hazardChecks: Math.max(0, Math.floor(Number(source.hazardChecks) || 0)),
+      lastCommissionedAt: source.lastCommissionedAt === null ? null : finiteTime(source.lastCommissionedAt, null),
+      lastCalibratedAt: source.lastCalibratedAt === null ? null : finiteTime(source.lastCalibratedAt, null),
+      lastCleanedAt: source.lastCleanedAt === null ? null : finiteTime(source.lastCleanedAt, null),
+      lastTestAt: source.lastTestAt === null ? null : finiteTime(source.lastTestAt, null),
+      lastResult: String(source.lastResult || "Never tested")
     };
   }
 
@@ -19438,6 +19699,7 @@
       productionTaskId: String(candidate.productionTaskId || ""),
       wardIds: normalizeContainerWardIds(candidate.wardIds || []),
       utility: normalizeFixtureUtility(candidate.utility, def),
+      process: normalizeFixtureProcess(candidate.process, def),
       installedAt: finiteTime(candidate.installedAt, 0)
     };
   }
@@ -35987,6 +36249,173 @@
   function utilityMaintenanceDue(fixture) {
     const interval = Math.max(0, Number(fixture?.utility?.maintenanceIntervalHours) || 0);
     return interval > 0 && (Number(fixture.utility.serviceHours) || 0) >= interval;
+  }
+
+  const CHEMISTRY_PROCESS_WORK_KINDS = new Set(["commissionEquipment", "startEquipment", "shutdownEquipment", "calibrateEquipment", "testEquipment", "cleanEquipment"]);
+
+  function chemistryProcessDef(fixture) {
+    return fixtureDef(fixture)?.process || null;
+  }
+
+  function chemistryUtilityMedium(fixture, requirement) {
+    if (requirement !== "power") return requirement;
+    return fixture.utility.powerMode === "mana" ? "mana" : "electricity";
+  }
+
+  function chemistryUtilityDemand(fixture, medium) {
+    const infrastructure = fixtureInfrastructureDef(fixture) || {};
+    if (medium === "electricity") return Math.max(0, Number(infrastructure.electricDemandPerHour) || 0);
+    if (medium === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
+    if (medium === "water") return Math.max(0, Number(infrastructure.waterDemandPerHour) || 0);
+    if (medium === "air") return Math.max(0, Number(infrastructure.airDemandPerHour) || 0);
+    if (medium === "drain") return Math.max(0, Number(infrastructure.drainDemandPerHour) || 0);
+    return 0;
+  }
+
+  function chemistryUtilityService(fixture, requirement, context = utilityNetworkContext()) {
+    const medium = chemistryUtilityMedium(fixture, requirement);
+    const demand = chemistryUtilityDemand(fixture, medium);
+    const component = utilityComponentForFixture(fixture, medium, context);
+    const capacity = Math.max(0, Number(component?.metrics?.capacity) || 0);
+    const existingDemand = Math.max(0, Number(component?.metrics?.demand) || 0) - utilityFixtureDemandPerHour(fixture, medium);
+    const ratio = component && demand > 0 ? clamp((capacity - existingDemand) / demand, 0, 1) : 0;
+    return { requirement, medium, demand, ratio, connected: Boolean(component && component.fixtures.length > 1), capacity };
+  }
+
+  function chemistryProcessReadiness(fixture) {
+    const processDef = chemistryProcessDef(fixture);
+    if (!fixture || !processDef || !fixture.process) return { operational: false, hard: [], degraded: [], blockers: ["Not chemistry processing equipment."], warnings: [] };
+    const context = utilityNetworkContext();
+    const hard = processDef.hardUtilities.map((requirement) => chemistryUtilityService(fixture, requirement, context));
+    const degraded = processDef.degradedUtilities.map((requirement) => chemistryUtilityService(fixture, requirement, context));
+    const blockers = hard.filter((service) => service.ratio < 0.99).map((service) => `${titleCase(service.medium)} service is ${service.connected ? `${formatNumber(service.ratio * 100)}% of demand` : "not physically connected"}.`);
+    const warnings = degraded.filter((service) => service.ratio < 0.99).map((service) => `${titleCase(service.medium)} service is degraded; operation remains physically possible with greater fault and contamination risk.`);
+    const fault = normalizeUtilityFault(fixture.utility.fault);
+    if (fixture.condition < 25) blockers.push("Equipment condition is below the minimum safe mechanical threshold.");
+    if (fault?.severity === "critical") blockers.push(`${UTILITY_FAULT_DEFS[fault.id].label} prevents operation.`);
+    if (fixture.process.calibrated < 50) warnings.push("Calibration is poor; diagnostics and containment performance will be degraded.");
+    if (fixture.process.cleanliness < 50) warnings.push("Internal contamination is high; cross-contamination and spill risk are elevated.");
+    return { operational: blockers.length === 0, hard, degraded, blockers, warnings };
+  }
+
+  function chemistryProcessLabel(kind, fixture) {
+    return {
+      commissionEquipment: `Commission ${fixture.name}`,
+      startEquipment: `Start ${fixture.name}`,
+      shutdownEquipment: `Shut down ${fixture.name}`,
+      calibrateEquipment: `Calibrate ${fixture.name}`,
+      testEquipment: `Run ${fixture.name} test cycle`,
+      cleanEquipment: `Clean ${fixture.name}`
+    }[kind] || `Service ${fixture.name}`;
+  }
+
+  function startChemistryProcessWork(fixture, kind) {
+    if (!fixture || !chemistryProcessDef(fixture) || !CHEMISTRY_PROCESS_WORK_KINDS.has(kind)) return false;
+    const order = createWorkOrder({
+      kind,
+      category: kind === "cleanEquipment" ? "cleaning" : kind === "calibrateEquipment" ? "maintenance" : "servicing",
+      label: chemistryProcessLabel(kind, fixture),
+      priority: fixture.utility.priority || UTILITY_DEFAULT_PRIORITY,
+      source: "manual",
+      target: { kind: "fixture", id: fixture.id, roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin },
+      dedupeKey: `chemistry:${kind}:${fixture.id}`
+    });
+    claimNextLaborWork();
+    persist();
+    render();
+    return order;
+  }
+
+  function chemistryCreateResidue(fixture, key, quantity, tags) {
+    const cell = fixtureFootprintCells(fixture)[0] || fixture.origin;
+    const units = Math.max(1, Math.ceil(Number(quantity) || 1));
+    return createPhysicalItemStack("residue", key, units, {
+      roomId: labMapCellRoomId(cell), cell, fixtureId: "", containerId: "", carriedBy: ""
+    }, { form: "spill", tags, knownQuantity: units });
+  }
+
+  function consumeChemistryWater(fixture, hours) {
+    const component = utilityComponentForFixture(fixture, "water", utilityNetworkContext());
+    let remaining = chemistryUtilityDemand(fixture, "water") * Math.max(0, hours);
+    for (const source of component?.fixtures?.filter((candidate) => fixtureInfrastructureDef(candidate)?.role === "waterSource") || []) {
+      const taken = Math.min(remaining, Number(source.utility.contents.cleanWater) || 0);
+      source.utility.contents.cleanWater = Math.max(0, (Number(source.utility.contents.cleanWater) || 0) - taken);
+      remaining -= taken;
+      if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
+    }
+  }
+
+  function completeChemistryProcessWork(order, fixture) {
+    const process = fixture.process;
+    if (order.kind === "commissionEquipment") {
+      process.commissioned = true;
+      process.online = false;
+      process.lastCommissionedAt = state.clock;
+      process.lastResult = "Commissioning checks completed; calibration and cleaning remain operator responsibilities.";
+      addEvent(`${fixture.name} commissioning completed; the inherited line can now be started when its physical services are available.`);
+      return true;
+    }
+    if (order.kind === "startEquipment") {
+      process.online = true;
+      fixture.utility.enabled = true;
+      process.lastResult = "Started and awaiting work.";
+      addEvent(`${fixture.name} started through a routed operator procedure.`);
+      return true;
+    }
+    if (order.kind === "shutdownEquipment") {
+      process.online = false;
+      fixture.utility.enabled = false;
+      process.lastResult = "Orderly shutdown complete.";
+      addEvent(`${fixture.name} shut down through its physical controls.`);
+      return true;
+    }
+    if (order.kind === "calibrateEquipment") {
+      process.calibrated = Math.min(100, process.calibrated + 45);
+      process.lastCalibratedAt = state.clock;
+      process.lastResult = "Calibration completed.";
+      addEvent(`${fixture.name} calibrated to ${formatNumber(process.calibrated)}%.`);
+      return true;
+    }
+    if (order.kind === "cleanEquipment") {
+      process.cleanliness = Math.min(100, process.cleanliness + 50);
+      process.lastCleanedAt = state.clock;
+      process.lastResult = "Internal surfaces cleaned; residue remains physical for disposal.";
+      chemistryCreateResidue(fixture, "chemistryCleaningResidue", 0.12, ["chemistry", "cleaning-residue", fixture.typeId]);
+      addEvent(`${fixture.name} cleaned; removed contamination was left as tagged physical residue.`);
+      return true;
+    }
+    if (order.kind !== "testEquipment") return false;
+    const readiness = chemistryProcessReadiness(fixture);
+    const cycle = process.cycleCount + 1;
+    const degradedCount = readiness.warnings.length;
+    const risk = clamp((100 - fixture.condition) / 240 + (100 - process.cleanliness) / 300 + (100 - process.calibrated) / 400 + fixture.utility.wear / 600 + degradedCount * 0.08, 0.03, 0.85);
+    const hazardous = seedRng(`${state.seed}:chemistry-test:${fixture.id}:${cycle}`)() < risk;
+    process.cycleCount = cycle;
+    process.hazardChecks += 1;
+    process.lastTestAt = state.clock;
+    process.cleanliness = Math.max(0, process.cleanliness - (hazardous ? 9 : 3));
+    process.calibrated = Math.max(0, process.calibrated - 2);
+    fixture.utility.wear = clamp(fixture.utility.wear + (hazardous ? 7 : 2), 0, 250);
+    fixture.condition = Math.max(0, fixture.condition - (hazardous ? 5 : 1));
+    const hours = Math.max(1, Number(chemistryProcessDef(fixture).testSeconds) || 60) / 3600;
+    consumeChemistryWater(fixture, hours);
+    chemistryCreateResidue(fixture, "chemistryDiagnosticWaste", (chemistryProcessDef(fixture).spill || 0.1) * (hazardous ? 2 : 0.35), ["chemistry", "diagnostic-waste", fixture.typeId]);
+    const environment = fixtureEnvironmentRecords(fixture)[0];
+    if (environment) {
+      const fumes = (chemistryProcessDef(fixture).fumes || 0.1) * (hazardous ? 2.5 : 0.35);
+      environment.airborne["chemistry-test-fumes"] = (environment.airborne["chemistry-test-fumes"] || 0) + fumes;
+      environment.airborne = normalizeAirborneLoads(environment.airborne);
+      environment.temperatureC = clamp(environment.temperatureC + (hazardous ? 2 : 0.25), -100, 500);
+    }
+    if (hazardous && !fixture.utility.fault) {
+      const candidates = utilityFaultCandidates(fixture);
+      const index = Math.floor(seedRng(`${state.seed}:chemistry-fault-kind:${fixture.id}:${cycle}`)() * candidates.length);
+      setUtilityFault(fixture, candidates[index] || candidates[0], { cause: "commissioning test under degraded conditions" });
+    }
+    process.lastResult = hazardous ? `Diagnostic cycle ${cycle} completed with a local spill/fume incident.` : `Diagnostic cycle ${cycle} completed; only routine diagnostic waste was produced.`;
+    addEvent(`${fixture.name} ${process.lastResult.toLowerCase()}`);
+    syncRoomAttributeSummaries();
+    return true;
   }
 
   function utilityWorkOrderKind(fixture) {
@@ -53432,13 +53861,59 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const infrastructure = fixtureInfrastructureDef(fixture);
     if (infrastructure) {
-      commands.push(commandDef({
-        id: `fixture.utility.toggle.${fixture.id}`,
-        label: fixture.utility.enabled ? "Switch Off" : "Switch On",
-        group: "Infrastructure",
-        description: fixture.utility.enabled ? "Disable this utility device without dismantling its physical network." : "Enable this utility device. It will operate only when its physical inputs and connections are available.",
-        run: () => updateFixtureUtility(fixture.id, { enabled: !fixture.utility.enabled }, `${fixture.name} switched ${fixture.utility.enabled ? "off" : "on"}.`)
-      }));
+      if (!chemistryProcessDef(fixture)) {
+        commands.push(commandDef({
+          id: `fixture.utility.toggle.${fixture.id}`,
+          label: fixture.utility.enabled ? "Switch Off" : "Switch On",
+          group: "Infrastructure",
+          description: fixture.utility.enabled ? "Disable this utility device without dismantling its physical network." : "Enable this utility device. It will operate only when its physical inputs and connections are available.",
+          run: () => updateFixtureUtility(fixture.id, { enabled: !fixture.utility.enabled }, `${fixture.name} switched ${fixture.utility.enabled ? "off" : "on"}.`)
+        }));
+      }
+      if (chemistryProcessDef(fixture)) {
+        const readiness = chemistryProcessReadiness(fixture);
+        const activeKind = (kind) => Boolean(activeLaborOrderForDedupeKey(`chemistry:${kind}:${fixture.id}`));
+        commands.push(commandDef({
+          id: `fixture.chemistry.commission.${fixture.id}`,
+          label: "Commission Equipment",
+          group: "Chemistry Operations",
+          disabledReason: fixture.process.commissioned ? "This equipment is already commissioned." : activeKind("commissionEquipment") ? "Commissioning is already designated." : readiness.blockers.join(" "),
+          description: `Run a routed inherited-equipment commissioning procedure.${readiness.warnings.length ? ` Warnings: ${readiness.warnings.join(" ")}` : ""}`,
+          run: () => startChemistryProcessWork(fixture, "commissionEquipment")
+        }));
+        commands.push(commandDef({
+          id: `fixture.chemistry.${fixture.process.online ? "shutdown" : "start"}.${fixture.id}`,
+          label: fixture.process.online ? "Shut Down Equipment" : "Start Equipment",
+          group: "Chemistry Operations",
+          disabledReason: activeKind(fixture.process.online ? "shutdownEquipment" : "startEquipment") ? "An operating-state procedure is already designated." : !fixture.process.online && !fixture.process.commissioned ? "Commission the equipment first." : !fixture.process.online ? readiness.blockers.join(" ") : "",
+          description: "Startup and shutdown are physical operator procedures; they are not instantaneous UI toggles.",
+          run: () => startChemistryProcessWork(fixture, fixture.process.online ? "shutdownEquipment" : "startEquipment")
+        }));
+        commands.push(commandDef({
+          id: `fixture.chemistry.test.${fixture.id}`,
+          label: "Run Diagnostic Test Cycle",
+          group: "Chemistry Operations",
+          disabledReason: activeKind("testEquipment") ? "A test is already designated." : !fixture.process.online ? "Start the equipment first." : readiness.blockers.join(" "),
+          description: `Produce diagnostic waste only; no saleable recipe output is implemented.${readiness.warnings.length ? ` Proceeding accepts: ${readiness.warnings.join(" ")}` : ""}`,
+          run: () => startChemistryProcessWork(fixture, "testEquipment")
+        }));
+        commands.push(commandDef({
+          id: `fixture.chemistry.calibrate.${fixture.id}`,
+          label: "Calibrate Equipment",
+          group: "Chemistry Care",
+          disabledReason: activeKind("calibrateEquipment") ? "Calibration is already designated." : "",
+          description: "Route the scientist to restore instrument calibration. Calibration drifts during test cycles.",
+          run: () => startChemistryProcessWork(fixture, "calibrateEquipment")
+        }));
+        commands.push(commandDef({
+          id: `fixture.chemistry.clean.${fixture.id}`,
+          label: "Clean Equipment",
+          group: "Chemistry Care",
+          disabledReason: activeKind("cleanEquipment") ? "Cleaning is already designated." : "",
+          description: "Clean internal surfaces and leave removed contamination as physical tagged residue for disposal.",
+          run: () => startChemistryProcessWork(fixture, "cleanEquipment")
+        }));
+      }
       for (const priority of [2, 4, 6]) {
         const label = priority === 2 ? "High" : priority === 4 ? "Normal" : "Low";
         commands.push(commandDef({
@@ -54079,6 +54554,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (fixtureInfrastructureDef(fixture)) {
           rows.push(["Utility", `${titleCase(fixture.utility.status || "idle")}${fixture.utility.statusReason ? `: ${fixture.utility.statusReason}` : ""}`]);
           rows.push(["Reliability", fixtureUtilityFaultSummary(fixture)]);
+        }
+        if (chemistryProcessDef(fixture) && fixture.process) {
+          const readiness = chemistryProcessReadiness(fixture);
+          rows.push(["Chemistry state", `${fixture.process.commissioned ? "Commissioned" : "Uncommissioned"}; ${fixture.process.online ? "online" : "shut down"}`]);
+          rows.push(["Calibration", `${formatNumber(fixture.process.calibrated)}%`]);
+          rows.push(["Cleanliness", `${formatNumber(fixture.process.cleanliness)}%`]);
+          rows.push(["Service readiness", readiness.operational ? readiness.warnings.length ? `Degraded: ${readiness.warnings.join(" ")}` : "All hard services available" : `Blocked: ${readiness.blockers.join(" ")}`]);
+          rows.push(["Test history", `${fixture.process.cycleCount} cycle${fixture.process.cycleCount === 1 ? "" : "s"}; ${fixture.process.lastResult}`]);
         }
         if (isStorageFixture(fixture)) {
           rows.push(["Storage", titleCase(fixture.accessState)]);

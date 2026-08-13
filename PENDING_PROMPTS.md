@@ -14,64 +14,59 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Chemistry Equipment, Utilities, and Processing Hazards
-2. Chemical Recipes, Batch Provenance, and Product Classification
-3. Open Market, Business Reputation, and Legal Fulfillment
-4. Illegal Processed Goods and Black-Market Expansion
-5. Front Company Operations, Corporate Records, and Cover Credibility
-6. Above-Ground Sprite Generation and Visual Integration
-7. Suspicion, Investigations, and Evidence Management
-8. Campaign Objectives, Milestones, and End States
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound Design, Notifications, and Accessibility Audit
-11. Production Sprite Replacement and Art-Direction Pass
+1. Chemical Recipes, Batch Provenance, and Product Classification
+2. Open Market, Business Reputation, and Legal Fulfillment
+3. Illegal Processed Goods and Black-Market Expansion
+4. Front Company Operations, Corporate Records, and Cover Credibility
+5. Above-Ground Sprite Generation and Visual Integration
+6. Suspicion, Investigations, and Evidence Management
+7. Campaign Objectives, Milestones, and End States
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound Design, Notifications, and Accessibility Audit
+10. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Chemistry Equipment, Utilities, and Processing Hazards
-
-Add wet-chemistry, reaction, ventilation, analysis, packaging, and waste-handling fixtures with real utility demand, local hazards, condition, faults, maintenance, routed work, spills, emissions, and cleanup.
-
-## 2. Chemical Recipes, Batch Provenance, and Product Classification
+## 1. Chemical Recipes, Batch Provenance, and Product Classification
 
 Add tag- and phase-compatible chemical transformations whose physical intermediates and finished batches retain exact provenance, craftsmanship, contamination, hazards, packaging, assay/documentation status, waste, and legal classification.
 
-## 3. Open Market, Business Reputation, and Legal Fulfillment
+## 2. Open Market, Business Reputation, and Legal Fulfillment
 
 Add a lawful economy with finite wholesale purchase orders, business reputation, deadlines, quality/documentation requirements, exact finished-batch reservations, loading-bay fulfillment, reliable payment, and a legal ledger.
 
-## 4. Illegal Processed Goods and Black-Market Expansion
+## 3. Illegal Processed Goods and Black-Market Expansion
 
 Extend black-market offers and contracts from raw byproducts to typed manufactured contraband, preserving quality, provenance, physical reservations, contact preferences, payout, handling risk, and exposure.
 
-## 5. Front Company Operations, Corporate Records, and Cover Credibility
+## 4. Front Company Operations, Corporate Records, and Cover Credibility
 
 Model the chemistry company's legal identity, operating state, declared activity, purchase/production/shipment/waste records, public and restricted spaces, and qualitative cover credibility derived from actual facility conditions and legitimate work.
 
-## 6. Above-Ground Sprite Generation and Visual Integration
+## 5. Above-Ground Sprite Generation and Visual Integration
 
 Generate and integrate a coherent development-quality bitmap sprite set for the Chemistry Front's surface terrain, building envelope, access/logistics fixtures, chemistry equipment, products, hazards, and exterior details while preserving semantic asset keys, footprint anchors, transforms, glyph fallbacks, and Canvas/DOM parity.
 
-## 7. Suspicion, Investigations, and Evidence Management
+## 6. Suspicion, Investigations, and Evidence Management
 
 Turn Suspicion into an active pressure system involving traces, records, witnesses, inspections, concealment, explanations, evidence handling, and escalating institutional responses.
 
-## 8. Campaign Objectives, Milestones, and End States
+## 7. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 10. Sound Design, Notifications, and Accessibility Audit
+## 9. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 11. Production Sprite Replacement and Art-Direction Pass
+## 10. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
