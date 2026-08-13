@@ -4132,6 +4132,24 @@ html[data-reduced-motion="true"] *::after {
   font-size: 0.78rem;
 }
 
+.exact-transfer-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.exact-transfer-form label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.exact-transfer-form button {
+  min-height: 2.35rem;
+}
+
 .setup-card select,
 .setup-card input {
   width: 100%;
