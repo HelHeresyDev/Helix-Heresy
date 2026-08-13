@@ -81,6 +81,19 @@ test('manufactured contracts reserve and deliver one exact qualifying batch', as
     sourceId: contract.id,
     status: 'open',
   }));
+  expect(finalState.investigativeEvidence.records).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      type: 'covertCommercialDelivery',
+      category: 'commercial',
+      lifecycle: 'externalized',
+      refs: expect.objectContaining({ contractIds: [contract.id], batchIds: [batch.chemicalBatch.id] }),
+    }),
+    expect.objectContaining({
+      type: 'documentVariance',
+      category: 'documentary',
+      refs: expect.objectContaining({ batchIds: [batch.chemicalBatch.id] }),
+    }),
+  ]));
 });
 
 test('living-specimen contracts reserve a creature and pod, freeze high transport risk, and transfer both', async ({ page }) => {
