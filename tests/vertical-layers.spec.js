@@ -29,14 +29,14 @@ test('map layer controls use signed z coordinates and preserve the planar camera
   expect(before.layerHeightM).toBe(4);
 
   await page.keyboard.press(']');
-  await expect(page.locator('[data-map-layer-readout="true"]')).toHaveText('Z 1');
+  await expect(page.locator('[data-map-layer-readout="true"]')).toHaveText('Surface · Z 1');
   await expect(page.locator('[data-map-viewport="true"]')).toHaveAttribute('data-map-viewport-z', '1');
   const above = await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot());
   expect(above.viewport).toMatchObject({ x: before.viewport.x, y: before.viewport.y, z: 1 });
   expect(above.cursor.z).toBe(1);
 
   await page.keyboard.press('[');
-  await expect(page.locator('[data-map-layer-readout="true"]')).toHaveText('Z 0');
+  await expect(page.locator('[data-map-layer-readout="true"]')).toHaveText('Underground Lab · Z 0');
 });
 
 test('queued stair excavation creates a vertical route with 4 m travel cost', async ({ page }) => {

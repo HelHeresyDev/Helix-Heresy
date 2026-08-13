@@ -64,7 +64,7 @@ test('physical records overwrite stale global and room compatibility totals', as
     const biomass = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'biomass');
     const metalParts = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'metalParts');
     const stone = stock.stacks.find((stack) => stack.section === 'resources' && stack.key === 'stoneBlocks');
-    const slime = debug.createSpatialTestSlime({ roomId: 'mainLab' });
+    const slime = debug.createSpatialTestSlime({ roomId: 'mainLab', size: 'seedling', shape: 'spherical' });
     const scientistCarry = debug.carryActorStack('scientist', biomass.id, 2);
     const slimeCarry = debug.carryActorStack(slime.id, metalParts.id, 1);
     const overCapacity = debug.carryActorStack('scientist', stone.id, 4);

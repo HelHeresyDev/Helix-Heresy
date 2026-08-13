@@ -37,7 +37,16 @@ async function seedCombatSlime(page, id, options = {}) {
   }, storageKey);
   const behavior = options.behavior || 'idle pooling';
   const stability = options.stability || 'placid';
-  const genome = genomeForTraits({ seed, traits: { element: options.element || 'none', behavior, stability } });
+  const genome = genomeForTraits({
+    seed,
+    traits: {
+      element: options.element || 'none',
+      behavior,
+      stability,
+      ...(options.size ? { size: options.size } : {}),
+      ...(options.shape ? { shape: options.shape } : {}),
+    },
+  });
   await page.evaluate(({ key, id, genome, options }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
@@ -193,6 +202,8 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
     behavior: 'vibration hunting',
     stability: 'hungry',
     nutrition: 3,
+    size: 'cup-sized',
+    shape: 'spherical',
   });
 
   await page.evaluate(() => window.helixHeresyDebug.setScientistGuarding(true));

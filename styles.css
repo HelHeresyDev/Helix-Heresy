@@ -1811,6 +1811,12 @@ body.map-dragging .lab-map-canvas-host {
   color: transparent;
 }
 
+.lab-map-cell.offsite-cell {
+  background: #080a08;
+  border-color: #111510;
+  color: transparent;
+}
+
 .lab-map-cell.solid-earth-cell {
   background: #0b0b08;
   border-color: #14150f;
@@ -1820,6 +1826,43 @@ body.map-dragging .lab-map-canvas-host {
   background: #242822;
   border-color: #30362d;
   color: #879080;
+}
+
+.lab-map-cell.surface-cell {
+  background: #34412b;
+  border-color: #536247;
+  color: #b8c5aa;
+}
+
+.lab-map-cell.surface-gravel {
+  background: #45443b;
+  border-color: #626157;
+}
+
+.lab-map-cell.surface-soil {
+  background: #3b3023;
+  border-color: #574734;
+}
+
+.lab-map-cell.surface-cell.enclosure-interior,
+.lab-map-cell.room-cell.surface-cell.enclosure-interior,
+.lab-map-cell.surface-cell.enclosure-exposedInterior {
+  background: #353a34;
+  border-color: #596158;
+  box-shadow: inset 0 0 0 1px rgba(190, 200, 185, 0.12);
+}
+
+.lab-map-cell.surface-cell.enclosure-coveredExterior {
+  background: #3b4037;
+  border-color: #5a6256;
+  border-style: dashed;
+}
+
+.lab-map-cell.roof-cell {
+  background: #3a3b35;
+  border-color: #74766d;
+  color: #d1d2ca;
+  box-shadow: inset 0 0 0 1px rgba(210, 212, 202, 0.16);
 }
 
 .lab-map-cell.vertical-connector-cell {
