@@ -20,23 +20,14 @@
   };
   const WASTE_DRUM_CAPACITY = 8;
   const OVERFLOW_EVENT_INTERVAL = minutesToSeconds(360);
-  const OVERFLOW_SUSPICION = 4;
   const SUSPICION_MAX = 100;
-  const SUSPICION_DECAY_DELAY = minutesToSeconds(1440);
-  const SUSPICION_DECAY_INTERVAL = minutesToSeconds(360);
   const SUSPICION_BANDS = [
     { id: "quiet", label: "Quiet", min: 0 },
-    { id: "suspicious", label: "Suspicious", min: 20 },
+    { id: "noticed", label: "Noticed", min: 20 },
     { id: "watched", label: "Watched", min: 40 },
-    { id: "investigated", label: "Investigated", min: 60 },
+    { id: "scrutinized", label: "Scrutinized", min: 60 },
     { id: "critical", label: "Critical", min: 80 }
   ];
-  const DUMP_SUSPICION = {
-    fresh: 6,
-    decaying: 8,
-    spoiled: 10,
-    ruined: 7
-  };
   const CONTAINMENT_INCIDENT_THRESHOLD = 240;
   const CONTAINMENT_INCIDENT_COOLDOWN = minutesToSeconds(360);
   const CONTAINMENT_INCIDENT_PROGRESS_DECAY_PER_HOUR = 20;
@@ -3965,7 +3956,6 @@
   const WASTE_DISPOSAL_RESIDUE_INTERVAL = 3;
   const WASTE_DISPOSAL_EXPOSURE_NOTICE_LOSS = 10;
   const WASTE_DISPOSAL_SLOW_OBSERVATION = minutesToSeconds(1440);
-  const WASTE_DISPOSAL_CONTAMINATION_SUSPICION = 2;
   const FRESH_NECROPSY_GENETIC_GAIN = 1;
 
   const SKILL_TIER_DEFS = [
@@ -4229,6 +4219,10 @@
   const InvestigativeEvidence = window.HelixInvestigativeEvidence;
   if (!InvestigativeEvidence) {
     throw new Error("HelixInvestigativeEvidence must load before app.js");
+  }
+  const ExternalDetection = window.HelixExternalDetection;
+  if (!ExternalDetection) {
+    throw new Error("HelixExternalDetection must load before app.js");
   }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
@@ -4879,6 +4873,7 @@
       economy: defaultEconomyState(seed),
       company: null,
       investigativeEvidence: InvestigativeEvidence.defaultState(),
+      externalDetection: ExternalDetection.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -5892,6 +5887,147 @@
   function knownInvestigativeEvidence(options = {}) {
     return ensureInvestigativeEvidence().records.filter((record) => record.knowledge.state !== "unknown"
       && (options.includeExhausted || investigativeEvidenceIntegrity(record) > 0));
+  }
+
+  function ensureExternalDetection(target = state) {
+    if (target.externalDetection?.version === ExternalDetection.VERSION
+      && Array.isArray(target.externalDetection.exposures)
+      && Array.isArray(target.externalDetection.reports)) {
+      return target.externalDetection;
+    }
+    target.externalDetection = ExternalDetection.normalizeState(target.externalDetection);
+    return target.externalDetection;
+  }
+
+  function externalEvidenceSignificanceRank(record) {
+    return record ? InvestigativeEvidence.significanceRank(record.significance) : 0;
+  }
+
+  function activeExternallyRelevantEvidenceIds() {
+    return new Set(ensureInvestigativeEvidence().records
+      .filter((record) => !["exhausted", "lost"].includes(record.lifecycle) && investigativeEvidenceIntegrity(record) > 0)
+      .map((record) => record.id));
+  }
+
+  function refreshSuspicionFromExternalDetection(options = {}) {
+    const before = clamp(Math.round(Number(state.suspicion) || 0), 0, SUSPICION_MAX);
+    const beforeBand = suspicionBandForValue(before);
+    const after = ExternalDetection.attentionScore(ensureExternalDetection(), state.clock, {
+      activeEvidenceIds: activeExternallyRelevantEvidenceIds(),
+      casePressure: 0
+    });
+    state.suspicion = after;
+    const afterBand = suspicionBandForValue(after);
+    const peakIndex = Math.max(suspicionBandIndex(state.suspicionPeakBand), suspicionBandIndex(afterBand.id));
+    state.suspicionPeakBand = SUSPICION_BANDS[peakIndex].id;
+    if (!options.quiet && afterBand.id !== beforeBand.id) {
+      addEvent(`Suspicion ${after > before ? "rose" : "dropped"} to ${afterBand.label}.`);
+    }
+    return before !== after;
+  }
+
+  function registerExternalDetectionOpportunity(record, options = {}) {
+    if (!record) return null;
+    const result = ExternalDetection.createOpportunity(ensureExternalDetection(), {
+      seed: state.seed,
+      opportunityKey: options.opportunityKey || `${options.channel || "external"}:${record.id}:${state.clock}`,
+      evidenceId: record.id,
+      sourceId: options.sourceId,
+      institutionId: options.institutionId,
+      channel: options.channel,
+      opportunityAt: Number.isFinite(Number(options.opportunityAt)) ? Number(options.opportunityAt) : state.clock,
+      detectionChance: options.detectionChance,
+      observed: options.observed,
+      reportChance: options.reportChance,
+      willReport: options.willReport,
+      reportDelaySeconds: options.reportDelaySeconds,
+      reliability: options.reliability,
+      specificity: options.specificity,
+      knowledge: options.knowledge || "hidden",
+      summary: options.summary || record.label,
+      significanceRank: externalEvidenceSignificanceRank(record)
+    });
+    state.externalDetection = result.state;
+    const processed = ExternalDetection.processDue(state.externalDetection, state.clock);
+    state.externalDetection = processed.state;
+    refreshSuspicionFromExternalDetection();
+    if (result.created && result.exposure.observed && result.exposure.knowledge === "known") {
+      addEvent(`${record.label} was noticed by an external source.`);
+    }
+    for (const report of processed.createdReports.filter((entry) => entry.knowledge === "known")) {
+      addEvent(`A report concerning ${report.summary.toLowerCase()} reached ${externalInstitutionLabel(report.institutionId)}.`);
+    }
+    return result.exposure;
+  }
+
+  function externalInstitutionLabel(institutionId) {
+    return ExternalDetection.INSTITUTIONS.find((entry) => entry.id === institutionId)?.label || "an outside institution";
+  }
+
+  function externalDetectionPublicTrafficEnabled() {
+    return ["limited", "open"].includes(ensureCompany().operatingState);
+  }
+
+  function externalDetectionOpportunityExists(opportunityKey) {
+    return ensureExternalDetection().exposures.some((entry) => entry.opportunityKey === opportunityKey);
+  }
+
+  function updateExternalDetection() {
+    let changes = 0;
+    const evidence = ensureInvestigativeEvidence().records;
+    const day = Math.floor(state.clock / SECONDS_PER_DAY);
+    for (const record of evidence) {
+      if (["exhausted", "lost"].includes(record.lifecycle) || investigativeEvidenceIntegrity(record) <= 0) continue;
+      if (record.type === "overdueCompanyFiling") {
+        const opportunityKey = `filing:${record.id}`;
+        if (externalDetectionOpportunityExists(opportunityKey)) continue;
+        const before = ensureExternalDetection().exposures.length;
+        registerExternalDetectionOpportunity(record, {
+          opportunityKey, sourceId: "filing-system", channel: "filing",
+          detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
+          reliability: "strong", specificity: "identityLinked", knowledge: "known",
+          summary: `the overdue filing for ${ensureCompany().legalName}`
+        });
+        changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
+        continue;
+      }
+      if (record.type === "dumpedBiologicalRemains") {
+        const opportunityKey = `dump-search:${record.id}:day-${day}`;
+        if (externalDetectionOpportunityExists(opportunityKey)) continue;
+        const before = ensureExternalDetection().exposures.length;
+        registerExternalDetectionOpportunity(record, {
+          opportunityKey, sourceId: "nearby-observer", channel: "exterior",
+          detectionChance: 0.18 + externalEvidenceSignificanceRank(record) * 0.07,
+          reportChance: 0.82, reportDelaySeconds: SECONDS_PER_HOUR * 6,
+          reliability: "credible", specificity: "siteLinked", knowledge: "inferred",
+          summary: "discarded biological material near the facility"
+        });
+        changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
+        continue;
+      }
+      const publicRoom = [SURFACE_RECEPTION_ROOM_ID, SURFACE_LOADING_ROOM_ID].includes(record.locus.roomId);
+      if (publicRoom && externalDetectionPublicTrafficEnabled()) {
+        const opportunityKey = `public-traffic:${record.id}:day-${day}`;
+        if (externalDetectionOpportunityExists(opportunityKey)) continue;
+        const before = ensureExternalDetection().exposures.length;
+        registerExternalDetectionOpportunity(record, {
+          opportunityKey, sourceId: "public-visitor", channel: "publicTraffic",
+          detectionChance: record.discoverability.level === "obvious" ? 0.4 : record.discoverability.level === "ordinary" ? 0.18 : 0.06,
+          reportChance: 0.55, reportDelaySeconds: SECONDS_PER_HOUR * 8,
+          reliability: "weak", specificity: "siteLinked", knowledge: "inferred",
+          summary: `an unusual condition in a public area of ${ensureCompany().legalName}`
+        });
+        changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
+      }
+    }
+    const processed = ExternalDetection.processDue(ensureExternalDetection(), state.clock);
+    state.externalDetection = processed.state;
+    for (const report of processed.createdReports.filter((entry) => entry.knowledge === "known")) {
+      addEvent(`A report concerning ${report.summary.toLowerCase()} reached ${externalInstitutionLabel(report.institutionId)}.`);
+    }
+    changes += processed.createdReports.length + processed.createdCorrelations.length;
+    changes += refreshSuspicionFromExternalDetection() ? 1 : 0;
+    return changes;
   }
 
   function companyReportingPeriodState(period) {
@@ -7680,6 +7816,20 @@
         records: ensureInvestigativeEvidence().records.map((record) => ({ ...record, currentIntegrity: investigativeEvidenceIntegrity(record) })),
         knownRecordIds: knownInvestigativeEvidence({ includeExhausted: true }).map((record) => record.id)
       }),
+      externalDetectionSnapshot: () => clonePlainObject({
+        ...ensureExternalDetection(),
+        institutions: ExternalDetection.INSTITUTIONS,
+        visible: ExternalDetection.visibleSignals(ensureExternalDetection()),
+        attention: state.suspicion,
+        band: suspicionBandForValue(state.suspicion),
+        historicalPeakBand: state.suspicionPeakBand
+      }),
+      registerExternalDetectionOpportunity: (evidenceId, options = {}) => {
+        const record = ensureInvestigativeEvidence().records.find((entry) => entry.id === evidenceId);
+        const exposure = registerExternalDetectionOpportunity(record, options);
+        persist(); render();
+        return exposure ? clonePlainObject(exposure) : null;
+      },
       addInvestigativeTestResidue: (options = {}) => {
         const roomId = options.roomId || scientistRoomId();
         const added = addFeedingResidue(options.typeKey || "slimeTrace", Math.max(1, Number(options.amount) || 1), {
@@ -11817,27 +11967,10 @@
   }
 
   function nextSuspicionBandChangeEvent() {
-    const floor = passiveSuspicionFloor();
-    if (state.suspicion <= floor) {
-      return null;
-    }
-    const currentBand = suspicionBandForValue(state.suspicion);
-    if (currentBand.id === "quiet") {
-      return null;
-    }
-    const targetSuspicion = Math.max(floor, currentBand.min - 1);
-    if (targetSuspicion >= state.suspicion) {
-      return null;
-    }
-    const lastGain = finiteTime(state.lastSuspicionGainAt, state.clock);
-    const decayStart = lastGain + SUSPICION_DECAY_DELAY;
-    const decayFrom = Math.max(finiteTime(state.lastSuspicionDecayAt, decayStart), decayStart);
-    const pointsNeeded = Math.ceil(state.suspicion - targetSuspicion);
-    return {
-      time: decayFrom + pointsNeeded * SUSPICION_DECAY_INTERVAL,
-      label: `Suspicion drops to ${suspicionBandForValue(targetSuspicion).label}`,
-      type: "suspicion"
-    };
+    const nextReport = ensureExternalDetection().exposures
+      .filter((entry) => entry.observed && entry.willReport && !entry.reportId && entry.reportDueAt != null && entry.reportDueAt >= state.clock)
+      .sort((a, b) => a.reportDueAt - b.reportDueAt)[0];
+    return nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
   }
 
   function emptySimulationChanges() {
@@ -11989,8 +12122,8 @@
     if (id === "administration") {
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
-      changes.suspicionChanged += updateSuspicionDecay();
       changes.evidenceChanged += updateInvestigativeEvidence();
+      changes.suspicionChanged += updateExternalDetection();
       changes.economyChanged += updateBlackMarketEconomy();
       changes.economyChanged += updateCommodityMarket();
       changes.economyChanged += updateCompanyState();
@@ -16903,7 +17036,6 @@
     }
     if (corpse.storage === "overflow") {
       addEvent(`${slime.name} could not fit in a waste drum. Overflow contamination and evidence risk increased.`);
-      addSuspicion(OVERFLOW_SUSPICION);
     }
     return corpse;
   }
@@ -17032,56 +17164,6 @@
       return "ruined; disposal needed";
     }
     return "spoiled; disposal needed";
-  }
-
-  function addSuspicion(amount) {
-    const gain = Math.max(0, Number(amount) || 0);
-    if (!gain) {
-      return false;
-    }
-    const beforeBand = suspicionBandForValue(state.suspicion);
-    state.suspicion = clamp(Math.round((Number(state.suspicion) || 0) + gain), 0, SUSPICION_MAX);
-    const afterBand = suspicionBandForValue(state.suspicion);
-    state.lastSuspicionGainAt = state.clock;
-    state.lastSuspicionDecayAt = state.clock;
-    const peakIndex = Math.max(suspicionBandIndex(state.suspicionPeakBand), suspicionBandIndex(afterBand.id));
-    state.suspicionPeakBand = SUSPICION_BANDS[peakIndex].id;
-    if (suspicionBandIndex(afterBand.id) > suspicionBandIndex(beforeBand.id)) {
-      addEvent(`Suspicion rose to ${afterBand.label}.`);
-    }
-    return true;
-  }
-
-  function updateSuspicionDecay() {
-    state.suspicion = clamp(Math.round(Number(state.suspicion) || 0), 0, SUSPICION_MAX);
-    const floor = passiveSuspicionFloor();
-    if (state.suspicion <= floor) {
-      return false;
-    }
-    const lastGain = finiteTime(state.lastSuspicionGainAt, state.clock);
-    const decayStart = lastGain + SUSPICION_DECAY_DELAY;
-    const decayFrom = Math.max(finiteTime(state.lastSuspicionDecayAt, decayStart), decayStart);
-    if (state.clock < decayFrom + SUSPICION_DECAY_INTERVAL) {
-      return false;
-    }
-    const points = Math.floor((state.clock - decayFrom) / SUSPICION_DECAY_INTERVAL);
-    if (points < 1) {
-      return false;
-    }
-    const beforeSuspicion = state.suspicion;
-    const beforeBand = suspicionBandForValue(state.suspicion);
-    state.suspicion = Math.max(floor, state.suspicion - points);
-    state.lastSuspicionDecayAt = decayFrom + points * SUSPICION_DECAY_INTERVAL;
-    const afterBand = suspicionBandForValue(state.suspicion);
-    if (suspicionBandIndex(afterBand.id) < suspicionBandIndex(beforeBand.id)) {
-      addEvent(`Suspicion dropped to ${afterBand.label}.`);
-    }
-    return state.suspicion !== beforeSuspicion;
-  }
-
-  function passiveSuspicionFloor() {
-    const peakIndex = suspicionBandIndex(state.suspicionPeakBand);
-    return SUSPICION_BANDS[Math.max(0, peakIndex - 1)].min;
   }
 
   function normalizeAirborneSubstanceId(value) {
@@ -17917,7 +17999,7 @@
     while (fixture.utility.exposureChecks < checks) {
       fixture.utility.exposureChecks += 1;
       const hazardous = Object.keys(loads).some((id) => /hazard|toxic|acid|poison|corpse|waste|sludge|contamin/.test(id));
-      recordInvestigativeEvidence(kind === "drain" ? "exteriorDrainageTrace" : "exteriorExhaustTrace", {
+      const evidence = recordInvestigativeEvidence(kind === "drain" ? "exteriorDrainageTrace" : "exteriorExhaustTrace", {
         category: "chemical", label: `${kind === "drain" ? "Exterior drainage" : "Exterior exhaust"} trace`, significance: hazardous ? "material" : "minor",
         subject: { kind: "externalTrace", id: `${fixture.id}:${kind}` }, origin: { kind: "utilityDischarge", id: fixture.id, label: Object.keys(loads).join(", ") },
         locus: { kind: "fixture", roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin, fixtureId: fixture.id, label: fixture.name },
@@ -17928,13 +18010,16 @@
         knowledge: { state: "known", source: "operated", sourceIdentityKnown: true }, lifecycle: "externalized",
         coalesceKey: `utility-discharge:${fixture.id}:${kind}`
       });
-      const roll = seedRng(`${state.seed}:utility-discharge:${fixture.id}:${fixture.utility.exposureChecks}`)();
       const chance = hazardous ? 0.35 : 0.08;
-      if (roll < chance) {
-        addSuspicion(hazardous ? 3 : 1);
-        addEvent(`${kind === "drain" ? "Exterior drainage" : "Exterior exhaust"} was observed; evidence increased Suspicion.`);
-        changes += 1;
-      }
+      const exposure = registerExternalDetectionOpportunity(evidence, {
+        opportunityKey: `utility-discharge:${fixture.id}:${kind}:${fixture.utility.exposureChecks}`,
+        sourceId: "environmental-monitor", channel: kind === "drain" ? "drainage" : "exhaust",
+        detectionChance: chance, reportChance: hazardous ? 0.9 : 0.65,
+        reportDelaySeconds: hazardous ? SECONDS_PER_HOUR * 2 : SECONDS_PER_HOUR * 8,
+        reliability: hazardous ? "strong" : "credible", specificity: "siteLinked", knowledge: "inferred",
+        summary: `${kind === "drain" ? "an exterior drainage" : "an exterior exhaust"} anomaly near the facility`
+      });
+      if (exposure?.observed) changes += 1;
     }
     return changes;
   }
@@ -37379,7 +37464,6 @@
           refs: { corpseIds: [corpse.id], slimeIds: [corpse.specimenId] }, traits: ["overflow", "leaking", corpseFreshness(corpse)],
           action: "leaked", details: "Overflow remains produced another persistent local trace."
         });
-        addSuspicion(OVERFLOW_SUSPICION);
         corpse.nextOverflowEventAt = state.clock + OVERFLOW_EVENT_INTERVAL;
         changes += 1;
       }
@@ -39330,7 +39414,7 @@
     const suspicionBand = suspicionBandForValue(state.suspicion);
     dom.suspicionReadout.textContent = `Suspicion: ${suspicionBand.label}`;
     dom.suspicionReadout.dataset.suspicionBand = suspicionBand.id;
-    dom.suspicionReadout.title = `Suspicion is ${suspicionBand.label.toLowerCase()}. Exact Suspicion is hidden.`;
+    dom.suspicionReadout.title = `External attention is ${suspicionBand.label.toLowerCase()}. Exact Suspicion and hidden reporting sources are not shown.`;
     renderVitalReadouts();
     refreshActionControls();
     renderQueueShell();
@@ -40783,11 +40867,6 @@
         knowledge: { state: scientistObservesRoom(container.roomId || slime.roomId) ? "known" : "unknown", source: "observation", sourceIdentityKnown: false },
         coalesceKey: `containment-trace:${container.id}:${slime.id}:${incident}`
       });
-    }
-
-    if (suspicion) {
-      addSuspicion(suspicion);
-      message += ` Suspicion +${suspicion}.`;
     }
 
     addEvent(message);
@@ -42569,7 +42648,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     removeCorpseRecord(corpse.id);
     addEvent(`${corpse.name} was dumped outside. Evidence risk increased.`);
-    addSuspicion(dumpSuspicionForCorpse(corpse));
+    registerExternalDetectionOpportunity(dumped, {
+      opportunityKey: `dump-search:${dumped.id}:day-${Math.floor(state.clock / SECONDS_PER_DAY)}`,
+      sourceId: "nearby-observer", channel: "exterior",
+      detectionChance: 0.18 + externalEvidenceSignificanceRank(dumped) * 0.07,
+      reportChance: 0.82, reportDelaySeconds: SECONDS_PER_HOUR * 6,
+      reliability: "credible", specificity: "siteLinked", knowledge: "inferred",
+      summary: "discarded biological material near the facility"
+    });
     persist();
     render();
   }
@@ -42585,10 +42671,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Harvest already pending for this corpse.";
     }
     return "";
-  }
-
-  function dumpSuspicionForCorpse(corpse) {
-    return DUMP_SUSPICION[corpseFreshness(corpse)] || DUMP_SUSPICION.decaying;
   }
 
   function assignCreatureRole(slimeId, roleId) {
@@ -42695,7 +42777,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const leftLocalResidue = applyWasteDisposalFeedingResidue(slime, suitability, elementalResidue);
     if (suitability.score < 20 && wasteDisposalStabilityRisk(slime) >= 7) {
-      addSuspicion(WASTE_DISPOSAL_CONTAMINATION_SUSPICION);
       recordRoleEvidence(slime, "disposal", "Hazardous", "contamination during waste digestion");
     }
     if (scientistObservesRoom(pit.roomId)) {
@@ -62579,12 +62660,56 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return `${record.persistence.kind}; fades over ${formatDuration(record.persistence.decaySeconds)}`;
   }
 
+  function renderExternalSignalsSection() {
+    const visible = ExternalDetection.visibleSignals(ensureExternalDetection());
+    const exposures = visible.exposures.filter((entry) => !entry.reportId);
+    const section = document.createElement("section");
+    section.className = "subpanel";
+    section.dataset.externalSignals = "true";
+    section.append(textEl("div", `External Signals (${exposures.length + visible.reports.length + visible.correlations.length})`));
+    section.firstElementChild.className = "subpanel-title";
+    section.append(textEl("p", "This is the scientist's limited view of outside attention. Hidden observers, rolls, reporting delays, and exact pressure remain undisclosed.", "journal-meta"));
+    if (!exposures.length && !visible.reports.length && !visible.correlations.length) {
+      section.append(emptyText("No external observation or report is currently known or reasonably inferred."));
+      return section;
+    }
+    for (const exposure of exposures.sort((a, b) => b.opportunityAt - a.opportunityAt)) {
+      const row = document.createElement("article");
+      row.className = "journal-row external-signal-row";
+      row.dataset.externalExposureId = exposure.id;
+      const heading = document.createElement("span");
+      heading.append(textEl("strong", exposure.knowledge === "known" ? "Known external observation" : "Possible external observation"), chip(titleCase(exposure.channel)));
+      row.append(heading, textEl("span", `${exposure.summary} · ${formatClock(exposure.opportunityAt)} · No report is known.`, "journal-meta"));
+      section.append(row);
+    }
+    for (const report of visible.reports.sort((a, b) => b.reportedAt - a.reportedAt)) {
+      const row = document.createElement("article");
+      row.className = "journal-row external-signal-row";
+      row.dataset.externalReportId = report.id;
+      const heading = document.createElement("span");
+      heading.append(textEl("strong", report.knowledge === "known" ? "Known external report" : "Possible external report"), chip(report.reliability), chip(report.specificity));
+      row.append(heading, textEl("span", `${report.summary} · ${externalInstitutionLabel(report.institutionId)} · ${formatClock(report.reportedAt)}`, "journal-meta"));
+      section.append(row);
+    }
+    for (const correlation of visible.correlations.sort((a, b) => b.createdAt - a.createdAt)) {
+      const row = document.createElement("article");
+      row.className = "journal-row external-signal-row";
+      row.dataset.externalCorrelationId = correlation.id;
+      row.append(textEl("strong", "Signals correlated"), textEl("span", `${correlation.summary} · ${externalInstitutionLabel(correlation.institutionId)} · ${formatClock(correlation.createdAt)}`, "journal-meta"));
+      section.append(row);
+    }
+    return section;
+  }
+
   function renderInvestigativeEvidence() {
     if (!dom.evidenceList || !dom.evidenceSummary) return;
     const records = knownInvestigativeEvidence({ includeExhausted: true }).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const active = records.filter((record) => !["exhausted", "lost"].includes(record.lifecycle));
-    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; records are observational and do not assign guilt`;
+    const visibleSignals = ExternalDetection.visibleSignals(ensureExternalDetection());
+    const signalCount = visibleSignals.exposures.filter((entry) => !entry.reportId).length + visibleSignals.reports.length + visibleSignals.correlations.length;
+    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; ${signalCount} known or inferred external signal${signalCount === 1 ? "" : "s"}; records do not assign guilt`;
     dom.evidenceList.replaceChildren();
+    dom.evidenceList.append(renderExternalSignalsSection());
     if (!records.length) {
       dom.evidenceList.append(emptyText("No site evidence is currently known to the player."));
       return;
@@ -66582,7 +66707,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     economy.exposures.unshift(exposure);
     economy.exposures = economy.exposures.slice(0, BLACK_MARKET_EXPOSURE_LIMIT);
-    recordInvestigativeEvidence("observedCovertHandoff", {
+    const handoffEvidence = recordInvestigativeEvidence("observedCovertHandoff", {
       category: "commercial", label: exposure.summary, significance: exposure.severity === "serious" ? "serious" : "material",
       subject: { kind: "commercialHandoff", id: exposure.id }, origin: { kind: "blackMarketContract", id: contract.id, label: exposure.summary },
       locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
@@ -66593,7 +66718,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
       lifecycle: "externalized", coalesceKey: `market-exposure:${contract.id}`
     });
-    addSuspicion(exposure.suspicion);
+    registerExternalDetectionOpportunity(handoffEvidence, {
+      opportunityKey: `observed-handoff:${contract.id}`, sourceId: "criminal-informant", channel: "covertHandoff",
+      detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
+      reliability: exposure.severity === "serious" ? "strong" : "credible", specificity: "siteLinked", knowledge: "known",
+      summary: `an observed off-books handoff at ${ensureCompany().legalName}`
+    });
     if (contact && exposure.severity === "serious") {
       contact.unavailableUntil = Math.max(Number(contact.unavailableUntil) || 0, state.clock + SECONDS_PER_DAY);
       adjustBlackMarketContactTrust(contact.id, -2);
@@ -66870,7 +67000,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         details: `The exact manufactured batch reserved by ${contract.id} was removed through the covert market rather than the Loading Bay.`
       });
     }
-    recordInvestigativeEvidence("covertCommercialDelivery", {
+    const deliveryEvidence = recordInvestigativeEvidence("covertCommercialDelivery", {
       category: "commercial", label: `Off-books delivery of ${contract.material}`, significance: contract.commodityKind === "specimen" ? "critical" : "serious",
       subject: { kind: "commercialHandoff", id: contract.id }, origin: { kind: "blackMarketContract", id: contract.id, label: `Delivery to ${contact.name}` },
       locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
@@ -66880,6 +67010,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       discoverability: { level: "subtle", methods: ["witness", "commerceCorrelation"] },
       persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
       lifecycle: "externalized", coalesceKey: `market-delivery:${contract.id}`
+    });
+    registerExternalDetectionOpportunity(deliveryEvidence, {
+      opportunityKey: `market-network:${contract.id}`, sourceId: "market-intermediary", channel: "criminalNetwork",
+      detectionChance: 0.12, reportChance: 0.48, reportDelaySeconds: SECONDS_PER_HOUR * 12,
+      reliability: "weak", specificity: "generic", knowledge: "hidden",
+      summary: "unusual off-books commerce associated with the area"
     });
     contract.deliveredAt = task.dueAt;
     contract.taskId = "";
@@ -66893,7 +67029,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     contract.status = "delivered";
     contract.paymentDueAt = paymentTerm.delaySeconds ? state.clock + paymentTerm.delaySeconds : state.clock;
     recordBlackMarketLedger("delivered", `Delivered ${blackMarketShipmentAmountLabel(contract)} to ${contact.name}.`, { contactId: contact.id, contractId: contract.id });
-    addEvent(`Contract delivered to ${contact.name}: +${repGain} reputation, +${trustGain} trust${observed ? `; handoff observed (+${contract.suspicionOnObserved} Suspicion)` : "; handoff unobserved"}.`);
+    addEvent(`Contract delivered to ${contact.name}: +${repGain} reputation, +${trustGain} trust${observed ? "; handoff observed" : "; no known observer"}.`);
     if (!paymentTerm.delaySeconds) settleBlackMarketContractPayment(contract);
     else addEvent(`${formatMoney(contract.payout)} credit payment is due ${formatClock(contract.paymentDueAt)}.`);
     return true;
@@ -66994,10 +67130,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const trustGain = adjustBlackMarketContactTrust(contact.id, deal.trustGain);
     const rng = seedRng(`${state.seed}:black-market-observation:${task.id}:${deal.id}:${state.clock}`);
     const observed = rng() < deal.exposureChance;
-    if (observed) {
-      addSuspicion(deal.suspicionOnObserved);
-    }
-    recordInvestigativeEvidence("covertSpotSale", {
+    const saleEvidence = recordInvestigativeEvidence("covertSpotSale", {
       category: "commercial", label: `Off-books sale of ${deal.material}`, significance: "material",
       subject: { kind: "commercialHandoff", id: deal.id }, origin: { kind: "blackMarketOffer", id: deal.id, label: `Spot sale to ${contact.name}` },
       locus: { kind: "exterior", roomId: CONCEALED_EXIT_ROOM_ID, cell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), label: "Concealed Exit handoff" },
@@ -67006,10 +67139,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 21 }, knowledge: { state: "known", source: "handled", sourceIdentityKnown: true },
       lifecycle: "externalized", coalesceKey: `market-spot-sale:${deal.id}`
     });
+    registerExternalDetectionOpportunity(saleEvidence, {
+      opportunityKey: `market-network:${deal.id}`, sourceId: "market-intermediary", channel: "criminalNetwork",
+      detectionChance: 0.1, reportChance: 0.45, reportDelaySeconds: SECONDS_PER_HOUR * 12,
+      reliability: "weak", specificity: "generic", knowledge: "hidden",
+      summary: "unusual off-books commerce associated with the area"
+    });
+    if (observed) {
+      registerExternalDetectionOpportunity(saleEvidence, {
+        opportunityKey: `observed-spot-handoff:${deal.id}`, sourceId: "criminal-informant", channel: "covertHandoff",
+        detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
+        reliability: "credible", specificity: "siteLinked", knowledge: "known",
+        summary: `an observed off-books handoff at ${ensureCompany().legalName}`
+      });
+    }
     deal.status = "completed";
     deal.completedAt = state.clock;
     deal.taskId = "";
-    addEvent(`Trade complete with ${contact.name}: ${formatMoney(deal.payout)}, +${formatNumber(repGain)} reputation, +${formatNumber(trustGain)} trust${observed ? `; observed by authorities (+${formatNumber(deal.suspicionOnObserved)} Suspicion)` : "; no authority observation"}.`);
+    addEvent(`Trade complete with ${contact.name}: ${formatMoney(deal.payout)}, +${formatNumber(repGain)} reputation, +${formatNumber(trustGain)} trust${observed ? "; handoff observed" : "; no known observer"}.`);
     recordBlackMarketLedger("spotSale", `Spot sale completed with ${contact.name}: ${formatMoney(deal.payout)}.`, { contactId: contact.id, offerId: deal.id, amount: deal.payout });
     replaceCompletedBlackMarketDeal(contact);
     return true;
@@ -70277,6 +70424,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
     next.investigativeEvidence = InvestigativeEvidence.normalizeState(candidate?.investigativeEvidence);
+    next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
+    if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
+      next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
+    }
     next.navigation = normalizeNavigationState(next.navigation);
     next.simulation = normalizeSimulationState(next.simulation, next.clock);
     next.discoveries ||= {};
@@ -70476,17 +70627,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.taskHistory = normalizeTaskHistory(next.taskHistory);
     next.slimes ||= [];
-    next.suspicion = clamp(Math.round(Number(next.suspicion) || 0), 0, SUSPICION_MAX);
+    const activeEvidenceIds = new Set(next.investigativeEvidence.records
+      .filter((record) => !["exhausted", "lost"].includes(record.lifecycle) && Number(record.integrity) > 0)
+      .map((record) => record.id));
+    next.suspicion = ExternalDetection.attentionScore(next.externalDetection, next.clock, { activeEvidenceIds, casePressure: 0 });
     const currentSuspicionBand = suspicionBandForValue(next.suspicion);
-    const peakIndex = Math.max(suspicionBandIndex(next.suspicionPeakBand), suspicionBandIndex(currentSuspicionBand.id));
+    const legacyPeakBand = ({ suspicious: "noticed", investigated: "scrutinized" })[next.suspicionPeakBand] || next.suspicionPeakBand;
+    const peakIndex = Math.max(suspicionBandIndex(legacyPeakBand), suspicionBandIndex(currentSuspicionBand.id));
     next.suspicionPeakBand = SUSPICION_BANDS[peakIndex].id;
-    if (next.suspicion > 0) {
-      next.lastSuspicionGainAt = Math.min(finiteTime(next.lastSuspicionGainAt, next.clock), next.clock);
-      next.lastSuspicionDecayAt = Math.min(finiteTime(next.lastSuspicionDecayAt, next.lastSuspicionGainAt), next.clock);
-    } else {
-      next.lastSuspicionGainAt = null;
-      next.lastSuspicionDecayAt = null;
-    }
+    next.lastSuspicionGainAt = null;
+    next.lastSuspicionDecayAt = null;
     next.nextCorpseNumber = Math.max(
       Number(next.nextCorpseNumber) || 1,
       next.corpses.reduce((max, corpse) => Math.max(max, numericSuffix(corpse.id)), 0) + 1
