@@ -14,39 +14,34 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Inspections, Visitors, and Physical Searches
-2. Explanations, Institutional Escalation, and Consequences
-3. Campaign Objectives, Milestones, and End States
-4. New-Run Onboarding and Contextual Tutorial
-5. Sound Design, Notifications, and Accessibility Audit
-6. Production Sprite Replacement and Art-Direction Pass
+1. Explanations, Institutional Escalation, and Consequences
+2. Campaign Objectives, Milestones, and End States
+3. New-Run Onboarding and Contextual Tutorial
+4. Sound Design, Notifications, and Accessibility Audit
+5. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Inspections, Visitors, and Physical Searches
-
-Introduce scheduled inspectors and relevant visitors as physical map actors who enter through lawful access points, request or receive access according to their authority, traverse reachable permitted areas, inspect physical conditions and records, notice discoverable evidence, and respond to obstruction or suspicious access boundaries. Avoid resolving a site inspection through one abstract random roll.
-
-## 2. Explanations, Institutional Escalation, and Consequences
+## 1. Explanations, Institutional Escalation, and Consequences
 
 Let the player answer inquiries with structured factual claims supported or contradicted by saved records, physical conditions, witnesses, and prior statements, with an optional player note that is not mechanically interpreted. Escalate proportionally through follow-up demands, surveillance, fines, restrictions, warrants, seizures, and raids while providing warnings and response windows; reserve final campaign success and failure rules for the campaign-objectives pass.
 
-## 3. Campaign Objectives, Milestones, and End States
+## 2. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 4. New-Run Onboarding and Contextual Tutorial
+## 3. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 5. Sound Design, Notifications, and Accessibility Audit
+## 4. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 6. Production Sprite Replacement and Art-Direction Pass
+## 5. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
