@@ -4224,6 +4224,10 @@
   if (!ExternalDetection) {
     throw new Error("HelixExternalDetection must load before app.js");
   }
+  const InvestigationCases = window.HelixInvestigationCases;
+  if (!InvestigationCases) {
+    throw new Error("HelixInvestigationCases must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4874,6 +4878,7 @@
       company: null,
       investigativeEvidence: InvestigativeEvidence.defaultState(),
       externalDetection: ExternalDetection.defaultState(),
+      investigations: InvestigationCases.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -5899,6 +5904,52 @@
     return target.externalDetection;
   }
 
+  function ensureInvestigations(target = state) {
+    if (target.investigations?.version === InvestigationCases.VERSION
+      && Array.isArray(target.investigations.intakes)
+      && Array.isArray(target.investigations.cases)) {
+      return target.investigations;
+    }
+    target.investigations = InvestigationCases.normalizeState(target.investigations);
+    return target.investigations;
+  }
+
+  function investigationReportSignals() {
+    const detection = ensureExternalDetection();
+    const evidenceById = new Map(ensureInvestigativeEvidence().records.map((record) => [record.id, record]));
+    const exposureById = new Map(detection.exposures.map((exposure) => [exposure.id, exposure]));
+    return detection.reports.map((report) => {
+      const evidence = evidenceById.get(report.evidenceId);
+      const exposure = exposureById.get(report.exposureId);
+      return {
+        ...report,
+        evidenceType: evidence?.type || "",
+        evidenceCategory: evidence?.category || "",
+        evidenceTraits: [...(evidence?.traits || [])],
+        channel: exposure?.channel || "external"
+      };
+    });
+  }
+
+  function investigationCasePressure() {
+    return InvestigationCases.casePressure(ensureInvestigations());
+  }
+
+  function updateInvestigationCases() {
+    const result = InvestigationCases.update(ensureInvestigations(), {
+      seed: state.seed,
+      clock: state.clock,
+      reports: investigationReportSignals(),
+      correlations: ensureExternalDetection().correlations
+    });
+    state.investigations = result.state;
+    for (const caseId of result.disclosedCaseIds) {
+      const authorityCase = state.investigations.cases.find((entry) => entry.id === caseId);
+      if (authorityCase) addEvent(`${externalInstitutionLabel(authorityCase.institutionId)} disclosed case ${authorityCase.docket}: ${authorityCase.publicConcern}.`);
+    }
+    return result.openedCaseIds.length + result.disclosedCaseIds.length + result.changedCaseIds.length;
+  }
+
   function externalEvidenceSignificanceRank(record) {
     return record ? InvestigativeEvidence.significanceRank(record.significance) : 0;
   }
@@ -5914,7 +5965,7 @@
     const beforeBand = suspicionBandForValue(before);
     const after = ExternalDetection.attentionScore(ensureExternalDetection(), state.clock, {
       activeEvidenceIds: activeExternallyRelevantEvidenceIds(),
-      casePressure: 0
+      casePressure: investigationCasePressure()
     });
     state.suspicion = after;
     const afterBand = suspicionBandForValue(after);
@@ -7824,6 +7875,17 @@
         band: suspicionBandForValue(state.suspicion),
         historicalPeakBand: state.suspicionPeakBand
       }),
+      investigationCasesSnapshot: () => clonePlainObject({
+        ...ensureInvestigations(),
+        visibleCases: InvestigationCases.visibleCases(ensureInvestigations()),
+        casePressure: investigationCasePressure()
+      }),
+      updateInvestigationCases: () => {
+        const changed = updateInvestigationCases();
+        refreshSuspicionFromExternalDetection();
+        persist(); render();
+        return changed;
+      },
       registerExternalDetectionOpportunity: (evidenceId, options = {}) => {
         const record = ensureInvestigativeEvidence().records.find((entry) => entry.id === evidenceId);
         const exposure = registerExternalDetectionOpportunity(record, options);
@@ -11970,7 +12032,9 @@
     const nextReport = ensureExternalDetection().exposures
       .filter((entry) => entry.observed && entry.willReport && !entry.reportId && entry.reportDueAt != null && entry.reportDueAt >= state.clock)
       .sort((a, b) => a.reportDueAt - b.reportDueAt)[0];
-    return nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
+    const reportEvent = nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
+    const caseEvent = InvestigationCases.nextEvent(ensureInvestigations(), state.clock);
+    return [reportEvent, caseEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -11979,6 +12043,7 @@
       physicalStateChanged: 0,
       suspicionChanged: 0,
       evidenceChanged: 0,
+      investigationChanged: 0,
       economyChanged: 0,
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
@@ -12124,6 +12189,8 @@
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
       changes.suspicionChanged += updateExternalDetection();
+      changes.investigationChanged += updateInvestigationCases();
+      changes.suspicionChanged += refreshSuspicionFromExternalDetection();
       changes.economyChanged += updateBlackMarketEconomy();
       changes.economyChanged += updateCommodityMarket();
       changes.economyChanged += updateCompanyState();
@@ -12196,6 +12263,7 @@
       + changes.aiChanged
       + changes.economyChanged
       + changes.evidenceChanged
+      + changes.investigationChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -62660,6 +62728,46 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return `${record.persistence.kind}; fades over ${formatDuration(record.persistence.decaySeconds)}`;
   }
 
+  function renderInvestigationCasesSection() {
+    const cases = InvestigationCases.visibleCases(ensureInvestigations()).sort((a, b) => b.openedAt - a.openedAt || a.docket.localeCompare(b.docket));
+    const section = document.createElement("section");
+    section.className = "subpanel";
+    section.dataset.investigationCases = "true";
+    section.append(textEl("div", `Authority Investigations (${cases.length} disclosed)`));
+    section.firstElementChild.className = "subpanel-title";
+    section.append(textEl("p", "Only officially disclosed cases, claims, contacts, and deadlines appear here. Undisclosed institutional work remains unknown.", "journal-meta"));
+    if (!cases.length) {
+      section.append(emptyText("No authority investigation has been disclosed to the scientist."));
+      return section;
+    }
+    for (const authorityCase of cases) {
+      const row = document.createElement("article");
+      row.className = "journal-row investigation-case-row";
+      row.dataset.investigationCaseDocket = authorityCase.docket;
+      const heading = document.createElement("span");
+      heading.append(textEl("strong", authorityCase.docket), chip(externalInstitutionLabel(authorityCase.institutionId)), chip(titleCase(authorityCase.status)));
+      const details = document.createElement("span");
+      details.className = "journal-entry-list";
+      details.append(
+        textEl("span", authorityCase.disclosure.statedConcern || authorityCase.publicConcern),
+        textEl("span", `Disclosed ${formatClock(authorityCase.disclosure.disclosedAt ?? authorityCase.openedAt)} · No response has been requested at this stage.`)
+      );
+      if (authorityCase.disclosure.strengthDisclosed) {
+        const band = InvestigationCases.STRENGTH_BANDS.find((entry) => entry.id === authorityCase.strength.bandId);
+        details.append(textEl("span", `Disclosed case assessment: ${band?.label || titleCase(authorityCase.strength.bandId)}`));
+      }
+      const evidenceClaims = authorityCase.authorityEvidence.filter((entry) => authorityCase.disclosure.knownEvidenceLinkIds.includes(entry.id));
+      for (const claim of evidenceClaims) details.append(textEl("span", `Disclosed claim: ${claim.summary}`));
+      const contacts = authorityCase.contactHistory.filter((entry) => authorityCase.disclosure.knownContactIds.includes(entry.id) && entry.visibility === "disclosed");
+      for (const contact of contacts) details.append(textEl("span", `Contact ${formatClock(contact.at)}: ${contact.summary}`));
+      const deadlines = authorityCase.deadlines.filter((entry) => authorityCase.disclosure.knownDeadlineIds.includes(entry.id) && entry.visibility === "disclosed");
+      for (const deadline of deadlines) details.append(textEl("span", `Disclosed deadline: ${formatClock(deadline.dueAt)} · ${titleCase(deadline.status)}`));
+      row.append(heading, details);
+      section.append(row);
+    }
+    return section;
+  }
+
   function renderExternalSignalsSection() {
     const visible = ExternalDetection.visibleSignals(ensureExternalDetection());
     const exposures = visible.exposures.filter((entry) => !entry.reportId);
@@ -62707,9 +62815,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const active = records.filter((record) => !["exhausted", "lost"].includes(record.lifecycle));
     const visibleSignals = ExternalDetection.visibleSignals(ensureExternalDetection());
     const signalCount = visibleSignals.exposures.filter((entry) => !entry.reportId).length + visibleSignals.reports.length + visibleSignals.correlations.length;
-    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; ${signalCount} known or inferred external signal${signalCount === 1 ? "" : "s"}; records do not assign guilt`;
+    const visibleCaseCount = InvestigationCases.visibleCases(ensureInvestigations()).length;
+    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; ${signalCount} known or inferred external signal${signalCount === 1 ? "" : "s"}; ${visibleCaseCount} disclosed investigation${visibleCaseCount === 1 ? "" : "s"}; records do not assign guilt`;
     dom.evidenceList.replaceChildren();
-    dom.evidenceList.append(renderExternalSignalsSection());
+    dom.evidenceList.append(renderInvestigationCasesSection(), renderExternalSignalsSection());
     if (!records.length) {
       dom.evidenceList.append(emptyText("No site evidence is currently known to the player."));
       return;
@@ -70425,6 +70534,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
     next.investigativeEvidence = InvestigativeEvidence.normalizeState(candidate?.investigativeEvidence);
     next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
+    next.investigations = InvestigationCases.normalizeState(candidate?.investigations);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
     }
@@ -70630,7 +70740,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeEvidenceIds = new Set(next.investigativeEvidence.records
       .filter((record) => !["exhausted", "lost"].includes(record.lifecycle) && Number(record.integrity) > 0)
       .map((record) => record.id));
-    next.suspicion = ExternalDetection.attentionScore(next.externalDetection, next.clock, { activeEvidenceIds, casePressure: 0 });
+    next.suspicion = ExternalDetection.attentionScore(next.externalDetection, next.clock, {
+      activeEvidenceIds,
+      casePressure: InvestigationCases.casePressure(next.investigations)
+    });
     const currentSuspicionBand = suspicionBandForValue(next.suspicion);
     const legacyPeakBand = ({ suspicious: "noticed", investigated: "scrutinized" })[next.suspicionPeakBand] || next.suspicionPeakBand;
     const peakIndex = Math.max(suspicionBandIndex(legacyPeakBand), suspicionBandIndex(currentSuspicionBand.id));
