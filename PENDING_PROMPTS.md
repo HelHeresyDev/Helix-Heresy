@@ -14,49 +14,44 @@ Prototype save compatibility is not a priority unless explicitly requested. It i
 
 ## Current Priority Order
 
-1. Investigation Cases, Leads, and Deadlines
-2. Evidence Handling and Concealment Work
-3. Inspections, Visitors, and Physical Searches
-4. Explanations, Institutional Escalation, and Consequences
-5. Campaign Objectives, Milestones, and End States
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound Design, Notifications, and Accessibility Audit
-8. Production Sprite Replacement and Art-Direction Pass
+1. Evidence Handling and Concealment Work
+2. Inspections, Visitors, and Physical Searches
+3. Explanations, Institutional Escalation, and Consequences
+4. Campaign Objectives, Milestones, and End States
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound Design, Notifications, and Accessibility Audit
+7. Production Sprite Replacement and Art-Direction Pass
 
 The intended long-term frontend is hybrid. Canvas should render the physical map, terrain, sprites, animation, lighting, effects, and map overlays. HTML/CSS should continue to render menus, inspectors, records, policies, dialogs, tooltips, and accessibility controls. Simulation state and rules must remain independent of both renderers. Keep the DOM Compatibility Map as a persistent fallback until a future separate removal decision.
 
 ---
 
 
-## 1. Investigation Cases, Leads, and Deadlines
-
-Create persistent authority investigations with linked known evidence, an institution, a current theory, qualitative case strength, unresolved leads, deadlines, contact history, and escalation state. Preserve knowledge boundaries so the player sees only officially disclosed claims and facts they could reasonably infer from their own site and records.
-
-## 2. Evidence Handling and Concealment Work
+## 1. Evidence Handling and Concealment Work
 
 Add physical cleaning, collection, relocation, secure storage, lawful disposal, record correction, destruction, and concealment work. Evidence handling must use ordinary access, tools, containers, time, skills, and waste paths; destroying evidence should usually transform or relocate it rather than erase it, while careless tampering can create stronger evidence or contradictions.
 
-## 3. Inspections, Visitors, and Physical Searches
+## 2. Inspections, Visitors, and Physical Searches
 
 Introduce scheduled inspectors and relevant visitors as physical map actors who enter through lawful access points, request or receive access according to their authority, traverse reachable permitted areas, inspect physical conditions and records, notice discoverable evidence, and respond to obstruction or suspicious access boundaries. Avoid resolving a site inspection through one abstract random roll.
 
-## 4. Explanations, Institutional Escalation, and Consequences
+## 3. Explanations, Institutional Escalation, and Consequences
 
 Let the player answer inquiries with structured factual claims supported or contradicted by saved records, physical conditions, witnesses, and prior statements, with an optional player note that is not mechanically interpreted. Escalate proportionally through follow-up demands, surveillance, fines, restrictions, warrants, seizures, and raids while providing warnings and response windows; reserve final campaign success and failure rules for the campaign-objectives pass.
 
-## 5. Campaign Objectives, Milestones, and End States
+## 4. Campaign Objectives, Milestones, and End States
 
 Define short-, medium-, and long-term objectives, meaningful setbacks, branching milestones, success states, failure states, and reasons to begin another seeded run.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Teach the core discovery, containment, map, task, and research loops through optional contextual guidance that responds to player actions without obscuring the interface.
 
-## 7. Sound Design, Notifications, and Accessibility Audit
+## 6. Sound Design, Notifications, and Accessibility Audit
 
 Establish restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard and screen-reader coverage, and a complete accessibility review.
 
-## 8. Production Sprite Replacement and Art-Direction Pass
+## 7. Production Sprite Replacement and Art-Direction Pass
 
 Replace development placeholders with a coherent first production-quality sprite set while preserving semantic keys, footprint anchors, transforms, glyph fallbacks, and the approved visual language.
 
