@@ -3466,6 +3466,27 @@
       initial: 0,
       description: "A portable opaque, shock-lined, filtered containment pod consumed when a living specimen is transferred through the Concealed Exit."
     },
+    {
+      key: "companyRecordsPacket",
+      label: "Company records packet",
+      category: "materials",
+      initial: 0,
+      description: "The physical local books and supporting documents for one reporting period. Filed registry copies remain outside site custody."
+    },
+    {
+      key: "shreddedRecords",
+      label: "Shredded records waste",
+      category: "materials",
+      initial: 0,
+      description: "Physical paper fragments from destroyed local records. Missing-record and tampering evidence persists independently."
+    },
+    {
+      key: "licensedDisposalManifest",
+      label: "Licensed disposal manifest",
+      category: "materials",
+      initial: 0,
+      description: "A permanent local copy of an external waste-custody transfer. The carrier and filed copy remain beyond site control."
+    },
     ...FIXTURE_CRAFTED_ITEM_DEFS,
     {
       key: "stainedLabCoat",
@@ -4220,6 +4241,10 @@
   if (!InvestigativeEvidence) {
     throw new Error("HelixInvestigativeEvidence must load before app.js");
   }
+  const EvidenceHandling = window.HelixEvidenceHandling;
+  if (!EvidenceHandling) {
+    throw new Error("HelixEvidenceHandling must load before app.js");
+  }
   const ExternalDetection = window.HelixExternalDetection;
   if (!ExternalDetection) {
     throw new Error("HelixExternalDetection must load before app.js");
@@ -4609,6 +4634,7 @@
     "placeBait",
     "collectionBayTransfer",
     "spillCleanup",
+    "evidenceHandling",
     "blackMarketTrade",
     "commodityFreight",
     "companyFiling",
@@ -4877,6 +4903,7 @@
       economy: defaultEconomyState(seed),
       company: null,
       investigativeEvidence: InvestigativeEvidence.defaultState(),
+      evidenceHandling: EvidenceHandling.defaultState(),
       externalDetection: ExternalDetection.defaultState(),
       investigations: InvestigationCases.defaultState(),
       feedingResidues: [],
@@ -5323,6 +5350,7 @@
       defaultFixtureInstance("starter-surface-reaction-vessel", "reactionVessel", { x: 47, y: 43, z: 1 }, 0, { materialPolicy: "steel", condition: 52, utility: { enabled: false, powerMode: "electric", wear: 70, maintenanceIntervalHours: 72 }, process: { calibrated: 31, cleanliness: 46 } }),
       defaultFixtureInstance("starter-surface-fume-hood", "fumeHood", { x: 45, y: 44, z: 1 }, 0, { materialPolicy: "steel", condition: 63, utility: { enabled: false, powerMode: "electric", wear: 58, maintenanceIntervalHours: 72 }, process: { calibrated: 48, cleanliness: 51 } }),
       defaultFixtureInstance("starter-surface-analysis", "analysisStation", { x: 53, y: 47, z: 1 }, 0, { materialPolicy: "steel", condition: 55, utility: { enabled: false, powerMode: "electric", wear: 65, maintenanceIntervalHours: 72 }, process: { calibrated: 28, cleanliness: 68 } }),
+      defaultFixtureInstance("starter-surface-records-cabinet", "lockingCabinet", { x: 51, y: 50, z: 1 }, 0, { name: "Company Records Cabinet", materialPolicy: "steel", accessState: "locked" }),
       defaultFixtureInstance("starter-surface-packaging", "packagingStation", { x: 56, y: 50, z: 1 }, 0, { materialPolicy: "steel", condition: 67, utility: { enabled: false, powerMode: "electric", wear: 44, maintenanceIntervalHours: 72 }, process: { calibrated: 54, cleanliness: 61 } }),
       defaultFixtureInstance("starter-surface-waste-treatment", "wasteTreatmentStation", { x: 56, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 49, utility: { enabled: false, wear: 76, maintenanceIntervalHours: 72 }, process: { calibrated: 36, cleanliness: 39 } })
     ];
@@ -5784,6 +5812,9 @@
   function physicalStackEvidenceProfile(stack) {
     if (!stack) return null;
     const tags = new Set([...(stack.tags || []), ...(stack.chemicalBatch?.tags || []), ...(stack.chemicalBatch?.hazards || [])]);
+    if (stack.evidenceDocument || tags.has("documentary")) {
+      return { category: "documentary", type: stack.key === "shreddedRecords" ? "recordFragments" : "documentaryMaterial", significance: tags.has("tampering") ? "serious" : "minor", traits: [...tags, stack.phase, stack.form].filter(Boolean) };
+    }
     const biological = stack.section === "specimenMaterials" || stack.sourceSlimeIds?.length || tags.has("biological") || tags.has("corpse");
     const chemical = stack.section === "chemicalBatches" || tags.has("chemical") || tags.has("chemistry") || tags.has("toxic") || tags.has("corrosive");
     const waste = stack.form === "spill" || stack.form === "waste" || tags.has("waste") || stack.chemicalBatch?.stage === "waste";
@@ -5851,6 +5882,396 @@
       record.provenance.push({ at: state.clock, action, actorId: "scientist", from: record.locus, to: successors[0]?.locus || {}, details: `Evidence-bearing input became ${successors.map((entry) => entry.label).join(", ") || "a production output"}.` });
     }
     return successors;
+  }
+
+  function ensureEvidenceHandling(target = state) {
+    if (target.evidenceHandling?.version !== EvidenceHandling.VERSION || !Array.isArray(target.evidenceHandling.orders)) {
+      target.evidenceHandling = EvidenceHandling.normalizeState(target.evidenceHandling);
+    }
+    return target.evidenceHandling;
+  }
+
+  function evidenceHandlingRecordsForSubject(subjectKind, subjectId) {
+    return ensureInvestigativeEvidence().records.filter((record) => record.subject.kind === subjectKind && record.subject.id === subjectId);
+  }
+
+  function evidenceHandlingOrderForSubject(subjectId) {
+    return [...ensureEvidenceHandling().orders].reverse().find((order) => order.subject.id === subjectId && ["queued", "active"].includes(order.status)) || null;
+  }
+
+  function evidenceHandlingPacketForPeriod(periodId) {
+    return ensureEvidenceHandling().packets.find((packet) => packet.periodId === periodId) || null;
+  }
+
+  function recordsCabinet() {
+    return fixtureById("starter-surface-records-cabinet")
+      || (state.fixtures || []).find((fixture) => fixture.typeId === "lockingCabinet" && labMapCellRoomId(fixture.origin) === SURFACE_STAFF_ROOM_ID)
+      || null;
+  }
+
+  function ensureCompanyRecordPackets() {
+    const company = ensureCompany();
+    const handling = ensureEvidenceHandling();
+    if (!state.started || !company.enabled || !roomById(SURFACE_STAFF_ROOM_ID)) return 0;
+    let created = 0;
+    for (const period of company.periods) {
+      let packet = evidenceHandlingPacketForPeriod(period.id);
+      if (packet) {
+        packet.status = packet.status === "destroyed" ? "destroyed" : period.status === "filed" ? "filed" : "local";
+        const record = evidenceHandlingRecordsForSubject("physicalStack", packet.stackId).find((entry) => entry.type === "companyRecordsPacket");
+        if (record) {
+          record.refs.companyRecordIds = [...new Set(period.recordIds)];
+          record.magnitude.amount = Math.max(1, period.recordIds.length);
+          record.traits = [...new Set([...record.traits, period.status === "filed" ? "filed period" : "open period"])];
+        }
+        continue;
+      }
+      const cabinet = recordsCabinet();
+      const packetId = `records-packet-${handling.nextPacketNumber++}`;
+      const stack = createPhysicalItemStack("inventory", "companyRecordsPacket", 1, {
+        roomId: SURFACE_STAFF_ROOM_ID,
+        cell: cabinet?.origin || labMapRoomAnchor(SURFACE_STAFF_ROOM_ID),
+        fixtureId: cabinet?.id || "",
+        stockpileId: ""
+      }, {
+        tags: ["documentary", "company-records", "paper"],
+        evidenceDocument: { kind: "companyPeriodPacket", periodId: period.id, packetId }, suppressEvidence: true
+      });
+      packet = EvidenceHandling.normalizePacket({
+        id: packetId, periodId: period.id, stackId: stack?.id || "",
+        status: period.status === "filed" ? "filed" : "local", createdAt: state.clock
+      });
+      handling.packets.push(packet);
+      if (stack) recordInvestigativeEvidence("companyRecordsPacket", {
+        category: "documentary", label: `Company records packet: period ${period.number}`, significance: "minor",
+        subject: { kind: "physicalStack", id: stack.id },
+        origin: { kind: "companyPeriod", id: period.id, label: `${company.legalName} reporting period ${period.number}` },
+        locus: { kind: "fixture", roomId: stack.roomId, cell: stack.cell, fixtureId: stack.fixtureId, label: cabinet?.name || "Staff Operations" },
+        refs: { stackIds: [stack.id], companyRecordIds: period.recordIds, fixtureIds: [stack.fixtureId] },
+        traits: ["local books", "supporting documents", period.status === "filed" ? "filed period" : "open period"],
+        magnitude: { band: "moderate", amount: Math.max(1, period.recordIds.length), unit: "pages" },
+        discoverability: { level: cabinet?.accessState === "locked" ? "subtle" : "ordinary", methods: ["recordReview", "physicalSearch"] },
+        persistence: { kind: "subject" }, knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true },
+        coalesceKey: `company-records-packet:${period.id}`
+      });
+      created += 1;
+    }
+    return created;
+  }
+
+  function evidenceHandlingCustody(record) {
+    const stack = record?.subject?.kind === "physicalStack"
+      ? ensurePhysicalItemStacks().find((entry) => entry.id === record.subject.id)
+      : null;
+    const fixture = stack?.fixtureId ? fixtureById(stack.fixtureId) : null;
+    const storage = storageFixtureDef(fixture);
+    const latest = [...ensureEvidenceHandling().orders].reverse().find((order) => order.subject.id === record?.subject?.id && order.status === "completed");
+    return EvidenceHandling.deriveCustody({
+      lifecycle: record?.lifecycle,
+      contained: Boolean(stack?.containerId || stack?.form === "receptacle" || record?.lifecycle === "contained"),
+      accessState: fixture?.accessState,
+      security: storage?.storage?.security,
+      concealed: ["conceal", "relabel"].includes(latest?.action) && record?.lifecycle !== "transformed"
+    });
+  }
+
+  function updatePhysicalEvidenceLocus(stack, action = "relocated", details = "") {
+    if (!stack) return 0;
+    const locus = InvestigativeEvidence.normalizeLocus({
+      kind: stack.containerId ? "container" : stack.fixtureId ? "fixture" : "mapCell",
+      roomId: stack.roomId, cell: stack.cell, fixtureId: stack.fixtureId, containerId: stack.containerId,
+      label: stack.fixtureId ? fixtureById(stack.fixtureId)?.name : roomName(stack.roomId)
+    });
+    let changed = 0;
+    for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+      const from = record.locus;
+      record.locus = locus;
+      record.updatedAt = state.clock;
+      record.refs.fixtureIds = [...new Set([...record.refs.fixtureIds, stack.fixtureId].filter(Boolean))];
+      record.provenance.push({ at: state.clock, action, actorId: "scientist", from, to: locus, details: details || `${stack.id} moved to ${locus.label || locus.kind}.` });
+      changed += 1;
+    }
+    return changed;
+  }
+
+  function evidenceHandlingTargetFixture(action, stack = null) {
+    if (["secure", "conceal"].includes(action)) {
+      return (state.fixtures || []).filter((fixture) => fixture.typeId === "lockingCabinet" && storageFixtureScientistAccessible(fixture))
+        .filter((fixture) => !stack || storageFixtureCapacityUnits(fixture, stack.section, stack.key) >= stack.quantity)
+        .sort((a, b) => Number(b.accessState === "locked") - Number(a.accessState === "locked") || a.id.localeCompare(b.id))[0] || null;
+    }
+    const typeId = ["destroy", "relabel"].includes(action) ? "packagingStation" : "wasteTreatmentStation";
+    return (state.fixtures || []).find((fixture) => fixture.typeId === typeId && fixture.condition > 0 && fixture.operationalState !== "broken") || null;
+  }
+
+  function evidenceHandlingBlockReason(stack, action) {
+    if (!stack || stack.quantity <= 0) return "The physical subject no longer exists.";
+    if (!evidenceHandlingRecordsForSubject("physicalStack", stack.id).some((record) => record.knowledge.state !== "unknown")) return "No known evidence record identifies this subject.";
+    if (stack.reservedTaskId || evidenceHandlingOrderForSubject(stack.id)) return "This subject is already reserved for work.";
+    if (["secure", "conceal", "relabel", "treat", "destroy"].includes(action) && !evidenceHandlingTargetFixture(action, stack)) return `${titleCase(action)} requires compatible physical equipment with available capacity.`;
+    if (action === "destroy" && stack.key !== "companyRecordsPacket") return "Material destruction must use compatible waste treatment instead.";
+    if (action === "relabel" && stack.section !== "chemicalBatches" && !normalizePhysicalContents(stack.contents).some((content) => (content.tags || []).includes("chemical"))) return "Misleading label work requires a packaged chemical subject.";
+    if (action === "dispose") {
+      const contained = stack.form === "receptacle" || stack.containerId || (stack.tags || []).includes("waste") || stack.key === "treatedChemicalEffluent";
+      if (!contained) return "Lawful removal requires a contained, classified waste package.";
+      const fee = evidenceDisposalFee(stack);
+      if (ensureEconomy().money < fee) return `Licensed removal requires ${formatMoney(fee)}.`;
+    }
+    if (!evidenceHandlingPath(stack, action).length) return "No reachable physical route connects this subject to the required destination.";
+    return "";
+  }
+
+  function evidenceDisposalFee(stack) {
+    return Math.max(12, Math.ceil((Number(stack?.quantity) || 1) * (Number(stack?.unitMassKg) || 1) * 2 + 10));
+  }
+
+  function evidenceHandlingPath(stack, action, fixture = evidenceHandlingTargetFixture(action, stack)) {
+    const source = stockpileHaulAccessCell(stack) || cleanMapCell(stack.cell);
+    const target = action === "dispose" ? labMapRoomAnchor(SURFACE_LOADING_ROOM_ID) : fixtureAccessCells(fixture)[0]?.cell;
+    if (!source || !target) return [];
+    const first = labMapPathBetweenCells(scientistMapCell(), source, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    const second = labMapPathBetweenCells(source, target, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist, carriedLoad: physicalStackCarriedLoad(stack, stack.quantity) });
+    return first.length && second.length ? [...first, ...second.slice(mapCellKey(first.at(-1)) === mapCellKey(second[0]) ? 1 : 0)] : [];
+  }
+
+  function startEvidenceHandling(stackId, action, options = {}) {
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
+    const reason = evidenceHandlingBlockReason(stack, action);
+    if (reason) { if (!options.quiet) addEvent(reason); return null; }
+    const fixture = evidenceHandlingTargetFixture(action, stack);
+    const path = evidenceHandlingPath(stack, action, fixture);
+    if (!path.length) { if (!options.quiet) addEvent("No physical route can carry the subject to the handling destination."); return null; }
+    const evidenceIds = evidenceHandlingRecordsForSubject("physicalStack", stack.id).map((record) => record.id);
+    const scraper = bestToolInstance("scraper", true);
+    const publicRoute = roomsFromMapPath(path).some((roomId) => [SURFACE_RECEPTION_ROOM_ID, SURFACE_LOADING_ROOM_ID].includes(roomId));
+    const staminaCost = adjustedStaminaCost(3, ["analysis"]);
+    if (!spendStamina(staminaCost)) return null;
+    const created = EvidenceHandling.createOrder(ensureEvidenceHandling(), {
+      action, subject: { kind: "physicalStack", id: stack.id }, evidenceIds,
+      method: action === "dispose" ? "licensed custody transfer" : action === "conceal" ? "opaque locked storage" : action === "relabel" ? "misleading package label" : action,
+      destination: action === "dispose" ? "Loading Bay" : fixture?.name || roomName(stack.roomId),
+      toolIds: [scraper?.id], workstationId: fixture?.id, route: path,
+      seed: state.seed, createdAt: state.clock,
+      riskContext: {
+        action, hazardTags: stack.tags, integrity: Math.min(...evidenceHandlingRecordsForSubject("physicalStack", stack.id).map((record) => record.integrity)),
+        publicRoute, toolsSuitable: action !== "destroy" || Boolean(scraper), toolCondition: scraper ? scraper.current / Math.max(1, scraper.max) * 100 : 100,
+        compatible: true, workstationCondition: fixture?.condition ?? 100
+      }
+    });
+    state.evidenceHandling = created.state;
+    if (!created.order || created.reason) return null;
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "evidenceHandling",
+      label: `${titleCase(action)} ${physicalStackLabel(stack)}`,
+      createdAt: state.clock, dueAt: queueTail + travelSeconds + adjustedActionDuration(minutesToSeconds(action === "dispose" ? 25 : 18), "analysis"),
+      data: {
+        orderId: created.order.id, stackId: stack.id, action, fixtureId: fixture?.id || "",
+        toRoomId: action === "dispose" ? SURFACE_LOADING_ROOM_ID : labMapCellRoomId(fixture.origin),
+        toCell: path.at(-1), mapPath: path, staminaCost, fee: action === "dispose" ? evidenceDisposalFee(stack) : 0
+      }
+    };
+    created.order.taskId = task.id;
+    stack.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`${titleCase(action)} work queued for ${physicalStackLabel(stack)}; ${created.order.risk.label} risk (${created.order.risk.reasons.join(", ")}).`);
+    return task;
+  }
+
+  function handlingSecondaryEvidence(order, stack, label = "Handling trace") {
+    return recordInvestigativeEvidence("handlingTampering", {
+      category: stack?.evidenceDocument ? "documentary" : "chemical", label, significance: order.outcome.id === "careless" ? "serious" : "material",
+      subject: { kind: "handlingOrder", id: order.id }, origin: { kind: "handling", id: order.id, label: `${titleCase(order.action)} work produced ${order.outcome.id} results.` },
+      locus: { kind: "mapCell", roomId: stack?.roomId, cell: stack?.cell, label: stack ? roomName(stack.roomId) : order.destination },
+      refs: { predecessorEvidenceIds: order.evidenceIds, stackIds: [stack?.id] },
+      traits: order.outcome.id === "careless" ? ["tampering", "tool marks", "transfer contamination", "package mismatch"] : ["partial handling", "remaining trace"],
+      magnitude: { band: order.outcome.id === "careless" ? "moderate" : "small", amount: 1, unit: "trace" },
+      discoverability: { level: "ordinary", methods: ["visual", "inspection", "recordReview"] }, persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 },
+      knowledge: { state: "known", source: "handling", sourceIdentityKnown: true }
+    });
+  }
+
+  function completeEvidenceHandling(task) {
+    const handling = ensureEvidenceHandling();
+    const order = handling.orders.find((entry) => entry.id === task.data?.orderId);
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+    if (!order || !stack) return false;
+    order.status = "active";
+    order.startedAt ??= task.createdAt;
+    const action = order.action;
+    const fixture = task.data?.fixtureId ? fixtureById(task.data.fixtureId) : null;
+    state.scientist.roomId = task.data?.toRoomId || stack.roomId;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || labMapRoomAnchor(state.scientist.roomId);
+    let successors = [];
+    if (["secure", "conceal"].includes(action)) {
+      stack.roomId = labMapCellRoomId(fixture.origin);
+      stack.cell = cleanMapCell(fixture.origin);
+      stack.fixtureId = fixture.id;
+      stack.stockpileId = stockpileForFixture(fixture)?.id || "";
+      stack.reservedTaskId = "";
+      fixture.accessState = "locked";
+      updatePhysicalEvidenceLocus(stack, action, `${physicalStackLabel(stack)} placed in ${fixture.name} and locked.`);
+      for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        record.lifecycle = "contained";
+        if (action === "conceal") record.discoverability.level = "concealed";
+      }
+    } else if (action === "relabel") {
+      stack.roomId = labMapCellRoomId(fixture.origin);
+      stack.cell = cleanMapCell(fixture.origin);
+      stack.fixtureId = "";
+      stack.stockpileId = "";
+      stack.reservedTaskId = "";
+      stack.tags = normalizeResidueTags([...stack.tags, "opaque-package", "misleading-label"]);
+      updatePhysicalEvidenceLocus(stack, "relabel", `${physicalStackLabel(stack)} received a misleading package label at ${fixture.name}.`);
+      for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        record.discoverability.level = "concealed";
+        record.traits = [...new Set([...record.traits, "misleading label", "package mismatch"] )];
+      }
+      recordCompanyVariance("packageLabelMismatch", `Package label mismatch for ${physicalStackLabel(stack)}`, {
+        severity: "serious", stackId: stack.id, sourceId: order.id,
+        details: "The visible package label conflicts with the physical batch lineage and company inventory."
+      });
+    } else if (action === "dispose") {
+      if (addMoney(-Number(task.data?.fee || 0), "licensed waste removal") > 0) return false;
+      for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        record.lifecycle = "externalized";
+        record.updatedAt = state.clock;
+        record.provenance.push({ at: state.clock, action: "externalized", actorId: "scientist", from: record.locus, to: InvestigativeEvidence.normalizeLocus({ kind: "accessPoint", roomId: SURFACE_LOADING_ROOM_ID, accessPointId: "loadingBay", label: "Licensed carrier custody" }), details: "Sealed material transferred to a licensed carrier; custody and manifest persist." });
+      }
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+      const manifestId = `disposal-manifest-${handling.nextManifestNumber++}`;
+      const manifestStack = createPhysicalItemStack("inventory", "licensedDisposalManifest", 1, {
+        roomId: SURFACE_STAFF_ROOM_ID, cell: recordsCabinet()?.origin || labMapRoomAnchor(SURFACE_STAFF_ROOM_ID), fixtureId: recordsCabinet()?.id || "", stockpileId: ""
+      }, { tags: ["documentary", "manifest", "permanent"], evidenceDocument: { kind: "disposalManifest", manifestId }, suppressEvidence: true });
+      const companyRecord = recordCompanyEvent("licensedDisposal", `${physicalStackLabel(stack)} transferred to a licensed waste carrier.`, {
+        category: "waste", lawful: true, amount: -Number(task.data?.fee || 0), quantity: stack.quantity, roomId: SURFACE_LOADING_ROOM_ID,
+        details: `${manifestId}; custody transferred at Loading Bay.`
+      });
+      handling.manifests.push(EvidenceHandling.normalizeManifest({
+        id: manifestId, orderId: order.id, subjectId: stack.id, stackId: manifestStack?.id, companyRecordId: companyRecord?.id,
+        fee: task.data?.fee, transferredAt: state.clock, classification: (stack.tags || []).join(", ") || "classified waste"
+      }));
+      const manifestEvidence = manifestStack && recordInvestigativeEvidence("licensedDisposalManifest", {
+        category: "documentary", label: `Licensed disposal manifest ${manifestId}`, significance: "material",
+        subject: { kind: "physicalStack", id: manifestStack.id }, origin: { kind: "custodyTransfer", id: order.id, label: "Licensed Loading Bay transfer" },
+        locus: { kind: "fixture", roomId: manifestStack.roomId, cell: manifestStack.cell, fixtureId: manifestStack.fixtureId, label: recordsCabinet()?.name || "Staff Operations" },
+        refs: { stackIds: [manifestStack.id], companyRecordIds: [companyRecord?.id], predecessorEvidenceIds: order.evidenceIds },
+        traits: ["custody manifest", "licensed carrier", "external copy"], magnitude: { band: "small", amount: 1, unit: "manifest" },
+        discoverability: { level: "ordinary", methods: ["recordReview", "carrierInquiry"] }, persistence: { kind: "permanent" },
+        knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true }
+      });
+      successors = manifestEvidence ? [manifestEvidence] : [];
+      if (manifestEvidence) for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        record.refs.successorEvidenceIds = [...new Set([...record.refs.successorEvidenceIds, manifestEvidence.id])];
+      }
+    } else if (action === "destroy") {
+      const packet = handling.packets.find((entry) => entry.stackId === stack.id);
+      const fragments = createPhysicalItemStack("inventory", "shreddedRecords", 1, {
+        roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin, fixtureId: "", stockpileId: ""
+      }, { tags: ["documentary", "paper", "tampering", "waste"], evidenceDocument: { kind: "destroyedRecords", periodId: packet?.periodId, packetId: packet?.id }, suppressEvidence: true });
+      successors = transformInvestigativeEvidence(stack, [fragments], "destroyed");
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+      if (packet) { packet.status = "destroyed"; packet.destroyedAt = state.clock; }
+      const missing = recordInvestigativeEvidence("missingCompanyRecords", {
+        category: "documentary", label: "Missing local company records", significance: "serious",
+        subject: { kind: "recordsPacket", id: packet?.id || stack.id }, origin: { kind: "destruction", id: order.id, label: "Local record packet destroyed" },
+        locus: { kind: "companyBooks", roomId: SURFACE_STAFF_ROOM_ID, label: `${ensureCompany().legalName} records` },
+        refs: { stackIds: [fragments?.id], predecessorEvidenceIds: order.evidenceIds, successorEvidenceIds: successors.map((record) => record.id) },
+        traits: ["missing records", "tampering", "filed copy unaffected"], magnitude: { band: "moderate", amount: 1, unit: "packet" },
+        discoverability: { level: "ordinary", methods: ["recordReview", "reconciliation"] }, persistence: { kind: "permanent" },
+        knowledge: { state: "known", source: "handling", sourceIdentityKnown: true }
+      });
+      if (missing) successors.push(missing);
+    } else if (action === "treat") {
+      const chemical = evidenceHandlingRecordsForSubject("physicalStack", stack.id).some((record) => record.category === "chemical")
+        || (stack.tags || []).includes("chemical") || stack.section === "chemicalBatches";
+      const output = createPhysicalItemStack("residue", chemical ? "hazardousSludge" : "contaminatedResidue", Math.max(1, Math.ceil(stack.quantity)), {
+        roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin, fixtureId: "", stockpileId: ""
+      }, { form: "spill", phase: "sludge", tags: ["waste", "treated", chemical ? "chemical" : "biological", ...stack.tags], sourceLabels: [physicalStackLabel(stack)] });
+      successors = transformInvestigativeEvidence(stack, [output], "treated");
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+    }
+    if (order.outcome.id !== "controlled") {
+      const secondary = handlingSecondaryEvidence(order, stack, order.outcome.id === "careless" ? "Careless handling trace" : "Residual evidence after partial handling");
+      if (secondary) successors.push(secondary);
+    }
+    order.successorEvidenceIds = [...new Set(successors.map((record) => record.id))];
+    order.status = "completed";
+    order.completedAt = state.clock;
+    syncPhysicalReadModels();
+    addEvent(`${titleCase(action)} work complete: ${order.outcome.id} outcome. Physical successors and permanent records remain traceable.`);
+    return true;
+  }
+
+  function startCompanyRecordAmendment(varianceId, options = {}) {
+    const variance = ensureCompany().variances.find((entry) => entry.id === varianceId && entry.status === "open");
+    if (!variance || evidenceHandlingOrderForSubject(variance.id)) return null;
+    ensureCompanyRecordPackets();
+    const path = labMapPathBetweenCells(scientistMapCell(), labMapRoomAnchor(SURFACE_STAFF_ROOM_ID), { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    if (!path.length) return null;
+    const evidenceIds = evidenceHandlingRecordsForSubject("companyVariance", variance.id).map((record) => record.id);
+    const staminaCost = adjustedStaminaCost(2, ["analysis"]);
+    if (!spendStamina(staminaCost)) return null;
+    const created = EvidenceHandling.createOrder(ensureEvidenceHandling(), {
+      action: "amend", subject: { kind: "companyVariance", id: variance.id }, evidenceIds,
+      method: "append-only truthful amendment", destination: "Staff Operations", route: path, seed: state.seed, createdAt: state.clock,
+      riskContext: { action: "amend", publicRoute: false, compatible: true }
+    });
+    state.evidenceHandling = created.state;
+    if (!created.order) return null;
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "evidenceHandling", label: `Append amendment: ${variance.label}`,
+      createdAt: state.clock, dueAt: queueTail + mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps() + adjustedActionDuration(minutesToSeconds(20), "analysis"),
+      data: { orderId: created.order.id, varianceId: variance.id, action: "amend", toRoomId: SURFACE_STAFF_ROOM_ID, toCell: path.at(-1), mapPath: path, staminaCost, supported: options.supported }
+    };
+    created.order.taskId = task.id;
+    state.tasks.push(task);
+    addEvent(`Truthful append-only amendment queued for ${variance.label}.`);
+    return task;
+  }
+
+  function completeCompanyRecordAmendment(task) {
+    const handling = ensureEvidenceHandling();
+    const order = handling.orders.find((entry) => entry.id === task.data?.orderId);
+    const variance = ensureCompany().variances.find((entry) => entry.id === task.data?.varianceId);
+    if (!order || !variance) return false;
+    const physicallySupported = task.data?.supported === true
+      || Boolean(variance.stackId && ensurePhysicalItemStacks().some((stack) => stack.id === variance.stackId))
+      || Boolean(variance.sourceId && ensureCompany().records.some((record) => record.id === variance.sourceId));
+    const amendment = recordCompanyEvent("recordAmendment", `Amendment appended for ${variance.label}.`, {
+      category: "records", lawful: true, roomId: SURFACE_STAFF_ROOM_ID,
+      details: physicallySupported ? `Supported correction of ${variance.id}; original record preserved.` : `Unsupported claim regarding ${variance.id}; original record preserved.`
+    });
+    order.companyRecordIds.push(amendment?.id);
+    if (physicallySupported) {
+      variance.status = "resolved";
+      variance.resolvedAt = state.clock;
+      for (const record of evidenceHandlingRecordsForSubject("companyVariance", variance.id)) {
+        record.provenance.push({ at: state.clock, action: "amended", actorId: "scientist", from: record.locus, to: record.locus, details: `Append-only amendment ${amendment?.id} resolved the variance with retained support.` });
+      }
+    } else {
+      const contradiction = recordInvestigativeEvidence("unsupportedRecordAmendment", {
+        category: "documentary", label: `Unsupported amendment: ${variance.label}`, significance: "serious",
+        subject: { kind: "companyRecord", id: amendment?.id }, origin: { kind: "amendment", id: amendment?.id, label: "Unsupported correction claim" },
+        locus: { kind: "companyBooks", roomId: SURFACE_STAFF_ROOM_ID, label: `${ensureCompany().legalName} records` },
+        refs: { companyRecordIds: [amendment?.id], varianceIds: [variance.id], predecessorEvidenceIds: order.evidenceIds },
+        traits: ["contradiction", "unsupported amendment", "original preserved"], magnitude: { band: "moderate", amount: 1, unit: "amendment" },
+        discoverability: { level: "ordinary", methods: ["recordReview", "reconciliation"] }, persistence: { kind: "permanent" },
+        knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true }
+      });
+      if (contradiction) order.successorEvidenceIds.push(contradiction.id);
+    }
+    const packet = evidenceHandlingPacketForPeriod(amendment?.periodId);
+    if (packet && amendment?.id) packet.amendmentRecordIds.push(amendment.id);
+    order.status = "completed";
+    order.startedAt ??= task.createdAt;
+    order.completedAt = state.clock;
+    state.scientist.roomId = SURFACE_STAFF_ROOM_ID;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || labMapRoomAnchor(SURFACE_STAFF_ROOM_ID);
+    addEvent(physicallySupported ? "Record amendment complete; the original and amendment both remain in the books." : "Unsupported amendment appended; the contradiction is now permanent evidence.");
+    return true;
   }
 
   function updateInvestigativeEvidence() {
@@ -6378,6 +6799,15 @@
     company.periods = company.periods.slice(-COMPANY_PERIOD_LIMIT);
     company.activePeriodId = nextPeriod.id;
     recordCompanyEvent("periodFiled", `Reporting period ${period.number} filed with ${period.snapshot.exceptionCount} exception${period.snapshot.exceptionCount === 1 ? "" : "s"}.`, { category: "records", roomId: SURFACE_STAFF_ROOM_ID, details: `Credibility at filing: ${assessment.band.label}.` });
+    recordInvestigativeEvidence("filedCompanyRegistryCopy", {
+      category: "documentary", label: `Filed registry copy: period ${period.number}`, significance: "minor",
+      subject: { kind: "companyPeriod", id: period.id }, origin: { kind: "filing", id: period.id, label: `${company.legalName} period ${period.number} filing` },
+      locus: { kind: "externalRegistry", label: "Commercial Registry copy outside site custody" }, refs: { companyRecordIds: period.recordIds },
+      traits: ["filed copy", "external registry", "immutable snapshot"], magnitude: { band: "moderate", amount: period.recordIds.length, unit: "records" },
+      discoverability: { level: "ordinary", methods: ["registryReview"] }, persistence: { kind: "permanent" },
+      knowledge: { state: "known", source: "recorded", sourceIdentityKnown: true }, coalesceKey: `filed-registry-copy:${period.id}`
+    });
+    ensureCompanyRecordPackets();
     awardXp("analysis", task.data?.baseXp || 10, "company records filing");
     addEvent(`Company books filed for period ${period.number}: ${period.recordIds.length} records and ${period.snapshot.exceptionCount} reconciliation exception${period.snapshot.exceptionCount === 1 ? "" : "s"}.`);
     return true;
@@ -7867,6 +8297,38 @@
         records: ensureInvestigativeEvidence().records.map((record) => ({ ...record, currentIntegrity: investigativeEvidenceIntegrity(record) })),
         knownRecordIds: knownInvestigativeEvidence({ includeExhausted: true }).map((record) => record.id)
       }),
+      evidenceHandlingSnapshot: () => clonePlainObject({
+        ...ensureEvidenceHandling(),
+        packets: ensureEvidenceHandling().packets.map((packet) => ({
+          ...packet,
+          stack: ensurePhysicalItemStacks().find((stack) => stack.id === packet.stackId) || null
+        })),
+        stacks: ensurePhysicalItemStacks().filter((stack) => stack.evidenceDocument || evidenceHandlingRecordsForSubject("physicalStack", stack.id).length),
+        cleanupTools: toolInstancesForItem("scraper"),
+        authorityReportCount: ensureExternalDetection().reports.length,
+        investigationCaseCount: ensureInvestigations().cases.length
+      }),
+      ensureCompanyRecordPackets: () => {
+        const created = ensureCompanyRecordPackets();
+        persist(); render(); return created;
+      },
+      queueEvidenceHandling: (stackId, action) => {
+        const task = startEvidenceHandling(stackId, action, { quiet: true });
+        persist(); render(); return task ? clonePlainObject(task) : null;
+      },
+      evidenceHandlingBlockReason: (stackId, action) => evidenceHandlingBlockReason(ensurePhysicalItemStacks().find((stack) => stack.id === stackId), action),
+      addCompanyVarianceForHandlingTest: (options = {}) => {
+        const source = recordCompanyEvent("debugSupport", "Physical support for a test variance.", { category: "records", roomId: SURFACE_STAFF_ROOM_ID });
+        const variance = recordCompanyVariance("testVariance", options.label || "Test records variance", {
+          severity: options.severity || "material", sourceId: options.supported === false ? "missing-support" : source?.id,
+          stackId: options.stackId || "", details: "Debug variance for evidence-handling coverage."
+        });
+        persist(); render(); return variance ? clonePlainObject(variance) : null;
+      },
+      queueCompanyRecordAmendment: (varianceId, options = {}) => {
+        const task = startCompanyRecordAmendment(varianceId, options);
+        persist(); render(); return task ? clonePlainObject(task) : null;
+      },
       externalDetectionSnapshot: () => clonePlainObject({
         ...ensureExternalDetection(),
         institutions: ExternalDetection.INSTITUTIONS,
@@ -7901,6 +8363,17 @@
         });
         persist(); render();
         return added ? clonePlainObject(ensurePhysicalItemStacks().filter((stack) => stack.section === "residue").at(-1)) : null;
+      },
+      addContainedEvidenceWasteForTest: (options = {}) => {
+        const roomId = options.roomId || SURFACE_HAZARD_ROOM_ID;
+        const tags = options.tags || ["waste", "chemical", "hazardous"];
+        const stack = createFilledReceptacle("linedScrapeJar", [{
+          kind: "waste", key: options.key || "contaminatedResidue", label: options.label || "Contained chemical residue",
+          amount: Math.max(1, Number(options.amount) || 1), phase: "sludge", tags
+        }], physicalFallbackLocation(roomId), {
+          tags, sourceLabels: ["Debug contained evidence"]
+        });
+        persist(); render(); return stack ? clonePlainObject(stack) : null;
       },
       queueInvestigativeTestCleanup: (stackId) => {
         const task = startSpillCleanup(stackId);
@@ -9136,6 +9609,7 @@
       next.economy = defaultEconomyState(next.seed);
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
+      ensureCompanyRecordPackets();
       clearMapFeedbackEvents();
       markAnimationDiscontinuity("new-run");
       geneMap = buildGeneMap(state.seed, state.complexity);
@@ -12460,6 +12934,12 @@
 
     if (task.type === "spillCleanup") {
       completeSpillCleanup(task);
+      return;
+    }
+
+    if (task.type === "evidenceHandling") {
+      if (task.data?.action === "amend") completeCompanyRecordAmendment(task);
+      else completeEvidenceHandling(task);
       return;
     }
 
@@ -21862,6 +22342,12 @@
       processingContributions: normalizeProcessingContributions(candidate.processingContributions),
       processingResidueProgress: Math.max(0, Number(candidate.processingResidueProgress) || 0),
       chemicalBatch: normalizeChemicalBatch(candidate.chemicalBatch, { productId: section === "chemicalBatches" ? key : "", id: candidate.id }),
+      evidenceDocument: candidate.evidenceDocument && typeof candidate.evidenceDocument === "object" ? {
+        kind: String(candidate.evidenceDocument.kind || ""),
+        periodId: String(candidate.evidenceDocument.periodId || ""),
+        packetId: String(candidate.evidenceDocument.packetId || ""),
+        manifestId: String(candidate.evidenceDocument.manifestId || "")
+      } : null,
       createdAt: finiteTime(candidate.createdAt, 0),
       updatedAt: finiteTime(candidate.updatedAt, candidate.createdAt || 0)
     };
@@ -22440,11 +22926,17 @@
       processingContributions: normalizeProcessingContributions(options.processingContributions),
       processingResidueProgress: Math.max(0, Number(options.processingResidueProgress) || 0),
       chemicalBatch: normalizeChemicalBatch(options.chemicalBatch, { productId: section === "chemicalBatches" ? key : "", id: options.chemicalBatch?.id }),
+      evidenceDocument: options.evidenceDocument && typeof options.evidenceDocument === "object" ? {
+        kind: String(options.evidenceDocument.kind || ""),
+        periodId: String(options.evidenceDocument.periodId || ""),
+        packetId: String(options.evidenceDocument.packetId || ""),
+        manifestId: String(options.evidenceDocument.manifestId || "")
+      } : null,
       createdAt: state.clock,
       updatedAt: state.clock
     };
     ensurePhysicalItemStacks().push(stack);
-    recordPhysicalStackEvidence(stack, options);
+    if (!options.suppressEvidence) recordPhysicalStackEvidence(stack, options);
     if (state?.started && stack.form === "spill" && !stack.containerId) {
       emitMapFeedback("feedbackHazard", stack.cell, {
         label: "New " + stack.key + " spill",
@@ -22679,6 +23171,7 @@
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
     if (stack.carriedBy) return true;
+    if (stack.evidenceDocument && stack.fixtureId === recordsCabinet()?.id) return true;
     if (normalizeResidueTags(stack.tags).includes("bait")) return true;
     if (stack.containerId || stack.form === "spill" || stack.form === "waste") return true;
     const designation = stack.stockpileId
@@ -22808,11 +23301,20 @@
       fixtureId: task.data.fixtureId || "",
       stockpileId: task.data.stockpileId || ""
     };
+    let movedStack = stack;
     if (amount < stack.quantity) {
       stack.quantity -= amount;
       stack.knownQuantity = stack.quantity;
       stack.reservedTaskId = "";
-      createPhysicalItemStack(stack.section, stack.key, amount, destinationLocation);
+      movedStack = createPhysicalItemStack(stack.section, stack.key, amount, destinationLocation, {
+        form: stack.form, phase: stack.phase, tags: stack.tags, contents: stack.contents,
+        sourceLabels: stack.sourceLabels, sourceSlimeIds: stack.sourceSlimeIds,
+        craftsmanship: stack.craftsmanship, chemicalBatch: stack.chemicalBatch, evidenceDocument: stack.evidenceDocument
+      });
+      const sources = evidenceHandlingRecordsForSubject("physicalStack", stack.id);
+      if (movedStack && sources.length) recordPhysicalStackEvidence(movedStack, {
+        predecessorEvidenceIds: sources.map((record) => record.id), originKind: "relocation", originLabel: `Split from ${stack.id} during hauling`
+      });
     } else {
       stack.roomId = destinationLocation.roomId;
       stack.cell = cleanMapCell(destinationLocation.cell);
@@ -22822,6 +23324,7 @@
       stack.observedAt = state.clock;
       stack.reservedTaskId = "";
     }
+    updatePhysicalEvidenceLocus(movedStack, "relocated", `${physicalStackLabel(movedStack)} hauled from ${roomName(task.data.fromRoomId)} to ${roomName(task.data.toRoomId)}.`);
     state.scientist.roomId = task.data.toRoomId;
     state.scientist.mapCell = cleanMapCell(task.data.toAccessCell) || labMapRoomAnchor(task.data.toRoomId);
     syncPhysicalReadModels();
@@ -53915,6 +54418,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? ""
         : "The company reporting period is no longer assigned to this filing task.";
     }
+    if (task.type === "evidenceHandling") {
+      const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
+      if (!order || !["queued", "active"].includes(order.status)) return "The evidence-handling order is no longer active.";
+      if (task.data?.action === "amend") {
+        return ensureCompany().variances.some((variance) => variance.id === task.data?.varianceId && variance.status === "open")
+          ? "" : "The selected records variance is no longer open.";
+      }
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (!stack || stack.quantity <= 0) return "The physical evidence subject no longer exists.";
+      if (stack.reservedTaskId && stack.reservedTaskId !== task.id) return "The subject is reserved for different work.";
+      if (task.data?.action === "dispose" && ensureEconomy().money < Number(task.data?.fee || 0)) return "Licensed disposal funds are no longer available.";
+      return "";
+    }
     if (task.type === "synthesize") {
       return synthesisTaskBlockReason(task);
     }
@@ -54175,6 +54691,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "spillCleanup") {
       const stack = physicalSpillStackById(task.data?.spillId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+      const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : null;
+      if (scraper?.reservedTaskId === task.id) scraper.reservedTaskId = "";
+      const wash = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.washStackId);
+      if (wash?.reservedTaskId === task.id) wash.reservedTaskId = "";
+      const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
+      if (order) {
+        order.status = "canceled";
+        order.interruption = "Cleanup canceled before collection completed.";
+        order.completedAt = state.clock;
+      }
+    }
+    if (task.type === "evidenceHandling") {
+      const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (order) {
+        order.status = "canceled";
+        order.interruption = "Canceled by player before physical completion.";
+        order.completedAt = state.clock;
+      }
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     if (task.type === "placeBait") {
@@ -57125,6 +57661,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           return task;
         }
       }));
+    }
+    const knownEvidence = evidenceHandlingRecordsForSubject("physicalStack", stack.id).some((record) => record.knowledge.state !== "unknown");
+    if (knownEvidence && stack.form !== "spill") {
+      for (const action of ["secure", "conceal", ...(stack.section === "chemicalBatches" ? ["relabel"] : []), "treat", "dispose", ...(stack.key === "companyRecordsPacket" ? ["destroy"] : [])]) {
+        const labels = { secure: "Secure in Locked Storage", conceal: "Conceal in Opaque Locked Storage", relabel: "Apply Misleading Package Label", treat: "Treat at Waste Station", dispose: "Order Licensed Disposal", destroy: "Shred Local Records" };
+        commands.push(commandDef({
+          id: `itemStack.evidence.${action}.${stack.id}`,
+          label: labels[action],
+          group: "Evidence Handling",
+          disabledReason: evidenceHandlingBlockReason(stack, action),
+          description: action === "dispose"
+            ? `Route this exact contained subject to the Loading Bay, pay ${formatMoney(evidenceDisposalFee(stack))}, and retain a permanent custody manifest.`
+            : action === "destroy"
+              ? "Route this local packet through the Packaging Station. Paper fragments and permanent missing-record evidence will remain; filed copies are unaffected."
+              : "Queue physical work using the exact subject, route, equipment, custody state, and a saved qualitative risk outcome.",
+          run: () => {
+            const task = startEvidenceHandling(stack.id, action);
+            persist(); render();
+            return task;
+          }
+        }));
+      }
     }
     if (stack.roomId !== scientistRoomId()) {
       commands.push(commandDef({
@@ -62681,6 +63239,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "spillCleanup") {
       return "Cleanup";
     }
+    if (task.type === "evidenceHandling") {
+      return task.data?.action === "amend" ? "Company Records" : "Evidence Handling";
+    }
     if (task.type === "blackMarketTrade") {
       return "Black Market";
     }
@@ -62811,6 +63372,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderInvestigativeEvidence() {
     if (!dom.evidenceList || !dom.evidenceSummary) return;
+    ensureCompanyRecordPackets();
     const records = knownInvestigativeEvidence({ includeExhausted: true }).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     const active = records.filter((record) => !["exhausted", "lost"].includes(record.lifecycle));
     const visibleSignals = ExternalDetection.visibleSignals(ensureExternalDetection());
@@ -62840,14 +63402,54 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const details = document.createElement("span");
         details.className = "journal-entry-list";
         const currentLocus = investigativeEvidenceSpatialView(record)?.label || record.locus.label || record.locus.kind || "Site";
+        const custody = evidenceHandlingCustody(record);
+        const pending = evidenceHandlingOrderForSubject(record.subject.id);
         details.append(
-          textEl("span", `${currentLocus} · ${Math.round(investigativeEvidenceIntegrity(record))}% integrity · ${evidencePersistenceLabel(record)}`),
+          textEl("span", `${currentLocus} · ${custody.label} custody · ${Math.round(investigativeEvidenceIntegrity(record))}% integrity · ${evidencePersistenceLabel(record)}`),
           textEl("span", `Observed ${formatClock(record.knowledge.learnedAt ?? record.createdAt)} · Age: ${formatDuration(state.clock - record.createdAt)} · Origin: ${source}`),
           textEl("span", `Magnitude: ${record.magnitude.band}${record.magnitude.amount ? ` (${formatNumber(record.magnitude.amount)} ${record.magnitude.unit || "units"})` : ""} · Discoverability: ${record.discoverability.level}`),
           textEl("span", `Traits: ${record.traits.join(", ") || "none recorded"}`),
-          textEl("span", `Provenance events: ${record.provenance.length} · Record ${record.id}`)
+          textEl("span", `Provenance events: ${record.provenance.length} · Predecessors: ${record.refs.predecessorEvidenceIds.length} · Successors: ${record.refs.successorEvidenceIds.length} · Record ${record.id}`)
         );
+        if (pending) details.append(textEl("span", `Pending ${pending.action}: ${pending.risk.label} risk · ${pending.risk.reasons.join(", ")} · outcome fixed when work was queued.`));
+        if (record.subject.kind === "physicalStack" && ensurePhysicalItemStacks().some((stack) => stack.id === record.subject.id)) {
+          const actions = document.createElement("span");
+          actions.className = "journal-actions";
+          const locate = document.createElement("button");
+          locate.type = "button";
+          locate.textContent = "Locate Map";
+          locate.addEventListener("click", () => focusMapTarget({ kind: "itemStack", id: record.subject.id }, { source: "evidence", resetInspectorTab: true }));
+          const plan = document.createElement("button");
+          plan.type = "button";
+          plan.textContent = "Plan Handling";
+          plan.disabled = Boolean(pending);
+          plan.addEventListener("click", () => focusMapTarget({ kind: "itemStack", id: record.subject.id }, { source: "evidence", resetInspectorTab: true, resetCommandMenu: true }));
+          actions.append(locate, plan);
+          details.append(actions);
+        }
         row.append(heading, details);
+        section.append(row);
+      }
+      dom.evidenceList.append(section);
+    }
+    const openVariances = ensureCompany().variances.filter((variance) => variance.status === "open");
+    if (openVariances.length) {
+      const section = document.createElement("section");
+      section.className = "subpanel";
+      section.dataset.evidenceAmendments = "true";
+      section.append(textEl("div", `Record Corrections (${openVariances.length} open)`));
+      section.firstElementChild.className = "subpanel-title";
+      section.append(textEl("p", "Corrections append a truthful amendment in Staff Operations. Original entries and filed registry copies are never rewritten.", "journal-meta"));
+      for (const variance of openVariances) {
+        const row = document.createElement("article");
+        row.className = "journal-row";
+        row.dataset.companyVarianceId = variance.id;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Append Supported Amendment";
+        button.disabled = Boolean(evidenceHandlingOrderForSubject(variance.id));
+        button.addEventListener("click", () => { startCompanyRecordAmendment(variance.id); persist(); render(); });
+        row.append(textEl("strong", variance.label), textEl("span", `${titleCase(variance.severity)} · ${variance.details || "Support must remain physically or operationally available."}`, "journal-meta"), button);
         section.append(row);
       }
       dom.evidenceList.append(section);
@@ -68391,6 +68993,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Math.max(1, Math.ceil((Number(stack?.quantity) || 0) / capacity));
   }
 
+  function spillCleanupRequiresWash(stack) {
+    const tags = new Set(normalizeResidueTags(stack?.tags));
+    return Boolean(stack && (tags.has("chemical") || tags.has("corrosive") || tags.has("toxic") || stack.key === "contaminatedResidue"));
+  }
+
+  function spillCleanupWashStack(taskId = "") {
+    return ensurePhysicalItemStacks().find((stack) => stack.section === "inventory" && stack.key === "neutralizingWash" && stack.quantity > 0
+      && (!stack.reservedTaskId || stack.reservedTaskId === taskId)) || null;
+  }
+
   function spillCleanupTask(spillId = "") {
     return scientistQueueTasks().find((task) => task.type === "spillCleanup" && (!spillId || task.data?.spillId === spillId)) || null;
   }
@@ -68405,6 +69017,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const available = physicalEmptyReceptacleStacks(replacementItemKey).reduce((total, entry) => total + entry.quantity, 0);
     if (!replacementItemKey || available < required) {
       return `Cleanup requires ${formatNumber(required)} empty ${inventoryItemLabel(replacementItemKey || "receptacle")}${required === 1 ? "" : "s"}; only ${formatNumber(available)} remain.`;
+    }
+    const requiresScraper = ["solid", "sludge", "gel"].includes(stack.phase) || ["inertResidue", "looseBiomatter", "contaminatedResidue"].includes(stack.key);
+    const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : bestToolInstance("scraper", true);
+    if (requiresScraper && (!scraper || scraper.current <= 0)) return "Sticky or solid cleanup requires a usable scraper.";
+    if (scraper?.reservedTaskId && scraper.reservedTaskId !== task.id) return "The cleanup scraper is reserved for other work.";
+    if (spillCleanupRequiresWash(stack)) {
+      const wash = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.washStackId && entry.quantity > 0 && (!entry.reservedTaskId || entry.reservedTaskId === task.id));
+      if (!wash) return "Chemical trace cleanup requires one reserved Neutralizing Wash.";
     }
     const path = labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
     return path.length ? "" : "The scientist cannot reach the spill.";
@@ -68421,10 +69041,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return null;
     }
     const path = labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    const scraper = ["solid", "sludge", "gel"].includes(stack.phase) || ["inertResidue", "looseBiomatter", "contaminatedResidue"].includes(stack.key)
+      ? bestToolInstance("scraper", true) : null;
+    if ((["solid", "sludge", "gel"].includes(stack.phase) || ["inertResidue", "looseBiomatter", "contaminatedResidue"].includes(stack.key)) && !scraper) return null;
+    const wash = spillCleanupRequiresWash(stack) ? spillCleanupWashStack() : null;
+    if (spillCleanupRequiresWash(stack) && !wash) {
+      if (!options.automatic) addEvent("Chemical trace cleanup requires one Neutralizing Wash.");
+      return null;
+    }
     if (!path.length || !spendStamina(SPILL_CLEANUP_STAMINA)) return null;
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
     const duration = SPILL_CLEANUP_BASE_SECONDS + stack.quantity * SPILL_CLEANUP_SECONDS_PER_UNIT + travelSeconds;
+    const evidenceIds = evidenceHandlingRecordsForSubject("physicalStack", stack.id).map((record) => record.id);
+    const created = EvidenceHandling.createOrder(ensureEvidenceHandling(), {
+      action: "clean", subject: { kind: "physicalStack", id: stack.id }, evidenceIds,
+      method: scraper ? "scrape and seal" : "collect and seal", destination: inventoryItemLabel(replacementItemKey),
+      toolIds: [scraper?.id], receptacleIds: physicalEmptyReceptacleStacks(replacementItemKey).slice(0, replacementCount).map((entry) => entry.id),
+      route: path, seed: state.seed, createdAt: state.clock,
+      riskContext: {
+        action: "clean", hazardTags: stack.tags, publicRoute: roomsFromMapPath(path).some((roomId) => [SURFACE_RECEPTION_ROOM_ID, SURFACE_LOADING_ROOM_ID].includes(roomId)),
+        toolsSuitable: !scraper || scraper.current > 0, toolCondition: scraper ? scraper.current / Math.max(1, scraper.max) * 100 : 100,
+        ppeRequired: spillIsHazardous(stack), ppePresent: equippedEquipmentEntries("scientist").some((entry) => ["thickGloves", "filterMask", "containmentApron"].includes(entry.itemKey)),
+        compatible: Boolean(receptacleDefByItemKey(replacementItemKey))
+      }
+    });
+    state.evidenceHandling = created.state;
+    if (!created.order) return null;
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "spillCleanup",
@@ -68438,11 +69081,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         mapPath: path,
         replacementItemKey,
         replacementCount,
+        orderId: created.order.id,
+        toolInstanceId: scraper?.id || "",
+        washStackId: wash?.id || "",
+        washCount: wash ? 1 : 0,
         automatic: Boolean(options.automatic),
         emergencyId: String(options.emergencyId || ""),
         staminaCost: SPILL_CLEANUP_STAMINA
       }
     };
+    created.order.taskId = task.id;
+    if (scraper) scraper.reservedTaskId = task.id;
+    if (wash) wash.reservedTaskId = task.id;
     stack.reservedTaskId = task.id;
     state.tasks.push(task);
     addEvent(`${options.automatic ? "Cleanup policy queued" : "Cleanup queued"}: ${feedingResidueLabel(stack.key)} in ${roomName(stack.roomId)}.`);
@@ -68504,7 +69154,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       syncPhysicalReadModels();
       return false;
     }
+    const wash = task.data?.washStackId ? ensurePhysicalItemStacks().find((entry) => entry.id === task.data.washStackId && entry.quantity > 0) : null;
+    if (task.data?.washCount && !wash) return false;
+    if (wash) {
+      wash.quantity -= Math.max(1, Number(task.data.washCount) || 1);
+      wash.knownQuantity = Math.min(wash.knownQuantity, wash.quantity);
+      wash.reservedTaskId = "";
+      if (wash.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== wash.id);
+    }
     transformInvestigativeEvidence(stack, filled, "contained");
+    const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
+    const successorIds = filled.flatMap((vessel) => evidenceHandlingRecordsForSubject("physicalStack", vessel.id).map((record) => record.id));
+    if (order) {
+      order.status = "completed";
+      order.startedAt ??= task.createdAt;
+      order.completedAt = state.clock;
+      order.successorEvidenceIds = [...new Set(successorIds)];
+      if (order.outcome.id !== "controlled") {
+        const secondary = handlingSecondaryEvidence(order, stack, order.outcome.id === "careless" ? "Cleanup transfer and tool-mark trace" : "Residual trace after partial cleanup");
+        if (secondary) order.successorEvidenceIds.push(secondary.id);
+      }
+    }
+    const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : null;
+    if (scraper) {
+      scraper.current = Math.max(0, scraper.current - Math.max(1, Math.ceil(amount / 5)));
+      scraper.contaminationLoad = Math.max(0, Number(scraper.contaminationLoad) || 0) + Math.max(1, amount);
+      scraper.reservedTaskId = "";
+    }
     state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
     state.scientist.roomId = stack.roomId;
     state.scientist.mapCell = cleanMapCell(stack.cell) || labMapRoomAnchor(stack.roomId);
@@ -70533,6 +71209,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.startingLiabilities = normalizeStartingLiabilities(candidate?.startingLiabilities, normalizedScenario);
     next.investigativeEvidence = InvestigativeEvidence.normalizeState(candidate?.investigativeEvidence);
+    next.evidenceHandling = EvidenceHandling.normalizeState(candidate?.evidenceHandling);
     next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
     next.investigations = InvestigationCases.normalizeState(candidate?.investigations);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
@@ -70842,6 +71519,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const previousState = state;
     try {
       state = next;
+      ensureCompanyRecordPackets();
       rebuildActorSpatialIndex();
       ensurePhysicalObjectPlacements();
       next.selection = normalizeSelection(next.selection)
