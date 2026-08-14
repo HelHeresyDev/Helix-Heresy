@@ -4253,6 +4253,10 @@
   if (!InvestigationCases) {
     throw new Error("HelixInvestigationCases must load before app.js");
   }
+  const SiteVisits = window.HelixSiteVisits;
+  if (!SiteVisits) {
+    throw new Error("HelixSiteVisits must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4340,7 +4344,7 @@
   let measuredMapViewportPixels = null;
   let mapViewportMeasureFrame = 0;
   let mapViewportResizeFrame = 0;
-  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "research", "specimens", "containers", "resources", "economy", "policies", "evidence", "journal", "log", "cheats"]);
+  const WORKSPACE_TAB_IDS = new Set(["map", "foundry", "tasks", "production", "research", "specimens", "containers", "resources", "economy", "policies", "visits", "evidence", "journal", "log", "cheats"]);
   const DEBUG_WORKSPACE_TAB_IDS = new Set(["cheats"]);
   const CREATURE_RECORD_TAB_DEFS = [
     { id: "living", label: "Living" },
@@ -4497,6 +4501,7 @@
       key: "R",
       label: "Records",
       items: [
+        { key: "V", label: "Visits", workspaceTab: "visits" },
         { key: "E", label: "Site Evidence", workspaceTab: "evidence" },
         { key: "J", label: "Journal", workspaceTab: "journal" },
         { key: "M", label: "Messages", workspaceTab: "log" }
@@ -4906,6 +4911,7 @@
       evidenceHandling: EvidenceHandling.defaultState(),
       externalDetection: ExternalDetection.defaultState(),
       investigations: InvestigationCases.defaultState(),
+      siteVisits: SiteVisits.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -6502,6 +6508,298 @@
     return changes;
   }
 
+  function ensureSiteVisits(target = state) {
+    target.siteVisits = SiteVisits.normalizeState(target.siteVisits);
+    return target.siteVisits;
+  }
+
+  function siteVisitById(visitId) {
+    return ensureSiteVisits().visits.find((visit) => visit.id === String(visitId || "")) || null;
+  }
+
+  function siteVisitAccessPoint(visit) {
+    return (state.siteAccessPoints || []).find((point) => point.id === visit?.accessPointId && point.lawful) || null;
+  }
+
+  function siteVisitCurrentAgenda(visit) {
+    return visit?.agenda?.[visit.agendaIndex] || null;
+  }
+
+  function siteVisitAgendaTargetCell(item) {
+    const fixture = item?.fixtureId ? fixtureById(item.fixtureId) : null;
+    return cleanMapCell(fixtureAccessCells(fixture)[0]?.cell || fixture?.origin || labMapRoomAnchor(item?.roomId));
+  }
+
+  function siteVisitEnsureRequest(visit, targetKind, targetId, label, mandate = true) {
+    const result = SiteVisits.ensureAccessRequest(ensureSiteVisits(), visit.id, {
+      targetKind, targetId, label, requestedAt: state.clock, mandate
+    });
+    state.siteVisits = result.state;
+    if (result.created) addEvent(`${visit.visitorLabel} requested access to ${label}.`);
+    return result.request;
+  }
+
+  function siteVisitReportFinding(visit, finding, evidence) {
+    if (!visit?.inspector || !finding || finding.reportId) return null;
+    const liveFinding = visit.findings.find((entry) => entry.id === finding.id) || finding;
+    const exposure = registerExternalDetectionOpportunity(evidence, {
+      opportunityKey: `site-visit:${visit.id}:finding:${liveFinding.id}`,
+      sourceId: visit.typeId === "registryAuditor" ? "filing-system" : "public-visitor",
+      institutionId: visit.institutionId, channel: "physicalInspection",
+      detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
+      reliability: "strong", specificity: "identityLinked", knowledge: "known",
+      summary: liveFinding.summary
+    });
+    const report = ensureExternalDetection().reports.find((entry) => entry.exposureId === exposure?.id);
+    liveFinding.reportId = report?.id || "";
+    if (report) addEvent(`${visit.visitorLabel} filed a high-reliability inspection report with ${externalInstitutionLabel(visit.institutionId)}.`);
+    return report;
+  }
+
+  function siteVisitReportObstruction(visit, request) {
+    if (!visit?.inspector || !request?.obstructionRecorded) return null;
+    const evidence = recordInvestigativeEvidence("inspectionObstruction", {
+      category: "documentary", label: `Denied inspection access: ${request.label}`, significance: "material",
+      subject: { kind: "siteVisit", id: visit.id }, origin: { kind: "siteVisit", id: visit.id, label: visit.visitorLabel },
+      locus: { kind: "accessBoundary", roomId: visit.actor.roomId, cell: visit.actor.mapCell, label: request.label },
+      traits: ["access denied", "administrative visit", "obstruction record"], magnitude: { band: "small", amount: 1, unit: "denial" },
+      discoverability: { level: "obvious", methods: ["institutionalRecord"] }, persistence: { kind: "permanent" },
+      knowledge: { state: "known", source: "visitor", sourceIdentityKnown: true }, coalesceKey: `site-visit-obstruction:${visit.id}:${request.id}`
+    });
+    if (!evidence) return null;
+    const exposure = registerExternalDetectionOpportunity(evidence, {
+      opportunityKey: `site-visit:${visit.id}:obstruction:${request.id}`,
+      sourceId: visit.typeId === "registryAuditor" ? "filing-system" : "public-visitor",
+      institutionId: visit.institutionId, channel: "inspectionObstruction",
+      detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
+      reliability: "strong", specificity: "identityLinked", knowledge: "known",
+      summary: `${visit.visitorLabel} recorded denied in-mandate access to ${request.label}`
+    });
+    addEvent(`${visit.visitorLabel} recorded noncooperation; the inaccessible contents remain unknown.`);
+    return exposure;
+  }
+
+  function decideSiteVisitAccess(visitId, requestId, decision) {
+    const result = SiteVisits.decideAccess(ensureSiteVisits(), visitId, requestId, decision, state.clock);
+    state.siteVisits = result.state;
+    if (!result.changed) return false;
+    const visit = result.visit;
+    const request = result.request;
+    if (decision === "denied") {
+      siteVisitReportObstruction(visit, request);
+      const item = siteVisitCurrentAgenda(visit);
+      if (item && (item.roomId === request.targetId || item.fixtureId === request.targetId)) {
+        item.status = "skipped";
+        item.completedAt = state.clock;
+        item.blockReason = "Access denied";
+        visit.agendaIndex += 1;
+      }
+    } else {
+      addEvent(`${request.label} access granted to ${visit.visitorLabel}. Physical locks still govern passage.`);
+      if (request.targetKind === "door") {
+        const mapDoor = labMapDoor(request.targetId);
+        const door = mapDoor ? doorFixtureState(mapDoor) : null;
+        if (door?.sealState === DOOR_SEAL_SEALED) queueDoorOperation(request.targetId, "seal", DOOR_SEAL_UNSEALED, { accessOverride: true, deferRender: true });
+        else if (door?.lockState === DOOR_LOCK_LOCKED) queueDoorOperation(request.targetId, "lock", DOOR_LOCK_UNLOCKED, { accessOverride: true, deferRender: true });
+      }
+    }
+    persist(); render();
+    return true;
+  }
+
+  function grantSiteVisitMandate(visitId) {
+    const result = SiteVisits.grantMandate(ensureSiteVisits(), visitId, state.clock);
+    state.siteVisits = result.state;
+    if (!result.changed) return false;
+    addEvent(`All disclosed in-mandate areas were granted to ${result.visit.visitorLabel}; physical locks remain in effect.`);
+    persist(); render();
+    return true;
+  }
+
+  function queueSiteVisitFixtureAccess(visitId, fixtureId) {
+    const visit = siteVisitById(visitId);
+    const fixture = fixtureById(fixtureId);
+    if (!visit || !fixture || !visit.grantedFixtureIds.includes(fixture.id)) return null;
+    const nextAccessState = fixture.accessState === "locked" ? "closed" : "open";
+    if (fixture.accessState === "open") return null;
+    const targetCell = fixtureAccessCells(fixture)[0]?.cell;
+    const path = targetCell ? labMapPathBetweenCells(scientistMapCell(), targetCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true }) : [];
+    if (!path.length) {
+      addEvent(`No physical route reaches ${fixture.name} for the requested visit.`);
+      persist(); render();
+      return null;
+    }
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "visitFixtureAccess",
+      label: `${nextAccessState === "closed" ? "Unlock" : "Open"} ${fixture.name} for ${visit.visitorLabel}`,
+      createdAt: state.clock,
+      dueAt: queueTail + mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps() + 5,
+      data: { visitId: visit.id, fixtureId: fixture.id, nextAccessState, toRoomId: labMapCellRoomId(fixture.origin), toCell: targetCell, mapPath: path, accessOverride: true }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} queued as physical scientist work.`);
+    persist(); render();
+    return task;
+  }
+
+  function completeSiteVisitFixtureAccess(task) {
+    const fixture = fixtureById(task.data?.fixtureId);
+    const visit = siteVisitById(task.data?.visitId);
+    if (!fixture || !visit || !visit.grantedFixtureIds.includes(fixture.id)) return false;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || scientistMapCell();
+    state.scientist.roomId = task.data?.toRoomId || scientistRoomId();
+    fixture.accessState = task.data.nextAccessState;
+    addEvent(`${fixture.name} is now ${fixture.accessState}; ${visit.visitorLabel} can only examine it while physically open.`);
+    return true;
+  }
+
+  function siteVisitEvidenceThreshold(record, method, fixtureAccess) {
+    const level = record.discoverability.level;
+    const methods = new Set(record.discoverability.methods || []);
+    const compatibleMethod = !methods.size || methods.has(method) || methods.has("inspection") || (method === "recordsReview" && methods.has("recordReview")) || (method === "sampling" && methods.has("physicalSearch"));
+    if (level === "concealed" && (!fixtureAccess || !compatibleMethod)) return null;
+    if (level === "subtle" && !compatibleMethod) return null;
+    return { obvious: 0, ordinary: 8, subtle: 30, concealed: 60 }[level] ?? 8;
+  }
+
+  function updateSiteVisitObservations(visit, item, elapsed) {
+    let changes = 0;
+    const actorCell = cleanMapCell(visit.actor.mapCell);
+    const fixture = item.fixtureId ? fixtureById(item.fixtureId) : null;
+    const fixtureAccess = !fixture || fixture.accessState === "open";
+    for (const evidence of ensureInvestigativeEvidence().records) {
+      if (["exhausted", "lost", "externalized"].includes(evidence.lifecycle) || investigativeEvidenceIntegrity(evidence) <= 0) continue;
+      if (evidence.locus.roomId !== item.roomId) continue;
+      if (evidence.locus.containerId && !containerAccessOpen(containerById(evidence.locus.containerId))) continue;
+      if (evidence.locus.fixtureId && evidence.locus.fixtureId !== item.fixtureId && !physicalStackExposed(ensurePhysicalItemStacks().find((stack) => stack.id === evidence.subject.id))) continue;
+      const evidenceCell = cleanMapCell(evidence.locus.cell) || actorCell;
+      if (actorCell && evidenceCell) {
+        const distance = mapCellDistance(actorCell, evidenceCell);
+        const lightLevel = perceptionLightLevelAtCell(evidenceCell);
+        const visualRange = MapKnowledge.visualRangeForLight(lightLevel);
+        if (distance > 6 || (distance > 1 && (distance > visualRange || !sensoryLineOfSight(actorCell, evidenceCell)))) continue;
+      }
+      const threshold = siteVisitEvidenceThreshold(evidence, item.method, fixtureAccess);
+      if (threshold == null) continue;
+      const result = SiteVisits.recordObservation(ensureSiteVisits(), visit.id, {
+        evidenceId: evidence.id, agendaId: item.id, method: item.method, threshold,
+        progress: threshold === 0 ? 1 : elapsed, clock: state.clock,
+        kind: evidence.category === "documentary" ? "recordsFinding" : "physicalEvidence",
+        label: evidence.label, summary: `${visit.visitorLabel} confirmed ${evidence.label.toLowerCase()} during ${item.label}.`,
+        reliability: visit.inspector ? "strong" : "credible", disclosed: true
+      });
+      state.siteVisits = result.state;
+      if (result.confirmed) {
+        siteVisitReportFinding(siteVisitById(visit.id), result.finding, evidence);
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function completeSiteVisit(visit) {
+    const completed = SiteVisits.markComplete(ensureSiteVisits(), visit.id, state.clock);
+    state.siteVisits = completed.state;
+    addEvent(`${visit.visitorLabel} departed. ${completed.visit.disclosedSummary}`);
+    return 1;
+  }
+
+  function updateSiteVisits(elapsed) {
+    ensureSiteVisits();
+    let changes = 0;
+    let active = state.siteVisits.visits.find((visit) => !["scheduled", "completed"].includes(visit.phase)) || null;
+    if (!active) {
+      const due = state.siteVisits.visits.filter((visit) => visit.phase === "scheduled" && visit.arrivalAt <= state.clock)
+        .sort((left, right) => left.arrivalAt - right.arrivalAt)[0];
+      if (!due) return 0;
+      const point = siteVisitAccessPoint(due);
+      if (!point) return 0;
+      due.phase = "arriving";
+      due.startedAt = state.clock;
+      due.actor.present = true;
+      due.actor.mapCell = cleanMapCell(point.cell);
+      due.actor.roomId = point.roomId;
+      due.routeHistory.push({ at: state.clock, cell: cleanMapCell(point.cell), roomId: point.roomId, agendaId: "arrival" });
+      addEvent(`${due.visitorLabel} arrived through ${point.label} for a disclosed visit: ${due.mandate}`);
+      active = due;
+      changes += 1;
+    }
+    if (!active?.actor.present) return changes;
+    const item = siteVisitCurrentAgenda(active);
+    if (!item) return changes + completeSiteVisit(active);
+    if (item.status === "skipped" || item.status === "completed") {
+      active.agendaIndex += 1;
+      return changes + 1;
+    }
+    if (item.requiresAccess && !active.grantedRoomIds.includes(item.roomId)) {
+      const request = siteVisitEnsureRequest(active, "room", item.roomId, item.label, true);
+      if (request?.decision === "denied") { item.status = "skipped"; item.completedAt = state.clock; active.agendaIndex += 1; }
+      return changes + 1;
+    }
+    if (item.requiresFixtureAccess && !active.grantedFixtureIds.includes(item.fixtureId)) {
+      siteVisitEnsureRequest(active, "fixture", item.fixtureId, item.label, true);
+      return changes + 1;
+    }
+    const targetCell = siteVisitAgendaTargetCell(item);
+    if (!targetCell) { item.status = "skipped"; item.blockReason = "Target no longer exists"; active.agendaIndex += 1; return changes + 1; }
+    if (!item.route.length || mapCellKey(item.route.at(-1)) !== mapCellKey(targetCell)) {
+      item.route = labMapPathBetweenCells(active.actor.mapCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, ignoreObjects: true });
+      item.routeIndex = 0;
+      if (!item.route.length) { item.blockReason = "No reachable physical route"; active.phase = "waiting"; return changes + 1; }
+    }
+    active.phase = "inspecting";
+    item.status = "active";
+    item.startedAt ??= state.clock;
+    active.actor.movementAccumulator += Math.max(0, elapsed);
+    while (active.actor.movementAccumulator >= 1 && item.routeIndex < item.route.length - 1) {
+      const currentCell = item.route[item.routeIndex];
+      const nextCell = item.route[item.routeIndex + 1];
+      const mapDoor = labMapDoorAtCell(currentCell) || labMapDoorAtCell(nextCell) || labMapDoorForCells(currentCell, nextCell);
+      const door = mapDoor ? doorFixtureState(mapDoor) : null;
+      if (door && !doorIsBreached(door)) {
+        if (door.sealState === DOOR_SEAL_SEALED || door.lockState === DOOR_LOCK_LOCKED) {
+          item.blockReason = doorFixtureSecurityBlockReason(mapDoor);
+          siteVisitEnsureRequest(active, "door", mapDoor.id, doorActionLabel(mapDoor), true);
+          return changes + 1;
+        }
+        if (door.state !== DOOR_STATE_OPEN) {
+          door.state = DOOR_STATE_OPEN;
+          bumpNavigationRevision("door");
+          addEvent(`${active.visitorLabel} physically opened ${doorActionLabel(mapDoor)}.`);
+        }
+      }
+      item.routeIndex += 1;
+      active.actor.mapCell = cleanMapCell(nextCell);
+      active.actor.roomId = labMapCellRoomId(nextCell) || active.actor.roomId;
+      active.actor.movementAccumulator -= 1;
+      active.routeHistory.push({ at: state.clock, cell: cleanMapCell(nextCell), roomId: active.actor.roomId, agendaId: item.id });
+      changes += 1;
+    }
+    if (item.routeIndex < item.route.length - 1) return changes;
+    item.blockReason = "";
+    const fixture = item.fixtureId ? fixtureById(item.fixtureId) : null;
+    if (fixture && fixture.accessState !== "open") {
+      item.blockReason = `${fixture.name} is ${fixture.accessState}; its contents remain unknown.`;
+      active.phase = "waiting";
+      return changes + 1;
+    }
+    item.dwellProgress += Math.max(0, elapsed);
+    const dwellComplete = item.dwellProgress >= item.dwellSeconds;
+    changes += updateSiteVisitObservations(active, item, elapsed);
+    if (dwellComplete) {
+      const persistedVisit = siteVisitById(active.id);
+      const persistedItem = persistedVisit?.agenda?.[persistedVisit.agendaIndex];
+      if (persistedItem) {
+        persistedItem.status = "completed";
+        persistedItem.completedAt = state.clock;
+        persistedVisit.agendaIndex += 1;
+      }
+      changes += 1;
+    }
+    return changes;
+  }
+
   function companyReportingPeriodState(period) {
     if (!period) return "missing";
     if (period.status === "filed") return "filed";
@@ -8074,6 +8372,8 @@
       "journalContent",
       "evidenceSummary",
       "evidenceList",
+      "visitsSummary",
+      "visitsList",
       "queueToggleBtn",
       "queueBadge",
       "queueNextReadout",
@@ -8342,6 +8642,31 @@
         visibleCases: InvestigationCases.visibleCases(ensureInvestigations()),
         casePressure: investigationCasePressure()
       }),
+      siteVisitsSnapshot: () => clonePlainObject({
+        ...ensureSiteVisits(), activeVisit: SiteVisits.activeVisit(ensureSiteVisits()),
+        nextVisit: SiteVisits.nextEvent(ensureSiteVisits(), state.clock), clock: state.clock
+      }),
+      scheduleSiteVisit: (typeId, options = {}) => {
+        const result = SiteVisits.scheduleVisit(ensureSiteVisits(), {
+          typeId, visitorLabel: options.visitorLabel,
+          noticeAt: Number.isFinite(Number(options.noticeAt)) ? Number(options.noticeAt) : state.clock,
+          arrivalAt: Number.isFinite(Number(options.arrivalAt)) ? Number(options.arrivalAt) : state.clock,
+          arrivalWindowEnd: Number.isFinite(Number(options.arrivalWindowEnd)) ? Number(options.arrivalWindowEnd) : state.clock + SECONDS_PER_HOUR
+        });
+        state.siteVisits = result.state;
+        persist(); render(); return clonePlainObject(result.visit);
+      },
+      updateSiteVisits: (seconds = 1) => {
+        const changed = updateSiteVisits(Math.max(0, Number(seconds) || 0));
+        persist(); render(); return changed;
+      },
+      decideSiteVisitAccess: (visitId, requestId, decision) => decideSiteVisitAccess(visitId, requestId, decision),
+      grantSiteVisitMandate: (visitId) => grantSiteVisitMandate(visitId),
+      queueSiteVisitFixtureAccess: (visitId, fixtureId) => {
+        const task = queueSiteVisitFixtureAccess(visitId, fixtureId);
+        return task ? clonePlainObject(task) : null;
+      },
+      setStorageFixtureAccessState: (fixtureId, accessState) => setStorageFixtureAccessState(fixtureId, accessState),
       updateInvestigationCases: () => {
         const changed = updateInvestigationCases();
         refreshSuspicionFromExternalDetection();
@@ -9609,6 +9934,10 @@
       next.economy = defaultEconomyState(next.seed);
       next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
       state = next;
+      state.siteVisits = SiteVisits.seedInitialSchedule(state.siteVisits, {
+        clock: state.clock,
+        enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
+      });
       ensureCompanyRecordPackets();
       clearMapFeedbackEvents();
       markAnimationDiscontinuity("new-run");
@@ -12508,7 +12837,9 @@
       .sort((a, b) => a.reportDueAt - b.reportDueAt)[0];
     const reportEvent = nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
     const caseEvent = InvestigationCases.nextEvent(ensureInvestigations(), state.clock);
-    return [reportEvent, caseEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    const visit = SiteVisits.nextEvent(ensureSiteVisits(), state.clock);
+    const visitEvent = visit ? { time: visit.arrivalAt, label: `${visit.visitorLabel} arrival window`, type: "visit" } : null;
+    return [reportEvent, caseEvent, visitEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -12518,6 +12849,7 @@
       suspicionChanged: 0,
       evidenceChanged: 0,
       investigationChanged: 0,
+      siteVisitChanged: 0,
       economyChanged: 0,
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
@@ -12659,6 +12991,7 @@
       return;
     }
     if (id === "administration") {
+      changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
@@ -12738,6 +13071,7 @@
       + changes.economyChanged
       + changes.evidenceChanged
       + changes.investigationChanged
+      + changes.siteVisitChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -12909,6 +13243,11 @@
 
     if (task.type === "doorOperation") {
       completeDoorOperation(task);
+      return;
+    }
+
+    if (task.type === "visitFixtureAccess") {
+      completeSiteVisitFixtureAccess(task);
       return;
     }
 
@@ -39951,6 +40290,7 @@
     renderTasks();
     renderProduction();
     renderResearch();
+    renderSiteVisits();
     renderInvestigativeEvidence();
     renderJournal();
     renderEvents();
@@ -43883,7 +44223,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "equipmentChange", "doorOperation", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) return null;
+    if (!["scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) return null;
     if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
@@ -54053,6 +54393,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       visual: { ...scientistSpriteVisual, glyph: "S", recipeKey: `scientist:self:${scientistActorState.pose}:${scientistActorState.facing}` },
       blocking: false
     });
+    for (const visit of ensureSiteVisits().visits.filter((entry) => entry.actor.present && entry.actor.mapCell)) {
+      const item = siteVisitCurrentAgenda(visit);
+      entities.push({
+        id: `visitor:${visit.actor.id}`,
+        kind: "visitor",
+        category: "actor",
+        subtype: visit.typeId,
+        target: { kind: "visitor", id: visit.actor.id },
+        anchorCell: cleanMapCell(visit.actor.mapCell),
+        footprintCells: [cleanMapCell(visit.actor.mapCell)],
+        orientation: "square",
+        facing: visit.actor.facing || "south",
+        pose: visit.phase === "waiting" ? "waiting" : "walking",
+        activity: { id: visit.phase, label: item ? `${titleCase(visit.phase)}: ${item.label}` : titleCase(visit.phase), source: "simulation" },
+        motion: null,
+        condition: { ratio: 1, band: "healthy", cues: [] },
+        statusCues: visit.phase === "waiting" ? [sceneStatusCue("access-request", "warning", "Awaiting access", "?")] : [],
+        knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "scheduled visit" },
+        visual: { key: "actor.scientist", glyph: "V", recipeKey: `visitor:${visit.typeId}:${visit.phase}` },
+        blocking: false
+      });
+    }
     for (const door of Object.values(map.doors || {})) {
       const stateDoor = doorFixtureState(door) || door;
       const knowledge = mapSceneKnowledgeForRoom(door.roomIds[0] || labMapCellRoomId(door.cell, map), {
@@ -54490,6 +54852,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "doorOperation") {
       return doorOperationTaskBlockReason(task);
     }
+    if (task.type === "visitFixtureAccess") {
+      const fixture = fixtureById(task.data?.fixtureId);
+      const visit = siteVisitById(task.data?.visitId);
+      if (!fixture) return "The requested storage fixture no longer exists.";
+      if (!visit?.actor.present) return "The visitor is no longer on site.";
+      if (!visit.grantedFixtureIds.includes(fixture.id)) return "The visit no longer has permission for this fixture.";
+    }
     if (task.type === "constructionWork") {
       const order = constructionOrderById(task.data?.constructionOrderId);
       const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
@@ -54851,6 +55220,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (kind === "scientist") {
       return { kind, id: "scientist" };
     }
+    if (kind === "visitor") {
+      const id = String(candidate.id || "");
+      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === id && entry.actor.present);
+      return visit ? { kind, id: visit.actor.id } : null;
+    }
     if (kind === "tile") {
       const map = ensureLabMap();
       const cell = cleanMapCell(candidate.tile || candidate.cell || candidate);
@@ -54937,7 +55311,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "stockpile") {
       return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
     }
-    if (["container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+    if (["visitor", "container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
     return null;
@@ -55034,6 +55408,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "scientist") {
       return "Scientist";
     }
+    if (selection.kind === "visitor") {
+      return ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.visitorLabel || "Visitor";
+    }
     if (selection.kind === "tile") {
       return `Tile ${selection.tile.x},${selection.tile.y}, Z ${selection.tile.z}`;
     }
@@ -55087,6 +55464,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectionKindLabel(selection) {
     const labels = {
       scientist: "Scientist",
+      visitor: "Site Visitor",
       tile: "Map Tile",
       room: "Room",
       door: "Door",
@@ -55111,6 +55489,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "scientist") {
       return scientistRoomId();
+    }
+    if (selection.kind === "visitor") {
+      return ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.actor.roomId || "";
     }
     if (selection.kind === "tile") {
       return selection.roomId || labMapCellRoomId(selection.tile);
@@ -55161,6 +55542,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (selection.kind === "scientist") {
       return scientistMapCell();
+    }
+    if (selection.kind === "visitor") {
+      return cleanMapCell(ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.actor.mapCell);
     }
     if (selection.kind === "tile") {
       return selection.tile;
@@ -58068,6 +58452,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionSummaryRows(selection) {
+    if (selection.kind === "visitor") {
+      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
+      if (!visit) return [];
+      return [
+        ["Visitor", visit.visitorLabel], ["Institution", externalInstitutionLabel(visit.institutionId)],
+        ["Mandate", visit.mandate], ["Phase", titleCase(visit.phase)],
+        ["Current activity", siteVisitCurrentAgenda(visit)?.label || "Departing"], ["Room", roomName(visit.actor.roomId)],
+        ["Access", `${visit.grantedRoomIds.length} rooms and ${visit.grantedFixtureIds.length} fixtures granted`]
+      ];
+    }
     const rows = [
       ["Type", selectionKindLabel(selection)],
       ["Location", selectionLocationLabel(selection)]
@@ -58584,6 +58978,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionHistoryRows(selection) {
+    if (selection.kind === "visitor") {
+      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
+      return visit ? [
+        ["Arrived", formatClock(visit.startedAt)], ["Route observations", String(visit.routeHistory.length)],
+        ["Confirmed findings", String(visit.findings.length)], ["Obstructions", String(visit.obstructionIds.length)]
+      ] : [];
+    }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
       const observation = normalizeRoomObservation(room?.observation || state.roomObservations?.[room?.id]);
@@ -63206,6 +63607,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "doorOperation") {
       return "Door Operation";
     }
+    if (task.type === "visitFixtureAccess") {
+      return "Visit Access";
+    }
     if (task.type === "synthesize") {
       return "Scientist";
     }
@@ -63368,6 +63772,95 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       section.append(row);
     }
     return section;
+  }
+
+  function renderSiteVisits() {
+    if (!dom.visitsList || !dom.visitsSummary) return;
+    const visits = [...ensureSiteVisits().visits].sort((left, right) => left.arrivalAt - right.arrivalAt);
+    const active = visits.filter((visit) => !["scheduled", "completed"].includes(visit.phase));
+    const upcoming = visits.filter((visit) => visit.phase === "scheduled" && visit.noticeAt <= state.clock);
+    const completed = visits.filter((visit) => visit.phase === "completed").reverse();
+    dom.visitsSummary.textContent = `${upcoming.length} upcoming · ${active.length} active · ${completed.length} completed`;
+    dom.visitsList.replaceChildren();
+    if (!visits.length) {
+      dom.visitsList.append(emptyText("No lawful visits are scheduled for this site."));
+      return;
+    }
+    const appendSection = (label, entries) => {
+      const section = document.createElement("section");
+      section.className = "subpanel";
+      section.dataset.visitSection = label.toLowerCase();
+      section.append(textEl("div", `${label} (${entries.length})`, "subpanel-title"));
+      if (!entries.length) section.append(emptyText(`No ${label.toLowerCase()} visits.`));
+      for (const visit of entries) {
+        const row = document.createElement("article");
+        row.className = "journal-row visit-row";
+        row.dataset.visitId = visit.id;
+        const heading = document.createElement("div");
+        heading.className = "policy-heading";
+        heading.append(textEl("strong", visit.visitorLabel), chip(SiteVisits.visitType(visit.typeId).label));
+        row.append(heading);
+        row.append(textEl("span", visit.mandate, "journal-meta"));
+        row.append(textEl("span", visit.phase === "scheduled"
+          ? `Arrival window ${formatClock(visit.arrivalWindow.start)}–${formatClock(visit.arrivalWindow.end)} via ${siteVisitAccessPoint(visit)?.label || visit.accessPointId}`
+          : visit.phase === "completed"
+            ? `Departed ${formatClock(visit.completedAt)} · ${visit.disclosedSummary}`
+            : `${titleCase(visit.phase)} · ${siteVisitCurrentAgenda(visit)?.label || "Departure"} · ${roomName(visit.actor.roomId)}`,
+        "journal-meta"));
+        if (visit.actor.present) {
+          const locate = document.createElement("button");
+          locate.type = "button";
+          locate.textContent = "Locate Visitor";
+          locate.addEventListener("click", () => focusMapTarget({ kind: "visitor", id: visit.actor.id }, { source: "visits", resetInspectorTab: true }));
+          row.append(locate);
+        }
+        if (visit.inspector && !["scheduled", "completed"].includes(visit.phase)) {
+          const grantAll = document.createElement("button");
+          grantAll.type = "button";
+          grantAll.textContent = "Grant All Mandate Access";
+          grantAll.disabled = visit.agenda.filter((item) => item.requiresAccess).every((item) => visit.grantedRoomIds.includes(item.roomId) && (!item.requiresFixtureAccess || visit.grantedFixtureIds.includes(item.fixtureId)));
+          grantAll.addEventListener("click", () => grantSiteVisitMandate(visit.id));
+          row.append(grantAll);
+        }
+        const pending = visit.requests.filter((request) => request.decision === "pending");
+        for (const request of pending) {
+          const requestRow = document.createElement("div");
+          requestRow.className = "policy-actions";
+          requestRow.dataset.visitRequestId = request.id;
+          requestRow.append(textEl("span", `${request.label} requested${request.mandate ? " under the disclosed mandate" : " voluntarily"}.`, "journal-meta"));
+          for (const decision of ["granted", "denied"]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = decision === "granted" ? "Grant" : "Deny";
+            button.addEventListener("click", () => decideSiteVisitAccess(visit.id, request.id, decision));
+            requestRow.append(button);
+          }
+          row.append(requestRow);
+        }
+        const item = siteVisitCurrentAgenda(visit);
+        const fixture = item?.fixtureId ? fixtureById(item.fixtureId) : null;
+        if (fixture && visit.grantedFixtureIds.includes(fixture.id) && fixture.accessState !== "open") {
+          const access = document.createElement("button");
+          access.type = "button";
+          const pendingFixtureTask = state.tasks.find((task) => task.type === "visitFixtureAccess" && task.data?.visitId === visit.id && task.data?.fixtureId === fixture.id);
+          access.textContent = pendingFixtureTask ? "Access Work Queued" : fixture.accessState === "locked" ? `Queue Unlock ${fixture.name}` : `Queue Open ${fixture.name}`;
+          access.disabled = Boolean(pendingFixtureTask);
+          access.addEventListener("click", () => queueSiteVisitFixtureAccess(visit.id, fixture.id));
+          row.append(access);
+          row.append(textEl("span", "Access permission does not bypass this physical lock or closure.", "journal-meta"));
+        }
+        if (visit.obstructionIds.length) row.append(textEl("span", `${visit.obstructionIds.length} in-mandate obstruction record${visit.obstructionIds.length === 1 ? "" : "s"}; inaccessible contents were not inferred.`, "journal-meta"));
+        for (const finding of visit.findings.filter((entry) => entry.disclosed)) {
+          row.append(textEl("span", `Finding: ${finding.summary}${finding.reportId ? ` · report ${finding.reportId}` : ""}`, "journal-meta"));
+        }
+        row.append(textEl("span", `${visit.routeHistory.length} saved route observation${visit.routeHistory.length === 1 ? "" : "s"} · ${visit.observations.length} local examination record${visit.observations.length === 1 ? "" : "s"}`, "journal-meta"));
+        section.append(row);
+      }
+      dom.visitsList.append(section);
+    };
+    appendSection("Active", active);
+    appendSection("Upcoming", upcoming);
+    appendSection("Completed", completed);
   }
 
   function renderInvestigativeEvidence() {
@@ -71212,6 +71705,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.evidenceHandling = EvidenceHandling.normalizeState(candidate?.evidenceHandling);
     next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
     next.investigations = InvestigationCases.normalizeState(candidate?.investigations);
+    next.siteVisits = SiteVisits.normalizeState(candidate?.siteVisits);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
     }
@@ -71264,6 +71758,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.fixtures = normalizeFixtures(next.fixtures);
     next.siteAccessPoints = normalizeSiteAccessPoints(candidate?.siteAccessPoints, next);
+    next.siteVisits = SiteVisits.seedInitialSchedule(next.siteVisits, {
+      clock: next.clock,
+      enabled: next.company.enabled && Boolean(next.siteAccessPoints.some((point) => point.lawful))
+    });
     next.stockpileDesignations = normalizeStockpileDesignations(next.stockpileDesignations);
     next.productionBills = normalizeProductionBills(next.productionBills);
     next.productionWorkpieces = normalizeProductionWorkpieces(next.productionWorkpieces);

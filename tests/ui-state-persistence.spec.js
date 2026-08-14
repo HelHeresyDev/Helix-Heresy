@@ -122,6 +122,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
     'Resources',
     'Black Market',
     'Policies',
+    'Visits',
     'Site Evidence',
     'Journal',
     'Messages',
