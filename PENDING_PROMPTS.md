@@ -18,27 +18,30 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Detention, Communication, and Laboratory Continuity
-2. Pretrial Proceedings and Legal Defense
-3. Jailbreaks and Outside Rescue
-4. Trial, Sentencing, and Prison
-5. Reusable Worlds, Random Names, and Run Separation
-6. World Themes and Content Boundaries
-7. World Generation Foundation and Strategic Map
-8. Global Geography, Biomes, Terrain, and Resources
-9. Settlements, Cities, Routes, and Candidate Sites
-10. Civilizations, Factions, Institutions, Religions, and Law
-11. Historical World Simulation and Playable Year
-12. New-Run World Selection, Site Choice, and Scenario Materialization
-13. Local Context Mechanics: Environment, Geology, and Travel
-14. World Integration: Economy and Logistics
-15. World Integration: Investigations and Institutional Pressure
-16. Lazy Local Detail and World Discovery
-17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-18. Campaign Roadmap: From Hidden Laboratory to World Domination
-19. New-Run Onboarding and Contextual Tutorial
-20. Sound, Notifications, and Accessibility Audit
-21. Production Art Pass Using the Sprite Pipeline
+1. Pretrial Proceedings and Legal Defense
+2. Jail Escape and Outside Rescue
+3. Trial and Sentencing
+4. Prison Foundation and Long-Term Incarceration
+5. Prison Breaks, Rescue, and Release
+6. Death Row, Appeals, and Execution
+7. Reusable Worlds, Random Names, and Run Separation
+8. World Themes and Content Boundaries
+9. World Generation Foundation and Strategic Map
+10. Global Geography, Biomes, Terrain, and Resources
+11. Settlements, Cities, Routes, and Candidate Sites
+12. Civilizations, Factions, Institutions, Religions, and Law
+13. Historical World Simulation and Playable Year
+14. New-Run World Selection, Site Choice, and Scenario Materialization
+15. Local Context Mechanics: Environment, Geology, and Travel
+16. Penal Legions and Wilderness Service
+17. World Integration: Economy and Logistics
+18. World Integration: Investigations and Institutional Pressure
+19. Lazy Local Detail and World Discovery
+20. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+21. Campaign Roadmap: From Hidden Laboratory to World Domination
+22. New-Run Onboarding and Contextual Tutorial
+23. Sound, Notifications, and Accessibility Audit
+24. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -52,6 +55,10 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Starting another run in the same world creates an independent branch from the world's canonical generated state. It does not continue the prior run's timeline.
 - Keep separate world and run seeds. The world seed controls reusable geography, names, civilizations, and pre-run history; the run seed controls scenario materialization and run-specific outcomes.
 - Generate the whole world at strategic resolution before play: its boundaries, major geography, regions, major settlements, powers, broad routes, and historical state must be stable. Generate exact local tiles, minor places, individuals, and encounter detail only when needed.
+- Treat advanced science and magic as one unevenly distributed technological landscape. Internet-like networks, aircraft, flying mounts, mechs, holographic systems, wards, and other magitech require physical infrastructure, energy, maintenance, access, and defended connections.
+- Most land should be ecologically dominated or seriously contested by mutually hostile magical beasts. Represent territories, migration, threat, and broad populations strategically until a specific encounter needs individual creatures.
+- Human control should form fortified cities, defended corridors, and vulnerable satellite settlements rather than continuous safe territory. Cities need threat-appropriate defenses; towns and villages need warning, evacuation capacity, rapid transport readiness, and reachable refuge.
+- Human states, cities, corporations, religions, and other factions remain powerful but divided. Their conflict and refusal to unite are central reasons beasts retain most territory.
 - The world must be finite and enumerable enough for territorial control and world domination to have a real, testable meaning.
 - Use stable semantic role keys for mechanics and separate generated instance IDs and display names. Existing systems must not depend on a particular generated proper name.
 - Once a generated world is finalized, its canonical facts must not silently reroll. World-generation version changes create a new world rather than rewriting an existing one.
@@ -63,39 +70,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Detention, Communication, and Laboratory Continuity
+## 1. Pretrial Proceedings and Legal Defense
 
-Design and implement the first sustained custody phase after booking. Arrest is a major change in where and how the scientist can act, never an automatic defeat. Preserve the already-authored holding cell as a physical context, keep time and the laboratory simulation running, and define how the imprisoned scientist receives information, communicates, directs existing automation, and experiences conditions while awaiting the next legal event.
-
-Questions for discussion:
-
-- How much direct laboratory control remains available in custody?
-
-  Recommended answer: Existing policies and queued automation continue, but the scientist cannot perform physical laboratory work or remotely micromanage actors without a plausible communication channel. Reports should arrive with delay and incomplete detail.
-
-- What communication should holding initially permit?
-
-  Recommended answer: Add scheduled monitored legal calls and limited personal calls, plus mail where appropriate. Every contact should name its recipient, delay, privacy, and authority visibility instead of acting as a universal remote-control menu.
-
-- What should the player do between legal events?
-
-  Recommended answer: Provide a small physical custody routine with rest, observation, conversation, communication requests, and security study. These should consume time, change relationships or alertness, and create information or options used by later legal and escape passes.
-
-- Can the laboratory fail while the scientist is detained?
-
-  Recommended answer: Yes. Power, containment, deadlines, markets, and authorities keep advancing. A well-automated lab may endure; an unattended fragile lab may collapse, but that collapse still does not end the run unless the scientist dies.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Pretrial Proceedings and Legal Defense
-
-Design and implement the path from booking through charging, bail or detention review, discovery, motions, and trial scheduling. Consume the exact warrant, raid, seizure, evidence, custody, and obstruction histories already recorded. Legal outcomes must arise from known evidence and saved procedural actions rather than a generic Suspicion check.
+Design and implement the path from booking through charging, bail or jail-custody review, discovery, motions, and trial scheduling. The scientist remains in the local jail throughout this process unless released or escaped. Consume the exact warrant, raid, seizure, evidence, custody, and obstruction histories already recorded. Legal outcomes must arise from known evidence and saved procedural actions rather than a generic Suspicion check.
 
 Questions for discussion:
 
 - How detailed should the first legal model be?
 
-  Recommended answer: Use a compact sequence of charging, counsel selection, detention/bail hearing, evidence review, a small set of motions or negotiation choices, and a scheduled trial. Preserve reasons and cited records for every decision without simulating every filing rule.
+  Recommended answer: Use a compact sequence of charging, counsel selection, jail-custody or bail hearing, evidence review, a small set of motions or negotiation choices, and a scheduled trial. Preserve reasons and cited records for every decision without simulating every filing rule.
 
 - How does the scientist obtain representation?
 
@@ -103,7 +86,7 @@ Questions for discussion:
 
 - Can legal action free the scientist before trial?
 
-  Recommended answer: Yes. Bail, release conditions, a successful challenge to detention, dismissed charges, or a negotiated resolution can restore physical freedom. Restrictions and ongoing proceedings remain saved consequences.
+  Recommended answer: Yes. Bail, release conditions, a successful challenge to continued jail custody, dismissed charges, or a negotiated resolution can restore physical freedom. Restrictions and ongoing proceedings remain saved consequences.
 
 - Can the player fabricate a defense narrative?
 
@@ -111,15 +94,15 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Jailbreaks and Outside Rescue
+## 2. Jail Escape and Outside Rescue
 
-Expand escape from custody into a causal physical system and add outside attempts to free the scientist. The existing holding-cell security-study escape is a provisional vertical slice to replace or extend, not a complete jail simulation. Rescue and escape must use actual locations, schedules, doors, security, communication, equipment, injuries, pursuit, and evidence.
+Expand escape from the temporary local jail into a causal physical system and add outside attempts to free the scientist before or during trial. The existing holding-cell security-study escape is a provisional vertical slice to replace or extend. Rescue and escape must use actual jail locations, schedules, doors, security, communication, equipment, injuries, pursuit, and evidence. This prompt does not cover escape from a post-conviction prison; that is a separate later system.
 
 Questions for discussion:
 
 - Which freedom routes should be implemented first?
 
-  Recommended answer: Support one self-engineered escape using observed routine and one ally-led extraction initiated through a communication or standing contingency. Add forceful faction assaults only after ordinary outside actors and custody maps can support them.
+  Recommended answer: Support one self-engineered jail escape using observed routine and one ally-led extraction initiated through a communication or standing contingency. Add forceful assaults only after ordinary outside actors and the compact jail map can support them.
 
 - How should allies decide whether to help?
 
@@ -135,9 +118,9 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Trial, Sentencing, and Prison
+## 3. Trial and Sentencing
 
-Design and implement trial resolution, sentencing, and longer-term imprisonment. Continue to consume the exact authority and legal record. A conviction changes the scientist's available world, relationships, and campaign position; it does not end the run. Prison should be a playable physical setting with time, routines, actors, risks, legal remedies, outside contact, transfer, and escape possibilities scaled to the sentence.
+Design and implement trial resolution, verdicts, sentencing, and the resulting release or transfer order. Continue to consume the exact authority, evidence, jail, and legal record. The scientist remains in jail during trial and briefly after conviction while sentencing and transfer are completed. This pass ends when the scientist is released, placed under a noncustodial sentence, ordered transferred to prison, or ordered transferred to death row; it does not build either destination.
 
 Questions for discussion:
 
@@ -145,21 +128,93 @@ Questions for discussion:
 
   Recommended answer: Resolve contested facts from admissible saved evidence, witnesses, credibility, counsel actions, and jurisdictional rules. Present the decisive causal chain and allow a bounded set of meaningful trial decisions rather than a single hidden roll.
 
-- What sentences should the first pass support?
+- What verdicts and sentences should the first pass support?
 
-  Recommended answer: Support acquittal, time served, probation or supervised release, a finite custodial sentence, and an effectively indefinite severe sentence. Fines and restrictions should connect to existing company and authority systems.
+  Recommended answer: Support acquittal, dismissed charges, time served, fines, probation or supervised release, a finite prison sentence, life imprisonment, penal-legion service, and a death sentence where jurisdiction and charges allow them. Fines and restrictions should connect to existing company and authority systems. Penal service creates a military commitment order for its separate wilderness system rather than behaving like prison.
 
-- How should long sentences remain playable?
+- What happens immediately after conviction?
 
-  Recommended answer: Advance through selectable routine intervals interrupted by meaningful events, appeals, communications, transfers, threats, opportunities, and outside developments. Avoid forcing the player to watch empty real-time days.
+  Recommended answer: Preserve a short saved jail-to-destination transfer window. An ordinary custodial sentence creates a prison commitment order, penal service creates a military-custody commitment, and a death sentence creates a distinct death-row commitment and provisional execution process. None of these orders ends the run.
 
-- What is the terminal condition?
+- Does a death sentence end the run?
 
-  Recommended answer: Only the scientist's death ends the run. Life imprisonment, loss of the laboratory, failed appeals, and recapture remain difficult states with some physical, legal, social, or succession-adjacent route still available while the scientist lives.
+  Recommended answer: No. Sentencing is a legal state, not physical death. The scientist remains alive through transfer, death row, appeals, commutation attempts, rescue, and escape opportunities; only an execution that actually kills the scientist ends the run.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Reusable Worlds, Random Names, and Run Separation
+## 4. Prison Foundation and Long-Term Incarceration
+
+Design and implement prison as a distinct post-conviction system for finite and life custodial sentences. Prison is a large long-term institution, not an enlarged jail. It should materialize as its own physical site with multiple security zones, a persistent population, staff, routines, relationships, work or program assignments, communication, discipline, transfers, health risks, and outside developments. The scientist's laboratory and campaign state continue while the scientist is imprisoned.
+
+Questions for discussion:
+
+- How much prison should the first pass materialize?
+
+  Recommended answer: Build one coherent playable housing unit plus intake, visitation or communication, medical, work or program, exercise, and staff-controlled circulation areas. Save the larger institution strategically and expand exact local detail only when a mechanic needs it.
+
+- How should prison differ mechanically from jail?
+
+  Recommended answer: Jail emphasizes temporary legal custody and fast hearings. Prison emphasizes months or years, stable populations and factions, long-term relationships, institutional routines, work and programs, discipline, transfers, and time compression between meaningful events.
+
+- How should long sentences remain playable?
+
+  Recommended answer: Let the player advance through selectable routine intervals interrupted by meaningful events, communications, health changes, conflicts, opportunities, outside developments, and sentence milestones. Do not require watching empty real-time days.
+
+- Can loss of the laboratory or life imprisonment end the run?
+
+  Recommended answer: No. Those are severe changes in campaign position. The run remains active while the scientist lives, even when recovery requires long-term legal, social, physical, or outside intervention.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 5. Prison Breaks, Rescue, and Release
+
+Design and implement the ways a scientist can leave an ordinary post-conviction prison: sentence completion, parole or commutation where supported, lawful transfer, self-engineered escape, and outside rescue. Consume the prison's actual routines, relationships, security zones, communications, equipment, staff, population, and outside actors rather than reusing the compact jail-escape rules.
+
+Questions for discussion:
+
+- Which exits should be implemented first?
+
+  Recommended answer: Support sentence completion, one earned or negotiated early-release route, one physical self-escape plan, and one outside-assisted extraction. Preserve distinct preparation, eligibility, route, and consequence records for each.
+
+- How should a prison break differ from a jail escape?
+
+  Recommended answer: Require longer preparation across multiple security layers, relationships, tools, schedules, and an outside destination. Prison alert and lockdown should adapt to discovered preparations, while jail escape remains smaller and more immediate.
+
+- What does failure mean?
+
+  Recommended answer: Failure may cause injury, segregation, lost privileges, new charges, a longer sentence, transfer to higher security, or harm to allies. It remains playable unless the scientist dies.
+
+- Where does a successful escape end?
+
+  Recommended answer: At a physically reached extraction endpoint, hideout, or outside route. Returning to the laboratory is a separate journey and may be extremely dangerous if the site is watched, occupied, or seized.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 6. Death Row, Appeals, and Execution
+
+Design and implement death row as a distinct post-sentencing system rather than an ordinary prison term. A death sentence creates a secure custody location, execution date and method, appeal and commutation deadlines, restrictions, staff and outside contacts, and possible rescue or escape opportunities. The sentence itself is never a game-over event.
+
+Questions for discussion:
+
+- When does an execution become scheduled?
+
+  Recommended answer: Create a disclosed provisional date at sentencing, then allow jurisdictional review, appeals, stays, and commutation attempts to change it through saved causal decisions. Do not use a surprise hidden countdown.
+
+- What can prevent execution?
+
+  Recommended answer: Successful appeal, sentence commutation, lawful intervention, self-escape, outside rescue, or a physical disruption of the execution process. Every route should consume actual legal records, relationships, resources, communication, or physical access.
+
+- When does the run end?
+
+  Recommended answer: Only when an execution is physically completed and reduces the living scientist to death, or the scientist dies from another cause. Failed appeals, a final warrant, transfer to the execution chamber, and preparation for execution remain playable states.
+
+- Should execution be abstracted?
+
+  Recommended answer: Preserve a physical, interruptible sequence with staff, restraints, location, timing, and cause of death, while allowing the player to accelerate uneventful waiting between meaningful deadlines.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 7. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -185,7 +240,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. World Themes and Content Boundaries
+## 8. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -217,7 +272,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. World Generation Foundation and Strategic Map
+## 9. World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete, deterministic world that can be generated, named, saved, selected, and viewed before a run begins.
 
@@ -243,7 +298,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Global Geography, Biomes, Terrain, and Resources
+## 10. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography.
 
@@ -269,17 +324,17 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Settlements, Cities, Routes, and Candidate Sites
+## 11. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement the inhabited and connected layer of the generated world.
 
-Generate major settlements and cities in geographically plausible places, connect them with broad land, river, and sea routes, and identify candidate laboratory parcels across the world. City and site records may include names, population bands, economic roles, route access, water access, public visibility, concealment, freight access, geology hints, and compatible distance bands.
+Generate major settlements and cities in geographically plausible places, connect them with broad land, river, sea, and air routes, and identify candidate laboratory parcels across the world. Human settlement should be concentrated in heavily fortified cities and vulnerable satellite towns or villages surrounded by beast-dominated or contested land. City and site records may include names, population bands, economic roles, route access, water access, public visibility, concealment, freight access, geology hints, fortification, refuge capacity, threat profile, warning coverage, evacuation transport, and compatible distance bands.
 
 Questions for discussion:
 
 - How many settlements need full detail at world creation?
 
-  Recommended answer: Generate stable locations, names, population bands, roles, and controlling-power links for major settlements. Defer neighborhoods, residents, and exact maps until a run needs them.
+  Recommended answer: Generate stable locations, names, population bands, roles, controlling-power links, fortification bands, recurring beast threats, and evacuation relationships for major settlements. Defer neighborhoods, residents, and exact maps until a run needs them.
 
 - How should a nearest city be determined?
 
@@ -289,13 +344,17 @@ Questions for discussion:
 
   Recommended answer: No. It creates candidate parcels and context. The chosen starting scenario materializes its authored surface and underground blueprint only after a run begins.
 
+- How should towns and villages survive outside city walls?
+
+  Recommended answer: Give each a saved warning network, delay defenses, evacuation capacity, assigned rapid vehicles or flying mounts, refuge destination, and route. They may fail, become isolated, or be destroyed when threat timing exceeds those real capabilities.
+
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Civilizations, Factions, Institutions, Religions, and Law
+## 12. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world.
 
-Generate civilizations or states, territorial control, relationships, major non-state factions, religious powers, commercial blocs, and local institutional branches. Local roles may include city government, commercial registry, environmental/public-health authority, law enforcement, licensed waste carriers, black-market intermediaries, trade guilds, and religious authorities.
+Generate civilizations or states, territorial control, relationships, major non-state factions, religious powers, commercial blocs, military forces, magitech traditions, and local institutional branches. Humanity is powerful enough to contest the beasts but remains divided by politics, religion, class, commerce, historical grievance, and war. Local roles may include city government, commercial registry, environmental/public-health authority, law enforcement, licensed waste carriers, black-market intermediaries, trade guilds, religious authorities, city defense commands, and penal-legion commands.
 
 Questions for discussion:
 
@@ -309,7 +368,11 @@ Questions for discussion:
 
 - How should law work?
 
-  Recommended answer: Generate enforceable policy profiles by jurisdiction and era with visible summaries and provenance. Add individual statutes only when inquiries, market restrictions, or campaign events can cite them.
+  Recommended answer: Generate enforceable policy profiles by jurisdiction and era with visible summaries and provenance, including whether penal military service and capital punishment are lawful. Add individual statutes only when inquiries, market restrictions, sentencing, or campaign events can cite them.
+
+- How should technology vary between powers?
+
+  Recommended answer: Share an advanced global baseline while giving powers saved strengths, dependencies, doctrines, and access across mechanical, arcane, biological, animantic, divine, aerial, network, and creature-mounted technologies. Variation should change equipment, infrastructure, defenses, logistics, and strategy rather than simply assigning a higher technology number.
 
 - What strategic state is needed for eventual domination?
 
@@ -317,7 +380,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Historical World Simulation and Playable Year
+## 13. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year.
 
@@ -343,7 +406,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. New-Run World Selection, Site Choice, and Scenario Materialization
+## 14. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world.
 
@@ -369,7 +432,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Local Context Mechanics: Environment, Geology, and Travel
+## 15. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of the selected world location.
 
@@ -391,7 +454,37 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. World Integration: Economy and Logistics
+## 16. Penal Legions and Wilderness Service
+
+Design and implement penal-legion service as a distinct playable post-conviction path after the strategic world, local travel, and wilderness context exist. A scientist sentenced to penal service remains under military custody but deploys beyond fortified civilization against magical beasts. Consume the saved sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state rather than treating service as a sequence of unrelated combat rolls.
+
+The first legion should be a bounded physical unit, not an entire individual-level national army. Save its command structure, sentenced and regular personnel, transport, supplies, orders, deployment site, mission, casualties, discipline, service-credit rules, communications, and extraction conditions. Missions may include patrol, route clearing, monster extermination, settlement evacuation, recovery, reconnaissance, or a desperate holding action. Service can lead to release, transfer, extended punishment, public recognition, desertion, rescue, or death.
+
+Questions for discussion:
+
+- Is penal service equivalent to a death sentence?
+
+  Recommended answer: No. It is dangerous coercive military punishment with a real completion or release route. Some Grim jurisdictions may deliberately assign near-suicidal operations, but the sentence itself never ends the run and its lethality must arise from the actual mission.
+
+- What should the first playable mission be?
+
+  Recommended answer: Defend and evacuate a vulnerable town after a beast warning. This exercises rapid transport, fortified-city refuge, military custody, civilians, route timing, hostile creatures, retreat, and a meaningful success condition other than killing everything.
+
+- How much control does the player have?
+
+  Recommended answer: Direct the scientist's physical actions and any authority legitimately granted by rank or circumstance. Orders from named commanders constrain movement and objectives; disobedience, persuasion, exceptional performance, desertion, and emergency initiative remain possible with saved consequences.
+
+- How does service end?
+
+  Recommended answer: Use transparent jurisdiction-specific terms such as elapsed service, completed operations, earned credit, pardon, medical discharge, transfer, or political intervention. Escape and rescue remain physical alternatives, while mission failure may add punishment without silently becoming game over.
+
+- What happens to the laboratory?
+
+  Recommended answer: It continues under the same knowledge and communication limits used for jail and prison. Deployment distance, military censorship, route disruption, and beast attacks may make reports even slower or prevent contact entirely.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 17. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics.
 
@@ -413,7 +506,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. World Integration: Investigations and Institutional Pressure
+## 18. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response.
 
@@ -435,7 +528,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. Lazy Local Detail and World Discovery
+## 19. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it.
 
@@ -461,17 +554,17 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 20. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the complete loop for beginning, losing, reviewing, and replacing a run without altering its reusable world.
 
-Most runs should end during laboratory survival or early local conflict. Death should be common enough to define the game, but fair enough that the player can identify the decisions, risks, and causal chain that ended the run. Arrest, detention, conviction, imprisonment, loss of the laboratory, and other severe setbacks remain playable while the scientist lives. A postmortem may preserve a read-only summary outside the world simulation; it must not add the old laboratory to future world maps or histories.
+Most runs should end during laboratory survival or early local conflict. Death should be common enough to define the game, but fair enough that the player can identify the decisions, risks, and causal chain that ended the run. Arrest, temporary jail custody, conviction, a prison sentence, life imprisonment, penal-legion service, a death sentence, loss of the laboratory, and other severe setbacks remain playable while the scientist lives. A postmortem may preserve a read-only summary outside the world simulation; it must not add the old laboratory to future world maps or histories.
 
 Questions for discussion:
 
 - What ends a run?
 
-  Recommended answer: Only the scientist's death. Arrest, imprisonment, destruction or seizure of every power base, and similar catastrophes must change the playable situation rather than silently become defeat screens.
+  Recommended answer: Only the scientist's death. Arrest, jail, prison, penal military service, a death sentence awaiting execution, destruction or seizure of every power base, and similar catastrophes must change the playable situation rather than silently become defeat screens.
 
 - How should saving work in a roguelike?
 
@@ -487,11 +580,11 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 18. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 21. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. Add separate pending prompts for later phases identified during discussion rather than attempting the entire conquest arc in one implementation.
 
-The final campaign goal is world domination, but reaching it should be extraordinarily rare. The progression should connect hidden-laboratory survival to local power, territorial expansion, conflict with states and religions, intelligent created societies, apotheosis, divine conflict, and eventual global control. The early game must remain a complete roguelike experience rather than a prologue balanced around an endgame most runs will never see.
+The final campaign goal is world domination, but reaching it should be extraordinarily rare. The progression should connect hidden-laboratory survival to local power, territorial expansion through beast-dominated regions, conflict with fortified cities, states, and religions, intelligent created societies, apotheosis, divine conflict, and eventual global control. The early game must remain a complete roguelike experience rather than a prologue balanced around an endgame most runs will never see.
 
 World Theme changes the routes and meaning of domination. A Madcap Heresy campaign might unite the world through engineered catgirls, cultural enthusiasm, absurd diplomacy, or benevolent created societies under the banner of catgirl cuteness. A Grim Heresy campaign may reach control through enslavement, torture, genocide, war crimes, forced transformation, terror, conquest, or similarly brutal methods. Neutral strategies may exist in either theme, but victory text and event framing must honor the selected world.
 
@@ -523,7 +616,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 19. New-Run Onboarding and Contextual Tutorial
+## 22. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable.
 
@@ -533,7 +626,7 @@ Recommended scope: a dismissible first-run checklist, contextual hints with cool
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 20. Sound, Notifications, and Accessibility Audit
+## 23. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review.
 
@@ -541,7 +634,7 @@ Treat sound as an additional cue rather than the only carrier of state. Audit no
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 21. Production Art Pass Using the Sprite Pipeline
+## 24. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set.
 

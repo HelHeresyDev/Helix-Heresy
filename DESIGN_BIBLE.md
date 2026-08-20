@@ -16,6 +16,32 @@ Souls and Heroes
 
 Souls are the foundation of the divine ecosystem. Mortals live, worship, die, and pass through systems controlled by the gods. Exceptional individuals become heroes whose accomplishments attract admiration, loyalty, and worship. That worship further empowers them, allowing them to perform feats beyond normal mortals. After death, gods compete to recruit heroic souls into their service, making them valuable divine assets.
 
+Science, Magic, and Technology
+
+This is a technologically advanced magical world rather than a medieval society with isolated spells. Science and magic developed together and are often inseparable in ordinary engineering. Human civilization has modern and sometimes futuristic medicine, industry, weapons, aircraft, powered armor and mechs, holographic displays, global data networks analogous to the internet, and other sophisticated systems. Flight may come from constructed machines, magically assisted vehicles, or trained flying creatures used as mounts. Different civilizations, institutions, manufacturers, and religions favor different blends of mechanical, biological, animantic, divine, and arcane technology.
+
+Advanced technology is physical infrastructure, not an excuse for effortless action at a distance. Networks require relays, power, mana, maintenance, access, and defended connections. Vehicles need fuel or another energy source, crews, parts, routes, landing space, and repair. Holographic interfaces still operate real machines and records. Magical systems can fail, be disrupted, become hazardous, or depend on scarce expertise. Fortified cities have the most reliable access to advanced systems; isolated settlements, damaged routes, wilderness operations, and poor regions may rely on older, improvised, or locally maintainable alternatives.
+
+The Beast-Dominated World
+
+Most of the world's land is dominated by magical beasts hostile to humanity and frequently hostile to one another. These creatures are not a unified monster civilization. They compete over territory, prey, nesting grounds, mana concentrations, migration routes, and ecological niches, and their conflicts can be as destructive to human settlements as deliberate attacks. Some are solitary predators, some migrate in herds or swarms, some establish durable territories, and some are intelligent enough to use tactics, magic, or social organization. Their presence shapes geography, trade, politics, military doctrine, settlement patterns, and everyday expectations.
+
+Humans are individually and collectively formidable. Their weapons, magic, machines, trained creatures, fortifications, and organizations could reclaim far more of the world if humanity acted as one. Humanity instead remains divided among rival states, cities, corporations, religions, classes, and political movements that compete, sabotage one another, and wage war even while beasts control most territory. Human factionalism is therefore a central reason civilization remains concentrated in defended enclaves rather than the beasts simply being unbeatable.
+
+Fortified Civilization
+
+Human cities are walled, heavily fortified refuges built to resist ground assaults, flying predators, magical attack, and other locally known threats. Walls are only one defensive layer: serious cities may also maintain wards, bastions, sensors, shelters, anti-air defenses, rapid-response units, mechs, trained combat mounts, and protected transport terminals. The exact combination depends on the city's resources, history, laws, environment, and recurring enemies. Cities remain politically dangerous and internally divided even when their survival depends on coordinated defenses.
+
+Towns and villages beyond the strongest city defenses are more vulnerable. Many are designed to delay an attack and evacuate rather than defeat every possible beast incursion. They keep rapid transport vehicles, aircraft, or flying mounts ready to move civilians toward a fortified city when alarms sound. Evacuation capacity, warning time, route condition, vehicle readiness, and the willingness of a receiving city to open its gates can decide whether a settlement survives. Smaller settlements remain valuable for agriculture, extraction, route service, observation, and territorial claims, so humanity repeatedly rebuilds or maintains them despite the danger.
+
+Travel between defended places is possible but never assumed safe. Major routes may be patrolled, warded, elevated, armored, or served by fast air transport, while disruptions can isolate settlements quickly. Wilderness distance should therefore represent exposure as well as time. A hidden laboratory outside a city may gain secrecy and physical freedom while accepting weaker logistics, slower emergency response, monster incursions, and the possibility that an evacuation route fails when it matters.
+
+Penal Legions
+
+Some jurisdictions sentence convicted people to penal military service against magical beasts in the wilderness. A penal legion is distinct from jail, ordinary prison, and death row: the prisoner remains under state military custody but is deployed outside protected civilization on patrols, extermination operations, route clearing, settlement relief, recovery missions, or holding actions. Terms may be measured in time, completed operations, survival, earned credits, or political discretion. Equipment, command quality, casualty expectations, coercion, and the genuine possibility of release vary by jurisdiction and World Theme.
+
+Penal service is not automatically a disguised execution, although corrupt or brutal authorities may use it that way. It creates a playable post-conviction path involving military hierarchy, hostile wilderness, other sentenced fighters, regular soldiers, transport, supply, injuries, relationships, escape opportunities, public heroism, and contact with creatures rarely encountered near cities. A penal sentence does not end the run; only the scientist's actual death does.
+
 Genetic Engineering
 
 Genetic engineering is outlawed throughout most of the world. Publicly it is condemned as unnatural and dangerous. In reality, the gods oppose it because artificial life threatens the divine economy. Soulless creatures provide no worship, contribute nothing to any god, and exist outside the normal cycle of life and death. The threat becomes even greater when artificial creatures kill mortals, as every dead worshipper represents lost faith, lost descendants, and lost future power for the gods.
@@ -254,7 +280,13 @@ High-severity law-enforcement executions authorize a deterministic one-to-three-
 
 Raid knowledge remains physical. Officers search only the known surface premises and do not infer the hidden underground laboratory through walls. A sighting creates a shared saved last-known position; surrender is available only while the scientist is seen. Surrender is not arrest: the named arrest officer must reach the scientist and complete interruptible restraint before extraction, and the escorted scientist and team must physically return to the lawful entrance before booking. Revoked surrender and violent resistance remain distinct. Lethal force requires a saved immediate serious-threat cause; it is not the default response to noncompliance. An unseen scientist may leave by the site exit, and a team that clears its authorized known rooms without locating the target records an unsuccessful withdrawal rather than gaining omniscient pursuit.
 
-Completed booking is nonterminal. It materializes a generic Municipal Holding corridor and isolated locked cell on a separate authored map layer, moves the scientist there, blocks ordinary physical laboratory work, and leaves time, policies, automation, containment, utilities, deadlines, markets, and institutional systems running. Records > Visits exposes scheduled, active, detained, and resolved raid state and its causal record. The initial custody vertical slice permits repeated thirty-minute studies of observable security; five completions enable a physical cell escape back through the concealed route, raise custody alert, and create permanent fugitive evidence. This is a provisional bridge to later detention, legal defense, outside rescue, trial, sentencing, and prison passes.
+Completed booking is nonterminal and begins a distinct temporary-jail stay, not imprisonment. An armored custody vehicle records the transfer into a compact Municipal Holding layer containing an intake cell, neighboring cell, secure corridor, monitored holographic call room, privileged legal room, staffed guard station, secure exercise room, and booking/vehicle-transfer bay. Three deterministic named custody officers retain saved shifts, positions, routines, and round targets. Jail doors remain physical barriers; monitored and legal sessions move the scientist and an officer into the appropriate room before returning the scientist to the locked cell.
+
+Booking also creates a real warded magic-suppressing collar in physical inventory, equips it in the scientist's Neck slot, and preserves its instance, condition, location, and custody link in the jail record. While locked and intact it completely blocks deliberate magic regardless of available mana, including combat magic and any other mana-spending ability. The scientist cannot voluntarily unequip the custody-controlled restraint. The provisional self-escape disables, breaks, unequips, and drops the collar before magic becomes usable again.
+
+The laboratory and outside world continue simulating under existing policies and non-scientist automation, but the jailed scientist no longer receives omniscient state. Direct laboratory knowledge freezes in an explicit booking snapshot. Post-booking laboratory messages are hidden in jail, and updates arrive only as saved delayed reports through plausible communication channels. Company-portal, public-network, legal-counsel, and prohibited coded-contact requests have distinct delays, monitoring, legality, and risk. A ready session uses a physical jail escort and may deliver a bounded report; it does not expose the underground laboratory or restore ordinary remote control.
+
+The first sustained jail loop exposes its saved current and next routine, named staff, transport, collar, booking snapshot, reports, requests, and sessions through Records > Visits. Five separately named, non-repeatable observations—cell-door procedure, suppressor collar, surveillance coverage, officer routine, and network controls—replace the repeatable generic study grind. Together they enable the provisional escape, raise alert according to what was studied, and create permanent fugitive evidence. The later Jail Escape and Outside Rescue prompt must replace or extend the direct return route with causal escape and extraction paths; long-term prison mechanics remain deliberately absent from jail.
 
 Only the scientist's death ends a run. Arrest, booking, detention, conviction, imprisonment, loss or seizure of the laboratory, failed escape, and recapture are severe playable states while the scientist remains alive. A death during the raid records its exact causal outcome for the future postmortem system; no custody transition writes the run-ended flag.
 
@@ -523,7 +555,9 @@ Core design pillars:
 
 ## Campaign Vision
 
-The full game should become a browser-based roguelike management and simulation game like Dwarf Fortress about illegal life creation in a magical world. The prototype is slime-first, but the larger arc is not slime-only: slimes are the first low-gene creature family before stranger, smarter, more dangerous life forms become possible.
+The full game should become a browser-based roguelike management and simulation game like Dwarf Fortress about illegal life creation in an advanced magical world. The prototype is slime-first, but the larger arc is not slime-only: slimes are the first low-gene creature family before stranger, smarter, more dangerous life forms become possible.
+
+The strategic world should read as fortified human enclaves, defended corridors, vulnerable satellite settlements, and large beast-dominated regions rather than an evenly settled safe landscape. Internet access, aircraft, flying mounts, mechs, holographic systems, and other magitech coexist with evacuation alarms, monster migration, route loss, sieges, and human war. The player may exploit this fractured geography for secrecy, trade, alliances, created-species settlement, territorial expansion, or eventual conquest.
 
 The intended long-term loop:
 
@@ -763,6 +797,8 @@ Likely future systems:
 - Hybrid rendering with Canvas for the physical map, HTML/CSS for management UI, and the DOM map retained as a compatibility fallback.
 - Necropsy research should eventually improve effectiveness analysis for living specimens and pre-synthesized genome predictions.
 - Recruitment, base expansion, authority conflict, territory control, and eventual world conquest.
+- Fortified cities, evacuation-oriented towns and villages, defended transport corridors, advanced magitech networks, flying vehicles and mounts, mechs, and beast-dominated wilderness.
+- Penal-legion sentencing and military service as a playable post-conviction wilderness path distinct from jail, prison, and death row.
 - A clearer distinction between casual observation, lab testing, and precise instrument readings.
 - A richer journal that helps the player reason from partial discoveries without spoiling hidden mappings.
 - Null affinity as active anti-magic, distinct from having no affinity.
