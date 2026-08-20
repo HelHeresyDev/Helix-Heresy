@@ -3032,6 +3032,16 @@ body.map-dragging .lab-map-canvas-host {
   box-shadow: inset 3px 0 0 #b9924d;
 }
 
+.visit-row[data-forced-entry-visit="true"] {
+  border-color: #9c4f43;
+  box-shadow: inset 5px 0 0 #c45f50;
+}
+
+button.danger-button {
+  border-color: #c45f50;
+  color: #f09a8b;
+}
+
 .institutional-response-form {
   display: grid;
   gap: 0.55rem;

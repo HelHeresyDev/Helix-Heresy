@@ -18,25 +18,24 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Obstruction, Forced Entry, and Expanded Searches
-2. Law-Enforcement Raids, Arrest, and Run Defeat
-3. Reusable Worlds, Random Names, and Run Separation
-4. World Themes and Content Boundaries
-5. World Generation Foundation and Strategic Map
-6. Global Geography, Biomes, Terrain, and Resources
-7. Settlements, Cities, Routes, and Candidate Sites
-8. Civilizations, Factions, Institutions, Religions, and Law
-9. Historical World Simulation and Playable Year
-10. New-Run World Selection, Site Choice, and Scenario Materialization
-11. Local Context Mechanics: Environment, Geology, and Travel
-12. World Integration: Economy and Logistics
-13. World Integration: Investigations and Institutional Pressure
-14. Lazy Local Detail and World Discovery
-15. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
-16. Campaign Roadmap: From Hidden Laboratory to World Domination
-17. New-Run Onboarding and Contextual Tutorial
-18. Sound, Notifications, and Accessibility Audit
-19. Production Art Pass Using the Sprite Pipeline
+1. Law-Enforcement Raids, Arrest, and Run Defeat
+2. Reusable Worlds, Random Names, and Run Separation
+3. World Themes and Content Boundaries
+4. World Generation Foundation and Strategic Map
+5. Global Geography, Biomes, Terrain, and Resources
+6. Settlements, Cities, Routes, and Candidate Sites
+7. Civilizations, Factions, Institutions, Religions, and Law
+8. Historical World Simulation and Playable Year
+9. New-Run World Selection, Site Choice, and Scenario Materialization
+10. Local Context Mechanics: Environment, Geology, and Travel
+11. World Integration: Economy and Logistics
+12. World Integration: Investigations and Institutional Pressure
+13. Lazy Local Detail and World Discovery
+14. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
+15. Campaign Roadmap: From Hidden Laboratory to World Domination
+16. New-Run Onboarding and Contextual Tutorial
+17. Sound, Notifications, and Accessibility Audit
+18. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -61,33 +60,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Obstruction, Forced Entry, and Expanded Searches
+## 1. Law-Enforcement Raids, Arrest, and Run Defeat
 
-Design and implement the physical escalation of an obstructed warrant execution. Continue from the saved issued action, frozen scope, obstruction evidence, visit history, and immutable partial return created by `warrant-executions.js`; do not generate an unrelated second search or silently convert every denied administrative visit into forced entry.
-
-An authorized enforcement team should return with the personnel and tools required to breach only barriers justified by the warrant and later obstruction. Forced entry must operate on actual doors, locks, seals, fixtures, and construction: actors travel to the barrier, perform interruptible work, create noise and visible activity, apply real condition damage, and leave the resulting breached state in the map. The player may unlock, open, comply at the last moment, continue obstruction, barricade, relocate physical subjects, flee, or initiate combat using ordinary mechanics.
-
-Keep original scope distinct from expanded scope. Obvious evidence physically perceived along a lawful route may be documented, but any expansion must record a specific saved justification, new authorized target, time, and source observation. Inaccessible contents remain unknown until officers actually breach and perceive them. Exact seized subjects continue through the existing physical carrying, entrance-transfer, authority-custody, and warrant-return systems.
-
-Questions for discussion:
-
-- Which obstructed warrants should support forced entry first?
-
-  Recommended answer: Start with the implemented Registry records and environmental warrants, using a small law-enforcement escort and shared breach workflow. Keep arrest objectives and full tactical raids for the next prompt.
-
-- Can officers break every barrier on the site?
-
-  Recommended answer: No. They may breach a barrier only when it blocks a frozen or explicitly expanded target. Underground and unrelated rooms remain outside scope unless new physically perceived evidence supports an expansion.
-
-- How should late compliance work?
-
-  Recommended answer: Allow the player to grant access until destructive work actually completes. Officers stop further breach damage, but the earlier obstruction record and any damage already caused remain.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Law-Enforcement Raids, Arrest, and Run Defeat
-
-Design and implement high-severity law-enforcement warrants and tactical raids after forced entry is established. Consume the currently deferred law-enforcement warrant executions rather than using Suspicion alone as a raid roll.
+Design and implement high-severity law-enforcement warrants and tactical raids on top of the established forced-entry workflow. Consume the currently deferred law-enforcement warrant executions, saved forced-entry personnel and barrier outcomes, supplemental returns, and violent-obstruction evidence rather than using Suspicion alone as a raid roll.
 
 A raid should have saved objectives, named physical actors, roles, entry plan, authorized scope, target actors or subjects, equipment, communication state, and retreat or completion conditions. Raiders use ordinary movement, perception, doors, injuries, incapacitation, death, carrying, and combat. Surrender, arrest, escape, concealment, resistance, and lethal force must be distinct physical outcomes. Arrest should require officers to reach and control an actor rather than changing a status remotely.
 
@@ -109,7 +84,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Reusable Worlds, Random Names, and Run Separation
+## 2. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -135,7 +110,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Themes and Content Boundaries
+## 3. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -167,7 +142,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Generation Foundation and Strategic Map
+## 4. World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete, deterministic world that can be generated, named, saved, selected, and viewed before a run begins.
 
@@ -193,7 +168,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Global Geography, Biomes, Terrain, and Resources
+## 5. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography.
 
@@ -219,7 +194,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Settlements, Cities, Routes, and Candidate Sites
+## 6. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement the inhabited and connected layer of the generated world.
 
@@ -241,7 +216,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Civilizations, Factions, Institutions, Religions, and Law
+## 7. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world.
 
@@ -267,7 +242,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Historical World Simulation and Playable Year
+## 8. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year.
 
@@ -293,7 +268,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. New-Run World Selection, Site Choice, and Scenario Materialization
+## 9. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world.
 
@@ -319,7 +294,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Local Context Mechanics: Environment, Geology, and Travel
+## 10. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of the selected world location.
 
@@ -341,7 +316,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. World Integration: Economy and Logistics
+## 11. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics.
 
@@ -363,7 +338,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. World Integration: Investigations and Institutional Pressure
+## 12. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response.
 
@@ -385,7 +360,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. Lazy Local Detail and World Discovery
+## 13. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it.
 
@@ -411,7 +386,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
+## 14. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
 
 Design and implement the complete loop for beginning, losing, reviewing, and replacing a run without altering its reusable world.
 
@@ -437,7 +412,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 15. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. Add separate pending prompts for later phases identified during discussion rather than attempting the entire conquest arc in one implementation.
 
@@ -473,7 +448,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. New-Run Onboarding and Contextual Tutorial
+## 16. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable.
 
@@ -483,7 +458,7 @@ Recommended scope: a dismissible first-run checklist, contextual hints with cool
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 18. Sound, Notifications, and Accessibility Audit
+## 17. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review.
 
@@ -491,7 +466,7 @@ Treat sound as an additional cue rather than the only carrier of state. Audit no
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 19. Production Art Pass Using the Sprite Pipeline
+## 18. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set.
 

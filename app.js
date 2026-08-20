@@ -6487,8 +6487,31 @@
   }
 
   function warrantExecutionForVisit(visit) {
-    if (visit?.sourceKind !== "warrantExecution") return null;
+    if (!visit || !["warrantExecution", "warrantForcedEntry"].includes(visit.sourceKind)) return null;
     return ensureWarrantExecutions().executions.find((execution) => execution.id === visit.sourceId) || null;
+  }
+
+  function forcedEntryForVisit(visit) {
+    const execution = visit?.sourceKind === "warrantForcedEntry" ? warrantExecutionForVisit(visit) : null;
+    return execution?.forcedEntry || null;
+  }
+
+  function siteVisitActors(visit) {
+    return visit ? [visit.actor, ...(visit.supportActors || [])].filter(Boolean) : [];
+  }
+
+  function siteVisitActorById(actorId) {
+    for (const visit of ensureSiteVisits().visits) {
+      const actor = siteVisitActors(visit).find((entry) => entry.id === actorId);
+      if (actor) return { visit, actor };
+    }
+    return null;
+  }
+
+  function warrantScopeTarget(execution, targetId) {
+    return execution?.scope.targets.find((target) => target.id === targetId)
+      || execution?.forcedEntry?.expansions.find((expansion) => expansion.targetId === targetId)
+      || null;
   }
 
   function warrantVisitAgenda(execution) {
@@ -6515,6 +6538,71 @@
       });
     }
     return agenda;
+  }
+
+  function forcedEntryVisitAgenda(execution) {
+    const point = (state.siteAccessPoints || []).find((entry) => entry.id === execution.scope.entryPointId && entry.lawful);
+    const agenda = [{
+      id: "forced-entry-service", roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+      targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+      label: `Present supplemental authority for ${execution.docket}`, method: "forcedEntryService", dwellSeconds: 8,
+      purpose: "forcedEntryService"
+    }];
+    for (const forcedTarget of execution.forcedEntry?.targets || []) {
+      const target = warrantScopeTarget(execution, forcedTarget.targetId);
+      if (!target) continue;
+      agenda.push({
+        id: `forced-entry-search-${target.id}`, roomId: target.roomId, fixtureId: target.fixtureId,
+        label: target.label, method: target.method, dwellSeconds: target.fixtureId ? 35 : 25,
+        requiresAccess: true, requiresFixtureAccess: Boolean(target.fixtureId),
+        enforcementTargetId: target.id, purpose: "forcedSearch"
+      });
+      agenda.push({
+        id: `forced-entry-transfer-${target.id}`, roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+        targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+        label: `Transfer supplemental seizure from ${target.label}`, method: "custodyTransfer", dwellSeconds: 5,
+        enforcementTargetId: target.id, purpose: "custodyTransfer"
+      });
+    }
+    return agenda;
+  }
+
+  function syncForcedEntryEscalations() {
+    let changed = 0;
+    for (let execution of [...ensureWarrantExecutions().executions]) {
+      if (execution.status === "obstructed" && execution.scope.supported && execution.warrantReturn && !execution.forcedEntry) {
+        const authorized = WarrantExecutions.authorizeForcedEntry(ensureWarrantExecutions(), execution.id, { seed: state.seed, clock: state.clock });
+        state.warrantExecutions = authorized.state;
+        execution = authorized.execution;
+        if (authorized.created) {
+          addEvent(`${execution.docket}: a two-person forced-entry return was authorized for the specifically obstructed target(s), arriving ${formatClock(execution.forcedEntry.arrivalAt)}.`);
+          changed += 1;
+        }
+      }
+      const operation = execution.forcedEntry;
+      if (!operation || operation.status !== "scheduled" || operation.visitId) continue;
+      const scheduled = SiteVisits.scheduleVisit(ensureSiteVisits(), {
+        typeId: execution.scope.visitTypeId, institutionId: execution.institutionId,
+        visitorLabel: execution.scope.visitTypeId === "registryWarrantOfficer" ? "Registry Warrant Officer" : "Environmental Warrant Officer",
+        mandate: `${execution.docket}: supplemental forced-entry authority for obstructed scope only`,
+        accessPointId: execution.scope.entryPointId, sourceKind: "warrantForcedEntry", sourceId: execution.id,
+        noticeAt: operation.authorizedAt, arrivalAt: operation.arrivalAt,
+        arrivalWindowEnd: operation.arrivalWindowEnd, agenda: forcedEntryVisitAgenda(execution),
+        supportActors: [{
+          label: "Breach Officer", role: "breach", health: 100,
+          equipment: [{ id: "pryBar", label: "Solid steel pry bar" }]
+        }]
+      });
+      state.siteVisits = scheduled.state;
+      const breachActor = scheduled.visit.supportActors[0];
+      const linked = WarrantExecutions.linkForcedEntryVisit(
+        ensureWarrantExecutions(), execution.id, scheduled.visit.id, scheduled.visit.actor.id, breachActor?.id, state.clock
+      );
+      state.warrantExecutions = linked.state;
+      addEvent(`${execution.docket}: forced-entry team scheduled between ${formatClock(operation.arrivalAt)} and ${formatClock(operation.arrivalWindowEnd)}.`);
+      changed += 1;
+    }
+    return changed;
   }
 
   function syncIssuedWarrants() {
@@ -6595,7 +6683,7 @@
         changed += 1;
       }
     }
-    return changed + syncIssuedWarrants();
+    return changed + syncIssuedWarrants() + syncForcedEntryEscalations();
   }
 
   function updateInstitutionalResponses() {
@@ -6846,7 +6934,7 @@
     if (decision === "denied") {
       siteVisitReportObstruction(visit, request);
       const item = siteVisitCurrentAgenda(visit);
-      if (item && (item.roomId === request.targetId || item.fixtureId === request.targetId
+      if (!forcedEntryForVisit(visit) && item && (item.roomId === request.targetId || item.fixtureId === request.targetId
         || (request.targetKind === "door" && warrantExecutionForVisit(visit)))) {
         item.status = "skipped";
         item.completedAt = state.clock;
@@ -6871,6 +6959,131 @@
     state.siteVisits = result.state;
     if (!result.changed) return false;
     addEvent(`All disclosed in-mandate areas were granted to ${result.visit.visitorLabel}; physical locks remain in effect.`);
+    persist(); render();
+    return true;
+  }
+
+  function queueForcedEntryCompliance(visitId, barrierId) {
+    const visit = siteVisitById(visitId);
+    let execution = warrantExecutionForVisit(visit);
+    let barrier = execution?.forcedEntry?.barriers.find((entry) => entry.id === barrierId);
+    if (!visit?.actor.present || !execution?.forcedEntry || !barrier || !["authorized", "breaching"].includes(barrier.status)) return null;
+    let targetCell = null;
+    let roomId = visit.actor.roomId;
+    let mapPath = [];
+    if (barrier.kind === "door") {
+      const plan = doorOperationPlan(barrier.barrierId);
+      targetCell = cleanMapCell(plan?.accessCell);
+      mapPath = plan?.mapPath || [];
+      roomId = targetCell ? labMapCellRoomId(targetCell) || roomId : roomId;
+    } else if (barrier.kind === "fixture") {
+      const fixture = fixtureById(barrier.barrierId);
+      targetCell = cleanMapCell(fixtureAccessCells(fixture)[0]?.cell);
+      mapPath = targetCell ? labMapPathBetweenCells(scientistMapCell(), targetCell, {
+        map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true
+      }) : [];
+      roomId = targetCell ? labMapCellRoomId(targetCell) || roomId : roomId;
+    } else {
+      addEvent("A constructed barricade cannot be opened for compliance; remove or open a real passage before breach work finishes.");
+      persist(); render(); return null;
+    }
+    if (!targetCell || !mapPath.length) {
+      addEvent(`No physical scientist route reaches ${barrier.label} for late compliance.`);
+      persist(); render(); return null;
+    }
+    const complied = WarrantExecutions.recordLateCompliance(
+      ensureWarrantExecutions(), execution.id, barrier.targetId, barrier.id, state.clock
+    );
+    state.warrantExecutions = complied.state;
+    execution = complied.execution;
+    barrier = complied.barrier;
+    const target = warrantScopeTarget(execution, barrier.targetId);
+    if (target?.roomId) visit.grantedRoomIds = [...new Set([...visit.grantedRoomIds, target.roomId])];
+    if (target?.fixtureId) visit.grantedFixtureIds = [...new Set([...visit.grantedFixtureIds, target.fixtureId])];
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(mapPath, ensureLabMap()) / scientistMoveSpeedMps();
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "forcedEntryCompliance",
+      label: `Provide physical access to ${barrier.label}`,
+      createdAt: state.clock, dueAt: queueTail + travelSeconds + 12,
+      data: {
+        visitId: visit.id, executionId: execution.id, barrierId: barrier.id, barrierKind: barrier.kind,
+        physicalTargetId: barrier.barrierId, targetId: barrier.targetId, toRoomId: roomId,
+        toCell: targetCell, mapPath, doorTransit: doorTransitPlan(roomsFromMapPath(mapPath))
+      }
+    };
+    state.tasks.push(task);
+    addEvent(`${task.label} queued. Enforcement stopped further breach damage, but the scientist must still reach and open the physical barrier.`);
+    persist(); render();
+    return task;
+  }
+
+  function completeForcedEntryCompliance(task) {
+    const visit = siteVisitById(task.data?.visitId);
+    const execution = warrantExecutionForVisit(visit);
+    const barrier = execution?.forcedEntry?.barriers.find((entry) => entry.id === task.data?.barrierId);
+    if (!visit?.actor.present || !barrier || barrier.status !== "complied") return false;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || scientistMapCell();
+    state.scientist.roomId = task.data?.toRoomId || scientistRoomId();
+    applyDoorTransitPolicy(task.data?.doorTransit, "Forced-entry compliance movement");
+    if (barrier.kind === "door") {
+      const mapDoor = labMapDoor(barrier.barrierId);
+      const door = mapDoor ? doorFixtureState(mapDoor) : null;
+      if (!door || doorIsBreached(door)) return false;
+      door.sealState = DOOR_SEAL_UNSEALED;
+      door.lockState = DOOR_LOCK_UNLOCKED;
+      door.state = DOOR_STATE_OPEN;
+      bumpNavigationRevision("door");
+    } else if (barrier.kind === "fixture") {
+      const fixture = fixtureById(barrier.barrierId);
+      if (!fixture) return false;
+      fixture.accessState = "open";
+    }
+    addEvent(`${barrier.label} was physically opened for late compliance. Existing forced-entry damage and the original obstruction remain in the record.`);
+    return true;
+  }
+
+  function resistForcedEntry(visitId) {
+    const visit = siteVisitById(visitId);
+    let execution = warrantExecutionForVisit(visit);
+    if (!visit?.actor.present || !execution?.forcedEntry || execution.forcedEntry.status !== "active") return false;
+    const closest = siteVisitActors(visit).filter((actor) => actor.present)
+      .sort((left, right) => mapCellDistance(scientistMapCell(), left.mapCell) - mapCellDistance(scientistMapCell(), right.mapCell))[0];
+    if (!closest || mapCellDistance(scientistMapCell(), closest.mapCell) > 1) {
+      addEvent("The scientist must be adjacent to an enforcement actor to initiate violent resistance.");
+      persist(); render(); return false;
+    }
+    const strike = combatActionDef("strike");
+    const staminaCost = adjustedStaminaCost(strike.staminaCost, [strike.skillId]);
+    if (!confirmPhysicalStateRiskIfNeeded(`attacking ${closest.label || "the enforcement team"}`) || !spendStamina(staminaCost)) return false;
+    closest.health = clamp((Number(closest.health) || 100) - strike.baseDamage, 0, 100);
+    const evidence = recordInvestigativeEvidence("violentWarrantObstruction", {
+      category: "behavioral", label: `Violent resistance to ${execution.docket}`, significance: "critical",
+      subject: { kind: "scientist", id: "scientist" }, origin: { kind: "warrantForcedEntry", id: execution.id, label: execution.docket },
+      locus: { kind: "physicalEncounter", roomId: closest.roomId, cell: closest.mapCell, label: "Enforcement-team contact" },
+      traits: ["violent resistance", "forced-entry team attacked", "enforcement withdrawal"],
+      magnitude: { band: "large", amount: 1, unit: "attack" }, discoverability: { level: "obvious", methods: ["directWitness"] },
+      persistence: { kind: "permanent" }, knowledge: { state: "known", source: "enforcementTeam", sourceIdentityKnown: true },
+      coalesceKey: `violent-warrant-obstruction:${execution.id}`
+    });
+    const violent = WarrantExecutions.recordViolentObstruction(
+      ensureWarrantExecutions(), execution.id, evidence?.id || `violent-obstruction:${execution.id}`,
+      `${closest.label || "An enforcement actor"} was attacked; the team defended itself and began a physical withdrawal.`, state.clock
+    );
+    state.warrantExecutions = violent.state;
+    execution = violent.execution;
+    damageScientistCombat(6, "defensive enforcement response", { damageTypes: ["physical"], observed: true });
+    const point = siteVisitAccessPoint(visit);
+    visit.agenda = visit.agenda.slice(0, visit.agendaIndex + 1);
+    visit.agenda[visit.agendaIndex] = {
+      id: "forced-entry-withdrawal", roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+      targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+      label: "Defensive enforcement withdrawal", method: "withdrawal", dwellSeconds: 2,
+      purpose: "withdrawal", status: "pending", startedAt: null, completedAt: null,
+      dwellProgress: 0, route: [], routeIndex: 0, blockReason: "", enforcementTargetId: ""
+    };
+    visit.phase = "departing";
+    addEvent(`Scientist attacked ${closest.label || "the enforcement team"}. The team struck defensively and is withdrawing; arrest and tactical pursuit remain deferred.`);
     persist(); render();
     return true;
   }
@@ -6982,10 +7195,10 @@
     }).sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  function markWarrantEvidenceCarried(execution, target, source, carried) {
+  function markWarrantEvidenceCarried(execution, target, source, carried, actorId = execution.actorId) {
     const locus = InvestigativeEvidence.normalizeLocus({
       kind: "actorInventory", roomId: target.roomId, cell: carried.cell,
-      label: `${execution.actorId} warrant custody`
+      label: `${actorId} warrant custody`
     });
     const existing = evidenceHandlingRecordsForSubject("physicalStack", carried.id);
     if (existing.length) {
@@ -6995,7 +7208,7 @@
         record.locus = locus;
         record.updatedAt = state.clock;
         record.provenance.push({
-          at: state.clock, action: "seized", actorId: execution.actorId, from, to: locus,
+          at: state.clock, action: "seized", actorId, from, to: locus,
           details: `${physicalStackLabel(carried)} entered physical custody under ${execution.docket}.`
         });
       }
@@ -7012,7 +7225,7 @@
       discoverability: { level: "obvious", methods: ["institutionalRecord"] }, persistence: { kind: "subject" },
       knowledge: { state: "known", source: "warrant", sourceIdentityKnown: true }, lifecycle: "contained",
       coalesceKey: `warrant-seizure:${execution.id}:${carried.id}`,
-      action: "seized", actorId: execution.actorId,
+      action: "seized", actorId,
       details: `${physicalStackLabel(carried)} entered physical custody under ${execution.docket}.`
     });
   }
@@ -7031,11 +7244,11 @@
       if (!carried) continue;
       let recorded = WarrantExecutions.recordSeizure(ensureWarrantExecutions(), execution.id, target.id, {
         sourceSubjectId, subjectId: carried.id, subjectKind: "physicalStack",
-        label, quantity: carried.quantity, clock: state.clock
+        label, quantity: carried.quantity, actorId: visit.actor.id, clock: state.clock
       });
       state.warrantExecutions = recorded.state;
       if (!recorded.created) continue;
-      markWarrantEvidenceCarried(recorded.execution, target, source, carried);
+      markWarrantEvidenceCarried(recorded.execution, target, source, carried, visit.actor.id);
       addEvent(`${visit.visitorLabel} physically seized ${physicalStackQuantityText(carried, false)} ${label} under ${execution.docket}.`);
       changes += 1;
     }
@@ -7052,7 +7265,7 @@
       if (!seizure) continue;
       const label = physicalStackLabel(stack);
       const externalized = WarrantExecutions.externalizeSeizure(ensureWarrantExecutions(), execution.id, stack.id, {
-        clock: state.clock, roomId: point?.roomId, accessPointId: point?.id,
+        clock: state.clock, actorId: visit.actor.id, roomId: point?.roomId, accessPointId: point?.id,
         details: `${label} was carried through ${point?.label || "the lawful entrance"} into authority custody.`
       });
       state.warrantExecutions = externalized.state;
@@ -7085,29 +7298,299 @@
     return changes;
   }
 
+  function ensureForcedEntryToolStack(visit, execution) {
+    const breachActor = visit?.supportActors?.find((actor) => actor.role === "breach") || visit?.supportActors?.[0];
+    if (!breachActor || !execution?.forcedEntry) return null;
+    const existing = ensurePhysicalItemStacks().find((stack) => stack.carryTaskId === `forced-entry:${execution.id}` && stack.key === "pryBar");
+    if (existing) return existing;
+    const stack = createPhysicalItemStack("inventory", "pryBar", 1, {
+      roomId: breachActor.roomId, cell: breachActor.mapCell
+    }, {
+      carriedBy: breachActor.id, carryTaskId: `forced-entry:${execution.id}`,
+      suppressEvidence: true, deferSync: true, dimensionsM: { width: 0.08, length: 0.8, height: 0.05 }
+    });
+    syncActorInventories();
+    syncPhysicalReadModels();
+    return stack;
+  }
+
+  function removeForcedEntryTools(execution) {
+    const before = ensurePhysicalItemStacks().length;
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => stack.carryTaskId !== `forced-entry:${execution.id}`);
+    if (state.physicalItemStacks.length !== before) {
+      syncActorInventories();
+      syncPhysicalReadModels();
+      return 1;
+    }
+    return 0;
+  }
+
+  function forcedEntryTargetRecord(execution, targetId) {
+    return execution?.forcedEntry?.targets.find((target) => target.targetId === targetId) || null;
+  }
+
+  function forcedEntryAccessRequestDenied(visit, item, targetKind = "room", targetId = item?.roomId) {
+    const request = visit?.requests.find((entry) => entry.targetKind === targetKind && entry.targetId === targetId);
+    return request?.decision === "denied";
+  }
+
+  function forcedEntryPathBetweenCells(startCell, targetCell) {
+    const map = ensureLabMap();
+    const ordinary = labMapPathBetweenCells(startCell, targetCell, {
+      map, ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, ignoreObjects: true
+    });
+    if (ordinary.length) return ordinary;
+    const start = cleanMapCell(startCell);
+    const target = cleanMapCell(targetCell);
+    if (!start || !target || start.z !== target.z) return [];
+    const queue = [start];
+    const parents = new Map([[mapCellKey(start), null]]);
+    while (queue.length) {
+      const cell = queue.shift();
+      if (sameMapCell(cell, target)) break;
+      for (const neighbor of orthogonalMapNeighbors(cell)) {
+        if (!mapCellInBounds(neighbor, map) || neighbor.z !== start.z) continue;
+        const key = mapCellKey(neighbor);
+        if (parents.has(key)) continue;
+        const wall = constructedWallAtCell(neighbor, map);
+        if (!wall && !labMapCellIsWalkable(neighbor, map)) continue;
+        parents.set(key, cell);
+        queue.push(neighbor);
+      }
+    }
+    if (!parents.has(mapCellKey(target))) return [];
+    const path = [];
+    let cursor = target;
+    while (cursor) {
+      path.push(cursor);
+      cursor = parents.get(mapCellKey(cursor));
+    }
+    return path.reverse();
+  }
+
+  function forcedEntryBarrierDescriptor(visit, item, currentCell, nextCell) {
+    const wall = constructedWallAtCell(nextCell, ensureLabMap());
+    if (wall) return {
+      kind: "constructedWall", barrierId: mapCellKey(nextCell), cell: nextCell,
+      label: `Constructed wall at ${nextCell.x},${nextCell.y}`, condition: Number(wall.condition) || 100
+    };
+    const mapDoor = labMapDoorAtCell(currentCell) || labMapDoorAtCell(nextCell) || labMapDoorForCells(currentCell, nextCell);
+    const door = mapDoor ? doorFixtureState(mapDoor) : null;
+    if (door && !doorIsBreached(door) && (door.sealState === DOOR_SEAL_SEALED || door.lockState === DOOR_LOCK_LOCKED)) return {
+      kind: "door", barrierId: mapDoor.id, cell: cleanMapCell(mapDoor.cell || nextCell),
+      label: doorActionLabel(mapDoor), condition: doorCondition(door), mapDoor, door
+    };
+    return null;
+  }
+
+  function forcedEntryBarrierIsCompliant(descriptor) {
+    if (!descriptor) return false;
+    if (descriptor.kind === "door") {
+      const door = descriptor.mapDoor ? doorFixtureState(descriptor.mapDoor) : null;
+      return Boolean(door && !doorIsBreached(door) && door.sealState !== DOOR_SEAL_SEALED
+        && door.lockState !== DOOR_LOCK_LOCKED && door.state === DOOR_STATE_OPEN);
+    }
+    if (descriptor.kind === "fixture") {
+      const fixture = fixtureById(descriptor.barrierId);
+      return Boolean(fixture && fixture.accessState === "open" && fixture.condition >= STRUCTURE_BREACH_THRESHOLD);
+    }
+    return false;
+  }
+
+  function recordForcedEntryNoise(cell, label) {
+    state.sensoryEvents = Array.isArray(state.sensoryEvents) ? state.sensoryEvents : [];
+    state.sensoryEvents.unshift({
+      id: `forced-entry-noise:${state.clock}:${mapCellKey(cell)}`, at: state.clock, kind: "noise",
+      roomId: labMapCellRoomId(cell), cell: cleanMapCell(cell), intensity: "strong", label
+    });
+    state.sensoryEvents = state.sensoryEvents.slice(0, SENSORY_EVENT_LIMIT);
+    emitMapFeedback("feedbackImpact", cell, {
+      label, intensityBand: "high", damageTags: ["physical", "force"], coalesceKey: `forced-entry:${mapCellKey(cell)}`
+    });
+  }
+
+  function progressForcedEntryBarrier(visit, item, descriptor, elapsed) {
+    let execution = warrantExecutionForVisit(visit);
+    if (!execution?.forcedEntry || execution.forcedEntry.status !== "active") return 0;
+    let authorization = WarrantExecutions.authorizeBarrier(ensureWarrantExecutions(), execution.id, {
+      targetId: item.enforcementTargetId, kind: descriptor.kind, barrierId: descriptor.barrierId,
+      cell: descriptor.cell, label: descriptor.label, condition: descriptor.condition, clock: state.clock,
+      justification: `${descriptor.label} physically blocks the saved warrant target ${item.label}; no unrelated barrier is authorized.`
+    });
+    state.warrantExecutions = authorization.state;
+    execution = authorization.execution;
+    let barrier = authorization.barrier;
+    if (!barrier) return 0;
+    if (barrier.status === "complied") return 0;
+    if (forcedEntryBarrierIsCompliant(descriptor)) {
+      const complied = WarrantExecutions.recordLateCompliance(
+        ensureWarrantExecutions(), execution.id, item.enforcementTargetId, barrier.id, state.clock
+      );
+      state.warrantExecutions = complied.state;
+      addEvent(`${descriptor.label} was physically opened before breach completion; prior obstruction and ${formatNumber(barrier.damageApplied)} existing damage remain recorded.`);
+      return 1;
+    }
+    const work = Math.max(0.25, Math.min(60, Number(elapsed) || 0));
+    let currentCondition = descriptor.condition;
+    let breached = false;
+    if (descriptor.kind === "fixture") {
+      const fixture = fixtureById(descriptor.barrierId);
+      if (!fixture) return 0;
+      const damage = Math.max(0.5, roundOutputValue(work * 1.4));
+      fixture.condition = clamp(fixture.condition - damage, 0, 100);
+      currentCondition = fixture.condition;
+      if (fixture.condition < STRUCTURE_BREACH_THRESHOLD) {
+        fixture.accessState = "open";
+        breached = true;
+      }
+      addEvent(`${visit.supportActors?.[0]?.label || "Breach Officer"} applied ${formatNumber(damage)} physical condition damage to ${fixture.name}.`);
+    } else {
+      const result = applyStructuralDamage(descriptor.cell, Math.max(1, work * 1.25), ["physical", "force"], `${visit.supportActors?.[0]?.label || "the breach officer"}'s pry-bar work`);
+      if (!result.ok) return 0;
+      currentCondition = result.after;
+      breached = result.destroyed || descriptor.kind === "door" && Boolean(doorFixtureState(descriptor.mapDoor)?.breached);
+    }
+    recordForcedEntryNoise(descriptor.cell, `${visit.supportActors?.[0]?.label || "Breach Officer"} forcing ${descriptor.label}`);
+    const progressed = WarrantExecutions.recordBreachProgress(ensureWarrantExecutions(), execution.id, barrier.id, {
+      clock: state.clock, currentCondition, breached
+    });
+    state.warrantExecutions = progressed.state;
+    barrier = progressed.barrier;
+    if (breached) addEvent(`${descriptor.label} was breached under the saved supplemental authority; the physical damage remains on the map.`);
+    return 1;
+  }
+
+  function forcedEntryExpansionCategories(evidence) {
+    const stack = evidence?.subject?.kind === "physicalStack"
+      ? ensurePhysicalItemStacks().find((entry) => entry.id === evidence.subject.id)
+      : null;
+    const categories = stack ? [...warrantStackSubjectCategories(stack)] : [];
+    if (!categories.length && ["chemical", "biological", "commercial"].includes(evidence?.category)) categories.push("hazardousMaterial");
+    if (!categories.length && evidence?.category === "documentary") categories.push("companyRecords");
+    return [...new Set(categories)];
+  }
+
+  function appendForcedEntryExpansionAgenda(visit, execution, expansion) {
+    const point = siteVisitAccessPoint(visit);
+    visit.agenda.push({
+      id: `forced-entry-search-${expansion.targetId}`, roomId: expansion.roomId, fixtureId: expansion.fixtureId,
+      label: expansion.label, method: expansion.method, dwellSeconds: expansion.fixtureId ? 35 : 25,
+      requiresAccess: true, requiresFixtureAccess: Boolean(expansion.fixtureId),
+      enforcementTargetId: expansion.targetId, purpose: "forcedSearch",
+      status: "pending", startedAt: null, completedAt: null, dwellProgress: 0, route: [], routeIndex: 0, blockReason: ""
+    });
+    visit.agenda.push({
+      id: `forced-entry-transfer-${expansion.targetId}`, roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+      targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+      label: `Transfer expanded-scope material from ${expansion.label}`, method: "custodyTransfer", dwellSeconds: 5,
+      enforcementTargetId: expansion.targetId, purpose: "custodyTransfer",
+      status: "pending", startedAt: null, completedAt: null, dwellProgress: 0, route: [], routeIndex: 0, blockReason: ""
+    });
+  }
+
+  function maybeAuthorizeForcedEntryExpansion(visit) {
+    let execution = warrantExecutionForVisit(visit);
+    if (!execution?.forcedEntry || execution.forcedEntry.status !== "active") return 0;
+    const actorCell = cleanMapCell(visit.actor.mapCell);
+    if (!actorCell) return 0;
+    const originalRooms = new Set(execution.scope.authorizedRoomIds);
+    const expandedEvidence = new Set(execution.forcedEntry.expansions.map((entry) => entry.evidenceId));
+    const evidence = ensureInvestigativeEvidence().records.find((record) => {
+      if (expandedEvidence.has(record.id) || record.discoverability.level !== "obvious"
+        || ["exhausted", "lost", "externalized"].includes(record.lifecycle) || investigativeEvidenceIntegrity(record) <= 0) return false;
+      if (record.subject.kind !== "physicalStack" || ["siteVisit", "warrantExecution", "warrantForcedEntry"].includes(record.origin.kind)
+        || ["warrantObstruction", "inspectionObstruction", "violentWarrantObstruction"].includes(record.type)) return false;
+      const roomId = record.locus.roomId;
+      const cell = cleanMapCell(record.locus.cell);
+      if (!roomId || originalRooms.has(roomId) || !SURFACE_ROOM_IDS.includes(roomId) || !cell) return false;
+      if (record.locus.containerId && !containerAccessOpen(containerById(record.locus.containerId))) return false;
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === record.subject.id);
+      if (!stack || !physicalStackExposed(stack)) return false;
+      if (record.locus.fixtureId && !physicalStackExposed(stack)) return false;
+      if (mapCellDistance(actorCell, cell) > 2 || !sensoryLineOfSight(actorCell, cell)) return false;
+      const adjoiningDoor = labMapDoorForRoomPair(visit.actor.roomId, roomId);
+      return Boolean(adjoiningDoor || visit.actor.roomId === roomId);
+    });
+    if (!evidence) return 0;
+    const categories = forcedEntryExpansionCategories(evidence);
+    if (!categories.length) return 0;
+    const result = WarrantExecutions.authorizeExpansion(ensureWarrantExecutions(), execution.id, {
+      evidenceId: evidence.id, observationId: `plain-view:${visit.id}:${evidence.id}`,
+      roomId: evidence.locus.roomId, fixtureId: evidence.locus.fixtureId, sourceCell: actorCell,
+      label: `Expanded target: ${evidence.label}`, method: "warrantExpandedSearch", subjectCategories: categories,
+      maxSubjects: 1, clock: state.clock,
+      reason: `${visit.visitorLabel} physically perceived obvious ${evidence.label.toLowerCase()} from an authorized route into adjoining ${roomName(evidence.locus.roomId)}.`
+    });
+    state.warrantExecutions = result.state;
+    if (!result.created) return 0;
+    execution = result.execution;
+    appendForcedEntryExpansionAgenda(visit, execution, result.expansion);
+    addEvent(`${execution.docket}: scope narrowly expanded to ${result.expansion.label}; the saved plain-view observation and authorization do not expose other contents.`);
+    return 1;
+  }
+
   function completeWarrantAgendaItem(visit, item) {
     const execution = warrantExecutionForVisit(visit);
     if (!execution) return 0;
+    if (item.purpose === "forcedEntryService") {
+      const breachActor = visit.supportActors?.find((actor) => actor.role === "breach") || visit.supportActors?.[0];
+      const activated = WarrantExecutions.activateForcedEntry(
+        ensureWarrantExecutions(), execution.id, visit.actor.id, breachActor?.id, state.clock
+      );
+      state.warrantExecutions = activated.state;
+      ensureForcedEntryToolStack(visit, activated.execution);
+      return activated.changed ? 1 : 0;
+    }
     if (item.purpose === "service") {
       const activated = WarrantExecutions.activate(ensureWarrantExecutions(), execution.id, visit.actor.id, state.clock);
       state.warrantExecutions = activated.state;
       return activated.execution ? 1 : 0;
     }
     if (item.purpose === "custodyTransfer") return externalizeWarrantCustody(visit, execution);
-    if (item.purpose !== "search") return 0;
-    const target = execution.scope.targets.find((entry) => entry.id === item.enforcementTargetId);
-    if (!target || target.status !== "pending") return 0;
+    if (!["search", "forcedSearch"].includes(item.purpose)) return 0;
+    const target = warrantScopeTarget(execution, item.enforcementTargetId);
+    if (!target) return 0;
+    if (item.purpose === "search" && target.status !== "pending") return 0;
+    if (item.purpose === "forcedSearch" && forcedEntryTargetRecord(execution, target.id)?.status !== "pending") return 0;
     const candidates = warrantSearchCandidates(target);
-    const searched = WarrantExecutions.recordSearch(ensureWarrantExecutions(), execution.id, target.id, {
-      status: "searched", clock: state.clock, observedSubjectIds: candidates.map((stack) => stack.id)
-    });
+    const searched = item.purpose === "forcedSearch"
+      ? WarrantExecutions.recordForcedSearch(ensureWarrantExecutions(), execution.id, target.id, {
+        status: "searched", clock: state.clock, observedSubjectIds: candidates.map((stack) => stack.id)
+      })
+      : WarrantExecutions.recordSearch(ensureWarrantExecutions(), execution.id, target.id, {
+        status: "searched", clock: state.clock, observedSubjectIds: candidates.map((stack) => stack.id)
+      });
     state.warrantExecutions = searched.state;
-    return 1 + seizeWarrantTargetSubjects(visit, searched.execution, searched.target, candidates);
+    return 1 + seizeWarrantTargetSubjects(visit, searched.execution, target, candidates);
   }
 
   function finalizeWarrantExecutionVisit(visit) {
     let execution = warrantExecutionForVisit(visit);
     if (!execution) return null;
+    if (visit.sourceKind === "warrantForcedEntry") {
+      externalizeWarrantCustody(visit, execution);
+      for (const target of execution.forcedEntry?.targets.filter((entry) => entry.status === "pending") || []) {
+        const result = WarrantExecutions.recordForcedSearch(ensureWarrantExecutions(), execution.id, target.targetId, {
+          status: "inaccessible", clock: state.clock, reason: "The physical target was not reached during the supplemental execution."
+        });
+        state.warrantExecutions = result.state;
+        execution = result.execution;
+      }
+      const completed = WarrantExecutions.completeForcedEntry(ensureWarrantExecutions(), execution.id, state.clock);
+      state.warrantExecutions = completed.state;
+      execution = completed.execution;
+      const action = ensureInstitutionalResponses().actions.find((entry) => entry.id === execution.actionId);
+      if (action) {
+        if (execution.forcedEntry.status === "completed") {
+          action.status = "executed";
+          action.resolvedAt = state.clock;
+        }
+        action.history.push({ at: state.clock, action: "supplementalReturnFiled", summary: execution.forcedEntry.supplementalReturn.summary });
+      }
+      removeForcedEntryTools(execution);
+      addEvent(`${execution.docket}: ${execution.forcedEntry.supplementalReturn.summary}`);
+      return execution;
+    }
     externalizeWarrantCustody(visit, execution);
     for (const target of execution.scope.targets.filter((entry) => entry.status === "pending")) {
       const result = WarrantExecutions.recordSearch(ensureWarrantExecutions(), execution.id, target.id, {
@@ -7128,13 +7611,15 @@
       action.history.push({ at: state.clock, action: "returnFiled", summary: execution.warrantReturn.summary });
     }
     addEvent(`${execution.docket}: ${execution.warrantReturn.summary}`);
+    if (execution.status === "obstructed") syncForcedEntryEscalations();
     return execution;
   }
 
   function completeSiteVisit(visit) {
     const warrantExecution = finalizeWarrantExecutionVisit(visit);
     const completed = SiteVisits.markComplete(
-      ensureSiteVisits(), visit.id, state.clock, warrantExecution?.warrantReturn?.summary || ""
+      ensureSiteVisits(), visit.id, state.clock,
+      warrantExecution?.forcedEntry?.supplementalReturn?.summary || warrantExecution?.warrantReturn?.summary || ""
     );
     state.siteVisits = completed.state;
     addEvent(`${visit.visitorLabel} departed. ${completed.visit.disclosedSummary}`);
@@ -7158,9 +7643,23 @@
       due.actor.roomId = point.roomId;
       due.actor.kind = "visitor";
       due.actor.inventory = normalizeActorInventory(due.actor.inventory, due.actor);
+      for (const support of due.supportActors || []) {
+        support.present = true;
+        support.mapCell = cleanMapCell(point.cell);
+        support.roomId = point.roomId;
+        support.kind = "visitor";
+        support.inventory = normalizeActorInventory(support.inventory, support);
+      }
       due.routeHistory.push({ at: state.clock, cell: cleanMapCell(point.cell), roomId: point.roomId, agendaId: "arrival" });
       const warrantExecution = warrantExecutionForVisit(due);
-      if (warrantExecution) {
+      if (warrantExecution && due.sourceKind === "warrantForcedEntry") {
+        const breachActor = due.supportActors?.find((actor) => actor.role === "breach") || due.supportActors?.[0];
+        const activated = WarrantExecutions.activateForcedEntry(
+          ensureWarrantExecutions(), warrantExecution.id, due.actor.id, breachActor?.id, state.clock
+        );
+        state.warrantExecutions = activated.state;
+        ensureForcedEntryToolStack(due, activated.execution);
+      } else if (warrantExecution) {
         const activated = WarrantExecutions.activate(ensureWarrantExecutions(), warrantExecution.id, due.actor.id, state.clock);
         state.warrantExecutions = activated.state;
       }
@@ -7175,21 +7674,39 @@
       active.agendaIndex += 1;
       return changes + 1;
     }
-    if (item.requiresAccess && !active.grantedRoomIds.includes(item.roomId)) {
+    const forcedEntry = forcedEntryForVisit(active);
+    if (item.requiresAccess && !active.grantedRoomIds.includes(item.roomId)
+      && !(forcedEntry && forcedEntryAccessRequestDenied(active, item, "room", item.roomId))) {
       const request = siteVisitEnsureRequest(active, "room", item.roomId, item.label, true);
-      if (request?.decision === "denied") { item.status = "skipped"; item.completedAt = state.clock; active.agendaIndex += 1; }
+      if (request?.decision === "denied" && !forcedEntry) { item.status = "skipped"; item.completedAt = state.clock; active.agendaIndex += 1; }
       return changes + 1;
     }
-    if (item.requiresFixtureAccess && !active.grantedFixtureIds.includes(item.fixtureId)) {
-      siteVisitEnsureRequest(active, "fixture", item.fixtureId, item.label, true);
+    if (item.requiresFixtureAccess && !active.grantedFixtureIds.includes(item.fixtureId)
+      && !(forcedEntry && forcedEntryAccessRequestDenied(active, item, "fixture", item.fixtureId))) {
+      const request = siteVisitEnsureRequest(active, "fixture", item.fixtureId, item.label, true);
+      if (request?.decision === "denied" && forcedEntry) return changes + 1;
       return changes + 1;
     }
     const targetCell = siteVisitAgendaTargetCell(item);
     if (!targetCell) { item.status = "skipped"; item.blockReason = "Target no longer exists"; active.agendaIndex += 1; return changes + 1; }
     if (!item.route.length || mapCellKey(item.route.at(-1)) !== mapCellKey(targetCell)) {
-      item.route = labMapPathBetweenCells(active.actor.mapCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, ignoreObjects: true });
+      item.route = forcedEntry
+        ? forcedEntryPathBetweenCells(active.actor.mapCell, targetCell)
+        : labMapPathBetweenCells(active.actor.mapCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, ignoreObjects: true });
       item.routeIndex = 0;
-      if (!item.route.length) { item.blockReason = "No reachable physical route"; active.phase = "waiting"; return changes + 1; }
+      if (!item.route.length) {
+        item.blockReason = "No reachable physical route";
+        if (forcedEntry && item.enforcementTargetId) {
+          const inaccessible = WarrantExecutions.recordForcedSearch(ensureWarrantExecutions(), active.sourceId, item.enforcementTargetId, {
+            status: "inaccessible", clock: state.clock, reason: "No lawful route or breachable constructed barrier reaches the target."
+          });
+          state.warrantExecutions = inaccessible.state;
+          item.status = "skipped";
+          item.completedAt = state.clock;
+          active.agendaIndex += 1;
+        } else active.phase = "waiting";
+        return changes + 1;
+      }
     }
     active.phase = "inspecting";
     item.status = "active";
@@ -7198,13 +7715,22 @@
     while (active.actor.movementAccumulator >= 1 && item.routeIndex < item.route.length - 1) {
       const currentCell = item.route[item.routeIndex];
       const nextCell = item.route[item.routeIndex + 1];
+      if (forcedEntry) {
+        const barrier = forcedEntryBarrierDescriptor(active, item, currentCell, nextCell);
+        if (barrier) {
+          item.blockReason = `${barrier.label} is under specifically authorized breach work.`;
+          active.phase = "inspecting";
+          changes += progressForcedEntryBarrier(active, item, barrier, elapsed);
+          return changes;
+        }
+      }
       const mapDoor = labMapDoorAtCell(currentCell) || labMapDoorAtCell(nextCell) || labMapDoorForCells(currentCell, nextCell);
       const door = mapDoor ? doorFixtureState(mapDoor) : null;
       if (door && !doorIsBreached(door)) {
         if (door.sealState === DOOR_SEAL_SEALED || door.lockState === DOOR_LOCK_LOCKED) {
           item.blockReason = doorFixtureSecurityBlockReason(mapDoor);
           const request = siteVisitEnsureRequest(active, "door", mapDoor.id, doorActionLabel(mapDoor), true);
-          if (request?.decision === "denied" && warrantExecutionForVisit(active)) {
+          if (request?.decision === "denied" && warrantExecutionForVisit(active) && !forcedEntry) {
             item.status = "skipped";
             item.completedAt = state.clock;
             active.agendaIndex += 1;
@@ -7217,18 +7743,34 @@
           addEvent(`${active.visitorLabel} physically opened ${doorActionLabel(mapDoor)}.`);
         }
       }
+      const priorLeadCell = cleanMapCell(active.actor.mapCell);
       item.routeIndex += 1;
       active.actor.mapCell = cleanMapCell(nextCell);
       active.actor.roomId = labMapCellRoomId(nextCell) || active.actor.roomId;
+      for (const support of active.supportActors || []) {
+        support.mapCell = priorLeadCell || cleanMapCell(nextCell);
+        support.roomId = labMapCellRoomId(support.mapCell) || active.actor.roomId;
+        support.facing = active.actor.facing;
+      }
       active.actor.movementAccumulator -= 1;
       active.routeHistory.push({ at: state.clock, cell: cleanMapCell(nextCell), roomId: active.actor.roomId, agendaId: item.id });
       changes += 1;
+      if (forcedEntry) changes += maybeAuthorizeForcedEntryExpansion(active);
     }
-    if (active.actor.inventory?.stackIds?.length) syncActorInventories();
+    if (siteVisitActors(active).some((actor) => actor.inventory?.stackIds?.length)) syncActorInventories();
     if (item.routeIndex < item.route.length - 1) return changes;
     item.blockReason = "";
     const fixture = item.fixtureId ? fixtureById(item.fixtureId) : null;
     if (fixture && fixture.accessState !== "open") {
+      if (forcedEntry && forcedEntryAccessRequestDenied(active, item, "fixture", fixture.id)) {
+        const descriptor = {
+          kind: "fixture", barrierId: fixture.id, cell: cleanMapCell(fixture.origin),
+          label: fixture.name, condition: Number(fixture.condition) || 100
+        };
+        item.blockReason = `${fixture.name} is under specifically authorized fixture breach work.`;
+        active.phase = "inspecting";
+        return changes + progressForcedEntryBarrier(active, item, descriptor, elapsed);
+      }
       item.blockReason = `${fixture.name} is ${fixture.accessState}; its contents remain unknown.`;
       active.phase = "waiting";
       return changes + 1;
@@ -9235,6 +9777,7 @@
       warrantExecutionsSnapshot: () => clonePlainObject({
         ...ensureWarrantExecutions(),
         nextExecution: WarrantExecutions.nextEvent(ensureWarrantExecutions(), state.clock),
+        nextForcedEntry: WarrantExecutions.nextForcedEntryEvent(ensureWarrantExecutions(), state.clock),
         clock: state.clock
       }),
       issueTestWarrant: (institutionId = "commercial-registry", options = {}) => {
@@ -9261,6 +9804,20 @@
           }
         }
         persist(); render(); return execution ? clonePlainObject(execution) : null;
+      },
+      setForcedEntryImmediate: (executionId) => {
+        const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === executionId);
+        if (!execution?.forcedEntry) return null;
+        execution.forcedEntry.arrivalAt = state.clock;
+        execution.forcedEntry.arrivalWindowEnd = state.clock + SECONDS_PER_HOUR;
+        const visit = siteVisitById(execution.forcedEntry.visitId);
+        if (visit) {
+          visit.noticeAt = state.clock;
+          visit.arrivalAt = state.clock;
+          visit.arrivalWindow.start = state.clock;
+          visit.arrivalWindow.end = state.clock + SECONDS_PER_HOUR;
+        }
+        persist(); render(); return clonePlainObject(execution);
       },
       updateInstitutionalResponses: () => {
         const changed = updateInstitutionalResponses();
@@ -9296,6 +9853,11 @@
         const task = queueSiteVisitFixtureAccess(visitId, fixtureId);
         return task ? clonePlainObject(task) : null;
       },
+      queueForcedEntryCompliance: (visitId, barrierId) => {
+        const task = queueForcedEntryCompliance(visitId, barrierId);
+        return task ? clonePlainObject(task) : null;
+      },
+      resistForcedEntry: (visitId) => resistForcedEntry(visitId),
       setStorageFixtureAccessState: (fixtureId, accessState) => setStorageFixtureAccessState(fixtureId, accessState),
       updateInvestigationCases: () => {
         const changed = updateInvestigationCases();
@@ -13879,6 +14441,11 @@
 
     if (task.type === "visitFixtureAccess") {
       completeSiteVisitFixtureAccess(task);
+      return;
+    }
+
+    if (task.type === "forcedEntryCompliance") {
+      completeForcedEntryCompliance(task);
       return;
     }
 
@@ -23346,7 +23913,8 @@
     const id = normalizeActorInventoryOwnerId(actorId);
     if (id === "scientist") return context?.scientist || null;
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
-      || (context?.siteVisits?.visits || []).find((visit) => visit.actor?.id === id && visit.actor.present)?.actor
+      || (context?.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
+        .find((actor) => actor?.id === id && actor.present)
       || null;
   }
 
@@ -23368,8 +23936,8 @@
     const actors = [
       { id: "scientist", actor: context.scientist },
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
-      ...(context.siteVisits?.visits || []).filter((visit) => visit.actor?.present)
-        .map((visit) => ({ id: visit.actor.id, actor: visit.actor }))
+      ...(context.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
+        .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor }))
     ];
     const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.kind === "visitor" || actor.status !== "dead").map((entry) => entry.id));
     let changed = false;
@@ -55038,31 +55606,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       visual: { ...scientistSpriteVisual, glyph: "S", recipeKey: `scientist:self:${scientistActorState.pose}:${scientistActorState.facing}` },
       blocking: false
     });
-    for (const visit of ensureSiteVisits().visits.filter((entry) => entry.actor.present && entry.actor.mapCell)) {
+    for (const visit of ensureSiteVisits().visits.filter((entry) => siteVisitActors(entry).some((actor) => actor.present && actor.mapCell))) {
       const item = siteVisitCurrentAgenda(visit);
       const warrantExecution = warrantExecutionForVisit(visit);
       const carriedSeizures = warrantExecution?.seizures.filter((seizure) => seizure.status === "carried").length || 0;
-      const visitorStatusCues = visit.phase === "waiting" ? [sceneStatusCue("access-request", "warning", "Awaiting access", "?")] : [];
-      if (warrantExecution) visitorStatusCues.push(sceneStatusCue("warrant", "critical", `${warrantExecution.scope.label}${carriedSeizures ? `; carrying ${carriedSeizures} seized subject(s)` : ""}`, "W"));
-      entities.push({
-        id: `visitor:${visit.actor.id}`,
-        kind: "visitor",
-        category: "actor",
-        subtype: visit.typeId,
-        target: { kind: "visitor", id: visit.actor.id },
-        anchorCell: cleanMapCell(visit.actor.mapCell),
-        footprintCells: [cleanMapCell(visit.actor.mapCell)],
-        orientation: "square",
-        facing: visit.actor.facing || "south",
-        pose: visit.phase === "waiting" ? "waiting" : "walking",
-        activity: { id: visit.phase, label: item ? `${titleCase(visit.phase)}: ${item.label}` : titleCase(visit.phase), source: "simulation" },
-        motion: null,
-        condition: { ratio: 1, band: "healthy", cues: [] },
-        statusCues: visitorStatusCues,
-        knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "scheduled visit" },
-        visual: { key: "actor.scientist", glyph: warrantExecution ? "W" : "V", recipeKey: `visitor:${visit.typeId}:${visit.phase}` },
-        blocking: false
-      });
+      for (const actor of siteVisitActors(visit).filter((entry) => entry.present && entry.mapCell)) {
+        const visitorStatusCues = visit.phase === "waiting" ? [sceneStatusCue("access-request", "warning", "Awaiting access", "?")] : [];
+        if (warrantExecution) visitorStatusCues.push(sceneStatusCue("warrant", "critical", `${warrantExecution.scope.label}${carriedSeizures ? `; carrying ${carriedSeizures} seized subject(s)` : ""}`, "W"));
+        if (actor.role === "breach") visitorStatusCues.push(sceneStatusCue("breach", "critical", "Authorized breach officer carrying physical entry tools", "B"));
+        entities.push({
+          id: `visitor:${actor.id}`,
+          kind: "visitor",
+          category: "actor",
+          subtype: actor.role === "breach" ? "breachOfficer" : visit.typeId,
+          target: { kind: "visitor", id: actor.id },
+          anchorCell: cleanMapCell(actor.mapCell),
+          footprintCells: [cleanMapCell(actor.mapCell)],
+          orientation: "square",
+          facing: actor.facing || "south",
+          pose: visit.phase === "waiting" ? "waiting" : "walking",
+          activity: { id: visit.phase, label: item ? `${titleCase(visit.phase)}: ${item.label}` : titleCase(visit.phase), source: "simulation" },
+          motion: null,
+          condition: { ratio: clamp((Number(actor.health) || 100) / 100, 0, 1), band: actor.health < 50 ? "injured" : "healthy", cues: [] },
+          statusCues: visitorStatusCues,
+          knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "scheduled visit" },
+          visual: { key: "actor.scientist", glyph: actor.role === "breach" ? "B" : warrantExecution ? "W" : "V", recipeKey: `visitor:${actor.role || visit.typeId}:${visit.phase}` },
+          blocking: false
+        });
+      }
     }
     for (const door of Object.values(map.doors || {})) {
       const stateDoor = doorFixtureState(door) || door;
@@ -55508,6 +56079,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!visit?.actor.present) return "The visitor is no longer on site.";
       if (!visit.grantedFixtureIds.includes(fixture.id)) return "The visit no longer has permission for this fixture.";
     }
+    if (task.type === "forcedEntryCompliance") {
+      const visit = siteVisitById(task.data?.visitId);
+      const execution = warrantExecutionForVisit(visit);
+      const barrier = execution?.forcedEntry?.barriers.find((entry) => entry.id === task.data?.barrierId);
+      if (!visit?.actor.present) return "The enforcement team is no longer on site.";
+      if (!barrier || barrier.status !== "complied") return "This forced-entry barrier no longer awaits late compliance.";
+      const targetCell = cleanMapCell(task.data?.toCell);
+      if (!targetCell || !labMapPathBetweenCells(scientistMapCell(), targetCell, {
+        map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true
+      }).length) return "No physical route currently reaches the barrier operating position.";
+    }
     if (task.type === "institutionalResponse") {
       return institutionalResponseTaskBlockReason(task);
     }
@@ -55879,8 +56461,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (kind === "visitor") {
       const id = String(candidate.id || "");
-      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === id && entry.actor.present);
-      return visit ? { kind, id: visit.actor.id } : null;
+      const found = siteVisitActorById(id);
+      return found?.actor.present ? { kind, id: found.actor.id } : null;
     }
     if (kind === "tile") {
       const map = ensureLabMap();
@@ -56066,7 +56648,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Scientist";
     }
     if (selection.kind === "visitor") {
-      return ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.visitorLabel || "Visitor";
+      const found = siteVisitActorById(selection.id);
+      return found?.actor.label || found?.visit.visitorLabel || "Visitor";
     }
     if (selection.kind === "tile") {
       return `Tile ${selection.tile.x},${selection.tile.y}, Z ${selection.tile.z}`;
@@ -56148,7 +56731,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return scientistRoomId();
     }
     if (selection.kind === "visitor") {
-      return ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.actor.roomId || "";
+      return siteVisitActorById(selection.id)?.actor.roomId || "";
     }
     if (selection.kind === "tile") {
       return selection.roomId || labMapCellRoomId(selection.tile);
@@ -56201,7 +56784,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return scientistMapCell();
     }
     if (selection.kind === "visitor") {
-      return cleanMapCell(ensureSiteVisits().visits.find((visit) => visit.actor.id === selection.id)?.actor.mapCell);
+      return cleanMapCell(siteVisitActorById(selection.id)?.actor.mapCell);
     }
     if (selection.kind === "tile") {
       return selection.tile;
@@ -59110,21 +59693,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function selectionSummaryRows(selection) {
     if (selection.kind === "visitor") {
-      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
+      const found = siteVisitActorById(selection.id);
+      const visit = found?.visit;
+      const actor = found?.actor;
       if (!visit) return [];
       const warrantExecution = warrantExecutionForVisit(visit);
       const rows = [
-        ["Visitor", visit.visitorLabel], ["Institution", externalInstitutionLabel(visit.institutionId)],
+        ["Visitor", actor?.label || visit.visitorLabel], ["Role", titleCase(actor?.role || "lead")], ["Institution", externalInstitutionLabel(visit.institutionId)],
         ["Mandate", visit.mandate], ["Phase", titleCase(visit.phase)],
-        ["Current activity", siteVisitCurrentAgenda(visit)?.label || "Departing"], ["Room", roomName(visit.actor.roomId)],
+        ["Current activity", siteVisitCurrentAgenda(visit)?.label || "Departing"], ["Room", roomName(actor?.roomId)],
         ["Access", `${visit.grantedRoomIds.length} rooms and ${visit.grantedFixtureIds.length} fixtures granted`],
-        ["Carrying", actorInventoryContentsLabel(visit.actor.id)]
+        ["Carrying", actorInventoryContentsLabel(actor?.id)]
       ];
       if (warrantExecution) rows.push(
         ["Warrant", `${warrantExecution.docket} · ${warrantExecution.scope.label}`],
         ["Authorized rooms", warrantExecution.scope.authorizedRoomIds.map(roomName).join(", ")],
         ["Authorized subjects", warrantExecution.scope.subjectCategories.map(titleCase).join(", ")],
         ["Seizures", warrantExecution.seizures.map((seizure) => `${seizure.label} (${titleCase(seizure.status)})`).join("; ") || "None"]
+      );
+      if (warrantExecution?.forcedEntry) rows.push(
+        ["Forced entry", titleCase(warrantExecution.forcedEntry.status)],
+        ["Team", siteVisitActors(visit).map((entry) => `${entry.label} (${titleCase(entry.role)})`).join("; ")],
+        ["Barriers", warrantExecution.forcedEntry.barriers.map((entry) => `${entry.label}: ${titleCase(entry.status)}, ${formatNumber(entry.damageApplied)} damage`).join("; ") || "None encountered"],
+        ["Expanded scope", warrantExecution.forcedEntry.expansions.map((entry) => entry.label).join("; ") || "None"]
       );
       return rows;
     }
@@ -59645,7 +60236,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function selectionHistoryRows(selection) {
     if (selection.kind === "visitor") {
-      const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
+      const visit = siteVisitActorById(selection.id)?.visit;
       const warrantExecution = warrantExecutionForVisit(visit);
       const rows = visit ? [
         ["Arrived", formatClock(visit.startedAt)], ["Route observations", String(visit.routeHistory.length)],
@@ -59654,6 +60245,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (warrantExecution) rows.push(
         ["Custody events", String(warrantExecution.seizures.reduce((total, seizure) => total + seizure.custody.length, 0))],
         ["Warrant return", warrantExecution.warrantReturn?.summary || "Not yet filed"]
+      );
+      if (warrantExecution?.forcedEntry) rows.push(
+        ["Barrier work", `${warrantExecution.forcedEntry.barriers.length} specifically authorized barrier record(s)`],
+        ["Supplemental return", warrantExecution.forcedEntry.supplementalReturn?.summary || "Not yet filed"]
       );
       return rows;
     }
@@ -64282,6 +64877,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "visitFixtureAccess") {
       return "Visit Access";
     }
+    if (task.type === "forcedEntryCompliance") {
+      return "Forced-Entry Compliance";
+    }
     if (task.type === "synthesize") {
       return "Scientist";
     }
@@ -64534,6 +65132,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
               actionRow.append(textEl("span", `${target.label}: ${titleCase(target.status)}${target.seizedSubjectIds.length ? ` · ${target.seizedSubjectIds.length} exact subject(s) seized` : ""}.`, "journal-meta"));
             }
             if (execution.warrantReturn) actionRow.append(textEl("span", execution.warrantReturn.summary, "journal-meta"));
+            if (execution.forcedEntry) {
+              const operation = execution.forcedEntry;
+              actionRow.append(textEl("span", `Forced-entry return: ${titleCase(operation.status)} · original obstructed targets only · team window ${formatClock(operation.arrivalAt)}–${formatClock(operation.arrivalWindowEnd)}.`, "journal-meta"));
+              for (const barrier of operation.barriers) {
+                actionRow.append(textEl("span", `${barrier.label}: ${titleCase(barrier.status)} · ${formatNumber(barrier.damageApplied)} condition damage · ${barrier.justification}`, "journal-meta"));
+              }
+              for (const expansion of operation.expansions) {
+                actionRow.append(textEl("span", `Expanded scope: ${expansion.label} · observation ${expansion.observationId} · ${expansion.reason}`, "journal-meta"));
+              }
+              if (operation.supplementalReturn) actionRow.append(textEl("span", operation.supplementalReturn.summary, "journal-meta"));
+            }
           }
         }
         details.append(actionRow);
@@ -64618,6 +65227,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           row.append(textEl("span", `Warrant scope: ${warrantExecution.scope.targets.map((target) => target.label).join("; ")}. Observation outside these targets does not authorize seizure.`, "journal-meta"));
           if (warrantExecution.seizures.length) {
             row.append(textEl("span", `Custody: ${warrantExecution.seizures.map((seizure) => `${seizure.label} (${titleCase(seizure.status)})`).join("; ")}.`, "journal-meta"));
+          }
+          const forcedEntry = forcedEntryForVisit(visit);
+          if (forcedEntry) {
+            row.dataset.forcedEntryVisit = "true";
+            row.append(textEl("span", `Two-person return team: ${siteVisitActors(visit).map((actor) => `${actor.label || visit.visitorLabel} (${titleCase(actor.role)})`).join("; ")}. Authority is limited to ${forcedEntry.targets.length} saved target(s).`, "journal-meta"));
+            for (const barrier of forcedEntry.barriers) {
+              row.append(textEl("span", `${barrier.label}: ${titleCase(barrier.status)} · ${formatNumber(barrier.damageApplied)} condition damage · ${barrier.justification}`, "journal-meta"));
+              if (visit.actor.present && ["authorized", "breaching"].includes(barrier.status) && ["door", "fixture"].includes(barrier.kind)) {
+                const comply = document.createElement("button");
+                comply.type = "button";
+                comply.textContent = `Stop Breach and Open ${barrier.label}`;
+                comply.disabled = state.tasks.some((task) => task.type === "forcedEntryCompliance" && task.data?.barrierId === barrier.id);
+                comply.addEventListener("click", () => queueForcedEntryCompliance(visit.id, barrier.id));
+                row.append(comply);
+              }
+            }
+            for (const expansion of forcedEntry.expansions) {
+              row.append(textEl("span", `Saved expanded scope: ${expansion.label} · ${expansion.reason}`, "journal-meta"));
+            }
+            if (visit.actor.present && forcedEntry.status === "active") {
+              const resist = document.createElement("button");
+              resist.type = "button";
+              resist.className = "danger-button";
+              resist.textContent = "Attack Enforcement Team";
+              resist.title = "Requires adjacency. This creates permanent violent-obstruction evidence; the team defends itself and withdraws. Arrest and pursuit are deferred.";
+              resist.addEventListener("click", () => resistForcedEntry(visit.id));
+              row.append(resist);
+            }
           }
         }
         row.append(textEl("span", visit.phase === "scheduled"

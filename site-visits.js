@@ -5,7 +5,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixSiteVisits() {
   "use strict";
 
-  const VERSION = 1;
+  const VERSION = 2;
   const VISITOR_TYPES = Object.freeze([
     {
       id: "registryAuditor", label: "Commercial Registry auditor", actorLabel: "Registry Auditor",
@@ -131,6 +131,21 @@
     };
   }
 
+  function normalizeVisitorActor(candidate, fallbackId, fallbackLabel = "Visitor", fallbackRole = "lead") {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    return {
+      id: cleanId(source.id) || cleanId(fallbackId),
+      label: String(source.label || fallbackLabel).trim(), role: cleanId(source.role) || fallbackRole,
+      mapCell: cleanCell(source.mapCell), roomId: cleanId(source.roomId), present: Boolean(source.present),
+      movementAccumulator: Math.max(0, finite(source.movementAccumulator)), facing: cleanId(source.facing) || "south",
+      kind: "visitor", health: Math.max(0, Math.min(100, finite(source.health, 100))),
+      inventory: source.inventory && typeof source.inventory === "object" ? { ...source.inventory } : null,
+      equipment: (Array.isArray(source.equipment) ? source.equipment : []).map((entry) => ({
+        id: cleanId(entry?.id), label: String(entry?.label || "Enforcement equipment").trim()
+      })).filter((entry) => entry.id)
+    };
+  }
+
   function normalizeVisit(candidate, index = 0) {
     const source = candidate && typeof candidate === "object" ? candidate : {};
     const type = visitType(source.typeId);
@@ -147,11 +162,10 @@
       },
       arrivalAt: Math.max(0, finite(source.arrivalAt, source.arrivalWindow?.start)), phase,
       startedAt: source.startedAt == null ? null : Math.max(0, finite(source.startedAt)), completedAt: source.completedAt == null ? null : Math.max(0, finite(source.completedAt)),
-      actor: {
-        id: cleanId(source.actor?.id) || `visitor-actor-${index + 1}`, mapCell: cleanCell(source.actor?.mapCell), roomId: cleanId(source.actor?.roomId),
-        present: Boolean(source.actor?.present), movementAccumulator: Math.max(0, finite(source.actor?.movementAccumulator)), facing: cleanId(source.actor?.facing) || "south",
-        kind: "visitor", inventory: source.actor?.inventory && typeof source.actor.inventory === "object" ? { ...source.actor.inventory } : null
-      },
+      actor: normalizeVisitorActor(source.actor, `visitor-actor-${index + 1}`, source.visitorLabel || type.actorLabel, "lead"),
+      supportActors: (Array.isArray(source.supportActors) ? source.supportActors : []).map((actor, actorIndex) => normalizeVisitorActor(
+        actor, `visitor-support-${index + 1}-${actorIndex + 1}`, `Support Officer ${actorIndex + 1}`, "support"
+      )),
       agenda: agendaSource.map(normalizeAgendaItem), agendaIndex: Math.max(0, Math.floor(finite(source.agendaIndex))),
       requests: (Array.isArray(source.requests) ? source.requests : []).map(normalizeRequest),
       grantedRoomIds: uniqueIds(source.grantedRoomIds), grantedFixtureIds: uniqueIds(source.grantedFixtureIds),
@@ -197,7 +211,10 @@
       mandate: options.mandate || type.mandate, accessPointId: options.accessPointId || type.accessPointId,
       sourceKind: options.sourceKind, sourceId: options.sourceId,
       noticeAt, arrivalAt, arrivalWindow: { start: arrivalAt, end: Math.max(arrivalAt, finite(options.arrivalWindowEnd, arrivalAt + 3600)) },
-      actor: { id: `visitor-actor-${id}`, present: false, kind: "visitor", inventory: options.actorInventory },
+      actor: { id: `visitor-actor-${id}`, label: options.visitorLabel || type.actorLabel, role: "lead", present: false, kind: "visitor", inventory: options.actorInventory },
+      supportActors: (Array.isArray(options.supportActors) ? options.supportActors : []).map((actor, actorIndex) => ({
+        ...actor, id: actor.id || `visitor-support-${id}-${actorIndex + 1}`, present: false, kind: "visitor"
+      })),
       agenda: Array.isArray(options.agenda) && options.agenda.length ? options.agenda : type.agenda
     }, state.visits.length);
     state.visits.push(visit);
@@ -317,6 +334,7 @@
     visit.phase = "completed";
     visit.completedAt = Math.max(0, finite(clock));
     visit.actor.present = false;
+    for (const actor of visit.supportActors) actor.present = false;
     visit.disclosedSummary = String(summary || (visit.findings.length ? `${visit.findings.length} finding${visit.findings.length === 1 ? "" : "s"} recorded.` : "Visit completed without a disclosed finding.")).trim();
     return { state, visit };
   }
