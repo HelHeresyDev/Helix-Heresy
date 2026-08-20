@@ -159,8 +159,8 @@ test('@smoke a physical surrender is restrained, extracted, and booked without e
   expect(booked).toMatchObject({ runEnded: false, scientist: { roomId: 'municipalHoldingCell', mapCell: { z: 3 } } });
 
   await page.locator('[data-workspace-tab="visits"]').click();
-  await expect(page.locator(`[data-raid-id="${execution.raidId}"]`)).toContainText('The run continues');
-  await expect(page.locator(`[data-raid-id="${execution.raidId}"] button`, { hasText: 'Study Cell Security' })).toBeVisible();
+  await expect(page.locator(`[data-raid-id="${execution.raidId}"]`)).toContainText('arrest is not defeat');
+  await expect(page.locator(`[data-raid-id="${execution.raidId}"] button`, { hasText: 'Observe Cell-door procedure' })).toBeVisible();
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
@@ -174,7 +174,7 @@ test('@smoke a physical surrender is restrained, extracted, and booked without e
     await page.evaluate((seconds) => window.helixHeresyDebug.advanceSimulation(seconds), Math.ceil(task.dueAt - clock + 1));
   }
   const studied = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot());
-  expect(studied.detentionRaid.detention).toMatchObject({ status: 'pretrial', securityStudyProgress: 100, alert: 10 });
+  expect(studied.detentionRaid.detention).toMatchObject({ status: 'pretrial', securityStudyProgress: 100, alert: 15 });
   expect(studied.runEnded).toBe(false);
 
   const escaped = await page.evaluate((raidId) => window.helixHeresyDebug.escapeMunicipalHolding(raidId), execution.raidId);
