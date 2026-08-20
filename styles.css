@@ -3004,6 +3004,60 @@ body.map-dragging .lab-map-canvas-host {
   color: var(--muted);
 }
 
+.institutional-demand,
+.institutional-action {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid #414438;
+  border-radius: 5px;
+  background: #171813;
+}
+
+.institutional-demand-heading,
+.institutional-action {
+  align-items: center;
+}
+
+.institutional-demand-heading,
+.institutional-action > strong {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.institutional-response-form {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #34372f;
+}
+
+.institutional-response-form > label,
+.institutional-citation-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.institutional-response-form textarea {
+  resize: vertical;
+  min-height: 3.5rem;
+}
+
+.institutional-citation-field {
+  max-height: 13rem;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid #393c33;
+}
+
+.institutional-citation-field label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
 .trait-label {
   display: flex;
   align-items: center;

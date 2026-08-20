@@ -4253,6 +4253,10 @@
   if (!InvestigationCases) {
     throw new Error("HelixInvestigationCases must load before app.js");
   }
+  const InstitutionalResponses = window.HelixInstitutionalResponses;
+  if (!InstitutionalResponses) {
+    throw new Error("HelixInstitutionalResponses must load before app.js");
+  }
   const SiteVisits = window.HelixSiteVisits;
   if (!SiteVisits) {
     throw new Error("HelixSiteVisits must load before app.js");
@@ -4643,6 +4647,7 @@
     "blackMarketTrade",
     "commodityFreight",
     "companyFiling",
+    "institutionalResponse",
     "physicalDiagnostic",
     "excavate",
     "constructionWork",
@@ -4911,6 +4916,7 @@
       evidenceHandling: EvidenceHandling.defaultState(),
       externalDetection: ExternalDetection.defaultState(),
       investigations: InvestigationCases.defaultState(),
+      institutionalResponses: InstitutionalResponses.defaultState(),
       siteVisits: SiteVisits.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
@@ -6341,6 +6347,17 @@
     return target.investigations;
   }
 
+  function ensureInstitutionalResponses(target = state) {
+    if (target.institutionalResponses?.version === InstitutionalResponses.VERSION
+      && Array.isArray(target.institutionalResponses.demands)
+      && Array.isArray(target.institutionalResponses.responses)
+      && Array.isArray(target.institutionalResponses.actions)) {
+      return target.institutionalResponses;
+    }
+    target.institutionalResponses = InstitutionalResponses.normalizeState(target.institutionalResponses);
+    return target.institutionalResponses;
+  }
+
   function investigationReportSignals() {
     const detection = ensureExternalDetection();
     const evidenceById = new Map(ensureInvestigativeEvidence().records.map((record) => [record.id, record]));
@@ -6359,7 +6376,8 @@
   }
 
   function investigationCasePressure() {
-    return InvestigationCases.casePressure(ensureInvestigations());
+    return InvestigationCases.casePressure(ensureInvestigations())
+      + InstitutionalResponses.actionPressure(ensureInstitutionalResponses());
   }
 
   function updateInvestigationCases() {
@@ -6374,7 +6392,146 @@
       const authorityCase = state.investigations.cases.find((entry) => entry.id === caseId);
       if (authorityCase) addEvent(`${externalInstitutionLabel(authorityCase.institutionId)} disclosed case ${authorityCase.docket}: ${authorityCase.publicConcern}.`);
     }
-    return result.openedCaseIds.length + result.disclosedCaseIds.length + result.changedCaseIds.length;
+    return result.openedCaseIds.length + result.disclosedCaseIds.length + result.changedCaseIds.length
+      + updateInstitutionalResponses();
+  }
+
+  function institutionalCompanyRecordTags(record) {
+    const tags = new Set(["records", record.category, record.kind]);
+    const text = `${record.kind} ${record.category} ${record.label} ${record.details}`.toLowerCase();
+    if (/inherit|identity|corporate|operating state|registration/.test(text)) tags.add("identity");
+    if (/filing|record|amend/.test(text)) tags.add("filing");
+    if (/amend|correct|repair|maintain|service/.test(text)) tags.add("correction");
+    if (/purchase|receipt|freight|inventory/.test(text)) tags.add("inventory");
+    if (/purchase|receipt|source|provenance/.test(text)) tags.add("provenance");
+    if (/purchase/.test(text)) tags.add("purchase");
+    if (/sale|shipment|consignment/.test(text)) tags.add("sale");
+    if (/waste|disposal|carrier|manifest/.test(text)) tags.add("waste");
+    if (/disposal|carrier|manifest/.test(text)) tags.add("disposal");
+    if (/diagnostic|analysis|assay|test cycle/.test(text)) tags.add("diagnostic");
+    if (/maintain|repair|service|equipment|safety/.test(text)) tags.add("maintenance");
+    if (/maintain|repair|service|equipment|safety|public/.test(text)) tags.add("siteConditions");
+    return [...tags].filter(Boolean);
+  }
+
+  function institutionalCitationCatalog() {
+    ensureCompanyRecordPackets();
+    const handling = ensureEvidenceHandling();
+    const physicalStacks = ensurePhysicalItemStacks();
+    const packetByPeriod = new Map(handling.packets
+      .filter((packet) => packet.status !== "destroyed" && physicalStacks.some((stack) => stack.id === packet.stackId && stack.quantity > 0))
+      .map((packet) => [packet.periodId, packet]));
+    const citations = [];
+    for (const record of ensureCompany().records) {
+      if (!packetByPeriod.has(record.periodId)) continue;
+      citations.push({
+        id: `companyRecord:${record.id}`, sourceKind: "companyRecord", sourceId: record.id,
+        label: record.label, at: record.at, tags: institutionalCompanyRecordTags(record),
+        externalCopy: ensureCompany().periods.some((period) => period.id === record.periodId && period.status === "filed")
+      });
+    }
+    for (const manifest of handling.manifests) {
+      if (!physicalStacks.some((stack) => stack.id === manifest.stackId && stack.quantity > 0)) continue;
+      citations.push({
+        id: `disposalManifest:${manifest.id}`, sourceKind: "disposalManifest", sourceId: manifest.id,
+        label: `Licensed disposal manifest ${manifest.id}`, at: manifest.transferredAt,
+        tags: ["records", "waste", "disposal", "manifest", "provenance"], externalCopy: true
+      });
+    }
+    for (const record of knownInvestigativeEvidence({ includeExhausted: false })) {
+      if (record.knowledge.state !== "known" || record.type === "companyRecordsPacket") continue;
+      const text = `${record.type} ${record.category} ${(record.traits || []).join(" ")}`.toLowerCase();
+      const tags = new Set([record.category, record.type, "physicalCondition"]);
+      if (/chemical|biological|waste|residue|discharge|spill/.test(text)) tags.add("waste");
+      if (/discharge|spill|public|condition|contamination/.test(text)) tags.add("siteConditions");
+      if (/manifest|document|record|filing/.test(text)) tags.add("records");
+      if (["contained", "transformed", "externalized"].includes(record.lifecycle)) tags.add("correction");
+      citations.push({
+        id: `evidence:${record.id}`, sourceKind: "physicalCondition", sourceId: record.id,
+        label: record.label, at: record.knowledge.learnedAt ?? record.createdAt,
+        tags: [...tags].filter(Boolean), externalCopy: false
+      });
+    }
+    for (const visit of ensureSiteVisits().visits.filter((entry) => entry.noticeAt <= state.clock)) {
+      citations.push({
+        id: `siteVisit:${visit.id}`, sourceKind: "visitRecord", sourceId: visit.id,
+        label: `${visit.visitorLabel} access and observation record`, at: visit.completedAt ?? visit.arrivalAt,
+        tags: ["access", "siteConditions", "priorStatement", "records"], externalCopy: true
+      });
+    }
+    for (const response of ensureInstitutionalResponses().responses.filter((entry) => entry.status === "submitted" && entry.immutable)) {
+      const demand = ensureInstitutionalResponses().demands.find((entry) => entry.id === response.demandId);
+      citations.push({
+        id: `priorResponse:${response.id}`, sourceKind: "priorStatement", sourceId: response.id,
+        label: `Prior submitted statement for ${demand?.docket || response.caseId}`, at: response.submittedAt,
+        tags: ["priorStatement"], externalCopy: true
+      });
+    }
+    return citations.sort((left, right) => right.at - left.at || left.label.localeCompare(right.label));
+  }
+
+  function enforceInstitutionalActions() {
+    let changed = 0;
+    const responses = ensureInstitutionalResponses();
+    for (const action of responses.actions) {
+      if (action.kind === "operatingRestriction" && action.status === "active" && action.restrictionId === "noFullOperation") {
+        const company = ensureCompany();
+        if (company.enabled && company.operatingState === "open") {
+          company.operatingState = "limited";
+          company.operatingStateChangedAt = state.clock;
+          state.siteIdentity.operatingState = "limited";
+          recordCompanyEvent("institutionalRestriction", `${action.label} reduced the company to Limited Operations.`, {
+            category: "corporate", roomId: SURFACE_STAFF_ROOM_ID, details: action.publicReason
+          });
+          action.history.push({ at: state.clock, action: "enforced", summary: "The company was reduced to Limited Operations." });
+          addEvent(`${action.label}: ${ensureCompany().legalName} was reduced to Limited Operations.`);
+          changed += 1;
+        }
+      }
+      if (action.kind === "followUpInspection" && action.status === "active"
+        && !action.history.some((entry) => entry.action === "visitScheduled")) {
+        const arrivalAt = Math.max(state.clock + 4 * SECONDS_PER_HOUR, action.dueAt || state.clock + 2 * SECONDS_PER_DAY);
+        const scheduled = SiteVisits.scheduleVisit(ensureSiteVisits(), {
+          typeId: action.visitTypeId || "environmentalInspector",
+          noticeAt: state.clock, arrivalAt, arrivalWindowEnd: arrivalAt + 2 * SECONDS_PER_HOUR
+        });
+        state.siteVisits = scheduled.state;
+        action.status = "completed";
+        action.resolvedAt = state.clock;
+        action.history.push({ at: state.clock, action: "visitScheduled", summary: `${scheduled.visit.visitorLabel} scheduled for ${formatClock(arrivalAt)}.` });
+        addEvent(`${action.label}: ${scheduled.visit.visitorLabel} scheduled for ${formatClock(arrivalAt)}.`);
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  function updateInstitutionalResponses() {
+    const result = InstitutionalResponses.update(ensureInstitutionalResponses(), {
+      seed: state.seed, clock: state.clock, cases: ensureInvestigations().cases
+    });
+    state.institutionalResponses = result.state;
+    for (const taskId of result.missedTaskIds) {
+      const task = state.tasks.find((entry) => entry.id === taskId);
+      if (!task) continue;
+      state.tasks = state.tasks.filter((entry) => entry.id !== taskId);
+      recordTaskHistory(task, "canceled");
+    }
+    for (const demandId of result.createdDemandIds) {
+      const demand = state.institutionalResponses.demands.find((entry) => entry.id === demandId);
+      if (demand) addEvent(`${externalInstitutionLabel(demand.institutionId)} demanded a response in ${demand.docket} by ${formatClock(demand.dueAt)}.`);
+    }
+    for (const responseId of result.evaluatedResponseIds) {
+      const response = state.institutionalResponses.responses.find((entry) => entry.id === responseId);
+      const demand = response && state.institutionalResponses.demands.find((entry) => entry.id === response.demandId);
+      if (response?.evaluation && demand) addEvent(`${demand.docket} response review: ${titleCase(response.evaluation.outcome)}.`);
+    }
+    for (const actionId of result.createdActionIds) {
+      const action = state.institutionalResponses.actions.find((entry) => entry.id === actionId);
+      if (action) addEvent(`${externalInstitutionLabel(action.institutionId)} imposed ${action.label.toLowerCase()}: ${action.publicReason}`);
+    }
+    return result.createdDemandIds.length + result.evaluatedResponseIds.length + result.createdActionIds.length
+      + result.missedTaskIds.length + enforceInstitutionalActions();
   }
 
   function externalEvidenceSignificanceRank(record) {
@@ -6991,6 +7148,13 @@
     const company = ensureCompany();
     const definition = COMPANY_OPERATING_STATE_DEFS[operatingState];
     if (!company.enabled || !definition || company.operatingState === definition.id) return false;
+    if (definition.id === "open" && InstitutionalResponses.activeRestrictions(ensureInstitutionalResponses())
+      .some((action) => action.restrictionId === "noFullOperation")) {
+      addEvent("An active institutional restriction prohibits Fully Open operation.");
+      persist();
+      render();
+      return false;
+    }
     const previous = COMPANY_OPERATING_STATE_DEFS[company.operatingState]?.label || titleCase(company.operatingState);
     company.operatingState = definition.id;
     company.operatingStateChangedAt = state.clock;
@@ -7109,6 +7273,133 @@
     awardXp("analysis", task.data?.baseXp || 10, "company records filing");
     addEvent(`Company books filed for period ${period.number}: ${period.recordIds.length} records and ${period.snapshot.exceptionCount} reconciliation exception${period.snapshot.exceptionCount === 1 ? "" : "s"}.`);
     return true;
+  }
+
+  function institutionalResponseTaskBlockReason(task) {
+    const responses = ensureInstitutionalResponses();
+    const response = responses.responses.find((entry) => entry.id === task.data?.responseId);
+    const demand = responses.demands.find((entry) => entry.id === task.data?.demandId);
+    if (!response || response.status !== "preparing") return "The response packet is no longer being prepared.";
+    if (!demand || !["pending", "preparing"].includes(demand.status)) return "The institutional demand is no longer open.";
+    if (state.clock >= demand.dueAt) return "The response deadline has passed.";
+    if (!roomById(SURFACE_STAFF_ROOM_ID) || !recordsCabinet()) return "Staff Operations records storage is unavailable.";
+    const available = new Set(institutionalCitationCatalog().map((citation) => citation.id));
+    if (response.citations.some((citation) => !available.has(citation.id))) return "A cited physical record is no longer available in Staff Operations.";
+    return "";
+  }
+
+  function startInstitutionalResponse(demandId, claimId, citationIds = [], playerNote = "", options = {}) {
+    updateInstitutionalResponses();
+    const demand = ensureInstitutionalResponses().demands.find((entry) => entry.id === demandId);
+    if (!demand || !["pending", "preparing"].includes(demand.status)) {
+      if (!options.quiet) addEvent("The institutional response demand is no longer open.");
+      return null;
+    }
+    if (state.clock >= demand.dueAt) {
+      if (!options.quiet) addEvent("The institutional response deadline has passed.");
+      return null;
+    }
+    if (!ensureCompany().enabled || !roomById(SURFACE_STAFF_ROOM_ID) || !recordsCabinet()) {
+      if (!options.quiet) addEvent("Staff Operations and its physical records cabinet are required to prepare a response packet.");
+      return null;
+    }
+    const targetCell = laborTargetAccessCell(recordsCabinet().origin, fixtureRotatedFootprint(fixtureDef(recordsCabinet()), recordsCabinet().rotation), SURFACE_STAFF_ROOM_ID);
+    const path = laborPathViaCells([targetCell]);
+    if (!path.length) {
+      if (!options.quiet) addEvent("No physical route reaches the records cabinet in Staff Operations.");
+      return null;
+    }
+    const route = [scientistRoomId(), ...roomsFromMapPath(path)].filter(Boolean).filter((roomId, index, values) => index === 0 || roomId !== values[index - 1]);
+    const doorReason = firstDoorSecurityBlockReason(route);
+    if (doorReason) {
+      if (!options.quiet) addEvent(doorReason);
+      return null;
+    }
+    const staminaCost = adjustedStaminaCost(3, ["analysis"]);
+    const staminaReason = staminaBlockReason(staminaCost);
+    if (staminaReason) {
+      if (!options.quiet) addEvent(staminaReason);
+      return null;
+    }
+    const catalog = institutionalCitationCatalog();
+    const prepared = InstitutionalResponses.prepareResponse(ensureInstitutionalResponses(), {
+      demandId, claimId, citationIds, citations: catalog, playerNote, clock: state.clock
+    });
+    state.institutionalResponses = prepared.state;
+    if (!prepared.response || prepared.reason) {
+      if (!options.quiet) addEvent(prepared.reason || "The response packet could not be prepared.");
+      return null;
+    }
+    if (!spendStamina(staminaCost)) {
+      state.institutionalResponses = InstitutionalResponses.cancelPreparation(state.institutionalResponses, prepared.response.id, state.clock);
+      return null;
+    }
+    const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    const workSeconds = adjustedActionDuration(minutesToSeconds(15 + prepared.response.citations.length * 2), "analysis");
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "institutionalResponse",
+      label: `Prepare response: ${demand.docket}`,
+      createdAt: state.clock, dueAt: queueTail + travelSeconds + workSeconds,
+      data: {
+        responseId: prepared.response.id, demandId: demand.id, toRoomId: SURFACE_STAFF_ROOM_ID,
+        toCell: targetCell, mapPath: path, route, doorTransit: doorTransitPlan(route),
+        movementStartedAt: queueTail,
+        movement: createScientistMovementRecord(path, travelSeconds, queueTail, { intent: "research" }),
+        workStartsAt: queueTail + travelSeconds, staminaCost, skillId: "analysis", baseXp: 8
+      }
+    };
+    state.tasks.push(task);
+    state.institutionalResponses = InstitutionalResponses.setResponseTask(state.institutionalResponses, prepared.response.id, task.id);
+    addEvent(`${demand.docket} response packet queued in Staff Operations${task.dueAt > demand.dueAt ? "; the current queue projects completion after its deadline" : ""}.`);
+    persist();
+    render();
+    return task;
+  }
+
+  function completeInstitutionalResponse(task) {
+    const responses = ensureInstitutionalResponses();
+    const response = responses.responses.find((entry) => entry.id === task.data?.responseId);
+    const demand = responses.demands.find((entry) => entry.id === task.data?.demandId);
+    if (!response || !demand || response.status !== "preparing") return false;
+    applyDoorTransitPolicy(task.data?.doorTransit, "Institutional response preparation");
+    state.scientist.roomId = SURFACE_STAFF_ROOM_ID;
+    state.scientist.mapCell = cleanMapCell(task.data?.toCell) || labMapRoomAnchor(SURFACE_STAFF_ROOM_ID);
+    const submitted = InstitutionalResponses.submitResponse(responses, response.id, {
+      clock: state.clock, cases: ensureInvestigations().cases
+    });
+    state.institutionalResponses = submitted.state;
+    if (!submitted.response) return false;
+    const claim = InstitutionalResponses.CLAIM_DEFS[submitted.response.claimId];
+    recordCompanyEvent("institutionalResponse", `${demand.docket} response submitted: ${claim?.label || titleCase(submitted.response.claimId)}.`, {
+      category: "records", roomId: SURFACE_STAFF_ROOM_ID,
+      details: `${submitted.response.id}; ${submitted.response.citations.length} cited record${submitted.response.citations.length === 1 ? "" : "s"}; immutable submission.`
+    });
+    awardXp("analysis", task.data?.baseXp || 8, "institutional response preparation");
+    addEvent(`${demand.docket} response submitted: ${titleCase(submitted.response.evaluation?.outcome || "reviewed")}.`);
+    if (submitted.action) addEvent(`${externalInstitutionLabel(submitted.action.institutionId)} issued ${submitted.action.label.toLowerCase()}: ${submitted.action.publicReason}`);
+    enforceInstitutionalActions();
+    refreshSuspicionFromExternalDetection();
+    return true;
+  }
+
+  function payInstitutionalFine(actionId, options = {}) {
+    const action = ensureInstitutionalResponses().actions.find((entry) => entry.id === actionId && entry.kind === "fine" && entry.status === "active");
+    if (!action) return false;
+    if (ensureEconomy().money < action.amount) {
+      if (!options.quiet) addEvent(`${action.label} requires ${formatMoney(action.amount)}; available funds are insufficient.`);
+      persist(); render(); return false;
+    }
+    addMoney(-action.amount, `${externalInstitutionLabel(action.institutionId)} administrative fine`);
+    const resolved = InstitutionalResponses.resolveAction(ensureInstitutionalResponses(), action.id, state.clock, "paid");
+    state.institutionalResponses = resolved.state;
+    recordCompanyEvent("institutionalFine", `${action.label} paid.`, {
+      category: "corporate", amount: -action.amount, roomId: SURFACE_STAFF_ROOM_ID,
+      details: `${action.id}; ${action.publicReason}`
+    });
+    addEvent(`${action.label} paid: ${formatMoney(action.amount)}.`);
+    refreshSuspicionFromExternalDetection();
+    persist(); render(); return true;
   }
 
   function createDefaultCommodityMarket(seed = "seed") {
@@ -8642,6 +8933,22 @@
         visibleCases: InvestigationCases.visibleCases(ensureInvestigations()),
         casePressure: investigationCasePressure()
       }),
+      institutionalResponsesSnapshot: () => clonePlainObject({
+        ...ensureInstitutionalResponses(),
+        citationCatalog: institutionalCitationCatalog(),
+        actionPressure: InstitutionalResponses.actionPressure(ensureInstitutionalResponses()),
+        clock: state.clock
+      }),
+      updateInstitutionalResponses: () => {
+        const changed = updateInstitutionalResponses();
+        refreshSuspicionFromExternalDetection();
+        persist(); render(); return changed;
+      },
+      queueInstitutionalResponse: (demandId, claimId, citationIds = [], playerNote = "") => {
+        const task = startInstitutionalResponse(demandId, claimId, citationIds, playerNote, { quiet: true });
+        return task ? clonePlainObject(task) : null;
+      },
+      payInstitutionalFine: (actionId) => payInstitutionalFine(actionId, { quiet: true }),
       siteVisitsSnapshot: () => clonePlainObject({
         ...ensureSiteVisits(), activeVisit: SiteVisits.activeVisit(ensureSiteVisits()),
         nextVisit: SiteVisits.nextEvent(ensureSiteVisits(), state.clock), clock: state.clock
@@ -12837,9 +13144,10 @@
       .sort((a, b) => a.reportDueAt - b.reportDueAt)[0];
     const reportEvent = nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
     const caseEvent = InvestigationCases.nextEvent(ensureInvestigations(), state.clock);
+    const responseEvent = InstitutionalResponses.nextEvent(ensureInstitutionalResponses(), state.clock);
     const visit = SiteVisits.nextEvent(ensureSiteVisits(), state.clock);
     const visitEvent = visit ? { time: visit.arrivalAt, label: `${visit.visitorLabel} arrival window`, type: "visit" } : null;
-    return [reportEvent, caseEvent, visitEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -13295,6 +13603,10 @@
 
     if (task.type === "companyFiling") {
       completeCompanyFiling(task);
+      return;
+    }
+    if (task.type === "institutionalResponse") {
+      completeInstitutionalResponse(task);
       return;
     }
 
@@ -44223,8 +44535,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) return null;
-    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade"].includes(task.type)) {
+    if (!["scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -52205,12 +52517,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     operatingField.append(textEl("span", "Operating state"));
     const operatingSelect = document.createElement("select");
     operatingSelect.setAttribute("aria-label", "Company operating state");
-    for (const definition of Object.values(COMPANY_OPERATING_STATE_DEFS)) operatingSelect.append(new Option(definition.label, definition.id));
+    const blocksFullOperation = InstitutionalResponses.activeRestrictions(ensureInstitutionalResponses())
+      .some((action) => action.restrictionId === "noFullOperation");
+    for (const definition of Object.values(COMPANY_OPERATING_STATE_DEFS)) {
+      const option = new Option(definition.label, definition.id);
+      if (definition.id === "open" && blocksFullOperation) option.disabled = true;
+      operatingSelect.append(option);
+    }
     operatingSelect.value = company.operatingState;
     operatingSelect.addEventListener("change", () => setCompanyOperatingState(operatingSelect.value));
     operatingField.append(operatingSelect);
     identity.append(storesRowEl(company.legalName, operating.label, {
-      subtitle: `${state.siteIdentity.declaredActivity}; name source ${titleCase(company.nameSource)}; public-facing registered front`,
+      subtitle: `${state.siteIdentity.declaredActivity}; name source ${titleCase(company.nameSource)}; public-facing registered front${blocksFullOperation ? "; Fully Open prohibited by active institutional restriction" : ""}`,
       dataset: { companyIdentity: company.legalName, companyOperatingState: company.operatingState },
       actions: [operatingField]
     }));
@@ -54859,6 +55177,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!visit?.actor.present) return "The visitor is no longer on site.";
       if (!visit.grantedFixtureIds.includes(fixture.id)) return "The visit no longer has permission for this fixture.";
     }
+    if (task.type === "institutionalResponse") {
+      return institutionalResponseTaskBlockReason(task);
+    }
     if (task.type === "constructionWork") {
       const order = constructionOrderById(task.data?.constructionOrderId);
       const tile = constructionOrderTile(order, task.data?.constructionTileKey || task.data?.targetCell);
@@ -55039,6 +55360,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+    }
+    if (task.type === "institutionalResponse") {
+      state.institutionalResponses = InstitutionalResponses.cancelPreparation(
+        ensureInstitutionalResponses(), task.data?.responseId, state.clock
+      );
     }
     if (task.type === "physicalDiagnostic") {
       releaseConstructionTaskTools(task, { retain: false });
@@ -63655,6 +63981,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "companyFiling") {
       return "Company Records";
     }
+    if (task.type === "institutionalResponse") {
+      return "Authority Response";
+    }
     if (task.type === "constructionWork" || task.type === "excavate") {
       return "Construction";
     }
@@ -63693,14 +64022,75 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return `${record.persistence.kind}; fades over ${formatDuration(record.persistence.decaySeconds)}`;
   }
 
+  function renderInstitutionalResponseComposer(demand) {
+    const form = document.createElement("form");
+    form.className = "institutional-response-form";
+    form.dataset.institutionalResponseForm = demand.id;
+
+    const claimField = document.createElement("label");
+    claimField.append(textEl("span", "Structured claim"));
+    const claimSelect = document.createElement("select");
+    claimSelect.dataset.institutionalClaim = "true";
+    claimSelect.setAttribute("aria-label", `${demand.docket} response claim`);
+    for (const definition of Object.values(InstitutionalResponses.CLAIM_DEFS)) {
+      const option = new Option(definition.label, definition.id);
+      option.title = definition.description;
+      claimSelect.append(option);
+    }
+    claimField.append(claimSelect);
+
+    const citations = institutionalCitationCatalog();
+    const supportTags = new Set(demand.supportTags);
+    const relevant = citations.filter((citation) => citation.tags.some((tag) => supportTags.has(tag)));
+    const supplemental = citations.filter((citation) => !relevant.includes(citation)).slice(0, 8);
+    const offered = [...relevant, ...supplemental].slice(0, 24);
+    const citationField = document.createElement("fieldset");
+    citationField.className = "institutional-citation-field";
+    citationField.append(textEl("legend", "Attach physical records"));
+    if (!offered.length) {
+      citationField.append(textEl("span", "No accessible record packet currently contains a citable record.", "journal-meta"));
+    } else {
+      for (const citation of offered) {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = citation.id;
+        input.dataset.institutionalCitation = citation.id;
+        label.append(input, document.createTextNode(`${citation.label} · ${formatClock(citation.at)}`));
+        citationField.append(label);
+      }
+    }
+
+    const noteField = document.createElement("label");
+    noteField.append(textEl("span", "Optional player note (not mechanically interpreted)"));
+    const note = document.createElement("textarea");
+    note.maxLength = 1200;
+    note.rows = 2;
+    note.dataset.institutionalNote = "true";
+    note.setAttribute("aria-label", `${demand.docket} optional player note`);
+    noteField.append(note);
+
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Queue Response Packet";
+    form.append(claimField, citationField, noteField, submit);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const citationIds = [...form.querySelectorAll("[data-institutional-citation]:checked")].map((input) => input.value);
+      startInstitutionalResponse(demand.id, claimSelect.value, citationIds, note.value);
+    });
+    return form;
+  }
+
   function renderInvestigationCasesSection() {
     const cases = InvestigationCases.visibleCases(ensureInvestigations()).sort((a, b) => b.openedAt - a.openedAt || a.docket.localeCompare(b.docket));
+    const responsesState = ensureInstitutionalResponses();
     const section = document.createElement("section");
     section.className = "subpanel";
     section.dataset.investigationCases = "true";
     section.append(textEl("div", `Authority Investigations (${cases.length} disclosed)`));
     section.firstElementChild.className = "subpanel-title";
-    section.append(textEl("p", "Only officially disclosed cases, claims, contacts, and deadlines appear here. Undisclosed institutional work remains unknown.", "journal-meta"));
+    section.append(textEl("p", "Only officially disclosed cases, claims, demands, contacts, deadlines, and consequences appear here. Hidden evidence and institutional reasoning remain unknown.", "journal-meta"));
     if (!cases.length) {
       section.append(emptyText("No authority investigation has been disclosed to the scientist."));
       return section;
@@ -63715,7 +64105,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       details.className = "journal-entry-list";
       details.append(
         textEl("span", authorityCase.disclosure.statedConcern || authorityCase.publicConcern),
-        textEl("span", `Disclosed ${formatClock(authorityCase.disclosure.disclosedAt ?? authorityCase.openedAt)} · No response has been requested at this stage.`)
+        textEl("span", `Disclosed ${formatClock(authorityCase.disclosure.disclosedAt ?? authorityCase.openedAt)}`)
       );
       if (authorityCase.disclosure.strengthDisclosed) {
         const band = InvestigationCases.STRENGTH_BANDS.find((entry) => entry.id === authorityCase.strength.bandId);
@@ -63727,6 +64117,64 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const contact of contacts) details.append(textEl("span", `Contact ${formatClock(contact.at)}: ${contact.summary}`));
       const deadlines = authorityCase.deadlines.filter((entry) => authorityCase.disclosure.knownDeadlineIds.includes(entry.id) && entry.visibility === "disclosed");
       for (const deadline of deadlines) details.append(textEl("span", `Disclosed deadline: ${formatClock(deadline.dueAt)} · ${titleCase(deadline.status)}`));
+
+      const demands = responsesState.demands.filter((entry) => entry.caseId === authorityCase.id).sort((left, right) => left.sequence - right.sequence);
+      if (!demands.length) details.append(textEl("span", "No response has been requested at this stage."));
+      for (const demand of demands) {
+        const demandBox = document.createElement("section");
+        demandBox.className = "institutional-demand";
+        demandBox.dataset.institutionalDemand = demand.id;
+        const demandHeading = document.createElement("span");
+        demandHeading.className = "institutional-demand-heading";
+        demandHeading.append(textEl("strong", demand.label), chip(titleCase(demand.status)));
+        demandBox.append(
+          demandHeading,
+          textEl("span", demand.question),
+          textEl("span", `Response due ${formatClock(demand.dueAt)} · ${formatDuration(Math.max(0, demand.dueAt - state.clock))} remaining`, "journal-meta")
+        );
+        const response = responsesState.responses.find((entry) => entry.id === demand.responseId);
+        if (["pending"].includes(demand.status)) {
+          demandBox.append(renderInstitutionalResponseComposer(demand));
+        } else if (response) {
+          const claim = InstitutionalResponses.CLAIM_DEFS[response.claimId];
+          demandBox.append(textEl("span", `Response: ${claim?.label || (response.claimId === "noResponse" ? "No response submitted" : titleCase(response.claimId))}`));
+          if (response.citations.length) demandBox.append(textEl("span", `Citations: ${response.citations.map((citation) => citation.label).join("; ")}`, "journal-meta"));
+          if (response.playerNote) demandBox.append(textEl("span", `Player note: ${response.playerNote}`, "journal-meta"));
+          if (response.status === "preparing") {
+            const task = state.tasks.find((entry) => entry.id === response.taskId);
+            demandBox.append(textEl("span", task ? `Physical packet preparation queued for ${formatClock(task.dueAt)}.` : "Response preparation is awaiting physical work.", "journal-meta"));
+          }
+          if (response.evaluation) {
+            demandBox.append(
+              textEl("span", `Official result: ${titleCase(response.evaluation.outcome)} · support ${titleCase(response.evaluation.supportBand)} · contradiction ${titleCase(response.evaluation.contradictionBand)}`),
+              ...response.evaluation.publicReasons.map((reason) => textEl("span", reason, "journal-meta"))
+            );
+          }
+        }
+        details.append(demandBox);
+      }
+
+      const actions = responsesState.actions.filter((entry) => entry.caseId === authorityCase.id).sort((left, right) => right.createdAt - left.createdAt);
+      for (const action of actions) {
+        const actionRow = document.createElement("span");
+        actionRow.className = "institutional-action";
+        actionRow.dataset.institutionalAction = action.id;
+        actionRow.append(textEl("strong", action.label), chip(titleCase(action.status)));
+        actionRow.append(textEl("span", `${action.publicReason}${action.amount ? ` · ${formatMoney(action.amount)}` : ""}${action.dueAt ? ` · review or payment due ${formatClock(action.dueAt)}` : ""}`, "journal-meta"));
+        if (action.kind === "fine" && action.status === "active") {
+          const pay = document.createElement("button");
+          pay.type = "button";
+          pay.textContent = `Pay ${formatMoney(action.amount)}`;
+          pay.disabled = ensureEconomy().money < action.amount;
+          pay.title = pay.disabled ? "Available company funds are insufficient." : "Pay the administrative fine from the shared cash balance.";
+          pay.addEventListener("click", () => payInstitutionalFine(action.id));
+          actionRow.append(pay);
+        }
+        if (action.kind === "warrant" && action.status === "issued") {
+          actionRow.append(textEl("span", "The warrant is saved as issued; physical execution belongs to the next implementation pass.", "journal-meta"));
+        }
+        details.append(actionRow);
+      }
       row.append(heading, details);
       section.append(row);
     }
@@ -63871,7 +64319,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const visibleSignals = ExternalDetection.visibleSignals(ensureExternalDetection());
     const signalCount = visibleSignals.exposures.filter((entry) => !entry.reportId).length + visibleSignals.reports.length + visibleSignals.correlations.length;
     const visibleCaseCount = InvestigationCases.visibleCases(ensureInvestigations()).length;
-    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; ${signalCount} known or inferred external signal${signalCount === 1 ? "" : "s"}; ${visibleCaseCount} disclosed investigation${visibleCaseCount === 1 ? "" : "s"}; records do not assign guilt`;
+    const openDemandCount = ensureInstitutionalResponses().demands.filter((entry) => ["pending", "preparing"].includes(entry.status)).length;
+    dom.evidenceSummary.textContent = `${active.length} known active trace${active.length === 1 ? "" : "s"}; ${signalCount} known or inferred external signal${signalCount === 1 ? "" : "s"}; ${visibleCaseCount} disclosed investigation${visibleCaseCount === 1 ? "" : "s"}; ${openDemandCount} response demand${openDemandCount === 1 ? "" : "s"}; records do not assign guilt`;
     dom.evidenceList.replaceChildren();
     dom.evidenceList.append(renderInvestigationCasesSection(), renderExternalSignalsSection());
     if (!records.length) {
@@ -71705,6 +72154,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.evidenceHandling = EvidenceHandling.normalizeState(candidate?.evidenceHandling);
     next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
     next.investigations = InvestigationCases.normalizeState(candidate?.investigations);
+    next.institutionalResponses = InstitutionalResponses.normalizeState(candidate?.institutionalResponses);
     next.siteVisits = SiteVisits.normalizeState(candidate?.siteVisits);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
@@ -71835,6 +72285,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.sensoryEvents = (Array.isArray(next.sensoryEvents) ? next.sensoryEvents : []).slice(0, SENSORY_EVENT_LIMIT);
     next.groupSignals = normalizeGroupSignals(next.groupSignals, next.clock);
     next.tasks = normalizeActiveTaskPacing(next.tasks, next.clock, next.labMap);
+    const institutionalResponseTaskIds = new Set(next.tasks
+      .filter((task) => task?.type === "institutionalResponse")
+      .map((task) => String(task.id || "")));
+    for (const response of next.institutionalResponses.responses.filter((entry) => entry.status === "preparing")) {
+      if (!response.taskId || !institutionalResponseTaskIds.has(response.taskId)) {
+        next.institutionalResponses = InstitutionalResponses.cancelPreparation(next.institutionalResponses, response.id, next.clock);
+      }
+    }
     const experimentConclusionTaskIds = new Set(next.tasks.filter((task) => task?.type === "experimentConclusion").map((task) => String(task.id || "")));
     for (const experiment of next.experiments.experiments) {
       if (experiment.status === "concluding" && (!experiment.conclusionTaskId || !experimentConclusionTaskIds.has(experiment.conclusionTaskId))) {
@@ -71918,6 +72376,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.suspicion = ExternalDetection.attentionScore(next.externalDetection, next.clock, {
       activeEvidenceIds,
       casePressure: InvestigationCases.casePressure(next.investigations)
+        + InstitutionalResponses.actionPressure(next.institutionalResponses)
     });
     const currentSuspicionBand = suspicionBandForValue(next.suspicion);
     const legacyPeakBand = ({ suspicious: "noticed", investigated: "scrutinized" })[next.suspicionPeakBand] || next.suspicionPeakBand;
