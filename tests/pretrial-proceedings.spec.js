@@ -37,6 +37,21 @@ function supportedContext(overrides = {}) {
   };
 }
 
+function reviewedCase(context = supportedContext()) {
+  let state = Pretrial.open(Pretrial.defaultState(), context).state;
+  const proceedingId = state.proceedings[0].id;
+  state = Pretrial.advance(state, state.proceedings[0].timeline.chargingAt).state;
+  const self = state.proceedings[0].counsel.options.find((option) => option.kind === 'self');
+  state = Pretrial.selectCounsel(state, proceedingId, self.id, state.proceedings[0].timeline.chargingAt).state;
+  state = Pretrial.advance(state, state.proceedings[0].timeline.firstAppearanceAt).state;
+  state = Pretrial.beginHearing(state, proceedingId, 'strictConditions', state.proceedings[0].timeline.firstAppearanceAt).state;
+  state = Pretrial.resolveHearing(state, proceedingId, state.proceedings[0].timeline.firstAppearanceAt + 2700).state;
+  state = Pretrial.advance(state, state.proceedings[0].timeline.discoveryDueAt).state;
+  state = Pretrial.recordPreparation(state, proceedingId, { kind: 'discoveryReview', clock: state.proceedings[0].timeline.discoveryDueAt + 5400, roomId: 'legalRoom' }).state;
+  state = Pretrial.advance(state, state.proceedings[0].discovery.reviewedAt).state;
+  return state;
+}
+
 test('charges, officials, counsel, and saved scheduling are deterministic and evidence-linked', () => {
   const first = Pretrial.open(Pretrial.defaultState(), supportedContext());
   const second = Pretrial.open(Pretrial.defaultState(), supportedContext());
@@ -87,8 +102,51 @@ test('hearing decisions save reasons, bail escrow stays distinct, and fugitive c
   expect(missed.state.proceedings[0].charges.some((charge) => charge.typeId === 'failureToAppear')).toBe(true);
 });
 
-test('@smoke booking opens court, counsel meets privately, and conditional release uses a physical transfer', async ({ page }) => {
-  test.setTimeout(90_000);
+test('discovery freezes exact support, witnesses, exculpatory flags, withholding, and service route', () => {
+  const state = reviewedCase(supportedContext({ authoritySupport: [{ id: 'support-weak', sourceId: 'evidence-weak', label: 'Weak licensed research attribution', reliability: 'weak', significanceRank: 2, traits: ['research', 'licensed', 'identity'], integrity: 72, scopeStatus: 'expanded', custodyIssues: ['Unlogged transfer'] }] }));
+  const proceeding = state.proceedings[0];
+  expect(proceeding.discovery).toMatchObject({ status: 'reviewed', packetId: expect.stringMatching(/discovery-packet/), items: [expect.objectContaining({ supportId: 'support-weak', exculpatory: true, integrity: 72, scopeStatus: 'expanded' })] });
+  expect(proceeding.discovery.witnesses.length).toBeGreaterThan(0);
+  expect(proceeding.discovery.withheld[0]).toMatchObject({ material: true, privileged: false, status: 'withheld' });
+  expect(proceeding.preparation.progress).toBeGreaterThan(0);
+  expect(Pretrial.normalizeState(JSON.parse(JSON.stringify(state)))).toEqual(state);
+});
+
+test('motions change admissibility and charges without deleting source history', () => {
+  let state = reviewedCase(supportedContext({ authoritySupport: [{ id: 'defective-support', sourceId: 'evidence-1', label: 'Damaged out-of-scope research packet', reliability: 'weak', significanceRank: 2, traits: ['research', 'outside warrant', 'broken chain'], integrity: 35, scopeStatus: 'outside', custodyIssues: ['Broken chain', 'Unsealed transfer'] }] }));
+  const proceedingId = state.proceedings[0].id;
+  let result = Pretrial.resolveMotion(state, proceedingId, 'suppressEvidence', 'defective-support', { clock: 200000 });
+  expect(result.motion).toMatchObject({ status: 'granted' });
+  expect(result.proceeding.discovery.items[0]).toMatchObject({ admissibility: 'excluded' });
+  expect(result.proceeding.charges.flatMap((charge) => charge.support).filter((support) => support.id === 'defective-support').every((support) => support.admissibility === 'excluded')).toBe(true);
+  state = result.state;
+  for (const charge of state.proceedings[0].charges.filter((entry) => entry.status === 'filed')) state = Pretrial.resolveMotion(state, proceedingId, 'dismissCharge', charge.id, { clock: 201000 }).state;
+  expect(state.proceedings[0]).toMatchObject({ status: 'chargesDismissed', trial: { status: 'dismissed' }, release: { status: 'released' } });
+  expect(state.proceedings[0].discovery.items[0].label).toContain('Damaged out-of-scope');
+});
+
+test('bounded claims can create contradictions and pleas require fugitive surrender', () => {
+  let state = reviewedCase();
+  const proceedingId = state.proceedings[0].id;
+  const contradicted = Pretrial.submitDefenseClaim(state, proceedingId, 'explicitDenial', [], 200000);
+  expect(contradicted.claim).toMatchObject({ status: 'contradicted', credibilityDelta: -15 });
+  expect(contradicted.proceeding.charges.some((charge) => charge.typeId === 'falseStatement')).toBe(true);
+  state = Pretrial.markFugitive(contradicted.state, proceedingId, 201000).state;
+  expect(Pretrial.respondToPlea(state, proceedingId, 'accept', '', 202000)).toMatchObject({ changed: false, reason: expect.stringContaining('surrenders') });
+});
+
+test('plea acceptance and trial setting create complete downstream handoffs', () => {
+  let state = reviewedCase(); const proceedingId = state.proceedings[0].id;
+  const accepted = Pretrial.respondToPlea(state, proceedingId, 'accept', '', 200000);
+  expect(accepted.proceeding).toMatchObject({ status: 'pleaAccepted', plea: { status: 'accepted' }, trial: { status: 'pleaSentencing', handoff: { discoveryPacketId: expect.any(String) } } });
+  state = reviewedCase(supportedContext({ raidId: 'raid-trial' }));
+  const scheduled = Pretrial.scheduleTrial(state, state.proceedings[0].id, 200000);
+  expect(scheduled.proceeding).toMatchObject({ status: 'trialScheduled', trial: { status: 'scheduled', appearanceRequired: true, handoff: { remainingChargeIds: expect.any(Array), admissibleSupportIds: expect.any(Array), custodyStatus: expect.any(String) } } });
+  expect(scheduled.proceeding.trial.trialAt).toBeGreaterThan(scheduled.proceeding.trial.scheduledAt);
+});
+
+test('@smoke booking opens court, counsel meets privately, releases physically, reviews discovery, and schedules trial', async ({ page }) => {
+  test.setTimeout(180_000);
   await startRun(page);
   await bookScientist(page);
   let snapshot = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
@@ -120,7 +178,22 @@ test('@smoke booking opens court, counsel meets privately, and conditional relea
   expect(jail.activeStay).toBeNull();
   expect(jail.magicSuppressionReason).toBe('');
 
+  expect(await page.evaluate((id) => window.helixHeresyDebug.makePretrialDiscoveryDueNow(id), proceeding.id)).toBe(true);
+  snapshot = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
+  expect(snapshot.activeProceeding.discovery).toMatchObject({ status: 'served', packetId: expect.any(String) });
+  expect(await page.evaluate((id) => window.helixHeresyDebug.queuePretrialLegalWork(id, 'discoveryReview'), proceeding.id)).toBe(true);
+  expect((await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot())).scientist.roomId).toBe('surfaceStaffOperations');
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(5401));
+  snapshot = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
+  expect(snapshot.activeProceeding).toMatchObject({ discovery: { status: 'reviewed' }, plea: { status: 'offered' } });
+  expect(await page.evaluate((id) => window.helixHeresyDebug.queuePretrialLegalWork(id, 'trialSetting'), proceeding.id)).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1801));
+  snapshot = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
+  expect(snapshot.activeProceeding).toMatchObject({ status: 'trialScheduled', trial: { status: 'scheduled', appearanceRequired: true, handoff: { discoveryPacketId: expect.any(String) } } });
+
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
-  expect((await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot())).activeProceeding.release.transport.destinationRoomId).toBe('surfaceReception');
+  const reloaded = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
+  expect(reloaded.activeProceeding.release.transport.destinationRoomId).toBe('surfaceReception');
+  expect(reloaded.activeProceeding.trial.handoff.discoveryPacketId).toBe(snapshot.activeProceeding.discovery.packetId);
 });

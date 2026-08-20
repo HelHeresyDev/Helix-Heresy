@@ -4720,6 +4720,7 @@
     "jailCommunication",
     "pretrialHearing",
     "pretrialReleaseTransport",
+    "pretrialLegalWork",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -6470,7 +6471,7 @@
   }
 
   function currentPretrialProceeding() {
-    return ensurePretrialProceedings().proceedings.find((entry) => entry.status !== "resolved") || null;
+    return ensurePretrialProceedings().proceedings.find((entry) => !["resolved", "chargesDismissed"].includes(entry.status)) || null;
   }
 
   function scientistMagicSuppressionReason() {
@@ -6489,13 +6490,16 @@
         id: link.id, kind: "authorityEvidence", sourceId: link.evidenceId,
         label: link.summary || record?.label || "Linked authority evidence",
         reliability: link.reliability, significanceRank: link.significanceRank,
-        traits: [...(record?.traits || []), record?.category, record?.type, authorityCase?.theoryId].filter(Boolean)
+        traits: [...(record?.traits || []), record?.category, record?.type, authorityCase?.theoryId].filter(Boolean),
+        integrity: record ? investigativeEvidenceIntegrity(record) : 100, scopeStatus: "unknown",
+        custodyIssues: record?.provenance?.length ? [] : ["No saved provenance event accompanies this authority link"]
       };
     });
     const raidSupport = (raid?.seizures || []).map((seizure) => ({
       id: seizure.id, kind: "raidSeizure", sourceId: seizure.sourceSubjectId || seizure.subjectId,
       label: seizure.label, reliability: "strong", significanceRank: 3,
-      traits: ["seized evidence", seizure.label, seizure.subjectKind]
+      traits: ["seized evidence", seizure.label, seizure.subjectKind], integrity: 100, scopeStatus: "authorized",
+      custodyIssues: seizure.custody?.length >= 2 ? [] : ["Incomplete saved raid-custody sequence"]
     }));
     return { authorityCase, authoritySupport: [...authoritySupport, ...raidSupport], raidSupport };
   }
@@ -8496,6 +8500,94 @@
     return true;
   }
 
+  function removePhysicalCourtSuppressor(condition) {
+    if (!condition?.toolInstanceId) return false;
+    const found = toolInstanceById(condition.toolInstanceId);
+    if (found) {
+      unequipActorToolInstance("scientist", found.instance.id); found.instance.carriedBy = ""; found.instance.roomId = scientistRoomId();
+    }
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === condition.physicalStackId);
+    if (stack) { stack.carriedBy = ""; stack.roomId = scientistRoomId(); stack.cell = scientistMapCell(); stack.updatedAt = state.clock; }
+    syncActorInventories(); return true;
+  }
+
+  function applyPretrialLegalEffects(previous, proceeding) {
+    if (!proceeding) return;
+    if (previous?.escrowStatus === "held" && proceeding.release.escrowStatus === "refunded"
+      && !ensureEconomy().legalLedger.some((entry) => entry.kind === "bailRefund" && entry.orderId === proceeding.id)) {
+      ensureEconomy().money += proceeding.release.bailAmount;
+      recordLegalLedger("bailRefund", `${proceeding.release.bailAmount} returned from refundable bail escrow after all charges were dismissed.`, { amount: proceeding.release.bailAmount, orderId: proceeding.id, roomId: SURFACE_STAFF_ROOM_ID });
+    }
+    for (const condition of proceeding.release.conditions.filter((entry) => entry.kind === "courtMagicSuppression" && entry.status === "lifted" && entry.toolInstanceId)) {
+      removePhysicalCourtSuppressor(condition);
+    }
+    if (proceeding.release.status === "released" && currentJailStay() && !state.tasks.some((task) => task.type === "pretrialReleaseTransport")) {
+      queuePretrialReleaseTransport(proceeding);
+    }
+  }
+
+  function queuePretrialLegalWork(proceedingId, action, options = {}) {
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === proceedingId);
+    if (!proceeding || state.tasks.some((task) => task.type === "pretrialLegalWork")) return false;
+    const durations = { discoveryReview: 90, casePreparation: 120, motion: 60, defenseClaim: 45, pleaResponse: 45, trialSetting: 30 };
+    if (!durations[action]) return false;
+    const stayed = currentJailStay();
+    const targetRoomId = stayed ? MUNICIPAL_HOLDING_LEGAL_ROOM_ID : SURFACE_STAFF_ROOM_ID;
+    const targetCell = labMapRoomAnchor(targetRoomId);
+    const officer = stayed?.actors.find((actor) => actor.present) || null;
+    if (stayed) {
+      for (const doorId of ["door-municipal-holding-cell", "door-municipal-holding-legal"]) {
+        const door = state.doors[doorId]; if (door) { door.lockState = DOOR_LOCK_UNLOCKED; door.state = DOOR_STATE_OPEN; }
+      }
+    }
+    state.scientist.roomId = targetRoomId; state.scientist.mapCell = cleanMapCell(targetCell);
+    if (officer) { officer.roomId = targetRoomId; officer.mapCell = { ...targetCell, y: targetCell.y + 1 }; }
+    state.tasks.push({
+      id: `task-${state.nextTaskNumber++}`, type: "pretrialLegalWork", label: `${proceeding.docket} ${titleCase(action)}`,
+      createdAt: state.clock, dueAt: state.clock + minutesToSeconds(durations[action]),
+      data: { proceedingId, action, roomId: targetRoomId, toCell: targetCell, officerId: officer?.id || "", ...options }
+    });
+    addEvent(`${stayed ? `${officer?.name || "A custody officer"} escorted the scientist to the Legal Consultation Room` : "The scientist entered Staff Operations"} for ${titleCase(action)} through the secure legal terminal.`, { sourceKind: "pretrialProceeding", sourceId: proceeding.id });
+    persist(); render(); return true;
+  }
+
+  function finishPretrialLegalWork(task) {
+    const beforeProceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === task.data?.proceedingId);
+    if (!beforeProceeding) return false;
+    const previous = { escrowStatus: beforeProceeding.release.escrowStatus, releaseStatus: beforeProceeding.release.status };
+    let result = null;
+    if (["discoveryReview", "casePreparation"].includes(task.data?.action)) {
+      result = PretrialProceedings.recordPreparation(ensurePretrialProceedings(), beforeProceeding.id, {
+        clock: state.clock, kind: task.data.action, roomId: task.data.roomId,
+        summary: task.data.action === "discoveryReview" ? "The scientist and selected counsel reviewed every served item, witness category, exculpatory flag, and stated withholding." : "The defense prepared specific motions, claims, negotiation positions, and trial issues from the reviewed packet."
+      });
+    } else if (task.data?.action === "motion") {
+      result = PretrialProceedings.resolveMotion(ensurePretrialProceedings(), beforeProceeding.id, task.data.motionTypeId, task.data.targetId, { clock: state.clock, citedItemIds: task.data.citedItemIds });
+    } else if (task.data?.action === "defenseClaim") {
+      result = PretrialProceedings.submitDefenseClaim(ensurePretrialProceedings(), beforeProceeding.id, task.data.claimTypeId, task.data.citedItemIds, state.clock);
+    } else if (task.data?.action === "pleaResponse") {
+      result = PretrialProceedings.respondToPlea(ensurePretrialProceedings(), beforeProceeding.id, task.data.responseAction, task.data.counterId, state.clock);
+    } else if (task.data?.action === "trialSetting") {
+      result = PretrialProceedings.scheduleTrial(ensurePretrialProceedings(), beforeProceeding.id, state.clock);
+    }
+    if (result?.state) state.pretrialProceedings = result.state;
+    const proceeding = result?.proceeding || currentPretrialProceeding();
+    if (result?.changed && task.data?.action === "discoveryReview") {
+      const advanced = PretrialProceedings.advance(ensurePretrialProceedings(), state.clock); state.pretrialProceedings = advanced.state;
+    }
+    const updated = ensurePretrialProceedings().proceedings.find((entry) => entry.id === beforeProceeding.id) || proceeding;
+    applyPretrialLegalEffects(previous, updated);
+    const stay = currentJailStay();
+    if (stay && !state.tasks.some((entry) => entry.type === "pretrialReleaseTransport")) {
+      state.scientist.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID; state.scientist.mapCell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z };
+      const officer = stay.actors.find((actor) => actor.id === task.data?.officerId);
+      if (officer) { officer.roomId = MUNICIPAL_HOLDING_GUARD_ROOM_ID; officer.mapCell = { x: 22, y: 7, z: MUNICIPAL_HOLDING_Z }; }
+      for (const doorId of ["door-municipal-holding-cell", "door-municipal-holding-legal"]) { const door = state.doors[doorId]; if (door) { door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; } }
+    }
+    addEvent(result?.changed ? `${updated?.docket || "Court case"}: ${updated?.history.at(-1)?.summary || "Legal work completed."}` : result?.reason || "The legal work no longer had a valid procedural target.", { sourceKind: "pretrialProceeding", sourceId: beforeProceeding.id });
+    return Boolean(result?.changed);
+  }
+
   function queueDetentionSecurityStudy(raidId, observationId = "") {
     const raid = currentDetentionRaid();
     if (!raid || raid.id !== raidId || state.tasks.some((task) => task.type === "detentionSecurityStudy")) return null;
@@ -8620,8 +8712,14 @@
   }
 
   function updatePretrialProceedings() {
+    const before = new Map(ensurePretrialProceedings().proceedings.map((entry) => [entry.id, { discoveryStatus: entry.discovery?.status, pleaStatus: entry.plea?.status }]));
     const result = PretrialProceedings.advance(ensurePretrialProceedings(), state.clock);
     state.pretrialProceedings = result.state;
+    for (const proceeding of state.pretrialProceedings.proceedings) {
+      const prior = before.get(proceeding.id);
+      if (prior?.discoveryStatus === "pending" && proceeding.discovery.status === "served") addEvent(`${proceeding.docket}: prosecution discovery was frozen and served through ${titleCase(proceeding.discovery.serviceRoute?.kind || "legal service")}; review is required before motions or claims.`, { sourceKind: "pretrialProceeding", sourceId: proceeding.id });
+      if (prior?.pleaStatus === "none" && proceeding.plea.status === "offered") addEvent(`${proceeding.docket}: ${proceeding.plea.offer.summary}`, { sourceKind: "pretrialProceeding", sourceId: proceeding.id });
+    }
     return result.changes;
   }
 
@@ -10749,6 +10847,13 @@
       selectPretrialCounsel: (proceedingId, optionId) => selectPretrialCounsel(proceedingId, optionId),
       beginPretrialHearing: (proceedingId, submissionId) => beginPretrialHearing(proceedingId, submissionId),
       payPretrialBail: (proceedingId) => payPretrialBail(proceedingId),
+      queuePretrialLegalWork: (proceedingId, action, options = {}) => queuePretrialLegalWork(proceedingId, action, options),
+      makePretrialDiscoveryDueNow: (proceedingId) => {
+        const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === proceedingId);
+        if (!proceeding || proceeding.discovery.status !== "pending" || proceeding.timeline.discoveryDueAt == null) return false;
+        proceeding.timeline.discoveryDueAt = state.clock;
+        updatePretrialProceedings(); persist(); render(); return true;
+      },
       requestJailCommunication: (channelId, recipient = "") => clonePlainObject(requestJailCommunication(channelId, recipient)),
       beginJailCommunication: (requestId) => beginJailCommunication(requestId),
       queueJailObservation: (raidId, observationId) => {
@@ -15363,6 +15468,10 @@
   }
 
   function completeTask(task) {
+    if (task.type === "pretrialLegalWork") {
+      finishPretrialLegalWork(task);
+      return;
+    }
     if (task.type === "pretrialHearing") {
       finishPretrialHearing(task);
       return;
@@ -57040,7 +57149,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (["surrendered", "restraining", "restrained", "extracting"].includes(custodyStatus)) {
       return "The scientist is under active physical arrest and cannot perform ordinary work.";
     }
-    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "pretrialHearing", "pretrialReleaseTransport", "rest"].includes(task.type)
+    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork", "rest"].includes(task.type)
       && !(task.type === "scientistMove" && [MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(task.data?.toRoomId))) {
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
@@ -57313,7 +57422,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!isScientistQueueTask(task)) {
       return "Only scientist queue tasks can be canceled here.";
     }
-    if (["pretrialHearing", "pretrialReleaseTransport"].includes(task.type)) {
+    if (["pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork"].includes(task.type)) {
       return "A court appearance or court-ordered custody transfer cannot be canceled from the ordinary work queue.";
     }
     return "";
@@ -65990,7 +66099,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskCategory(task) {
-    if (["pretrialHearing", "pretrialReleaseTransport"].includes(task.type)) {
+    if (["pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork"].includes(task.type)) {
       return "Criminal Court";
     }
     if (task.type === "physicalDiagnostic") {
@@ -66372,6 +66481,71 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.append(textEl("span", `Decision: ${titleCase(proceeding.firstAppearance.decision)} · risk ${formatNumber(proceeding.firstAppearance.riskScore)} · mitigation ${formatNumber(proceeding.firstAppearance.mitigationScore)}.`, "journal-meta"));
         for (const reason of proceeding.firstAppearance.reasons) row.append(textEl("span", reason, "journal-meta"));
       }
+      if (proceeding.timeline.discoveryDueAt != null) {
+        row.append(textEl("span", `Discovery: ${titleCase(proceeding.discovery.status)} · due ${formatClock(proceeding.timeline.discoveryDueAt)}${proceeding.discovery.packetId ? ` · packet ${proceeding.discovery.packetId}` : ""}.`, "journal-meta"));
+      }
+      const legalWorkActive = state.tasks.some((task) => task.type === "pretrialLegalWork");
+      if (proceeding.discovery.status === "served") {
+        const review = document.createElement("button"); review.type = "button"; review.textContent = "Review Discovery with Counsel";
+        review.disabled = legalWorkActive; review.title = currentJailStay() ? "Uses a physical custody escort and the privileged Legal Consultation Room." : "Uses the secure legal terminal in Staff Operations.";
+        review.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "discoveryReview")); row.append(review);
+      }
+      if (["served", "reviewed"].includes(proceeding.discovery.status)) {
+        row.append(textEl("span", `Frozen packet: ${proceeding.discovery.items.length} evidence item(s), ${proceeding.discovery.witnesses.length} disclosed witness category record(s), ${proceeding.discovery.items.filter((item) => item.exculpatory).length} exculpatory or contradictory item(s), ${proceeding.discovery.withheld.filter((item) => item.status === "withheld").length} active withholding(s).`, "journal-meta"));
+        for (const item of proceeding.discovery.items) {
+          const itemLine = document.createElement("label"); itemLine.className = "journal-meta";
+          const citation = document.createElement("input"); citation.type = "checkbox"; citation.value = item.id; citation.dataset.pretrialCitation = proceeding.id;
+          itemLine.append(citation, document.createTextNode(` ${item.label} · ${item.reliability} · integrity ${formatNumber(item.integrity)}% · scope ${titleCase(item.scopeStatus)} · ${titleCase(item.admissibility)}${item.exculpatory ? " · disclosed exculpatory value" : ""}${item.custodyIssues.length ? ` · custody: ${item.custodyIssues.join("; ")}` : ""}`)); row.append(itemLine);
+        }
+      }
+      if (proceeding.discovery.status === "reviewed" && !["scheduled", "pleaSentencing", "dismissed"].includes(proceeding.trial.status)) {
+        row.append(textEl("span", `Defense preparation ${formatNumber(proceeding.preparation.progress)}% · credibility ${formatNumber(proceeding.preparation.credibility)}% · ${proceeding.preparation.sessions.length}/4 bounded sessions.`, "journal-meta"));
+        if (proceeding.preparation.sessions.length < 4) {
+          const prepare = document.createElement("button"); prepare.type = "button"; prepare.textContent = "Prepare Case"; prepare.disabled = legalWorkActive;
+          prepare.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "casePreparation")); row.append(prepare);
+        }
+        const checkedCitations = () => [...row.querySelectorAll(`[data-pretrial-citation="${proceeding.id}"]:checked`)].map((input) => input.value);
+        for (const item of proceeding.discovery.items.filter((entry) => entry.admissibility !== "excluded")) {
+          const button = document.createElement("button"); button.type = "button"; button.textContent = `Suppress: ${item.label}`; button.disabled = legalWorkActive || proceeding.motions.some((motion) => motion.typeId === "suppressEvidence" && motion.targetId === item.supportId);
+          button.title = PretrialProceedings.MOTION_DEFS.find((entry) => entry.id === "suppressEvidence").description;
+          button.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "motion", { motionTypeId: "suppressEvidence", targetId: item.supportId, citedItemIds: [item.id] })); row.append(button);
+        }
+        for (const charge of proceeding.charges.filter((entry) => entry.status === "filed")) {
+          const button = document.createElement("button"); button.type = "button"; button.textContent = `Dismiss: ${charge.label}`; button.disabled = legalWorkActive || proceeding.motions.some((motion) => motion.typeId === "dismissCharge" && motion.targetId === charge.id);
+          button.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "motion", { motionTypeId: "dismissCharge", targetId: charge.id, citedItemIds: checkedCitations() })); row.append(button);
+        }
+        for (const withheld of proceeding.discovery.withheld.filter((entry) => entry.status === "withheld")) {
+          const button = document.createElement("button"); button.type = "button"; button.textContent = `Compel: ${withheld.label}`; button.disabled = legalWorkActive;
+          button.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "motion", { motionTypeId: "compelDiscovery", targetId: withheld.id })); row.append(button);
+        }
+        const reconsider = document.createElement("button"); reconsider.type = "button"; reconsider.textContent = "Reconsider Custody or Conditions";
+        reconsider.disabled = legalWorkActive || proceeding.fugitive.active || proceeding.motions.some((motion) => motion.typeId === "reconsiderCustody");
+        reconsider.title = proceeding.fugitive.active ? "Custody relief requires surrender." : "Uses the weakened saved case, preparation, and current custody record.";
+        reconsider.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "motion", { motionTypeId: "reconsiderCustody", targetId: proceeding.id })); row.append(reconsider);
+        for (const claimDef of PretrialProceedings.CLAIM_DEFS) {
+          const claim = document.createElement("button"); claim.type = "button"; claim.textContent = `Claim: ${claimDef.label}`;
+          claim.disabled = legalWorkActive || proceeding.defenseClaims.some((entry) => entry.typeId === claimDef.id);
+          claim.className = claimDef.risky ? "danger-button" : ""; claim.title = claimDef.description;
+          claim.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "defenseClaim", { claimTypeId: claimDef.id, citedItemIds: checkedCitations() })); row.append(claim);
+        }
+      }
+      for (const motion of proceeding.motions) row.append(textEl("span", `${PretrialProceedings.MOTION_DEFS.find((entry) => entry.id === motion.typeId)?.label || titleCase(motion.typeId)}: ${titleCase(motion.status)} · ${motion.consequence}`, "journal-meta"));
+      for (const claim of proceeding.defenseClaims) row.append(textEl("span", `Defense claim: ${PretrialProceedings.CLAIM_DEFS.find((entry) => entry.id === claim.typeId)?.label || titleCase(claim.typeId)} · ${titleCase(claim.status)} · credibility ${claim.credibilityDelta >= 0 ? "+" : ""}${formatNumber(claim.credibilityDelta)}.`, "journal-meta"));
+      if (proceeding.plea.status === "offered" && proceeding.plea.offer) {
+        row.append(textEl("span", `Plea offer expires ${formatClock(proceeding.plea.offer.expiresAt)}: ${proceeding.plea.offer.summary} Forfeiture ${formatMoney(proceeding.plea.offer.forfeitureAmount)}.`, "journal-meta"));
+        for (const [label, action, counterId] of [["Accept Plea", "accept", ""], ["Reject Plea", "reject", ""], ...PretrialProceedings.COUNTER_DEFS.map((counter) => [`Counter: ${counter.label}`, "counter", counter.id])]) {
+          const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.disabled = legalWorkActive || (action === "accept" && proceeding.fugitive.active) || (action === "counter" && Boolean(proceeding.plea.counterId));
+          button.title = action === "accept" && proceeding.fugitive.active ? "A fugitive must surrender and physically appear before accepting a plea." : "This response is saved and does not resolve sentencing in this pass.";
+          button.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "pleaResponse", { responseAction: action, counterId })); row.append(button);
+        }
+      }
+      if (proceeding.discovery.status === "reviewed" && proceeding.trial.status === "unscheduled" && proceeding.plea.status !== "accepted" && proceeding.charges.some((entry) => entry.status === "filed")) {
+        const schedule = document.createElement("button"); schedule.type = "button"; schedule.textContent = "Request Trial Setting"; schedule.disabled = legalWorkActive;
+        schedule.addEventListener("click", () => queuePretrialLegalWork(proceeding.id, "trialSetting")); row.append(schedule);
+      }
+      if (proceeding.trial.status === "scheduled") row.append(textEl("span", `Trial scheduled ${formatClock(proceeding.trial.trialAt)} · appearance required · ${proceeding.trial.handoff.remainingChargeIds.length} charge(s), ${proceeding.trial.handoff.admissibleSupportIds.length} admissible item(s), ${proceeding.trial.handoff.excludedSupportIds.length} excluded item(s).`, "journal-meta"));
+      if (proceeding.trial.status === "pleaSentencing") row.append(textEl("span", "Binding plea accepted; the case now awaits the separate sentencing system.", "journal-meta"));
+      if (proceeding.trial.status === "dismissed") row.append(textEl("span", "Every charge was dismissed. Custody authority, active release conditions, and held bail were resolved without deleting the court record.", "journal-meta"));
       if (proceeding.release.status === "awaitingBail") {
         const pay = document.createElement("button"); pay.type = "button"; pay.textContent = `Post ${formatMoney(proceeding.release.bailAmount)} Bail Escrow`;
         pay.disabled = ensureEconomy().money < proceeding.release.bailAmount;
@@ -66381,7 +66555,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const condition of proceeding.release.conditions) row.append(textEl("span", `Release condition: ${condition.label}${condition.physicallyEnforced ? " · physically enforced" : ""} · ${titleCase(condition.status)}.`, "journal-meta"));
       if (proceeding.release.transport) row.append(textEl("span", `Release transport: ${proceeding.release.transport.label}, ${formatClock(proceeding.release.transport.departedAt)}–${formatClock(proceeding.release.transport.arrivedAt)}, to Public Entrance.`, "journal-meta"));
       if (proceeding.fugitive.active) row.append(textEl("span", `Fugitive case active · bench warrant ${titleCase(proceeding.fugitive.benchWarrantStatus)}${proceeding.fugitive.failureToAppearAt == null ? "" : ` · missed appearance ${formatClock(proceeding.fugitive.failureToAppearAt)}`}. Death remains the only game over.`, "journal-meta"));
-      row.append(textEl("span", `${proceeding.history.length} saved court event(s). Discovery and motions remain for the next implementation.`, "journal-meta"));
+      row.append(textEl("span", `${proceeding.history.length} saved court event(s). Every discovery, motion, claim, negotiation, and scheduling outcome remains in the case history.`, "journal-meta"));
       section.append(row);
     }
     return section;
@@ -66397,7 +66571,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeRaids = raids.filter((raid) => !["scheduled", "booked", "escaped", "completed"].includes(raid.status));
     const scheduledRaids = raids.filter((raid) => raid.status === "scheduled");
     const detainedRaids = raids.filter((raid) => raid.status === "booked");
-    const openProceedings = ensurePretrialProceedings().proceedings.filter((entry) => entry.status !== "resolved").length;
+    const openProceedings = ensurePretrialProceedings().proceedings.filter((entry) => !["resolved", "chargesDismissed"].includes(entry.status)).length;
     dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${openProceedings} court · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
     if (!visits.length && !raids.length && !openProceedings) {
