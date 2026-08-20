@@ -3037,6 +3037,15 @@ body.map-dragging .lab-map-canvas-host {
   box-shadow: inset 5px 0 0 #c45f50;
 }
 
+.raid-row {
+  border-color: #8f3535;
+  box-shadow: inset 5px 0 0 #bd4545;
+}
+
+.raid-section .subpanel-title {
+  color: #e1968c;
+}
+
 button.danger-button {
   border-color: #c45f50;
   color: #f09a8b;

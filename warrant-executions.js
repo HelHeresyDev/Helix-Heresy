@@ -255,6 +255,7 @@
       arrivalAt: source.arrivalAt == null ? null : Math.max(issuedAt, finite(source.arrivalAt, issuedAt)),
       arrivalWindowEnd: source.arrivalWindowEnd == null ? null : Math.max(issuedAt, finite(source.arrivalWindowEnd, issuedAt)),
       visitId: cleanId(source.visitId), actorId: cleanId(source.actorId),
+      raidId: cleanId(source.raidId),
       startedAt: source.startedAt == null ? null : Math.max(issuedAt, finite(source.startedAt, issuedAt)),
       completedAt: source.completedAt == null ? null : Math.max(issuedAt, finite(source.completedAt, issuedAt)),
       seizures: (Array.isArray(source.seizures) ? source.seizures : []).map(normalizeSeizure),
