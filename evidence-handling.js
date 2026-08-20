@@ -113,9 +113,10 @@
     return {
       id: cleanId(candidate.id) || `records-packet-${index + 1}`,
       periodId: cleanId(candidate.periodId), stackId: cleanId(candidate.stackId),
-      status: ["local", "filed", "destroyed"].includes(candidate.status) ? candidate.status : "local",
+      status: ["local", "filed", "destroyed", "seized"].includes(candidate.status) ? candidate.status : "local",
       amendmentRecordIds: cleanIds(candidate.amendmentRecordIds),
-      createdAt: Math.max(0, finite(candidate.createdAt)), destroyedAt: candidate.destroyedAt == null ? null : Math.max(0, finite(candidate.destroyedAt))
+      createdAt: Math.max(0, finite(candidate.createdAt)), destroyedAt: candidate.destroyedAt == null ? null : Math.max(0, finite(candidate.destroyedAt)),
+      seizedAt: candidate.seizedAt == null ? null : Math.max(0, finite(candidate.seizedAt))
     };
   }
 

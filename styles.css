@@ -3026,6 +3026,12 @@ body.map-dragging .lab-map-canvas-host {
   gap: 0.4rem;
 }
 
+.institutional-action[data-warrant-execution-id],
+.visit-row[data-warrant-execution-id] {
+  border-color: #876f3e;
+  box-shadow: inset 3px 0 0 #b9924d;
+}
+
 .institutional-response-form {
   display: grid;
   gap: 0.55rem;
