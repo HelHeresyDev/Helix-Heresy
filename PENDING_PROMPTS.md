@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Pretrial Proceedings and Legal Defense
+1. Discovery, Motions, and Trial Scheduling
 2. Jail Escape and Outside Rescue
 3. Trial and Sentencing
 4. Prison Foundation and Long-Term Incarceration
@@ -70,27 +70,27 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Pretrial Proceedings and Legal Defense
+## 1. Discovery, Motions, and Trial Scheduling
 
-Design and implement the path from booking through charging, bail or jail-custody review, discovery, motions, and trial scheduling. The scientist remains in the local jail throughout this process unless released or escaped. Consume the exact warrant, raid, seizure, evidence, custody, and obstruction histories already recorded. Legal outcomes must arise from known evidence and saved procedural actions rather than a generic Suspicion check.
+Continue the implemented criminal case after charging, representation, privileged consultation, and first appearance. Add evidence discovery, admissibility and custody challenges, bounded defense claims, plea negotiation, custody reconsideration, and a scheduled trial. Consume the exact filed charges, cited support, warrant, raid, seizure, evidence, custody, counsel, release-condition, fugitive, and hearing histories already recorded. Legal outcomes must arise from disclosed evidence and saved procedural actions rather than a generic Suspicion check. Preserve jail and released defendants as physically different states; an escaped scientist remains a fugitive and does not secretly attend court.
 
 Questions for discussion:
 
-- How detailed should the first legal model be?
+- What should discovery disclose?
 
-  Recommended answer: Use a compact sequence of charging, counsel selection, jail-custody or bail hearing, evidence review, a small set of motions or negotiation choices, and a scheduled trial. Preserve reasons and cited records for every decision without simulating every filing rule.
+  Recommended answer: Freeze a served discovery packet containing the prosecution's exact charge-support links, evidence summaries, seizure custody, disclosed witnesses, and known exculpatory material. Preserve undisclosed or privileged knowledge boundaries, deadlines, amendments, and the physical communication or records route used to reach the scientist and counsel.
 
-- How does the scientist obtain representation?
+- Which motions belong in the first pass?
 
-  Recommended answer: Offer public counsel, retained counsel paid by the company or allies, and self-representation as a risky option. Lawyers should have specialties, workload, loyalty, cost, and privileged communication rather than being a single defense-strength number.
+  Recommended answer: Support motions to suppress evidence, dismiss an unsupported charge, compel missing discovery, and reconsider detention, bail, or release conditions. Each motion should cite exact records and save the judge's evidence, procedure, counsel, and narrow-discretion reasons.
 
-- Can legal action free the scientist before trial?
+- How should defense narratives and negotiation work?
 
-  Recommended answer: Yes. Bail, release conditions, a successful challenge to continued jail custody, dismissed charges, or a negotiated resolution can restore physical freedom. Restrictions and ongoing proceedings remain saved consequences.
+  Recommended answer: Permit bounded factual claims tied to accessible records and testimony. Explicit lies are risky acts that can create contradictions or new charges. Plea offers may resolve supported charges or custody exposure, but cannot invent evidence, erase immutable history, or replace the later trial-and-sentencing system.
 
-- Can the player fabricate a defense narrative?
+- Where should this pass end?
 
-  Recommended answer: Permit bounded factual claims tied to accessible records and testimony, mirroring administrative responses. Lies may be attempted only as explicit risky acts that can create contradictions or new charges; free-form prose should not secretly alter mechanics.
+  Recommended answer: End with a saved trial schedule, remaining charges and admissible evidence, counsel preparation state, current custody or release terms, and any unresolved plea offer. Dismissal of every charge may lawfully release the scientist; any plea requiring sentencing should hand off to the separate Trial and Sentencing prompt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

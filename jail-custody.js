@@ -272,6 +272,19 @@
     return { state, stay, changed: true };
   }
 
+  function release(candidate, stayId, clock = 0, summary = "The court authorized release from temporary pretrial jail.") {
+    const state = normalizeState(candidate);
+    const stay = state.stays.find((entry) => entry.id === cleanId(stayId));
+    if (!stay || stay.status !== "active") return { state, stay, changed: false };
+    const at = Math.max(stay.bookedAt, finite(clock));
+    stay.status = "released";
+    stay.suppressor.status = "removed";
+    stay.suppressor.suppressionActive = false;
+    stay.suppressor.removedAt = at;
+    stay.history.push({ at, action: "released", summary: String(summary).trim() });
+    return { state, stay, changed: true };
+  }
+
   function nextEvent(candidate, clock = 0) {
     const stay = activeStay(candidate);
     if (!stay) return null;
@@ -281,5 +294,5 @@
     return { at, kind: pending && pending.readyAt === at ? "communicationReady" : routine.nextEventKind, label: pending && pending.readyAt === at ? `${CHANNELS.find((entry) => entry.id === pending.channelId)?.label} ready` : routine.nextEventLabel };
   }
 
-  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, nextEvent });
+  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, release, nextEvent });
 }));
