@@ -107,6 +107,75 @@ test('denied scope produces an obstructed return without inventing searched subj
   expect(completed.execution.scope.targets[0].observedSubjectIds).toEqual([]);
 });
 
+test('obstructed supported warrants schedule deterministic bounded forced-entry returns', () => {
+  const obstructedState = () => {
+    let state = Warrants.issue(Warrants.defaultState(), action(), demand(), { seed: 'forced-entry', clock: 100 }).state;
+    const execution = state.executions[0];
+    state = Warrants.recordObstruction(state, execution.id, 'evidence-obstruction-1', 'company-records', 130).state;
+    return Warrants.complete(state, execution.id, 140).state;
+  };
+  const first = Warrants.authorizeForcedEntry(obstructedState(), 'warrant-execution-1', { seed: 'forced-entry', clock: 140 });
+  const second = Warrants.authorizeForcedEntry(obstructedState(), 'warrant-execution-1', { seed: 'forced-entry', clock: 140 });
+  expect(first.created).toBe(true);
+  expect(first.execution.warrantReturn).toMatchObject({ outcome: 'obstructed', immutable: true });
+  expect(first.forcedEntry).toMatchObject({
+    status: 'scheduled', targets: [{ targetId: 'company-records', status: 'pending' }]
+  });
+  expect(first.forcedEntry.arrivalAt).toBe(second.forcedEntry.arrivalAt);
+  expect(first.forcedEntry.arrivalAt - first.forcedEntry.authorizedAt).toBeGreaterThanOrEqual(2 * 3600);
+  expect(first.forcedEntry.arrivalAt - first.forcedEntry.authorizedAt).toBeLessThan(6 * 3600);
+  expect(Warrants.nextForcedEntryEvent(first.state, 140)?.id).toBe(first.execution.id);
+  expect(Warrants.normalizeState(JSON.parse(JSON.stringify(first.state)))).toEqual(first.state);
+});
+
+test('forced-entry barriers retain damage, late compliance, and original scope boundaries', () => {
+  let state = Warrants.issue(Warrants.defaultState(), action(), demand(), { seed: 'barrier', clock: 100 }).state;
+  let execution = state.executions[0];
+  state = Warrants.recordObstruction(state, execution.id, 'evidence-obstruction-1', 'company-records', 130).state;
+  state = Warrants.complete(state, execution.id, 140).state;
+  state = Warrants.authorizeForcedEntry(state, execution.id, { seed: 'barrier', clock: 140 }).state;
+  state = Warrants.activateForcedEntry(state, execution.id, 'lead-1', 'breach-1', 150).state;
+  const authorized = Warrants.authorizeBarrier(state, execution.id, {
+    targetId: 'company-records', kind: 'door', barrierId: 'door-records',
+    cell: { x: 2, y: 3, z: 1 }, label: 'Records door', condition: 100, clock: 151
+  });
+  state = Warrants.recordBreachProgress(authorized.state, execution.id, authorized.barrier.id, {
+    clock: 160, currentCondition: 72, breached: false
+  }).state;
+  const complied = Warrants.recordLateCompliance(state, execution.id, 'company-records', authorized.barrier.id, 170);
+  expect(complied.barrier).toMatchObject({
+    status: 'complied', startingCondition: 100, currentCondition: 72, damageApplied: 28, lateComplianceAt: 170
+  });
+  expect(complied.execution.warrantReturn).toMatchObject({ outcome: 'obstructed', deniedTargetIds: ['company-records'] });
+  expect(complied.execution.scope.authorizedRoomIds).toEqual(['surfaceStaffOperations']);
+});
+
+test('plain-view expansion records its physical justification separately and violence causes withdrawal', () => {
+  let state = Warrants.issue(Warrants.defaultState(), action(), demand(), { seed: 'expansion', clock: 100 }).state;
+  const id = state.executions[0].id;
+  state = Warrants.recordObstruction(state, id, 'evidence-obstruction-1', 'company-records', 130).state;
+  state = Warrants.complete(state, id, 140).state;
+  state = Warrants.authorizeForcedEntry(state, id, { seed: 'expansion', clock: 140 }).state;
+  state = Warrants.activateForcedEntry(state, id, 'lead-1', 'breach-1', 150).state;
+  const expanded = Warrants.authorizeExpansion(state, id, {
+    evidenceId: 'evidence-obvious-1', observationId: 'plain-view:1', roomId: 'surfaceReception',
+    sourceCell: { x: 4, y: 5, z: 1 }, label: 'Obvious chemical spill',
+    subjectCategories: ['hazardousMaterial'], maxSubjects: 1, reason: 'Observed through an open adjoining doorway.', clock: 155
+  });
+  expect(expanded.created).toBe(true);
+  expect(expanded.execution.scope.authorizedRoomIds).toEqual(['surfaceStaffOperations']);
+  expect(expanded.expansion).toMatchObject({
+    evidenceId: 'evidence-obvious-1', observationId: 'plain-view:1', roomId: 'surfaceReception'
+  });
+  state = Warrants.recordViolentObstruction(expanded.state, id, 'evidence-violence-1', 'The team was attacked and withdrew.', 160).state;
+  const completed = Warrants.completeForcedEntry(state, id, 170);
+  expect(completed.execution).toMatchObject({
+    status: 'obstructed', forcedEntry: {
+      status: 'withdrawn', supplementalReturn: { outcome: 'withdrawn', immutable: true, violenceIds: ['evidence-violence-1'] }
+    }
+  });
+});
+
 test('@smoke a registry warrant is served, physically searches records, carries exact packets out, and survives reload', async ({ page }) => {
   await startRun(page);
   const scheduled = await page.evaluate(() => {
@@ -175,4 +244,105 @@ test('denying a served environmental warrant records obstruction but no hidden f
   expect(result.evidence).toContainEqual(expect.objectContaining({
     type: 'warrantObstruction', traits: expect.arrayContaining(['access denied', 'served warrant'])
   }));
+});
+
+test('@smoke an obstructed records warrant returns with a physical breach officer and honors late compliance', async ({ page }) => {
+  test.setTimeout(90_000);
+  await startRun(page);
+  const scheduled = await page.evaluate(() => {
+    window.helixHeresyDebug.ensureCompanyRecordPackets();
+    for (const doorId of ['door-surface-reception-staff', 'door-surface-basement-staff', 'door-surface-staff-loading']) {
+      window.helixHeresyDebug.setDoorPhysicalState(doorId, 'closed');
+      window.helixHeresyDebug.setDoorLockPhysicalState(doorId, 'locked');
+    }
+    return window.helixHeresyDebug.issueTestWarrant('commercial-registry', { immediate: true });
+  });
+  await page.evaluate(() => {
+    for (let index = 0; index < 5; index += 1) window.helixHeresyDebug.updateSiteVisits(30);
+  });
+  let visit = await page.evaluate((visitId) => window.helixHeresyDebug.siteVisitsSnapshot().visits.find((entry) => entry.id === visitId), scheduled.visitId);
+  const originalRequest = visit.requests.find((entry) => entry.decision === 'pending');
+  expect(originalRequest).toBeTruthy();
+  await page.evaluate(({ visitId, requestId }) => window.helixHeresyDebug.decideSiteVisitAccess(visitId, requestId, 'denied'), {
+    visitId: scheduled.visitId, requestId: originalRequest.id
+  });
+  await page.evaluate(() => {
+    for (let index = 0; index < 10; index += 1) window.helixHeresyDebug.updateSiteVisits(30);
+  });
+  let execution = await page.evaluate((id) => window.helixHeresyDebug.warrantExecutionsSnapshot().executions.find((entry) => entry.id === id), scheduled.id);
+  expect(execution).toMatchObject({
+    status: 'obstructed', warrantReturn: { outcome: 'obstructed', immutable: true },
+    forcedEntry: { status: 'scheduled', visitId: expect.stringMatching(/^site-visit-/) }
+  });
+  const forcedVisitId = execution.forcedEntry.visitId;
+  await page.evaluate((id) => window.helixHeresyDebug.setForcedEntryImmediate(id), scheduled.id);
+  await page.evaluate(() => {
+    for (let index = 0; index < 5; index += 1) window.helixHeresyDebug.updateSiteVisits(5);
+  });
+  visit = await page.evaluate((visitId) => window.helixHeresyDebug.siteVisitsSnapshot().visits.find((entry) => entry.id === visitId), forcedVisitId);
+  expect(visit.supportActors).toEqual([
+    expect.objectContaining({ label: 'Breach Officer', role: 'breach', present: true })
+  ]);
+  const forcedRequest = visit.requests.find((entry) => entry.decision === 'pending');
+  expect(forcedRequest).toBeTruthy();
+  await page.evaluate(({ visitId, requestId }) => window.helixHeresyDebug.decideSiteVisitAccess(visitId, requestId, 'denied'), {
+    visitId: forcedVisitId, requestId: forcedRequest.id
+  });
+  await page.evaluate(() => window.helixHeresyDebug.updateSiteVisits(1));
+  visit = await page.evaluate((visitId) => window.helixHeresyDebug.siteVisitsSnapshot().visits.find((entry) => entry.id === visitId), forcedVisitId);
+  const forcedFixtureRequest = visit.requests.find((entry) => entry.decision === 'pending');
+  expect(forcedFixtureRequest).toMatchObject({ targetKind: 'fixture', targetId: 'starter-surface-records-cabinet' });
+  await page.evaluate(({ visitId, requestId }) => window.helixHeresyDebug.decideSiteVisitAccess(visitId, requestId, 'denied'), {
+    visitId: forcedVisitId, requestId: forcedFixtureRequest.id
+  });
+  await page.evaluate(() => {
+    for (let index = 0; index < 15; index += 1) window.helixHeresyDebug.updateSiteVisits(1);
+  });
+  let snapshot = await page.evaluate(({ executionId, visitId }) => ({
+    execution: window.helixHeresyDebug.warrantExecutionsSnapshot().executions.find((entry) => entry.id === executionId),
+    visit: window.helixHeresyDebug.siteVisitsSnapshot().visits.find((entry) => entry.id === visitId),
+    stacks: window.helixHeresyDebug.physicalItemVisualSnapshot()
+  }), { executionId: scheduled.id, visitId: forcedVisitId });
+  const barrier = snapshot.execution.forcedEntry.barriers[0];
+  expect(barrier).toMatchObject({ kind: 'door', barrierId: 'door-surface-reception-staff' });
+  expect(['authorized', 'breaching']).toContain(barrier.status);
+  const breachTool = snapshot.stacks.find((stack) =>
+    stack.key === 'pryBar' && snapshot.visit.supportActors[0].inventory.stackIds.includes(stack.id)
+  );
+  expect(breachTool).toBeTruthy();
+  const task = await page.evaluate(({ visitId, barrierId }) => window.helixHeresyDebug.queueForcedEntryCompliance(visitId, barrierId), {
+    visitId: forcedVisitId, barrierId: barrier.id
+  });
+  expect(task).toMatchObject({ type: 'forcedEntryCompliance', data: { barrierId: barrier.id } });
+  const damageAtCompliance = barrier.damageApplied;
+  await page.evaluate(() => {
+    for (let index = 0; index < 10; index += 1) window.helixHeresyDebug.updateSiteVisits(1);
+  });
+  execution = await page.evaluate((id) => window.helixHeresyDebug.warrantExecutionsSnapshot().executions.find((entry) => entry.id === id), scheduled.id);
+  expect(execution.forcedEntry.barriers[0]).toMatchObject({ status: 'complied', damageApplied: damageAtCompliance });
+  const clock = await page.evaluate(() => window.helixHeresyDebug.warrantExecutionsSnapshot().clock);
+  await page.evaluate((seconds) => window.helixHeresyDebug.advanceSimulation(seconds), Math.max(1, Math.ceil(task.dueAt - clock + 2)));
+  await page.evaluate(() => {
+    for (let index = 0; index < 14; index += 1) window.helixHeresyDebug.updateSiteVisits(30);
+  });
+  const result = await page.evaluate(({ executionId, visitId }) => ({
+    execution: window.helixHeresyDebug.warrantExecutionsSnapshot().executions.find((entry) => entry.id === executionId),
+    visit: window.helixHeresyDebug.siteVisitsSnapshot().visits.find((entry) => entry.id === visitId),
+    stacks: window.helixHeresyDebug.physicalItemVisualSnapshot(),
+    door: window.helixHeresyDebug.siteAccessSnapshot().doors.find((entry) => entry.id === 'door-surface-reception-staff')
+  }), { executionId: scheduled.id, visitId: forcedVisitId });
+  expect(result.execution).toMatchObject({
+    status: 'completed',
+    warrantReturn: { outcome: 'obstructed', immutable: true },
+    forcedEntry: {
+      status: 'completed', supplementalReturn: {
+        outcome: 'completed', immutable: true, compliedBarrierIds: [barrier.id],
+        breachedBarrierIds: ['forced-barrier-2']
+      }
+    }
+  });
+  expect(result.visit.phase).toBe('completed');
+  expect(result.door.state).toMatchObject({ breached: false, condition: expect.any(Number) });
+  expect(result.door.state.condition).toBeLessThan(100);
+  expect(result.stacks.some((stack) => stack.id === breachTool.id)).toBe(false);
 });

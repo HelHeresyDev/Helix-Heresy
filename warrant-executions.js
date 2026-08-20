@@ -5,11 +5,14 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixWarrantExecutions() {
   "use strict";
 
-  const VERSION = 1;
+  const VERSION = 2;
   const HOUR = 3600;
   const STATUSES = Object.freeze(["issued", "scheduled", "active", "completed", "obstructed", "deferred"]);
   const TARGET_STATUSES = Object.freeze(["pending", "searched", "denied", "inaccessible"]);
   const SEIZURE_STATUSES = Object.freeze(["located", "carried", "externalized"]);
+  const FORCED_ENTRY_STATUSES = Object.freeze(["scheduled", "active", "withdrawing", "completed", "withdrawn"]);
+  const FORCED_TARGET_STATUSES = Object.freeze(["pending", "searched", "inaccessible"]);
+  const BARRIER_STATUSES = Object.freeze(["authorized", "breaching", "breached", "complied"]);
 
   const SCOPE_TEMPLATES = Object.freeze({
     registryRecords: Object.freeze({
@@ -155,6 +158,90 @@
     };
   }
 
+  function normalizeForcedTarget(candidate, index = 0) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    return {
+      targetId: cleanId(source.targetId) || `forced-target-${index + 1}`,
+      status: FORCED_TARGET_STATUSES.includes(source.status) ? source.status : "pending",
+      authorizedAt: Math.max(0, finite(source.authorizedAt)),
+      searchedAt: source.searchedAt == null ? null : Math.max(0, finite(source.searchedAt)),
+      observedSubjectIds: uniqueIds(source.observedSubjectIds),
+      lateComplianceAt: source.lateComplianceAt == null ? null : Math.max(0, finite(source.lateComplianceAt)),
+      reason: String(source.reason || "").trim()
+    };
+  }
+
+  function normalizeBarrier(candidate, index = 0) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const cell = source.cell && Number.isFinite(Number(source.cell.x)) && Number.isFinite(Number(source.cell.y))
+      ? { x: Math.round(Number(source.cell.x)), y: Math.round(Number(source.cell.y)), z: Math.round(Number(source.cell.z) || 0) }
+      : null;
+    return {
+      id: cleanId(source.id) || `forced-barrier-${index + 1}`,
+      targetId: cleanId(source.targetId), kind: ["door", "fixture", "constructedWall"].includes(source.kind) ? source.kind : "door",
+      barrierId: cleanId(source.barrierId), cell,
+      label: String(source.label || "Authorized barrier").trim(),
+      status: BARRIER_STATUSES.includes(source.status) ? source.status : "authorized",
+      authorizedAt: Math.max(0, finite(source.authorizedAt)),
+      workStartedAt: source.workStartedAt == null ? null : Math.max(0, finite(source.workStartedAt)),
+      completedAt: source.completedAt == null ? null : Math.max(0, finite(source.completedAt)),
+      startingCondition: Math.max(0, finite(source.startingCondition, 100)),
+      currentCondition: Math.max(0, finite(source.currentCondition, source.startingCondition ?? 100)),
+      damageApplied: Math.max(0, finite(source.damageApplied)),
+      justification: String(source.justification || "Barrier blocks an authorized warrant target.").trim(),
+      lateComplianceAt: source.lateComplianceAt == null ? null : Math.max(0, finite(source.lateComplianceAt))
+    };
+  }
+
+  function normalizeExpansion(candidate, index = 0) {
+    const source = candidate && typeof candidate === "object" ? candidate : {};
+    const sourceCell = source.sourceCell && Number.isFinite(Number(source.sourceCell.x)) && Number.isFinite(Number(source.sourceCell.y))
+      ? { x: Math.round(Number(source.sourceCell.x)), y: Math.round(Number(source.sourceCell.y)), z: Math.round(Number(source.sourceCell.z) || 0) }
+      : null;
+    return {
+      id: cleanId(source.id) || `warrant-expansion-${index + 1}`,
+      targetId: cleanId(source.targetId) || `expanded-target-${index + 1}`,
+      evidenceId: cleanId(source.evidenceId), observationId: cleanId(source.observationId),
+      roomId: cleanId(source.roomId), fixtureId: cleanId(source.fixtureId), sourceCell,
+      label: String(source.label || "Expanded physical search target").trim(),
+      method: cleanId(source.method) || "warrantExpandedSearch",
+      subjectCategories: uniqueText(source.subjectCategories), maxSubjects: Math.max(1, Math.floor(finite(source.maxSubjects, 1))),
+      seizedSubjectIds: uniqueIds(source.seizedSubjectIds), authorizedAt: Math.max(0, finite(source.authorizedAt)),
+      reason: String(source.reason || "A physically perceived observation justified narrow expanded scope.").trim()
+    };
+  }
+
+  function normalizeSupplementalReturn(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    return {
+      completedAt: Math.max(0, finite(candidate.completedAt)),
+      outcome: candidate.outcome === "withdrawn" ? "withdrawn" : "completed",
+      searchedTargetIds: uniqueIds(candidate.searchedTargetIds), inaccessibleTargetIds: uniqueIds(candidate.inaccessibleTargetIds),
+      breachedBarrierIds: uniqueIds(candidate.breachedBarrierIds), compliedBarrierIds: uniqueIds(candidate.compliedBarrierIds),
+      expansionIds: uniqueIds(candidate.expansionIds), seizedSubjectIds: uniqueIds(candidate.seizedSubjectIds),
+      violenceIds: uniqueIds(candidate.violenceIds), summary: String(candidate.summary || "Supplemental forced-entry return filed.").trim(),
+      immutable: candidate.immutable !== false
+    };
+  }
+
+  function normalizeForcedEntry(candidate, issuedAt = 0) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const authorizedAt = Math.max(issuedAt, finite(candidate.authorizedAt, issuedAt));
+    const status = FORCED_ENTRY_STATUSES.includes(candidate.status) ? candidate.status : "scheduled";
+    return {
+      status, authorizedAt,
+      arrivalAt: Math.max(authorizedAt, finite(candidate.arrivalAt, authorizedAt)),
+      arrivalWindowEnd: Math.max(authorizedAt, finite(candidate.arrivalWindowEnd, candidate.arrivalAt ?? authorizedAt)),
+      visitId: cleanId(candidate.visitId), leadActorId: cleanId(candidate.leadActorId), breachActorId: cleanId(candidate.breachActorId),
+      targets: (Array.isArray(candidate.targets) ? candidate.targets : []).map(normalizeForcedTarget),
+      barriers: (Array.isArray(candidate.barriers) ? candidate.barriers : []).map(normalizeBarrier),
+      expansions: (Array.isArray(candidate.expansions) ? candidate.expansions : []).map(normalizeExpansion),
+      violenceIds: uniqueIds(candidate.violenceIds), withdrawalReason: String(candidate.withdrawalReason || "").trim(),
+      completedAt: candidate.completedAt == null ? null : Math.max(authorizedAt, finite(candidate.completedAt)),
+      supplementalReturn: normalizeSupplementalReturn(candidate.supplementalReturn)
+    };
+  }
+
   function normalizeExecution(candidate, index = 0) {
     const source = candidate && typeof candidate === "object" ? candidate : {};
     const template = SCOPE_TEMPLATES[source.scope?.id] || SCOPE_TEMPLATES.deferredRaid;
@@ -172,6 +259,7 @@
       completedAt: source.completedAt == null ? null : Math.max(issuedAt, finite(source.completedAt, issuedAt)),
       seizures: (Array.isArray(source.seizures) ? source.seizures : []).map(normalizeSeizure),
       obstructionIds: uniqueIds(source.obstructionIds), warrantReturn: normalizeReturn(source.warrantReturn),
+      forcedEntry: normalizeForcedEntry(source.forcedEntry, issuedAt),
       history: (Array.isArray(source.history) ? source.history : []).map((entry) => ({
         at: Math.max(issuedAt, finite(entry?.at, issuedAt)), action: cleanId(entry?.action) || "issued",
         summary: String(entry?.summary || "Warrant execution updated.").trim()
@@ -269,25 +357,217 @@
   function recordSeizure(candidate, executionId, targetId, options = {}) {
     const state = normalizeState(candidate);
     const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
-    const target = execution?.scope.targets.find((entry) => entry.id === cleanId(targetId));
+    const target = execution?.scope.targets.find((entry) => entry.id === cleanId(targetId))
+      || execution?.forcedEntry?.expansions.find((entry) => entry.targetId === cleanId(targetId));
     const subjectId = cleanId(options.subjectId);
     if (!execution || !target || !subjectId) return { state, execution, seizure: null, created: false };
     const existing = execution.seizures.find((entry) => entry.subjectId === subjectId);
     if (existing) return { state, execution, seizure: existing, created: false };
     const clock = Math.max(execution.issuedAt, finite(options.clock));
+    const custodyActorId = cleanId(options.actorId) || execution.forcedEntry?.leadActorId || execution.actorId;
     const seizure = normalizeSeizure({
       id: `warrant-seizure-${state.nextSeizureNumber++}`, targetId: target.id,
       sourceSubjectId: options.sourceSubjectId || subjectId, subjectKind: options.subjectKind || "physicalStack",
       subjectId, label: options.label, quantity: options.quantity, status: "carried", locatedAt: clock,
       custody: [
-        { at: clock, action: "located", actorId: execution.actorId, roomId: target.roomId, details: `Located during ${target.label}.` },
-        { at: clock, action: "carried", actorId: execution.actorId, roomId: target.roomId, details: "Taken into physical enforcement custody." }
+        { at: clock, action: "located", actorId: custodyActorId, roomId: target.roomId, details: `Located during ${target.label}.` },
+        { at: clock, action: "carried", actorId: custodyActorId, roomId: target.roomId, details: "Taken into physical enforcement custody." }
       ]
     }, execution.seizures.length);
     execution.seizures.push(seizure);
     target.seizedSubjectIds = uniqueIds([...target.seizedSubjectIds, subjectId]);
     execution.history.push({ at: clock, action: "seized", summary: `${seizure.label} entered physical enforcement custody.` });
     return { state, execution, seizure, created: true };
+  }
+
+  function authorizeForcedEntry(candidate, executionId, context = {}) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    if (!execution || execution.forcedEntry || execution.status !== "obstructed" || !execution.scope.supported || !execution.warrantReturn) {
+      return { state, execution, forcedEntry: execution?.forcedEntry || null, created: false };
+    }
+    const targetIds = uniqueIds([
+      ...execution.warrantReturn.deniedTargetIds,
+      ...execution.warrantReturn.inaccessibleTargetIds
+    ]).filter((targetId) => execution.scope.targets.some((target) => target.id === targetId));
+    if (!targetIds.length) return { state, execution, forcedEntry: null, created: false };
+    const authorizedAt = Math.max(execution.completedAt || execution.issuedAt, finite(context.clock, execution.completedAt || execution.issuedAt));
+    const arrivalDelay = Math.floor((2 + unitRoll(`${context.seed}:${execution.id}:forced-entry`) * 4) * HOUR);
+    const arrivalAt = authorizedAt + arrivalDelay;
+    execution.forcedEntry = normalizeForcedEntry({
+      status: "scheduled", authorizedAt, arrivalAt, arrivalWindowEnd: arrivalAt + HOUR,
+      targets: targetIds.map((targetId) => ({ targetId, status: "pending", authorizedAt }))
+    }, execution.issuedAt);
+    execution.history.push({
+      at: authorizedAt, action: "forcedEntryAuthorized",
+      summary: `A two-person enforcement return was authorized for ${targetIds.length} obstructed target(s); unrelated scope remains excluded.`
+    });
+    return { state, execution, forcedEntry: execution.forcedEntry, created: true };
+  }
+
+  function linkForcedEntryVisit(candidate, executionId, visitId, leadActorId, breachActorId, clock = 0) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    if (!execution || !forcedEntry || forcedEntry.status !== "scheduled") return { state, execution, forcedEntry: forcedEntry || null, changed: false };
+    forcedEntry.visitId = cleanId(visitId);
+    forcedEntry.leadActorId = cleanId(leadActorId);
+    forcedEntry.breachActorId = cleanId(breachActorId);
+    execution.history.push({ at: Math.max(forcedEntry.authorizedAt, finite(clock)), action: "forcedEntryVisitLinked", summary: "A warrant officer and breach officer were assigned to the supplemental execution." });
+    return { state, execution, forcedEntry, changed: true };
+  }
+
+  function activateForcedEntry(candidate, executionId, leadActorId, breachActorId, clock = 0) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    if (!execution || !forcedEntry || !["scheduled", "active"].includes(forcedEntry.status)) return { state, execution, forcedEntry: forcedEntry || null, changed: false };
+    const changed = forcedEntry.status !== "active";
+    forcedEntry.status = "active";
+    forcedEntry.leadActorId = cleanId(leadActorId) || forcedEntry.leadActorId;
+    forcedEntry.breachActorId = cleanId(breachActorId) || forcedEntry.breachActorId;
+    if (changed) execution.history.push({ at: Math.max(forcedEntry.authorizedAt, finite(clock)), action: "forcedEntryStarted", summary: "The physical two-person forced-entry execution began at the lawful entrance." });
+    return { state, execution, forcedEntry, changed };
+  }
+
+  function forcedTarget(forcedEntry, targetId) {
+    return forcedEntry?.targets.find((entry) => entry.targetId === cleanId(targetId)) || null;
+  }
+
+  function authorizeBarrier(candidate, executionId, options = {}) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    const targetId = cleanId(options.targetId);
+    if (!execution || !forcedEntry || !forcedTarget(forcedEntry, targetId) || !["active", "scheduled"].includes(forcedEntry.status)) {
+      return { state, execution, barrier: null, created: false };
+    }
+    const barrierId = cleanId(options.barrierId);
+    const existing = forcedEntry.barriers.find((entry) => entry.targetId === targetId && entry.kind === options.kind && entry.barrierId === barrierId);
+    if (existing) return { state, execution, barrier: existing, created: false };
+    const clock = Math.max(forcedEntry.authorizedAt, finite(options.clock));
+    const barrier = normalizeBarrier({
+      id: `forced-barrier-${forcedEntry.barriers.length + 1}`, targetId, kind: options.kind, barrierId,
+      cell: options.cell, label: options.label, status: "authorized", authorizedAt: clock,
+      startingCondition: options.condition, currentCondition: options.condition,
+      justification: options.justification || `This barrier physically blocks authorized target ${targetId}.`
+    }, forcedEntry.barriers.length);
+    forcedEntry.barriers.push(barrier);
+    execution.history.push({ at: clock, action: "barrierAuthorized", summary: `${barrier.label} was specifically authorized for breach because it blocks an approved target.` });
+    return { state, execution, barrier, created: true };
+  }
+
+  function recordBreachProgress(candidate, executionId, barrierRecordId, options = {}) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    const barrier = forcedEntry?.barriers.find((entry) => entry.id === cleanId(barrierRecordId));
+    if (!execution || !forcedEntry || !barrier || ["breached", "complied"].includes(barrier.status)) return { state, execution, barrier, changed: false };
+    const clock = Math.max(forcedEntry.authorizedAt, finite(options.clock));
+    barrier.status = options.breached ? "breached" : "breaching";
+    barrier.workStartedAt ??= clock;
+    barrier.currentCondition = Math.max(0, finite(options.currentCondition, barrier.currentCondition));
+    barrier.damageApplied = Math.max(barrier.damageApplied, Math.max(0, barrier.startingCondition - barrier.currentCondition));
+    if (options.breached) barrier.completedAt = clock;
+    if (options.breached) execution.history.push({ at: clock, action: "barrierBreached", summary: `${barrier.label} was physically breached after ${barrier.damageApplied} condition damage.` });
+    return { state, execution, barrier, changed: true };
+  }
+
+  function recordLateCompliance(candidate, executionId, targetId, barrierRecordId, clock = 0) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    const target = forcedTarget(forcedEntry, targetId);
+    if (!execution || !forcedEntry || !target) return { state, execution, barrier: null, changed: false };
+    const at = Math.max(forcedEntry.authorizedAt, finite(clock));
+    const barrier = forcedEntry.barriers.find((entry) => entry.id === cleanId(barrierRecordId)) || null;
+    target.lateComplianceAt ??= at;
+    if (barrier && !["breached", "complied"].includes(barrier.status)) {
+      barrier.status = "complied";
+      barrier.lateComplianceAt = at;
+      barrier.completedAt = at;
+    }
+    execution.history.push({ at, action: "lateCompliance", summary: `${barrier?.label || targetId} access was provided before destructive work completed; prior obstruction and existing damage remain recorded.` });
+    return { state, execution, barrier, changed: true };
+  }
+
+  function recordForcedSearch(candidate, executionId, targetId, result = {}) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const target = forcedTarget(execution?.forcedEntry, targetId);
+    if (!execution || !target || target.status !== "pending") return { state, execution, target, changed: false };
+    target.status = result.status === "inaccessible" ? "inaccessible" : "searched";
+    target.searchedAt = Math.max(execution.forcedEntry.authorizedAt, finite(result.clock));
+    target.observedSubjectIds = uniqueIds(result.observedSubjectIds);
+    target.reason = String(result.reason || "").trim();
+    execution.history.push({ at: target.searchedAt, action: target.status === "searched" ? "forcedSearch" : "forcedInaccessible", summary: target.status === "searched" ? `${target.targetId} was physically searched under the supplemental authority.` : `${target.targetId} remained inaccessible: ${target.reason || "physical access failed"}.` });
+    return { state, execution, target, changed: true };
+  }
+
+  function authorizeExpansion(candidate, executionId, options = {}) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    const evidenceId = cleanId(options.evidenceId);
+    if (!execution || !forcedEntry || forcedEntry.status !== "active" || !evidenceId || !options.roomId || !options.reason) {
+      return { state, execution, expansion: null, created: false };
+    }
+    const existing = forcedEntry.expansions.find((entry) => entry.evidenceId === evidenceId);
+    if (existing) return { state, execution, expansion: existing, created: false };
+    const clock = Math.max(forcedEntry.authorizedAt, finite(options.clock));
+    const expansion = normalizeExpansion({
+      id: `warrant-expansion-${forcedEntry.expansions.length + 1}`,
+      targetId: `expanded-target-${forcedEntry.expansions.length + 1}`,
+      evidenceId, observationId: options.observationId, roomId: options.roomId, fixtureId: options.fixtureId,
+      sourceCell: options.sourceCell, label: options.label, method: options.method,
+      subjectCategories: options.subjectCategories, maxSubjects: options.maxSubjects, authorizedAt: clock, reason: options.reason
+    }, forcedEntry.expansions.length);
+    forcedEntry.expansions.push(expansion);
+    forcedEntry.targets.push(normalizeForcedTarget({ targetId: expansion.targetId, status: "pending", authorizedAt: clock }, forcedEntry.targets.length));
+    execution.history.push({ at: clock, action: "scopeExpanded", summary: `${expansion.label} was narrowly authorized from physically perceived evidence ${evidenceId}: ${expansion.reason}` });
+    return { state, execution, expansion, created: true };
+  }
+
+  function recordViolentObstruction(candidate, executionId, violenceId, reason, clock = 0) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    if (!execution || !forcedEntry || !["active", "withdrawing"].includes(forcedEntry.status)) return { state, execution, forcedEntry, changed: false };
+    const id = cleanId(violenceId);
+    const before = forcedEntry.violenceIds.length;
+    forcedEntry.violenceIds = uniqueIds([...forcedEntry.violenceIds, id]);
+    forcedEntry.status = "withdrawing";
+    forcedEntry.withdrawalReason = String(reason || "Violent resistance forced the team to withdraw.").trim();
+    if (forcedEntry.violenceIds.length !== before) execution.history.push({ at: Math.max(forcedEntry.authorizedAt, finite(clock)), action: "violentObstruction", summary: forcedEntry.withdrawalReason });
+    return { state, execution, forcedEntry, changed: forcedEntry.violenceIds.length !== before };
+  }
+
+  function completeForcedEntry(candidate, executionId, clock = 0) {
+    const state = normalizeState(candidate);
+    const execution = state.executions.find((entry) => entry.id === cleanId(executionId));
+    const forcedEntry = execution?.forcedEntry;
+    if (!execution || !forcedEntry || forcedEntry.supplementalReturn) return { state, execution, forcedEntry, changed: false };
+    const completedAt = Math.max(forcedEntry.authorizedAt, finite(clock));
+    const withdrawn = forcedEntry.status === "withdrawing" || forcedEntry.violenceIds.length > 0;
+    const searchedTargetIds = forcedEntry.targets.filter((target) => target.status === "searched").map((target) => target.targetId);
+    const inaccessibleTargetIds = forcedEntry.targets.filter((target) => target.status === "inaccessible" || target.status === "pending").map((target) => target.targetId);
+    const breachedBarrierIds = forcedEntry.barriers.filter((barrier) => barrier.status === "breached").map((barrier) => barrier.id);
+    const compliedBarrierIds = forcedEntry.barriers.filter((barrier) => barrier.status === "complied").map((barrier) => barrier.id);
+    const seizedSubjectIds = execution.seizures.filter((seizure) => seizure.status === "externalized" && seizure.externalizedAt >= forcedEntry.authorizedAt).map((seizure) => seizure.subjectId);
+    forcedEntry.status = withdrawn ? "withdrawn" : "completed";
+    forcedEntry.completedAt = completedAt;
+    forcedEntry.supplementalReturn = normalizeSupplementalReturn({
+      completedAt, outcome: forcedEntry.status, searchedTargetIds, inaccessibleTargetIds,
+      breachedBarrierIds, compliedBarrierIds, expansionIds: forcedEntry.expansions.map((entry) => entry.id),
+      seizedSubjectIds, violenceIds: forcedEntry.violenceIds,
+      summary: withdrawn
+        ? `Supplemental return: enforcement withdrew after violent obstruction; ${searchedTargetIds.length} target(s) searched and ${seizedSubjectIds.length} subject(s) seized.`
+        : `Supplemental return: ${searchedTargetIds.length} target(s) searched, ${breachedBarrierIds.length} barrier(s) breached, ${compliedBarrierIds.length} resolved by late compliance, and ${seizedSubjectIds.length} subject(s) seized.`,
+      immutable: true
+    });
+    if (!withdrawn) execution.status = "completed";
+    execution.history.push({ at: completedAt, action: "supplementalReturnFiled", summary: forcedEntry.supplementalReturn.summary });
+    return { state, execution, forcedEntry, changed: true };
   }
 
   function externalizeSeizure(candidate, executionId, subjectId, options = {}) {
@@ -299,7 +579,7 @@
     seizure.status = "externalized";
     seizure.externalizedAt = clock;
     seizure.custody.push({
-      at: clock, action: "externalized", actorId: execution.actorId,
+      at: clock, action: "externalized", actorId: cleanId(options.actorId) || execution.forcedEntry?.leadActorId || execution.actorId,
       roomId: cleanId(options.roomId), accessPointId: cleanId(options.accessPointId),
       details: String(options.details || "Removed from the site under warrant custody.").trim()
     });
@@ -360,10 +640,19 @@
       .sort((left, right) => left.arrivalAt - right.arrivalAt || left.id.localeCompare(right.id))[0] || null;
   }
 
+  function nextForcedEntryEvent(candidate, clock = 0) {
+    const now = Math.max(0, finite(clock));
+    return normalizeState(candidate).executions
+      .filter((execution) => execution.forcedEntry?.status === "scheduled" && execution.forcedEntry.arrivalAt >= now)
+      .sort((left, right) => left.forcedEntry.arrivalAt - right.forcedEntry.arrivalAt || left.id.localeCompare(right.id))[0] || null;
+  }
+
   return {
-    VERSION, HOUR, STATUSES, TARGET_STATUSES, SEIZURE_STATUSES, SCOPE_TEMPLATES,
+    VERSION, HOUR, STATUSES, TARGET_STATUSES, SEIZURE_STATUSES, FORCED_ENTRY_STATUSES, FORCED_TARGET_STATUSES, BARRIER_STATUSES, SCOPE_TEMPLATES,
     cleanId, unitRoll, templateFor, normalizeTarget, normalizeScope, normalizeSeizure, normalizeExecution,
     defaultState, normalizeState, issue, linkVisit, activate, recordSearch, recordSeizure,
-    externalizeSeizure, recordObstruction, complete, executionByAction, nextEvent
+    externalizeSeizure, recordObstruction, complete, authorizeForcedEntry, linkForcedEntryVisit,
+    activateForcedEntry, authorizeBarrier, recordBreachProgress, recordLateCompliance, recordForcedSearch,
+    authorizeExpansion, recordViolentObstruction, completeForcedEntry, executionByAction, nextEvent, nextForcedEntryEvent
   };
 }));
