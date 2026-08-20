@@ -4257,6 +4257,10 @@
   if (!InstitutionalResponses) {
     throw new Error("HelixInstitutionalResponses must load before app.js");
   }
+  const WarrantExecutions = window.HelixWarrantExecutions;
+  if (!WarrantExecutions) {
+    throw new Error("HelixWarrantExecutions must load before app.js");
+  }
   const SiteVisits = window.HelixSiteVisits;
   if (!SiteVisits) {
     throw new Error("HelixSiteVisits must load before app.js");
@@ -4917,6 +4921,7 @@
       externalDetection: ExternalDetection.defaultState(),
       investigations: InvestigationCases.defaultState(),
       institutionalResponses: InstitutionalResponses.defaultState(),
+      warrantExecutions: WarrantExecutions.defaultState(),
       siteVisits: SiteVisits.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
@@ -5272,8 +5277,10 @@
 
   function defaultActorInventory(actorOrId = "scientist") {
     const scientist = actorOrId === "scientist" || actorOrId === state?.scientist || actorOrId?.physicalPresence;
+    const visitor = actorOrId?.kind === "visitor";
     const capacity = scientist
       ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
+      : visitor ? { maxMassKg: 18, maxVolumeL: 24 }
       : slimeInventoryCapacity(actorOrId);
     return {
       version: ACTOR_INVENTORY_VERSION,
@@ -5929,7 +5936,7 @@
     for (const period of company.periods) {
       let packet = evidenceHandlingPacketForPeriod(period.id);
       if (packet) {
-        packet.status = packet.status === "destroyed" ? "destroyed" : period.status === "filed" ? "filed" : "local";
+        packet.status = ["destroyed", "seized"].includes(packet.status) ? packet.status : period.status === "filed" ? "filed" : "local";
         const record = evidenceHandlingRecordsForSubject("physicalStack", packet.stackId).find((entry) => entry.type === "companyRecordsPacket");
         if (record) {
           record.refs.companyRecordIds = [...new Set(period.recordIds)];
@@ -6358,6 +6365,15 @@
     return target.institutionalResponses;
   }
 
+  function ensureWarrantExecutions(target = state) {
+    if (target.warrantExecutions?.version === WarrantExecutions.VERSION
+      && Array.isArray(target.warrantExecutions.executions)) {
+      return target.warrantExecutions;
+    }
+    target.warrantExecutions = WarrantExecutions.normalizeState(target.warrantExecutions);
+    return target.warrantExecutions;
+  }
+
   function investigationReportSignals() {
     const detection = ensureExternalDetection();
     const evidenceById = new Map(ensureInvestigativeEvidence().records.map((record) => [record.id, record]));
@@ -6470,6 +6486,82 @@
     return citations.sort((left, right) => right.at - left.at || left.label.localeCompare(right.label));
   }
 
+  function warrantExecutionForVisit(visit) {
+    if (visit?.sourceKind !== "warrantExecution") return null;
+    return ensureWarrantExecutions().executions.find((execution) => execution.id === visit.sourceId) || null;
+  }
+
+  function warrantVisitAgenda(execution) {
+    const point = (state.siteAccessPoints || []).find((entry) => entry.id === execution.scope.entryPointId && entry.lawful);
+    const agenda = [{
+      id: "warrant-service", roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+      targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+      label: `Serve ${execution.docket} warrant`, method: "warrantService", dwellSeconds: 10,
+      purpose: "service"
+    }];
+    for (const target of execution.scope.targets) {
+      agenda.push({
+        id: `warrant-search-${target.id}`, roomId: target.roomId, fixtureId: target.fixtureId,
+        label: target.label, method: target.method, dwellSeconds: target.fixtureId ? 35 : 25,
+        requiresAccess: true, requiresFixtureAccess: Boolean(target.fixtureId),
+        enforcementTargetId: target.id, purpose: "search"
+      });
+      agenda.push({
+        id: `warrant-transfer-${target.id}`, roomId: point?.roomId || SURFACE_RECEPTION_ROOM_ID,
+        targetCell: cleanMapCell(point?.cell) || labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID),
+        label: `Return responsive material from ${target.label}`,
+        method: "custodyTransfer", dwellSeconds: 5,
+        enforcementTargetId: target.id, purpose: "custodyTransfer"
+      });
+    }
+    return agenda;
+  }
+
+  function syncIssuedWarrants() {
+    let changed = 0;
+    const responses = ensureInstitutionalResponses();
+    for (const action of responses.actions.filter((entry) => entry.kind === "warrant" && ["issued", "executed"].includes(entry.status))) {
+      let execution = ensureWarrantExecutions().executions.find((entry) => entry.actionId === action.id) || null;
+      if (!execution) {
+        const demand = responses.demands.find((entry) => entry.id === action.demandId);
+        const issued = WarrantExecutions.issue(ensureWarrantExecutions(), action, demand, { seed: state.seed, clock: state.clock });
+        state.warrantExecutions = issued.state;
+        execution = issued.execution;
+        if (!execution) continue;
+        action.executionId = execution.id;
+        action.history.push({
+          at: state.clock, action: execution.status === "deferred" ? "executionDeferred" : "executionScheduled",
+          summary: execution.status === "deferred"
+            ? "Physical execution awaits the forced-entry and raid implementation."
+            : `${execution.scope.label} scheduled for ${formatClock(execution.arrivalAt)}.`
+        });
+        if (execution.status === "deferred") {
+          addEvent(`${action.label}: physical law-enforcement execution is deferred to the later raid system.`);
+          changed += 1;
+          continue;
+        }
+        const scheduled = SiteVisits.scheduleVisit(ensureSiteVisits(), {
+          typeId: execution.scope.visitTypeId, institutionId: execution.institutionId,
+          visitorLabel: execution.scope.visitTypeId === "registryWarrantOfficer" ? "Registry Warrant Officer" : "Environmental Warrant Officer",
+          mandate: `${execution.docket}: ${execution.scope.purpose}`,
+          accessPointId: execution.scope.entryPointId, sourceKind: "warrantExecution", sourceId: execution.id,
+          noticeAt: execution.issuedAt, arrivalAt: execution.arrivalAt,
+          arrivalWindowEnd: execution.arrivalWindowEnd, agenda: warrantVisitAgenda(execution)
+        });
+        state.siteVisits = scheduled.state;
+        const linked = WarrantExecutions.linkVisit(ensureWarrantExecutions(), execution.id, scheduled.visit.id, scheduled.visit.actor.id, state.clock);
+        state.warrantExecutions = linked.state;
+        execution = linked.execution;
+        addEvent(`${externalInstitutionLabel(action.institutionId)} scheduled physical service of ${execution.docket} between ${formatClock(execution.arrivalAt)} and ${formatClock(execution.arrivalWindowEnd)}.`);
+        changed += 1;
+      } else if (!action.executionId) {
+        action.executionId = execution.id;
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
   function enforceInstitutionalActions() {
     let changed = 0;
     const responses = ensureInstitutionalResponses();
@@ -6503,7 +6595,7 @@
         changed += 1;
       }
     }
-    return changed;
+    return changed + syncIssuedWarrants();
   }
 
   function updateInstitutionalResponses() {
@@ -6684,7 +6776,7 @@
 
   function siteVisitAgendaTargetCell(item) {
     const fixture = item?.fixtureId ? fixtureById(item.fixtureId) : null;
-    return cleanMapCell(fixtureAccessCells(fixture)[0]?.cell || fixture?.origin || labMapRoomAnchor(item?.roomId));
+    return cleanMapCell(item?.targetCell || fixtureAccessCells(fixture)[0]?.cell || fixture?.origin || labMapRoomAnchor(item?.roomId));
   }
 
   function siteVisitEnsureRequest(visit, targetKind, targetId, label, mandate = true) {
@@ -6701,7 +6793,7 @@
     const liveFinding = visit.findings.find((entry) => entry.id === finding.id) || finding;
     const exposure = registerExternalDetectionOpportunity(evidence, {
       opportunityKey: `site-visit:${visit.id}:finding:${liveFinding.id}`,
-      sourceId: visit.typeId === "registryAuditor" ? "filing-system" : "public-visitor",
+      sourceId: ["registryAuditor", "registryWarrantOfficer"].includes(visit.typeId) ? "filing-system" : "public-visitor",
       institutionId: visit.institutionId, channel: "physicalInspection",
       detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
       reliability: "strong", specificity: "identityLinked", knowledge: "known",
@@ -6715,23 +6807,32 @@
 
   function siteVisitReportObstruction(visit, request) {
     if (!visit?.inspector || !request?.obstructionRecorded) return null;
-    const evidence = recordInvestigativeEvidence("inspectionObstruction", {
-      category: "documentary", label: `Denied inspection access: ${request.label}`, significance: "material",
+    const warrantExecution = warrantExecutionForVisit(visit);
+    const evidenceType = warrantExecution ? "warrantObstruction" : "inspectionObstruction";
+    const evidence = recordInvestigativeEvidence(evidenceType, {
+      category: "documentary", label: `${warrantExecution ? "Denied warrant access" : "Denied inspection access"}: ${request.label}`, significance: warrantExecution ? "major" : "material",
       subject: { kind: "siteVisit", id: visit.id }, origin: { kind: "siteVisit", id: visit.id, label: visit.visitorLabel },
       locus: { kind: "accessBoundary", roomId: visit.actor.roomId, cell: visit.actor.mapCell, label: request.label },
-      traits: ["access denied", "administrative visit", "obstruction record"], magnitude: { band: "small", amount: 1, unit: "denial" },
+      traits: ["access denied", warrantExecution ? "served warrant" : "administrative visit", "obstruction record"], magnitude: { band: "small", amount: 1, unit: "denial" },
       discoverability: { level: "obvious", methods: ["institutionalRecord"] }, persistence: { kind: "permanent" },
       knowledge: { state: "known", source: "visitor", sourceIdentityKnown: true }, coalesceKey: `site-visit-obstruction:${visit.id}:${request.id}`
     });
     if (!evidence) return null;
     const exposure = registerExternalDetectionOpportunity(evidence, {
       opportunityKey: `site-visit:${visit.id}:obstruction:${request.id}`,
-      sourceId: visit.typeId === "registryAuditor" ? "filing-system" : "public-visitor",
+      sourceId: ["registryAuditor", "registryWarrantOfficer"].includes(visit.typeId) ? "filing-system" : "public-visitor",
       institutionId: visit.institutionId, channel: "inspectionObstruction",
       detectionChance: 1, observed: true, reportChance: 1, willReport: true, reportDelaySeconds: 0,
       reliability: "strong", specificity: "identityLinked", knowledge: "known",
       summary: `${visit.visitorLabel} recorded denied in-mandate access to ${request.label}`
     });
+    if (warrantExecution) {
+      const item = siteVisitCurrentAgenda(visit);
+      const recorded = WarrantExecutions.recordObstruction(
+        ensureWarrantExecutions(), warrantExecution.id, evidence.id, item?.enforcementTargetId, state.clock
+      );
+      state.warrantExecutions = recorded.state;
+    }
     addEvent(`${visit.visitorLabel} recorded noncooperation; the inaccessible contents remain unknown.`);
     return exposure;
   }
@@ -6745,7 +6846,8 @@
     if (decision === "denied") {
       siteVisitReportObstruction(visit, request);
       const item = siteVisitCurrentAgenda(visit);
-      if (item && (item.roomId === request.targetId || item.fixtureId === request.targetId)) {
+      if (item && (item.roomId === request.targetId || item.fixtureId === request.targetId
+        || (request.targetKind === "door" && warrantExecutionForVisit(visit)))) {
         item.status = "skipped";
         item.completedAt = state.clock;
         item.blockReason = "Access denied";
@@ -6855,8 +6957,185 @@
     return changes;
   }
 
+  function warrantStackSubjectCategories(stack) {
+    const categories = new Set();
+    const tags = new Set((stack?.tags || []).map((tag) => String(tag).toLowerCase()));
+    if (stack?.key === "companyRecordsPacket" || stack?.evidenceDocument?.kind === "companyPeriodPacket") categories.add("companyRecords");
+    if (stack?.key === "licensedDisposalManifest" || stack?.evidenceDocument?.kind === "disposalManifest") categories.add("disposalManifest");
+    if (stack?.form === "waste" || stack?.key === "waste" || tags.has("waste")) categories.add("wasteMaterial");
+    if (stack?.section === "chemicalBatches") categories.add("chemicalProduct");
+    if (stack?.form === "spill" || stack?.chemicalBatch?.hazards?.length
+      || [...tags].some((tag) => ["hazard", "hazardous", "toxic", "corrosive", "chemical", "reactive"].includes(tag))) {
+      categories.add("hazardousMaterial");
+    }
+    return categories;
+  }
+
+  function warrantSearchCandidates(target) {
+    const authorized = new Set(target?.subjectCategories || []);
+    return ensurePhysicalItemStacks().filter((stack) => {
+      if (!stack || stack.quantity <= 0 || stack.carriedBy || stack.reservedTaskId || stack.roomId !== target.roomId) return false;
+      if (target.fixtureId) {
+        if (stack.fixtureId !== target.fixtureId) return false;
+      } else if ((stack.fixtureId || stack.containerId) && !physicalStackExposed(stack)) return false;
+      return [...warrantStackSubjectCategories(stack)].some((category) => authorized.has(category));
+    }).sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  function markWarrantEvidenceCarried(execution, target, source, carried) {
+    const locus = InvestigativeEvidence.normalizeLocus({
+      kind: "actorInventory", roomId: target.roomId, cell: carried.cell,
+      label: `${execution.actorId} warrant custody`
+    });
+    const existing = evidenceHandlingRecordsForSubject("physicalStack", carried.id);
+    if (existing.length) {
+      for (const record of existing) {
+        const from = record.locus;
+        record.lifecycle = "contained";
+        record.locus = locus;
+        record.updatedAt = state.clock;
+        record.provenance.push({
+          at: state.clock, action: "seized", actorId: execution.actorId, from, to: locus,
+          details: `${physicalStackLabel(carried)} entered physical custody under ${execution.docket}.`
+        });
+      }
+      return;
+    }
+    recordInvestigativeEvidence("warrantSeizedSubject", {
+      category: source.evidenceDocument ? "documentary" : source.section === "chemicalBatches" ? "chemical" : "commercial",
+      label: `Warrant seizure: ${physicalStackLabel(carried)}`, significance: "material",
+      subject: { kind: "physicalStack", id: carried.id },
+      origin: { kind: "warrantExecution", id: execution.id, label: execution.scope.label },
+      locus, refs: { stackIds: [carried.id], companyRecordIds: [] },
+      traits: ["warrant seizure", ...warrantStackSubjectCategories(source)],
+      magnitude: { band: "small", amount: carried.quantity, unit: source.section === "chemicalBatches" ? "batch units" : "items" },
+      discoverability: { level: "obvious", methods: ["institutionalRecord"] }, persistence: { kind: "subject" },
+      knowledge: { state: "known", source: "warrant", sourceIdentityKnown: true }, lifecycle: "contained",
+      coalesceKey: `warrant-seizure:${execution.id}:${carried.id}`,
+      action: "seized", actorId: execution.actorId,
+      details: `${physicalStackLabel(carried)} entered physical custody under ${execution.docket}.`
+    });
+  }
+
+  function seizeWarrantTargetSubjects(visit, execution, target, candidates) {
+    let changes = 0;
+    const remaining = Math.max(0, target.maxSubjects - target.seizedSubjectIds.length);
+    for (const source of candidates.slice(0, remaining)) {
+      const sourceSubjectId = source.id;
+      const label = physicalStackLabel(source);
+      const sample = target.method === "warrantRecordsSearch" || source.key === "licensedDisposalManifest"
+        ? source.quantity : Math.min(source.quantity, 1);
+      const carried = carryPhysicalStack(visit.actor.id, source.id, sample, {
+        carryTaskId: execution.id, allowReserved: false
+      });
+      if (!carried) continue;
+      let recorded = WarrantExecutions.recordSeizure(ensureWarrantExecutions(), execution.id, target.id, {
+        sourceSubjectId, subjectId: carried.id, subjectKind: "physicalStack",
+        label, quantity: carried.quantity, clock: state.clock
+      });
+      state.warrantExecutions = recorded.state;
+      if (!recorded.created) continue;
+      markWarrantEvidenceCarried(recorded.execution, target, source, carried);
+      addEvent(`${visit.visitorLabel} physically seized ${physicalStackQuantityText(carried, false)} ${label} under ${execution.docket}.`);
+      changes += 1;
+    }
+    syncPhysicalReadModels();
+    return changes;
+  }
+
+  function externalizeWarrantCustody(visit, execution) {
+    let changes = 0;
+    const point = siteVisitAccessPoint(visit);
+    for (const stack of [...ensurePhysicalItemStacks()].filter((entry) => entry.carriedBy === visit.actor.id)) {
+      const seizure = ensureWarrantExecutions().executions.find((entry) => entry.id === execution.id)
+        ?.seizures.find((entry) => entry.subjectId === stack.id);
+      if (!seizure) continue;
+      const label = physicalStackLabel(stack);
+      const externalized = WarrantExecutions.externalizeSeizure(ensureWarrantExecutions(), execution.id, stack.id, {
+        clock: state.clock, roomId: point?.roomId, accessPointId: point?.id,
+        details: `${label} was carried through ${point?.label || "the lawful entrance"} into authority custody.`
+      });
+      state.warrantExecutions = externalized.state;
+      for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        const from = record.locus;
+        const to = InvestigativeEvidence.normalizeLocus({
+          kind: "authorityCustody", roomId: point?.roomId, accessPointId: point?.id,
+          label: `${externalInstitutionLabel(execution.institutionId)} warrant custody`
+        });
+        record.lifecycle = "externalized";
+        record.locus = to;
+        record.updatedAt = state.clock;
+        record.provenance.push({
+          at: state.clock, action: "externalized", actorId: visit.actor.id, from, to,
+          details: `${label} left the site under ${execution.docket}.`
+        });
+      }
+      const packet = ensureEvidenceHandling().packets.find((entry) => entry.stackId === stack.id);
+      if (packet) { packet.status = "seized"; packet.seizedAt = state.clock; }
+      recordCompanyEvent("warrantSeizure", `${label} removed under ${execution.docket}.`, {
+        category: stack.evidenceDocument ? "records" : "inventory", roomId: point?.roomId,
+        quantity: -stack.quantity, details: `${externalInstitutionLabel(execution.institutionId)} retained exact physical custody.`
+      });
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+      addEvent(`${visit.visitorLabel} carried ${label} through ${point?.label || "the lawful entrance"} into external custody.`);
+      changes += 1;
+    }
+    syncActorInventories();
+    syncPhysicalReadModels();
+    return changes;
+  }
+
+  function completeWarrantAgendaItem(visit, item) {
+    const execution = warrantExecutionForVisit(visit);
+    if (!execution) return 0;
+    if (item.purpose === "service") {
+      const activated = WarrantExecutions.activate(ensureWarrantExecutions(), execution.id, visit.actor.id, state.clock);
+      state.warrantExecutions = activated.state;
+      return activated.execution ? 1 : 0;
+    }
+    if (item.purpose === "custodyTransfer") return externalizeWarrantCustody(visit, execution);
+    if (item.purpose !== "search") return 0;
+    const target = execution.scope.targets.find((entry) => entry.id === item.enforcementTargetId);
+    if (!target || target.status !== "pending") return 0;
+    const candidates = warrantSearchCandidates(target);
+    const searched = WarrantExecutions.recordSearch(ensureWarrantExecutions(), execution.id, target.id, {
+      status: "searched", clock: state.clock, observedSubjectIds: candidates.map((stack) => stack.id)
+    });
+    state.warrantExecutions = searched.state;
+    return 1 + seizeWarrantTargetSubjects(visit, searched.execution, searched.target, candidates);
+  }
+
+  function finalizeWarrantExecutionVisit(visit) {
+    let execution = warrantExecutionForVisit(visit);
+    if (!execution) return null;
+    externalizeWarrantCustody(visit, execution);
+    for (const target of execution.scope.targets.filter((entry) => entry.status === "pending")) {
+      const result = WarrantExecutions.recordSearch(ensureWarrantExecutions(), execution.id, target.id, {
+        status: "inaccessible", clock: state.clock, reason: "The physical target was not reached during execution."
+      });
+      state.warrantExecutions = result.state;
+      execution = result.execution;
+    }
+    const completed = WarrantExecutions.complete(ensureWarrantExecutions(), execution.id, state.clock);
+    state.warrantExecutions = completed.state;
+    execution = completed.execution;
+    const action = ensureInstitutionalResponses().actions.find((entry) => entry.id === execution.actionId);
+    if (action) {
+      if (execution.status === "completed") {
+        action.status = "executed";
+        action.resolvedAt = state.clock;
+      }
+      action.history.push({ at: state.clock, action: "returnFiled", summary: execution.warrantReturn.summary });
+    }
+    addEvent(`${execution.docket}: ${execution.warrantReturn.summary}`);
+    return execution;
+  }
+
   function completeSiteVisit(visit) {
-    const completed = SiteVisits.markComplete(ensureSiteVisits(), visit.id, state.clock);
+    const warrantExecution = finalizeWarrantExecutionVisit(visit);
+    const completed = SiteVisits.markComplete(
+      ensureSiteVisits(), visit.id, state.clock, warrantExecution?.warrantReturn?.summary || ""
+    );
     state.siteVisits = completed.state;
     addEvent(`${visit.visitorLabel} departed. ${completed.visit.disclosedSummary}`);
     return 1;
@@ -6877,7 +7156,14 @@
       due.actor.present = true;
       due.actor.mapCell = cleanMapCell(point.cell);
       due.actor.roomId = point.roomId;
+      due.actor.kind = "visitor";
+      due.actor.inventory = normalizeActorInventory(due.actor.inventory, due.actor);
       due.routeHistory.push({ at: state.clock, cell: cleanMapCell(point.cell), roomId: point.roomId, agendaId: "arrival" });
+      const warrantExecution = warrantExecutionForVisit(due);
+      if (warrantExecution) {
+        const activated = WarrantExecutions.activate(ensureWarrantExecutions(), warrantExecution.id, due.actor.id, state.clock);
+        state.warrantExecutions = activated.state;
+      }
       addEvent(`${due.visitorLabel} arrived through ${point.label} for a disclosed visit: ${due.mandate}`);
       active = due;
       changes += 1;
@@ -6917,7 +7203,12 @@
       if (door && !doorIsBreached(door)) {
         if (door.sealState === DOOR_SEAL_SEALED || door.lockState === DOOR_LOCK_LOCKED) {
           item.blockReason = doorFixtureSecurityBlockReason(mapDoor);
-          siteVisitEnsureRequest(active, "door", mapDoor.id, doorActionLabel(mapDoor), true);
+          const request = siteVisitEnsureRequest(active, "door", mapDoor.id, doorActionLabel(mapDoor), true);
+          if (request?.decision === "denied" && warrantExecutionForVisit(active)) {
+            item.status = "skipped";
+            item.completedAt = state.clock;
+            active.agendaIndex += 1;
+          }
           return changes + 1;
         }
         if (door.state !== DOOR_STATE_OPEN) {
@@ -6933,6 +7224,7 @@
       active.routeHistory.push({ at: state.clock, cell: cleanMapCell(nextCell), roomId: active.actor.roomId, agendaId: item.id });
       changes += 1;
     }
+    if (active.actor.inventory?.stackIds?.length) syncActorInventories();
     if (item.routeIndex < item.route.length - 1) return changes;
     item.blockReason = "";
     const fixture = item.fixtureId ? fixtureById(item.fixtureId) : null;
@@ -6945,6 +7237,7 @@
     const dwellComplete = item.dwellProgress >= item.dwellSeconds;
     changes += updateSiteVisitObservations(active, item, elapsed);
     if (dwellComplete) {
+      changes += completeWarrantAgendaItem(active, item);
       const persistedVisit = siteVisitById(active.id);
       const persistedItem = persistedVisit?.agenda?.[persistedVisit.agendaIndex];
       if (persistedItem) {
@@ -8939,6 +9232,36 @@
         actionPressure: InstitutionalResponses.actionPressure(ensureInstitutionalResponses()),
         clock: state.clock
       }),
+      warrantExecutionsSnapshot: () => clonePlainObject({
+        ...ensureWarrantExecutions(),
+        nextExecution: WarrantExecutions.nextEvent(ensureWarrantExecutions(), state.clock),
+        clock: state.clock
+      }),
+      issueTestWarrant: (institutionId = "commercial-registry", options = {}) => {
+        const responses = ensureInstitutionalResponses();
+        const action = InstitutionalResponses.normalizeAction({
+          id: `institution-action-${responses.nextActionNumber++}`,
+          caseId: `debug-${institutionId}-case`, institutionId, kind: "warrant",
+          label: "Warrant issued", publicReason: "Debug warrant execution fixture.",
+          createdAt: state.clock, effectiveAt: state.clock, status: "issued",
+          history: [{ at: state.clock, action: "issued", summary: "Debug warrant issued." }]
+        }, responses.actions.length);
+        responses.actions.push(action);
+        syncIssuedWarrants();
+        const execution = ensureWarrantExecutions().executions.find((entry) => entry.actionId === action.id);
+        if (execution && options.immediate && execution.arrivalAt != null) {
+          execution.arrivalAt = state.clock;
+          execution.arrivalWindowEnd = state.clock + SECONDS_PER_HOUR;
+          const visit = siteVisitById(execution.visitId);
+          if (visit) {
+            visit.noticeAt = state.clock;
+            visit.arrivalAt = state.clock;
+            visit.arrivalWindow.start = state.clock;
+            visit.arrivalWindow.end = state.clock + SECONDS_PER_HOUR;
+          }
+        }
+        persist(); render(); return execution ? clonePlainObject(execution) : null;
+      },
       updateInstitutionalResponses: () => {
         const changed = updateInstitutionalResponses();
         refreshSuspicionFromExternalDetection();
@@ -23022,7 +23345,9 @@
   function actorInventoryOwner(actorId, context = state) {
     const id = normalizeActorInventoryOwnerId(actorId);
     if (id === "scientist") return context?.scientist || null;
-    return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead") || null;
+    return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
+      || (context?.siteVisits?.visits || []).find((visit) => visit.actor?.id === id && visit.actor.present)?.actor
+      || null;
   }
 
   function actorInventoryLocation(actorId, context = state) {
@@ -23042,9 +23367,11 @@
     if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
     const actors = [
       { id: "scientist", actor: context.scientist },
-      ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime }))
+      ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
+      ...(context.siteVisits?.visits || []).filter((visit) => visit.actor?.present)
+        .map((visit) => ({ id: visit.actor.id, actor: visit.actor }))
     ];
-    const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.status !== "dead").map((entry) => entry.id));
+    const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.kind === "visitor" || actor.status !== "dead").map((entry) => entry.id));
     let changed = false;
     for (const { id, actor } of actors) {
       actor.inventory = normalizeActorInventory(actor.inventory, id === "scientist" ? "scientist" : actor);
@@ -54713,6 +55040,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     for (const visit of ensureSiteVisits().visits.filter((entry) => entry.actor.present && entry.actor.mapCell)) {
       const item = siteVisitCurrentAgenda(visit);
+      const warrantExecution = warrantExecutionForVisit(visit);
+      const carriedSeizures = warrantExecution?.seizures.filter((seizure) => seizure.status === "carried").length || 0;
+      const visitorStatusCues = visit.phase === "waiting" ? [sceneStatusCue("access-request", "warning", "Awaiting access", "?")] : [];
+      if (warrantExecution) visitorStatusCues.push(sceneStatusCue("warrant", "critical", `${warrantExecution.scope.label}${carriedSeizures ? `; carrying ${carriedSeizures} seized subject(s)` : ""}`, "W"));
       entities.push({
         id: `visitor:${visit.actor.id}`,
         kind: "visitor",
@@ -54727,9 +55058,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         activity: { id: visit.phase, label: item ? `${titleCase(visit.phase)}: ${item.label}` : titleCase(visit.phase), source: "simulation" },
         motion: null,
         condition: { ratio: 1, band: "healthy", cues: [] },
-        statusCues: visit.phase === "waiting" ? [sceneStatusCue("access-request", "warning", "Awaiting access", "?")] : [],
+        statusCues: visitorStatusCues,
         knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "scheduled visit" },
-        visual: { key: "actor.scientist", glyph: "V", recipeKey: `visitor:${visit.typeId}:${visit.phase}` },
+        visual: { key: "actor.scientist", glyph: warrantExecution ? "W" : "V", recipeKey: `visitor:${visit.typeId}:${visit.phase}` },
         blocking: false
       });
     }
@@ -58781,12 +59112,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "visitor") {
       const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
       if (!visit) return [];
-      return [
+      const warrantExecution = warrantExecutionForVisit(visit);
+      const rows = [
         ["Visitor", visit.visitorLabel], ["Institution", externalInstitutionLabel(visit.institutionId)],
         ["Mandate", visit.mandate], ["Phase", titleCase(visit.phase)],
         ["Current activity", siteVisitCurrentAgenda(visit)?.label || "Departing"], ["Room", roomName(visit.actor.roomId)],
-        ["Access", `${visit.grantedRoomIds.length} rooms and ${visit.grantedFixtureIds.length} fixtures granted`]
+        ["Access", `${visit.grantedRoomIds.length} rooms and ${visit.grantedFixtureIds.length} fixtures granted`],
+        ["Carrying", actorInventoryContentsLabel(visit.actor.id)]
       ];
+      if (warrantExecution) rows.push(
+        ["Warrant", `${warrantExecution.docket} · ${warrantExecution.scope.label}`],
+        ["Authorized rooms", warrantExecution.scope.authorizedRoomIds.map(roomName).join(", ")],
+        ["Authorized subjects", warrantExecution.scope.subjectCategories.map(titleCase).join(", ")],
+        ["Seizures", warrantExecution.seizures.map((seizure) => `${seizure.label} (${titleCase(seizure.status)})`).join("; ") || "None"]
+      );
+      return rows;
     }
     const rows = [
       ["Type", selectionKindLabel(selection)],
@@ -59306,10 +59646,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectionHistoryRows(selection) {
     if (selection.kind === "visitor") {
       const visit = ensureSiteVisits().visits.find((entry) => entry.actor.id === selection.id);
-      return visit ? [
+      const warrantExecution = warrantExecutionForVisit(visit);
+      const rows = visit ? [
         ["Arrived", formatClock(visit.startedAt)], ["Route observations", String(visit.routeHistory.length)],
         ["Confirmed findings", String(visit.findings.length)], ["Obstructions", String(visit.obstructionIds.length)]
       ] : [];
+      if (warrantExecution) rows.push(
+        ["Custody events", String(warrantExecution.seizures.reduce((total, seizure) => total + seizure.custody.length, 0))],
+        ["Warrant return", warrantExecution.warrantReturn?.summary || "Not yet filed"]
+      );
+      return rows;
     }
     if (selection.kind === "room") {
       const room = roomById(selection.roomId);
@@ -64170,8 +64516,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           pay.addEventListener("click", () => payInstitutionalFine(action.id));
           actionRow.append(pay);
         }
-        if (action.kind === "warrant" && action.status === "issued") {
-          actionRow.append(textEl("span", "The warrant is saved as issued; physical execution belongs to the next implementation pass.", "journal-meta"));
+        if (action.kind === "warrant") {
+          const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === action.executionId || entry.actionId === action.id);
+          if (!execution) {
+            actionRow.append(textEl("span", "Physical service is awaiting scheduling.", "journal-meta"));
+          } else {
+            actionRow.dataset.warrantExecutionId = execution.id;
+            actionRow.append(textEl("span", `${execution.scope.label} · ${titleCase(execution.status)}`, "journal-meta"));
+            actionRow.append(textEl("span", `Authorized rooms: ${execution.scope.authorizedRoomIds.map(roomName).join(", ") || "none"}; fixtures: ${execution.scope.authorizedFixtureIds.map((id) => fixtureById(id)?.name || id).join(", ") || "none"}; subjects: ${execution.scope.subjectCategories.map(titleCase).join(", ") || "none"}.`, "journal-meta"));
+            if (execution.arrivalAt != null && execution.status === "scheduled") {
+              actionRow.append(textEl("span", `Physical service window ${formatClock(execution.arrivalAt)}–${formatClock(execution.arrivalWindowEnd)}.`, "journal-meta"));
+            }
+            if (execution.status === "deferred") {
+              actionRow.append(textEl("span", "This law-enforcement warrant awaits the separate forced-entry and raid implementation.", "journal-meta"));
+            }
+            for (const target of execution.scope.targets) {
+              actionRow.append(textEl("span", `${target.label}: ${titleCase(target.status)}${target.seizedSubjectIds.length ? ` · ${target.seizedSubjectIds.length} exact subject(s) seized` : ""}.`, "journal-meta"));
+            }
+            if (execution.warrantReturn) actionRow.append(textEl("span", execution.warrantReturn.summary, "journal-meta"));
+          }
         }
         details.append(actionRow);
       }
@@ -64249,6 +64612,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         heading.append(textEl("strong", visit.visitorLabel), chip(SiteVisits.visitType(visit.typeId).label));
         row.append(heading);
         row.append(textEl("span", visit.mandate, "journal-meta"));
+        const warrantExecution = warrantExecutionForVisit(visit);
+        if (warrantExecution) {
+          row.dataset.warrantExecutionId = warrantExecution.id;
+          row.append(textEl("span", `Warrant scope: ${warrantExecution.scope.targets.map((target) => target.label).join("; ")}. Observation outside these targets does not authorize seizure.`, "journal-meta"));
+          if (warrantExecution.seizures.length) {
+            row.append(textEl("span", `Custody: ${warrantExecution.seizures.map((seizure) => `${seizure.label} (${titleCase(seizure.status)})`).join("; ")}.`, "journal-meta"));
+          }
+        }
         row.append(textEl("span", visit.phase === "scheduled"
           ? `Arrival window ${formatClock(visit.arrivalWindow.start)}–${formatClock(visit.arrivalWindow.end)} via ${siteVisitAccessPoint(visit)?.label || visit.accessPointId}`
           : visit.phase === "completed"
@@ -72155,6 +72526,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.externalDetection = ExternalDetection.normalizeState(candidate?.externalDetection);
     next.investigations = InvestigationCases.normalizeState(candidate?.investigations);
     next.institutionalResponses = InstitutionalResponses.normalizeState(candidate?.institutionalResponses);
+    next.warrantExecutions = WarrantExecutions.normalizeState(candidate?.warrantExecutions);
     next.siteVisits = SiteVisits.normalizeState(candidate?.siteVisits);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);

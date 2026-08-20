@@ -43,6 +43,16 @@
       agenda: [
         { id: "reception", roomId: "surfaceReception", label: "Public reception", method: "walkthrough", dwellSeconds: 12 }
       ]
+    },
+    {
+      id: "registryWarrantOfficer", label: "Commercial Registry warrant officer", actorLabel: "Registry Warrant Officer",
+      institutionId: "commercial-registry", accessPointId: "publicEntrance", inspector: true,
+      mandate: "Serve and execute a scope-limited commercial records warrant.", agenda: []
+    },
+    {
+      id: "environmentalWarrantOfficer", label: "Environmental warrant officer", actorLabel: "Environmental Warrant Officer",
+      institutionId: "environmental-health", accessPointId: "publicEntrance", inspector: true,
+      mandate: "Serve and execute a scope-limited environmental search-and-sampling warrant.", agenda: []
     }
   ]);
   const TYPE_BY_ID = Object.freeze(Object.fromEntries(VISITOR_TYPES.map((entry) => [entry.id, entry])));
@@ -79,6 +89,8 @@
       label: String(source.label || "Visit stop").trim(), method: cleanId(source.method) || "walkthrough",
       dwellSeconds: Math.max(1, finite(source.dwellSeconds, 10)), requiresAccess: Boolean(source.requiresAccess),
       requiresFixtureAccess: Boolean(source.requiresFixtureAccess), status: ["pending", "active", "completed", "skipped"].includes(source.status) ? source.status : "pending",
+      targetCell: cleanCell(source.targetCell), enforcementTargetId: cleanId(source.enforcementTargetId),
+      purpose: cleanId(source.purpose),
       startedAt: source.startedAt == null ? null : Math.max(0, finite(source.startedAt)), completedAt: source.completedAt == null ? null : Math.max(0, finite(source.completedAt)),
       dwellProgress: Math.max(0, finite(source.dwellProgress)), route: (Array.isArray(source.route) ? source.route : []).map(cleanCell).filter(Boolean),
       routeIndex: Math.max(0, Math.floor(finite(source.routeIndex))), blockReason: String(source.blockReason || "").trim()
@@ -128,6 +140,7 @@
       id: cleanId(source.id) || `site-visit-${index + 1}`, typeId: type.id, visitorLabel: String(source.visitorLabel || type.actorLabel).trim(),
       institutionId: cleanId(source.institutionId) || type.institutionId, inspector: source.inspector == null ? type.inspector : Boolean(source.inspector),
       mandate: String(source.mandate || type.mandate).trim(), accessPointId: cleanId(source.accessPointId) || type.accessPointId,
+      sourceKind: cleanId(source.sourceKind), sourceId: cleanId(source.sourceId),
       noticeAt: Math.max(0, finite(source.noticeAt)), arrivalWindow: {
         start: Math.max(0, finite(source.arrivalWindow?.start, source.arrivalAt)),
         end: Math.max(0, finite(source.arrivalWindow?.end, finite(source.arrivalWindow?.start, source.arrivalAt) + 3600))
@@ -136,7 +149,8 @@
       startedAt: source.startedAt == null ? null : Math.max(0, finite(source.startedAt)), completedAt: source.completedAt == null ? null : Math.max(0, finite(source.completedAt)),
       actor: {
         id: cleanId(source.actor?.id) || `visitor-actor-${index + 1}`, mapCell: cleanCell(source.actor?.mapCell), roomId: cleanId(source.actor?.roomId),
-        present: Boolean(source.actor?.present), movementAccumulator: Math.max(0, finite(source.actor?.movementAccumulator)), facing: cleanId(source.actor?.facing) || "south"
+        present: Boolean(source.actor?.present), movementAccumulator: Math.max(0, finite(source.actor?.movementAccumulator)), facing: cleanId(source.actor?.facing) || "south",
+        kind: "visitor", inventory: source.actor?.inventory && typeof source.actor.inventory === "object" ? { ...source.actor.inventory } : null
       },
       agenda: agendaSource.map(normalizeAgendaItem), agendaIndex: Math.max(0, Math.floor(finite(source.agendaIndex))),
       requests: (Array.isArray(source.requests) ? source.requests : []).map(normalizeRequest),
@@ -178,10 +192,13 @@
     const arrivalAt = Math.max(0, finite(options.arrivalAt));
     const noticeAt = Math.min(arrivalAt, Math.max(0, finite(options.noticeAt, arrivalAt - 86400)));
     const visit = normalizeVisit({
-      id, typeId: type.id, visitorLabel: options.visitorLabel || type.actorLabel, institutionId: type.institutionId,
-      inspector: type.inspector, mandate: type.mandate, accessPointId: type.accessPointId,
+      id, typeId: type.id, visitorLabel: options.visitorLabel || type.actorLabel, institutionId: options.institutionId || type.institutionId,
+      inspector: options.inspector == null ? type.inspector : Boolean(options.inspector),
+      mandate: options.mandate || type.mandate, accessPointId: options.accessPointId || type.accessPointId,
+      sourceKind: options.sourceKind, sourceId: options.sourceId,
       noticeAt, arrivalAt, arrivalWindow: { start: arrivalAt, end: Math.max(arrivalAt, finite(options.arrivalWindowEnd, arrivalAt + 3600)) },
-      actor: { id: `visitor-actor-${id}`, present: false }, agenda: type.agenda
+      actor: { id: `visitor-actor-${id}`, present: false, kind: "visitor", inventory: options.actorInventory },
+      agenda: Array.isArray(options.agenda) && options.agenda.length ? options.agenda : type.agenda
     }, state.visits.length);
     state.visits.push(visit);
     return { state, visit };

@@ -10,7 +10,7 @@
   const DAY = 24 * HOUR;
   const DEMAND_STATUSES = Object.freeze(["pending", "preparing", "resolved", "missed", "superseded"]);
   const RESPONSE_STATUSES = Object.freeze(["preparing", "submitted", "missed", "canceled"]);
-  const ACTION_STATUSES = Object.freeze(["active", "completed", "paid", "complied", "expired", "overdue", "issued"]);
+  const ACTION_STATUSES = Object.freeze(["active", "completed", "paid", "complied", "expired", "overdue", "issued", "executed"]);
 
   const CLAIM_DEFS = Object.freeze({
     documentedCompliance: {
@@ -189,7 +189,8 @@
       dueAt: source.dueAt == null ? null : Math.max(createdAt, finite(source.dueAt, createdAt)),
       status: ACTION_STATUSES.includes(source.status) ? source.status : definition.id === "warrant" ? "issued" : "active",
       amount: Math.max(0, Math.round(finite(source.amount))), restrictionId: cleanId(source.restrictionId),
-      visitTypeId: cleanId(source.visitTypeId), resolvedAt: source.resolvedAt == null ? null : Math.max(createdAt, finite(source.resolvedAt, createdAt)),
+      visitTypeId: cleanId(source.visitTypeId), executionId: cleanId(source.executionId),
+      resolvedAt: source.resolvedAt == null ? null : Math.max(createdAt, finite(source.resolvedAt, createdAt)),
       history: (Array.isArray(source.history) ? source.history : []).map((entry) => ({
         at: Math.max(createdAt, finite(entry?.at, createdAt)), action: cleanId(entry?.action) || "created",
         summary: String(entry?.summary || "Institutional action recorded.").trim()
