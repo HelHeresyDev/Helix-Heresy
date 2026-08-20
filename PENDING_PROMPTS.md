@@ -18,24 +18,27 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Law-Enforcement Raids, Arrest, and Run Defeat
-2. Reusable Worlds, Random Names, and Run Separation
-3. World Themes and Content Boundaries
-4. World Generation Foundation and Strategic Map
-5. Global Geography, Biomes, Terrain, and Resources
-6. Settlements, Cities, Routes, and Candidate Sites
-7. Civilizations, Factions, Institutions, Religions, and Law
-8. Historical World Simulation and Playable Year
-9. New-Run World Selection, Site Choice, and Scenario Materialization
-10. Local Context Mechanics: Environment, Geology, and Travel
-11. World Integration: Economy and Logistics
-12. World Integration: Investigations and Institutional Pressure
-13. Lazy Local Detail and World Discovery
-14. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
-15. Campaign Roadmap: From Hidden Laboratory to World Domination
-16. New-Run Onboarding and Contextual Tutorial
-17. Sound, Notifications, and Accessibility Audit
-18. Production Art Pass Using the Sprite Pipeline
+1. Detention, Communication, and Laboratory Continuity
+2. Pretrial Proceedings and Legal Defense
+3. Jailbreaks and Outside Rescue
+4. Trial, Sentencing, and Prison
+5. Reusable Worlds, Random Names, and Run Separation
+6. World Themes and Content Boundaries
+7. World Generation Foundation and Strategic Map
+8. Global Geography, Biomes, Terrain, and Resources
+9. Settlements, Cities, Routes, and Candidate Sites
+10. Civilizations, Factions, Institutions, Religions, and Law
+11. Historical World Simulation and Playable Year
+12. New-Run World Selection, Site Choice, and Scenario Materialization
+13. Local Context Mechanics: Environment, Geology, and Travel
+14. World Integration: Economy and Logistics
+15. World Integration: Investigations and Institutional Pressure
+16. Lazy Local Detail and World Discovery
+17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+18. Campaign Roadmap: From Hidden Laboratory to World Domination
+19. New-Run Onboarding and Contextual Tutorial
+20. Sound, Notifications, and Accessibility Audit
+21. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -60,31 +63,103 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Law-Enforcement Raids, Arrest, and Run Defeat
+## 1. Detention, Communication, and Laboratory Continuity
 
-Design and implement high-severity law-enforcement warrants and tactical raids on top of the established forced-entry workflow. Consume the currently deferred law-enforcement warrant executions, saved forced-entry personnel and barrier outcomes, supplemental returns, and violent-obstruction evidence rather than using Suspicion alone as a raid roll.
-
-A raid should have saved objectives, named physical actors, roles, entry plan, authorized scope, target actors or subjects, equipment, communication state, and retreat or completion conditions. Raiders use ordinary movement, perception, doors, injuries, incapacitation, death, carrying, and combat. Surrender, arrest, escape, concealment, resistance, and lethal force must be distinct physical outcomes. Arrest should require officers to reach and control an actor rather than changing a status remotely.
-
-Run defeat may follow the scientist's death or completed arrest when no supported continuity remains. It must come after the visible institutional chain and playable physical encounter. Do not implement courts, prisons, or a general criminal-justice simulation in this pass; preserve a clear raid record and hand the result to the later roguelike postmortem system.
+Design and implement the first sustained custody phase after booking. Arrest is a major change in where and how the scientist can act, never an automatic defeat. Preserve the already-authored holding cell as a physical context, keep time and the laboratory simulation running, and define how the imprisoned scientist receives information, communicates, directs existing automation, and experiences conditions while awaiting the next legal event.
 
 Questions for discussion:
 
-- What should the first raid objective be?
+- How much direct laboratory control remains available in custody?
 
-  Recommended answer: Execute one high-severity search-and-arrest warrant naming the scientist, with seizure of responsive evidence as a secondary objective. This exercises tactical entry, surrender, arrest, escape, and defeat without building several raid types at once.
+  Recommended answer: Existing policies and queued automation continue, but the scientist cannot perform physical laboratory work or remotely micromanage actors without a plausible communication channel. Reports should arrive with delay and incomplete detail.
 
-- When is lethal force authorized?
+- What communication should holding initially permit?
 
-  Recommended answer: Begin with arrest and site-security rules. Escalate to lethal force only in response to an immediate serious threat, violent resistance, or dangerous uncontrolled creatures; preserve the causal trigger in the raid record.
+  Recommended answer: Add scheduled monitored legal calls and limited personal calls, plus mail where appropriate. Every contact should name its recipient, delay, privacy, and authority visibility instead of acting as a universal remote-control menu.
 
-- Can the player survive arrest through another body or successor?
+- What should the player do between legal events?
 
-  Recommended answer: Not in this pass unless an already-implemented continuity mechanic provides a living controllable successor. Otherwise completed arrest or death ends the run and records the exact cause for the later postmortem system.
+  Recommended answer: Provide a small physical custody routine with rest, observation, conversation, communication requests, and security study. These should consume time, change relationships or alertness, and create information or options used by later legal and escape passes.
+
+- Can the laboratory fail while the scientist is detained?
+
+  Recommended answer: Yes. Power, containment, deadlines, markets, and authorities keep advancing. A well-automated lab may endure; an unattended fragile lab may collapse, but that collapse still does not end the run unless the scientist dies.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Reusable Worlds, Random Names, and Run Separation
+## 2. Pretrial Proceedings and Legal Defense
+
+Design and implement the path from booking through charging, bail or detention review, discovery, motions, and trial scheduling. Consume the exact warrant, raid, seizure, evidence, custody, and obstruction histories already recorded. Legal outcomes must arise from known evidence and saved procedural actions rather than a generic Suspicion check.
+
+Questions for discussion:
+
+- How detailed should the first legal model be?
+
+  Recommended answer: Use a compact sequence of charging, counsel selection, detention/bail hearing, evidence review, a small set of motions or negotiation choices, and a scheduled trial. Preserve reasons and cited records for every decision without simulating every filing rule.
+
+- How does the scientist obtain representation?
+
+  Recommended answer: Offer public counsel, retained counsel paid by the company or allies, and self-representation as a risky option. Lawyers should have specialties, workload, loyalty, cost, and privileged communication rather than being a single defense-strength number.
+
+- Can legal action free the scientist before trial?
+
+  Recommended answer: Yes. Bail, release conditions, a successful challenge to detention, dismissed charges, or a negotiated resolution can restore physical freedom. Restrictions and ongoing proceedings remain saved consequences.
+
+- Can the player fabricate a defense narrative?
+
+  Recommended answer: Permit bounded factual claims tied to accessible records and testimony, mirroring administrative responses. Lies may be attempted only as explicit risky acts that can create contradictions or new charges; free-form prose should not secretly alter mechanics.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Jailbreaks and Outside Rescue
+
+Expand escape from custody into a causal physical system and add outside attempts to free the scientist. The existing holding-cell security-study escape is a provisional vertical slice to replace or extend, not a complete jail simulation. Rescue and escape must use actual locations, schedules, doors, security, communication, equipment, injuries, pursuit, and evidence.
+
+Questions for discussion:
+
+- Which freedom routes should be implemented first?
+
+  Recommended answer: Support one self-engineered escape using observed routine and one ally-led extraction initiated through a communication or standing contingency. Add forceful faction assaults only after ordinary outside actors and custody maps can support them.
+
+- How should allies decide whether to help?
+
+  Recommended answer: Use saved loyalty, capability, risk tolerance, resources, communication, and the scientist's prior instructions. No ally should appear solely because an escape meter filled.
+
+- What does failure mean?
+
+  Recommended answer: Failed attempts can increase alert, restrict communication, injure or arrest participants, relocate the scientist, add evidence or charges, and delay proceedings. Failure remains playable unless the scientist dies.
+
+- Should escape return directly to the old laboratory?
+
+  Recommended answer: Only when a real route and safe reception exist. Otherwise place the scientist at the extraction endpoint or a hideout, mark fugitive status, and make returning to a watched or seized laboratory a deliberate risk.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 4. Trial, Sentencing, and Prison
+
+Design and implement trial resolution, sentencing, and longer-term imprisonment. Continue to consume the exact authority and legal record. A conviction changes the scientist's available world, relationships, and campaign position; it does not end the run. Prison should be a playable physical setting with time, routines, actors, risks, legal remedies, outside contact, transfer, and escape possibilities scaled to the sentence.
+
+Questions for discussion:
+
+- How should trial be resolved?
+
+  Recommended answer: Resolve contested facts from admissible saved evidence, witnesses, credibility, counsel actions, and jurisdictional rules. Present the decisive causal chain and allow a bounded set of meaningful trial decisions rather than a single hidden roll.
+
+- What sentences should the first pass support?
+
+  Recommended answer: Support acquittal, time served, probation or supervised release, a finite custodial sentence, and an effectively indefinite severe sentence. Fines and restrictions should connect to existing company and authority systems.
+
+- How should long sentences remain playable?
+
+  Recommended answer: Advance through selectable routine intervals interrupted by meaningful events, appeals, communications, transfers, threats, opportunities, and outside developments. Avoid forcing the player to watch empty real-time days.
+
+- What is the terminal condition?
+
+  Recommended answer: Only the scientist's death ends the run. Life imprisonment, loss of the laboratory, failed appeals, and recapture remain difficult states with some physical, legal, social, or succession-adjacent route still available while the scientist lives.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 5. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -110,7 +185,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Themes and Content Boundaries
+## 6. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -142,7 +217,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Generation Foundation and Strategic Map
+## 7. World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete, deterministic world that can be generated, named, saved, selected, and viewed before a run begins.
 
@@ -168,7 +243,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Global Geography, Biomes, Terrain, and Resources
+## 8. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography.
 
@@ -194,7 +269,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Settlements, Cities, Routes, and Candidate Sites
+## 9. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement the inhabited and connected layer of the generated world.
 
@@ -216,7 +291,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Civilizations, Factions, Institutions, Religions, and Law
+## 10. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world.
 
@@ -242,7 +317,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Historical World Simulation and Playable Year
+## 11. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year.
 
@@ -268,7 +343,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run World Selection, Site Choice, and Scenario Materialization
+## 12. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world.
 
@@ -294,7 +369,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Local Context Mechanics: Environment, Geology, and Travel
+## 13. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of the selected world location.
 
@@ -316,7 +391,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. World Integration: Economy and Logistics
+## 14. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics.
 
@@ -338,7 +413,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. World Integration: Investigations and Institutional Pressure
+## 15. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response.
 
@@ -360,7 +435,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Lazy Local Detail and World Discovery
+## 16. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it.
 
@@ -386,25 +461,25 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. Roguelike Run Lifecycle, Defeat, Postmortem, and Restart
+## 17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the complete loop for beginning, losing, reviewing, and replacing a run without altering its reusable world.
 
-Most runs should end during laboratory survival or early local conflict. Defeat should be common enough to define the game, but fair enough that the player can identify the decisions, risks, and causal chain that ended the run. A postmortem may preserve a read-only summary outside the world simulation; it must not add the old laboratory to future world maps or histories.
+Most runs should end during laboratory survival or early local conflict. Death should be common enough to define the game, but fair enough that the player can identify the decisions, risks, and causal chain that ended the run. Arrest, detention, conviction, imprisonment, loss of the laboratory, and other severe setbacks remain playable while the scientist lives. A postmortem may preserve a read-only summary outside the world simulation; it must not add the old laboratory to future world maps or histories.
 
 Questions for discussion:
 
 - What ends a run?
 
-  Recommended answer: Player death without an established continuity method, capture with no viable escape or successor, destruction or seizure of every viable power base, or another explicit irreversible state. Individual setbacks should not masquerade as defeat when recovery is physically possible.
+  Recommended answer: Only the scientist's death. Arrest, imprisonment, destruction or seizure of every power base, and similar catastrophes must change the playable situation rather than silently become defeat screens.
 
 - How should saving work in a roguelike?
 
-  Recommended answer: Use automatic and manual continuation saves during an active run, but mark a defeated run complete so it cannot simply resume from after defeat. Decide strict ironman and backup behavior separately before deleting or overwriting any save data.
+  Recommended answer: Use automatic and manual continuation saves during an active run, but mark a dead run complete so it cannot simply resume from after death. Decide strict ironman and backup behavior separately before deleting or overwriting any save data.
 
 - What belongs in the postmortem?
 
-  Recommended answer: World name, run seed, site and scenario, elapsed time, discoveries, created lineages, campaign phase, major decisions, evidence chain, cause of defeat, and highest achieved milestones.
+  Recommended answer: World name, run seed, site and scenario, elapsed time, discoveries, created lineages, campaign phase, major decisions, evidence chain, cause of death, major setbacks survived, and highest achieved milestones.
 
 - What happens next?
 
@@ -412,7 +487,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 18. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. Add separate pending prompts for later phases identified during discussion rather than attempting the entire conquest arc in one implementation.
 
@@ -448,7 +523,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. New-Run Onboarding and Contextual Tutorial
+## 19. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable.
 
@@ -458,7 +533,7 @@ Recommended scope: a dismissible first-run checklist, contextual hints with cool
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. Sound, Notifications, and Accessibility Audit
+## 20. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review.
 
@@ -466,7 +541,7 @@ Treat sound as an additional cue rather than the only carrier of state. Audit no
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 18. Production Art Pass Using the Sprite Pipeline
+## 21. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set.
 

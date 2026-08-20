@@ -87,6 +87,9 @@
   const SURFACE_HAZARD_ROOM_ID = "surfaceHazardousStorage";
   const SURFACE_LOADING_ROOM_ID = "surfaceLoadingBay";
   const SURFACE_BASEMENT_ROOM_ID = "surfaceBasementVestibule";
+  const MUNICIPAL_HOLDING_CELL_ROOM_ID = "municipalHoldingCell";
+  const MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID = "municipalHoldingCorridor";
+  const MUNICIPAL_HOLDING_Z = 3;
   const SURFACE_ROOM_IDS = [
     SURFACE_FACILITY_ROOM_ID,
     SURFACE_RECEPTION_ROOM_ID,
@@ -4265,6 +4268,10 @@
   if (!SiteVisits) {
     throw new Error("HelixSiteVisits must load before app.js");
   }
+  const LawEnforcementRaids = window.HelixLawEnforcementRaids;
+  if (!LawEnforcementRaids) {
+    throw new Error("HelixLawEnforcementRaids must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4662,6 +4669,7 @@
     "equipmentChange",
     "laborWork",
     "injuryTreatment",
+    "detentionSecurityStudy",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -4923,6 +4931,7 @@
       institutionalResponses: InstitutionalResponses.defaultState(),
       warrantExecutions: WarrantExecutions.defaultState(),
       siteVisits: SiteVisits.defaultState(),
+      lawEnforcementRaids: LawEnforcementRaids.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -6374,6 +6383,23 @@
     return target.warrantExecutions;
   }
 
+  function ensureLawEnforcementRaids(target = state) {
+    if (target.lawEnforcementRaids?.version === LawEnforcementRaids.VERSION
+      && Array.isArray(target.lawEnforcementRaids.raids)) {
+      return target.lawEnforcementRaids;
+    }
+    target.lawEnforcementRaids = LawEnforcementRaids.normalizeState(target.lawEnforcementRaids);
+    return target.lawEnforcementRaids;
+  }
+
+  function activeLawEnforcementRaid() {
+    return ensureLawEnforcementRaids().raids.find((raid) => !["scheduled", "booked", "escaped", "completed"].includes(raid.status)) || null;
+  }
+
+  function currentDetentionRaid() {
+    return ensureLawEnforcementRaids().raids.find((raid) => raid.status === "booked" && raid.detention?.status === "pretrial") || null;
+  }
+
   function investigationReportSignals() {
     const detection = ensureExternalDetection();
     const evidenceById = new Map(ensureInvestigativeEvidence().records.map((record) => [record.id, record]));
@@ -6605,6 +6631,26 @@
     return changed;
   }
 
+  function syncLawEnforcementRaids() {
+    let changed = 0;
+    for (const execution of ensureWarrantExecutions().executions.filter((entry) => entry.institutionId === "law-enforcement" && entry.status === "deferred")) {
+      const result = LawEnforcementRaids.authorize(ensureLawEnforcementRaids(), execution, {
+        seed: state.seed, clock: state.clock,
+        authorizedRoomIds: [...SURFACE_ROOM_IDS],
+        knownRoomIds: [...SURFACE_ROOM_IDS]
+      });
+      state.lawEnforcementRaids = result.state;
+      if (!result.raid) continue;
+      if (!execution.raidId) {
+        execution.raidId = result.raid.id;
+        execution.history.push({ at: state.clock, action: "raidAuthorized", summary: `A named tactical team was assigned for arrival at ${formatClock(result.raid.arrivalAt)}.` });
+        changed += 1;
+      }
+      if (result.created) addEvent(`${execution.docket}: a four-person search-and-arrest team is due between ${formatClock(result.raid.arrivalAt)} and ${formatClock(result.raid.arrivalWindowEnd)}.`);
+    }
+    return changed;
+  }
+
   function syncIssuedWarrants() {
     let changed = 0;
     const responses = ensureInstitutionalResponses();
@@ -6624,7 +6670,7 @@
             : `${execution.scope.label} scheduled for ${formatClock(execution.arrivalAt)}.`
         });
         if (execution.status === "deferred") {
-          addEvent(`${action.label}: physical law-enforcement execution is deferred to the later raid system.`);
+          syncLawEnforcementRaids();
           changed += 1;
           continue;
         }
@@ -6683,7 +6729,7 @@
         changed += 1;
       }
     }
-    return changed + syncIssuedWarrants() + syncForcedEntryEscalations();
+    return changed + syncIssuedWarrants() + syncForcedEntryEscalations() + syncLawEnforcementRaids();
   }
 
   function updateInstitutionalResponses() {
@@ -7788,6 +7834,441 @@
         persistedVisit.agendaIndex += 1;
       }
       changes += 1;
+    }
+    return changes;
+  }
+
+  function raidActorById(actorId) {
+    for (const raid of ensureLawEnforcementRaids().raids) {
+      const actor = raid.actors.find((entry) => entry.id === actorId);
+      if (actor) return { raid, actor };
+    }
+    return null;
+  }
+
+  function raidEntryPoint(raid) {
+    return (state.siteAccessPoints || []).find((entry) => entry.id === raid?.entryPointId && entry.lawful)
+      || (state.siteAccessPoints || []).find((entry) => entry.id === "publicEntrance") || null;
+  }
+
+  function raidLeadActor(raid) {
+    return raid?.actors.find((actor) => actor.role === "commander") || raid?.actors[0] || null;
+  }
+
+  function raidArrestActor(raid) {
+    return raid?.actors.find((actor) => actor.role === "arrest") || raid?.actors.find((actor) => actor.present) || null;
+  }
+
+  function finalizeRaidInstitutionalRecords(raid, actionName, summary) {
+    const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === raid?.warrantExecutionId);
+    if (execution) {
+      execution.status = "completed"; execution.completedAt = state.clock;
+      if (!execution.history.some((entry) => entry.action === actionName)) execution.history.push({ at: state.clock, action: actionName, summary });
+    }
+    const action = ensureInstitutionalResponses().actions.find((entry) => entry.id === raid?.actionId);
+    if (action) {
+      action.status = "executed"; action.resolvedAt = state.clock;
+      if (!action.history.some((entry) => entry.action === actionName)) action.history.push({ at: state.clock, action: actionName, summary });
+    }
+  }
+
+  function ensureRaidPhysicalEquipment(raid) {
+    const breach = raid?.actors.find((actor) => actor.role === "breach" && actor.present);
+    if (!breach) return null;
+    const existing = ensurePhysicalItemStacks().find((stack) => stack.carryTaskId === `raid-equipment:${raid.id}` && stack.key === "pryBar");
+    if (existing) return existing;
+    breach.inventory = normalizeActorInventory(breach.inventory, breach);
+    const stack = createPhysicalItemStack("inventory", "pryBar", 1, { roomId: breach.roomId, cell: breach.mapCell }, {
+      carriedBy: breach.id, carryTaskId: `raid-equipment:${raid.id}`, known: true, sourceLabel: `${breach.name} raid equipment`
+    });
+    if (stack) { syncActorInventories(); syncPhysicalReadModels(); }
+    return stack;
+  }
+
+  function removeRaidPhysicalEquipment(raid) {
+    const ids = new Set((raid?.actors || []).map((actor) => actor.id));
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((stack) => !(ids.has(stack.carriedBy) && stack.carryTaskId === `raid-equipment:${raid.id}`));
+    syncActorInventories(); syncPhysicalReadModels();
+  }
+
+  function raidScientistVisibleTo(actor) {
+    const actorCell = cleanMapCell(actor?.mapCell);
+    const scientistCell = scientistMapCell();
+    if (!actor?.present || !actorCell || actorCell.z !== scientistCell.z) return false;
+    const distance = Math.abs(actorCell.x - scientistCell.x) + Math.abs(actorCell.y - scientistCell.y);
+    return distance <= 9 && sensoryLineOfSight(actorCell, scientistCell);
+  }
+
+  function raidRecordBarrier(raid, descriptor, roomId, before, after, breached) {
+    let barrier = raid.barriers.find((entry) => entry.kind === descriptor.kind && entry.barrierId === descriptor.barrierId);
+    if (!barrier) {
+      barrier = {
+        id: `raid-barrier-${raid.barriers.length + 1}`, kind: descriptor.kind, barrierId: descriptor.barrierId,
+        label: descriptor.label, cell: cleanMapCell(descriptor.cell), authorizedRoomId: roomId,
+        startingCondition: before, currentCondition: after, damageApplied: Math.max(0, before - after),
+        status: breached ? "breached" : "breaching", firstHitAt: state.clock, completedAt: breached ? state.clock : null
+      };
+      raid.barriers.push(barrier);
+    } else {
+      barrier.currentCondition = after;
+      barrier.damageApplied = Math.max(0, barrier.startingCondition - after);
+      if (breached) { barrier.status = "breached"; barrier.completedAt ??= state.clock; }
+    }
+    if (!raid.history.some((entry) => entry.action === "barrierBreached" && entry.summary.includes(descriptor.label)) && breached) {
+      raid.history.push({ at: state.clock, action: "barrierBreached", summary: `${descriptor.label} was physically breached to reach authorized premises.` });
+    }
+  }
+
+  function progressRaidBarrier(raid, currentCell, nextCell, authorizedRoomId, elapsed) {
+    const descriptor = forcedEntryBarrierDescriptor(null, { label: roomName(authorizedRoomId) }, currentCell, nextCell);
+    if (!descriptor) return false;
+    const before = descriptor.condition;
+    const result = applyStructuralDamage(descriptor.cell, Math.max(1, Math.min(20, elapsed * 1.5)), ["physical", "force"], "law-enforcement breach work");
+    if (!result.ok) return true;
+    const breached = result.destroyed || descriptor.kind === "door" && Boolean(doorFixtureState(descriptor.mapDoor)?.breached);
+    raidRecordBarrier(raid, descriptor, authorizedRoomId, before, result.after, breached);
+    recordForcedEntryNoise(descriptor.cell, `${raid.actors.find((actor) => actor.role === "breach")?.name || "Breach officer"} forcing ${descriptor.label}`);
+    return !breached;
+  }
+
+  function raidMoveTeamToward(raid, targetCell, authorizedRoomId, elapsed) {
+    const lead = raidLeadActor(raid);
+    const target = cleanMapCell(targetCell);
+    if (!lead?.present || !lead.mapCell || !target) return 0;
+    if (sameMapCell(lead.mapCell, target)) {
+      let changes = 0;
+      let formationTarget = cleanMapCell(lead.mapCell);
+      for (const actor of raid.actors.slice(1).filter((entry) => entry.present && entry.health > 0)) {
+        if (sameMapCell(actor.mapCell, formationTarget)) continue;
+        actor.movementAccumulator += Math.max(0, elapsed);
+        const path = forcedEntryPathBetweenCells(actor.mapCell, formationTarget);
+        if (actor.movementAccumulator >= 1 && path[1]) {
+          actor.mapCell = cleanMapCell(path[1]); actor.roomId = labMapCellRoomId(actor.mapCell) || actor.roomId; actor.movementAccumulator -= 1; changes += 1;
+        }
+        formationTarget = cleanMapCell(actor.mapCell);
+      }
+      return changes;
+    }
+    const path = forcedEntryPathBetweenCells(lead.mapCell, target);
+    if (path.length < 2) return 0;
+    lead.movementAccumulator += Math.max(0, elapsed);
+    let changes = 0;
+    while (lead.movementAccumulator >= 1 && path.length >= 2) {
+      const current = cleanMapCell(lead.mapCell);
+      const freshPath = forcedEntryPathBetweenCells(current, target);
+      const next = freshPath[1];
+      if (!next) break;
+      if (progressRaidBarrier(raid, current, next, authorizedRoomId, elapsed)) return changes + 1;
+      const mapDoor = labMapDoorAtCell(current) || labMapDoorAtCell(next) || labMapDoorForCells(current, next);
+      const door = mapDoor ? doorFixtureState(mapDoor) : null;
+      if (door && !doorIsBreached(door) && door.state !== DOOR_STATE_OPEN) {
+        if (door.lockState === DOOR_LOCK_LOCKED || door.sealState === DOOR_SEAL_SEALED) return changes;
+        door.state = DOOR_STATE_OPEN;
+        bumpNavigationRevision("door");
+      }
+      const priorCells = raid.actors.map((actor) => cleanMapCell(actor.mapCell));
+      lead.mapCell = cleanMapCell(next); lead.roomId = labMapCellRoomId(next) || lead.roomId; lead.movementAccumulator -= 1;
+      for (let index = 1; index < raid.actors.length; index += 1) {
+        const actor = raid.actors[index];
+        if (!actor.present || actor.health <= 0) continue;
+        actor.mapCell = priorCells[index - 1] || cleanMapCell(lead.mapCell);
+        actor.roomId = labMapCellRoomId(actor.mapCell) || lead.roomId;
+      }
+      changes += 1;
+      if (sameMapCell(lead.mapCell, target)) break;
+    }
+    return changes;
+  }
+
+  function maybeRaidSeizeVisibleEvidence(raid) {
+    if (!raid || raid.seizures.length >= 4) return 0;
+    const evidenceByStack = new Map(ensureInvestigativeEvidence().records
+      .filter((record) => record.subject.kind === "physicalStack" && ["material", "serious", "critical"].includes(record.significance))
+      .map((record) => [record.subject.id, record]));
+    let changes = 0;
+    for (const actor of raid.actors.filter((entry) => entry.present && entry.health > 0)) {
+      const source = ensurePhysicalItemStacks().find((stack) => !stack.carriedBy && sameMapCell(stack.cell, actor.mapCell)
+        && physicalStackExposed(stack) && evidenceByStack.has(stack.id));
+      if (!source || raid.seizures.some((entry) => entry.sourceSubjectId === source.id)) continue;
+      const sourceSubjectId = source.id; const label = physicalStackLabel(source);
+      const carried = carryPhysicalStack(actor.id, source.id, Math.min(1, source.quantity), { carryTaskId: raid.id, allowReserved: false });
+      if (!carried) continue;
+      const result = LawEnforcementRaids.recordSeizure(ensureLawEnforcementRaids(), raid.id, {
+        sourceSubjectId, subjectId: carried.id, subjectKind: "physicalStack", label, quantity: carried.quantity,
+        actorId: actor.id, roomId: actor.roomId, clock: state.clock
+      });
+      state.lawEnforcementRaids = result.state; raid = result.raid;
+      const record = evidenceByStack.get(sourceSubjectId);
+      if (record) {
+        const from = record.locus;
+        record.lifecycle = "contained";
+        record.locus = InvestigativeEvidence.normalizeLocus({ kind: "actorInventory", roomId: actor.roomId, cell: actor.mapCell, label: `${actor.name} raid custody` });
+        record.updatedAt = state.clock;
+        record.provenance.push({ at: state.clock, action: "seized", actorId: actor.id, from, to: record.locus, details: `${label} entered physical custody under ${raid.docket}.` });
+      }
+      addEvent(`${actor.name} physically seized ${label} encountered during the authorized raid search.`); changes += 1;
+      if (raid.seizures.length >= 4) break;
+    }
+    if (changes) { syncActorInventories(); syncPhysicalReadModels(); }
+    return changes;
+  }
+
+  function externalizeRaidCustody(raid) {
+    if (!raid) return 0;
+    const carriedIds = new Set(raid.seizures.filter((entry) => entry.status === "carried").map((entry) => entry.subjectId));
+    let changes = 0;
+    for (const stack of [...ensurePhysicalItemStacks()].filter((entry) => carriedIds.has(entry.id))) {
+      const seizure = raid.seizures.find((entry) => entry.subjectId === stack.id);
+      for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
+        const from = record.locus;
+        record.lifecycle = "externalized";
+        record.locus = InvestigativeEvidence.normalizeLocus({ kind: "authorityCustody", accessPointId: raid.entryPointId, label: "Law-enforcement evidence custody" });
+        record.updatedAt = state.clock;
+        record.provenance.push({ at: state.clock, action: "externalized", actorId: seizure?.actorId, from, to: record.locus, details: `${physicalStackLabel(stack)} left the site under ${raid.docket}.` });
+      }
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id); changes += 1;
+    }
+    const result = LawEnforcementRaids.externalizeSeizures(ensureLawEnforcementRaids(), raid.id, state.clock);
+    state.lawEnforcementRaids = result.state;
+    syncActorInventories(); syncPhysicalReadModels();
+    return changes;
+  }
+
+  function raidSearchTarget(raid) {
+    const uncleared = raid.knownRoomIds.filter((roomId) => raid.authorizedRoomIds.includes(roomId) && !raid.clearedRoomIds.includes(roomId));
+    return uncleared[0] || "";
+  }
+
+  function scientistRaidCustodyStatus() {
+    const raid = activeLawEnforcementRaid() || currentDetentionRaid();
+    return raid?.custody?.status || "free";
+  }
+
+  function surrenderToRaid(raidId) {
+    const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === raidId);
+    if (!raid || !raid.actors.some(raidScientistVisibleTo)) { addEvent("The scientist cannot surrender until a raid officer can physically perceive the gesture."); persist(); render(); return false; }
+    const result = LawEnforcementRaids.surrender(ensureLawEnforcementRaids(), raid.id, state.clock);
+    state.lawEnforcementRaids = result.state;
+    if (result.changed) {
+      for (const task of [...state.tasks].filter(isScientistQueueTask)) cancelTask(task.id, { quiet: true, noLaborClaim: true, noProductionClaim: true });
+      addEvent("The scientist surrendered. An arrest officer must still reach them and physically complete restraint.");
+    }
+    persist(); render(); return result.changed;
+  }
+
+  function revokeRaidSurrender(raidId) {
+    const result = LawEnforcementRaids.revokeSurrender(ensureLawEnforcementRaids(), raidId, state.clock);
+    state.lawEnforcementRaids = result.state;
+    if (result.changed) addEvent("The scientist revoked surrender before restraint; resistance is now part of the raid record.");
+    persist(); render(); return result.changed;
+  }
+
+  function resistLawEnforcementRaid(raidId) {
+    let raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === raidId);
+    if (!raid || ["scheduled", "booked", "escaped", "completed"].includes(raid.status)) return false;
+    const target = raid.actors.filter((actor) => actor.present && actor.health > 0)
+      .sort((left, right) => mapCellDistance(scientistMapCell(), left.mapCell) - mapCellDistance(scientistMapCell(), right.mapCell))[0];
+    if (!target || mapCellDistance(scientistMapCell(), target.mapCell) > 1) { addEvent("The scientist must be adjacent to a raid officer to attack them."); persist(); render(); return false; }
+    target.health = Math.max(0, target.health - Math.max(4, Math.round(scientistCombatBaseDamage())));
+    if (target.health <= 0) { target.status = "incapacitated"; target.present = false; }
+    const evidence = recordInvestigativeEvidence("violentRaidResistance", {
+      category: "documentary", label: `Violent resistance during ${raid.docket}`, significance: "critical",
+      origin: { kind: "lawEnforcementRaid", id: raid.id, label: raid.docket }, subject: { kind: "scientist", id: "scientist" },
+      locus: { kind: "mapCell", roomId: scientistRoomId(), cell: scientistMapCell(), label: roomName(scientistRoomId()) },
+      traits: ["violent resistance", "officer attacked", "search-and-arrest warrant"], persistence: { kind: "permanent" }, knowledge: { state: "known", learnedAt: state.clock, source: "raid", sourceIdentityKnown: true }
+    });
+    const witness = raid.actors.find((actor) => actor.present && actor.health > 0);
+    const escalated = LawEnforcementRaids.escalateForce(ensureLawEnforcementRaids(), raid.id, {
+      clock: state.clock, kind: "violentResistance", witnessActorId: witness?.id,
+      responsibleActorId: "scientist", reason: `The scientist attacked ${target.name}; immediate serious resistance authorized lethal force.`
+    });
+    state.lawEnforcementRaids = escalated.state; raid = escalated.raid;
+    raid.history.push({ at: state.clock, action: "officerAttacked", summary: `${target.name} was attacked; evidence ${evidence?.id || "recorded"}.` });
+    damageScientistCombat(8, `${witness?.name || "a raid officer"} defended the team`, { damageTypes: ["physical"] });
+    addEvent(`${target.name} was attacked. The team recorded the immediate threat and escalated its force posture.`);
+    persist(); render(); return true;
+  }
+
+  function escapeActiveRaidSite(raidId) {
+    const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === raidId);
+    if (!raid || ![CONCEALED_EXIT_ROOM_ID, SURFACE_RECEPTION_ROOM_ID, SURFACE_LOADING_ROOM_ID].includes(scientistRoomId())) return false;
+    if (raid.actors.some(raidScientistVisibleTo) || ["restraining", "restrained", "extracting", "booked"].includes(raid.custody.status)) {
+      addEvent("The scientist cannot escape the site while physically observed or controlled by the raid team."); persist(); render(); return false;
+    }
+    externalizeRaidCustody(raid);
+    removeRaidPhysicalEquipment(raid);
+    const result = LawEnforcementRaids.escapeSite(ensureLawEnforcementRaids(), raid.id, state.clock);
+    state.lawEnforcementRaids = result.state;
+    if (result.changed) {
+      finalizeRaidInstitutionalRecords(result.raid, "targetEscaped", result.raid.outcome.summary);
+      addEvent(`${raid.docket}: the scientist evaded this raid through an unobserved site exit. The run continues under fugitive pressure.`);
+    }
+    persist(); render(); return result.changed;
+  }
+
+  function materializeMunicipalHolding(raid) {
+    const cellRect = { roomId: MUNICIPAL_HOLDING_CELL_ROOM_ID, x: 4, y: 4, z: MUNICIPAL_HOLDING_Z, width: 4, height: 5 };
+    const corridorRect = { roomId: MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID, x: 9, y: 4, z: MUNICIPAL_HOLDING_Z, width: 3, height: 5 };
+    const cellRoom = normalizeRoom({
+      id: MUNICIPAL_HOLDING_CELL_ROOM_ID, name: "Municipal Holding Cell", articleName: "the municipal holding cell",
+      purposeId: "quarters", facilityClass: "detention", description: "A locked pretrial cell. Time and the outside laboratory continue while the scientist is held.",
+      geometry: { shape: "secure cell", lengthM: 4, widthM: 5, heightM: 3, floorAreaM2: 20, volumeM3: 60 },
+      connections: [MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID], purposeSource: "starter", purposeReason: "Pretrial custody"
+    });
+    const corridorRoom = normalizeRoom({
+      id: MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID, name: "Holding Corridor", articleName: "the holding corridor",
+      purposeId: "corridor", facilityClass: "detention", description: "A secured booking-side corridor beyond the cell door.",
+      geometry: { shape: "secure corridor", lengthM: 3, widthM: 5, heightM: 3, floorAreaM2: 15, volumeM3: 45 },
+      connections: [MUNICIPAL_HOLDING_CELL_ROOM_ID], purposeSource: "starter", purposeReason: "Pretrial custody"
+    });
+    state.rooms = normalizeRooms([...state.rooms.filter((room) => ![MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(room.id)), cellRoom, corridorRoom]);
+    const map = ensureLabMap();
+    map.layers[String(MUNICIPAL_HOLDING_Z)] = { id: "municipalHolding", kind: "structure", label: "Municipal Holding" };
+    map.rooms[MUNICIPAL_HOLDING_CELL_ROOM_ID] = normalizeLabMapRoom({ ...cellRect, cells: rectangularRoomCells(cellRect), anchor: { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z } }, cellRoom);
+    map.rooms[MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID] = normalizeLabMapRoom({ ...corridorRect, cells: rectangularRoomCells(corridorRect), anchor: { x: 10, y: 6, z: MUNICIPAL_HOLDING_Z } }, corridorRoom);
+    const doorCell = { x: 8, y: 6, z: MUNICIPAL_HOLDING_Z };
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rectangularRoomCells(cellRect), doorCell, ...rectangularRoomCells(corridorRect)]);
+    map.doors["door-municipal-holding-cell"] = normalizeLabMapDoor({
+      id: "door-municipal-holding-cell", roomIds: [MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID],
+      cell: doorCell, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 1, heightM: 2.1 }
+    }, "door-municipal-holding-cell", map.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms, map);
+    const door = state.doors["door-municipal-holding-cell"];
+    door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; door.accessRuleId = "restricted"; door.typeId = "ironBandDoor";
+    state.roomStockpiles[MUNICIPAL_HOLDING_CELL_ROOM_ID] ||= emptyRoomStockpile();
+    state.roomStockpiles[MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID] ||= emptyRoomStockpile();
+    state.scientist.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID;
+    state.scientist.mapCell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z };
+    const ui = ensureUiState();
+    ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: MUNICIPAL_HOLDING_Z }, map, ui.mapZoomIndex);
+    setSelection({ kind: "scientist", id: "scientist" }, { source: "custody", centerMap: true });
+    addEvent(`${raid.docket}: the scientist was booked into ${raid.detention.facilityLabel}. The run continues in pretrial detention; the laboratory remains active under existing policies.`);
+  }
+
+  function queueDetentionSecurityStudy(raidId) {
+    const raid = currentDetentionRaid();
+    if (!raid || raid.id !== raidId || state.tasks.some((task) => task.type === "detentionSecurityStudy")) return null;
+    const task = {
+      id: `task-${state.nextTaskNumber++}`, type: "detentionSecurityStudy", label: "Study holding-cell security and routines",
+      createdAt: state.clock, dueAt: state.clock + adjustedActionDuration(minutesToSeconds(30), "analysis"),
+      data: { raidId, roomId: MUNICIPAL_HOLDING_CELL_ROOM_ID, toCell: scientistMapCell(), skillId: "analysis", baseXp: 8 }
+    };
+    state.tasks.push(task); addEvent("The scientist began studying the cell door, staff routine, and observable security gaps."); persist(); render(); return task;
+  }
+
+  function completeDetentionSecurityStudy(task) {
+    const raid = currentDetentionRaid();
+    if (!raid || raid.id !== task.data?.raidId) return;
+    const result = LawEnforcementRaids.studySecurity(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, amount: 20, alert: 2 });
+    state.lawEnforcementRaids = result.state;
+    awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), task.label);
+    addEvent(`Holding-cell security study complete: ${formatNumber(result.raid.detention.securityStudyProgress)}% understanding; alert ${formatNumber(result.raid.detention.alert)}%.`);
+  }
+
+  function escapeMunicipalHolding(raidId) {
+    const raid = currentDetentionRaid();
+    if (!raid || raid.id !== raidId || raid.detention.securityStudyProgress < 100) return false;
+    const result = LawEnforcementRaids.escapeDetention(ensureLawEnforcementRaids(), raid.id, state.clock);
+    state.lawEnforcementRaids = result.state;
+    const door = state.doors["door-municipal-holding-cell"];
+    if (door) { door.lockState = DOOR_LOCK_UNLOCKED; door.state = DOOR_STATE_OPEN; }
+    state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
+    state.scientist.mapCell = nearestOpenMapCellInRoom(CONCEALED_EXIT_ROOM_ID, labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), { actor: state.scientist, ignoreAccessPolicy: true });
+    ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex);
+    const evidence = recordInvestigativeEvidence("custodyEscape", {
+      category: "documentary", label: `Escape from ${raid.detention.facilityLabel}`, significance: "critical",
+      origin: { kind: "lawEnforcementRaid", id: raid.id, label: raid.docket }, subject: { kind: "scientist", id: "scientist" },
+      locus: { kind: "site", roomId: MUNICIPAL_HOLDING_CELL_ROOM_ID, label: raid.detention.facilityLabel },
+      traits: ["escaped custody", "fugitive", "pretrial detention"], persistence: { kind: "permanent" }, knowledge: { state: "known", learnedAt: state.clock, source: "custody", sourceIdentityKnown: true }
+    });
+    result.raid.history.push({ at: state.clock, action: "fugitiveEvidence", summary: `Escape evidence ${evidence?.id || "recorded"} entered the authority record.` });
+    addEvent("The scientist escaped municipal holding and returned through the concealed route. The run continues under fugitive pressure.");
+    persist(); render(); return true;
+  }
+
+  function updateLawEnforcementRaids(elapsed) {
+    ensureLawEnforcementRaids();
+    let changes = 0;
+    let raid = activeLawEnforcementRaid();
+    if (!raid) {
+      const due = ensureLawEnforcementRaids().raids.filter((entry) => entry.status === "scheduled" && entry.arrivalAt <= state.clock)
+        .sort((left, right) => left.arrivalAt - right.arrivalAt)[0];
+      if (!due) return 0;
+      const point = raidEntryPoint(due);
+      if (!point) return 0;
+      const result = LawEnforcementRaids.activate(ensureLawEnforcementRaids(), due.id, { clock: state.clock, entryCell: point.cell, roomId: point.roomId });
+      state.lawEnforcementRaids = result.state; raid = result.raid;
+      ensureRaidPhysicalEquipment(raid);
+      const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === raid.warrantExecutionId);
+      if (execution) { execution.status = "active"; execution.startedAt ??= state.clock; }
+      addEvent(`${raid.docket}: ${raid.actors.map((actor) => `${actor.name}, ${titleCase(actor.role)}`).join("; ")} entered through ${point.label}.`);
+      changes += 1;
+    }
+    if (!raid) return changes;
+    if (scientistIsDead()) {
+      externalizeRaidCustody(raid); removeRaidPhysicalEquipment(raid);
+      const completed = LawEnforcementRaids.recordScientistDeath(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, summary: "The scientist died during the physical raid. Death ended the run; arrest did not." });
+      state.lawEnforcementRaids = completed.state;
+      if (completed.changed) finalizeRaidInstitutionalRecords(completed.raid, "scientistKilled", completed.raid.outcome.summary);
+      return changes + (completed.changed ? 1 : 0);
+    }
+    const visibleActor = raid.actors.find(raidScientistVisibleTo);
+    if (visibleActor && raid.custody.status === "free") {
+      const sighting = LawEnforcementRaids.recordSighting(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, actorId: visibleActor.id, cell: scientistMapCell() });
+      state.lawEnforcementRaids = sighting.state; raid = sighting.raid; changes += sighting.changed ? 1 : 0;
+    }
+    changes += maybeRaidSeizeVisibleEvidence(raid);
+    raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === raid.id) || raid;
+    if (["surrendered", "restraining"].includes(raid.custody.status) || actorIsIncapacitated("scientist")) {
+      const arrestActor = raidArrestActor(raid);
+      const distance = arrestActor ? mapCellDistance(arrestActor.mapCell, scientistMapCell()) : Infinity;
+      if (distance > 1) changes += raidMoveTeamToward(raid, scientistMapCell(), scientistRoomId(), elapsed);
+      else if (arrestActor) {
+        const restrained = LawEnforcementRaids.progressRestraint(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, actorId: arrestActor.id, amount: Math.max(1, elapsed * 20), incapacitated: actorIsIncapacitated("scientist") });
+        state.lawEnforcementRaids = restrained.state; raid = restrained.raid; changes += restrained.changed ? 1 : 0;
+      }
+      return changes;
+    }
+    if (["restrained", "extracting"].includes(raid.custody.status)) {
+      const point = raidEntryPoint(raid);
+      const escort = raidArrestActor(raid);
+      const distance = escort ? mapCellDistance(escort.mapCell, point?.cell) : Infinity;
+      if (distance > 0) {
+        changes += raidMoveTeamToward(raid, point.cell, point.roomId, elapsed);
+        if (escort?.mapCell) { state.scientist.mapCell = cleanMapCell(escort.mapCell); state.scientist.roomId = escort.roomId; }
+      } else {
+        let result = LawEnforcementRaids.extract(ensureLawEnforcementRaids(), raid.id, state.clock); state.lawEnforcementRaids = result.state;
+        externalizeRaidCustody(result.raid);
+        removeRaidPhysicalEquipment(result.raid);
+        result = LawEnforcementRaids.book(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, facilityId: "municipal-holding", facilityLabel: "Municipal Holding Facility", cellRoomId: MUNICIPAL_HOLDING_CELL_ROOM_ID });
+        state.lawEnforcementRaids = result.state; materializeMunicipalHolding(result.raid);
+        finalizeRaidInstitutionalRecords(result.raid, "scientistBooked", "The named arrest target was physically extracted and booked into pretrial detention; the run remained active.");
+        changes += 1;
+      }
+      return changes;
+    }
+    if (raid.status === "withdrawing") {
+      const point = raidEntryPoint(raid);
+      changes += raidMoveTeamToward(raid, point?.cell, point?.roomId, elapsed);
+      if (raid.actors.filter((actor) => actor.present && actor.health > 0).every((actor) => sameMapCell(actor.mapCell, point?.cell))) {
+        externalizeRaidCustody(raid);
+        removeRaidPhysicalEquipment(raid);
+        const completed = LawEnforcementRaids.completeUnlocated(ensureLawEnforcementRaids(), raid.id, state.clock);
+        state.lawEnforcementRaids = completed.state;
+        finalizeRaidInstitutionalRecords(completed.raid, "targetNotLocated", completed.raid.outcome.summary);
+        addEvent(`${raid.docket}: ${completed.raid.outcome.summary}`);
+        changes += 1;
+      }
+    } else if (raid.communication.lastKnownCell && raid.status === "contact") {
+      changes += raidMoveTeamToward(raid, raid.communication.lastKnownCell, scientistRoomId(), elapsed);
+    } else {
+      const targetRoomId = raidSearchTarget(raid);
+      if (targetRoomId) {
+        raid.status = "searching"; raid.communication.state = "searching";
+        const targetCell = labMapRoomAnchor(targetRoomId);
+        changes += raidMoveTeamToward(raid, targetCell, targetRoomId, elapsed);
+        if (sameMapCell(raidLeadActor(raid)?.mapCell, targetCell)) { raid.clearedRoomIds.push(targetRoomId); raid.history.push({ at: state.clock, action: "roomCleared", summary: `${roomName(targetRoomId)} was physically searched and cleared.` }); changes += 1; }
+      } else raid.status = "withdrawing";
     }
     return changes;
   }
@@ -9780,6 +10261,11 @@
         nextForcedEntry: WarrantExecutions.nextForcedEntryEvent(ensureWarrantExecutions(), state.clock),
         clock: state.clock
       }),
+      lawEnforcementRaidsSnapshot: () => clonePlainObject({
+        ...ensureLawEnforcementRaids(), activeRaid: activeLawEnforcementRaid(), detentionRaid: currentDetentionRaid(),
+        nextRaid: LawEnforcementRaids.nextEvent(ensureLawEnforcementRaids(), state.clock), clock: state.clock,
+        scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), health: scientistVital("health").current }, runEnded: state.runEnded
+      }),
       issueTestWarrant: (institutionId = "commercial-registry", options = {}) => {
         const responses = ensureInstitutionalResponses();
         const action = InstitutionalResponses.normalizeAction({
@@ -9803,8 +10289,28 @@
             visit.arrivalWindow.end = state.clock + SECONDS_PER_HOUR;
           }
         }
+        const raid = execution?.raidId ? ensureLawEnforcementRaids().raids.find((entry) => entry.id === execution.raidId) : null;
+        if (raid && options.immediate) { raid.arrivalAt = state.clock; raid.arrivalWindowEnd = state.clock + SECONDS_PER_HOUR; }
         persist(); render(); return execution ? clonePlainObject(execution) : null;
       },
+      updateLawEnforcementRaids: (seconds = 1, options = {}) => {
+        const changed = updateLawEnforcementRaids(Math.max(0, Number(seconds) || 0));
+        if (!options.defer) { persist(); render(); }
+        return changed;
+      },
+      placeScientistAtRaidEntry: (raidId) => {
+        const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === raidId);
+        const point = raidEntryPoint(raid); if (!point) return null;
+        state.scientist.roomId = point.roomId; state.scientist.mapCell = cleanMapCell(point.cell);
+        persist(); render(); return clonePlainObject({ roomId: scientistRoomId(), mapCell: scientistMapCell() });
+      },
+      surrenderToRaid: (raidId) => surrenderToRaid(raidId),
+      revokeRaidSurrender: (raidId) => revokeRaidSurrender(raidId),
+      escapeActiveRaidSite: (raidId) => escapeActiveRaidSite(raidId),
+      queueDetentionSecurityStudy: (raidId) => {
+        const task = queueDetentionSecurityStudy(raidId); return task ? clonePlainObject(task) : null;
+      },
+      escapeMunicipalHolding: (raidId) => escapeMunicipalHolding(raidId),
       setForcedEntryImmediate: (executionId) => {
         const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === executionId);
         if (!execution?.forcedEntry) return null;
@@ -13783,7 +14289,7 @@
   function renderClockReadout() {
     if (!dom.clockReadout) return;
     dom.clockReadout.textContent = formatClock(state.clock);
-    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : state.paused ? "Paused" : "Running";
+    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
     dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
     for (const element of document.querySelectorAll("[data-task-remaining]")) {
       const task = state.tasks.find((candidate) => candidate.id === element.dataset.taskRemaining);
@@ -13793,7 +14299,7 @@
 
   function simulationMapNeedsRedraw(changes) {
     if (!changes) return false;
-    if (changes.scientistMovementChanged || changes.uncontainedBehaviorChanged || changes.combatChanged
+    if (changes.scientistMovementChanged || changes.uncontainedBehaviorChanged || changes.combatChanged || changes.raidChanged
       || changes.incidentAlertChanged || changes.containmentIncidentChanges || changes.expired || changes.jobExpired
       || changes.corpseChanges || changes.completed || changes.constructionProgressChanged || changes.structuralChanged) return true;
     const overlay = currentMapOverlayDef().id;
@@ -14032,7 +14538,9 @@
     const responseEvent = InstitutionalResponses.nextEvent(ensureInstitutionalResponses(), state.clock);
     const visit = SiteVisits.nextEvent(ensureSiteVisits(), state.clock);
     const visitEvent = visit ? { time: visit.arrivalAt, label: `${visit.visitorLabel} arrival window`, type: "visit" } : null;
-    return [reportEvent, caseEvent, responseEvent, visitEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    const raid = LawEnforcementRaids.nextEvent(ensureLawEnforcementRaids(), state.clock);
+    const raidEvent = raid ? { time: raid.arrivalAt, label: `${raid.docket} raid team arrival`, type: "raid" } : null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -14043,6 +14551,7 @@
       evidenceChanged: 0,
       investigationChanged: 0,
       siteVisitChanged: 0,
+      raidChanged: 0,
       economyChanged: 0,
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
@@ -14185,6 +14694,7 @@
     }
     if (id === "administration") {
       changes.siteVisitChanged += updateSiteVisits(elapsed);
+      changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
@@ -14265,6 +14775,7 @@
       + changes.evidenceChanged
       + changes.investigationChanged
       + changes.siteVisitChanged
+      + changes.raidChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
       + (changes.observationChanged ? 1 : 0)
@@ -14349,6 +14860,10 @@
   }
 
   function completeTask(task) {
+    if (task.type === "detentionSecurityStudy") {
+      completeDetentionSecurityStudy(task);
+      return;
+    }
     if (task.type === "injuryTreatment") {
       completeInjuryTreatment(task);
       return;
@@ -23915,6 +24430,8 @@
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
       || (context?.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .find((actor) => actor?.id === id && actor.present)
+      || (context?.lawEnforcementRaids?.raids || []).flatMap((raid) => raid.actors || [])
+        .find((actor) => actor?.id === id && actor.present)
       || null;
   }
 
@@ -23937,6 +24454,8 @@
       { id: "scientist", actor: context.scientist },
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
       ...(context.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
+        .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
+      ...(context.lawEnforcementRaids?.raids || []).flatMap((raid) => raid.actors || [])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor }))
     ];
     const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.kind === "visitor" || actor.status !== "dead").map((entry) => entry.id));
@@ -41515,7 +42034,7 @@
   function renderLiveReadouts() {
     dom.setupOverlay.classList.toggle("hidden", state.started);
     dom.clockReadout.textContent = formatClock(state.clock);
-    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : state.paused ? "Paused" : "Running";
+    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
     dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
     dom.timeSpeedSelect.value = currentTimeSpeed().id;
     dom.pauseBtn.textContent = state.paused ? "Resume" : "Pause";
@@ -45218,6 +45737,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
+    const custodyStatus = scientistRaidCustodyStatus();
+    if (["surrendered", "restraining", "restrained", "extracting"].includes(custodyStatus)) return "The scientist is under active physical arrest.";
+    if (custodyStatus === "booked" && ![MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(target.id)) return "The scientist is confined in municipal holding.";
     const urgent = options.urgent ?? scientistInKnownCombat();
     const existingMoves = (state.tasks || []).filter((task) => task.type === "scientistMove");
     if (existingMoves.length && (!urgent || existingMoves.some((task) => task.data?.combatPriority))) {
@@ -55635,6 +56157,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         });
       }
     }
+    for (const raid of ensureLawEnforcementRaids().raids.filter((entry) => entry.actors.some((actor) => actor.present && actor.mapCell))) {
+      for (const actor of raid.actors.filter((entry) => entry.present && entry.mapCell)) {
+        const cues = [sceneStatusCue("raid-warrant", "critical", `${raid.docket}: ${titleCase(actor.role)}`, "R")];
+        if (actor.role === "breach") cues.push(sceneStatusCue("breach", "critical", "Carries physical entry tools", "B"));
+        if (raid.force.posture === "lethal") cues.push(sceneStatusCue("lethal-force", "critical", raid.force.reason, "!"));
+        entities.push({
+          id: `raid-officer:${actor.id}`, kind: "raidOfficer", category: "actor", subtype: actor.role,
+          target: { kind: "raidOfficer", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)],
+          orientation: "square", facing: "south", pose: actor.status === "restraining" ? "working" : "walking",
+          activity: { id: raid.status, label: `${titleCase(raid.status)} · ${titleCase(actor.role)}`, source: "simulation" }, motion: null,
+          condition: { ratio: clamp(actor.health / 100, 0, 1), band: actor.health < 50 ? "injured" : "healthy", cues: [] },
+          statusCues: cues, knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "law-enforcement raid" },
+          visual: { key: "actor.scientist", glyph: actor.role === "commander" ? "C" : actor.role === "breach" ? "B" : actor.role === "arrest" ? "A" : "R", recipeKey: `raid:${actor.role}:${raid.status}` },
+          blocking: false
+        });
+      }
+    }
     for (const door of Object.values(map.doors || {})) {
       const stateDoor = doorFixtureState(door) || door;
       const knowledge = mapSceneKnowledgeForRoom(door.roomIds[0] || labMapCellRoomId(door.cell, map), {
@@ -55954,6 +56493,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (scientistIsDead()) {
       return "The scientist is dead.";
+    }
+    const custodyStatus = scientistRaidCustodyStatus();
+    if (["surrendered", "restraining", "restrained", "extracting"].includes(custodyStatus)) {
+      return "The scientist is under active physical arrest and cannot perform ordinary work.";
+    }
+    if (custodyStatus === "booked" && task.type !== "detentionSecurityStudy"
+      && !(task.type === "scientistMove" && [MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(task.data?.toRoomId))) {
+      return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
     if (actorIsIncapacitated("scientist") && task.type !== "rest" && !(task.type === "injuryTreatment" && task.data?.targetActorId === "scientist")) {
       return "The scientist is incapacitated and must be stabilized before resuming work.";
@@ -56464,6 +57011,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const found = siteVisitActorById(id);
       return found?.actor.present ? { kind, id: found.actor.id } : null;
     }
+    if (kind === "raidOfficer") {
+      const id = String(candidate.id || "");
+      const found = raidActorById(id);
+      return found?.actor.present ? { kind, id: found.actor.id } : null;
+    }
     if (kind === "tile") {
       const map = ensureLabMap();
       const cell = cleanMapCell(candidate.tile || candidate.cell || candidate);
@@ -56550,7 +57102,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "stockpile") {
       return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
     }
-    if (["visitor", "container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+    if (["visitor", "raidOfficer", "container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
     return null;
@@ -56651,6 +57203,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const found = siteVisitActorById(selection.id);
       return found?.actor.label || found?.visit.visitorLabel || "Visitor";
     }
+    if (selection.kind === "raidOfficer") return raidActorById(selection.id)?.actor.name || "Raid Officer";
     if (selection.kind === "tile") {
       return `Tile ${selection.tile.x},${selection.tile.y}, Z ${selection.tile.z}`;
     }
@@ -56705,6 +57258,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const labels = {
       scientist: "Scientist",
       visitor: "Site Visitor",
+      raidOfficer: "Law-Enforcement Officer",
       tile: "Map Tile",
       room: "Room",
       door: "Door",
@@ -56733,6 +57287,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "visitor") {
       return siteVisitActorById(selection.id)?.actor.roomId || "";
     }
+    if (selection.kind === "raidOfficer") return raidActorById(selection.id)?.actor.roomId || "";
     if (selection.kind === "tile") {
       return selection.roomId || labMapCellRoomId(selection.tile);
     }
@@ -56786,6 +57341,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "visitor") {
       return cleanMapCell(siteVisitActorById(selection.id)?.actor.mapCell);
     }
+    if (selection.kind === "raidOfficer") return cleanMapCell(raidActorById(selection.id)?.actor.mapCell);
     if (selection.kind === "tile") {
       return selection.tile;
     }
@@ -59692,6 +60248,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionSummaryRows(selection) {
+    if (selection.kind === "raidOfficer") {
+      const found = raidActorById(selection.id);
+      if (!found) return [];
+      return [
+        ["Officer", found.actor.name], ["Role", titleCase(found.actor.role)], ["Raid", `${found.raid.docket} · ${titleCase(found.raid.status)}`],
+        ["Room", roomName(found.actor.roomId)], ["Health", `${formatNumber(found.actor.health)} / 100`],
+        ["Equipment", found.actor.equipment.map((entry) => titleCase(entry.label || entry.id)).join(", ")],
+        ["Force posture", titleCase(found.raid.force.posture)], ["Last-known target", found.raid.communication.lastKnownCell ? `${found.raid.communication.lastKnownCell.x},${found.raid.communication.lastKnownCell.y}, Z ${found.raid.communication.lastKnownCell.z}` : "None"]
+      ];
+    }
     if (selection.kind === "visitor") {
       const found = siteVisitActorById(selection.id);
       const visit = found?.visit;
@@ -60235,6 +60801,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionHistoryRows(selection) {
+    if (selection.kind === "raidOfficer") {
+      const raid = raidActorById(selection.id)?.raid;
+      return raid ? raid.history.slice(-10).reverse().map((entry) => [formatClock(entry.at), entry.summary]) : [];
+    }
     if (selection.kind === "visitor") {
       const visit = siteVisitActorById(selection.id)?.visit;
       const warrantExecution = warrantExecutionForVisit(visit);
@@ -65197,15 +65767,76 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderSiteVisits() {
     if (!dom.visitsList || !dom.visitsSummary) return;
     const visits = [...ensureSiteVisits().visits].sort((left, right) => left.arrivalAt - right.arrivalAt);
+    const raids = [...ensureLawEnforcementRaids().raids].sort((left, right) => left.arrivalAt - right.arrivalAt);
     const active = visits.filter((visit) => !["scheduled", "completed"].includes(visit.phase));
     const upcoming = visits.filter((visit) => visit.phase === "scheduled" && visit.noticeAt <= state.clock);
     const completed = visits.filter((visit) => visit.phase === "completed").reverse();
-    dom.visitsSummary.textContent = `${upcoming.length} upcoming · ${active.length} active · ${completed.length} completed`;
+    const activeRaids = raids.filter((raid) => !["scheduled", "booked", "escaped", "completed"].includes(raid.status));
+    const scheduledRaids = raids.filter((raid) => raid.status === "scheduled");
+    const detainedRaids = raids.filter((raid) => raid.status === "booked");
+    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
-    if (!visits.length) {
+    if (!visits.length && !raids.length) {
       dom.visitsList.append(emptyText("No lawful visits are scheduled for this site."));
       return;
     }
+    const appendRaidSection = (label, entries) => {
+      const section = document.createElement("section");
+      section.className = "subpanel raid-section"; section.dataset.raidSection = label.toLowerCase();
+      section.append(textEl("div", `${label} (${entries.length})`, "subpanel-title"));
+      if (!entries.length) section.append(emptyText(`No ${label.toLowerCase()} raids.`));
+      for (const raid of entries) {
+        const row = document.createElement("article"); row.className = "journal-row visit-row raid-row"; row.dataset.raidId = raid.id;
+        const heading = document.createElement("div"); heading.className = "policy-heading";
+        heading.append(textEl("strong", raid.docket), chip("Search and arrest"), chip(titleCase(raid.status))); row.append(heading);
+        row.append(
+          textEl("span", `Primary objective: ${raid.objectives.find((entry) => entry.priority === "primary")?.label || "Arrest the scientist"}.`, "journal-meta"),
+          textEl("span", `Named team: ${raid.actors.map((actor) => `${actor.name} (${titleCase(actor.role)})`).join("; ")}.`, "journal-meta"),
+          textEl("span", `Authorized known premises: ${raid.authorizedRoomIds.map(roomName).join(", ")}. Hidden spaces remain unknown until physically perceived.`, "journal-meta"),
+          textEl("span", `Communication: ${titleCase(raid.communication.state)}${raid.communication.lastKnownCell ? ` · last-known target ${raid.communication.lastKnownCell.x},${raid.communication.lastKnownCell.y}, Z ${raid.communication.lastKnownCell.z} at ${formatClock(raid.communication.lastSightedAt)}` : " · no confirmed target position"}.`, "journal-meta"),
+          textEl("span", `Custody: ${titleCase(raid.custody.status)} · restraint ${formatNumber(raid.custody.restraintProgress)}%. Force posture: ${titleCase(raid.force.posture)}${raid.force.reason ? ` · ${raid.force.reason}` : ""}.`, "journal-meta")
+        );
+        if (raid.status === "scheduled") row.append(textEl("span", `Arrival window ${formatClock(raid.arrivalAt)}–${formatClock(raid.arrivalWindowEnd)} via ${raidEntryPoint(raid)?.label || raid.entryPointId}.`, "journal-meta"));
+        for (const barrier of raid.barriers) row.append(textEl("span", `${barrier.label}: ${titleCase(barrier.status)} · ${formatNumber(barrier.damageApplied)} persistent condition damage.`, "journal-meta"));
+        if (raid.actors.some((actor) => actor.present)) {
+          const lead = raidLeadActor(raid);
+          const locate = document.createElement("button"); locate.type = "button"; locate.textContent = "Locate Raid Team";
+          locate.addEventListener("click", () => focusMapTarget({ kind: "raidOfficer", id: lead.id }, { source: "visits", resetInspectorTab: true })); row.append(locate);
+          if (raid.custody.status === "free") {
+            const surrender = document.createElement("button"); surrender.type = "button"; surrender.textContent = "Surrender";
+            surrender.disabled = !raid.actors.some(raidScientistVisibleTo); surrender.title = surrender.disabled ? "An officer must physically see the scientist surrender." : "Surrender does not end the run; restraint and extraction remain physical.";
+            surrender.addEventListener("click", () => surrenderToRaid(raid.id)); row.append(surrender);
+          } else if (raid.custody.status === "surrendered") {
+            const revoke = document.createElement("button"); revoke.type = "button"; revoke.textContent = "Revoke Surrender"; revoke.className = "danger-button";
+            revoke.addEventListener("click", () => revokeRaidSurrender(raid.id)); row.append(revoke);
+          }
+          if (!["restrained", "extracting"].includes(raid.custody.status)) {
+            const resist = document.createElement("button"); resist.type = "button"; resist.textContent = "Attack Raid Officer"; resist.className = "danger-button";
+            resist.title = "Requires adjacency and creates permanent violent-resistance evidence. An immediate serious threat authorizes lethal force.";
+            resist.addEventListener("click", () => resistLawEnforcementRaid(raid.id)); row.append(resist);
+          }
+          if ([CONCEALED_EXIT_ROOM_ID, SURFACE_RECEPTION_ROOM_ID, SURFACE_LOADING_ROOM_ID].includes(scientistRoomId())) {
+            const escapeSite = document.createElement("button"); escapeSite.type = "button"; escapeSite.textContent = "Escape Site";
+            escapeSite.disabled = raid.actors.some(raidScientistVisibleTo) || !["free", "surrendered"].includes(raid.custody.status);
+            escapeSite.title = "The scientist must be at a site exit and outside every officer's physical perception.";
+            escapeSite.addEventListener("click", () => escapeActiveRaidSite(raid.id)); row.append(escapeSite);
+          }
+        }
+        if (raid.status === "booked" && raid.detention) {
+          row.append(textEl("span", `${raid.detention.facilityLabel}: pretrial detention since ${formatClock(raid.detention.bookingAt)}. The laboratory continues under existing policies. Security understanding ${formatNumber(raid.detention.securityStudyProgress)}%; alert ${formatNumber(raid.detention.alert)}%.`, "journal-meta"));
+          const study = document.createElement("button"); study.type = "button"; study.textContent = "Study Cell Security";
+          study.disabled = state.tasks.some((task) => task.type === "detentionSecurityStudy") || raid.detention.securityStudyProgress >= 100;
+          study.addEventListener("click", () => queueDetentionSecurityStudy(raid.id)); row.append(study);
+          const escape = document.createElement("button"); escape.type = "button"; escape.textContent = "Exploit Escape Route"; escape.className = "danger-button";
+          escape.disabled = raid.detention.securityStudyProgress < 100; escape.title = escape.disabled ? "Study security to 100% before attempting escape." : "Escape creates permanent fugitive evidence and returns the scientist through the concealed site route.";
+          escape.addEventListener("click", () => escapeMunicipalHolding(raid.id)); row.append(escape);
+        }
+        if (raid.outcome) row.append(textEl("span", `Outcome: ${raid.outcome.summary}`, "journal-meta"));
+        row.append(textEl("span", `${raid.clearedRoomIds.length} room(s) physically cleared · ${raid.barriers.length} barrier record(s) · ${raid.history.length} immutable history event(s).`, "journal-meta"));
+        section.append(row);
+      }
+      dom.visitsList.append(section);
+    };
     const appendSection = (label, entries) => {
       const section = document.createElement("section");
       section.className = "subpanel";
@@ -65314,6 +65945,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       dom.visitsList.append(section);
     };
+    appendRaidSection("Active Raids", activeRaids);
+    appendRaidSection("Scheduled Raids", scheduledRaids);
+    appendRaidSection("Pretrial Custody", detainedRaids);
+    appendRaidSection("Resolved Raids", raids.filter((raid) => ["escaped", "completed"].includes(raid.status)).reverse());
     appendSection("Active", active);
     appendSection("Upcoming", upcoming);
     appendSection("Completed", completed);
@@ -73165,6 +73800,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.institutionalResponses = InstitutionalResponses.normalizeState(candidate?.institutionalResponses);
     next.warrantExecutions = WarrantExecutions.normalizeState(candidate?.warrantExecutions);
     next.siteVisits = SiteVisits.normalizeState(candidate?.siteVisits);
+    next.lawEnforcementRaids = LawEnforcementRaids.normalizeState(candidate?.lawEnforcementRaids);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
     }
@@ -73176,7 +73812,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.slimeNotes ||= {};
     next.corpses ||= [];
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
-    next.scientist = normalizeScientist(next.scientist);
+    next.scientist = normalizeScientist(next.scientist, next.rooms);
     next.runEnded = Boolean(next.runEnded) || next.scientist.vitals.health.current <= 0;
     if (next.runEnded) {
       next.paused = true;
@@ -73749,10 +74385,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)) * encumbrance.speedMultiplier);
   }
 
-  function normalizeScientist(candidate) {
+  function normalizeScientist(candidate, roomsOverride = null) {
     const fallback = defaultScientist();
+    const validRooms = Array.isArray(roomsOverride) ? roomsOverride : state?.rooms;
     const scientist = {
-      roomId: state?.rooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
+      roomId: validRooms?.some?.((room) => room.id === candidate?.roomId) ? candidate.roomId : (candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       mapCell: cleanMapCell(candidate?.mapCell) || fallback.mapCell || scientistDefaultMapCell(candidate?.roomId || fallback.roomId || MAIN_ROOM_ID),
       inventory: normalizeActorInventory(candidate?.inventory, "scientist"),
       carriedLight: normalizeScientistCarriedLight(candidate?.carriedLight),
@@ -73762,7 +74399,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       skills: { ...fallback.skills, ...(candidate?.skills || {}) },
       sensory: normalizeSensoryState(candidate?.sensory, "scientist")
     };
-    if (!state?.rooms?.some?.((room) => room.id === scientist.roomId)) {
+    if (!validRooms?.some?.((room) => room.id === scientist.roomId)) {
       scientist.roomId = MAIN_ROOM_ID;
     }
     for (const key of ["health", "stamina", "mana"]) {
