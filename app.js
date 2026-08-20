@@ -1675,6 +1675,15 @@
       magicSuppression: true,
       notes: ["jail-issued restraint", "completely suppresses deliberate magic", "cannot be voluntarily removed while custody control remains active"]
     },
+    courtMagicSuppressor: {
+      max: 100,
+      material: "court-sealed nullstone and silver composite",
+      materialComposition: { primary: "silver", reinforcement: "nullstone" },
+      equipment: { slots: ["neck"], coverage: ["neck"], protection: { arcane: 1 } },
+      custodyControlled: true,
+      magicSuppression: true,
+      notes: ["court-ordered release condition", "separate from jail property", "cannot be voluntarily removed while the order remains active"]
+    },
     thickGloves: {
       max: 10,
       material: "rubberized protective gloves",
@@ -3571,6 +3580,13 @@
       description: "A jail-issued warded restraint worn around the neck. While locked and intact, it completely prevents the scientist from deliberately using magic."
     },
     {
+      key: "courtMagicSuppressor",
+      label: "Court-ordered magic suppressor",
+      category: "tools",
+      initial: 0,
+      description: "A separately justified court restraint imposed as a release condition when strong animancy evidence supports it."
+    },
+    {
       key: "thickGloves",
       label: "Thick gloves",
       category: "tools",
@@ -4299,6 +4315,10 @@
   if (!JailCustody) {
     throw new Error("HelixJailCustody must load before app.js");
   }
+  const PretrialProceedings = window.HelixPretrialProceedings;
+  if (!PretrialProceedings) {
+    throw new Error("HelixPretrialProceedings must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4698,6 +4718,8 @@
     "injuryTreatment",
     "detentionSecurityStudy",
     "jailCommunication",
+    "pretrialHearing",
+    "pretrialReleaseTransport",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -4961,6 +4983,7 @@
       siteVisits: SiteVisits.defaultState(),
       lawEnforcementRaids: LawEnforcementRaids.defaultState(),
       jailCustody: JailCustody.defaultState(),
+      pretrialProceedings: PretrialProceedings.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -6439,11 +6462,58 @@
     return ensureJailCustody().stays.find((stay) => stay.status === "active") || null;
   }
 
+  function ensurePretrialProceedings(target = state) {
+    if (target.pretrialProceedings?.version === PretrialProceedings.VERSION
+      && Array.isArray(target.pretrialProceedings.proceedings)) return target.pretrialProceedings;
+    target.pretrialProceedings = PretrialProceedings.normalizeState(target.pretrialProceedings);
+    return target.pretrialProceedings;
+  }
+
+  function currentPretrialProceeding() {
+    return ensurePretrialProceedings().proceedings.find((entry) => entry.status !== "resolved") || null;
+  }
+
   function scientistMagicSuppressionReason() {
     const stay = currentJailStay();
-    return stay?.suppressor?.suppressionActive
-      ? `${stay.suppressor.label} completely suppresses the scientist's magic.`
-      : "";
+    if (stay?.suppressor?.suppressionActive) return `${stay.suppressor.label} completely suppresses the scientist's magic.`;
+    const condition = currentPretrialProceeding()?.release.conditions.find((entry) => entry.kind === "courtMagicSuppression" && entry.status === "active" && entry.physicallyEnforced);
+    return condition?.toolInstanceId ? `${condition.label}; the separate physical court suppressor completely suppresses the scientist's magic.` : "";
+  }
+
+  function pretrialSupportForRaid(raid) {
+    const authorityCase = ensureInvestigations().cases.find((entry) => entry.id === raid?.caseId);
+    const evidenceById = new Map(ensureInvestigativeEvidence().records.map((record) => [record.id, record]));
+    const authoritySupport = (authorityCase?.authorityEvidence || []).map((link) => {
+      const record = evidenceById.get(link.evidenceId);
+      return {
+        id: link.id, kind: "authorityEvidence", sourceId: link.evidenceId,
+        label: link.summary || record?.label || "Linked authority evidence",
+        reliability: link.reliability, significanceRank: link.significanceRank,
+        traits: [...(record?.traits || []), record?.category, record?.type, authorityCase?.theoryId].filter(Boolean)
+      };
+    });
+    const raidSupport = (raid?.seizures || []).map((seizure) => ({
+      id: seizure.id, kind: "raidSeizure", sourceId: seizure.sourceSubjectId || seizure.subjectId,
+      label: seizure.label, reliability: "strong", significanceRank: 3,
+      traits: ["seized evidence", seizure.label, seizure.subjectKind]
+    }));
+    return { authorityCase, authoritySupport: [...authoritySupport, ...raidSupport], raidSupport };
+  }
+
+  function openPretrialProceedingForRaid(raid) {
+    if (!raid) return null;
+    const support = pretrialSupportForRaid(raid);
+    const result = PretrialProceedings.open(ensurePretrialProceedings(), {
+      seed: state.seed, clock: state.clock, raidId: raid.id, authorityCaseId: raid.caseId,
+      warrantExecutionId: raid.warrantExecutionId, docket: `CR-${String(raid.docket || raid.id).replace(/^[^-]*-/, "")}`,
+      authoritySupport: support.authoritySupport, raidSupport: support.raidSupport,
+      violentResistance: raid.force?.posture === "lethal" || Boolean(raid.force?.triggeredAt),
+      voluntarySurrender: raid.custody?.surrenderedAt != null,
+      warrantLabel: raid.docket
+    });
+    state.pretrialProceedings = result.state;
+    if (result.created) addEvent(`${result.proceeding.docket}: the criminal court opened an evidence-linked charging record before ${result.proceeding.court.judge.name}; ${result.proceeding.court.prosecutor.name} was assigned to prosecute.`, { sourceKind: "pretrialProceeding", sourceId: result.proceeding.id });
+    return result.proceeding;
   }
 
   function jailLabSnapshot() {
@@ -8242,6 +8312,7 @@
     });
     state.jailCustody = booked.state;
     if (booked.created) applyJailSuppressor(booked.stay);
+    openPretrialProceedingForRaid(raid);
     const ui = ensureUiState();
     ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: MUNICIPAL_HOLDING_Z }, map, ui.mapZoomIndex);
     setSelection({ kind: "scientist", id: "scientist" }, { source: "custody", centerMap: true });
@@ -8281,6 +8352,147 @@
       stack.cell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z }; stack.updatedAt = state.clock;
     }
     syncActorInventories();
+    return true;
+  }
+
+  function removePhysicalJailSuppressor(stay) {
+    if (!stay?.suppressor) return false;
+    const found = toolInstanceById(stay.suppressor.toolInstanceId);
+    if (found) {
+      unequipActorToolInstance("scientist", found.instance.id);
+      found.instance.carriedBy = "";
+      found.instance.roomId = MUNICIPAL_HOLDING_PROCESSING_ROOM_ID;
+    }
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stay.suppressor.physicalStackId);
+    if (stack) {
+      stack.carriedBy = ""; stack.roomId = MUNICIPAL_HOLDING_PROCESSING_ROOM_ID;
+      stack.cell = labMapRoomAnchor(MUNICIPAL_HOLDING_PROCESSING_ROOM_ID); stack.updatedAt = state.clock;
+    }
+    syncActorInventories();
+    return true;
+  }
+
+  function activeCourtSuppressorCondition(instanceId = "") {
+    return ensurePretrialProceedings().proceedings.flatMap((proceeding) => proceeding.release.conditions)
+      .find((condition) => condition.kind === "courtMagicSuppression" && condition.status === "active"
+        && (!instanceId || condition.toolInstanceId === instanceId)) || null;
+  }
+
+  function applyCourtSuppressor(proceeding) {
+    const condition = proceeding?.release.conditions.find((entry) => entry.kind === "courtMagicSuppression" && entry.status === "active");
+    if (!condition || condition.toolInstanceId) return false;
+    const inventory = ensureInventory();
+    inventory.courtMagicSuppressor = Math.max(0, Number(inventory.courtMagicSuppressor) || 0) + 1;
+    const instances = ensureToolDurability().courtMagicSuppressor;
+    const instance = instances[instances.length - 1];
+    instance.roomId = SURFACE_RECEPTION_ROOM_ID; instance.carriedBy = "scientist";
+    const stack = createPhysicalItemStack("inventory", "courtMagicSuppressor", 1, {
+      roomId: SURFACE_RECEPTION_ROOM_ID, cell: scientistMapCell(), fixtureId: "", stockpileId: ""
+    }, { carriedBy: "scientist", toolInstanceId: instance.id, dimensionsM: { width: 0.2, length: 0.2, height: 0.07 } });
+    condition.toolInstanceId = instance.id; condition.physicalStackId = stack?.id || "";
+    equipActorToolInstance("scientist", instance.id); syncActorInventories(); return true;
+  }
+
+  function selectPretrialCounsel(proceedingId, optionId) {
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === proceedingId);
+    const option = proceeding?.counsel.options.find((entry) => entry.id === optionId);
+    if (!proceeding || !option || proceeding.status === "chargingPending") return false;
+    const economy = ensureEconomy();
+    if (option.cost > economy.money) return false;
+    let result = PretrialProceedings.selectCounsel(ensurePretrialProceedings(), proceedingId, optionId, state.clock);
+    if (!result.changed) return false;
+    state.pretrialProceedings = result.state;
+    if (option.cost > 0) {
+      economy.money -= option.cost;
+      recordLegalLedger("counselRetainer", `${option.name} retained for ${result.proceeding.docket}.`, { amount: -option.cost, roomId: MUNICIPAL_HOLDING_LEGAL_ROOM_ID });
+      result = PretrialProceedings.markCounselPaid(ensurePretrialProceedings(), proceedingId, state.clock);
+      state.pretrialProceedings = result.state;
+    }
+    addEvent(option.kind === "self" ? "The scientist chose self-representation with standby counsel." : `${option.name} entered the case; a privileged conference in the Legal Consultation Room is required before appearance.`, { sourceKind: "pretrialProceeding", sourceId: proceedingId });
+    persist(); render(); return true;
+  }
+
+  function beginPretrialHearing(proceedingId, submissionId) {
+    if (!currentJailStay() || state.tasks.some((task) => ["pretrialHearing", "jailCommunication"].includes(task.type))) return false;
+    const result = PretrialProceedings.beginHearing(ensurePretrialProceedings(), proceedingId, submissionId, state.clock);
+    state.pretrialProceedings = result.state;
+    if (!result.changed) return false;
+    const stay = currentJailStay();
+    const targetCell = labMapRoomAnchor(MUNICIPAL_HOLDING_LEGAL_ROOM_ID);
+    const officer = stay.actors.find((actor) => actor.present) || stay.actors[0];
+    for (const doorId of ["door-municipal-holding-cell", "door-municipal-holding-legal"]) {
+      const door = state.doors[doorId]; if (door) { door.lockState = DOOR_LOCK_UNLOCKED; door.state = DOOR_STATE_OPEN; }
+    }
+    state.scientist.roomId = MUNICIPAL_HOLDING_LEGAL_ROOM_ID; state.scientist.mapCell = cleanMapCell(targetCell);
+    if (officer) { officer.roomId = MUNICIPAL_HOLDING_LEGAL_ROOM_ID; officer.mapCell = { ...targetCell, y: targetCell.y + 1 }; }
+    state.tasks.push({
+      id: `task-${state.nextTaskNumber++}`, type: "pretrialHearing", label: `${result.proceeding.docket} first appearance`,
+      createdAt: state.clock, dueAt: state.clock + minutesToSeconds(45),
+      data: { proceedingId, submissionId, stayId: stay.id, officerId: officer?.id || "", roomId: MUNICIPAL_HOLDING_LEGAL_ROOM_ID, toCell: targetCell }
+    });
+    addEvent(`${officer?.name || "A custody officer"} escorted the scientist to the Legal Consultation Room for a secure holographic appearance before ${result.proceeding.court.judge.name}.`, { sourceKind: "pretrialProceeding", sourceId: proceedingId });
+    persist(); render(); return true;
+  }
+
+  function queuePretrialReleaseTransport(proceeding) {
+    if (!proceeding || state.tasks.some((task) => task.type === "pretrialReleaseTransport")) return false;
+    const targetCell = labMapRoomAnchor(MUNICIPAL_HOLDING_PROCESSING_ROOM_ID);
+    state.scientist.roomId = MUNICIPAL_HOLDING_PROCESSING_ROOM_ID; state.scientist.mapCell = cleanMapCell(targetCell);
+    state.tasks.push({
+      id: `task-${state.nextTaskNumber++}`, type: "pretrialReleaseTransport", label: `${proceeding.docket} release transfer`,
+      createdAt: state.clock, dueAt: state.clock + minutesToSeconds(15),
+      data: { proceedingId: proceeding.id, raidId: proceeding.raidId, stayId: currentJailStay()?.id || "", roomId: MUNICIPAL_HOLDING_PROCESSING_ROOM_ID, toCell: targetCell }
+    });
+    addEvent("Jail staff moved the scientist to Booking and Vehicle Transfer for the recorded armored release trip.", { sourceKind: "pretrialProceeding", sourceId: proceeding.id });
+    return true;
+  }
+
+  function finishPretrialHearing(task) {
+    const result = PretrialProceedings.resolveHearing(ensurePretrialProceedings(), task.data?.proceedingId, state.clock);
+    state.pretrialProceedings = result.state;
+    if (!result.changed) return false;
+    const stay = currentJailStay();
+    if (["recognizance", "conditionalRelease"].includes(result.decision)) queuePretrialReleaseTransport(result.proceeding);
+    else {
+      state.scientist.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID; state.scientist.mapCell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z };
+      const officer = stay?.actors.find((actor) => actor.id === task.data?.officerId);
+      if (officer) { officer.roomId = MUNICIPAL_HOLDING_GUARD_ROOM_ID; officer.mapCell = { x: 22, y: 7, z: MUNICIPAL_HOLDING_Z }; }
+    }
+    for (const doorId of ["door-municipal-holding-cell", "door-municipal-holding-legal"]) {
+      const door = state.doors[doorId]; if (door) { door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; }
+    }
+    addEvent(`${result.proceeding.court.judge.name} ordered ${titleCase(result.decision)}. ${result.proceeding.firstAppearance.reasons.join(" ")}`, { sourceKind: "pretrialProceeding", sourceId: result.proceeding.id });
+    return true;
+  }
+
+  function payPretrialBail(proceedingId) {
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === proceedingId);
+    const amount = proceeding?.release.bailAmount || 0;
+    const economy = ensureEconomy();
+    if (!proceeding || amount <= 0 || economy.money < amount) return false;
+    const result = PretrialProceedings.payBail(ensurePretrialProceedings(), proceedingId, state.clock);
+    if (!result.changed) return false;
+    economy.money -= amount;
+    recordLegalLedger("bailEscrow", `${amount} posted to refundable bail escrow for ${proceeding.docket}.`, { amount: -amount, roomId: MUNICIPAL_HOLDING_LEGAL_ROOM_ID });
+    state.pretrialProceedings = result.state; queuePretrialReleaseTransport(result.proceeding);
+    persist(); render(); return true;
+  }
+
+  function finishPretrialReleaseTransport(task) {
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === task.data?.proceedingId);
+    const stay = currentJailStay();
+    if (!proceeding || !stay || proceeding.release.status !== "released") return false;
+    const jailResult = JailCustody.release(ensureJailCustody(), stay.id, state.clock, "Court-authorized pretrial release completed through the saved vehicle transfer.");
+    state.jailCustody = jailResult.state; removePhysicalJailSuppressor(jailResult.stay);
+    const raidResult = LawEnforcementRaids.releaseDetention(ensureLawEnforcementRaids(), proceeding.raidId, state.clock);
+    state.lawEnforcementRaids = raidResult.state;
+    state.scientist.roomId = SURFACE_RECEPTION_ROOM_ID;
+    state.scientist.mapCell = nearestOpenMapCellInRoom(SURFACE_RECEPTION_ROOM_ID, labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID), { actor: state.scientist, ignoreAccessPolicy: true });
+    const transport = { id: `${proceeding.id}-release-vehicle`, label: "Armored court release vehicle", vehicleClass: "armored release vehicle", departedAt: task.createdAt, arrivedAt: state.clock, fromRoomId: MUNICIPAL_HOLDING_PROCESSING_ROOM_ID, destinationAccessPointId: "publicEntrance", destinationRoomId: SURFACE_RECEPTION_ROOM_ID };
+    const marked = PretrialProceedings.markReleased(ensurePretrialProceedings(), proceeding.id, transport, state.clock);
+    state.pretrialProceedings = marked.state; applyCourtSuppressor(marked.proceeding);
+    ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex);
+    addEvent(`${proceeding.docket}: the armored release vehicle delivered the scientist to the company Public Entrance. The jail collar was removed${activeCourtSuppressorCondition() ? "; a separately ordered court suppressor was fitted" : ""}.`, { sourceKind: "pretrialProceeding", sourceId: proceeding.id });
     return true;
   }
 
@@ -8354,6 +8566,16 @@
       summary: `${channel.label} session completed ${channel.monitored ? "under recorded jail monitoring" : "under legal privilege"}.`
     });
     state.jailCustody = result.state;
+    if (result.changed && request.channelId === "legalCounsel") {
+      const proceeding = currentPretrialProceeding();
+      const selected = proceeding?.counsel.options.find((entry) => entry.id === proceeding.counsel.selectedOptionId);
+      if (proceeding && selected?.kind !== "self" && request.recipient === selected.name) {
+        const conference = PretrialProceedings.recordConference(ensurePretrialProceedings(), proceeding.id, {
+          clock: state.clock, channel: "legalCounsel", summary: `A privileged defense conference with ${selected.name} was completed in the Legal Consultation Room.`
+        });
+        state.pretrialProceedings = conference.state;
+      }
+    }
     state.scientist.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID; state.scientist.mapCell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z };
     const officer = result.stay?.actors.find((actor) => actor.id === task.data?.officerId);
     if (officer) { officer.roomId = MUNICIPAL_HOLDING_GUARD_ROOM_ID; officer.mapCell = { x: 22, y: 7, z: MUNICIPAL_HOLDING_Z }; }
@@ -8397,6 +8619,12 @@
     return changed;
   }
 
+  function updatePretrialProceedings() {
+    const result = PretrialProceedings.advance(ensurePretrialProceedings(), state.clock);
+    state.pretrialProceedings = result.state;
+    return result.changes;
+  }
+
   function escapeMunicipalHolding(raidId) {
     const raid = currentDetentionRaid();
     if (!raid || raid.id !== raidId || raid.detention.securityStudyProgress < 100) return false;
@@ -8406,6 +8634,11 @@
     disablePhysicalJailSuppressor(jailResult.stay);
     const result = LawEnforcementRaids.escapeDetention(ensureLawEnforcementRaids(), raid.id, state.clock);
     state.lawEnforcementRaids = result.state;
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.raidId === raid.id);
+    if (proceeding) {
+      const fugitive = PretrialProceedings.markFugitive(ensurePretrialProceedings(), proceeding.id, state.clock);
+      state.pretrialProceedings = fugitive.state;
+    }
     const door = state.doors["door-municipal-holding-cell"];
     if (door) { door.lockState = DOOR_LOCK_UNLOCKED; door.state = DOOR_STATE_OPEN; }
     state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
@@ -10507,6 +10740,15 @@
         clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), equipment: equipmentSummary("scientist"),
         scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), mana: scientistVital("mana").current }, runEnded: state.runEnded
       }),
+      pretrialProceedingsSnapshot: () => clonePlainObject({
+        ...ensurePretrialProceedings(), activeProceeding: currentPretrialProceeding(),
+        nextEvent: PretrialProceedings.nextEvent(ensurePretrialProceedings(), state.clock), clock: state.clock,
+        money: ensureEconomy().money, magicSuppressionReason: scientistMagicSuppressionReason(),
+        scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }
+      }),
+      selectPretrialCounsel: (proceedingId, optionId) => selectPretrialCounsel(proceedingId, optionId),
+      beginPretrialHearing: (proceedingId, submissionId) => beginPretrialHearing(proceedingId, submissionId),
+      payPretrialBail: (proceedingId) => payPretrialBail(proceedingId),
       requestJailCommunication: (channelId, recipient = "") => clonePlainObject(requestJailCommunication(channelId, recipient)),
       beginJailCommunication: (requestId) => beginJailCommunication(requestId),
       queueJailObservation: (raidId, observationId) => {
@@ -14797,7 +15039,9 @@
     const visitEvent = visit ? { time: visit.arrivalAt, label: `${visit.visitorLabel} arrival window`, type: "visit" } : null;
     const raid = LawEnforcementRaids.nextEvent(ensureLawEnforcementRaids(), state.clock);
     const raidEvent = raid ? { time: raid.arrivalAt, label: `${raid.docket} raid team arrival`, type: "raid" } : null;
-    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    const pretrial = PretrialProceedings.nextEvent(ensurePretrialProceedings(), state.clock);
+    const pretrialEvent = pretrial ? { time: pretrial.at, label: pretrial.label, type: "pretrial" } : null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -14953,6 +15197,7 @@
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.raidChanged += updateJailCustody(elapsed);
+      changes.raidChanged += updatePretrialProceedings();
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
@@ -15118,6 +15363,14 @@
   }
 
   function completeTask(task) {
+    if (task.type === "pretrialHearing") {
+      finishPretrialHearing(task);
+      return;
+    }
+    if (task.type === "pretrialReleaseTransport") {
+      finishPretrialReleaseTransport(task);
+      return;
+    }
     if (task.type === "jailCommunication") {
       finishJailCommunication(task);
       return;
@@ -24453,6 +24706,7 @@
         fieldBackpack: { volumeL: 4, massKg: 1.2 },
         articulatedTentacleRig: { volumeL: 18, massKg: 18 },
         magicSuppressingCollar: { volumeL: 0.8, massKg: 1.4 },
+        courtMagicSuppressor: { volumeL: 0.7, massKg: 1.1 },
         thickGloves: { volumeL: 0.5, massKg: 0.35 }
       }[key];
       if (equipmentMetrics) return equipmentMetrics;
@@ -37888,6 +38142,7 @@
     if (found.instance.reservedTaskId && found.instance.reservedTaskId !== taskId) return `${inventoryItemLabel(itemKey)} is reserved for other work.`;
     if (action === "unequip") {
       if (TOOL_DURABILITY_DEFS[itemKey]?.custodyControlled && currentJailStay()?.suppressor?.suppressionActive) return "Jail staff control the locked suppressor collar; the scientist cannot voluntarily remove it.";
+      if (TOOL_DURABILITY_DEFS[itemKey]?.custodyControlled && activeCourtSuppressorCondition(instanceId)) return "The active court order controls this physical suppressor; the scientist cannot voluntarily remove it.";
       return equippedEquipmentEntries("scientist").some((entry) => entry.instance.id === instanceId) ? "" : "That item is no longer equipped.";
     }
     const stack = equipmentSourceStack(itemKey, instanceId, taskId);
@@ -56785,7 +57040,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (["surrendered", "restraining", "restrained", "extracting"].includes(custodyStatus)) {
       return "The scientist is under active physical arrest and cannot perform ordinary work.";
     }
-    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "rest"].includes(task.type)
+    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "pretrialHearing", "pretrialReleaseTransport", "rest"].includes(task.type)
       && !(task.type === "scientistMove" && [MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(task.data?.toRoomId))) {
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
@@ -57057,6 +57312,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (!isScientistQueueTask(task)) {
       return "Only scientist queue tasks can be canceled here.";
+    }
+    if (["pretrialHearing", "pretrialReleaseTransport"].includes(task.type)) {
+      return "A court appearance or court-ordered custody transfer cannot be canceled from the ordinary work queue.";
     }
     return "";
   }
@@ -65732,6 +65990,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskCategory(task) {
+    if (["pretrialHearing", "pretrialReleaseTransport"].includes(task.type)) {
+      return "Criminal Court";
+    }
     if (task.type === "physicalDiagnostic") {
       return "Diagnostic";
     }
@@ -66067,6 +66328,65 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return section;
   }
 
+  function renderPretrialProceedingsSection() {
+    const proceedings = [...ensurePretrialProceedings().proceedings].sort((left, right) => right.openedAt - left.openedAt);
+    const section = document.createElement("section");
+    section.className = "subpanel pretrial-section"; section.dataset.pretrialProceedings = "true";
+    section.append(textEl("div", `Criminal Court (${proceedings.length})`, "subpanel-title"));
+    section.append(textEl("p", "Filed charges expose stated probable cause, not undisclosed supporting evidence. Decisions and money movements are saved as causal records.", "journal-meta"));
+    if (!proceedings.length) { section.append(emptyText("No criminal proceeding has been opened.")); return section; }
+    for (const proceeding of proceedings) {
+      const row = document.createElement("article"); row.className = "journal-row pretrial-row"; row.dataset.pretrialProceeding = proceeding.id;
+      const heading = document.createElement("div"); heading.className = "policy-heading";
+      heading.append(textEl("strong", proceeding.docket), chip(titleCase(proceeding.status)), chip(proceeding.court.label)); row.append(heading);
+      row.append(
+        textEl("span", `Judge ${proceeding.court.judge.name} · Prosecutor ${proceeding.court.prosecutor.name}.`, "journal-meta"),
+        textEl("span", `Charging ${formatClock(proceeding.timeline.chargingAt)} · counsel deadline ${formatClock(proceeding.timeline.counselDeadline)} · first appearance ${formatClock(proceeding.timeline.firstAppearanceAt)}.`, "journal-meta")
+      );
+      for (const charge of proceeding.charges.filter((entry) => entry.status !== "proposed" || state.clock >= proceeding.timeline.chargingAt)) {
+        row.append(textEl("span", `${charge.label} · ${titleCase(charge.status)} · ${charge.maximumExposure}. Probable cause: ${charge.publicProbableCause}`, "journal-meta"));
+      }
+      const selected = proceeding.counsel.options.find((entry) => entry.id === proceeding.counsel.selectedOptionId);
+      if (!selected && proceeding.status !== "chargingPending") {
+        for (const option of proceeding.counsel.options) {
+          const choose = document.createElement("button"); choose.type = "button";
+          choose.textContent = option.kind === "retained" ? `Retain ${option.name} (${formatMoney(option.cost)})` : option.kind === "public" ? `Appoint ${option.name}` : "Represent Yourself";
+          choose.disabled = !option.available || option.cost > ensureEconomy().money;
+          choose.title = `${option.description} Skill ${formatNumber(option.proceduralSkill)}, workload ${formatNumber(option.workload)}, specialties ${option.specialties.map(titleCase).join(", ") || "none"}.`;
+          choose.addEventListener("click", () => selectPretrialCounsel(proceeding.id, option.id)); row.append(choose);
+        }
+      } else if (selected) {
+        const conference = proceeding.counsel.conferences.find((entry) => entry.counselOptionId === selected.id);
+        row.append(textEl("span", `Defense: ${selected.name} (${titleCase(selected.kind)}) · skill ${formatNumber(selected.proceduralSkill)} · workload ${formatNumber(selected.workload)} · loyalty ${formatNumber(selected.loyalty)}${conference ? ` · privileged conference completed ${formatClock(conference.at)}` : selected.kind === "self" ? " · standby counsel available" : " · privileged conference required"}.`, "journal-meta"));
+      }
+      if (proceeding.firstAppearance.status === "ready") {
+        const reason = PretrialProceedings.hearingRequirements(proceeding);
+        for (const submission of PretrialProceedings.SUBMISSIONS) {
+          const appear = document.createElement("button"); appear.type = "button"; appear.textContent = submission.label;
+          appear.disabled = Boolean(reason) || state.tasks.some((task) => ["pretrialHearing", "jailCommunication"].includes(task.type));
+          appear.title = reason || "Custody staff will physically escort the scientist to the secure holographic courtroom terminal.";
+          appear.addEventListener("click", () => beginPretrialHearing(proceeding.id, submission.id)); row.append(appear);
+        }
+      }
+      if (proceeding.firstAppearance.status === "completed") {
+        row.append(textEl("span", `Decision: ${titleCase(proceeding.firstAppearance.decision)} · risk ${formatNumber(proceeding.firstAppearance.riskScore)} · mitigation ${formatNumber(proceeding.firstAppearance.mitigationScore)}.`, "journal-meta"));
+        for (const reason of proceeding.firstAppearance.reasons) row.append(textEl("span", reason, "journal-meta"));
+      }
+      if (proceeding.release.status === "awaitingBail") {
+        const pay = document.createElement("button"); pay.type = "button"; pay.textContent = `Post ${formatMoney(proceeding.release.bailAmount)} Bail Escrow`;
+        pay.disabled = ensureEconomy().money < proceeding.release.bailAmount;
+        pay.title = pay.disabled ? "Shared lawful funds are insufficient." : "This remains refundable escrow, not a fine.";
+        pay.addEventListener("click", () => payPretrialBail(proceeding.id)); row.append(pay);
+      }
+      for (const condition of proceeding.release.conditions) row.append(textEl("span", `Release condition: ${condition.label}${condition.physicallyEnforced ? " · physically enforced" : ""} · ${titleCase(condition.status)}.`, "journal-meta"));
+      if (proceeding.release.transport) row.append(textEl("span", `Release transport: ${proceeding.release.transport.label}, ${formatClock(proceeding.release.transport.departedAt)}–${formatClock(proceeding.release.transport.arrivedAt)}, to Public Entrance.`, "journal-meta"));
+      if (proceeding.fugitive.active) row.append(textEl("span", `Fugitive case active · bench warrant ${titleCase(proceeding.fugitive.benchWarrantStatus)}${proceeding.fugitive.failureToAppearAt == null ? "" : ` · missed appearance ${formatClock(proceeding.fugitive.failureToAppearAt)}`}. Death remains the only game over.`, "journal-meta"));
+      row.append(textEl("span", `${proceeding.history.length} saved court event(s). Discovery and motions remain for the next implementation.`, "journal-meta"));
+      section.append(row);
+    }
+    return section;
+  }
+
   function renderSiteVisits() {
     if (!dom.visitsList || !dom.visitsSummary) return;
     const visits = [...ensureSiteVisits().visits].sort((left, right) => left.arrivalAt - right.arrivalAt);
@@ -66077,9 +66397,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeRaids = raids.filter((raid) => !["scheduled", "booked", "escaped", "completed"].includes(raid.status));
     const scheduledRaids = raids.filter((raid) => raid.status === "scheduled");
     const detainedRaids = raids.filter((raid) => raid.status === "booked");
-    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${completed.length} completed`;
+    const openProceedings = ensurePretrialProceedings().proceedings.filter((entry) => entry.status !== "resolved").length;
+    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${openProceedings} court · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
-    if (!visits.length && !raids.length) {
+    if (!visits.length && !raids.length && !openProceedings) {
       dom.visitsList.append(emptyText("No lawful visits are scheduled for this site."));
       return;
     }
@@ -66150,7 +66471,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
               button.disabled = request?.status === "pending" || state.tasks.some((task) => task.type === "jailCommunication");
               button.className = channel.legal ? "" : "danger-button";
               button.title = channel.legal ? `${channel.monitored ? "Monitored" : "Privileged"} scheduled access.` : "Prohibited coded contact: high detection risk and increased facility alert.";
-              button.addEventListener("click", () => request?.status === "ready" ? beginJailCommunication(request.id) : requestJailCommunication(channel.id)); row.append(button);
+              const selectedCounsel = currentPretrialProceeding()?.counsel.options.find((entry) => entry.id === currentPretrialProceeding()?.counsel.selectedOptionId);
+              const recipient = channel.id === "legalCounsel" ? selectedCounsel?.name || "" : "";
+              button.addEventListener("click", () => request?.status === "ready" ? beginJailCommunication(request.id) : requestJailCommunication(channel.id, recipient)); row.append(button);
             }
             for (const report of stay.knowledge.reports.slice(-3)) {
               row.append(textEl("span", `Delayed company report received ${formatClock(report.deliveredAt)}: ${titleCase(report.operatingState)} · ${formatMoney(report.money)} · ${report.openLegalOrders} open legal order(s) · ${report.surfaceFaults} known surface fault(s) · ${report.undergroundStatus}.`, "journal-meta"));
@@ -66274,6 +66597,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       dom.visitsList.append(section);
     };
+    dom.visitsList.append(renderPretrialProceedingsSection());
     appendRaidSection("Active Raids", activeRaids);
     appendRaidSection("Scheduled Raids", scheduledRaids);
     appendRaidSection("Pretrial Custody", detainedRaids);
@@ -74138,6 +74462,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.siteVisits = SiteVisits.normalizeState(candidate?.siteVisits);
     next.lawEnforcementRaids = LawEnforcementRaids.normalizeState(candidate?.lawEnforcementRaids);
     next.jailCustody = JailCustody.normalizeState(candidate?.jailCustody);
+    next.pretrialProceedings = PretrialProceedings.normalizeState(candidate?.pretrialProceedings);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
     }

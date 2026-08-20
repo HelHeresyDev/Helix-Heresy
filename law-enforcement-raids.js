@@ -9,7 +9,7 @@
   const HOUR = 3600;
   const STATUSES = Object.freeze(["scheduled", "entering", "searching", "contact", "arresting", "extracting", "booked", "escaped", "withdrawing", "completed"]);
   const ACTOR_STATUSES = Object.freeze(["scheduled", "active", "restraining", "escorting", "injured", "incapacitated", "withdrawn"]);
-  const CUSTODY_STATUSES = Object.freeze(["free", "surrendered", "restraining", "restrained", "extracting", "booked", "escaped"]);
+  const CUSTODY_STATUSES = Object.freeze(["free", "surrendered", "restraining", "restrained", "extracting", "booked", "released", "escaped"]);
   const TEAM_ROLES = Object.freeze([
     { role: "commander", label: "Raid Commander", equipment: ["radio", "protectiveVest", "restraints"] },
     { role: "breach", label: "Breach Officer", equipment: ["radio", "protectiveVest", "pryBar"] },
@@ -329,6 +329,18 @@
     });
   }
 
+  function releaseDetention(candidate, raidId, clock = 0) {
+    return withRaid(candidate, raidId, (raid) => {
+      if (raid.status !== "booked" || raid.detention?.status !== "pretrial") return false;
+      const at = Math.max(raid.authorizedAt, finite(clock));
+      raid.status = "completed"; raid.custody.status = "released"; raid.detention.status = "released";
+      raid.communication.state = "withdrawal";
+      raid.outcome = { kind: "pretrialRelease", at, summary: "The criminal case continued after a court-authorized release from temporary jail." };
+      raid.history.push({ at, action: "pretrialRelease", summary: raid.outcome.summary });
+      return true;
+    });
+  }
+
   function escalateForce(candidate, raidId, options = {}) {
     return withRaid(candidate, raidId, (raid, state) => {
       if (raid.force.posture === "lethal") return false;
@@ -423,7 +435,7 @@
   return Object.freeze({
     VERSION, STATUSES, ACTOR_STATUSES, CUSTODY_STATUSES, TEAM_ROLES,
     defaultState, normalizeState, normalizeRaid, authorize, activate, recordSighting,
-    surrender, revokeSurrender, progressRestraint, extract, book, studySecurity, escapeDetention, escalateForce,
+    surrender, revokeSurrender, progressRestraint, extract, book, studySecurity, escapeDetention, releaseDetention, escalateForce,
     recordSeizure, externalizeSeizures, completeUnlocated, escapeSite, recordScientistDeath, nextEvent
   });
 }));
