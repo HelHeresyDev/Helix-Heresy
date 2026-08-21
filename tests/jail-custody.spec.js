@@ -57,17 +57,25 @@ test('communication is delayed, monitored by channel, and delivers only explicit
   expect(completed.stay.knowledge.reports[0]).toMatchObject({ money: 70, undergroundStatus: 'No connection' });
 });
 
-test('escape progress requires five distinct observations and disables the collar', () => {
+test('jail release to escaped status requires the completed physical plan handoff and disables the collar', () => {
   let state = Jail.book(Jail.defaultState(), { seed: 'escape', clock: 100, raidId: 'raid-1' }).state;
   const stayId = state.stays[0].id;
   const first = Jail.observeSecurity(state, stayId, Jail.OBSERVATIONS[0].id, 200);
   state = first.state;
   expect(Jail.observeSecurity(state, stayId, Jail.OBSERVATIONS[0].id, 201).changed).toBe(false);
   expect(Jail.escape(state, stayId, 202).changed).toBe(false);
-  for (const observation of Jail.OBSERVATIONS.slice(1)) state = Jail.observeSecurity(state, stayId, observation.id, 300).state;
-  const escaped = Jail.escape(state, stayId, 400);
+  const escaped = Jail.escape(state, stayId, 400, { completedPlanId: 'escape-plan-1' });
   expect(escaped.changed).toBe(true);
   expect(escaped.stay).toMatchObject({ status: 'escaped', suppressor: { status: 'disabled', suppressionActive: false, condition: 0 } });
+});
+
+test('physical recapture restricts communications and creates a fresh locked suppressor record', () => {
+  let state = Jail.book(Jail.defaultState(), { seed: 'recapture', clock: 100, raidId: 'raid-1' }).state;
+  const stayId = state.stays[0].id;
+  state = Jail.requestCommunication(state, stayId, 'codedContact', 'Sable Underhook', 200).state;
+  state = Jail.disableSuppressor(state, stayId, 300, 'Disabled during a failed escape stage.').state;
+  const secured = Jail.resecure(state, stayId, 400, { suppressorId: 'replacement-collar', alertGain: 25 });
+  expect(secured.stay).toMatchObject({ status: 'active', suppressor: { id: 'replacement-collar', status: 'locked', suppressionActive: true, condition: 100 }, communications: { requests: [expect.objectContaining({ status: 'denied' })] }, knowledge: { facilityAlert: 25 } });
 });
 
 test('@smoke jail collar is physical, saved, nonterminal, and authoritatively suppresses magic', async ({ page }) => {

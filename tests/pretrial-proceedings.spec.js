@@ -145,6 +145,16 @@ test('plea acceptance and trial setting create complete downstream handoffs', ()
   expect(scheduled.proceeding.trial.trialAt).toBeGreaterThan(scheduled.proceeding.trial.scheduledAt);
 });
 
+test('a physically interrupted escape attempt adds one evidence-linked charge without making the scientist a fugitive', () => {
+  let state = reviewedCase(); const proceedingId = state.proceedings[0].id;
+  const first = Pretrial.recordFailedEscape(state, proceedingId, { clock: 200000, attemptId: 'escape-attempt-1', label: 'Custody officer interruption record' });
+  const second = Pretrial.recordFailedEscape(first.state, proceedingId, { clock: 200001, attemptId: 'escape-attempt-1', label: 'Duplicate' });
+  expect(first.proceeding).toMatchObject({ fugitive: { active: false } });
+  expect(first.charge).toMatchObject({ typeId: 'attemptedEscape', status: 'filed', support: [expect.objectContaining({ sourceId: 'escape-attempt-1', kind: 'jailCustody' })] });
+  expect(second.changed).toBe(false);
+  expect(second.proceeding.charges.filter((charge) => charge.typeId === 'attemptedEscape')).toHaveLength(1);
+});
+
 test('@smoke booking opens court, counsel meets privately, releases physically, reviews discovery, and schedules trial', async ({ page }) => {
   test.setTimeout(180_000);
   await startRun(page);

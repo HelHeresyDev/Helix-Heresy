@@ -96,6 +96,9 @@
   const MUNICIPAL_HOLDING_EXERCISE_ROOM_ID = "municipalHoldingExerciseYard";
   const MUNICIPAL_HOLDING_PROCESSING_ROOM_ID = "municipalHoldingProcessing";
   const MUNICIPAL_HOLDING_Z = 3;
+  const FUGITIVE_ALLEY_ROOM_ID = "municipalServiceAlley";
+  const FUGITIVE_SAFE_ROOM_ID = "fugitiveSafeRoom";
+  const FUGITIVE_STAGING_Z = 4;
   const SURFACE_ROOM_IDS = [
     SURFACE_FACILITY_ROOM_ID,
     SURFACE_RECEPTION_ROOM_ID,
@@ -1666,6 +1669,13 @@
     ["null", "dream"]
   ];
   const TOOL_DURABILITY_DEFS = {
+    escapeBypassTool: {
+      max: 20,
+      material: "improvised conductive fittings and ward shunts",
+      materialComposition: { primary: "steel", reinforcement: "copper" },
+      equipment: { slots: ["mainHand", "offHand"], coverage: [], protection: {} },
+      notes: ["escape-attempt equipment", "confiscated after recapture", "not ordinary laboratory stock"]
+    },
     magicSuppressingCollar: {
       max: 100,
       material: "warded steel and nullstone composite",
@@ -3587,6 +3597,13 @@
       description: "A separately justified court restraint imposed as a release condition when strong animancy evidence supports it."
     },
     {
+      key: "escapeBypassTool",
+      label: "Escape bypass tool",
+      category: "tools",
+      initial: 0,
+      description: "A physical improvised or smuggled latch-and-ward tool tied to one saved jail escape attempt."
+    },
+    {
       key: "thickGloves",
       label: "Thick gloves",
       category: "tools",
@@ -4319,6 +4336,10 @@
   if (!PretrialProceedings) {
     throw new Error("HelixPretrialProceedings must load before app.js");
   }
+  const JailEscapeRescue = window.HelixJailEscapeRescue;
+  if (!JailEscapeRescue) {
+    throw new Error("HelixJailEscapeRescue must load before app.js");
+  }
   const SIMULATION_SYSTEM_DEFS = [
     { id: "environment", interval: 5, priority: 10 },
     { id: "sensory", interval: 1, priority: 20 },
@@ -4721,6 +4742,7 @@
     "pretrialHearing",
     "pretrialReleaseTransport",
     "pretrialLegalWork",
+    "jailEscapeAction",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -4985,6 +5007,7 @@
       lawEnforcementRaids: LawEnforcementRaids.defaultState(),
       jailCustody: JailCustody.defaultState(),
       pretrialProceedings: PretrialProceedings.defaultState(),
+      jailEscapeRescue: JailEscapeRescue.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
       wasteTags: {},
@@ -6468,6 +6491,31 @@
       && Array.isArray(target.pretrialProceedings.proceedings)) return target.pretrialProceedings;
     target.pretrialProceedings = PretrialProceedings.normalizeState(target.pretrialProceedings);
     return target.pretrialProceedings;
+  }
+
+  function ensureJailEscapeRescue(target = state) {
+    if (target.jailEscapeRescue?.version === JailEscapeRescue.VERSION
+      && Array.isArray(target.jailEscapeRescue.attempts) && Array.isArray(target.jailEscapeRescue.contingencies)) return target.jailEscapeRescue;
+    target.jailEscapeRescue = JailEscapeRescue.normalizeState(target.jailEscapeRescue);
+    return target.jailEscapeRescue;
+  }
+
+  function activeJailEscapeAttempt() {
+    return ensureJailEscapeRescue().attempts.find((entry) => ["planned", "staged", "active"].includes(entry.status)) || null;
+  }
+
+  function latestCompletedJailEscape() {
+    return [...ensureJailEscapeRescue().attempts].reverse().find((entry) => entry.status === "escaped") || null;
+  }
+
+  function scientistInFugitiveStaging() {
+    return [FUGITIVE_ALLEY_ROOM_ID, FUGITIVE_SAFE_ROOM_ID].includes(scientistRoomId());
+  }
+
+  function restrictedOffsiteStay() {
+    const active = currentJailStay(); if (active) return active;
+    const attempt = scientistInFugitiveStaging() ? latestCompletedJailEscape() : null;
+    return attempt ? ensureJailCustody().stays.find((stay) => stay.id === attempt.stayId) || null : null;
   }
 
   function currentPretrialProceeding() {
@@ -8612,7 +8660,7 @@
     const result = LawEnforcementRaids.studySecurity(ensureLawEnforcementRaids(), raid.id, { clock: state.clock, amount: 20, alert: observed.observation?.alert || 2 });
     state.lawEnforcementRaids = result.state;
     awardActionXp(task.data.skillId, task.data.baseXp, emptyRevealSummary(), task.label);
-    addEvent(`${observed.observation.label} recorded: ${formatNumber(result.raid.detention.securityStudyProgress)}% provisional escape understanding; alert ${formatNumber(result.raid.detention.alert)}%.`, { sourceKind: "jailCustody", sourceId: observed.stay.id });
+    addEvent(`${observed.observation.label} recorded as exact plan knowledge: ${observed.stay.knowledge.securityObservations.length}/${JailCustody.OBSERVATIONS.length} distinct fact(s); facility alert ${formatNumber(observed.stay.knowledge.facilityAlert)}%.`, { sourceKind: "jailCustody", sourceId: observed.stay.id });
   }
 
   function requestJailCommunication(channelId, recipient = "") {
@@ -8723,34 +8771,170 @@
     return result.changes;
   }
 
-  function escapeMunicipalHolding(raidId) {
-    const raid = currentDetentionRaid();
-    if (!raid || raid.id !== raidId || raid.detention.securityStudyProgress < 100) return false;
-    const jailResult = JailCustody.escape(ensureJailCustody(), currentJailStay()?.id, state.clock);
-    if (!jailResult.changed) return false;
-    state.jailCustody = jailResult.state;
-    disablePhysicalJailSuppressor(jailResult.stay);
-    const result = LawEnforcementRaids.escapeDetention(ensureLawEnforcementRaids(), raid.id, state.clock);
-    state.lawEnforcementRaids = result.state;
-    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.raidId === raid.id);
-    if (proceeding) {
-      const fugitive = PretrialProceedings.markFugitive(ensurePretrialProceedings(), proceeding.id, state.clock);
-      state.pretrialProceedings = fugitive.state;
-    }
-    const door = state.doors["door-municipal-holding-cell"];
-    if (door) { door.lockState = DOOR_LOCK_UNLOCKED; door.state = DOOR_STATE_OPEN; }
-    state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
-    state.scientist.mapCell = nearestOpenMapCellInRoom(CONCEALED_EXIT_ROOM_ID, labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID), { actor: state.scientist, ignoreAccessPolicy: true });
-    ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex);
-    const evidence = recordInvestigativeEvidence("custodyEscape", {
-      category: "documentary", label: `Escape from ${raid.detention.facilityLabel}`, significance: "critical",
-      origin: { kind: "lawEnforcementRaid", id: raid.id, label: raid.docket }, subject: { kind: "scientist", id: "scientist" },
-      locus: { kind: "site", roomId: MUNICIPAL_HOLDING_CELL_ROOM_ID, label: raid.detention.facilityLabel },
-      traits: ["escaped custody", "fugitive", "pretrial detention"], persistence: { kind: "permanent" }, knowledge: { state: "known", learnedAt: state.clock, source: "custody", sourceIdentityKnown: true }
-    });
-    result.raid.history.push({ at: state.clock, action: "fugitiveEvidence", summary: `Escape evidence ${evidence?.id || "recorded"} entered the authority record.` });
-    addEvent("The scientist escaped municipal holding and returned through the concealed route. The run continues under fugitive pressure.");
+  function establishJailEscapeContingency(contactId) {
+    const economy = ensureEconomy(); const contact = economy.contacts.find((entry) => entry.id === contactId); const deposit = 1200;
+    if (!contact || economy.money < deposit || JailEscapeRescue.activeContingency(ensureJailEscapeRescue())) return false;
+    const result = JailEscapeRescue.establishContingency(ensureJailEscapeRescue(), { seed: state.seed, clock: state.clock, contact, deposit });
+    state.jailEscapeRescue = result.state;
+    if (!result.decision?.accepted) { addEvent(`${contact.name} refused the standing extraction contingency: ${result.decision?.reasons.join(" ") || "the risk was unacceptable"}.`); persist(); render(); return false; }
+    economy.money -= deposit;
+    recordBlackMarketLedger("escapeContingency", `${deposit} paid to ${contact.name} for a standing covert extraction contingency.`, { contactId: contact.id, amount: -deposit });
+    addEvent(`${contact.name} established a standing extraction contingency with ${result.contingency.extractor.name}, a disguised service van, and a temporary safe room.`);
     persist(); render(); return true;
+  }
+
+  function planJailEscape(routeId, contactId = "") {
+    const stay = currentJailStay(); const raid = currentDetentionRaid(); const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.raidId === raid?.id);
+    if (!stay || !raid || activeJailEscapeAttempt()) return false;
+    const route = JailEscapeRescue.ROUTE_DEFS.find((entry) => entry.id === routeId); if (!route) return false;
+    const contingency = JailEscapeRescue.activeContingency(ensureJailEscapeRescue());
+    const contact = ensureEconomy().contacts.find((entry) => entry.id === contactId) || contingency?.contact || null;
+    const codedSession = stay.communications.sessions.some((entry) => entry.channelId === "codedContact" && entry.endedAt != null);
+    const improvised = route.kind === "contact" && !contingency;
+    const payment = improvised ? 1800 : contingency?.deposit || 0;
+    if (improvised && (!codedSession || ensureEconomy().money < payment)) {
+      addEvent(!codedSession ? "An improvised extraction requires a completed prohibited coded-contact session." : `An improvised extraction requires ${formatMoney(payment)} in available company funds.`);
+      persist(); render(); return false;
+    }
+    const result = JailEscapeRescue.plan(ensureJailEscapeRescue(), {
+      seed: state.seed, clock: state.clock, routeId, stayId: stay.id, raidId: raid.id, proceedingId: proceeding?.id,
+      observationIds: stay.knowledge.securityObservations, facilityAlert: stay.knowledge.facilityAlert, contingencyId: contingency?.id, contact, payment
+    });
+    state.jailEscapeRescue = result.state;
+    if (!result.changed) { addEvent(result.reason || "The escape plan could not be created."); persist(); render(); return false; }
+    if (improvised) {
+      ensureEconomy().money -= payment;
+      recordBlackMarketLedger("improvisedExtraction", `${payment} committed to ${contact.name} for an improvised jail extraction.`, { contactId: contact.id, amount: -payment });
+    }
+    addEvent(`${route.label} saved for ${formatClock(result.attempt.opportunityAt)} with ${titleCase(result.attempt.riskBand)} risk. Missing facts: ${result.attempt.missingRequiredIds.length ? result.attempt.missingRequiredIds.map(titleCase).join(", ") : "none"}.`, { sourceKind: "jailEscape", sourceId: result.attempt.id });
+    persist(); render(); return true;
+  }
+
+  function materializeEscapeBypassTool(attempt) {
+    if (!attempt || ensurePhysicalItemStacks().some((entry) => entry.reservedTaskId === attempt.id && entry.key === "escapeBypassTool")) return false;
+    const inventory = ensureInventory(); inventory.escapeBypassTool = Math.max(0, Number(inventory.escapeBypassTool) || 0) + 1;
+    const instances = ensureToolDurability().escapeBypassTool; const instance = instances[instances.length - 1];
+    if (instance) { instance.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID; instance.carriedBy = ""; }
+    const stack = createPhysicalItemStack("inventory", "escapeBypassTool", 1, { roomId: MUNICIPAL_HOLDING_CELL_ROOM_ID, cell: { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z }, fixtureId: "", stockpileId: "" }, { toolInstanceId: instance?.id || "", reservedTaskId: attempt.id, dimensionsM: { width: 0.08, length: 0.18, height: 0.03 } });
+    if (stack) stack.reservedTaskId = attempt.id;
+    syncActorInventories(); return Boolean(stack);
+  }
+
+  function confiscateEscapeBypassTool(attemptId) {
+    const stacks = ensurePhysicalItemStacks().filter((entry) => entry.key === "escapeBypassTool" && entry.reservedTaskId === attemptId);
+    const instanceIds = new Set(stacks.map((entry) => entry.toolInstanceId).filter(Boolean));
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => !stacks.includes(entry));
+    if (state.toolDurability?.escapeBypassTool) state.toolDurability.escapeBypassTool = state.toolDurability.escapeBypassTool.filter((entry) => !instanceIds.has(entry.id));
+    syncPhysicalReadModels(); syncActorInventories(); return stacks.length;
+  }
+
+  function updateJailEscapeRescue() {
+    let changes = 0;
+    for (const attempt of ensureJailEscapeRescue().attempts.filter((entry) => entry.status === "planned" && entry.opportunityAt <= state.clock)) {
+      const result = JailEscapeRescue.stageAttempt(ensureJailEscapeRescue(), attempt.id, state.clock); state.jailEscapeRescue = result.state;
+      if (!result.changed) continue;
+      if (result.missed) { addEvent(`${result.attempt.id}: the physical escape opportunity was missed; staged outside support withdrew.`, { sourceKind: "jailEscape", sourceId: result.attempt.id }); changes += 1; continue; }
+      materializeEscapeBypassTool(result.attempt);
+      if (result.attempt.extractor) { result.attempt.extractor.mapCell = labMapRoomAnchor(MUNICIPAL_HOLDING_PROCESSING_ROOM_ID); result.attempt.extractor.roomId = MUNICIPAL_HOLDING_PROCESSING_ROOM_ID; }
+      addEvent(`${JailEscapeRescue.ROUTE_DEFS.find((route) => route.id === result.attempt.routeId).label}: the opportunity window opened; its exact physical equipment and outside participant are now staged.`, { sourceKind: "jailEscape", sourceId: result.attempt.id });
+      changes += 1;
+    }
+    for (const attempt of ensureJailEscapeRescue().attempts.filter((entry) => entry.status === "escaped" && entry.pursuit.status === "watchingLab" && entry.pursuit.searchBeginsAt != null && entry.pursuit.searchBeginsAt <= state.clock)) {
+      attempt.pursuit.status = "searching"; attempt.history.push({ at: attempt.pursuit.searchBeginsAt, action: "fugitiveSearch", summary: "Authorities began the saved fugitive search while retaining their watch on known laboratory entrances." });
+      addEvent(`${attempt.id}: authorities began a fugitive search and retained their watch on the laboratory.`, { sourceKind: "jailEscape", sourceId: attempt.id }); changes += 1;
+    }
+    return changes;
+  }
+
+  function jailEscapeOfficerExposure(stage) {
+    const stay = currentJailStay(); if (!stay || !stage) return 100;
+    const targetRoom = roomById(stage.roomId); let exposure = 0;
+    for (const officer of stay.actors.filter((entry) => entry.present)) {
+      if (officer.roomId === stage.roomId) exposure += 34;
+      else if (targetRoom?.connections.includes(officer.roomId)) exposure += 9;
+    }
+    return Math.min(100, exposure + stay.knowledge.facilityAlert / 4);
+  }
+
+  function queueNextJailEscapeStage(attemptId) {
+    const attempt = ensureJailEscapeRescue().attempts.find((entry) => entry.id === attemptId); const stage = attempt?.stages[attempt?.currentStageIndex || 0];
+    if (!attempt || !stage || !["staged", "active"].includes(attempt.status) || state.tasks.some((entry) => entry.type === "jailEscapeAction")) return false;
+    const begun = JailEscapeRescue.beginStage(ensureJailEscapeRescue(), attempt.id, { clock: state.clock, officerExposure: jailEscapeOfficerExposure(stage), skill: skillLevel("analysis") });
+    state.jailEscapeRescue = begun.state; if (!begun.changed) return false;
+    const task = { id: `task-${state.nextTaskNumber++}`, type: "jailEscapeAction", label: begun.stage.label, createdAt: state.clock, dueAt: state.clock + minutesToSeconds(begun.stage.durationMinutes), data: { action: "escapeStage", attemptId: attempt.id, stageId: begun.stage.id, roomId: scientistRoomId(), toCell: scientistMapCell(), skillId: "analysis", baseXp: 10 } };
+    state.tasks.push(task); addEvent(`${begun.stage.label} began as interruptible physical work. ${begun.stage.reason}`, { sourceKind: "jailEscape", sourceId: attempt.id }); persist(); render(); return true;
+  }
+
+  function materializeFugitiveStaging(attempt) {
+    const roomSpecs = [
+      [FUGITIVE_ALLEY_ROOM_ID, "Municipal Service Alley", "corridor", 4, 4, 8, 5, [FUGITIVE_SAFE_ROOM_ID], "A concealed service lane outside municipal holding and beyond immediate jail control."],
+      [FUGITIVE_SAFE_ROOM_ID, "Temporary Fugitive Safe Room", "quarters", 13, 4, 7, 5, [FUGITIVE_ALLEY_ROOM_ID], "A sparse prepaid back room that shelters the scientist without restoring laboratory access or knowledge."]
+    ];
+    const ids = roomSpecs.map(([id]) => id); const rooms = roomSpecs.map(([id, name, purposeId, x, y, width, height, connections, description]) => normalizeRoom({ id, name, articleName: `the ${name.toLowerCase()}`, purposeId, facilityClass: "fugitiveStaging", description, geometry: { shape: "small urban room", lengthM: width, widthM: height, heightM: 3, floorAreaM2: width * height, volumeM3: width * height * 3 }, connections, purposeSource: "escape", purposeReason: "Run-local fugitive staging" }));
+    state.rooms = normalizeRooms([...state.rooms.filter((room) => !ids.includes(room.id)), ...rooms]); const map = ensureLabMap(); map.layers[String(FUGITIVE_STAGING_Z)] = { id: "fugitiveStaging", kind: "structure", label: "Fugitive Staging" }; const excavated = [];
+    for (const [id, _name, _purpose, x, y, width, height] of roomSpecs) { const rect = { roomId: id, x, y, z: FUGITIVE_STAGING_Z, width, height }; map.rooms[id] = normalizeLabMapRoom({ ...rect, cells: rectangularRoomCells(rect), anchor: { x: x + Math.floor(width / 2), y: y + Math.floor(height / 2), z: FUGITIVE_STAGING_Z } }, rooms.find((entry) => entry.id === id)); excavated.push(...rectangularRoomCells(rect)); state.roomStockpiles[id] ||= emptyRoomStockpile(); }
+    const cell = { x: 12, y: 6, z: FUGITIVE_STAGING_Z }; excavated.push(cell); map.doors["door-fugitive-safe-room"] = normalizeLabMapDoor({ id: "door-fugitive-safe-room", roomIds: ids, cell, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 1, heightM: 2.1 } }, "door-fugitive-safe-room", map.rooms);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...excavated]); state.doors = normalizeDoors(state.doors, state.rooms, map); const door = state.doors["door-fugitive-safe-room"]; door.state = DOOR_STATE_CLOSED; door.lockState = attempt.destinationId === "safeRoom" ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED; door.accessRuleId = "restricted";
+    const roomId = attempt.destinationId === "safeRoom" ? FUGITIVE_SAFE_ROOM_ID : FUGITIVE_ALLEY_ROOM_ID; state.scientist.roomId = roomId; state.scientist.mapCell = labMapRoomAnchor(roomId); const ui = ensureUiState(); ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera(state.scientist.mapCell, map, ui.mapZoomIndex); setSelection({ kind: "scientist", id: "scientist" }, { source: "escape", centerMap: true });
+  }
+
+  function finalizeSuccessfulJailEscape(attempt) {
+    const stay = currentJailStay(); const raid = currentDetentionRaid(); if (!stay || !raid) return false;
+    const jailResult = JailCustody.escape(ensureJailCustody(), stay.id, state.clock, { completedPlanId: attempt.id, summary: `${attempt.id} reached ${attempt.destinationId} through the saved physical route.` });
+    if (!jailResult.changed) return false;
+    state.jailCustody = jailResult.state; disablePhysicalJailSuppressor(jailResult.stay);
+    const raidResult = LawEnforcementRaids.escapeDetention(ensureLawEnforcementRaids(), raid.id, state.clock, { completedPlanId: attempt.id, summary: `${attempt.id} physically cleared municipal holding.` }); state.lawEnforcementRaids = raidResult.state;
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === attempt.proceedingId);
+    if (proceeding) state.pretrialProceedings = PretrialProceedings.markFugitive(ensurePretrialProceedings(), proceeding.id, state.clock).state;
+    const evidence = recordInvestigativeEvidence("custodyEscape", { category: "documentary", label: `Completed escape plan ${attempt.id}`, significance: "critical", origin: { kind: "jailEscape", id: attempt.id, label: attempt.routeId }, subject: { kind: "scientist", id: "scientist" }, locus: { kind: "site", roomId: MUNICIPAL_HOLDING_PROCESSING_ROOM_ID, label: raid.detention.facilityLabel }, traits: ["escaped custody", "fugitive", attempt.routeId], persistence: { kind: "permanent" }, knowledge: { state: "known", learnedAt: state.clock, source: "custody", sourceIdentityKnown: true } });
+    attempt.pursuit.evidenceId = evidence?.id || ""; materializeFugitiveStaging(attempt); confiscateEscapeBypassTool(attempt.id);
+    addEvent(`${attempt.id}: the scientist escaped to ${roomById(scientistRoomId()).name}. The laboratory remains watched, its knowledge remains restricted, and returning is a deliberate risk.`, { sourceKind: "jailEscape", sourceId: attempt.id }); return true;
+  }
+
+  function finalizeCapturedJailEscape(attempt, stage) {
+    const stay = currentJailStay(); if (!stay) return false;
+    disablePhysicalJailSuppressor(stay);
+    const secured = JailCustody.resecure(ensureJailCustody(), stay.id, state.clock, { suppressorId: `${stay.id}-replacement-${attempt.id}`, alertGain: 25 }); state.jailCustody = secured.state; applyJailSuppressor(secured.stay);
+    state.scientist.roomId = MUNICIPAL_HOLDING_CELL_ROOM_ID; state.scientist.mapCell = { x: 6, y: 6, z: MUNICIPAL_HOLDING_Z }; confiscateEscapeBypassTool(attempt.id);
+    for (const doorId of Object.keys(state.doors).filter((id) => id.startsWith("door-municipal-holding-"))) { state.doors[doorId].state = DOOR_STATE_CLOSED; state.doors[doorId].lockState = DOOR_LOCK_LOCKED; }
+    if (attempt.proceedingId) state.pretrialProceedings = PretrialProceedings.recordFailedEscape(ensurePretrialProceedings(), attempt.proceedingId, { clock: state.clock, attemptId: attempt.id, label: `${stage.label} interrupted by named custody officers` }).state;
+    recordInvestigativeEvidence("custodyEscapeAttempt", { category: "documentary", label: `Failed escape attempt ${attempt.id}`, significance: "strong", origin: { kind: "jailEscape", id: attempt.id, label: stage.label }, subject: { kind: "scientist", id: "scientist" }, locus: { kind: "room", roomId: stage.roomId, label: stage.label }, traits: ["attempted escape", "confiscated tool", "custody observation"], persistence: { kind: "permanent" }, knowledge: { state: "known", learnedAt: state.clock, source: "custody", sourceIdentityKnown: true } });
+    if (attempt.contact?.id) { const contact = ensureEconomy().contacts.find((entry) => entry.id === attempt.contact.id); if (contact) { contact.trust = Math.max(0, contact.trust - 10); contact.unavailableUntil = Math.max(contact.unavailableUntil || 0, state.clock + 3 * SECONDS_PER_DAY); recordBlackMarketLedger("failedExtraction", `${contact.name} lost trust and went to ground after ${attempt.id} failed.`, { contactId: contact.id }); } }
+    damageScientistCombat(4, "custody officers physically restrained the failed escape", { damageTypes: ["physical"] }); addEvent(`${attempt.id} failed at ${stage.label}. Officers recaptured the scientist, imposed lockdown, confiscated the tool, restricted communications, fitted a replacement collar, and created an evidence-supported charge.`, { sourceKind: "jailEscape", sourceId: attempt.id }); return true;
+  }
+
+  function finishJailEscapeAction(task) {
+    if (task.data?.action === "returnToLab") return finishFugitiveReturn(task);
+    const attempt = ensureJailEscapeRescue().attempts.find((entry) => entry.id === task.data?.attemptId); if (!attempt) return false;
+    const result = JailEscapeRescue.completeStage(ensureJailEscapeRescue(), attempt.id, { clock: state.clock, injury: "Minor restraint injury" }); state.jailEscapeRescue = result.state;
+    if (!result.changed) return false;
+    const updated = result.attempt;
+    if (result.captured) return finalizeCapturedJailEscape(updated, result.stage);
+    state.scientist.roomId = result.stage.roomId; state.scientist.mapCell = labMapRoomAnchor(result.stage.roomId);
+    if (result.stage.id === "disableCollar") { const disabled = JailCustody.disableSuppressor(ensureJailCustody(), updated.stayId, state.clock, `Disabled during ${updated.id}.`); state.jailCustody = disabled.state; disablePhysicalJailSuppressor(disabled.stay); }
+    const doorIds = result.stage.roomId === MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID ? ["door-municipal-holding-cell"] : result.stage.roomId === MUNICIPAL_HOLDING_GUARD_ROOM_ID ? ["door-municipal-holding-call", "door-municipal-holding-guard"] : result.stage.roomId === MUNICIPAL_HOLDING_PROCESSING_ROOM_ID ? ["door-municipal-holding-transfer"] : [];
+    for (const id of doorIds) if (state.doors[id]) { state.doors[id].state = DOOR_STATE_OPEN; state.doors[id].lockState = DOOR_LOCK_UNLOCKED; }
+    awardActionXp("analysis", 10, emptyRevealSummary(), result.stage.label);
+    if (result.escaped) return finalizeSuccessfulJailEscape(updated);
+    addEvent(`${result.stage.label} completed. Next: ${result.nextStage.label}.`, { sourceKind: "jailEscape", sourceId: updated.id }); return true;
+  }
+
+  function queueFugitiveReturn(destinationId) {
+    const attempt = latestCompletedJailEscape(); if (!attempt || ![FUGITIVE_ALLEY_ROOM_ID, FUGITIVE_SAFE_ROOM_ID].includes(scientistRoomId()) || state.tasks.some((entry) => entry.type === "jailEscapeAction")) return false;
+    const destinationRoomId = destinationId === "concealedExit" ? CONCEALED_EXIT_ROOM_ID : destinationId === "publicEntrance" ? SURFACE_RECEPTION_ROOM_ID : ""; if (!destinationRoomId) return false;
+    state.tasks.push({ id: `task-${state.nextTaskNumber++}`, type: "jailEscapeAction", label: `Fugitive travel to ${titleCase(destinationId)}`, createdAt: state.clock, dueAt: state.clock + minutesToSeconds(45), data: { action: "returnToLab", attemptId: attempt.id, destinationId, destinationRoomId, roomId: scientistRoomId(), toCell: scientistMapCell() } });
+    addEvent(`The scientist began a saved 45-minute fugitive journey toward ${titleCase(destinationId)}. The destination is under an active laboratory watch.`, { sourceKind: "jailEscape", sourceId: attempt.id }); persist(); render(); return true;
+  }
+
+  function finishFugitiveReturn(task) {
+    const result = JailEscapeRescue.recordReturn(ensureJailEscapeRescue(), task.data?.attemptId, task.data?.destinationId, state.clock); state.jailEscapeRescue = result.state; if (!result.changed) return false;
+    state.scientist.roomId = task.data.destinationRoomId; state.scientist.mapCell = nearestOpenMapCellInRoom(task.data.destinationRoomId, labMapRoomAnchor(task.data.destinationRoomId), { actor: state.scientist, ignoreAccessPolicy: true }); ensureUiState().mapCamera = normalizeMapCamera(state.scientist.mapCell, ensureLabMap(), ensureUiState().mapZoomIndex);
+    if (result.recaptureRequired) {
+      const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === result.attempt.proceedingId);
+      const authorized = LawEnforcementRaids.authorizeRecapture(ensureLawEnforcementRaids(), { seed: state.seed, clock: state.clock, sourceId: result.attempt.id, caseId: proceeding?.authorityCaseId, docket: `${proceeding?.docket || "Bench Warrant"}-R`, authorizedRoomIds: [...SURFACE_ROOM_IDS], knownRoomIds: [...SURFACE_ROOM_IDS] }); state.lawEnforcementRaids = authorized.state;
+      if (authorized.raid) addEvent(`${authorized.raid.docket}: the watched return triggered a named physical recapture team due ${formatClock(authorized.raid.arrivalAt)}.`, { sourceKind: "jailEscape", sourceId: result.attempt.id });
+    }
+    return true;
   }
 
   function updateLawEnforcementRaids(elapsed) {
@@ -10838,6 +11022,34 @@
         clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), equipment: equipmentSummary("scientist"),
         scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), mana: scientistVital("mana").current }, runEnded: state.runEnded
       }),
+      jailEscapeRescueSnapshot: () => clonePlainObject({
+        ...ensureJailEscapeRescue(), activeAttempt: activeJailEscapeAttempt(), latestEscape: latestCompletedJailEscape(),
+        nextEvent: JailEscapeRescue.nextEvent(ensureJailEscapeRescue(), state.clock), clock: state.clock,
+        scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, money: ensureEconomy().money
+      }),
+      establishJailEscapeContingency: (contactId) => establishJailEscapeContingency(contactId),
+      planJailEscape: (routeId, contactId = "") => planJailEscape(routeId, contactId),
+      queueNextJailEscapeStage: (attemptId) => queueNextJailEscapeStage(attemptId),
+      queueFugitiveReturn: (destinationId) => queueFugitiveReturn(destinationId),
+      makeJailEscapeReady: () => {
+        const stay = currentJailStay(); if (!stay) return false;
+        stay.knowledge.securityObservations = JailCustody.OBSERVATIONS.map((entry) => entry.id); stay.knowledge.facilityAlert = 0;
+        const contact = ensureEconomy().contacts.find((entry) => entry.archetype === "industrialSmuggler") || ensureEconomy().contacts[0];
+        if (contact) { contact.trust = 100; contact.reliability = 0.99; contact.riskProfile = "reckless"; }
+        ensureEconomy().money = Math.max(ensureEconomy().money, 5000); persist(); render(); return contact?.id || false;
+      },
+      forceJailEscapeStageSuccess: (attemptId) => {
+        const attempt = ensureJailEscapeRescue().attempts.find((entry) => entry.id === attemptId); if (!attempt) return false;
+        for (const stage of attempt.stages) stage.roll = 0; persist(); return true;
+      },
+      makeJailEscapeOpportunityNow: (attemptId) => {
+        const attempt = ensureJailEscapeRescue().attempts.find((entry) => entry.id === attemptId && entry.status === "planned"); if (!attempt) return false;
+        attempt.opportunityAt = state.clock; attempt.window.startAt = state.clock; attempt.window.endAt = state.clock + SECONDS_PER_HOUR; updateJailEscapeRescue(); persist(); render(); return true;
+      },
+      completeJailEscapeActionNow: () => {
+        const task = state.tasks.find((entry) => entry.type === "jailEscapeAction"); if (!task) return false;
+        task.dueAt = state.clock; completeDueTasks(); persist(); render(); return true;
+      },
       pretrialProceedingsSnapshot: () => clonePlainObject({
         ...ensurePretrialProceedings(), activeProceeding: currentPretrialProceeding(),
         nextEvent: PretrialProceedings.nextEvent(ensurePretrialProceedings(), state.clock), clock: state.clock,
@@ -10906,7 +11118,6 @@
       queueDetentionSecurityStudy: (raidId, observationId = "") => {
         const task = queueDetentionSecurityStudy(raidId, observationId); return task ? clonePlainObject(task) : null;
       },
-      escapeMunicipalHolding: (raidId) => escapeMunicipalHolding(raidId),
       setForcedEntryImmediate: (executionId) => {
         const execution = ensureWarrantExecutions().executions.find((entry) => entry.id === executionId);
         if (!execution?.forcedEntry) return null;
@@ -13937,10 +14148,10 @@
 
   function workspaceTabVisible(tabId) {
     const id = cleanWorkspaceTab(tabId);
-    const stay = currentJailStay();
+    const stay = restrictedOffsiteStay();
     if (stay) {
       const permitted = new Set(["map", "visits", "journal", "log", "cheats"]);
-      const companySession = stay.communications.sessions.some((session) => session.channelId === "companyPortal" && state.clock >= session.startedAt && state.clock <= session.endedAt);
+      const companySession = !scientistInFugitiveStaging() && stay.communications.sessions.some((session) => session.channelId === "companyPortal" && state.clock >= session.startedAt && state.clock <= session.endedAt);
       if (companySession) permitted.add("economy");
       if (!permitted.has(id)) return false;
     }
@@ -15146,7 +15357,9 @@
     const raidEvent = raid ? { time: raid.arrivalAt, label: `${raid.docket} raid team arrival`, type: "raid" } : null;
     const pretrial = PretrialProceedings.nextEvent(ensurePretrialProceedings(), state.clock);
     const pretrialEvent = pretrial ? { time: pretrial.at, label: pretrial.label, type: "pretrial" } : null;
-    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    const escape = JailEscapeRescue.nextEvent(ensureJailEscapeRescue(), state.clock);
+    const escapeEvent = escape ? { time: escape.at, label: escape.label, type: "jailEscape" } : null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -15303,6 +15516,7 @@
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.raidChanged += updateJailCustody(elapsed);
       changes.raidChanged += updatePretrialProceedings();
+      changes.raidChanged += updateJailEscapeRescue();
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
@@ -15468,6 +15682,10 @@
   }
 
   function completeTask(task) {
+    if (task.type === "jailEscapeAction") {
+      finishJailEscapeAction(task);
+      return;
+    }
     if (task.type === "pretrialLegalWork") {
       finishPretrialLegalWork(task);
       return;
@@ -54825,17 +55043,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     const section = storesSectionEl("Contacts", "Persistent illicit buyers and brokers. Trust is per-contact; reputation is global.", { economyCategory: "contacts" });
+    const escapeContingency = JailEscapeRescue.activeContingency(ensureJailEscapeRescue());
     for (const contact of economy.contacts) {
       const profile = BLACK_MARKET_RISK_PROFILES[contact.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
       const availability = blackMarketContactAvailability(contact);
       const activeDeals = openDeals.filter((deal) => deal.contactId === contact.id && deal.status === "open").length;
+      const actions = [storesActionButton("Offers", `Show ${contact.name}'s open offers.`, () => setEconomyMenuTab("deals"))];
+      if (!escapeContingency) {
+        const contingency = storesActionButton("Prepay Extraction Contingency", `Pay ${formatMoney(1200)} to ask this persistent contact to stage a named extractor, disguised vehicle, and temporary safe room before any arrest. Acceptance uses saved trust, reliability, archetype, and risk tolerance.`, () => establishJailEscapeContingency(contact.id));
+        contingency.disabled = economy.money < 1200 || !availability.available; actions.push(contingency);
+      } else if (escapeContingency.contact?.id === contact.id) actions.push(textEl("span", `Active extraction contingency · ${escapeContingency.extractor?.name || "extractor assigned"}`, "journal-meta"));
       section.append(storesRowEl(contact.name, `Trust ${formatNumber(contact.trust)}/${BLACK_MARKET_TRUST_MAX}`, {
         title: `${contact.name}\n${contact.archetypeLabel}\nRisk profile: ${profile.label}.\nObserved payment reliability: ${blackMarketContactReliabilityLabel(contact)}.\nPreferred goods: ${contact.preferredTags.join(", ")}.`,
         subtitle: `${contact.archetypeLabel}; ${availability.label}; ${blackMarketContactReliabilityLabel(contact)} payments; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "offer" : "offers"}; id ${contact.id}`,
         dataset: { blackMarketContact: contact.id },
-        actions: [
-          storesActionButton("Offers", `Show ${contact.name}'s open offers.`, () => setEconomyMenuTab("deals"))
-        ]
+        actions
       }));
     }
     if (!economy.contacts.length) {
@@ -56825,6 +57047,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         });
       }
     }
+    for (const attempt of ensureJailEscapeRescue().attempts.filter((entry) => ["staged", "active"].includes(entry.status) && entry.extractor?.present && entry.extractor?.mapCell)) {
+      const actor = attempt.extractor;
+      entities.push({
+        id: `escape-extractor:${actor.id}`, kind: "escapeExtractor", category: "actor", subtype: "covertExtractor",
+        target: { kind: "escapeExtractor", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)],
+        orientation: "square", facing: "west", pose: "waiting", activity: { id: attempt.status, label: `${actor.name} · waiting beside ${actor.vehicle?.label || "extraction vehicle"}`, source: "jail escape" }, motion: null,
+        condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("covert-extraction", "warning", `Named extractor for ${attempt.id}`, "E")],
+        knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "saved extraction plan" }, visual: { key: "actor.scientist", glyph: "E", recipeKey: `escape-extractor:${attempt.status}` }, blocking: false
+      });
+    }
     for (const door of Object.values(map.doors || {})) {
       const stateDoor = doorFixtureState(door) || door;
       const knowledge = mapSceneKnowledgeForRoom(door.roomIds[0] || labMapCellRoomId(door.cell, map), {
@@ -57149,9 +57381,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (["surrendered", "restraining", "restrained", "extracting"].includes(custodyStatus)) {
       return "The scientist is under active physical arrest and cannot perform ordinary work.";
     }
-    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork", "rest"].includes(task.type)
+    if (custodyStatus === "booked" && !["detentionSecurityStudy", "jailCommunication", "pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork", "jailEscapeAction", "rest"].includes(task.type)
       && !(task.type === "scientistMove" && [MUNICIPAL_HOLDING_CELL_ROOM_ID, MUNICIPAL_HOLDING_CORRIDOR_ROOM_ID].includes(task.data?.toRoomId))) {
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
+    }
+    if (scientistInFugitiveStaging() && !["jailEscapeAction", "rest"].includes(task.type)) {
+      return "The scientist is at an off-site fugitive staging location and cannot perform or directly supervise laboratory work.";
     }
     if (actorIsIncapacitated("scientist") && task.type !== "rest" && !(task.type === "injuryTreatment" && task.data?.targetActorId === "scientist")) {
       return "The scientist is incapacitated and must be stabilized before resuming work.";
@@ -57422,6 +57657,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!isScientistQueueTask(task)) {
       return "Only scientist queue tasks can be canceled here.";
     }
+    if (task.type === "jailEscapeAction") {
+      return "An active escape stage or fugitive journey cannot be canceled after its physical opportunity begins.";
+    }
     if (["pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork"].includes(task.type)) {
       return "A court appearance or court-ordered custody transfer cannot be canceled from the ordinary work queue.";
     }
@@ -57605,6 +57843,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     const custodyCell = normalized ? selectionMapCell(normalized) : null;
     if (currentJailStay() && custodyCell && custodyCell.z !== MUNICIPAL_HOLDING_Z) return state.selection;
+    if (scientistInFugitiveStaging() && custodyCell && custodyCell.z !== FUGITIVE_STAGING_Z) return state.selection;
     state.selection = normalized;
     if (normalized && options.centerMap !== false) {
       const cell = selectionMapCell(normalized);
@@ -66099,6 +66338,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskCategory(task) {
+    if (task.type === "jailEscapeAction") {
+      return "Jail Escape";
+    }
     if (["pretrialHearing", "pretrialReleaseTransport", "pretrialLegalWork"].includes(task.type)) {
       return "Criminal Court";
     }
@@ -66622,7 +66864,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         if (raid.status === "booked" && raid.detention) {
           const stay = currentJailStay();
-          row.append(textEl("span", `${raid.detention.facilityLabel}: temporary pretrial jail since ${formatClock(raid.detention.bookingAt)}. This is not prison and arrest is not defeat. Security understanding ${formatNumber(raid.detention.securityStudyProgress)}%; alert ${formatNumber(raid.detention.alert)}%.`, "journal-meta"));
+          row.append(textEl("span", `${raid.detention.facilityLabel}: temporary pretrial jail since ${formatClock(raid.detention.bookingAt)}. This is not prison and arrest is not defeat. ${currentJailStay()?.knowledge.securityObservations.length || 0}/${JailCustody.OBSERVATIONS.length} exact security facts recorded; alert ${formatNumber(currentJailStay()?.knowledge.facilityAlert || raid.detention.alert)}%.`, "journal-meta"));
           if (stay) {
             row.dataset.jailStayId = stay.id;
             row.append(
@@ -66653,9 +66895,43 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
               row.append(textEl("span", `Delayed company report received ${formatClock(report.deliveredAt)}: ${titleCase(report.operatingState)} · ${formatMoney(report.money)} · ${report.openLegalOrders} open legal order(s) · ${report.surfaceFaults} known surface fault(s) · ${report.undergroundStatus}.`, "journal-meta"));
             }
           }
-          const escape = document.createElement("button"); escape.type = "button"; escape.textContent = "Exploit Escape Route"; escape.className = "danger-button";
-          escape.disabled = raid.detention.securityStudyProgress < 100; escape.title = escape.disabled ? "Record all five distinct security observations before attempting escape." : "This provisional escape disables and drops the physical collar, creates permanent fugitive evidence, and returns the scientist through the concealed route.";
-          escape.addEventListener("click", () => escapeMunicipalHolding(raid.id)); row.append(escape);
+          const attempt = activeJailEscapeAttempt();
+          if (!attempt) {
+            for (const route of JailEscapeRescue.ROUTE_DEFS) {
+              if (route.kind === "self") {
+                const plan = document.createElement("button"); plan.type = "button"; plan.textContent = `Plan ${route.label}`; plan.className = "danger-button"; plan.title = "Observed facts reduce uncertainty, but missing facts do not become a repeatable progress grind.";
+                plan.addEventListener("click", () => planJailEscape(route.id)); row.append(plan);
+              } else {
+                const contingency = JailEscapeRescue.activeContingency(ensureJailEscapeRescue());
+                if (contingency) {
+                  const plan = document.createElement("button"); plan.type = "button"; plan.textContent = `Activate ${contingency.contact.name}'s Extraction`; plan.className = "danger-button";
+                  plan.addEventListener("click", () => planJailEscape(route.id, contingency.contact.id)); row.append(plan);
+                } else if (stay?.communications.sessions.some((entry) => entry.channelId === "codedContact" && entry.endedAt != null)) {
+                  for (const contact of ensureEconomy().contacts) {
+                    const plan = document.createElement("button"); plan.type = "button"; plan.textContent = `Request Improvised Extraction: ${contact.name}`; plan.className = "danger-button"; plan.disabled = ensureEconomy().money < 1800;
+                    plan.title = "Costs $1,800 if accepted; the frozen decision uses this contact's trust, reliability, archetype, risk tolerance, and current jail alert.";
+                    plan.addEventListener("click", () => planJailEscape(route.id, contact.id)); row.append(plan);
+                  }
+                }
+              }
+            }
+          } else {
+            const route = JailEscapeRescue.ROUTE_DEFS.find((entry) => entry.id === attempt.routeId);
+            row.append(textEl("span", `${route.label}: ${titleCase(attempt.status)} · ${titleCase(attempt.riskBand)} risk · uncertainty ${formatNumber(attempt.uncertainty)}% · window ${formatClock(attempt.window.startAt)}–${formatClock(attempt.window.endAt)} · missing ${attempt.missingRequiredIds.length ? attempt.missingRequiredIds.map(titleCase).join(", ") : "no required facts"}.`, "journal-meta"));
+            for (const stage of attempt.stages) row.append(textEl("span", `${stage.label}: ${titleCase(stage.status)} · ${titleCase(stage.riskBand)} risk${stage.reason ? ` · ${stage.reason}` : ""}.`, "journal-meta"));
+            if (["staged", "active"].includes(attempt.status) && !state.tasks.some((entry) => entry.type === "jailEscapeAction")) {
+              const next = attempt.stages[attempt.currentStageIndex]; const act = document.createElement("button"); act.type = "button"; act.textContent = `Execute: ${next.label}`; act.className = "danger-button";
+              act.addEventListener("click", () => queueNextJailEscapeStage(attempt.id)); row.append(act);
+            }
+          }
+        }
+        const completedEscape = latestCompletedJailEscape();
+        if (completedEscape?.raidId === raid.id && [FUGITIVE_ALLEY_ROOM_ID, FUGITIVE_SAFE_ROOM_ID].includes(scientistRoomId())) {
+          row.append(textEl("span", `Fugitive staging: ${roomName(scientistRoomId())}. Search ${titleCase(completedEscape.pursuit.status)} · alert ${formatNumber(completedEscape.pursuit.alert)}% · laboratory watch ${completedEscape.pursuit.labWatch ? "active" : "none"}. Direct laboratory knowledge remains frozen until physical return.`, "journal-meta"));
+          for (const [destinationId, label] of [["concealedExit", "Risk Return via Concealed Exit"], ["publicEntrance", "Risk Return via Public Entrance"]]) {
+            const travel = document.createElement("button"); travel.type = "button"; travel.textContent = label; travel.className = "danger-button"; travel.disabled = state.tasks.some((entry) => entry.type === "jailEscapeAction");
+            travel.title = "A saved 45-minute journey returns to a watched site and schedules a named physical recapture team."; travel.addEventListener("click", () => queueFugitiveReturn(destinationId)); row.append(travel);
+          }
         }
         if (raid.outcome) row.append(textEl("span", `Outcome: ${raid.outcome.summary}`, "journal-meta"));
         row.append(textEl("span", `${raid.clearedRoomIds.length} room(s) physically cleared · ${raid.barriers.length} barrier record(s) · ${raid.history.length} immutable history event(s).`, "journal-meta"));
@@ -66996,9 +67272,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function jailVisibleMessages(messages) {
-    const stay = currentJailStay();
+    const stay = restrictedOffsiteStay();
     if (!stay) return messages;
-    return messages.filter((entry) => entry.time <= stay.knowledge.labSnapshotAt || entry.sourceKind === "jailCustody");
+    return messages.filter((entry) => entry.time <= stay.knowledge.labSnapshotAt || ["jailCustody", "jailEscape"].includes(entry.sourceKind));
   }
 
   function renderCompactMessageFeed() {
@@ -74637,6 +74913,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.lawEnforcementRaids = LawEnforcementRaids.normalizeState(candidate?.lawEnforcementRaids);
     next.jailCustody = JailCustody.normalizeState(candidate?.jailCustody);
     next.pretrialProceedings = PretrialProceedings.normalizeState(candidate?.pretrialProceedings);
+    next.jailEscapeRescue = JailEscapeRescue.normalizeState(candidate?.jailEscapeRescue);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
     }

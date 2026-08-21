@@ -18,29 +18,28 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Jail Escape and Outside Rescue
-2. Trial and Sentencing
-3. Prison Foundation and Long-Term Incarceration
-4. Prison Breaks, Rescue, and Release
-5. Death Row, Appeals, and Execution
-6. Reusable Worlds, Random Names, and Run Separation
-7. World Themes and Content Boundaries
-8. World Generation Foundation and Strategic Map
-9. Global Geography, Biomes, Terrain, and Resources
-10. Settlements, Cities, Routes, and Candidate Sites
-11. Civilizations, Factions, Institutions, Religions, and Law
-12. Historical World Simulation and Playable Year
-13. New-Run World Selection, Site Choice, and Scenario Materialization
-14. Local Context Mechanics: Environment, Geology, and Travel
-15. Penal Legions and Wilderness Service
-16. World Integration: Economy and Logistics
-17. World Integration: Investigations and Institutional Pressure
-18. Lazy Local Detail and World Discovery
-19. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-20. Campaign Roadmap: From Hidden Laboratory to World Domination
-21. New-Run Onboarding and Contextual Tutorial
-22. Sound, Notifications, and Accessibility Audit
-23. Production Art Pass Using the Sprite Pipeline
+1. Trial and Sentencing
+2. Prison Foundation and Long-Term Incarceration
+3. Prison Breaks, Rescue, and Release
+4. Death Row, Appeals, and Execution
+5. Reusable Worlds, Random Names, and Run Separation
+6. World Themes and Content Boundaries
+7. World Generation Foundation and Strategic Map
+8. Global Geography, Biomes, Terrain, and Resources
+9. Settlements, Cities, Routes, and Candidate Sites
+10. Civilizations, Factions, Institutions, Religions, and Law
+11. Historical World Simulation and Playable Year
+12. New-Run World Selection, Site Choice, and Scenario Materialization
+13. Local Context Mechanics: Environment, Geology, and Travel
+14. Penal Legions and Wilderness Service
+15. World Integration: Economy and Logistics
+16. World Integration: Investigations and Institutional Pressure
+17. Lazy Local Detail and World Discovery
+18. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+19. Campaign Roadmap: From Hidden Laboratory to World Domination
+20. New-Run Onboarding and Contextual Tutorial
+21. Sound, Notifications, and Accessibility Audit
+22. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -69,31 +68,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Jail Escape and Outside Rescue
-
-Expand escape from the temporary local jail into a causal physical system and add outside attempts to free the scientist before or during trial. The existing holding-cell security-study escape is a provisional vertical slice to replace or extend. Rescue and escape must use actual jail locations, schedules, doors, security, communication, equipment, injuries, pursuit, and evidence. This prompt does not cover escape from a post-conviction prison; that is a separate later system.
-
-Questions for discussion:
-
-- Which freedom routes should be implemented first?
-
-  Recommended answer: Support one self-engineered jail escape using observed routine and one ally-led extraction initiated through a communication or standing contingency. Add forceful assaults only after ordinary outside actors and the compact jail map can support them.
-
-- How should allies decide whether to help?
-
-  Recommended answer: Use saved loyalty, capability, risk tolerance, resources, communication, and the scientist's prior instructions. No ally should appear solely because an escape meter filled.
-
-- What does failure mean?
-
-  Recommended answer: Failed attempts can increase alert, restrict communication, injure or arrest participants, relocate the scientist, add evidence or charges, and delay proceedings. Failure remains playable unless the scientist dies.
-
-- Should escape return directly to the old laboratory?
-
-  Recommended answer: Only when a real route and safe reception exist. Otherwise place the scientist at the extraction endpoint or a hideout, mark fugitive status, and make returning to a watched or seized laboratory a deliberate risk.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Trial and Sentencing
+## 1. Trial and Sentencing
 
 Design and implement trial resolution, verdicts, sentencing, and the resulting release or transfer order. Continue to consume the exact authority, evidence, jail, and legal record. The scientist remains in jail during trial and briefly after conviction while sentencing and transfer are completed. This pass ends when the scientist is released, placed under a noncustodial sentence, ordered transferred to prison, or ordered transferred to death row; it does not build either destination.
 
@@ -117,7 +92,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Prison Foundation and Long-Term Incarceration
+## 2. Prison Foundation and Long-Term Incarceration
 
 Design and implement prison as a distinct post-conviction system for finite and life custodial sentences. Prison is a large long-term institution, not an enlarged jail. It should materialize as its own physical site with multiple security zones, a persistent population, staff, routines, relationships, work or program assignments, communication, discipline, transfers, health risks, and outside developments. The scientist's laboratory and campaign state continue while the scientist is imprisoned.
 
@@ -141,7 +116,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Prison Breaks, Rescue, and Release
+## 3. Prison Breaks, Rescue, and Release
 
 Design and implement the ways a scientist can leave an ordinary post-conviction prison: sentence completion, parole or commutation where supported, lawful transfer, self-engineered escape, and outside rescue. Consume the prison's actual routines, relationships, security zones, communications, equipment, staff, population, and outside actors rather than reusing the compact jail-escape rules.
 
@@ -165,7 +140,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Death Row, Appeals, and Execution
+## 4. Death Row, Appeals, and Execution
 
 Design and implement death row as a distinct post-sentencing system rather than an ordinary prison term. A death sentence creates a secure custody location, execution date and method, appeal and commutation deadlines, restrictions, staff and outside contacts, and possible rescue or escape opportunities. The sentence itself is never a game-over event.
 
@@ -189,7 +164,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Reusable Worlds, Random Names, and Run Separation
+## 5. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -215,7 +190,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. World Themes and Content Boundaries
+## 6. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -247,7 +222,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. World Generation Foundation and Strategic Map
+## 7. World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete, deterministic world that can be generated, named, saved, selected, and viewed before a run begins.
 
@@ -273,7 +248,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Global Geography, Biomes, Terrain, and Resources
+## 8. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography.
 
@@ -299,7 +274,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Settlements, Cities, Routes, and Candidate Sites
+## 9. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement the inhabited and connected layer of the generated world.
 
@@ -325,7 +300,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Civilizations, Factions, Institutions, Religions, and Law
+## 10. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world.
 
@@ -355,7 +330,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Historical World Simulation and Playable Year
+## 11. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year.
 
@@ -381,7 +356,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. New-Run World Selection, Site Choice, and Scenario Materialization
+## 12. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world.
 
@@ -407,7 +382,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. Local Context Mechanics: Environment, Geology, and Travel
+## 13. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of the selected world location.
 
@@ -429,7 +404,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. Penal Legions and Wilderness Service
+## 14. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path after the strategic world, local travel, and wilderness context exist. A scientist sentenced to penal service remains under military custody but deploys beyond fortified civilization against magical beasts. Consume the saved sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state rather than treating service as a sequence of unrelated combat rolls.
 
@@ -459,7 +434,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. World Integration: Economy and Logistics
+## 15. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics.
 
@@ -481,7 +456,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. World Integration: Investigations and Institutional Pressure
+## 16. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response.
 
@@ -503,7 +478,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 18. Lazy Local Detail and World Discovery
+## 17. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it.
 
@@ -529,7 +504,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 19. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 18. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the complete loop for beginning, losing, reviewing, and replacing a run without altering its reusable world.
 
@@ -555,7 +530,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 20. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 19. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. Add separate pending prompts for later phases identified during discussion rather than attempting the entire conquest arc in one implementation.
 
@@ -591,7 +566,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 21. New-Run Onboarding and Contextual Tutorial
+## 20. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable.
 
@@ -601,7 +576,7 @@ Recommended scope: a dismissible first-run checklist, contextual hints with cool
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 22. Sound, Notifications, and Accessibility Audit
+## 21. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review.
 
@@ -609,7 +584,7 @@ Treat sound as an additional cue rather than the only carrier of state. Audit no
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 23. Production Art Pass Using the Sprite Pipeline
+## 22. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set.
 
