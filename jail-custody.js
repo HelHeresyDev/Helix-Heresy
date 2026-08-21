@@ -299,6 +299,16 @@
     return { state, stay, changed: true };
   }
 
+  function remand(candidate, stayId, clock = 0, options = {}) {
+    const state = normalizeState(candidate); const stay = state.stays.find((entry) => entry.id === cleanId(stayId));
+    if (!stay || stay.status !== "released") return { state, stay, changed: false };
+    const at = Math.max(stay.bookedAt, finite(clock)); stay.status = "active";
+    stay.transport = { id: cleanId(options.transportId) || `${stay.id}-sentencing-remand`, label: "Armored court remand vehicle", vehicleClass: "armored custody vehicle", departedAt: Math.max(stay.bookedAt, at - 1800), arrivedAt: at, crewNames: Array.isArray(options.crewNames) ? options.crewNames.map(String) : [] };
+    stay.suppressor = { id: cleanId(options.suppressorId) || `${stay.id}-sentencing-collar`, kind: "magicSuppressingCollar", label: "Warded magic-suppressing collar", status: "locked", suppressionActive: true, condition: 100, physicalStackId: "", toolInstanceId: "", appliedAt: at, removedAt: null };
+    stay.routine = { ...routineAt(at, at), updatedAt: at }; stay.history.push({ at, action: "sentencingRemand", summary: String(options.summary || "A court custody vehicle returned the convicted scientist to temporary jail for the saved commitment-transfer window.").trim() });
+    return { state, stay, changed: true };
+  }
+
   function nextEvent(candidate, clock = 0) {
     const stay = activeStay(candidate);
     if (!stay) return null;
@@ -308,5 +318,5 @@
     return { at, kind: pending && pending.readyAt === at ? "communicationReady" : routine.nextEventKind, label: pending && pending.readyAt === at ? `${CHANNELS.find((entry) => entry.id === pending.channelId)?.label} ready` : routine.nextEventLabel };
   }
 
-  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, resecure, release, nextEvent });
+  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, resecure, release, remand, nextEvent });
 }));

@@ -1,0 +1,213 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const Trial = require('../trial-sentencing.js');
+
+const projectRoot = path.resolve(__dirname, '..');
+const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
+
+async function startRun(page) {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
+  });
+  await page.reload();
+  await page.locator('#startRunSubmitBtn').click();
+}
+
+async function bookScientist(page) {
+  const execution = await page.evaluate(() => window.helixHeresyDebug.issueTestWarrant('law-enforcement', { immediate: true }));
+  await page.evaluate((raidId) => {
+    window.helixHeresyDebug.placeScientistAtRaidEntry(raidId);
+    window.helixHeresyDebug.updateLawEnforcementRaids(1);
+    window.helixHeresyDebug.surrenderToRaid(raidId);
+    for (let index = 0; index < 8; index += 1) window.helixHeresyDebug.updateLawEnforcementRaids(1, { defer: index < 7 });
+  }, execution.raidId);
+  return execution.raidId;
+}
+
+function proceeding(overrides = {}) {
+  const support = {
+    id: 'support-1', sourceId: 'evidence-1', kind: 'authorityEvidence',
+    label: 'Research ledger describing deliberate unlicensed prohibited specimen experiments',
+    reliability: 'strong', significanceRank: 4, integrity: 100, scopeStatus: 'authorized', custodyIssues: [],
+    traits: ['research', 'prohibited', 'unlicensed', 'deliberate', 'specimen'], admissibility: 'admitted'
+  };
+  return {
+    id: 'pretrial-1', raidId: 'raid-1', docket: 'CR-0001', openedAt: 100,
+    court: { jurisdictionId: 'local-municipality', judge: { id: 'judge-1', name: 'Mara Vale', proceduralStrictness: 60 }, prosecutor: { id: 'prosecutor-1', name: 'Ivo Ward' } },
+    charges: [{ id: 'charge-1', typeId: 'prohibitedResearch', label: 'Unlicensed Prohibited Research', severity: 'serious', weight: 8, status: 'filed', publicProbableCause: 'Exact ledger support.', support: [support] }],
+    counsel: { selectedOptionId: 'counsel-1', options: [{ id: 'counsel-1', name: 'Sera Dunn', proceduralSkill: 72, workload: 40 }], conferences: [{ id: 'conference-1' }] },
+    discovery: { packetId: 'packet-1', items: [{ ...support, supportId: support.id, exculpatory: false }], witnesses: [{ id: 'witness-1', label: 'Authority evidence custodian', sourceItemIds: [`pretrial-1-discovery-${support.id}`] }] },
+    preparation: { progress: 70, credibility: 75 }, history: [{ at: 100, action: 'voluntarySurrender', summary: 'The scientist surrendered.' }],
+    release: { status: 'none', conditions: [] }, fugitive: { active: false }, plea: { status: 'rejected', offer: null },
+    trial: { status: 'scheduled', scheduledAt: 1000, trialAt: 2000, handoff: { remainingChargeIds: ['charge-1'], admissibleSupportIds: ['support-1'], witnessIds: ['witness-1'], preparation: 70, credibility: 75, counselOptionId: 'counsel-1', custodyStatus: 'detained', releaseConditionIds: [], pleaStatus: 'rejected', discoveryPacketId: 'packet-1' } },
+    ...overrides
+  };
+}
+
+function configuredCase(source = proceeding(), options = {}) {
+  let state = Trial.open(Trial.defaultState(), source, { clock: 1000, stayId: 'stay-1' }).state;
+  const caseId = state.cases[0].id;
+  state = Trial.configure(state, caseId, {
+    theories: Object.fromEntries(state.cases[0].charges.filter((charge) => charge.verdict === 'pending').map((charge) => [charge.id, 'contestIntent'])),
+    challengeKind: options.challengeKind || '', challengeTargetId: options.challengeTargetId || '', testify: Boolean(options.testify),
+    closingPriorityId: options.closingPriorityId || 'completeAcquittal', sentencingSubmissionId: options.sentencingSubmissionId || 'individualizedMercy'
+  }, 1100).state;
+  return state;
+}
+
+function finishTrial(state) {
+  const caseId = state.cases[0].id;
+  let clock = state.cases[0].trialAt;
+  for (let index = 0; index < 3; index += 1) {
+    const begun = Trial.beginAppearance(state, caseId, clock); expect(begun.changed).toBe(true);
+    const completed = Trial.completeAppearance(begun.state, caseId, clock + 3600); expect(completed.changed).toBe(true);
+    state = completed.state; clock += 3601;
+  }
+  return state;
+}
+
+test('a bench trial resolves every legal element from exact admitted support and written reasons', () => {
+  const state = finishTrial(configuredCase());
+  const caseRecord = state.cases[0];
+  expect(caseRecord).toMatchObject({ status: 'awaitingSentencing', charges: [{ verdict: 'guilty', elements: [
+    expect.objectContaining({ id: 'researchConduct', proven: true, supportIds: ['support-1'], threshold: 4.5 }),
+    expect.objectContaining({ id: 'prohibitedSubject', proven: true }),
+    expect.objectContaining({ id: 'knowingLackOfLicense', proven: true })
+  ] }] });
+  expect(caseRecord.charges[0].verdictReason).toContain('every required element');
+  expect(Trial.normalizeState(JSON.parse(JSON.stringify(state)))).toEqual(state);
+});
+
+test('reasonable doubt on one required element acquits without fabricating missing evidence', () => {
+  const weak = proceeding();
+  weak.charges[0].support[0] = { ...weak.charges[0].support[0], label: 'Unattributed laboratory photograph', reliability: 'weak', significanceRank: 1, integrity: 45, scopeStatus: 'unknown', custodyIssues: ['Broken chain'], traits: ['laboratory'] };
+  weak.discovery.items[0] = { ...weak.charges[0].support[0], supportId: 'support-1', exculpatory: true };
+  const state = finishTrial(configuredCase(weak, { challengeKind: 'support', challengeTargetId: 'support-1' }));
+  const caseRecord = state.cases[0];
+  expect(caseRecord).toMatchObject({ status: 'completed', charges: [{ verdict: 'notGuilty' }], sentencing: { order: { kind: 'acquittalRelease', custodial: false, status: 'releasePending' } } });
+  expect(caseRecord.charges[0].elements.some((element) => element.proven === false)).toBe(true);
+  expect(caseRecord.sentencing.order.reasons).toContain('No charge resulted in a conviction.');
+});
+
+test('a separate sentencing appearance combines convictions into a finite prison commitment', () => {
+  const source = proceeding(); source.charges[0].weight = 30;
+  let state = finishTrial(configuredCase(source)); const caseId = state.cases[0].id; const sentencingAt = state.cases[0].sentencingAt;
+  state = Trial.beginAppearance(state, caseId, sentencingAt).state;
+  const completed = Trial.completeAppearance(state, caseId, sentencingAt + 2700);
+  expect(completed.case).toMatchObject({ status: 'completed', sentencing: { order: { kind: 'finitePrison', custodial: true, destinationId: 'statePrisonIntake', incarcerationMonths: expect.any(Number), status: 'commitmentPending' } } });
+  expect(completed.case.sentencing.order.incarcerationMonths).toBeGreaterThan(0);
+  expect(completed.case.sentencing.order.transferNotBefore).toBeGreaterThan(completed.case.sentencing.order.issuedAt);
+});
+
+test('an accepted plea freezes dismissed charges and enforces its supervised-release recommendation', () => {
+  const source = proceeding({
+    charges: [
+      { ...proceeding().charges[0], id: 'charge-resolution' },
+      { ...proceeding().charges[0], id: 'charge-dismissed', typeId: 'hazardousBiologicalConduct', label: 'Hazardous Biological Conduct', weight: 5 }
+    ],
+    plea: { status: 'accepted', offer: { id: 'plea-1', resolutionChargeIds: ['charge-resolution'], dismissedChargeIds: ['charge-dismissed'], sentencingRecommendation: 'supervisedRelease', forfeitureAmount: 600 } },
+    trial: { status: 'pleaSentencing', scheduledAt: 1000, trialAt: null, handoff: { remainingChargeIds: ['charge-resolution'], admissibleSupportIds: ['support-1'], witnessIds: [], preparation: 70, credibility: 75, counselOptionId: 'counsel-1', custodyStatus: 'detained', releaseConditionIds: [], pleaStatus: 'accepted', discoveryPacketId: 'packet-1' } }
+  });
+  let state = configuredCase(source, { sentencingSubmissionId: 'restitutionAndCompliance' }); const caseId = state.cases[0].id;
+  expect(state.cases[0].charges.map((charge) => charge.verdict)).toEqual(['guilty', 'dismissed']);
+  state = Trial.beginAppearance(state, caseId, state.cases[0].sentencingAt).state;
+  const completed = Trial.completeAppearance(state, caseId, state.cases[0].sentencingAt + 2700);
+  expect(completed.case.sentencing.order).toMatchObject({ kind: 'fineProbation', custodial: false, probationMonths: expect.any(Number), forfeiture: 600, status: 'releasePending' });
+});
+
+test('capital eligibility creates a death-row order, not death or game over', () => {
+  const source = proceeding();
+  source.charges[0] = { ...source.charges[0], typeId: 'violentResistance', label: 'Violent Resistance to Arrest', severity: 'critical', weight: 40,
+    support: [{ ...source.charges[0].support[0], label: 'Officer death record from deliberate lethal attack during arrest', traits: ['attack', 'violent', 'officer', 'arrest', 'deliberate', 'resistance', 'death', 'killed'] }] };
+  source.discovery.items[0] = { ...source.charges[0].support[0], supportId: 'support-1' };
+  let state = finishTrial(configuredCase(source)); const caseId = state.cases[0].id;
+  state = Trial.beginAppearance(state, caseId, state.cases[0].sentencingAt).state;
+  const completed = Trial.completeAppearance(state, caseId, state.cases[0].sentencingAt + 2700);
+  expect(completed.case.sentencing.order).toMatchObject({ kind: 'deathRow', deathSentence: true, destinationId: 'deathRowIntake', provisionalExecutionProcessId: expect.any(String), final: true });
+  expect(completed.case.sentencing.order.reasons.at(-1)).toContain('does not kill the scientist');
+  expect(completed.case).not.toHaveProperty('runEnded');
+});
+
+test('sentencing bands support time served, penal service, and life imprisonment as distinct orders', () => {
+  for (const scenario of [
+    { weight: 5, submission: 'individualizedMercy', expected: 'timeServed' },
+    { weight: 30, submission: 'penalService', expected: 'penalLegion' },
+    { weight: 50, submission: 'individualizedMercy', expected: 'lifePrison' }
+  ]) {
+    const source = proceeding(); source.charges[0].weight = scenario.weight;
+    let state = finishTrial(configuredCase(source, { sentencingSubmissionId: scenario.submission })); const caseId = state.cases[0].id;
+    state = Trial.beginAppearance(state, caseId, state.cases[0].sentencingAt).state;
+    const completed = Trial.completeAppearance(state, caseId, state.cases[0].sentencingAt + 2700);
+    expect(completed.case.sentencing.order.kind).toBe(scenario.expected);
+  }
+});
+
+test('missing a required trial appearance records nonappearance without resolving a verdict', () => {
+  const source = proceeding(); source.trial.handoff.custodyStatus = 'released';
+  const state = configuredCase(source); const advanced = Trial.advance(state, state.cases[0].appearanceDeadline + 1);
+  expect(advanced).toMatchObject({ changes: 1, state: { cases: [{ status: 'missed', missedAt: expect.any(Number), charges: [{ verdict: 'pending' }] }] } });
+});
+
+test('@smoke a detained scientist physically completes a bench trial and receives a saved prison commitment without game over', async ({ page }) => {
+  test.setTimeout(120_000);
+  await startRun(page);
+  await bookScientist(page);
+  const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true }));
+  expect(caseId).toMatch(/^trial-case-/);
+  let snapshot = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+  expect(snapshot).toMatchObject({ activeCase: { id: caseId, status: 'scheduled', strategy: { configured: true }, currentPhaseId: 'prosecution' }, activeStay: { status: 'active' }, runEnded: false });
+
+  for (const phaseId of ['prosecution', 'defense', 'deliberation']) {
+    expect(await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId)).toBe(true);
+    expect((await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot())).scientist.roomId).toBe('municipalHoldingLegalRoom');
+    expect(await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow())).toBe(true);
+    snapshot = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+    expect(snapshot.cases[0].phases.at(-1)).toMatchObject({ id: phaseId, completedAt: expect.any(Number) });
+  }
+  expect(snapshot.cases[0]).toMatchObject({ status: 'awaitingSentencing', currentPhaseId: 'sentencing', charges: [expect.objectContaining({ verdict: 'guilty', elements: expect.arrayContaining([expect.objectContaining({ proven: true })]) })] });
+  expect(await page.evaluate((id) => window.helixHeresyDebug.makeTrialAppearanceDueNow(id), caseId)).toBe(true);
+  expect(await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId)).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow())).toBe(true);
+
+  snapshot = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+  expect(snapshot).toMatchObject({ activeCase: null, cases: [{ status: 'completed', sentencing: { order: { kind: 'finitePrison', custodial: true, destinationId: 'statePrisonIntake', status: 'commitmentPending' } } }], activeStay: { status: 'active' }, runEnded: false });
+  const pretrial = await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot());
+  expect(pretrial.proceedings[0]).toMatchObject({ status: 'resolved', resolution: { judgmentId: caseId, outcomeKind: 'finitePrison' } });
+  expect(pretrial.scientist.roomId).toBe('municipalHoldingCell');
+
+  await page.locator('[data-workspace-tab="visits"]').click();
+  const trialRow = page.locator(`[data-trial-case-id="${caseId}"]`);
+  await expect(trialRow).toContainText('Final order: Finite prison commitment');
+  await expect(trialRow).toContainText('every required element was proven');
+
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  const reloaded = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+  expect(reloaded.cases[0]).toMatchObject({ id: caseId, status: 'completed', sentencing: { order: { commitmentId: expect.any(String), status: 'commitmentPending' } } });
+  expect(reloaded.runEnded).toBe(false);
+});
+
+test('@smoke a final noncustodial judgment releases the scientist through the armored jail route', async ({ page }) => {
+  test.setTimeout(120_000);
+  await startRun(page);
+  await bookScientist(page);
+  const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady());
+  for (let index = 0; index < 3; index += 1) {
+    expect(await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId)).toBe(true);
+    expect(await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow())).toBe(true);
+  }
+  expect(await page.evaluate((id) => window.helixHeresyDebug.makeTrialAppearanceDueNow(id), caseId)).toBe(true);
+  expect(await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId)).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow())).toBe(true);
+  let snapshot = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+  expect(snapshot).toMatchObject({ cases: [{ sentencing: { order: { kind: 'timeServed', custodial: false, status: 'releasePending' } } }], activeStay: { status: 'active' }, scientist: { roomId: 'municipalHoldingProcessing' }, runEnded: false });
+  expect(await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow())).toBe(true);
+  snapshot = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
+  expect(snapshot).toMatchObject({ cases: [{ sentencing: { order: { kind: 'timeServed', status: 'completed' } } }], activeStay: null, scientist: { roomId: 'surfaceReception' }, runEnded: false });
+  const raids = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot());
+  expect(raids.raids[0]).toMatchObject({ status: 'completed', custody: { status: 'released' }, detention: { status: 'released' } });
+});

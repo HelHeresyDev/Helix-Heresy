@@ -102,6 +102,22 @@ test('detention release to fugitive state requires a completed causal escape pla
   expect(state.raids[0]).toMatchObject({ status: 'escaped', custody: { status: 'escaped' }, detention: { status: 'escaped', securityStudyProgress: 0, alert: 0 }, outcome: { summary: expect.stringContaining('escape-plan-1') } });
 });
 
+test('a released raid custody record can reopen only as a physical sentencing hold', () => {
+  let state = Raids.authorize(Raids.defaultState(), execution(), { seed: 'sentence-remand', clock: 100 }).state;
+  const raidId = state.raids[0].id;
+  state = Raids.activate(state, raidId, { clock: 200, entryCell: { x: 1, y: 2, z: 1 }, roomId: 'surfaceReception' }).state;
+  state = Raids.recordSighting(state, raidId, { clock: 201, actorId: state.raids[0].actors[0].id, cell: { x: 1, y: 2, z: 1 }, roomId: 'surfaceReception' }).state;
+  state = Raids.surrender(state, raidId, 202).state;
+  state = Raids.progressRestraint(state, raidId, { clock: 210, actorId: `${raidId}-arrest`, amount: 100 }).state;
+  state = Raids.extract(state, raidId, 220).state;
+  state = Raids.book(state, raidId, { clock: 300 }).state;
+  state = Raids.releaseDetention(state, raidId, 400).state;
+  const remanded = Raids.remandForSentence(state, raidId, 500);
+  expect(remanded.raid).toMatchObject({ status: 'booked', custody: { status: 'booked', bookedAt: 500 }, detention: { status: 'sentencingHold', bookingAt: 500 }, outcome: { kind: 'sentencingRemand' } });
+  const escaped = Raids.escapeDetention(remanded.state, raidId, 600, { completedPlanId: 'post-verdict-escape-1' });
+  expect(escaped.raid).toMatchObject({ status: 'escaped', detention: { status: 'escaped' }, outcome: { summary: expect.stringContaining('post-verdict-escape-1') } });
+});
+
 test('exact responsive seizures and unobserved site escape remain nonterminal outcomes', () => {
   let state = Raids.authorize(Raids.defaultState(), execution(), { seed: 'seizure-escape', clock: 100 }).state;
   const raidId = state.raids[0].id;
