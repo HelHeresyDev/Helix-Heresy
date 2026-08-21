@@ -155,6 +155,26 @@ test('a physically interrupted escape attempt adds one evidence-linked charge wi
   expect(second.proceeding.charges.filter((charge) => charge.typeId === 'attemptedEscape')).toHaveLength(1);
 });
 
+test('a missed bench trial adds one exact failure-to-appear charge without fabricating a verdict', () => {
+  let state = reviewedCase(); const proceedingId = state.proceedings[0].id;
+  state = Pretrial.scheduleTrial(state, proceedingId, 200000).state;
+  const missed = Pretrial.recordTrialFailureToAppear(state, proceedingId, { clock: 300000, trialCaseId: 'trial-case-1' });
+  const duplicate = Pretrial.recordTrialFailureToAppear(missed.state, proceedingId, { clock: 300001, trialCaseId: 'trial-case-1' });
+  expect(missed.proceeding).toMatchObject({ status: 'fugitive', trial: { status: 'missed' }, fugitive: { active: true, benchWarrantStatus: 'issued' }, resolution: null });
+  expect(missed.charge).toMatchObject({ typeId: 'failureToAppear', support: [expect.objectContaining({ sourceId: 'trial-case-1', kind: 'courtRecord' })] });
+  expect(duplicate.changed).toBe(false);
+});
+
+test('final judgment resolves exact charges, lifts pretrial conditions, and refunds held bail', () => {
+  let state = reviewedCase(); const proceedingId = state.proceedings[0].id;
+  state.proceedings[0].release = { ...state.proceedings[0].release, status: 'released', escrowStatus: 'held', bailAmount: 1200, conditions: [{ id: 'condition-1', kind: 'weeklyReporting', label: 'Report weekly', status: 'active', imposedAt: 1000, liftedAt: null }] };
+  state = Pretrial.scheduleTrial(state, proceedingId, 200000).state;
+  const chargeId = state.proceedings[0].charges.find((charge) => charge.status === 'filed').id;
+  const result = Pretrial.recordJudgment(state, proceedingId, { clock: 300000, judgmentId: 'trial-case-1', sentenceOrderId: 'order-1', outcomeKind: 'fineProbation', verdicts: [{ chargeId, verdict: 'guilty', reason: 'Every element was proven.' }], summary: 'Judgment entered after the physical bench trial.' });
+  expect(result.proceeding).toMatchObject({ status: 'resolved', trial: { status: 'resolved' }, release: { escrowStatus: 'refunded', conditions: [expect.objectContaining({ status: 'lifted', liftedAt: 300000 })] }, resolution: { judgmentId: 'trial-case-1', sentenceOrderId: 'order-1', outcomeKind: 'fineProbation', verdicts: [{ chargeId, verdict: 'guilty' }] } });
+  expect(result.proceeding.charges.find((charge) => charge.id === chargeId).status).toBe('resolved');
+});
+
 test('@smoke booking opens court, counsel meets privately, releases physically, reviews discovery, and schedules trial', async ({ page }) => {
   test.setTimeout(180_000);
   await startRun(page);

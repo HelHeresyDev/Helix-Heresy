@@ -78,6 +78,14 @@ test('physical recapture restricts communications and creates a fresh locked sup
   expect(secured.stay).toMatchObject({ status: 'active', suppressor: { id: 'replacement-collar', status: 'locked', suppressionActive: true, condition: 100 }, communications: { requests: [expect.objectContaining({ status: 'denied' })] }, knowledge: { facilityAlert: 25 } });
 });
 
+test('a released defendant can be physically remanded for the sentencing commitment window', () => {
+  let state = Jail.book(Jail.defaultState(), { seed: 'sentence-remand', clock: 100, raidId: 'raid-1' }).state;
+  const stayId = state.stays[0].id; state = Jail.release(state, stayId, 200).state;
+  const remanded = Jail.remand(state, stayId, 300, { suppressorId: 'sentence-collar', crewNames: ['Mara Vale', 'Ivo Ward'] });
+  expect(remanded.stay).toMatchObject({ status: 'active', transport: { label: 'Armored court remand vehicle', crewNames: ['Mara Vale', 'Ivo Ward'] }, suppressor: { id: 'sentence-collar', status: 'locked', suppressionActive: true, appliedAt: 300 } });
+  expect(remanded.stay.history.at(-1).action).toBe('sentencingRemand');
+});
+
 test('@smoke jail collar is physical, saved, nonterminal, and authoritatively suppresses magic', async ({ page }) => {
   test.setTimeout(90_000);
   await startRun(page);

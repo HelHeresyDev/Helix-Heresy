@@ -5,7 +5,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createHelixPretrialProceedings() {
   "use strict";
 
-  const VERSION = 2;
+  const VERSION = 3;
   const HOUR = 3600;
   const STATUSES = Object.freeze(["chargingPending", "counselSelection", "firstAppearanceReady", "hearing", "detained", "bailPending", "released", "fugitive", "pleaAccepted", "trialScheduled", "chargesDismissed", "resolved"]);
   const COUNSEL_KINDS = Object.freeze(["public", "retained", "self"]);
@@ -298,12 +298,17 @@
         reasons: (Array.isArray(source.plea?.reasons) ? source.plea.reasons : []).map(String)
       },
       trial: {
-        status: ["unscheduled", "scheduled", "pleaSentencing", "dismissed"].includes(source.trial?.status) ? source.trial.status : "unscheduled",
+        status: ["unscheduled", "scheduled", "pleaSentencing", "dismissed", "resolved", "missed"].includes(source.trial?.status) ? source.trial.status : "unscheduled",
         scheduledAt: source.trial?.scheduledAt == null ? null : Math.max(openedAt, finite(source.trial.scheduledAt)),
         trialAt: source.trial?.trialAt == null ? null : Math.max(openedAt, finite(source.trial.trialAt)),
         appearanceRequired: source.trial?.appearanceRequired !== false,
         handoff: source.trial?.handoff && typeof source.trial.handoff === "object" ? { ...source.trial.handoff } : null
       },
+      resolution: source.resolution && typeof source.resolution === "object" ? {
+        judgmentId: cleanId(source.resolution.judgmentId), enteredAt: Math.max(openedAt, finite(source.resolution.enteredAt)),
+        verdicts: (Array.isArray(source.resolution.verdicts) ? source.resolution.verdicts : []).map((entry) => ({ chargeId: cleanId(entry?.chargeId), verdict: ["guilty", "notGuilty", "dismissed"].includes(entry?.verdict) ? entry.verdict : "notGuilty", reason: String(entry?.reason || "").trim() })),
+        sentenceOrderId: cleanId(source.resolution.sentenceOrderId), outcomeKind: cleanId(source.resolution.outcomeKind), summary: String(source.resolution.summary || "").trim()
+      } : null,
       history: normalizeHistory(source.history)
     };
   }
@@ -586,7 +591,7 @@
             label: support.label, summary: `${support.label}; ${support.reliability} reliability, significance ${support.significanceRank}.`,
             reliability: support.reliability, significanceRank: support.significanceRank, integrity: support.integrity, scopeStatus: support.scopeStatus,
             custodyIssues: support.custodyIssues, traits: support.traits,
-            exculpatory: support.reliability === "weak" || /contradiction|exculpatory|licensed|authorized|lawful|innocent/.test(traitText),
+            exculpatory: support.reliability === "weak" || /contradiction|exculpatory|\blicensed\b|\bauthorized\b|lawful|innocent/.test(traitText),
             admissibility: support.admissibility, exclusionReason: support.exclusionReason
           }, itemBySupportId.size);
           itemBySupportId.set(support.id, item);
@@ -815,6 +820,41 @@
     return { state, proceeding, changed: true };
   }
 
+  function recordTrialFailureToAppear(candidate, proceedingId, options = {}) {
+    const state = normalizeState(candidate); const proceeding = state.proceedings.find((entry) => entry.id === cleanId(proceedingId));
+    if (!proceeding || proceeding.status === "resolved" || proceeding.charges.some((charge) => charge.typeId === "failureToAppear" && charge.support.some((support) => support.sourceId === cleanId(options.trialCaseId)))) return { state, proceeding, changed: false };
+    const at = Math.max(proceeding.openedAt, finite(options.clock)); const trialCaseId = cleanId(options.trialCaseId) || proceeding.id;
+    const charge = normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "failureToAppear", status: "filed", filedAt: at, publicProbableCause: "The defendant failed to attend the saved required bench-trial appearance.", support: [{ id: `${proceeding.id}-trial-fta-${trialCaseId}`, kind: "courtRecord", sourceId: trialCaseId, label: "Saved missed bench-trial appearance", reliability: "strong", significanceRank: 4, traits: ["required court appearance", "served notice", "failure to appear", "nonappearance"] }] }, proceeding.charges.length);
+    proceeding.charges.push(charge); proceeding.fugitive.active = true; proceeding.fugitive.failureToAppearAt = at; proceeding.fugitive.benchWarrantStatus = "issued"; proceeding.status = "fugitive"; proceeding.trial.status = "missed";
+    if (proceeding.release.escrowStatus === "held") { proceeding.release.escrowStatus = "forfeited"; proceeding.release.status = "forfeited"; }
+    proceeding.history.push({ at, action: "trialFailureToAppear", summary: "The released scientist missed the required bench trial; the court added an evidence-linked failure-to-appear charge and issued a bench warrant without fabricating a verdict." });
+    return { state, proceeding, charge, changed: true };
+  }
+
+  function recordJudgment(candidate, proceedingId, options = {}) {
+    const state = normalizeState(candidate); const proceeding = state.proceedings.find((entry) => entry.id === cleanId(proceedingId)); const judgmentId = cleanId(options.judgmentId);
+    if (!proceeding || !judgmentId || proceeding.resolution?.judgmentId === judgmentId) return { state, proceeding, changed: false };
+    const at = Math.max(proceeding.openedAt, finite(options.clock)); const verdicts = (Array.isArray(options.verdicts) ? options.verdicts : []).map((entry) => ({ chargeId: cleanId(entry?.chargeId), verdict: ["guilty", "notGuilty", "dismissed"].includes(entry?.verdict) ? entry.verdict : "notGuilty", reason: String(entry?.reason || "").trim() }));
+    for (const verdict of verdicts) {
+      const charge = proceeding.charges.find((entry) => entry.id === verdict.chargeId); if (!charge) continue;
+      charge.status = verdict.verdict === "dismissed" ? "dismissed" : "resolved";
+    }
+    const continueMagicSuppression = Boolean(options.continueMagicSuppression);
+    for (const condition of proceeding.release.conditions.filter((entry) => entry.status === "active")) {
+      if (continueMagicSuppression && condition.kind === "courtMagicSuppression") { condition.sourceSentenceOrderId = cleanId(options.sentenceOrderId); continue; }
+      condition.status = "lifted"; condition.liftedAt = at;
+    }
+    if (continueMagicSuppression && !proceeding.release.conditions.some((entry) => entry.kind === "courtMagicSuppression" && entry.status === "active")) {
+      proceeding.release.conditions.push(normalizeCondition({ id: `${proceeding.id}-sentence-magic-suppression`, kind: "courtMagicSuppression", label: "Wear a probation-ordered magic suppressor", physicallyEnforced: true, sourceSentenceOrderId: cleanId(options.sentenceOrderId), imposedAt: at }));
+    }
+    if (options.releaseAuthorized) { proceeding.release.status = "released"; proceeding.release.kind = cleanId(options.outcomeKind) || "finalRelease"; proceeding.release.orderedAt = at; proceeding.release.releasedAt = at; }
+    if (proceeding.release.escrowStatus === "held") proceeding.release.escrowStatus = "refunded";
+    proceeding.status = "resolved"; proceeding.trial.status = "resolved"; proceeding.updatedAt = at;
+    proceeding.resolution = { judgmentId, enteredAt: at, verdicts, sentenceOrderId: cleanId(options.sentenceOrderId), outcomeKind: cleanId(options.outcomeKind), summary: String(options.summary || "Final judgment and sentence entered from the saved trial record.").trim() };
+    proceeding.history.push({ at, action: "finalJudgment", summary: proceeding.resolution.summary });
+    return { state, proceeding, changed: true };
+  }
+
   function markFailureToAppear(state, proceeding, clock) {
     if (proceeding.charges.some((charge) => charge.typeId === "failureToAppear")) return false;
     proceeding.charges.push(normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "failureToAppear", status: "filed", filedAt: clock, publicProbableCause: "The defendant did not appear at the scheduled first appearance.", support: [{ id: `${proceeding.id}-fta-support`, kind: "courtRecord", sourceId: proceeding.id, label: "Saved missed court appearance", reliability: "strong", significanceRank: 3, traits: ["failure to appear"] }] }, proceeding.charges.length));
@@ -864,7 +904,7 @@
     VERSION, STATUSES, COUNSEL_KINDS, SUBMISSIONS, MOTION_DEFS, CLAIM_DEFS, COUNTER_DEFS, CHARGE_DEFS,
     defaultState, normalizeState, normalizeProceeding, open, current, selectCounsel, markCounselPaid,
     recordConference, hearingRequirements, beginHearing, resolveHearing, payBail, markReleased, markFugitive, recordFailedEscape,
-    serveDiscovery, recordPreparation, preparationRequirement, resolveMotion, submitDefenseClaim, createPleaOffer, respondToPlea, scheduleTrial, trialHandoff,
+    serveDiscovery, recordPreparation, preparationRequirement, resolveMotion, submitDefenseClaim, createPleaOffer, respondToPlea, scheduleTrial, trialHandoff, recordTrialFailureToAppear, recordJudgment,
     advance, nextEvent
   });
 }));

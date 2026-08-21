@@ -152,7 +152,7 @@
         facilityLabel: String(source.detention.facilityLabel || "Municipal Holding Facility").trim(),
         cellRoomId: cleanId(source.detention.cellRoomId) || "municipalHoldingCell",
         bookingAt: Math.max(authorizedAt, finite(source.detention.bookingAt)),
-        status: ["pretrial", "released", "escaped", "transferred"].includes(source.detention.status) ? source.detention.status : "pretrial",
+        status: ["pretrial", "sentencingHold", "released", "escaped", "transferred"].includes(source.detention.status) ? source.detention.status : "pretrial",
         securityStudyProgress: Math.max(0, Math.min(100, finite(source.detention.securityStudyProgress))),
         alert: Math.max(0, Math.min(100, finite(source.detention.alert)))
       } : null,
@@ -329,7 +329,7 @@
 
   function studySecurity(candidate, raidId, options = {}) {
     return withRaid(candidate, raidId, (raid) => {
-      if (raid.status !== "booked" || raid.detention?.status !== "pretrial") return false;
+      if (raid.status !== "booked" || !["pretrial", "sentencingHold"].includes(raid.detention?.status)) return false;
       raid.detention.securityStudyProgress = Math.min(100, raid.detention.securityStudyProgress + Math.max(0, finite(options.amount, 20)));
       raid.detention.alert = Math.min(100, raid.detention.alert + Math.max(0, finite(options.alert)));
       raid.history.push({ at: Math.max(raid.authorizedAt, finite(options.clock)), action: "securityStudied", summary: "The detained scientist studied the holding cell's physical security and routines." });
@@ -339,7 +339,7 @@
 
   function escapeDetention(candidate, raidId, clock = 0, options = {}) {
     return withRaid(candidate, raidId, (raid) => {
-      if (raid.status !== "booked" || raid.detention?.status !== "pretrial" || (!options.completedPlanId && raid.detention.securityStudyProgress < 100)) return false;
+      if (raid.status !== "booked" || !["pretrial", "sentencingHold"].includes(raid.detention?.status) || (!options.completedPlanId && raid.detention.securityStudyProgress < 100)) return false;
       const at = Math.max(raid.authorizedAt, finite(clock)); raid.status = "escaped"; raid.custody.status = "escaped"; raid.custody.escapedAt = at;
       raid.detention.status = "escaped"; raid.outcome = { kind: "escapedDetention", at, summary: options.summary || `The scientist completed ${cleanId(options.completedPlanId) || "the detention escape"} and remains alive as a fugitive.` };
       raid.history.push({ at, action: "escapedDetention", summary: raid.outcome.summary });
@@ -356,6 +356,16 @@
       raid.outcome = { kind: "pretrialRelease", at, summary: "The criminal case continued after a court-authorized release from temporary jail." };
       raid.history.push({ at, action: "pretrialRelease", summary: raid.outcome.summary });
       return true;
+    });
+  }
+
+  function remandForSentence(candidate, raidId, clock = 0, options = {}) {
+    return withRaid(candidate, raidId, (raid) => {
+      if (raid.status !== "completed" || raid.custody.status !== "released" || !raid.detention) return false;
+      const at = Math.max(raid.authorizedAt, finite(clock));
+      raid.status = "booked"; raid.custody.status = "booked"; raid.custody.bookedAt = at; raid.detention.status = "sentencingHold"; raid.detention.bookingAt = at;
+      raid.communication.state = "custody"; raid.outcome = { kind: "sentencingRemand", at, summary: String(options.summary || "The court physically remanded the convicted scientist to temporary jail pending the saved destination commitment.").trim() };
+      raid.history.push({ at, action: "sentencingRemand", summary: raid.outcome.summary }); return true;
     });
   }
 
@@ -453,7 +463,7 @@
   return Object.freeze({
     VERSION, STATUSES, ACTOR_STATUSES, CUSTODY_STATUSES, TEAM_ROLES,
     defaultState, normalizeState, normalizeRaid, authorize, authorizeRecapture, activate, recordSighting,
-    surrender, revokeSurrender, progressRestraint, extract, book, studySecurity, escapeDetention, releaseDetention, escalateForce,
+    surrender, revokeSurrender, progressRestraint, extract, book, studySecurity, escapeDetention, releaseDetention, remandForSentence, escalateForce,
     recordSeizure, externalizeSeizures, completeUnlocated, escapeSite, recordScientistDeath, nextEvent
   });
 }));
