@@ -262,13 +262,27 @@
     return { state, stay, changed: true };
   }
 
-  function escape(candidate, stayId, clock = 0) {
+  function escape(candidate, stayId, clock = 0, options = {}) {
     let state = normalizeState(candidate);
     let stay = state.stays.find((entry) => entry.id === cleanId(stayId));
-    if (!stay || stay.status !== "active" || stay.knowledge.securityObservations.length < OBSERVATIONS.length) return { state, stay, changed: false };
-    ({ state, stay } = disableSuppressor(state, stay.id, clock, "The scientist physically disabled and removed the warded collar while exploiting the provisional escape route."));
+    if (!stay || stay.status !== "active" || (!options.completedPlanId && stay.knowledge.securityObservations.length < OBSERVATIONS.length)) return { state, stay, changed: false };
+    ({ state, stay } = disableSuppressor(state, stay.id, clock, options.reason || "The scientist physically disabled and removed the warded collar during the completed escape plan."));
     stay.status = "escaped";
-    stay.history.push({ at: Math.max(stay.bookedAt, finite(clock)), action: "escaped", summary: "The scientist escaped temporary jail; the run continued under fugitive pressure." });
+    stay.history.push({ at: Math.max(stay.bookedAt, finite(clock)), action: "escaped", summary: options.summary || `The scientist completed escape plan ${cleanId(options.completedPlanId) || "provisional"}; the run continued under fugitive pressure.` });
+    return { state, stay, changed: true };
+  }
+
+  function resecure(candidate, stayId, clock = 0, options = {}) {
+    const state = normalizeState(candidate); const stay = state.stays.find((entry) => entry.id === cleanId(stayId));
+    if (!stay || stay.status !== "active") return { state, stay, changed: false };
+    const at = Math.max(stay.bookedAt, finite(clock));
+    stay.suppressor = {
+      id: cleanId(options.suppressorId) || `${stay.id}-replacement-suppressor`, kind: "magicSuppressingCollar", label: "Warded magic-suppressing collar",
+      status: "locked", suppressionActive: true, condition: 100, physicalStackId: "", toolInstanceId: "", appliedAt: at, removedAt: null
+    };
+    stay.knowledge.facilityAlert = Math.min(100, stay.knowledge.facilityAlert + Math.max(0, finite(options.alertGain, 25)));
+    for (const request of stay.communications.requests) if (["pending", "ready"].includes(request.status) && request.channelId !== "legalCounsel") request.status = "denied";
+    stay.history.push({ at, action: "escapeRecaptured", summary: String(options.summary || "Officers recaptured the scientist, confiscated the escape equipment, restricted nonlegal communications, and fitted a replacement suppressor.").trim() });
     return { state, stay, changed: true };
   }
 
@@ -294,5 +308,5 @@
     return { at, kind: pending && pending.readyAt === at ? "communicationReady" : routine.nextEventKind, label: pending && pending.readyAt === at ? `${CHANNELS.find((entry) => entry.id === pending.channelId)?.label} ready` : routine.nextEventLabel };
   }
 
-  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, release, nextEvent });
+  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, resecure, release, nextEvent });
 }));

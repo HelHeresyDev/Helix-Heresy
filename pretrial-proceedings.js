@@ -43,6 +43,7 @@
     violentResistance: { id: "violentResistance", label: "Violent Resistance to Arrest", severity: "critical", weight: 14, maximumExposure: "Severe consecutive sentence" },
     escapeCustody: { id: "escapeCustody", label: "Escape from Pretrial Custody", severity: "critical", weight: 13, maximumExposure: "Additional custodial sentence" },
     failureToAppear: { id: "failureToAppear", label: "Failure to Appear", severity: "serious", weight: 8, maximumExposure: "Bench warrant and additional sentence" },
+    attemptedEscape: { id: "attemptedEscape", label: "Attempted Escape from Pretrial Custody", severity: "serious", weight: 8, maximumExposure: "Additional custodial sentence" },
     falseStatement: { id: "falseStatement", label: "Material False Statement to the Court", severity: "serious", weight: 6, maximumExposure: "Additional custodial sentence and credibility consequences" }
   });
   const GIVEN_NAMES = Object.freeze(["Mara", "Ivo", "Nia", "Dane", "Sera", "Oren", "Tamsin", "Cal", "Vera", "Jules", "Anja", "Rook"]);
@@ -547,6 +548,17 @@
     return { state, proceeding, changed: true };
   }
 
+  function recordFailedEscape(candidate, proceedingId, options = {}) {
+    const state = normalizeState(candidate); const proceeding = state.proceedings.find((entry) => entry.id === cleanId(proceedingId));
+    if (!proceeding) return { state, proceeding, charge: null, changed: false };
+    const attemptId = cleanId(options.attemptId); const existing = proceeding.charges.find((charge) => charge.typeId === "attemptedEscape" && charge.support.some((support) => support.sourceId === attemptId));
+    if (existing) return { state, proceeding, charge: existing, changed: false };
+    const at = Math.max(proceeding.openedAt, finite(options.clock));
+    const charge = normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "attemptedEscape", status: "filed", filedAt: at, publicProbableCause: "Custody officers physically interrupted a saved escape attempt inside municipal holding.", support: [{ id: `${proceeding.id}-attempted-escape-${attemptId}`, kind: "jailCustody", sourceId: attemptId, label: String(options.label || "Recorded failed jail escape attempt"), reliability: "strong", significanceRank: 3, traits: ["attempted escape", "custody officer observation"] }] }, proceeding.charges.length);
+    proceeding.charges.push(charge); proceeding.history.push({ at, action: "failedEscapeCharge", summary: `${charge.label} was filed from the physically interrupted attempt ${attemptId}.` });
+    return { state, proceeding, charge, changed: true };
+  }
+
   function activeCharges(proceeding) {
     return proceeding.charges.filter((charge) => charge.status === "filed");
   }
@@ -851,7 +863,7 @@
   return Object.freeze({
     VERSION, STATUSES, COUNSEL_KINDS, SUBMISSIONS, MOTION_DEFS, CLAIM_DEFS, COUNTER_DEFS, CHARGE_DEFS,
     defaultState, normalizeState, normalizeProceeding, open, current, selectCounsel, markCounselPaid,
-    recordConference, hearingRequirements, beginHearing, resolveHearing, payBail, markReleased, markFugitive,
+    recordConference, hearingRequirements, beginHearing, resolveHearing, payBail, markReleased, markFugitive, recordFailedEscape,
     serveDiscovery, recordPreparation, preparationRequirement, resolveMotion, submitDefenseClaim, createPleaOffer, respondToPlea, scheduleTrial, trialHandoff,
     advance, nextEvent
   });

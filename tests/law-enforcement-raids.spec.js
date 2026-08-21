@@ -89,7 +89,7 @@ test('revoked surrender and lethal force preserve their exact causal records', (
   expect(state.raids[0].history.map((entry) => entry.action)).toEqual(expect.arrayContaining(['surrenderRevoked', 'lethalForceAuthorized']));
 });
 
-test('detention security study creates a difficult saved self-escape path', () => {
+test('detention release to fugitive state requires a completed causal escape plan', () => {
   let state = Raids.authorize(Raids.defaultState(), execution(), { seed: 'escape', clock: 100 }).state;
   const raidId = state.raids[0].id;
   state = Raids.activate(state, raidId, { clock: 200, entryCell: { x: 1, y: 2, z: 1 }, roomId: 'surfaceReception' }).state;
@@ -98,9 +98,8 @@ test('detention security study creates a difficult saved self-escape path', () =
   state = Raids.extract(state, raidId, 220).state;
   state = Raids.book(state, raidId, { clock: 300 }).state;
   expect(Raids.escapeDetention(state, raidId, 301).changed).toBe(false);
-  for (let index = 0; index < 5; index += 1) state = Raids.studySecurity(state, raidId, { clock: 310 + index, amount: 20, alert: 2 }).state;
-  state = Raids.escapeDetention(state, raidId, 400).state;
-  expect(state.raids[0]).toMatchObject({ status: 'escaped', custody: { status: 'escaped' }, detention: { status: 'escaped', securityStudyProgress: 100, alert: 10 } });
+  state = Raids.escapeDetention(state, raidId, 400, { completedPlanId: 'escape-plan-1' }).state;
+  expect(state.raids[0]).toMatchObject({ status: 'escaped', custody: { status: 'escaped' }, detention: { status: 'escaped', securityStudyProgress: 0, alert: 0 }, outcome: { summary: expect.stringContaining('escape-plan-1') } });
 });
 
 test('exact responsive seizures and unobserved site escape remain nonterminal outcomes', () => {
@@ -167,21 +166,6 @@ test('@smoke a physical surrender is restrained, extracted, and booked without e
   const reloaded = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot());
   expect(reloaded).toMatchObject({ runEnded: false, detentionRaid: { id: execution.raidId, status: 'booked' }, scientist: { roomId: 'municipalHoldingCell' } });
 
-  for (let index = 0; index < 5; index += 1) {
-    const task = await page.evaluate((raidId) => window.helixHeresyDebug.queueDetentionSecurityStudy(raidId), execution.raidId);
-    expect(task).not.toBeNull();
-    const clock = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot().clock);
-    await page.evaluate((seconds) => window.helixHeresyDebug.advanceSimulation(seconds), Math.ceil(task.dueAt - clock + 1));
-  }
-  const studied = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot());
-  expect(studied.detentionRaid.detention).toMatchObject({ status: 'pretrial', securityStudyProgress: 100, alert: 15 });
-  expect(studied.runEnded).toBe(false);
-
-  const escaped = await page.evaluate((raidId) => window.helixHeresyDebug.escapeMunicipalHolding(raidId), execution.raidId);
-  expect(escaped).toBe(true);
-  const fugitive = await page.evaluate(() => window.helixHeresyDebug.lawEnforcementRaidsSnapshot());
-  expect(fugitive).toMatchObject({ runEnded: false, scientist: { roomId: 'concealedExit' } });
-  expect(fugitive.raids.find((entry) => entry.id === execution.raidId)).toMatchObject({ status: 'escaped', custody: { status: 'escaped' }, outcome: { kind: 'escapedDetention' } });
 });
 
 test('a concealed scientist is not tracked through walls and survives an unsuccessful physical search', async ({ page }) => {

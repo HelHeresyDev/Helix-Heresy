@@ -212,6 +212,24 @@
     return { state, raid, created: true };
   }
 
+  function authorizeRecapture(candidate, context = {}) {
+    const state = normalizeState(candidate); const sourceId = cleanId(context.sourceId);
+    if (!sourceId) return { state, raid: null, created: false };
+    const executionId = `bench-warrant-${sourceId}`;
+    const existing = state.raids.find((entry) => entry.warrantExecutionId === executionId);
+    if (existing) return { state, raid: existing, created: false };
+    const authorizedAt = Math.max(0, finite(context.clock)); const id = `law-enforcement-raid-${state.nextRaidNumber++}`;
+    const delay = Math.floor((1 + unitRoll(`${context.seed}:${executionId}:recapture-delay`)) * HOUR);
+    const raid = normalizeRaid({
+      id, warrantExecutionId: executionId, actionId: `bench-action-${sourceId}`, caseId: cleanId(context.caseId), docket: String(context.docket || `BW-${state.nextRaidNumber}`).trim(),
+      authorizedAt, arrivalAt: authorizedAt + delay, arrivalWindowEnd: authorizedAt + delay + HOUR,
+      authorizedRoomIds: context.authorizedRoomIds, knownRoomIds: context.knownRoomIds || context.authorizedRoomIds,
+      objectives: [{ id: `${id}-rearrest-scientist`, kind: "arrestActor", targetKind: "scientist", targetId: "scientist", label: "Recapture the escaped scientist under the active bench warrant", priority: "primary" }],
+      actors: teamFor(context.seed, id), history: [{ at: authorizedAt, action: "recaptureAuthorized", summary: "A named four-person team was assigned after the fugitive returned to a watched laboratory." }]
+    }, state.raids.length);
+    state.raids.push(raid); return { state, raid, created: true };
+  }
+
   function withRaid(candidate, raidId, mutate) {
     const state = normalizeState(candidate);
     const raid = state.raids.find((entry) => entry.id === cleanId(raidId));
@@ -319,11 +337,11 @@
     });
   }
 
-  function escapeDetention(candidate, raidId, clock = 0) {
+  function escapeDetention(candidate, raidId, clock = 0, options = {}) {
     return withRaid(candidate, raidId, (raid) => {
-      if (raid.status !== "booked" || raid.detention?.status !== "pretrial" || raid.detention.securityStudyProgress < 100) return false;
+      if (raid.status !== "booked" || raid.detention?.status !== "pretrial" || (!options.completedPlanId && raid.detention.securityStudyProgress < 100)) return false;
       const at = Math.max(raid.authorizedAt, finite(clock)); raid.status = "escaped"; raid.custody.status = "escaped"; raid.custody.escapedAt = at;
-      raid.detention.status = "escaped"; raid.outcome = { kind: "escapedDetention", at, summary: "The scientist escaped municipal holding and remains alive as a fugitive." };
+      raid.detention.status = "escaped"; raid.outcome = { kind: "escapedDetention", at, summary: options.summary || `The scientist completed ${cleanId(options.completedPlanId) || "the detention escape"} and remains alive as a fugitive.` };
       raid.history.push({ at, action: "escapedDetention", summary: raid.outcome.summary });
       return true;
     });
@@ -434,7 +452,7 @@
 
   return Object.freeze({
     VERSION, STATUSES, ACTOR_STATUSES, CUSTODY_STATUSES, TEAM_ROLES,
-    defaultState, normalizeState, normalizeRaid, authorize, activate, recordSighting,
+    defaultState, normalizeState, normalizeRaid, authorize, authorizeRecapture, activate, recordSighting,
     surrender, revokeSurrender, progressRestraint, extract, book, studySecurity, escapeDetention, releaseDetention, escalateForce,
     recordSeizure, externalizeSeizures, completeUnlocated, escapeSite, recordScientistDeath, nextEvent
   });
