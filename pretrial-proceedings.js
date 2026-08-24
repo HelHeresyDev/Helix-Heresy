@@ -538,15 +538,16 @@
     return { state, proceeding, changed: true };
   }
 
-  function addEscapeCharge(state, proceeding, clock) {
+  function addEscapeCharge(state, proceeding, clock, options = {}) {
     if (proceeding.charges.some((charge) => charge.typeId === "escapeCustody")) return;
-    proceeding.charges.push(normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "escapeCustody", status: "filed", filedAt: clock, publicProbableCause: "The municipal jail custody record reports a physical escape.", support: [{ id: `${proceeding.id}-escape-support`, kind: "jailCustody", sourceId: proceeding.raidId, label: "Saved municipal jail escape record", reliability: "strong", significanceRank: 4, traits: ["escaped custody"] }] }, proceeding.charges.length));
+    const custodyLabel = String(options.custodyLabel || "municipal jail").trim(); const sourceId = cleanId(options.sourceId) || proceeding.raidId; const supportKind = cleanId(options.supportKind) || "jailCustody";
+    proceeding.charges.push(normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "escapeCustody", status: "filed", filedAt: clock, publicProbableCause: `The ${custodyLabel} record reports a physical escape.`, support: [{ id: `${proceeding.id}-escape-support`, kind: supportKind, sourceId, label: `Saved ${custodyLabel} escape record`, reliability: "strong", significanceRank: 4, traits: ["escaped custody"] }] }, proceeding.charges.length));
   }
 
-  function markFugitive(candidate, proceedingId, clock = 0) {
+  function markFugitive(candidate, proceedingId, clock = 0, options = {}) {
     const state = normalizeState(candidate); const proceeding = state.proceedings.find((entry) => entry.id === cleanId(proceedingId));
     if (!proceeding || proceeding.fugitive.active) return { state, proceeding, changed: false };
-    const at = Math.max(proceeding.openedAt, finite(clock)); addEscapeCharge(state, proceeding, at);
+    const at = Math.max(proceeding.openedAt, finite(clock)); addEscapeCharge(state, proceeding, at, options);
     proceeding.fugitive.active = true; proceeding.fugitive.escapedAt = at; proceeding.fugitive.benchWarrantStatus = "issued"; proceeding.status = "fugitive";
     if (proceeding.release.escrowStatus === "held") { proceeding.release.escrowStatus = "forfeited"; proceeding.release.status = "forfeited"; }
     proceeding.history.push({ at, action: "fugitiveStatus", summary: "Escape added a separately supported charge and issued a saved bench warrant; the criminal case continued." });
@@ -559,7 +560,8 @@
     const attemptId = cleanId(options.attemptId); const existing = proceeding.charges.find((charge) => charge.typeId === "attemptedEscape" && charge.support.some((support) => support.sourceId === attemptId));
     if (existing) return { state, proceeding, charge: existing, changed: false };
     const at = Math.max(proceeding.openedAt, finite(options.clock));
-    const charge = normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "attemptedEscape", status: "filed", filedAt: at, publicProbableCause: "Custody officers physically interrupted a saved escape attempt inside municipal holding.", support: [{ id: `${proceeding.id}-attempted-escape-${attemptId}`, kind: "jailCustody", sourceId: attemptId, label: String(options.label || "Recorded failed jail escape attempt"), reliability: "strong", significanceRank: 3, traits: ["attempted escape", "custody officer observation"] }] }, proceeding.charges.length);
+    const custodyLabel = String(options.custodyLabel || "municipal holding").trim(); const supportKind = cleanId(options.supportKind) || "jailCustody";
+    const charge = normalizeCharge({ id: `criminal-charge-${state.nextChargeNumber++}`, typeId: "attemptedEscape", status: "filed", filedAt: at, publicProbableCause: `Custody officers physically interrupted a saved escape attempt inside ${custodyLabel}.`, support: [{ id: `${proceeding.id}-attempted-escape-${attemptId}`, kind: supportKind, sourceId: attemptId, label: String(options.label || "Recorded failed custody escape attempt"), reliability: "strong", significanceRank: 3, traits: ["attempted escape", "custody officer observation"] }] }, proceeding.charges.length);
     proceeding.charges.push(charge); proceeding.history.push({ at, action: "failedEscapeCharge", summary: `${charge.label} was filed from the physically interrupted attempt ${attemptId}.` });
     return { state, proceeding, charge, changed: true };
   }
