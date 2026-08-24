@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="app-shell">
+    <div id="appShell" class="app-shell">
       <header class="topbar">
         <div>
           <h1>Helix Heresy</h1>
@@ -24,7 +24,7 @@
           <select id="timeSpeedSelect" aria-label="Time speed"></select>
           <button id="debugToggleBtn" type="button" aria-pressed="true">Debug On</button>
           <button id="resetUiPreferencesBtn" type="button">Reset UI</button>
-          <button id="newRunBtn" type="button">New Run</button>
+          <button id="newRunBtn" type="button">Return to Title</button>
           <button id="exportFolderBtn" type="button">Export to Folder</button>
           <button id="exportFileBtn" type="button">Export File</button>
           <label class="file-button">
@@ -696,12 +696,42 @@
       <div id="seedReadout" class="seed-corner">Seed: none</div>
     </div>
 
-    <div id="setupOverlay" class="setup-overlay">
-      <form id="setupForm" class="setup-card">
-        <h2>New Slime Run</h2>
-        <div class="launch-actions">
-          <button id="loadLastSaveBtn" type="button">Load Last Save</button>
-          <p id="loadLastSaveStatus" class="journal-meta">No local save found.</p>
+    <div id="setupOverlay" class="setup-overlay" data-startup-view="title">
+      <div class="title-backdrop" aria-hidden="true">
+        <span class="title-helix title-helix-left">ACGT</span>
+        <span class="title-helix title-helix-right">TGCA</span>
+      </div>
+
+      <section id="titleScreen" class="setup-card title-card" aria-labelledby="titleScreenHeading">
+        <div class="title-lockup">
+          <p class="title-kicker">A forbidden genetics roguelike</p>
+          <h2 id="titleScreenHeading">Helix Heresy</h2>
+          <p class="title-premise">Inherit a respectable laboratory. Continue the research hidden beneath it. Try not to become the experiment.</p>
+        </div>
+        <nav class="title-actions" aria-label="Main menu">
+          <button id="loadLastSaveBtn" class="primary" type="button">Continue</button>
+          <button id="titleNewRunBtn" type="button">New Run</button>
+          <label class="file-button title-file-button">
+            Import Run
+            <input id="titleImportFileInput" type="file" accept="application/json,.json">
+          </label>
+          <button id="titleSettingsBtn" type="button">Settings</button>
+          <button id="titleAboutBtn" type="button">About</button>
+        </nav>
+        <div class="title-save-summary" aria-live="polite">
+          <p id="loadLastSaveStatus" class="journal-meta">Checking local save…</p>
+          <p id="titleImportStatus" class="journal-meta"></p>
+        </div>
+        <p class="title-build-note">Prototype build 1.0.0 · Single-run local save</p>
+      </section>
+
+      <form id="setupForm" class="setup-card" aria-labelledby="newRunHeading" hidden>
+        <div class="startup-panel-heading">
+          <div>
+            <p class="title-kicker">New Run</p>
+            <h2 id="newRunHeading">Choose a Starting Scenario</h2>
+          </div>
+          <button id="setupBackBtn" type="button">Back</button>
         </div>
 
         <fieldset class="starting-scenario-fieldset">
@@ -741,7 +771,59 @@
 
         <button id="startRunSubmitBtn" class="primary full-width" type="submit">Begin Chemistry Front</button>
       </form>
+
+      <section id="titleSettingsPanel" class="setup-card startup-info-card" aria-labelledby="titleSettingsHeading" hidden>
+        <div class="startup-panel-heading">
+          <div>
+            <p class="title-kicker">Interface</p>
+            <h2 id="titleSettingsHeading">Settings</h2>
+          </div>
+          <button id="titleSettingsBackBtn" type="button">Back</button>
+        </div>
+        <p class="journal-meta">These preferences belong to this browser, not to a particular run, and apply before a save is loaded.</p>
+        <div class="title-settings-grid">
+          <label><span>Map renderer</span><select data-title-preference="mapRendererMode"><option value="canvas">Canvas Map</option><option value="dom">DOM Compatibility Map</option></select></label>
+          <label><span>Map style</span><select data-title-preference="mapVisualMode"><option value="sprites">Sprites with glyph fallbacks</option><option value="glyphs">Glyph-first</option></select></label>
+          <label><span>Motion</span><select data-title-preference="mapMotion"><option value="system">Follow system</option><option value="reduced">Reduced</option></select></label>
+          <label><span>Contrast</span><select data-title-preference="mapContrast"><option value="standard">Standard</option><option value="high">High</option></select></label>
+          <label><span>Effect intensity</span><select data-title-preference="mapEffectIntensity"><option value="reduced">Reduced</option><option value="standard">Standard</option><option value="strong">Strong</option></select></label>
+          <label><span>Minimum tile size</span><select data-title-preference="mapMinimumTilePx"><option value="8">Strategic · 8px</option><option value="12">Readable · 12px</option><option value="16">Large · 16px</option></select></label>
+          <label><span>Marker size</span><select data-title-preference="mapMarkerScale"><option value="1">100%</option><option value="1.25">125%</option><option value="1.5">150%</option></select></label>
+          <label><span>Compact feed limit</span><select data-title-preference="compactMessageLimit"><option value="4">4 messages</option><option value="8">8 messages</option><option value="12">12 messages</option><option value="20">20 messages</option></select></label>
+          <label class="title-checkbox"><input data-title-preference="compactFeedVisible" type="checkbox"><span>Show compact message feed</span></label>
+          <label class="title-checkbox"><input data-title-preference="compactFeedFades" type="checkbox"><span>Fade compact message feed</span></label>
+        </div>
+        <div class="startup-footer-actions">
+          <button id="titleResetSettingsBtn" type="button">Reset Settings</button>
+          <p id="titleSettingsStatus" class="journal-meta" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section id="titleAboutPanel" class="setup-card startup-info-card" aria-labelledby="titleAboutHeading" hidden>
+        <div class="startup-panel-heading">
+          <div>
+            <p class="title-kicker">Prototype build 1.0.0</p>
+            <h2 id="titleAboutHeading">About Helix Heresy</h2>
+          </div>
+          <button id="titleAboutBackBtn" type="button">Back</button>
+        </div>
+        <div class="about-copy">
+          <p>Helix Heresy is a laboratory-management roguelike about forbidden genetics, physical systems, scientific discovery, and the consequences of ambitious research.</p>
+          <p>This prototype is developed by Nathaniel Tovar with AI-assisted implementation. It is shared for viewing only; all rights are reserved.</p>
+          <p>The current build uses browser-local storage and one continuation save. Export important runs before replacing them.</p>
+        </div>
+      </section>
     </div>
+
+    <dialog id="replaceRunDialog" class="replacement-dialog" aria-labelledby="replaceRunDialogHeading" aria-describedby="replaceRunDialogDescription">
+      <h2 id="replaceRunDialogHeading">Replace Current Run?</h2>
+      <p id="replaceRunDialogDescription">Beginning another run will replace the continuation save in this browser.</p>
+      <div class="replacement-dialog-actions">
+        <button id="cancelReplaceRunBtn" type="button">Cancel</button>
+        <button id="exportBeforeReplaceBtn" type="button">Export Current Save</button>
+        <button id="confirmReplaceRunBtn" class="primary" type="button">Replace and Continue</button>
+      </div>
+    </dialog>
 
     <script src="creature-spatial.js"></script>
     <script src="geology-field.js"></script>

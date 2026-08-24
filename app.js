@@ -4366,6 +4366,10 @@
   let geneMap;
   let selectedStartingScenarioId = "";
   let uiPreferences = null;
+  let startupView = "title";
+  let startupOverlayOpen = true;
+  let pendingReplacementAction = "";
+  let pendingImportedState = null;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
   let animationTimelineRevision = 1;
@@ -10696,8 +10700,9 @@
     }
     installDebugHooks();
     syncSetupForm();
-    dom.setupOverlay.classList.toggle("hidden", state.started);
+    showStartupView("title", { focus: false });
     render();
+    focusStartupView();
     window.setInterval(tick, REAL_TICK_MS);
   }
 
@@ -10922,8 +10927,22 @@
       "messageFilterSelect",
       "messageFeedFadeCheckbox",
       "eventLog",
+      "appShell",
       "setupOverlay",
+      "titleScreen",
+      "titleNewRunBtn",
+      "titleImportFileInput",
+      "titleImportStatus",
+      "titleSettingsBtn",
+      "titleAboutBtn",
+      "titleSettingsPanel",
+      "titleSettingsBackBtn",
+      "titleResetSettingsBtn",
+      "titleSettingsStatus",
+      "titleAboutPanel",
+      "titleAboutBackBtn",
       "setupForm",
+      "setupBackBtn",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -10934,7 +10953,13 @@
       "seedInput",
       "randomSeedBtn",
       "journalModeSelect",
-      "complexitySelect"
+      "complexitySelect",
+      "replaceRunDialog",
+      "replaceRunDialogHeading",
+      "replaceRunDialogDescription",
+      "cancelReplaceRunBtn",
+      "exportBeforeReplaceBtn",
+      "confirmReplaceRunBtn"
     ]) {
       dom[id] = document.getElementById(id);
     }
@@ -12559,10 +12584,289 @@
     };
   }
 
+  function syncStartupShell() {
+    const open = Boolean(startupOverlayOpen);
+    dom.setupOverlay.classList.toggle("hidden", !open);
+    dom.setupOverlay.dataset.startupView = startupView;
+    dom.titleScreen.hidden = !open || startupView !== "title";
+    dom.setupForm.hidden = !open || startupView !== "setup";
+    dom.titleSettingsPanel.hidden = !open || startupView !== "settings";
+    dom.titleAboutPanel.hidden = !open || startupView !== "about";
+    dom.appShell.inert = open;
+    if (open) dom.appShell.setAttribute("aria-hidden", "true");
+    else dom.appShell.removeAttribute("aria-hidden");
+  }
+
+  function focusStartupView() {
+    if (!startupOverlayOpen) return;
+    window.requestAnimationFrame(() => {
+      const target = startupView === "setup"
+        ? dom.setupBackBtn
+        : startupView === "settings"
+          ? dom.titleSettingsBackBtn
+          : startupView === "about"
+            ? dom.titleAboutBackBtn
+            : dom.loadLastSaveBtn.disabled
+              ? dom.titleNewRunBtn
+              : dom.loadLastSaveBtn;
+      target?.focus();
+    });
+  }
+
+  function showStartupView(view = "title", options = {}) {
+    startupView = ["title", "setup", "settings", "about"].includes(view) ? view : "title";
+    startupOverlayOpen = true;
+    lastTickAt = Date.now();
+    if (startupView === "title") syncTitleContinue();
+    if (startupView === "settings") syncTitleSettings();
+    syncStartupShell();
+    if (options.focus !== false) focusStartupView();
+  }
+
+  function enterGameplay(options = {}) {
+    startupOverlayOpen = false;
+    lastTickAt = Date.now();
+    syncStartupShell();
+    if (options.focus !== false) window.requestAnimationFrame(() => dom.pauseBtn?.focus());
+  }
+
+  function prepareNewRunForm() {
+    selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
+    const seed = makeSeed();
+    dom.seedInput.value = seed;
+    dom.journalModeSelect.value = "auto";
+    dom.complexitySelect.value = "clean";
+    if (dom.companyNameInput) {
+      dom.companyNameInput.value = generatedCompanyName(seed);
+      dom.companyNameInput.dataset.generated = "true";
+      dom.companyNameInput.dataset.variant = "0";
+    }
+    renderStartingScenarioOptions();
+    syncCompanyNameSetup();
+  }
+
+  function localSaveInspection() {
+    let raw = "";
+    try {
+      raw = window.localStorage.getItem(STORAGE_KEY) || "";
+    } catch (_error) {
+      return { exists: false, valid: false, reason: "Browser storage is unavailable." };
+    }
+    if (!raw) return { exists: false, valid: false, reason: "No local continuation save found." };
+    try {
+      const payload = JSON.parse(raw);
+      const candidate = payload?.state || payload;
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.started !== true || !String(candidate.seed || "").trim()) {
+        throw new Error("The stored data is not a started Helix Heresy run.");
+      }
+      const scenario = startingScenarioDef(candidate.startingScenario?.id);
+      const company = cleanCompanyName(candidate.siteIdentity?.legalName || candidate.company?.legalName || candidate.company?.name)
+        || "Unnamed laboratory";
+      const day = Math.floor(Math.max(0, Number(candidate.clock) || 0) / 86400) + 1;
+      return {
+        exists: true,
+        valid: true,
+        raw,
+        summary: `${company} · ${scenario.label} · Day ${day}`
+      };
+    } catch (error) {
+      return {
+        exists: true,
+        valid: false,
+        raw,
+        reason: "The stored continuation save is unreadable. It has not been deleted; New Run and Import Run remain available."
+      };
+    }
+  }
+
+  function syncTitleContinue() {
+    const inspection = localSaveInspection();
+    const reason = inspection.exists
+      ? inspection.reason || "The local continuation save is invalid."
+      : "No local continuation save found.";
+    setActionButtonState(dom.loadLastSaveBtn, !inspection.valid, reason);
+    dom.loadLastSaveStatus.textContent = inspection.valid
+      ? `Continue ${inspection.summary}`
+      : reason;
+  }
+
+  function syncTitleSettings() {
+    const prefs = normalizeUiPreferences(uiPreferences);
+    for (const control of dom.titleSettingsPanel.querySelectorAll("[data-title-preference]")) {
+      const key = control.dataset.titlePreference;
+      if (control instanceof HTMLInputElement && control.type === "checkbox") {
+        control.checked = Boolean(prefs[key]);
+      } else {
+        control.value = String(prefs[key]);
+      }
+    }
+  }
+
+  function setTitlePreference(control) {
+    const key = control.dataset.titlePreference;
+    if (!key) return;
+    const rawValue = control instanceof HTMLInputElement && control.type === "checkbox"
+      ? control.checked
+      : control.value;
+    if (["mapRendererMode", "mapVisualMode", "mapMotion", "mapContrast", "mapEffectIntensity", "mapMinimumTilePx", "mapMarkerScale"].includes(key)) {
+      setMapAccessibilityPreference(key, rawValue);
+    } else {
+      uiPreferences = normalizeUiPreferences({
+        ...uiPreferences,
+        [key]: key === "compactMessageLimit" ? Number(rawValue) : rawValue
+      });
+      persistUiPreferences();
+      if (state?.started) renderEvents();
+    }
+    applyAccessibilityDocumentPreferences();
+    dom.titleSettingsStatus.textContent = "Settings saved for this browser.";
+    syncTitleSettings();
+  }
+
+  function resetTitleSettings() {
+    uiPreferences = defaultUiPreferences();
+    applyAccessibilityDocumentPreferences();
+    setMapRendererMode(uiPreferences.mapRendererMode, { render: false });
+    persistUiPreferences();
+    syncTitleSettings();
+    dom.titleSettingsStatus.textContent = "Settings restored to defaults.";
+    if (state?.started && currentWorkspaceTab() === "map") renderMapInteraction();
+  }
+
+  function beginConfiguredRun() {
+    const requestedScenario = startingScenarioDef(selectedStartingScenarioId);
+    const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
+      ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
+      : requestedScenario;
+    const nextSeed = cleanSeed(dom.seedInput.value) || makeSeed();
+    const next = createStartingScenarioState(scenario.id, {
+      seed: nextSeed,
+      companyName: scenario.identity.kind === "frontCompany" ? dom.companyNameInput?.value : "",
+      companyNameGenerated: dom.companyNameInput?.dataset.generated === "true",
+      companyNameVariant: Number(dom.companyNameInput?.dataset.variant) || 0
+    });
+    next.started = true;
+    next.paused = true;
+    next.timeSpeed = DEFAULT_TIME_SPEED;
+    next.seed = nextSeed;
+    next.journalMode = dom.journalModeSelect.value;
+    next.complexity = dom.complexitySelect.value;
+    next.economy = defaultEconomyState(next.seed);
+    next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
+    state = next;
+    state.siteVisits = SiteVisits.seedInitialSchedule(state.siteVisits, {
+      clock: state.clock,
+      enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
+    });
+    ensureCompanyRecordPackets();
+    clearMapFeedbackEvents();
+    markAnimationDiscontinuity("new-run");
+    geneMap = buildGeneMap(state.seed, state.complexity);
+    rebuildActorSpatialIndex();
+    syncRoomObservationMemory();
+    observeScientistRoom();
+    addEvent(`${scenario.label} initialized.`);
+    setActiveWorkspaceTab("map", { scroll: false });
+    enterGameplay({ focus: false });
+    persist();
+    render();
+    window.requestAnimationFrame(() => dom.pauseBtn?.focus());
+  }
+
+  function loadContinuation() {
+    const loaded = loadLocalSave();
+    if (!loaded) {
+      syncTitleContinue();
+      return false;
+    }
+    state = loaded;
+    clearMapFeedbackEvents();
+    markAnimationDiscontinuity("load");
+    state.started = true;
+    geneMap = buildGeneMap(state.seed, state.complexity);
+    rebuildActorSpatialIndex();
+    prepareCorpseState();
+    syncRoomObservationMemory();
+    observeScientistRoom();
+    addEvent("Loaded local save.");
+    setActiveWorkspaceTab("map", { scroll: false });
+    enterGameplay({ focus: false });
+    persist();
+    render();
+    window.requestAnimationFrame(() => dom.pauseBtn?.focus());
+    return true;
+  }
+
+  function showReplacementDialog(action, importedState = null) {
+    pendingReplacementAction = action;
+    pendingImportedState = importedState;
+    const importing = action === "import";
+    dom.replaceRunDialogHeading.textContent = importing ? "Replace Current Run with Import?" : "Replace Current Run?";
+    dom.replaceRunDialogDescription.textContent = importing
+      ? "The file is valid. Importing it will replace the continuation save in this browser."
+      : "Beginning this run will replace the continuation save in this browser.";
+    dom.confirmReplaceRunBtn.textContent = importing ? "Replace and Import" : "Replace and Begin";
+    dom.replaceRunDialog.showModal();
+  }
+
+  function clearPendingReplacement() {
+    pendingReplacementAction = "";
+    pendingImportedState = null;
+  }
+
+  function downloadStoredSave() {
+    const inspection = localSaveInspection();
+    if (!inspection.exists || !inspection.raw) return false;
+    const blob = new Blob([inspection.raw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = SAVE_FILE_NAME;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  }
+
+  function applyImportedState(candidate) {
+    const imported = normalizeState(candidate);
+    if (!imported.started) throw new Error("Imported save is not a started run.");
+    state = imported;
+    markAnimationDiscontinuity("import");
+    resetRunUiToMapDefaults(state);
+    geneMap = buildGeneMap(state.seed, state.complexity);
+    prepareCorpseState();
+    addEvent("Save imported.");
+    setActiveWorkspaceTab("map", { scroll: false });
+    enterGameplay({ focus: false });
+    persist();
+    render();
+    window.requestAnimationFrame(() => dom.pauseBtn?.focus());
+  }
+
+  function importedSaveCandidate(payload) {
+    const candidate = payload?.state || payload;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.started !== true || !String(candidate.seed || "").trim()) {
+      throw new Error("The file is not a started Helix Heresy run.");
+    }
+    return candidate;
+  }
+
+  function reportImportFailure() {
+    const message = "Could not import that save file. The current continuation save was not changed.";
+    if (startupOverlayOpen) {
+      dom.titleImportStatus.textContent = message;
+      showStartupView("title");
+    } else {
+      window.alert(message);
+    }
+  }
+
   function bindEvents() {
     bindWorkspaceTabs();
     document.addEventListener("contextmenu", (event) => {
-      if (state?.started) {
+      if (state?.started && !startupOverlayOpen) {
         event.preventDefault();
         handleBackNavigation(event);
       }
@@ -12581,41 +12885,11 @@
 
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      const requestedScenario = startingScenarioDef(selectedStartingScenarioId);
-      const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
-        ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
-        : requestedScenario;
-      const nextSeed = cleanSeed(dom.seedInput.value) || makeSeed();
-      const next = createStartingScenarioState(scenario.id, {
-        seed: nextSeed,
-        companyName: scenario.identity.kind === "frontCompany" ? dom.companyNameInput?.value : "",
-        companyNameGenerated: dom.companyNameInput?.dataset.generated === "true",
-        companyNameVariant: Number(dom.companyNameInput?.dataset.variant) || 0
-      });
-      next.started = true;
-      next.paused = true;
-      next.timeSpeed = DEFAULT_TIME_SPEED;
-      next.seed = nextSeed;
-      next.journalMode = dom.journalModeSelect.value;
-      next.complexity = dom.complexitySelect.value;
-      next.economy = defaultEconomyState(next.seed);
-      next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
-      state = next;
-      state.siteVisits = SiteVisits.seedInitialSchedule(state.siteVisits, {
-        clock: state.clock,
-        enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
-      });
-      ensureCompanyRecordPackets();
-      clearMapFeedbackEvents();
-      markAnimationDiscontinuity("new-run");
-      geneMap = buildGeneMap(state.seed, state.complexity);
-      rebuildActorSpatialIndex();
-      syncRoomObservationMemory();
-      observeScientistRoom();
-      addEvent(`${scenario.label} initialized.`);
-      setActiveWorkspaceTab("map", { scroll: false });
-      persist();
-      render();
+      if (localSaveInspection().exists) {
+        showReplacementDialog("new");
+        return;
+      }
+      beginConfiguredRun();
     });
 
     dom.startingScenarioList?.addEventListener("change", (event) => {
@@ -12631,24 +12905,49 @@
     });
 
     dom.loadLastSaveBtn.addEventListener("click", () => {
-      const loaded = loadLocalSave();
-      if (!loaded) {
-        syncSetupForm();
-        return;
-      }
-      state = loaded;
-      clearMapFeedbackEvents();
-      markAnimationDiscontinuity("load");
-      state.started = true;
-      geneMap = buildGeneMap(state.seed, state.complexity);
-      rebuildActorSpatialIndex();
-      prepareCorpseState();
-      syncRoomObservationMemory();
-      observeScientistRoom();
-      addEvent("Loaded local save.");
-      setActiveWorkspaceTab("map", { scroll: false });
-      persist();
-      render();
+      loadContinuation();
+    });
+
+    dom.titleNewRunBtn.addEventListener("click", () => {
+      prepareNewRunForm();
+      showStartupView("setup");
+    });
+
+    dom.setupBackBtn.addEventListener("click", () => showStartupView("title"));
+    dom.titleSettingsBtn.addEventListener("click", () => showStartupView("settings"));
+    dom.titleSettingsBackBtn.addEventListener("click", () => showStartupView("title"));
+    dom.titleAboutBtn.addEventListener("click", () => showStartupView("about"));
+    dom.titleAboutBackBtn.addEventListener("click", () => showStartupView("title"));
+    dom.titleSettingsPanel.addEventListener("change", (event) => {
+      const control = event.target instanceof Element
+        ? event.target.closest("[data-title-preference]")
+        : null;
+      if (control) setTitlePreference(control);
+    });
+    dom.titleResetSettingsBtn.addEventListener("click", resetTitleSettings);
+
+    dom.cancelReplaceRunBtn.addEventListener("click", () => {
+      dom.replaceRunDialog.close();
+      clearPendingReplacement();
+      focusStartupView();
+    });
+    dom.replaceRunDialog.addEventListener("cancel", () => {
+      clearPendingReplacement();
+      focusStartupView();
+    });
+    dom.exportBeforeReplaceBtn.addEventListener("click", downloadStoredSave);
+    dom.confirmReplaceRunBtn.addEventListener("click", () => {
+      const action = pendingReplacementAction;
+      const imported = pendingImportedState;
+      dom.replaceRunDialog.close();
+      clearPendingReplacement();
+      if (action === "import" && imported) {
+        try {
+          applyImportedState(imported);
+        } catch (error) {
+          reportImportFailure();
+        }
+      } else if (action === "new") beginConfiguredRun();
     });
 
     dom.randomSeedBtn.addEventListener("click", () => {
@@ -12832,16 +13131,9 @@
     });
 
     dom.newRunBtn.addEventListener("click", () => {
-      if (!window.confirm("Start a new run? The current run remains available only if exported first.")) {
-        return;
-      }
-      state = defaultState();
-      selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
-      markAnimationDiscontinuity("new-run");
-      geneMap = buildGeneMap(state.seed, state.complexity);
-      setActiveWorkspaceTab("map", { scroll: false });
-      syncSetupForm();
-      render();
+      lastTickAt = Date.now();
+      if (state?.started) persist();
+      showStartupView("title");
     });
 
     dom.sequenceInput.addEventListener("input", () => {
@@ -13074,6 +13366,7 @@
     });
 
     dom.importFileInput.addEventListener("change", importSave);
+    dom.titleImportFileInput.addEventListener("change", importSave);
   }
 
   function handleWindowBlur() {
@@ -13082,6 +13375,13 @@
   }
 
   function handleKeyboardShortcut(event) {
+    if (startupOverlayOpen) {
+      if (event.key === "Escape" && !isTypingTarget(event.target) && startupView !== "title") {
+        event.preventDefault();
+        showStartupView("title");
+      }
+      return;
+    }
     if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
       return;
     }
@@ -15244,7 +15544,7 @@
   function commitRealtimeElapsed(now = Date.now()) {
     const elapsedSeconds = (now - lastTickAt) / 1000;
     lastTickAt = now;
-    if (!state?.started || state.paused || elapsedSeconds <= 0) return 0;
+    if (!state?.started || startupOverlayOpen || state.paused || elapsedSeconds <= 0) return 0;
     animationTimelineMode = "running";
     return advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true, realtime: true });
   }
@@ -15252,7 +15552,7 @@
   function tick() {
     const now = Date.now();
     const changed = commitRealtimeElapsed(now);
-    if (!state?.started || state.paused) {
+    if (!state?.started || startupOverlayOpen || state.paused) {
       maybeAutosave(now);
       return;
     }
@@ -43230,7 +43530,7 @@
   }
 
   function renderLiveReadouts() {
-    dom.setupOverlay.classList.toggle("hidden", state.started);
+    syncStartupShell();
     dom.clockReadout.textContent = formatClock(state.clock);
     dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
     dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
@@ -64860,12 +65160,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     uiPreferences = normalizeUiPreferences(next);
     persistUiPreferences();
     applyAccessibilityDocumentPreferences();
-    if (!state?.started) return;
     if (preferenceKey === "mapRendererMode") {
       mapRendererFallbackNotice = "";
       setMapRendererMode(uiPreferences.mapRendererMode);
       return;
     }
+    if (!state?.started) return;
     const ui = ensureUiState();
     const minimumZoomIndex = minimumMapZoomIndex();
     if (ui.mapZoomIndex < minimumZoomIndex) {
@@ -75233,22 +75533,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function syncSetupForm() {
     renderStartingScenarioOptions();
-    dom.seedInput.value = state.seed;
-    if (dom.companyNameInput) {
-      dom.companyNameInput.value = state.started && state.siteIdentity?.kind === "frontCompany"
-        ? state.siteIdentity.legalName
-        : generatedCompanyName(state.seed);
-      dom.companyNameInput.dataset.generated = String(!state.started || state.siteIdentity?.nameSource !== "custom");
-      dom.companyNameInput.dataset.variant = "0";
+    const preserveDraft = startupOverlayOpen && startupView === "setup";
+    if (!preserveDraft) {
+      dom.seedInput.value = state.seed;
+      if (dom.companyNameInput) {
+        dom.companyNameInput.value = state.started && state.siteIdentity?.kind === "frontCompany"
+          ? state.siteIdentity.legalName
+          : generatedCompanyName(state.seed);
+        dom.companyNameInput.dataset.generated = String(!state.started || state.siteIdentity?.nameSource !== "custom");
+        dom.companyNameInput.dataset.variant = "0";
+      }
+      dom.journalModeSelect.value = state.journalMode;
+      dom.complexitySelect.value = state.complexity;
     }
     syncCompanyNameSetup();
-    dom.journalModeSelect.value = state.journalMode;
-    dom.complexitySelect.value = state.complexity;
-    const hasSave = hasLocalSave();
-    setActionButtonState(dom.loadLastSaveBtn, !hasSave, "No local save found.");
-    dom.loadLastSaveStatus.textContent = hasSave
-      ? "A local save is available."
-      : "No local save found.";
+    syncTitleContinue();
   }
 
   function savePayload() {
@@ -75301,14 +75600,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } catch (error) {
       console.warn("Load failed", error);
       return null;
-    }
-  }
-
-  function hasLocalSave() {
-    try {
-      return Boolean(window.localStorage.getItem(STORAGE_KEY));
-    } catch (error) {
-      return false;
     }
   }
 
@@ -76052,7 +76343,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function importSave(event) {
-    const file = event.target.files?.[0];
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) {
       return;
     }
@@ -76060,19 +76352,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     reader.addEventListener("load", () => {
       try {
         const payload = JSON.parse(String(reader.result));
-        state = normalizeState(payload.state || payload);
-        markAnimationDiscontinuity("import");
-        resetRunUiToMapDefaults(state);
-        geneMap = buildGeneMap(state.seed, state.complexity);
-        prepareCorpseState();
-        addEvent("Save imported.");
-        setActiveWorkspaceTab("map", { scroll: false });
-        persist();
-        render();
+        const candidate = importedSaveCandidate(payload);
+        if (startupOverlayOpen) dom.titleImportStatus.textContent = "Import validated.";
+        if (localSaveInspection().exists) {
+          showReplacementDialog("import", candidate);
+        } else {
+          applyImportedState(candidate);
+        }
       } catch (error) {
-        window.alert("Could not import that save file.");
+        reportImportFailure();
       } finally {
-        dom.importFileInput.value = "";
+        input.value = "";
       }
     });
     reader.readAsText(file);

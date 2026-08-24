@@ -11,6 +11,7 @@ async function openFreshSetup(page) {
   await page.goto(appUrl);
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
+  await page.locator('#titleNewRunBtn').click();
 }
 
 test('New Run presents data-driven scenario cards and hides Debug starts with Debug tools', async ({ page }) => {

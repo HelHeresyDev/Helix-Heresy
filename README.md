@@ -40,6 +40,7 @@ For story background, long-term systems, current design direction, and open ques
 - Creature Jobs panel with Idle, Corpse Processing, and Waste Disposal assignments that can affect slime condition stats.
 - Actor-neutral equipment attachment points with an empty vat-start scientist loadout, routed equipping, protective clothing, persistent wear and contamination, encumbrance, optional belts and backpacks, a preserved Back Mount for specialized apparatus, and player-named loadouts.
 - Scientist stamina, mana, skills, XP/resource cheats, real-time-paced hands-on tasks, physical trip-and-route hauling, 1x/5x/10x speed controls, manual skip controls, and keyboard shortcuts.
+- A real startup shell with Continue metadata, New Run scenario setup, validated JSON import, Settings, About, and an accessible export-before-replacement confirmation. Returning to the title suspends simulation time without rewriting the run's pause or speed setting.
 - Icon-based management windows with accessible labels, keyboard shortcuts, and right-click back/dismiss behavior shared with Escape.
 - Saved player map knowledge with light-aware line-of-sight perception, physical room lighting, no magically equipped vat-start lamp, unexplored darkness, remembered terrain, stale last-known tiers, uncertain incident markers, and Debug-only omniscience.
 - Seeded, lazily generated underground geology with distinct rock strata, hidden ore veins and environmental pockets, geology-aware excavation time and tool wear, physical rubble outputs, and derived room-expansion readiness.
@@ -132,7 +133,7 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 ## Saves
 
-Helix Heresy stores local progress in browser `localStorage`. Launching the game opens a new/load choice instead of automatically loading the last save. Saves can also be exported and imported as JSON files from inside the game.
+Helix Heresy stores one continuation run in browser `localStorage` and always opens to the title screen without materializing that save. Continue is enabled only for a readable started run and shows its company, scenario, and day. New Run and validated JSON import confirm before replacing any stored continuation; malformed data is reported and left untouched. The current run can also be exported from gameplay or directly from the replacement confirmation.
 
 ## Development Notes
 
