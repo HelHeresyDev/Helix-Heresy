@@ -51,11 +51,11 @@ test('communications are delayed, monitored except counsel, and update bounded k
   expect(completed.stay.knowledge).toMatchObject({ labSnapshot: { company: 'Helix' }, reports: [expect.objectContaining({ company: 'Helix' })] });
 });
 
-test('automatic review interrupts time without fabricating a result', () => {
+test('automatic review opens the linked appellate docket without fabricating a custody result', () => {
   const { state, stay } = committed();
   const advanced = Capital.advance(state, stay.calendar.automaticReviewAt);
-  expect(advanced.stay).toMatchObject({ status: 'active', calendar: { automaticReviewStatus: 'opened' }, decision: { required: true, kind: 'automaticReviewOpened' } });
-  expect(advanced.stay.history.at(-1).summary).toContain('capital-appeals pass');
+  expect(advanced.stay).toMatchObject({ status: 'active', calendar: { automaticReviewStatus: 'opened' }, decision: { required: false } });
+  expect(advanced.stay.history.at(-1).summary).toContain('linked appellate docket');
 });
 
 test('disciplinary incidents save a proportionate response and interrupt compression', () => {
@@ -76,6 +76,16 @@ test('execution date stops at a living physical-process boundary', () => {
   expect(due.stay).not.toHaveProperty('deadAt');
 });
 
+test('appellate directives stay, cancel, and physically complete capital custody', () => {
+  let { state, stay } = committed();
+  let directive = Capital.applyLegalDirective(state, stay.id, { stayed: true, executionAt: stay.calendar.provisionalExecutionAt }, 2000); state = directive.state;
+  expect(directive.stay).toMatchObject({ status: 'active', calendar: { executionStatus: 'stayed' } });
+  directive = Capital.applyLegalDirective(state, stay.id, { reliefKind: 'retrial', executionAt: stay.calendar.provisionalExecutionAt, summary: 'Conviction reversed.' }, 3000); state = directive.state;
+  expect(directive.stay).toMatchObject({ status: 'retrialRequired', calendar: { executionStatus: 'cancelled' }, suppressor: { suppressionActive: true } });
+  const transferred = Capital.completeLegalTransfer(state, stay.id, 'retrial', 4000);
+  expect(transferred.stay).toMatchObject({ status: 'transferred', suppressor: { status: 'removed', suppressionActive: false } });
+});
+
 test('@smoke capital sentencing physically transfers into daily custody and stops alive at execution day', async ({ page }) => {
   test.setTimeout(360_000); await startRun(page); await bookScientist(page);
   const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true, capital: true })); expect(caseId).toMatch(/^trial-case-/);
@@ -91,6 +101,13 @@ test('@smoke capital sentencing physically transfers into daily custody and stop
   expect(await page.evaluate(() => window.helixHeresyDebug.requestDeathRowCommunication('legalCounsel'))).toBe(true);
   expect(await page.evaluate(() => window.helixHeresyDebug.advanceDeathRowTime(1))).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody.activeStay.decision.kind).toBe('communicationReady');
   expect(await page.evaluate(() => window.helixHeresyDebug.useDeathRowCommunication(window.helixHeresyDebug.deathRowCustodySnapshot().activeStay.communications.requests[0].id))).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.makeCapitalAppealMilestoneDueNow())).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody.activeAppeal).toMatchObject({ automaticReview: { status: 'pending' }, execution: { stayed: true }, decision: { kind: 'automaticReviewOpened' }, panel: [expect.any(Object), expect.any(Object), expect.any(Object)] });
+  await expect(page.locator(`[data-death-row-custody="${custody.activeStay.id}"]`)).toContainText('Three-judge panel');
+  expect(await page.evaluate(() => window.helixHeresyDebug.acknowledgeDeathRowDecision())).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.makeCapitalAppealMilestoneDueNow())).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody.activeAppeal.automaticReview.status).toBe('affirmed');
+  expect(await page.evaluate(() => window.helixHeresyDebug.acknowledgeDeathRowDecision())).toBe(true);
+  const supportedClaim = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot().activeAppeal.claims.find((claim) => claim.supported)?.id); expect(supportedClaim).toBeTruthy();
+  expect(await page.evaluate((claimId) => window.helixHeresyDebug.fileCapitalAppeal(claimId), supportedClaim)).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody.activeAppeal).toMatchObject({ directAppeal: { status: 'filed', primaryClaimId: supportedClaim, frozen: { claimSnapshots: [expect.any(Object)] } }, execution: { stayed: true, stayKind: 'timelyDirectAppeal' } });
   expect(await page.evaluate(() => window.helixHeresyDebug.makeDeathRowExecutionDueNow())).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody).toMatchObject({ activeStay: { status: 'executionProcessDue', decision: { kind: 'executionProcessDue' } }, runEnded: false });
-  await page.reload(); await page.locator('#loadLastSaveBtn').click(); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody).toMatchObject({ activeStay: { status: 'executionProcessDue' }, scientist: { mapCell: { z: 6 } }, runEnded: false });
+  await page.reload(); await page.locator('#loadLastSaveBtn').click(); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody).toMatchObject({ activeStay: { status: 'executionProcessDue' }, activeAppeal: { status: 'final', directAppeal: { status: 'affirmed', primaryClaimId: supportedClaim } }, scientist: { mapCell: { z: 6 } }, runEnded: false });
 });

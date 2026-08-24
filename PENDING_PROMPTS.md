@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Capital Appeals, Stays, and Commutation
+1. Executive Commutation and Capital Sentence Conversion
 2. Death-Row Escape and Covert Rescue
 3. Execution Day, Physical Death, and Resurrection Handoff
 4. Reusable Worlds, Random Names, and Run Separation
@@ -67,19 +67,25 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Capital Appeals, Stays, and Commutation
+## 1. Executive Commutation and Capital Sentence Conversion
 
-Design and implement the legal process operating on the saved capital-custody calendar. Resolve the already scheduled automatic capital review, player-directed appeal filings, counsel preparation, disclosed deadlines, stays, adverse decisions, retrials or resentencing where supported, and executive commutation. Every outcome must consume saved record facts and produce explicit reasons rather than rerolling an abstract mercy chance. Enforce at least 72 hours between a final adverse legal decision and any execution.
+Design and implement executive commutation as a political remedy distinct from the completed judicial capital-review system. Consume saved company credibility, institutional relationships, public pressure, jurisdictional interests, offense facts, sentence record, counsel or advocate work, and any genuinely relevant outside leverage. Do not reroll appellate claims, rewrite the conviction, or use a free-floating mercy chance.
+
+A granted commutation must create a saved executive instrument and convert the capital sentence into a lawful finite alternative that this overcrowded setting can actually administer, such as a capped ordinary-prison term or penal-legion service. It must cancel the execution calendar and require a physical transfer out of capital custody before the new sentence begins. Denial must preserve its named decision-maker, frozen submission, explicit reasons, and any disclosed limit on renewal.
 
 Questions for discussion:
 
-- Which issues can an appeal raise, and how much control does the player have over counsel's filing strategy?
+- Who can receive and decide a commutation request?
 
-  Recommended answer: Offer a bounded set of record-linked claims with visible support and tradeoffs, while allowing counsel skill and accumulated legal preparation to affect presentation rather than invent facts.
+  Recommended answer: Use the jurisdiction's named executive authority with a bounded advisory process. Counsel, the front company, allied institutions, public campaigns, and political intermediaries may contribute, but none should silently control the result alone.
 
 - What can commutation change?
 
-  Recommended answer: Permit a capital sentence to become a finite lawful alternative such as penal service or the jurisdiction's maximum ordinary term, with a saved political and institutional rationale.
+  Recommended answer: Permit the death sentence to become penal service or the jurisdiction's maximum finite ordinary term. Keep conviction reversal, retrial, resentencing for legal error, and release outside executive commutation.
+
+- How often may the player retry after denial?
+
+  Recommended answer: Freeze one ordinary petition and require a disclosed material political change before another can be filed, preventing save-scummed or spammed mercy requests.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
