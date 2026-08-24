@@ -109,6 +109,17 @@
   const STATE_PRISON_EXERCISE_ROOM_ID = "statePrisonExercise";
   const STATE_PRISON_SEGREGATION_ROOM_ID = "statePrisonSegregation";
   const STATE_PRISON_Z = 5;
+  const CAPITAL_INTAKE_ROOM_ID = "capitalCustodyIntake";
+  const CAPITAL_SALLY_PORT_ROOM_ID = "capitalCustodySallyPort";
+  const CAPITAL_CONTROL_ROOM_ID = "capitalCustodyControl";
+  const CAPITAL_CORRIDOR_ROOM_ID = "capitalCustodyCorridor";
+  const CAPITAL_CELL_ROOM_ID = "capitalCustodyCell";
+  const CAPITAL_LEGAL_ROOM_ID = "capitalCustodyLegalBooth";
+  const CAPITAL_VISITATION_ROOM_ID = "capitalCustodyVisitation";
+  const CAPITAL_MEDICAL_ROOM_ID = "capitalCustodyMedical";
+  const CAPITAL_EXERCISE_ROOM_ID = "capitalCustodyExercise";
+  const CAPITAL_EXECUTION_ROOM_ID = "capitalCustodyExecutionSuite";
+  const CAPITAL_CUSTODY_Z = 6;
   const FUGITIVE_ALLEY_ROOM_ID = "municipalServiceAlley";
   const FUGITIVE_SAFE_ROOM_ID = "fugitiveSafeRoom";
   const PRISON_FUGITIVE_ROAD_ROOM_ID = "correctionalServiceRoad";
@@ -4374,6 +4385,10 @@
   if (!PrisonCustody) {
     throw new Error("HelixPrisonCustody must load before app.js");
   }
+  const DeathRowCustody = window.HelixDeathRowCustody;
+  if (!DeathRowCustody) {
+    throw new Error("HelixDeathRowCustody must load before app.js");
+  }
   const PrisonRelease = window.HelixPrisonRelease;
   if (!PrisonRelease) {
     throw new Error("HelixPrisonRelease must load before app.js");
@@ -5066,6 +5081,7 @@
       pretrialProceedings: PretrialProceedings.defaultState(),
       trialSentencing: TrialSentencing.defaultState(),
       prisonCustody: PrisonCustody.defaultState(),
+      deathRowCustody: DeathRowCustody.defaultState(),
       prisonRelease: PrisonRelease.defaultState(),
       prisonBreak: PrisonBreak.defaultState(),
       jailEscapeRescue: JailEscapeRescue.defaultState(),
@@ -6557,6 +6573,16 @@
     return ensurePrisonCustody().stays.find((stay) => ["active", "releaseDue", "releaseAuthorized", "discharging"].includes(stay.status)) || null;
   }
 
+  function ensureDeathRowCustody(target = state) {
+    if (target.deathRowCustody?.version === DeathRowCustody.VERSION && Array.isArray(target.deathRowCustody.stays)) return target.deathRowCustody;
+    target.deathRowCustody = DeathRowCustody.normalizeState(target.deathRowCustody);
+    return target.deathRowCustody;
+  }
+
+  function currentDeathRowStay() {
+    return ensureDeathRowCustody().stays.find((stay) => ["active", "executionProcessDue"].includes(stay.status)) || null;
+  }
+
   function ensurePrisonRelease(target = state) {
     if (target.prisonRelease?.version === PrisonRelease.VERSION && Array.isArray(target.prisonRelease.records)) return target.prisonRelease;
     target.prisonRelease = PrisonRelease.normalizeState(target.prisonRelease);
@@ -6624,6 +6650,7 @@
   function restrictedOffsiteStay() {
     const active = currentJailStay(); if (active) return active;
     const prison = currentPrisonStay(); if (prison) return prison;
+    const capital = currentDeathRowStay(); if (capital) return capital;
     if (!scientistInFugitiveStaging()) return null;
     const jailAttempt = latestCompletedJailEscape();
     if (jailAttempt && [FUGITIVE_ALLEY_ROOM_ID, FUGITIVE_SAFE_ROOM_ID].includes(scientistRoomId())) return ensureJailCustody().stays.find((stay) => stay.id === jailAttempt.stayId) || null;
@@ -6639,6 +6666,8 @@
     if (stay?.suppressor?.suppressionActive) return `${stay.suppressor.label} completely suppresses the scientist's magic.`;
     const prisonStay = currentPrisonStay();
     if (prisonStay?.suppressor?.suppressionActive) return `${prisonStay.suppressor.label} and the prison's suppression wards completely suppress the scientist's magic.`;
+    const capitalStay = currentDeathRowStay();
+    if (capitalStay?.suppressor?.suppressionActive) return `${capitalStay.suppressor.label} and the capital unit's nullstone wards completely suppress the scientist's magic.`;
     const escapedPrison = escapedPrisonStay();
     if (escapedPrison?.suppressor?.suppressionActive) return `${escapedPrison.suppressor.label} remains physically locked and completely suppresses the scientist's magic outside prison.`;
     const condition = activeCourtSuppressorCondition();
@@ -8169,6 +8198,11 @@
     return null;
   }
 
+  function capitalCustodyActorById(actorId) {
+    for (const stay of ensureDeathRowCustody().stays) { const actor = stay.actors.find((entry) => entry.id === actorId); if (actor) return { stay, actor }; }
+    return null;
+  }
+
   function raidEntryPoint(raid) {
     return (state.siteAccessPoints || []).find((entry) => entry.id === raid?.entryPointId && entry.lawful)
       || (state.siteAccessPoints || []).find((entry) => entry.id === "publicEntrance") || null;
@@ -8541,6 +8575,47 @@
     const ui = ensureUiState(); ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: STATE_PRISON_Z }, map, ui.mapZoomIndex); setSelection({ kind: "scientist", id: "scientist" }, { source: "prison", centerMap: true }); syncActorInventories();
     addEvent(`${caseRecord.docket}: armored transfer completed. The scientist entered ${committed.stay.facility.label} for a finite ${order.incarcerationMonths}-month term. Shared housing, named prisoners, daily work and programs, physical security, and redundant magic suppression are now active; the outside laboratory continues.`, { sourceKind: "prisonCustody", sourceId: committed.stay.id });
     return true;
+  }
+
+  function materializeDeathRow(caseRecord) {
+    const order = caseRecord?.sentencing?.order; const jailStay = currentJailStay();
+    if (!order || order.kind !== "deathRow" || !jailStay) return false;
+    const roomSpecs = [
+      [CAPITAL_SALLY_PORT_ROOM_ID, "Capital Custody Sally Port", "office", 2, 3, 6, 5, [CAPITAL_INTAKE_ROOM_ID], "A sealed vehicle bay for capital-custody transfers."],
+      [CAPITAL_INTAKE_ROOM_ID, "Capital Custody Intake", "office", 9, 3, 6, 5, [CAPITAL_SALLY_PORT_ROOM_ID, CAPITAL_CONTROL_ROOM_ID], "Search, property, medical screening, and nullstone-collar fitting."],
+      [CAPITAL_CONTROL_ROOM_ID, "Capital Custody Guard Control", "office", 16, 3, 7, 5, [CAPITAL_INTAKE_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_EXECUTION_ROOM_ID], "Named officers control every locked movement and the redundant facility wards."],
+      [CAPITAL_CORRIDOR_ROOM_ID, "Capital Custody Secure Corridor", "corridor", 10, 10, 4, 24, [CAPITAL_CONTROL_ROOM_ID, CAPITAL_CELL_ROOM_ID, CAPITAL_LEGAL_ROOM_ID, CAPITAL_VISITATION_ROOM_ID, CAPITAL_MEDICAL_ROOM_ID, CAPITAL_EXERCISE_ROOM_ID, CAPITAL_EXECUTION_ROOM_ID], "The escorted spine of the condemned unit."],
+      [CAPITAL_CELL_ROOM_ID, "Condemned Cell", "quarters", 2, 11, 7, 8, [CAPITAL_CORRIDOR_ROOM_ID], "A single occupied cell where meals, counts, and lockdown occur."],
+      [CAPITAL_LEGAL_ROOM_ID, "Privileged Legal Booth", "office", 15, 11, 6, 6, [CAPITAL_CORRIDOR_ROOM_ID], "A warded booth for privileged counsel work."],
+      [CAPITAL_VISITATION_ROOM_ID, "Monitored Capital Visitation", "office", 22, 11, 7, 6, [CAPITAL_CORRIDOR_ROOM_ID], "A monitored booth for approved visitors, company access, and optional spiritual counsel."],
+      [CAPITAL_MEDICAL_ROOM_ID, "Capital Custody Medical Room", "laboratory", 15, 20, 6, 6, [CAPITAL_CORRIDOR_ROOM_ID], "Daily medical checks and emergency stabilization occur here."],
+      [CAPITAL_EXERCISE_ROOM_ID, "Capital Custody Exercise and Shower", "quarters", 22, 20, 7, 7, [CAPITAL_CORRIDOR_ROOM_ID], "A warded room for escorted exercise and hygiene."],
+      [CAPITAL_EXECUTION_ROOM_ID, "Locked Execution Suite", "laboratory", 15, 29, 10, 7, [CAPITAL_CONTROL_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID], "A separately locked suite that remains inaccessible until execution-day mechanics begin."]
+    ];
+    const roomIds = roomSpecs.map(([id]) => id);
+    const rooms = roomSpecs.map(([id, name, purposeId, x, y, width, height, connections, description]) => normalizeRoom({ id, name, articleName: `the ${name.toLowerCase()}`, purposeId, facilityClass: "detention", description, geometry: { shape: "secure room", lengthM: width, widthM: height, heightM: 3, floorAreaM2: width * height, volumeM3: width * height * 3 }, connections, purposeSource: "sentence", purposeReason: "Capital custody commitment" }));
+    state.rooms = normalizeRooms([...state.rooms.filter((room) => !roomIds.includes(room.id)), ...rooms]);
+    const map = ensureLabMap(); map.layers[String(CAPITAL_CUSTODY_Z)] = { id: "capitalCustody", kind: "structure", label: "Capital Custody" }; const excavated = [];
+    for (const [id, _name, _purposeId, x, y, width, height] of roomSpecs) { const rect = { roomId: id, x, y, z: CAPITAL_CUSTODY_Z, width, height }; const room = rooms.find((entry) => entry.id === id); map.rooms[id] = normalizeLabMapRoom({ ...rect, cells: rectangularRoomCells(rect), anchor: { x: x + Math.floor(width / 2), y: y + Math.floor(height / 2), z: CAPITAL_CUSTODY_Z } }, room); excavated.push(...rectangularRoomCells(rect)); state.roomStockpiles[id] ||= emptyRoomStockpile(); }
+    const doorSpecs = [
+      ["door-capital-sally", CAPITAL_SALLY_PORT_ROOM_ID, CAPITAL_INTAKE_ROOM_ID, 8, 5], ["door-capital-intake", CAPITAL_INTAKE_ROOM_ID, CAPITAL_CONTROL_ROOM_ID, 15, 5], ["door-capital-control", CAPITAL_CONTROL_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID, 12, 9],
+      ["door-capital-cell", CAPITAL_CELL_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID, 9, 15], ["door-capital-legal", CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_LEGAL_ROOM_ID, 14, 14], ["door-capital-visitation", CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_VISITATION_ROOM_ID, 14, 16],
+      ["door-capital-medical", CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_MEDICAL_ROOM_ID, 14, 23], ["door-capital-exercise", CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_EXERCISE_ROOM_ID, 14, 25], ["door-capital-execution", CAPITAL_CORRIDOR_ROOM_ID, CAPITAL_EXECUTION_ROOM_ID, 14, 32]
+    ];
+    for (const [id, leftRoomId, rightRoomId, x, y] of doorSpecs) { const cell = { x, y, z: CAPITAL_CUSTODY_Z }; excavated.push(cell); map.doors[id] = normalizeLabMapDoor({ id, roomIds: [leftRoomId, rightRoomId], cell, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 1, heightM: 2.1 } }, id, map.rooms); }
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...excavated]); state.doors = normalizeDoors(state.doors, state.rooms, map);
+    for (const [id] of doorSpecs) { const door = state.doors[id]; door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; door.accessRuleId = "restricted"; door.typeId = "ironBandDoor"; }
+    const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === caseRecord.proceedingId); const counsel = proceeding?.counsel?.options?.find((entry) => entry.id === proceeding.counsel.selectedOptionId);
+    const committed = DeathRowCustody.commit(ensureDeathRowCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay.id, docket: caseRecord.docket, roomIds, counselName: counsel?.name, labSnapshot: jailLabSnapshot() }); state.deathRowCustody = committed.state;
+    if (!committed.created) return false;
+    jailStay.status = "transferred"; jailStay.suppressor.status = "removed"; jailStay.suppressor.suppressionActive = false; jailStay.suppressor.removedAt = state.clock; jailStay.history.push({ at: state.clock, action: "deathRowTransfer", summary: `${caseRecord.docket}: temporary jail ended at ${committed.stay.facility.label}.` });
+    const found = toolInstanceById(jailStay.suppressor.toolInstanceId); if (found) { found.instance.roomId = CAPITAL_CELL_ROOM_ID; found.instance.carriedBy = "scientist"; committed.stay.suppressor.toolInstanceId = found.instance.id; }
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === jailStay.suppressor.physicalStackId); if (stack) { stack.roomId = CAPITAL_CELL_ROOM_ID; stack.cell = { x: 5, y: 15, z: CAPITAL_CUSTODY_Z }; stack.carriedBy = "scientist"; stack.updatedAt = state.clock; committed.stay.suppressor.physicalStackId = stack.id; }
+    state.scientist.roomId = CAPITAL_CELL_ROOM_ID; state.scientist.mapCell = { x: 5, y: 15, z: CAPITAL_CUSTODY_Z };
+    const marked = TrialSentencing.markOrderStatus(ensureTrialSentencing(), caseRecord.id, "committed", state.clock, `${order.label} began at ${committed.stay.facility.label}.`); state.trialSentencing = marked.state;
+    const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === caseRecord.raidId); if (raid?.detention) { raid.status = "completed"; raid.detention.status = "transferred"; raid.outcome = { kind: "deathRowTransfer", at: state.clock, summary: `${caseRecord.docket}: capital-custody transfer completed.` }; }
+    const ui = ensureUiState(); ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: CAPITAL_CUSTODY_Z }, map, ui.mapZoomIndex); setSelection({ kind: "scientist", id: "scientist" }, { source: "deathRow", centerMap: true }); syncActorInventories();
+    addEvent(`${caseRecord.docket}: armored transfer completed. The scientist entered ${committed.stay.facility.label}; a thirty-day provisional execution date, automatic capital review, named staff, daily custody, and redundant nullstone suppression are active. The sentence did not end the run.`, { sourceKind: "deathRowCustody", sourceId: committed.stay.id }); return true;
   }
 
   function applyJailSuppressor(stay) {
@@ -8968,6 +9043,9 @@
       if (order?.kind === "finitePrison" && order.status === "commitmentPending" && order.transferNotBefore != null && order.transferNotBefore <= state.clock && currentJailStay()) {
         if (materializeStatePrison(caseRecord)) changes += 1;
       }
+      if (order?.kind === "deathRow" && order.status === "commitmentPending" && order.transferNotBefore != null && order.transferNotBefore <= state.clock && currentJailStay()) {
+        if (materializeDeathRow(caseRecord)) changes += 1;
+      }
     }
     return changes;
   }
@@ -8990,6 +9068,16 @@
       const roomId = stay.routine.currentKind === "lockup" ? (index < 4 ? STATE_PRISON_HOUSING_ROOM_ID : STATE_PRISON_SECOND_DORM_ROOM_ID) : stay.routine.currentKind === "personalPeriod" ? (index % 2 ? STATE_PRISON_EXERCISE_ROOM_ID : STATE_PRISON_DAYROOM_ROOM_ID) : stay.routine.currentRoomId;
       const anchor = labMapRoomAnchor(roomId); actor.roomId = roomId; actor.mapCell = anchor ? { x: anchor.x + (index % 3) - 1, y: anchor.y + Math.floor((index % 5) / 3), z: anchor.z } : actor.mapCell;
     }
+    return result.changed ? 1 : 0;
+  }
+
+  function updateDeathRowCustody() {
+    if (!ensureDeathRowCustody().stays.some((stay) => ["active", "executionProcessDue"].includes(stay.status))) return 0;
+    const before = currentDeathRowStay(); const previousRoutine = before?.routine?.currentKind; const previousStatus = before?.status; const previousDecision = before?.decision?.kind;
+    const result = DeathRowCustody.advance(ensureDeathRowCustody(), state.clock); state.deathRowCustody = result.state; const stay = result.stay; if (!stay) return 0;
+    if (stay.status === "active" && previousRoutine !== stay.routine.currentKind) { state.scientist.roomId = stay.routine.currentRoomId; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(stay.routine.currentRoomId)); addEvent(`${stay.facility.label}: ${stay.routine.currentLabel} began in ${roomName(stay.routine.currentRoomId)}.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); }
+    if (stay.decision.required && stay.decision.kind !== previousDecision) addEvent(`${stay.docket}: ${stay.decision.reason}`, { sourceKind: "deathRowCustody", sourceId: stay.id });
+    if (stay.status === "executionProcessDue" && previousStatus !== "executionProcessDue") { state.paused = true; addEvent(`${stay.docket}: execution-day custody is now due. Simulation paused at the physical process boundary; the scientist is alive and no execution was abstracted.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); }
     return result.changed ? 1 : 0;
   }
 
@@ -9225,6 +9313,22 @@
     if (result.changed && result.stay?.decision.kind === "communicationReady") state.prisonCustody = PrisonCustody.clearDecision(state.prisonCustody, stay.id).state;
     closePrisonDoors(); if (result.changed) addEvent(`${result.session.summary} The scientist's direct laboratory knowledge advanced only through this delayed physical channel.`, { sourceKind: "prisonCustody", sourceId: stay.id }); return result.changed;
   }
+
+  function saveDeathRowPriority(priorityId) {
+    const stay = currentDeathRowStay(); if (!stay || stay.status !== "active") return false;
+    const result = DeathRowCustody.setPriority(ensureDeathRowCustody(), stay.id, priorityId, state.clock); state.deathRowCustody = result.state;
+    if (result.changed) addEvent(`${stay.facility.label}: ${DeathRowCustody.PRIORITIES.find((entry) => entry.id === priorityId)?.label || "Custody"} became the saved daily priority.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return result.changed;
+  }
+
+  function acknowledgeDeathRowDecision() { const stay = currentDeathRowStay(); if (!stay?.decision.required || stay.decision.kind === "executionProcessDue") return false; const result = DeathRowCustody.clearDecision(ensureDeathRowCustody(), stay.id); state.deathRowCustody = result.state; persist(); render(); return result.changed; }
+
+  function requestDeathRowCommunication(channelId) { const stay = currentDeathRowStay(); if (!stay || stay.status !== "active") return false; const result = DeathRowCustody.requestCommunication(ensureDeathRowCustody(), stay.id, channelId, "", state.clock); state.deathRowCustody = result.state; if (result.changed) addEvent(`${DeathRowCustody.CHANNELS.find((entry) => entry.id === channelId)?.label || "Communication"} requested through capital-custody scheduling.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return result.changed; }
+
+  function useDeathRowCommunication(requestId) { const stay = currentDeathRowStay(); const request = stay?.communications.requests.find((entry) => entry.id === requestId); if (!stay || request?.status !== "ready") return false; const channel = DeathRowCustody.CHANNELS.find((entry) => entry.id === request.channelId); const roomId = request.channelId === "legalCounsel" ? CAPITAL_LEGAL_ROOM_ID : CAPITAL_VISITATION_ROOM_ID; state.scientist.roomId = roomId; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(roomId)); const result = DeathRowCustody.completeCommunication(ensureDeathRowCustody(), stay.id, request.id, state.clock, request.channelId === "companyPortal" ? jailCompanyReport() : {}); state.deathRowCustody = result.state; if (result.changed && result.stay.decision.kind === "communicationReady") state.deathRowCustody = DeathRowCustody.clearDecision(state.deathRowCustody, stay.id).state; if (result.changed) addEvent(`${result.session.summary} Named officers escorted the scientist to ${roomName(roomId)} and returned the scientist to the saved custody routine.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return result.changed; }
+
+  function advanceDeathRowTime(days = 1) { const stay = currentDeathRowStay(); if (!stay || stay.status !== "active" || stay.decision.required) return false; const originalClock = state.clock; const desired = originalClock + Math.max(1, Math.min(7, Math.floor(Number(days) || 1))) * DeathRowCustody.DAY; const events = [stay.calendar.automaticReviewStatus === "scheduled" ? stay.calendar.automaticReviewAt : null, stay.calendar.executionStatus !== "stayed" ? stay.calendar.provisionalExecutionAt : null, ...stay.communications.requests.filter((entry) => entry.status === "pending").map((entry) => entry.readyAt)].filter((at) => Number.isFinite(at) && at > state.clock && at < desired); const target = events.length ? Math.min(...events) : desired; advanceTime(target - state.clock, { quiet: true }); const updated = currentDeathRowStay(); addEvent(`Capital custody advanced ${formatDuration(target - originalClock)}${target < desired ? ` and stopped for ${updated?.decision.reason || "a custody milestone"}` : ""}. The outside laboratory and world advanced over the same interval.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
+
+  function advanceDeathRowMilestone() { const stay = currentDeathRowStay(); if (!stay || stay.status !== "active" || stay.decision.required) return false; const event = DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock); if (!event || event.at <= state.clock) return false; advanceTime(event.at - state.clock, { quiet: true }); addEvent(`Capital custody advanced to ${event.label}.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
 
   function advancePrisonTime(days = 1) {
     const stay = currentPrisonStay(); if (!stay || stay.status !== "active" || stay.decision.required || prisonBreakBusy()) return false;
@@ -11846,7 +11950,15 @@
         scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), mana: scientistVital("mana").current }, runEnded: state.runEnded
       }),
       prisonCustodySnapshot: () => clonePlainObject({ ...ensurePrisonCustody(), activeStay: currentPrisonStay(), escapedStay: escapedPrisonStay(), releaseRecord: currentPrisonReleaseRecord(), releaseRecords: ensurePrisonRelease().records, prisonBreak: ensurePrisonBreak(), activePrisonBreak: activePrisonBreakAttempt(), latestPrisonEscape: latestCompletedPrisonBreak(), nextEvent: PrisonCustody.nextEvent(ensurePrisonCustody(), state.clock), nextReleaseMilestone: currentPrisonStay() ? PrisonRelease.nextMilestone(ensurePrisonRelease(), currentPrisonStay().id, state.clock) : null, clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => ["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction"].includes(task.type)), money: ensureEconomy().money, runEnded: state.runEnded }),
+      deathRowCustodySnapshot: () => clonePlainObject({ ...ensureDeathRowCustody(), activeStay: currentDeathRowStay(), nextEvent: DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, runEnded: state.runEnded }),
       makePrisonTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "finitePrison") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentPrisonStay()); },
+      makeDeathRowTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "deathRow") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentDeathRowStay()); },
+      setDeathRowPriority: (priorityId) => saveDeathRowPriority(priorityId),
+      requestDeathRowCommunication: (channelId) => requestDeathRowCommunication(channelId),
+      useDeathRowCommunication: (requestId) => useDeathRowCommunication(requestId),
+      advanceDeathRowTime: (days) => advanceDeathRowTime(days),
+      acknowledgeDeathRowDecision: () => acknowledgeDeathRowDecision(),
+      makeDeathRowExecutionDueNow: () => { const stay = currentDeathRowStay(); if (!stay || stay.status !== "active") return false; advanceTime(Math.max(0, stay.calendar.provisionalExecutionAt - state.clock), { quiet: true }); persist(); render(); return currentDeathRowStay()?.status === "executionProcessDue"; },
       savePrisonPlan: (assignmentId, priorityId) => savePrisonPlan(assignmentId, priorityId),
       interactInPrison: (actorId, kind) => interactInPrison(actorId, kind),
       completePrisonTaskNow: () => { const task = state.tasks.find((entry) => ["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction"].includes(entry.type)); if (!task) return false; task.dueAt = state.clock; if (task.type === "prisonReleaseReview") { const record = ensurePrisonRelease().records.find((entry) => entry.id === task.data?.recordId); const application = record?.applications.find((entry) => entry.id === task.data?.applicationId); if (application) application.hearingAt = state.clock; } if (task.type === "prisonBreakAction" && task.data?.action === "preparation") { const record = ensurePrisonBreak().records.find((entry) => entry.id === task.data?.recordId); const preparation = record?.preparations.find((entry) => entry.id === task.data?.preparationId); if (preparation) preparation.dueAt = state.clock; } completeDueTasks(); persist(); render(); return true; },
@@ -11921,8 +12033,9 @@
         for (const charge of proceeding.charges) {
           charge.status = charge.status === "dismissed" ? "dismissed" : "filed";
           if (options.custodial) charge.weight = Math.max(30, charge.weight);
+          if (options.capital) { charge.typeId = "prohibitedAnimancy"; charge.weight = Math.max(50, charge.weight); charge.label = "Fatal prohibited animancy"; }
           for (const support of charge.support) {
-            support.label = "Research ledger describing deliberate unlicensed prohibited specimen experiments"; support.reliability = "strong"; support.significanceRank = 4; support.integrity = 100; support.scopeStatus = "authorized"; support.custodyIssues = []; support.traits = ["research", "prohibited", "unlicensed", "deliberate", "specimen"]; support.admissibility = "admitted";
+            support.label = options.capital ? "Research ledger documenting deliberate fatal soul destruction through prohibited animancy" : "Research ledger describing deliberate unlicensed prohibited specimen experiments"; support.reliability = "strong"; support.significanceRank = 4; support.integrity = 100; support.scopeStatus = "authorized"; support.custodyIssues = []; support.traits = options.capital ? ["research", "prohibited", "unlicensed", "deliberate", "fatal", "soul destruction", "animancy"] : ["research", "prohibited", "unlicensed", "deliberate", "specimen"]; support.admissibility = "admitted";
           }
         }
         const self = proceeding.counsel.options.find((entry) => entry.kind === "self") || proceeding.counsel.options[0]; proceeding.counsel.selectedOptionId = self.id; proceeding.counsel.selectedAt = state.clock; proceeding.counsel.paid = true;
@@ -16057,6 +16170,7 @@
     const current = mapViewportForUi(map, ui).z;
     if (currentJailStay() && current === MUNICIPAL_HOLDING_Z) return false;
     if (currentPrisonStay() && current === STATE_PRISON_Z) return false;
+    if (currentDeathRowStay() && current === CAPITAL_CUSTODY_Z) return false;
     const next = current + Math.trunc(Number(delta) || 0);
     if (next === current) return false;
     canvasMapPanOffset = { x: 0, y: 0 };
@@ -16527,9 +16641,11 @@
     const trialEvent = trial ? { time: trial.at, label: trial.label, type: "trialSentencing" } : null;
     const prison = options.excludePrisonRoutine ? null : PrisonCustody.nextEvent(ensurePrisonCustody(), state.clock);
     const prisonEvent = prison ? { time: prison.at, label: prison.label, type: "prisonCustody" } : null;
+    const capital = ensureDeathRowCustody().stays.length ? DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock) : null;
+    const capitalEvent = capital ? { time: capital.at, label: capital.label, type: "deathRowCustody" } : null;
     const escape = JailEscapeRescue.nextEvent(ensureJailEscapeRescue(), state.clock);
     const escapeEvent = escape ? { time: escape.at, label: escape.label, type: "jailEscape" } : null;
-    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, trialEvent, prisonEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, trialEvent, prisonEvent, capitalEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -16688,6 +16804,7 @@
       changes.raidChanged += updatePretrialProceedings();
       changes.raidChanged += updateTrialSentencing();
       changes.raidChanged += updatePrisonCustody();
+      changes.raidChanged += updateDeathRowCustody();
       changes.raidChanged += updatePrisonRelease();
       changes.raidChanged += updatePrisonBreak();
       changes.raidChanged += updateJailEscapeRescue();
@@ -26470,6 +26587,8 @@
         .find((actor) => actor?.id === id && actor.present)
       || (context?.prisonCustody?.stays || []).flatMap((stay) => stay.actors || [])
         .find((actor) => actor?.id === id && actor.present)
+      || (context?.deathRowCustody?.stays || []).flatMap((stay) => stay.actors || [])
+        .find((actor) => actor?.id === id && actor.present)
       || null;
   }
 
@@ -26498,6 +26617,8 @@
       ...(context.jailCustody?.stays || []).flatMap((stay) => stay.actors || [])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
       ...(context.prisonCustody?.stays || []).flatMap((stay) => stay.actors || [])
+        .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
+      ...(context.deathRowCustody?.stays || []).flatMap((stay) => stay.actors || [])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor }))
     ];
     const validIds = new Set(actors.filter(({ actor }) => actor === context.scientist || actor.kind === "visitor" || actor.status !== "dead").map((entry) => entry.id));
@@ -58450,6 +58571,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         entities.push({ id: `prison-actor:${actor.id}`, kind: "prisonActor", category: "actor", subtype: actor.role, target: { kind: "prisonActor", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)], orientation: "square", facing: "south", pose: prisoner ? "waiting" : "walking", activity: { id: stay.routine.currentKind, label: `${stay.routine.currentLabel} · ${prisoner ? actor.affiliation : titleCase(actor.role)}`, source: "prison custody" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("prison-custody", prisoner ? "notice" : "warning", `${titleCase(actor.role)} · ${actor.affiliation}`, prisoner ? "P" : "C")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "direct prison observation" }, visual: { key: "actor.scientist", glyph: prisoner ? "P" : actor.role === "shiftSupervisor" ? "S" : "O", recipeKey: `prison:${actor.role}:${stay.routine.currentKind}` }, blocking: false });
       }
     }
+    for (const stay of ensureDeathRowCustody().stays.filter((entry) => ["active", "executionProcessDue"].includes(entry.status))) {
+      for (const actor of stay.actors.filter((entry) => entry.present && entry.mapCell)) entities.push({ id: `capital-actor:${actor.id}`, kind: "capitalCustodyActor", category: "actor", subtype: actor.role, target: { kind: "capitalCustodyActor", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)], orientation: "square", facing: "south", pose: "waiting", activity: { id: stay.routine.currentKind, label: `${stay.routine.currentLabel} · ${titleCase(actor.role)}`, source: "capital custody" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("capital-custody", "warning", `${titleCase(actor.role)} · ${actor.affiliation}`, "D")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "direct capital-custody observation" }, visual: { key: "actor.scientist", glyph: actor.role === "capitalSupervisor" ? "S" : actor.role === "executionOfficer" ? "E" : "O", recipeKey: `capital:${actor.role}:${stay.routine.currentKind}` }, blocking: false });
+    }
     for (const attempt of ensurePrisonBreak().attempts.filter((entry) => entry.routeKind === "covertRescue" && ["planned", "active"].includes(entry.status) && entry.vehicle?.present && entry.vehicle?.mapCell)) {
       const vehicle = attempt.vehicle; entities.push({ id: `prison-rescue-vehicle:${vehicle.id}`, kind: "prisonRescueVehicle", category: "object", subtype: "covertServiceVehicle", target: { kind: "prisonRescueVehicle", id: vehicle.id }, anchorCell: cleanMapCell(vehicle.mapCell), footprintCells: [cleanMapCell(vehicle.mapCell)], orientation: "square", facing: "west", pose: "waiting", activity: { id: attempt.status, label: `${vehicle.label} · ${vehicle.registration}`, source: "prison rescue" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("covert-extraction", "warning", `Physical concealment vehicle for ${attempt.id}`, "V")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "saved covert-rescue plan" }, visual: { key: "actor.scientist", glyph: "V", recipeKey: `prison-rescue-vehicle:${attempt.status}` }, blocking: false });
     }
@@ -58792,6 +58916,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
     if (currentPrisonStay() && !["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction", "rest"].includes(task.type)) return "The scientist is serving a finite prison sentence and cannot reach or directly supervise the laboratory.";
+    if (currentDeathRowStay() && task.type !== "rest") return "The scientist is held in the State Capital Custody Unit and cannot reach or directly supervise the laboratory.";
     if (scientistInFugitiveStaging() && !["jailEscapeAction", "prisonBreakAction", "rest"].includes(task.type)) {
       return "The scientist is at an off-site fugitive staging location and cannot perform or directly supervise laboratory work.";
     }
@@ -59251,6 +59376,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const custodyCell = normalized ? selectionMapCell(normalized) : null;
     if (currentJailStay() && custodyCell && custodyCell.z !== MUNICIPAL_HOLDING_Z) return state.selection;
     if (currentPrisonStay() && custodyCell && custodyCell.z !== STATE_PRISON_Z) return state.selection;
+    if (currentDeathRowStay() && custodyCell && custodyCell.z !== CAPITAL_CUSTODY_Z) return state.selection;
     if (scientistInFugitiveStaging() && custodyCell && custodyCell.z !== FUGITIVE_STAGING_Z) return state.selection;
     state.selection = normalized;
     if (normalized && options.centerMap !== false) {
@@ -59325,6 +59451,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return found?.actor.present ? { kind, id: found.actor.id } : null;
     }
     if (kind === "prisonActor") { const id = String(candidate.id || ""); const found = prisonActorById(id); return found?.actor.present ? { kind, id: found.actor.id } : null; }
+    if (kind === "capitalCustodyActor") { const id = String(candidate.id || ""); const found = capitalCustodyActorById(id); return found?.actor.present ? { kind, id: found.actor.id } : null; }
     if (kind === "tile") {
       const map = ensureLabMap();
       const cell = cleanMapCell(candidate.tile || candidate.cell || candidate);
@@ -59411,7 +59538,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "stockpile") {
       return { kind: "stockpile", id: selection.id, roomId: selection.roomId || "", focusId: selection.focusId || DEFAULT_RESOURCE_OVERLAY_FOCUS_ID };
     }
-    if (["visitor", "raidOfficer", "jailOfficer", "prisonActor", "container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
+    if (["visitor", "raidOfficer", "jailOfficer", "prisonActor", "capitalCustodyActor", "container", "fixture", "itemStack", "slime", "corpse", "incident", "task", "tool", "resource"].includes(selection.kind)) {
       return { kind: selection.kind, id: selection.id, roomId: selection.roomId || "", tile: selection.tile || null };
     }
     return null;
@@ -59515,6 +59642,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "raidOfficer") return raidActorById(selection.id)?.actor.name || "Raid Officer";
     if (selection.kind === "jailOfficer") return jailActorById(selection.id)?.actor.name || "Custody Officer";
     if (selection.kind === "prisonActor") return prisonActorById(selection.id)?.actor.name || "Prison Actor";
+    if (selection.kind === "capitalCustodyActor") return capitalCustodyActorById(selection.id)?.actor.name || "Capital Custody Actor";
     if (selection.kind === "tile") {
       return `Tile ${selection.tile.x},${selection.tile.y}, Z ${selection.tile.z}`;
     }
@@ -59572,6 +59700,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       raidOfficer: "Law-Enforcement Officer",
       jailOfficer: "Jail Custody Officer",
       prisonActor: "Prisoner or Prison Staff",
+      capitalCustodyActor: "Capital Custody Staff",
       tile: "Map Tile",
       room: "Room",
       door: "Door",
@@ -59603,6 +59732,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "raidOfficer") return raidActorById(selection.id)?.actor.roomId || "";
     if (selection.kind === "jailOfficer") return jailActorById(selection.id)?.actor.roomId || "";
     if (selection.kind === "prisonActor") return prisonActorById(selection.id)?.actor.roomId || "";
+    if (selection.kind === "capitalCustodyActor") return capitalCustodyActorById(selection.id)?.actor.roomId || "";
     if (selection.kind === "tile") {
       return selection.roomId || labMapCellRoomId(selection.tile);
     }
@@ -59659,6 +59789,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (selection.kind === "raidOfficer") return cleanMapCell(raidActorById(selection.id)?.actor.mapCell);
     if (selection.kind === "jailOfficer") return cleanMapCell(jailActorById(selection.id)?.actor.mapCell);
     if (selection.kind === "prisonActor") return cleanMapCell(prisonActorById(selection.id)?.actor.mapCell);
+    if (selection.kind === "capitalCustodyActor") return cleanMapCell(capitalCustodyActorById(selection.id)?.actor.mapCell);
     if (selection.kind === "tile") {
       return selection.tile;
     }
@@ -62565,6 +62696,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionSummaryRows(selection) {
+    if (selection.kind === "capitalCustodyActor") { const found = capitalCustodyActorById(selection.id); if (!found) return []; return [["Capital custody staff", found.actor.name], ["Role", titleCase(found.actor.role)], ["Affiliation", found.actor.affiliation], ["Shift", titleCase(found.actor.shift)], ["Room", roomName(found.actor.roomId)], ["Current routine", found.stay.routine.currentLabel], ["Facility", found.stay.facility.label]]; }
     if (selection.kind === "prisonActor") { const found = prisonActorById(selection.id); if (!found) return []; const relationship = found.stay.relationships.find((entry) => entry.actorId === found.actor.id); return [[found.actor.role === "prisoner" ? "Prisoner" : "Staff", found.actor.name], ["Role", titleCase(found.actor.role)], ["Affiliation", found.actor.affiliation], ["Room", roomName(found.actor.roomId)], ["Routine", found.stay.routine.currentLabel], ["Relationship", relationship ? `${titleCase(relationship.band)} (${formatNumber(relationship.score)})` : "Institutional"]]; }
     if (selection.kind === "jailOfficer") {
       const found = jailActorById(selection.id);
@@ -68325,6 +68457,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(row); return section;
   }
 
+  function renderDeathRowCustodyPanel(stay) {
+    const section = document.createElement("section"); section.className = "subpanel raid-section"; section.dataset.deathRowCustody = stay.id; section.append(textEl("div", `Capital Custody · ${stay.facility.label}`, "subpanel-title"));
+    const row = document.createElement("article"); row.className = "journal-row visit-row raid-row"; const dueIn = Math.max(0, stay.calendar.provisionalExecutionAt - state.clock);
+    row.append(textEl("strong", `${stay.docket} · ${titleCase(stay.status)}`), textEl("span", `Provisional execution date: ${formatClock(stay.calendar.provisionalExecutionAt)} · ${formatDuration(dueIn)} remaining · automatic review ${titleCase(stay.calendar.automaticReviewStatus)} at ${formatClock(stay.calendar.automaticReviewAt)}. The sentence and due date do not themselves kill the scientist.`, "journal-meta"), textEl("span", `Routine now: ${stay.routine.currentLabel} in ${roomName(stay.routine.currentRoomId)}. Meals occur in the condemned cell; exercise, hygiene, legal work, visits, and medical checks require escorted movement.`, "journal-meta"), textEl("span", `${stay.suppressor.label}: ${titleCase(stay.suppressor.status)}, condition ${formatNumber(stay.suppressor.condition)}%. The physical collar and facility wards completely suppress magic.`, "journal-meta"), textEl("span", `Saved preparation: legal ${formatNumber(stay.progress.legalPreparation)} · outside communication ${formatNumber(stay.progress.outsideCommunication)} · conditioning ${formatNumber(stay.progress.physicalConditioning)} · security observation ${formatNumber(stay.progress.securityObservation)} · ${formatNumber(stay.progress.custodyDays)} custody day(s). Discipline standing ${formatNumber(stay.discipline.standing)} with ${stay.discipline.incidents.length} saved incident(s).`, "journal-meta"), textEl("span", `Named custody: ${stay.actors.map((actor) => `${actor.name} (${titleCase(actor.role)})`).join("; ")}. The optional spiritual adviser and legal visitor appear only for scheduled access.`, "journal-meta"));
+    if (stay.decision.required) { row.append(textEl("span", `Time advance stopped: ${stay.decision.reason}`, "journal-meta")); if (stay.decision.kind !== "executionProcessDue") { const button = document.createElement("button"); button.type = "button"; button.textContent = "Acknowledge and Continue"; button.addEventListener("click", acknowledgeDeathRowDecision); row.append(button); } }
+    if (stay.status === "active") {
+      const priority = document.createElement("select"); priority.setAttribute("aria-label", "Death-row custody priority"); for (const entry of DeathRowCustody.PRIORITIES) { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.label; option.selected = entry.id === stay.plan.priorityId; priority.append(option); } const save = document.createElement("button"); save.type = "button"; save.textContent = "Save Custody Priority"; save.addEventListener("click", () => saveDeathRowPriority(priority.value)); row.append(priority, save);
+      for (const channel of DeathRowCustody.CHANNELS) { const request = stay.communications.requests.find((entry) => entry.channelId === channel.id && ["pending", "ready"].includes(entry.status)); const button = document.createElement("button"); button.type = "button"; button.textContent = request?.status === "ready" ? `Use ${channel.label}` : request ? `${channel.label} Pending` : `Request ${channel.label}`; button.disabled = request?.status === "pending" || stay.decision.required; button.addEventListener("click", () => request?.status === "ready" ? useDeathRowCommunication(request.id) : requestDeathRowCommunication(channel.id)); row.append(button); }
+      for (const [days, label] of [[1, "Advance Custody Day"], [7, "Repeat Up to 7 Days"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.disabled = stay.decision.required; button.addEventListener("click", () => advanceDeathRowTime(days)); row.append(button); } const milestone = document.createElement("button"); milestone.type = "button"; milestone.textContent = "Advance to Next Custody Milestone"; milestone.disabled = stay.decision.required; milestone.addEventListener("click", advanceDeathRowMilestone); row.append(milestone);
+    }
+    row.append(textEl("span", `Execution suite: locked and inaccessible. Appeals, stays and commutation; escape and covert rescue; and physical execution day are separate follow-up systems.`, "journal-meta")); section.append(row); return section;
+  }
+
   function renderPrisonFugitivePanel(attempt) {
     const section = document.createElement("section"); section.className = "subpanel raid-section"; section.dataset.prisonFugitive = attempt.id; section.append(textEl("div", "Escaped Prisoner · Fugitive Staging", "subpanel-title")); const row = document.createElement("article"); row.className = "journal-row visit-row raid-row"; const stay = ensurePrisonCustody().stays.find((entry) => entry.id === attempt.stayId); const taskBusy = state.tasks.some((entry) => entry.type === "prisonBreakAction");
     row.append(textEl("strong", `${stay?.docket || attempt.id} · ${roomName(scientistRoomId())}`), textEl("span", `Original finite sentence: ${formatDuration(stay?.sentence.unservedSeconds || attempt.frozen.unservedSentenceSeconds)} unserved and paused at escape. It was neither silently extended nor completed.`, "journal-meta"), textEl("span", `Pursuit: ${titleCase(attempt.pursuit.status)} · alert ${formatNumber(attempt.pursuit.alert)}% · laboratory watch ${attempt.pursuit.labWatch ? "active" : "none"}. A separately supported escape charge and bench warrant remain active.`, "journal-meta"), textEl("span", `Collar: ${titleCase(attempt.collarStatus)}. ${stay?.suppressor.suppressionActive ? "The physical prison collar still completely suppresses magic." : "The prison collar no longer suppresses magic."}`, "journal-meta"), textEl("span", `Direct laboratory knowledge remains frozen at ${formatClock(stay?.knowledge.labSnapshotAt || 0)} until the scientist physically returns. The service road and utility shelter provide concealment, not remote laboratory control.`, "journal-meta"));
@@ -68345,12 +68490,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scheduledRaids = raids.filter((raid) => raid.status === "scheduled");
     const detainedRaids = raids.filter((raid) => raid.status === "booked");
     const openProceedings = ensurePretrialProceedings().proceedings.filter((entry) => !["resolved", "chargesDismissed"].includes(entry.status)).length;
-    const prisonStay = currentPrisonStay(); const prisonEscape = latestCompletedPrisonBreak(); const prisonFugitive = prisonEscape && [PRISON_FUGITIVE_ROAD_ROOM_ID, PRISON_FUGITIVE_SHELTER_ROOM_ID].includes(scientistRoomId());
-    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${prisonStay ? 1 : 0} prison · ${prisonFugitive ? 1 : 0} prison fugitive · ${openProceedings} court · ${completed.length} completed`;
+    const prisonStay = currentPrisonStay(); const deathRowStay = currentDeathRowStay(); const prisonEscape = latestCompletedPrisonBreak(); const prisonFugitive = prisonEscape && [PRISON_FUGITIVE_ROAD_ROOM_ID, PRISON_FUGITIVE_SHELTER_ROOM_ID].includes(scientistRoomId());
+    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${prisonStay ? 1 : 0} prison · ${deathRowStay ? 1 : 0} capital custody · ${prisonFugitive ? 1 : 0} prison fugitive · ${openProceedings} court · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
     if (prisonStay) dom.visitsList.append(renderPrisonCustodyPanel(prisonStay));
+    if (deathRowStay) dom.visitsList.append(renderDeathRowCustodyPanel(deathRowStay));
     if (prisonFugitive) dom.visitsList.append(renderPrisonFugitivePanel(prisonEscape));
-    if (!visits.length && !raids.length && !openProceedings && !prisonStay && !prisonFugitive) {
+    if (!visits.length && !raids.length && !openProceedings && !prisonStay && !deathRowStay && !prisonFugitive) {
       dom.visitsList.append(emptyText("No lawful visits are scheduled for this site."));
       return;
     }
@@ -76440,6 +76586,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.pretrialProceedings = PretrialProceedings.normalizeState(candidate?.pretrialProceedings);
     next.trialSentencing = TrialSentencing.normalizeState(candidate?.trialSentencing);
     next.prisonCustody = PrisonCustody.normalizeState(candidate?.prisonCustody);
+    next.deathRowCustody = DeathRowCustody.normalizeState(candidate?.deathRowCustody);
     next.prisonRelease = PrisonRelease.normalizeState(candidate?.prisonRelease);
     next.prisonBreak = PrisonBreak.normalizeState(candidate?.prisonBreak);
     next.jailEscapeRescue = JailEscapeRescue.normalizeState(candidate?.jailEscapeRescue);
