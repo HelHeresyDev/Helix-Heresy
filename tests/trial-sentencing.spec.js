@@ -133,11 +133,11 @@ test('capital eligibility creates a death-row order, not death or game over', ()
   expect(completed.case).not.toHaveProperty('runEnded');
 });
 
-test('sentencing bands support time served, penal service, and life imprisonment as distinct orders', () => {
+test('sentencing bands support time served and route severe punishment to penal service instead of indefinite imprisonment', () => {
   for (const scenario of [
     { weight: 5, submission: 'individualizedMercy', expected: 'timeServed' },
     { weight: 30, submission: 'penalService', expected: 'penalLegion' },
-    { weight: 50, submission: 'individualizedMercy', expected: 'lifePrison' }
+    { weight: 50, submission: 'individualizedMercy', expected: 'penalLegion' }
   ]) {
     const source = proceeding(); source.charges[0].weight = scenario.weight;
     let state = finishTrial(configuredCase(source, { sentencingSubmissionId: scenario.submission })); const caseId = state.cases[0].id;
@@ -185,10 +185,27 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   await expect(trialRow).toContainText('Final order: Finite prison commitment');
   await expect(trialRow).toContainText('every required element was proven');
 
+  expect(await page.evaluate((id) => window.helixHeresyDebug.makePrisonTransferDueNow(id), caseId)).toBe(true);
+  const prison = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(prison).toMatchObject({ activeStay: { status: 'active', caseId, facility: { capacity: 9, occupied: 9 }, sentence: { months: expect.any(Number), maximumMonths: 120 }, suppressor: { suppressionActive: true }, actors: expect.any(Array), relationships: expect.any(Array) }, scientist: { roomId: 'statePrisonHousing', mapCell: { z: 5 } }, runEnded: false });
+  expect(prison.activeStay.actors.filter((actor) => actor.role === 'prisoner')).toHaveLength(8);
+  expect(prison.activeStay.actors.filter((actor) => actor.role !== 'prisoner')).toHaveLength(5);
+  await expect(page.locator(`[data-prison-custody="${prison.activeStay.id}"]`)).toContainText('Shared housing is deliberately compact');
+  await expect(page.locator(`[data-prison-custody="${prison.activeStay.id}"]`)).toContainText('Repeat Up to 7 Days');
+  const prisoner = prison.activeStay.actors.find((actor) => actor.role === 'prisoner');
+  const beforeRelationship = prison.activeStay.relationships.find((entry) => entry.actorId === prisoner.id).score;
+  expect(await page.evaluate((actorId) => window.helixHeresyDebug.interactInPrison(actorId, 'conversation'), prisoner.id)).toBe(true);
+  const routed = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(routed).toMatchObject({ custodyTasks: [{ type: 'prisonInteraction', data: { actorId: prisoner.id, mapPath: expect.any(Array) } }], scientist: { roomId: prisoner.roomId, mapCell: { z: 5 } } });
+  expect(routed.custodyTasks[0].data.mapPath.length).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  const interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(interacted.activeStay.relationships.find((entry) => entry.actorId === prisoner.id).score).toBe(beforeRelationship + 2);
+
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
   const reloaded = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
-  expect(reloaded.cases[0]).toMatchObject({ id: caseId, status: 'completed', sentencing: { order: { commitmentId: expect.any(String), status: 'commitmentPending' } } });
+  expect(reloaded.cases[0]).toMatchObject({ id: caseId, status: 'completed', sentencing: { order: { commitmentId: expect.any(String), status: 'committed' } } });
   expect(reloaded.runEnded).toBe(false);
 });
 

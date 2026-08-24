@@ -18,27 +18,26 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Prison Foundation and Long-Term Incarceration
-2. Prison Breaks, Rescue, and Release
-3. Death Row, Appeals, and Execution
-4. Reusable Worlds, Random Names, and Run Separation
-5. World Themes and Content Boundaries
-6. Hex-Based World Generation Foundation and Strategic Map
-7. Global Geography, Biomes, Terrain, and Resources
-8. Settlements, Cities, Routes, and Candidate Sites
-9. Civilizations, Factions, Institutions, Religions, and Law
-10. Historical World Simulation and Playable Year
-11. New-Run World Selection, Site Choice, and Scenario Materialization
-12. Local Context Mechanics: Environment, Geology, and Travel
-13. Penal Legions and Wilderness Service
-14. World Integration: Economy and Logistics
-15. World Integration: Investigations and Institutional Pressure
-16. Lazy Local Detail and World Discovery
-17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-18. Campaign Roadmap: From Hidden Laboratory to World Domination
-19. New-Run Onboarding and Contextual Tutorial
-20. Sound, Notifications, and Accessibility Audit
-21. Production Art Pass Using the Sprite Pipeline
+1. Prison Breaks, Rescue, and Release
+2. Death Row, Appeals, and Execution
+3. Reusable Worlds, Random Names, and Run Separation
+4. World Themes and Content Boundaries
+5. Hex-Based World Generation Foundation and Strategic Map
+6. Global Geography, Biomes, Terrain, and Resources
+7. Settlements, Cities, Routes, and Candidate Sites
+8. Civilizations, Factions, Institutions, Religions, and Law
+9. Historical World Simulation and Playable Year
+10. New-Run World Selection, Site Choice, and Scenario Materialization
+11. Local Context Mechanics: Environment, Geology, and Travel
+12. Penal Legions and Wilderness Service
+13. World Integration: Economy and Logistics
+14. World Integration: Investigations and Institutional Pressure
+15. Lazy Local Detail and World Discovery
+16. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+17. Campaign Roadmap: From Hidden Laboratory to World Domination
+18. New-Run Onboarding and Contextual Tutorial
+19. Sound, Notifications, and Accessibility Audit
+20. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -67,27 +66,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Prison Foundation and Long-Term Incarceration
-
-Design and implement prison as a distinct post-conviction system for finite and life custodial sentences. Prison is a large long-term institution, not an enlarged jail. It should materialize as its own physical site with multiple security zones, a persistent population, staff, routines, relationships, work or program assignments, communication, discipline, transfers, health risks, and outside developments. The scientist's laboratory and campaign state continue while the scientist is imprisoned.
-
-Questions for discussion:
-
-- How much prison should the first pass materialize?
-
-  Recommended answer: Build one coherent playable housing unit plus intake, visitation or communication, medical, work or program, exercise, and staff-controlled circulation areas. Save the larger institution strategically and expand exact local detail only when a mechanic needs it.
-
-- How should prison differ mechanically from jail?
-
-  Recommended answer: Jail emphasizes temporary legal custody and fast hearings. Prison emphasizes months or years, stable populations and factions, long-term relationships, institutional routines, work and programs, discipline, transfers, and time compression between meaningful events.
-
-- Can loss of the laboratory or life imprisonment end the run?
-
-  Recommended answer: No. Those are severe changes in campaign position. The run remains active while the scientist lives.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Prison Breaks, Rescue, and Release
+## 1. Prison Breaks, Rescue, and Release
 
 Design and implement the ways a scientist can leave an ordinary post-conviction prison: sentence completion, parole or commutation where supported, lawful transfer, self-engineered escape, and outside rescue. Consume the prison's actual routines, relationships, security zones, communications, equipment, staff, population, and outside actors rather than reusing the compact jail-escape rules.
 
@@ -107,7 +86,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Death Row, Appeals, and Execution
+## 2. Death Row, Appeals, and Execution
 
 Design and implement death row as a distinct post-sentencing system rather than an ordinary prison term. A death sentence creates a secure custody location, execution date and method, appeal and commutation deadlines, restrictions, staff and outside contacts, and possible rescue or escape opportunities. The sentence itself is never a game-over event.
 
@@ -127,7 +106,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Reusable Worlds, Random Names, and Run Separation
+## 3. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -149,7 +128,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Themes and Content Boundaries
+## 4. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -167,7 +146,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Hex-Based World Generation Foundation and Strategic Map
+## 5. Hex-Based World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete deterministic world that can be generated, randomly named, saved, selected, and viewed before a run begins. Represent its strategic geography with a finite hex grid, similar in role to RimWorld's world map, rather than square tiles. Establish stable world and region identities, axial or cube coordinates, world scale, land and water boundaries, neighboring and distance helpers, renderer-neutral diagnostics, and a player-visible preview. Generate the complete low-resolution world before play while leaving exact local maps lazy.
 
@@ -195,91 +174,91 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Global Geography, Biomes, Terrain, and Resources
+## 6. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography: elevation, oceans, coasts, mountains, drainage, rivers, climate tendencies, biome regions, broad geology, and resource distributions. Geography should constrain settlement, travel, trade, law, history, and site choice rather than being decorative noise.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Settlements, Cities, Routes, and Candidate Sites
+## 7. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement major cities, vulnerable towns and villages, defended corridors, transport hubs, frontier sites, candidate laboratory parcels, and route networks. Candidate sites should know both straight-line distance and practical route access to their nearest settlement.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Civilizations, Factions, Institutions, Religions, and Law
+## 8. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world: states, territorial control, relationships, factions, religious powers, commercial blocs, military forces, magitech traditions, and local institutional branches. Bind generated instances to stable semantic roles used by existing systems.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Historical World Simulation and Playable Year
+## 9. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year. History should causally change settlements, borders, powers, religions, routes, laws, public attitudes, ruins, and regional conditions. Every retained event should change a saved fact, explain a current condition, or create a discoverable hook.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. New-Run World Selection, Site Choice, and Scenario Materialization
+## 10. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world. The player chooses an existing world or generates a new one, then chooses a starting scenario, biome, and city-distance band from compatible saved candidate sites. The chosen scenario materializes the physical site blueprint and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Local Context Mechanics: Environment, Geology, and Travel
+## 11. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of selected world location: environmental baselines, exact geology inputs, water access, surface concealment, evidence persistence, waste risk, route reliability, legal-cover plausibility, visitor arrival windows, resource availability, and travel.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Penal Legions and Wilderness Service
+## 12. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. World Integration: Economy and Logistics
+## 13. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. World Integration: Investigations and Institutional Pressure
+## 14. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. Lazy Local Detail and World Discovery
+## 15. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 16. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 18. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 17. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 19. New-Run Onboarding and Contextual Tutorial
+## 18. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 20. Sound, Notifications, and Accessibility Audit
+## 19. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 21. Production Art Pass Using the Sprite Pipeline
+## 20. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
