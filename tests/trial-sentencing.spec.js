@@ -199,13 +199,32 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   expect(routed).toMatchObject({ custodyTasks: [{ type: 'prisonInteraction', data: { actorId: prisoner.id, mapPath: expect.any(Array) } }], scientist: { roomId: prisoner.roomId, mapCell: { z: 5 } } });
   expect(routed.custodyTasks[0].data.mapPath.length).toBeGreaterThan(0);
   expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
-  const interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  let interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
   expect(interacted.activeStay.relationships.find((entry) => entry.actorId === prisoner.id).score).toBe(beforeRelationship + 2);
+
+  expect(await page.evaluate(() => window.helixHeresyDebug.makePrisonReviewEligibleNow(true))).toBe(true);
+  interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(interacted).toMatchObject({ activeStay: { decision: { kind: 'releaseReviewEligible', required: true } }, releaseRecord: { eligibility: { notifiedAt: expect.any(Number) }, panel: { members: expect.arrayContaining([expect.objectContaining({ name: expect.any(String) })]) } } });
+  expect(await page.evaluate(() => window.helixHeresyDebug.filePrisonReleaseReview('verifiedReleasePlan'))).toBe(true);
+  let release = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(release).toMatchObject({ activeStay: { status: 'active' }, releaseRecord: { applications: [{ status: 'filed', resolvedAt: null }] }, custodyTasks: [{ type: 'prisonReleaseReview', data: { mapPath: expect.any(Array) } }], scientist: { roomId: 'statePrisonProgram' } });
+  expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  release = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(release).toMatchObject({ activeStay: { status: 'discharging' }, releaseRecord: { authorization: { kind: 'earnedSupervisedRelease', remainingSentenceSeconds: expect.any(Number), conditions: expect.arrayContaining([expect.objectContaining({ kind: 'supervisionReporting' })]) }, applications: [{ status: 'approved' }], discharge: { status: 'inTransit' } }, custodyTasks: [{ type: 'prisonDischarge' }], scientist: { roomId: 'statePrisonIntake' }, runEnded: false });
+  const beforeWages = release.money;
+  expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  release = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(release.activeStay).toBeNull();
+  expect(release.stays[0]).toMatchObject({ status: 'released', suppressor: { status: 'removed', suppressionActive: false } });
+  expect(release.releaseRecords[0].discharge).toMatchObject({ status: 'completed', wagesPaid: 44, returnedPropertyLabels: ['Intake notebook'], transport: { destinationAccessPointId: 'publicEntrance', destinationRoomId: 'surfaceReception' } });
+  expect(release).toMatchObject({ scientist: { roomId: 'surfaceReception' }, runEnded: false });
+  expect(release.money).toBe(beforeWages + 44);
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
   const reloaded = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot());
-  expect(reloaded.cases[0]).toMatchObject({ id: caseId, status: 'completed', sentencing: { order: { commitmentId: expect.any(String), status: 'committed' } } });
+  expect(reloaded.cases[0]).toMatchObject({ id: caseId, status: 'completed', sentencing: { order: { commitmentId: expect.any(String), status: 'completed' } } });
+  expect(reloaded.scientist.roomId).toBe('surfaceReception');
   expect(reloaded.runEnded).toBe(false);
 });
 

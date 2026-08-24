@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Prison Breaks, Rescue, and Release
+1. Prison Break Preparation, Escape, and Rescue
 2. Death Row, Appeals, and Execution
 3. Reusable Worlds, Random Names, and Run Separation
 4. World Themes and Content Boundaries
@@ -66,23 +66,29 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Prison Breaks, Rescue, and Release
+## 1. Prison Break Preparation, Escape, and Rescue
 
-Design and implement the ways a scientist can leave an ordinary post-conviction prison: sentence completion, parole or commutation where supported, lawful transfer, self-engineered escape, and outside rescue. Consume the prison's actual routines, relationships, security zones, communications, equipment, staff, population, and outside actors rather than reusing the compact jail-escape rules.
+Design and implement unlawful ways a scientist can leave an ordinary post-conviction prison after the completed lawful-release pass. Consume the prison's actual routines, relationships, security zones, communications, equipment, staff, population, and outside actors rather than reusing the compact jail-escape rules.
+
+The first vertical slice should support long-form preparation, a physical self-engineered escape, and one outside-assisted extraction in which allies substitute a covert service or transfer vehicle. An armed assault on the prison is a later expansion, not part of this pass.
 
 Questions for discussion:
 
-- Which exits should be implemented first?
+- What must preparation discover or acquire?
 
-  Recommended answer: Support sentence completion, one earned or negotiated early-release route, one physical self-escape plan, and one outside-assisted extraction.
+  Recommended answer: Require observations and relationships across multiple saved security layers, plus route-specific tools, credentials or disguises, schedule knowledge, communications, and a viable outside destination.
 
 - How should a prison break differ from a jail escape?
 
   Recommended answer: Require longer preparation across multiple security layers, relationships, tools, schedules, and an outside destination.
 
+- How should outside rescue work in the first pass?
+
+  Recommended answer: Allies infiltrate or replace an expected service or transfer vehicle and must physically reach a disclosed handoff point. Defer a direct armed breach until prison combat and reinforcement systems can support it.
+
 - What does failure mean?
 
-  Recommended answer: Failure may cause injury, segregation, lost privileges, new charges, a longer sentence, transfer to higher security, or harm to allies. It remains playable unless the scientist dies.
+  Recommended answer: Failure may cause injury, segregation, lost privileges, evidence-linked new charges, transfer to higher security, or harm to allies. It must not silently rewrite or extend the existing sentence; any additional punishment requires its own causal legal record. The run remains playable unless the scientist dies.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
