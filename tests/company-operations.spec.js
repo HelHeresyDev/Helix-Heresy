@@ -13,6 +13,7 @@ async function openFreshSetup(page) {
     window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
   });
   await page.reload();
+  await page.locator('#titleNewRunBtn').click();
 }
 
 async function startRun(page) {

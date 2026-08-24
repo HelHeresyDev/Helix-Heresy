@@ -16,6 +16,7 @@ async function startRun(page) {
     window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
   });
   await page.reload();
+  await page.locator('#titleNewRunBtn').click();
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
@@ -53,6 +54,8 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
   fs.writeFileSync(importPath, JSON.stringify(importPayload, null, 2));
 
   await page.locator('#importFileInput').setInputFiles(importPath);
+  await expect(page.locator('#replaceRunDialog')).toBeVisible();
+  await page.locator('#confirmReplaceRunBtn').click();
 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');

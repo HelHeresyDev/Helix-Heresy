@@ -19,6 +19,7 @@ async function startRun(page, options = {}) {
     }
   }, renderer);
   await page.reload();
+  await page.locator('#titleNewRunBtn').click();
   await page.locator('#setupForm button[type="submit"]').click();
 }
 
