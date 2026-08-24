@@ -154,7 +154,7 @@ test('missing a required trial appearance records nonappearance without resolvin
 });
 
 test('@smoke a detained scientist physically completes a bench trial and receives a saved prison commitment without game over', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   await startRun(page);
   await bookScientist(page);
   const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true }));
@@ -248,6 +248,78 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
   breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
   expect(breakSnapshot).toMatchObject({ scientist: { roomId: 'concealedExit' }, latestPrisonEscape: { pursuit: { status: 'recaptureScheduled', labWatch: true } }, runEnded: false });
+
+  await page.evaluate((save) => window.localStorage.setItem('helix-heresy-v1-save', save), lawfulCustodySave);
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(interacted).toMatchObject({ activeStay: { status: 'active' }, latestPrisonEscape: null, scientist: { mapCell: { z: 5 } }, runEnded: false });
+
+  // The alternate rescue route must use a frozen contact, crew, vehicle, service
+  // window, physical handoff, and the same saved fugitive/sentence machinery.
+  const rescueReady = await page.evaluate(() => window.helixHeresyDebug.makePrisonRescueReady());
+  expect(rescueReady).toMatchObject({ contactId: expect.any(String), distractionActorId: expect.any(String), codedSessionId: expect.any(String) });
+  const beforeRescueMoney = (await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot())).money;
+  expect(await page.evaluate(({ contactId, distractionActorId }) => window.helixHeresyDebug.arrangePrisonRescue(contactId, 'removeAfter', distractionActorId), rescueReady)).toBe(true);
+  let rescueSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  const rescueAttemptId = rescueSnapshot.activePrisonBreak.id;
+  const rescueUnserved = rescueSnapshot.activePrisonBreak.frozen.unservedSentenceSeconds;
+  expect(rescueSnapshot.money).toBe(beforeRescueMoney - 3200);
+  expect(rescueSnapshot.activePrisonBreak).toMatchObject({
+    routeKind: 'covertRescue',
+    status: 'planned',
+    collarStrategyId: 'removeAfter',
+    frozen: { routeLabel: 'Substituted Maintenance Collection', codedSessionId: rescueReady.codedSessionId, assistingActorId: rescueReady.distractionActorId },
+    contact: { id: rescueReady.contactId, archetype: 'industrialSmuggler' },
+    crew: expect.arrayContaining([
+      expect.objectContaining({ role: 'rescueDriver', name: expect.any(String) }),
+      expect.objectContaining({ role: 'rescueInfiltrator', name: expect.any(String) })
+    ]),
+    vehicle: { concealmentCompartment: true, registration: expect.any(String), present: false },
+    window: { startAt: expect.any(Number), endAt: expect.any(Number) },
+    equipment: expect.arrayContaining([
+      expect.objectContaining({ kind: 'credential', status: 'staged' }),
+      expect.objectContaining({ kind: 'coverall', status: 'staged' }),
+      expect.objectContaining({ kind: 'concealment', status: 'staged' })
+    ])
+  });
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  rescueSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(rescueSnapshot.activePrisonBreak).toMatchObject({ id: rescueAttemptId, routeKind: 'covertRescue', status: 'planned', contact: { id: rescueReady.contactId }, crew: [expect.objectContaining({ role: 'rescueDriver' }), expect.objectContaining({ role: 'rescueInfiltrator' })], vehicle: { present: false } });
+  expect(await page.evaluate((id) => window.helixHeresyDebug.makePrisonRescueWindowNow(id), rescueAttemptId)).toBe(true);
+  rescueSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(rescueSnapshot).toMatchObject({ scientist: { roomId: 'statePrisonWorkshop' }, activePrisonBreak: { vehicle: { present: true, roomId: 'correctionalServiceRoad' } } });
+  expect(rescueSnapshot.activeStay.actors.filter((actor) => ['rescueDriver', 'rescueInfiltrator'].includes(actor.role))).toHaveLength(2);
+  expect(rescueSnapshot.activePrisonBreak.equipment.filter((item) => item.kind !== 'concealment').every((item) => typeof item.physicalStackId === 'string' && item.physicalStackId.length > 0)).toBe(true);
+  expect(await page.evaluate((id) => window.helixHeresyDebug.forcePrisonBreakSuccess(id), rescueAttemptId)).toBe(true);
+  for (let index = 0; index < rescueSnapshot.activePrisonBreak.stages.length; index += 1) {
+    expect(await page.evaluate((id) => window.helixHeresyDebug.queueNextPrisonBreakStage(id), rescueAttemptId)).toBe(true);
+    const inMotion = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+    expect(inMotion.custodyTasks[0]).toMatchObject({ type: 'prisonBreakAction', data: { action: 'rescueStage', actorMode: expect.stringMatching(/^(team|joint)$/), actorIds: expect.any(Array), mapPath: expect.any(Array), stageId: expect.any(String) } });
+    const completedStageId = inMotion.custodyTasks[0].data.stageId;
+    expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+    const afterStage = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+    if (completedStageId === 'vehicleGateEntry') expect(afterStage.activePrisonBreak).toMatchObject({ vehicle: { roomId: 'statePrisonIntake' }, crew: [expect.objectContaining({ status: 'inside', roomId: 'statePrisonIntake' }), expect.objectContaining({ status: 'inside', roomId: 'statePrisonIntake' })] });
+    if (completedStageId === 'infiltratorToWorkshop') expect(afterStage.activePrisonBreak.crew.find((member) => member.role === 'rescueInfiltrator')).toMatchObject({ status: 'inside', roomId: 'statePrisonWorkshop' });
+    if (completedStageId === 'workshopHandoff') expect(afterStage.activePrisonBreak).toMatchObject({ scientistCommitted: true, equipment: expect.arrayContaining([expect.objectContaining({ kind: 'coverall', status: 'carried', carrierId: 'scientist' })]) });
+    if (completedStageId === 'returnToVehicle') expect(afterStage).toMatchObject({ scientist: { roomId: 'statePrisonIntake' }, activePrisonBreak: { crew: expect.arrayContaining([expect.objectContaining({ role: 'rescueInfiltrator', roomId: 'statePrisonIntake' })]) } });
+  }
+  rescueSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(rescueSnapshot).toMatchObject({
+    activeStay: null,
+    escapedStay: { status: 'escaped', sentence: { servicePausedAt: expect.any(Number), unservedSeconds: rescueUnserved }, suppressor: { suppressionActive: true } },
+    latestPrisonEscape: { id: rescueAttemptId, routeKind: 'covertRescue', status: 'escaped', scientistCommitted: true, vehicle: { present: false, roomId: 'correctionalServiceRoad' }, pursuit: { status: 'watchingLab', labWatch: true } },
+    scientist: { roomId: 'fugitiveUtilityShelter', mapCell: { z: 4 } },
+    runEnded: false
+  });
+  expect(rescueSnapshot.latestPrisonEscape.helperOutcomes).toEqual(expect.arrayContaining([
+    expect.objectContaining({ role: 'rescueDriver', outcome: 'escaped' }),
+    expect.objectContaining({ role: 'rescueInfiltrator', outcome: 'escaped' })
+  ]));
+  expect(rescueSnapshot.latestPrisonEscape.equipment.every((item) => item.status === 'lost')).toBe(true);
+  const rescueProceeding = (await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot())).proceedings[0];
+  expect(rescueProceeding).toMatchObject({ status: 'fugitive', fugitive: { active: true, benchWarrantStatus: 'issued' }, charges: expect.arrayContaining([expect.objectContaining({ typeId: 'escapeCustody', support: [expect.objectContaining({ kind: 'prisonCustody', sourceId: rescueAttemptId })] })]) });
 
   await page.evaluate((save) => window.localStorage.setItem('helix-heresy-v1-save', save), lawfulCustodySave);
   await page.reload();
