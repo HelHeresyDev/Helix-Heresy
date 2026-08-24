@@ -86,6 +86,12 @@ test('appellate directives stay, cancel, and physically complete capital custody
   expect(transferred.stay).toMatchObject({ status: 'transferred', suppressor: { status: 'removed', suppressionActive: false } });
 });
 
+test('executive conversion cancels execution but requires a distinct physical prison transfer', () => {
+  let { state, stay } = committed(); const directive = Capital.applyLegalDirective(state, stay.id, { reliefKind: 'commutation', summary: 'Executive instrument granted.' }, 3000); state = directive.state;
+  expect(directive.stay).toMatchObject({ status: 'commutationTransferRequired', calendar: { executionStatus: 'cancelled' }, suppressor: { suppressionActive: true } });
+  const transferred = Capital.completeLegalTransfer(state, stay.id, 'finitePrison', 4000); expect(transferred.stay).toMatchObject({ status: 'transferred', suppressor: { status: 'removed', suppressionActive: false }, history: expect.arrayContaining([expect.objectContaining({ summary: expect.stringContaining('executive commutation') })]) });
+});
+
 test('@smoke capital sentencing physically transfers into daily custody and stops alive at execution day', async ({ page }) => {
   test.setTimeout(360_000); await startRun(page); await bookScientist(page);
   const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true, capital: true })); expect(caseId).toMatch(/^trial-case-/);

@@ -4393,6 +4393,10 @@
   if (!CapitalAppeals) {
     throw new Error("HelixCapitalAppeals must load before app.js");
   }
+  const ExecutiveCommutation = window.HelixExecutiveCommutation;
+  if (!ExecutiveCommutation) {
+    throw new Error("HelixExecutiveCommutation must load before app.js");
+  }
   const PrisonRelease = window.HelixPrisonRelease;
   if (!PrisonRelease) {
     throw new Error("HelixPrisonRelease must load before app.js");
@@ -4820,6 +4824,7 @@
     "prisonDischarge",
     "prisonBreakAction",
     "capitalAppealTransfer",
+    "executiveCommutationTransfer",
     "rest"
   ]);
   const MAP_OVERLAY_DEFS = [
@@ -5088,6 +5093,7 @@
       prisonCustody: PrisonCustody.defaultState(),
       deathRowCustody: DeathRowCustody.defaultState(),
       capitalAppeals: CapitalAppeals.defaultState(),
+      executiveCommutation: ExecutiveCommutation.defaultState(),
       prisonRelease: PrisonRelease.defaultState(),
       prisonBreak: PrisonBreak.defaultState(),
       jailEscapeRescue: JailEscapeRescue.defaultState(),
@@ -6586,7 +6592,7 @@
   }
 
   function currentDeathRowStay() {
-    return ensureDeathRowCustody().stays.find((stay) => ["active", "executionProcessDue", "resentencingRequired", "retrialRequired", "releaseOrdered"].includes(stay.status)) || null;
+    return ensureDeathRowCustody().stays.find((stay) => ["active", "executionProcessDue", "resentencingRequired", "retrialRequired", "releaseOrdered", "commutationTransferRequired"].includes(stay.status)) || null;
   }
 
   function ensureCapitalAppeals(target = state) {
@@ -6595,6 +6601,13 @@
   }
 
   function currentCapitalAppeal() { const stay = currentDeathRowStay(); return stay ? CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id) : null; }
+
+  function ensureExecutiveCommutation(target = state) {
+    if (target.executiveCommutation?.version === ExecutiveCommutation.VERSION && Array.isArray(target.executiveCommutation.records)) return target.executiveCommutation;
+    target.executiveCommutation = ExecutiveCommutation.normalizeState(target.executiveCommutation); return target.executiveCommutation;
+  }
+
+  function currentExecutiveCommutation() { const stay = currentDeathRowStay(); return stay ? ExecutiveCommutation.recordForStay(ensureExecutiveCommutation(), stay.id) : null; }
 
   function ensurePrisonRelease(target = state) {
     if (target.prisonRelease?.version === PrisonRelease.VERSION && Array.isArray(target.prisonRelease.records)) return target.prisonRelease;
@@ -8539,10 +8552,12 @@
     addEvent(`${raid.docket}: an armored custody vehicle delivered the scientist to ${raid.detention.facilityLabel}. Named jail staff applied a warded collar that completely suppresses magic; the run and outside laboratory continue.`, { sourceKind: "jailCustody", sourceId: booked.stay.id });
   }
 
-  function materializeStatePrison(caseRecord) {
+  function materializeStatePrison(caseRecord, options = {}) {
     const order = caseRecord?.sentencing?.order;
     const jailStay = currentJailStay();
-    if (!order || order.kind !== "finitePrison" || !jailStay) return false;
+    const capitalStay = options.capitalStay && ["commutationTransferRequired", "active"].includes(options.capitalStay.status) ? options.capitalStay : null;
+    const sourceStay = jailStay || capitalStay;
+    if (!order || order.kind !== "finitePrison" || !sourceStay) return false;
     const roomSpecs = [
       [STATE_PRISON_INTAKE_ROOM_ID, "Prison Intake and Transfer", "office", 3, 3, 6, 5, [STATE_PRISON_CONTROL_ROOM_ID], "The secure vehicle bay, search area, property desk, and finite-sentence intake."],
       [STATE_PRISON_CONTROL_ROOM_ID, "Prison Control", "office", 10, 3, 7, 5, [STATE_PRISON_INTAKE_ROOM_ID, STATE_PRISON_CORRIDOR_ROOM_ID], "A staffed control room governing the unit's physical doors and redundant suppression wards."],
@@ -8573,20 +8588,21 @@
     for (const [id, leftRoomId, rightRoomId, x, y] of doorSpecs) { const cell = { x, y, z: STATE_PRISON_Z }; excavated.push(cell); map.doors[id] = normalizeLabMapDoor({ id, roomIds: [leftRoomId, rightRoomId], cell, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 1, heightM: 2.1 } }, id, map.rooms); }
     map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...excavated]); state.doors = normalizeDoors(state.doors, state.rooms, map);
     for (const [id] of doorSpecs) { const door = state.doors[id]; door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; door.accessRuleId = "restricted"; door.typeId = "ironBandDoor"; }
-    const committed = PrisonCustody.commit(ensurePrisonCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay.id, docket: caseRecord.docket, incarcerationMonths: order.incarcerationMonths, roomIds, labSnapshot: jailLabSnapshot() });
+    const committed = PrisonCustody.commit(ensurePrisonCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay?.id || capitalStay?.jailStayId, docket: caseRecord.docket, incarcerationMonths: order.incarcerationMonths, serviceCreditSeconds: options.serviceCreditSeconds || 0, transferSummary: capitalStay ? "Armored corrections transport removed the scientist from capital custody through its sealed sally port under an executive commutation instrument." : "An armored transport removed the scientist from temporary jail after the court commitment became effective.", roomIds, labSnapshot: jailLabSnapshot() });
     state.prisonCustody = committed.state;
     if (!committed.created) return false;
     state.prisonRelease = PrisonRelease.open(ensurePrisonRelease(), committed.stay, state.clock).state;
     state.prisonBreak = PrisonBreak.open(ensurePrisonBreak(), committed.stay, { clock: state.clock, proceedingId: caseRecord.proceedingId }).state;
-    jailStay.status = "transferred"; jailStay.suppressor.status = "removed"; jailStay.suppressor.suppressionActive = false; jailStay.suppressor.removedAt = state.clock; jailStay.history.push({ at: state.clock, action: "prisonTransfer", summary: `${caseRecord.docket}: temporary jail ended when armored transport delivered the scientist to ${committed.stay.facility.label}.` });
-    const found = toolInstanceById(jailStay.suppressor.toolInstanceId); if (found) { found.instance.roomId = STATE_PRISON_HOUSING_ROOM_ID; found.instance.carriedBy = "scientist"; committed.stay.suppressor.toolInstanceId = found.instance.id; }
-    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === jailStay.suppressor.physicalStackId); if (stack) { stack.roomId = STATE_PRISON_HOUSING_ROOM_ID; stack.cell = { x: 5, y: 15, z: STATE_PRISON_Z }; stack.carriedBy = "scientist"; stack.updatedAt = state.clock; committed.stay.suppressor.physicalStackId = stack.id; }
+    if (jailStay) { jailStay.status = "transferred"; jailStay.suppressor.status = "removed"; jailStay.suppressor.suppressionActive = false; jailStay.suppressor.removedAt = state.clock; jailStay.history.push({ at: state.clock, action: "prisonTransfer", summary: `${caseRecord.docket}: temporary jail ended when armored transport delivered the scientist to ${committed.stay.facility.label}.` }); }
+    if (capitalStay) { const transferred = DeathRowCustody.completeLegalTransfer(ensureDeathRowCustody(), capitalStay.id, "finitePrison", state.clock); state.deathRowCustody = transferred.state; }
+    const found = toolInstanceById(sourceStay.suppressor.toolInstanceId); if (found) { found.instance.roomId = STATE_PRISON_HOUSING_ROOM_ID; found.instance.carriedBy = "scientist"; committed.stay.suppressor.toolInstanceId = found.instance.id; }
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === sourceStay.suppressor.physicalStackId); if (stack) { stack.roomId = STATE_PRISON_HOUSING_ROOM_ID; stack.cell = { x: 5, y: 15, z: STATE_PRISON_Z }; stack.carriedBy = "scientist"; stack.updatedAt = state.clock; committed.stay.suppressor.physicalStackId = stack.id; }
     state.scientist.roomId = STATE_PRISON_HOUSING_ROOM_ID; state.scientist.mapCell = { x: 5, y: 15, z: STATE_PRISON_Z };
     const marked = TrialSentencing.markOrderStatus(ensureTrialSentencing(), caseRecord.id, "committed", state.clock, `${order.label} began at ${committed.stay.facility.label}.`); state.trialSentencing = marked.state;
     const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === caseRecord.raidId);
-    if (raid?.detention) { raid.status = "completed"; raid.detention.status = "transferred"; raid.outcome = { kind: "prisonTransfer", at: state.clock, summary: `${caseRecord.docket}: temporary jail custody ended in a physical transfer to ${committed.stay.facility.label}.` }; }
+    if (raid?.detention) { raid.status = "completed"; raid.detention.status = "transferred"; raid.outcome = { kind: capitalStay ? "commutedPrisonTransfer" : "prisonTransfer", at: state.clock, summary: capitalStay ? `${caseRecord.docket}: executive commutation physically transferred the scientist from capital custody to ${committed.stay.facility.label}.` : `${caseRecord.docket}: temporary jail custody ended in a physical transfer to ${committed.stay.facility.label}.` }; }
     const ui = ensureUiState(); ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: STATE_PRISON_Z }, map, ui.mapZoomIndex); setSelection({ kind: "scientist", id: "scientist" }, { source: "prison", centerMap: true }); syncActorInventories();
-    addEvent(`${caseRecord.docket}: armored transfer completed. The scientist entered ${committed.stay.facility.label} for a finite ${order.incarcerationMonths}-month term. Shared housing, named prisoners, daily work and programs, physical security, and redundant magic suppression are now active; the outside laboratory continues.`, { sourceKind: "prisonCustody", sourceId: committed.stay.id });
+    addEvent(`${caseRecord.docket}: armored transfer completed${capitalStay ? " from the capital-custody sally port" : ""}. The scientist entered ${committed.stay.facility.label} for a finite ${order.incarcerationMonths}-month term with ${committed.stay.sentence.serviceCreditDays} credited day(s). Shared housing, named prisoners, daily work and programs, physical security, and redundant magic suppression are now active; the outside laboratory continues.`, { sourceKind: "prisonCustody", sourceId: committed.stay.id });
     return true;
   }
 
@@ -8622,6 +8638,7 @@
     const committed = DeathRowCustody.commit(ensureDeathRowCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay.id, docket: caseRecord.docket, roomIds, counselName: counsel?.name, labSnapshot: jailLabSnapshot() }); state.deathRowCustody = committed.state;
     if (!committed.created) return false;
     const appeal = CapitalAppeals.open(ensureCapitalAppeals(), { seed: state.seed, clock: state.clock, stayId: committed.stay.id, caseRecord, proceeding, automaticReviewAt: committed.stay.calendar.automaticReviewAt, executionAt: committed.stay.calendar.provisionalExecutionAt }); state.capitalAppeals = appeal.state;
+    const commutation = ExecutiveCommutation.open(ensureExecutiveCommutation(), { seed: state.seed, clock: state.clock, stayId: committed.stay.id, caseRecord }); state.executiveCommutation = commutation.state;
     jailStay.status = "transferred"; jailStay.suppressor.status = "removed"; jailStay.suppressor.suppressionActive = false; jailStay.suppressor.removedAt = state.clock; jailStay.history.push({ at: state.clock, action: "deathRowTransfer", summary: `${caseRecord.docket}: temporary jail ended at ${committed.stay.facility.label}.` });
     const found = toolInstanceById(jailStay.suppressor.toolInstanceId); if (found) { found.instance.roomId = CAPITAL_CELL_ROOM_ID; found.instance.carriedBy = "scientist"; committed.stay.suppressor.toolInstanceId = found.instance.id; }
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === jailStay.suppressor.physicalStackId); if (stack) { stack.roomId = CAPITAL_CELL_ROOM_ID; stack.cell = { x: 5, y: 15, z: CAPITAL_CUSTODY_Z }; stack.carriedBy = "scientist"; stack.updatedAt = state.clock; committed.stay.suppressor.physicalStackId = stack.id; }
@@ -9113,6 +9130,27 @@
     return changes;
   }
 
+  function executiveCommutationInputs(stay = currentDeathRowStay(), record = currentExecutiveCommutation()) {
+    if (!stay || !record) return null;
+    const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === record.predecessorCaseId); const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === caseRecord?.proceedingId); const counsel = proceeding?.counsel?.options?.find((entry) => entry.id === proceeding.counsel.selectedOptionId) || caseRecord?.counsel?.selected || {};
+    const company = ensureCompany(); const credibility = companyCredibilityAssessment(company); const responses = ensureInstitutionalResponses(); const acceptedResponseCount = responses.responses.filter((entry) => entry.evaluation?.outcome === "accepted").length; const adverseActions = responses.actions.filter((entry) => ["active", "issued"].includes(entry.status) && entry.kind !== "acceptance"); const unpaidFineCount = responses.actions.filter((entry) => entry.kind === "fine" && ["active", "issued"].includes(entry.status)).length; const sentenceOutstanding = caseRecord?.sentencing?.order?.outstanding > 0 ? 1 : 0; const counselSession = [...stay.communications.sessions].reverse().find((entry) => entry.channelId === "legalCounsel" && entry.endedAt != null);
+    return { counselName: counsel.name || "Capital executive counsel", counselSkill: counsel.proceduralSkill || 0, legalPreparationDays: stay.progress.legalPreparation, companyName: company.enabled ? company.legalName : "No registered company", companyCredibility: credibility.score, lawfulActivityCount: company.records.filter((entry) => entry.lawful !== false).length, filedPeriodCount: company.periods.filter((entry) => entry.status === "filed").length, acceptedResponseCount, adverseActionCount: adverseActions.length, unpaidPenaltyCount: unpaidFineCount + sentenceOutstanding, complianceScore: clamp(100 - InstitutionalResponses.actionPressure(responses) * 2, 0, 100), custodyStanding: stay.discipline.standing, custodyIncidentCount: stay.discipline.incidents.length, capitalCustodySeconds: Math.max(0, state.clock - stay.committedAt), offenseExposure: caseRecord?.sentencing?.exposure || 0, capitalCaseId: caseRecord?.id || "", capitalOrderId: caseRecord?.sentencing?.order?.id || "", counselSessionId: counselSession?.id || "" };
+  }
+
+  function updateExecutiveCommutation() {
+    if (!ensureExecutiveCommutation().records.length) return 0;
+    const before = new Map(ensureExecutiveCommutation().records.map((record) => [record.id, `${record.status}:${record.decision.kind}:${record.decision.required}`])); let changes = 0;
+    for (const record of [...ensureExecutiveCommutation().records]) { const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === record.stayId); if (!["resentencingRequired", "retrialRequired", "releaseOrdered"].includes(stay?.status)) continue; const moot = ExecutiveCommutation.markMoot(ensureExecutiveCommutation(), record.id, "Judicial capital relief superseded the separate political petition before commutation transfer completed.", state.clock); state.executiveCommutation = moot.state; changes += moot.changed ? 1 : 0; if (moot.changed && moot.record?.instrument?.convertedCaseId) { const superseded = TrialSentencing.markOrderStatus(ensureTrialSentencing(), moot.record.instrument.convertedCaseId, "superseded", state.clock, "The linked executive conversion was superseded by judicial capital relief before physical transfer."); state.trialSentencing = superseded.state; changes += superseded.changed ? 1 : 0; } }
+    const advanced = ExecutiveCommutation.advance(ensureExecutiveCommutation(), state.clock); state.executiveCommutation = advanced.state; changes += advanced.changed ? 1 : 0;
+    for (let record of state.executiveCommutation.records) {
+      const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === record.stayId); if (!stay) continue; const appeal = CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id); const granted = record.status === "granted" && record.instrument; const effectiveStay = Boolean(record.execution.stayed || appeal?.execution.stayed);
+      if (granted && !record.instrument.convertedCaseId) { const converted = TrialSentencing.recordExecutiveCommutation(ensureTrialSentencing(), record.predecessorCaseId, { executiveInstrumentId: record.instrument.id, incarcerationMonths: record.instrument.replacementMonths, reasons: record.instrument.reasons, clock: record.instrument.issuedAt }); state.trialSentencing = converted.state; if (converted.case) { const marked = ExecutiveCommutation.markInstrument(ensureExecutiveCommutation(), record.id, { convertedCaseId: converted.case.id, status: "transferRequired", summary: `${converted.case.docket} linked the executive instrument to a ten-year finite-prison commitment without rewriting ${record.predecessorCaseId}.` }, state.clock); state.executiveCommutation = marked.state; record = marked.record; changes += 1; } }
+      const directive = DeathRowCustody.applyLegalDirective(ensureDeathRowCustody(), stay.id, { stayed: effectiveStay, executionAt: appeal?.execution.executionAt || stay.calendar.provisionalExecutionAt, rescheduled: Boolean(record.outcome?.kind === "denied" || appeal?.calendar.finalAdverseDecisionAt), finalAdverseDecisionAt: appeal?.calendar.finalAdverseDecisionAt, reliefKind: granted ? "commutation" : "", summary: granted ? record.outcome.summary : record.execution.stayed ? "The accepted executive petition administratively stayed execution." : record.outcome?.kind === "denied" ? "The executive petition was denied; any separate judicial stay remains controlling." : "Executive commutation availability was updated." }, state.clock); state.deathRowCustody = directive.state; changes += directive.changed ? 1 : 0;
+      if (record.decision.required && before.get(record.id) !== `${record.status}:${record.decision.kind}:${record.decision.required}`) addEvent(`${record.docket}: ${record.decision.reason}`, { sourceKind: "executiveCommutation", sourceId: record.id });
+    }
+    return changes;
+  }
+
   function prisonReleaseReviewInputs(stay = currentPrisonStay()) {
     if (!stay) return null;
     const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === stay.caseId);
@@ -9355,6 +9393,8 @@
   function acknowledgeDeathRowDecision() {
     const appeal = currentCapitalAppeal();
     if (appeal?.decision.required) { const result = CapitalAppeals.clearDecision(ensureCapitalAppeals(), appeal.id); state.capitalAppeals = result.state; persist(); render(); return result.changed; }
+    const commutation = currentExecutiveCommutation();
+    if (commutation?.decision.required) { const result = ExecutiveCommutation.clearDecision(ensureExecutiveCommutation(), commutation.id); state.executiveCommutation = result.state; persist(); render(); return result.changed; }
     const stay = currentDeathRowStay(); if (!stay?.decision.required || stay.decision.kind === "executionProcessDue") return false; const result = DeathRowCustody.clearDecision(ensureDeathRowCustody(), stay.id); state.deathRowCustody = result.state; persist(); render(); return result.changed;
   }
 
@@ -9362,9 +9402,22 @@
 
   function useDeathRowCommunication(requestId) { const stay = currentDeathRowStay(); const request = stay?.communications.requests.find((entry) => entry.id === requestId); if (!stay || request?.status !== "ready") return false; const channel = DeathRowCustody.CHANNELS.find((entry) => entry.id === request.channelId); const roomId = request.channelId === "legalCounsel" ? CAPITAL_LEGAL_ROOM_ID : CAPITAL_VISITATION_ROOM_ID; state.scientist.roomId = roomId; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(roomId)); const result = DeathRowCustody.completeCommunication(ensureDeathRowCustody(), stay.id, request.id, state.clock, request.channelId === "companyPortal" ? jailCompanyReport() : {}); state.deathRowCustody = result.state; if (result.changed && result.stay.decision.kind === "communicationReady") state.deathRowCustody = DeathRowCustody.clearDecision(state.deathRowCustody, stay.id).state; if (result.changed) addEvent(`${result.session.summary} Named officers escorted the scientist to ${roomName(roomId)} and returned the scientist to the saved custody routine.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return result.changed; }
 
-  function advanceDeathRowTime(days = 1) { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required) return false; const originalClock = state.clock; const desired = originalClock + Math.max(1, Math.min(7, Math.floor(Number(days) || 1))) * DeathRowCustody.DAY; const appellate = CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock); const events = [appellate?.at, !["stayed", "cancelled"].includes(stay.calendar.executionStatus) ? stay.calendar.provisionalExecutionAt : null, ...stay.communications.requests.filter((entry) => entry.status === "pending").map((entry) => entry.readyAt)].filter((at) => Number.isFinite(at) && at > state.clock && at < desired); const target = events.length ? Math.min(...events) : desired; advanceTime(target - state.clock, { quiet: true }); const updated = currentDeathRowStay(); const updatedAppeal = currentCapitalAppeal(); addEvent(`Capital custody advanced ${formatDuration(target - originalClock)}${target < desired ? ` and stopped for ${updatedAppeal?.decision.reason || updated?.decision.reason || "a custody milestone"}` : ""}. The outside laboratory and world advanced over the same interval.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
+  function advanceDeathRowTime(days = 1) { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); const commutation = currentExecutiveCommutation(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required || commutation?.decision.required) return false; const originalClock = state.clock; const desired = originalClock + Math.max(1, Math.min(7, Math.floor(Number(days) || 1))) * DeathRowCustody.DAY; const appellate = CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock); const executive = ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock); const events = [appellate?.at, executive?.at, !["stayed", "cancelled"].includes(stay.calendar.executionStatus) ? stay.calendar.provisionalExecutionAt : null, ...stay.communications.requests.filter((entry) => entry.status === "pending").map((entry) => entry.readyAt)].filter((at) => Number.isFinite(at) && at > state.clock && at < desired); const target = events.length ? Math.min(...events) : desired; advanceTime(target - state.clock, { quiet: true }); const updated = currentDeathRowStay(); const updatedAppeal = currentCapitalAppeal(); const updatedCommutation = currentExecutiveCommutation(); addEvent(`Capital custody advanced ${formatDuration(target - originalClock)}${target < desired ? ` and stopped for ${updatedAppeal?.decision.reason || updatedCommutation?.decision.reason || updated?.decision.reason || "a custody milestone"}` : ""}. The outside laboratory and world advanced over the same interval.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
 
-  function advanceDeathRowMilestone() { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required) return false; const events = [DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock)].filter(Boolean).sort((left, right) => left.at - right.at || left.label.localeCompare(right.label)); const event = events[0]; if (!event || event.at <= state.clock) return false; advanceTime(event.at - state.clock, { quiet: true }); addEvent(`Capital custody advanced to ${event.label}.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
+  function advanceDeathRowMilestone() { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); const commutation = currentExecutiveCommutation(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required || commutation?.decision.required) return false; const events = [DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock)].filter(Boolean).sort((left, right) => left.at - right.at || left.label.localeCompare(right.label)); const event = events[0]; if (!event || event.at <= state.clock) return false; advanceTime(event.at - state.clock, { quiet: true }); addEvent(`Capital custody advanced to ${event.label}.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
+
+  function fileExecutiveCommutation(rationaleId) {
+    const stay = currentDeathRowStay(); const record = currentExecutiveCommutation(); const appeal = currentCapitalAppeal(); const inputs = executiveCommutationInputs(stay, record); if (!stay || stay.status !== "active" || !record || !inputs) return false;
+    const result = ExecutiveCommutation.filePetition(ensureExecutiveCommutation(), record.id, { rationaleId, automaticReviewResolved: appeal?.automaticReview.status === "affirmed", counselSessionId: inputs.counselSessionId, inputs }, state.clock); state.executiveCommutation = result.state;
+    if (!result.changed) { addEvent(result.reason || "The executive commutation petition could not be filed.", { sourceKind: "executiveCommutation", sourceId: record.id }); persist(); render(); return false; }
+    updateExecutiveCommutation(); addEvent(`${record.docket}: the one ordinary executive petition froze its rationale, counsel, company, institutional, custody, and offense inputs at ${formatNumber(result.record.petition.score)}/${ExecutiveCommutation.APPROVAL_THRESHOLD}. Execution is administratively stayed.`, { sourceKind: "executiveCommutation", sourceId: record.id }); persist(); render(); return true;
+  }
+
+  function fileExecutiveCommutationForTest(rationaleId = "correctionalPracticality", strong = true) {
+    const stay = currentDeathRowStay(); const record = currentExecutiveCommutation(); const appeal = currentCapitalAppeal(); const inputs = executiveCommutationInputs(stay, record); if (!stay || !record || !inputs) return false;
+    const testInputs = strong ? { ...inputs, counselSkill: 100, legalPreparationDays: 5, companyCredibility: 100, custodyStanding: 100, custodyIncidentCount: 0, adverseActionCount: 0, unpaidPenaltyCount: 0, offenseExposure: 28 } : inputs;
+    const result = ExecutiveCommutation.filePetition(ensureExecutiveCommutation(), record.id, { rationaleId, automaticReviewResolved: appeal?.automaticReview.status === "affirmed", counselSessionId: inputs.counselSessionId, inputs: testInputs }, state.clock); state.executiveCommutation = result.state; if (!result.changed) return false; updateExecutiveCommutation(); persist(); render(); return true;
+  }
 
   function fileCapitalAppeal(primaryClaimId, secondaryClaimId = "") {
     const stay = currentDeathRowStay(); const record = currentCapitalAppeal(); const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === record?.predecessorCaseId); const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === caseRecord?.proceedingId); const counsel = proceeding?.counsel?.options?.find((entry) => entry.id === proceeding.counsel.selectedOptionId);
@@ -9401,6 +9454,23 @@
     }
     const marked = CapitalAppeals.markSuccessor(ensureCapitalAppeals(), record.id, { status: "transferred", summary: record.successorCase.kind === "release" ? "The final reversal completed through physical release at the Public Entrance." : `The scientist reached temporary jail for linked ${record.successorCase.kind}.` }, state.clock); state.capitalAppeals = marked.state;
     ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex); addEvent(`${record.docket}: the appellate mandate completed through a physical armored transfer. ${record.successorCase.kind === "release" ? "The scientist was released alive at the Public Entrance." : `The scientist is alive in temporary jail pending linked ${record.successorCase.kind}.`}`, { sourceKind: "capitalAppeals", sourceId: record.id }); return true;
+  }
+
+  function queueExecutiveCommutationTransfer(recordId) {
+    const record = ensureExecutiveCommutation().records.find((entry) => entry.id === recordId); const stay = currentDeathRowStay();
+    if (!record?.instrument || record.status !== "granted" || record.instrument.status !== "transferRequired" || !record.instrument.convertedCaseId || stay?.status !== "commutationTransferRequired" || state.tasks.some((task) => task.type === "executiveCommutationTransfer")) return false;
+    const marked = ExecutiveCommutation.markInstrument(ensureExecutiveCommutation(), record.id, { status: "inTransit", summary: "Named capital-custody and corrections staff began the physical commutation transfer through the sealed sally port." }, state.clock); state.executiveCommutation = marked.state;
+    state.scientist.roomId = CAPITAL_SALLY_PORT_ROOM_ID; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(CAPITAL_SALLY_PORT_ROOM_ID));
+    state.tasks.push({ id: `task-${state.nextTaskNumber++}`, type: "executiveCommutationTransfer", label: `${record.docket} commutation transfer`, createdAt: state.clock, dueAt: state.clock + minutesToSeconds(60), data: { recordId: record.id, stayId: stay.id, trialCaseId: record.instrument.convertedCaseId, roomId: CAPITAL_SALLY_PORT_ROOM_ID, toCell: scientistMapCell() } });
+    addEvent(`${record.docket}: the executive instrument entered physical execution. An armored corrections transfer began at the capital-custody sally port.`, { sourceKind: "executiveCommutation", sourceId: record.id }); persist(); render(); return true;
+  }
+
+  function finishExecutiveCommutationTransfer(task) {
+    const record = ensureExecutiveCommutation().records.find((entry) => entry.id === task.data?.recordId); const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === task.data?.stayId); const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === task.data?.trialCaseId);
+    if (!record?.instrument || record.instrument.status !== "inTransit" || stay?.status !== "commutationTransferRequired" || !caseRecord) return false;
+    const serviceCreditSeconds = Math.max(record.instrument.serviceCreditSeconds, state.clock - stay.committedAt); if (!materializeStatePrison(caseRecord, { capitalStay: stay, serviceCreditSeconds, commutationRecordId: record.id })) return false;
+    const prisonStay = currentPrisonStay(); const marked = ExecutiveCommutation.markInstrument(ensureExecutiveCommutation(), record.id, { status: "completed", prisonStayId: prisonStay?.id, serviceCreditSeconds, summary: `${prisonStay?.facility.label || "State prison"} intake completed the executive instrument with ${prisonStay?.sentence.serviceCreditDays || 0} credited capital-custody day(s).` }, state.clock); state.executiveCommutation = marked.state;
+    addEvent(`${record.docket}: the executive commutation instrument is complete. The preserved capital judgment now links to ${caseRecord.docket} and physical finite-prison custody.`, { sourceKind: "executiveCommutation", sourceId: record.id }); return true;
   }
 
   function advancePrisonTime(days = 1) {
@@ -12027,7 +12097,7 @@
         scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), mana: scientistVital("mana").current }, runEnded: state.runEnded
       }),
       prisonCustodySnapshot: () => clonePlainObject({ ...ensurePrisonCustody(), activeStay: currentPrisonStay(), escapedStay: escapedPrisonStay(), releaseRecord: currentPrisonReleaseRecord(), releaseRecords: ensurePrisonRelease().records, prisonBreak: ensurePrisonBreak(), activePrisonBreak: activePrisonBreakAttempt(), latestPrisonEscape: latestCompletedPrisonBreak(), nextEvent: PrisonCustody.nextEvent(ensurePrisonCustody(), state.clock), nextReleaseMilestone: currentPrisonStay() ? PrisonRelease.nextMilestone(ensurePrisonRelease(), currentPrisonStay().id, state.clock) : null, clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => ["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction"].includes(task.type)), money: ensureEconomy().money, runEnded: state.runEnded }),
-      deathRowCustodySnapshot: () => clonePlainObject({ ...ensureDeathRowCustody(), activeStay: currentDeathRowStay(), capitalAppeals: ensureCapitalAppeals(), activeAppeal: currentCapitalAppeal(), nextEvent: DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), nextAppealEvent: CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => task.type === "capitalAppealTransfer"), runEnded: state.runEnded }),
+      deathRowCustodySnapshot: () => clonePlainObject({ ...ensureDeathRowCustody(), activeStay: currentDeathRowStay(), capitalAppeals: ensureCapitalAppeals(), activeAppeal: currentCapitalAppeal(), executiveCommutation: ensureExecutiveCommutation(), activeCommutation: currentExecutiveCommutation(), nextEvent: DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), nextAppealEvent: CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), nextCommutationEvent: ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock), clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => ["capitalAppealTransfer", "executiveCommutationTransfer"].includes(task.type)), runEnded: state.runEnded }),
       makePrisonTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "finitePrison") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentPrisonStay()); },
       makeDeathRowTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "deathRow") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentDeathRowStay()); },
       setDeathRowPriority: (priorityId) => saveDeathRowPriority(priorityId),
@@ -12036,9 +12106,14 @@
       advanceDeathRowTime: (days) => advanceDeathRowTime(days),
       acknowledgeDeathRowDecision: () => acknowledgeDeathRowDecision(),
       fileCapitalAppeal: (primaryClaimId, secondaryClaimId = "") => fileCapitalAppeal(primaryClaimId, secondaryClaimId),
+      fileExecutiveCommutation: (rationaleId) => fileExecutiveCommutation(rationaleId),
+      fileExecutiveCommutationForTest: (rationaleId = "correctionalPracticality", strong = true) => fileExecutiveCommutationForTest(rationaleId, strong),
       makeCapitalAppealMilestoneDueNow: () => { const stay = currentDeathRowStay(); const record = ensureCapitalAppeals().records.find((entry) => entry.stayId === stay?.id); if (!record || record.status !== "active" || record.decision.required) return false; if (record.automaticReview.status === "scheduled") record.calendar.automaticReviewAt = state.clock; else if (record.automaticReview.status === "pending") record.automaticReview.decisionAt = state.clock; else if (record.directAppeal.status === "filed") record.directAppeal.decisionAt = state.clock; else if (record.directAppeal.status === "available") record.calendar.directAppealDeadlineAt = state.clock; else return false; updateCapitalAppeals(); persist(); render(); return Boolean(currentCapitalAppeal()?.decision.required); },
       queueCapitalAppealTransfer: (recordId) => queueCapitalAppealTransfer(recordId),
       completeCapitalAppealTransferNow: () => { const task = state.tasks.find((entry) => entry.type === "capitalAppealTransfer"); if (!task) return false; task.dueAt = state.clock; completeDueTasks(); persist(); render(); return true; },
+      makeExecutiveCommutationMilestoneDueNow: () => { const stay = currentDeathRowStay(); const record = ensureExecutiveCommutation().records.find((entry) => entry.stayId === stay?.id); if (!record || record.decision.required) return false; if (record.status === "filed") record.petition.advisoryAt = state.clock; else if (record.status === "recommended") record.petition.decisionAt = state.clock; else return false; updateExecutiveCommutation(); persist(); render(); return Boolean(currentExecutiveCommutation()?.decision.required); },
+      queueExecutiveCommutationTransfer: (recordId) => queueExecutiveCommutationTransfer(recordId),
+      completeExecutiveCommutationTransferNow: () => { const task = state.tasks.find((entry) => entry.type === "executiveCommutationTransfer"); if (!task) return false; task.dueAt = state.clock; completeDueTasks(); persist(); render(); return true; },
       makeDeathRowExecutionDueNow: () => { let stay = currentDeathRowStay(); if (!stay || stay.status !== "active") return false; for (let index = 0; index < 8; index += 1) { const appeal = ensureCapitalAppeals().records.find((entry) => entry.stayId === stay.id); if (!appeal || appeal.status !== "active") break; if (appeal.decision.required) { state.capitalAppeals = CapitalAppeals.clearDecision(ensureCapitalAppeals(), appeal.id).state; continue; } if (appeal.automaticReview.status === "scheduled") appeal.calendar.automaticReviewAt = state.clock; else if (appeal.automaticReview.status === "pending") appeal.automaticReview.decisionAt = state.clock; else if (appeal.directAppeal.status === "filed") appeal.directAppeal.decisionAt = state.clock; else if (appeal.directAppeal.status === "available") appeal.calendar.directAppealDeadlineAt = state.clock; else break; updateCapitalAppeals(); stay = currentDeathRowStay(); if (!stay || stay.status !== "active") break; } const appeal = currentCapitalAppeal(); if (appeal?.decision.required) state.capitalAppeals = CapitalAppeals.clearDecision(ensureCapitalAppeals(), appeal.id).state; stay = currentDeathRowStay(); if (stay?.status === "active") { state.clock = Math.max(state.clock, stay.calendar.provisionalExecutionAt); state.deathRowCustody = DeathRowCustody.advance(ensureDeathRowCustody(), state.clock).state; } persist(); render(); return currentDeathRowStay()?.status === "executionProcessDue"; },
       savePrisonPlan: (assignmentId, priorityId) => savePrisonPlan(assignmentId, priorityId),
       interactInPrison: (actorId, kind) => interactInPrison(actorId, kind),
@@ -16726,9 +16801,11 @@
     const capitalEvent = capital ? { time: capital.at, label: capital.label, type: "deathRowCustody" } : null;
     const appeal = ensureCapitalAppeals().records.length ? CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock) : null;
     const appealEvent = appeal ? { time: appeal.at, label: appeal.label, type: "capitalAppeals" } : null;
+    const commutation = ensureExecutiveCommutation().records.length ? ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock) : null;
+    const commutationEvent = commutation ? { time: commutation.at, label: commutation.label, type: "executiveCommutation" } : null;
     const escape = JailEscapeRescue.nextEvent(ensureJailEscapeRescue(), state.clock);
     const escapeEvent = escape ? { time: escape.at, label: escape.label, type: "jailEscape" } : null;
-    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, trialEvent, prisonEvent, capitalEvent, appealEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
+    return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, trialEvent, prisonEvent, capitalEvent, appealEvent, commutationEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
   function emptySimulationChanges() {
@@ -16888,6 +16965,7 @@
       changes.raidChanged += updateTrialSentencing();
       changes.raidChanged += updatePrisonCustody();
       changes.raidChanged += updateCapitalAppeals();
+      changes.raidChanged += updateExecutiveCommutation();
       changes.raidChanged += updateDeathRowCustody();
       changes.raidChanged += updatePrisonRelease();
       changes.raidChanged += updatePrisonBreak();
@@ -17058,6 +17136,7 @@
 
   function completeTask(task) {
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
+    if (task.type === "executiveCommutationTransfer") { finishExecutiveCommutationTransfer(task); return; }
     if (task.type === "prisonInteraction") { finishPrisonInteraction(task); return; }
     if (task.type === "prisonCommunication") { finishPrisonCommunication(task); return; }
     if (task.type === "prisonReleaseReview") { finishPrisonReleaseReview(task); return; }
@@ -59001,7 +59080,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
     if (currentPrisonStay() && !["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction", "rest"].includes(task.type)) return "The scientist is serving a finite prison sentence and cannot reach or directly supervise the laboratory.";
-    if (currentDeathRowStay() && !["capitalAppealTransfer", "rest"].includes(task.type)) return "The scientist is held in the State Capital Custody Unit and cannot reach or directly supervise the laboratory.";
+    if (currentDeathRowStay() && !["capitalAppealTransfer", "executiveCommutationTransfer", "rest"].includes(task.type)) return "The scientist is held in the State Capital Custody Unit and cannot reach or directly supervise the laboratory.";
     if (scientistInFugitiveStaging() && !["jailEscapeAction", "prisonBreakAction", "rest"].includes(task.type)) {
       return "The scientist is at an off-site fugitive staging location and cannot perform or directly supervise laboratory work.";
     }
@@ -68543,7 +68622,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderDeathRowCustodyPanel(stay) {
-    const appeal = CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id); const section = document.createElement("section"); section.className = "subpanel raid-section"; section.dataset.deathRowCustody = stay.id; section.append(textEl("div", `Capital Custody · ${stay.facility.label}`, "subpanel-title"));
+    const appeal = CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id); const commutation = ExecutiveCommutation.recordForStay(ensureExecutiveCommutation(), stay.id); const section = document.createElement("section"); section.className = "subpanel raid-section"; section.dataset.deathRowCustody = stay.id; section.append(textEl("div", `Capital Custody · ${stay.facility.label}`, "subpanel-title"));
     const row = document.createElement("article"); row.className = "journal-row visit-row raid-row"; const dueIn = Math.max(0, stay.calendar.provisionalExecutionAt - state.clock);
     row.append(textEl("strong", `${stay.docket} · ${titleCase(stay.status)}`), textEl("span", `Execution calendar: ${formatClock(stay.calendar.provisionalExecutionAt)} · ${formatDuration(dueIn)} remaining · ${titleCase(stay.calendar.executionStatus)}. The sentence and date do not themselves kill the scientist.`, "journal-meta"), textEl("span", `Routine now: ${stay.routine.currentLabel} in ${roomName(stay.routine.currentRoomId)}. Meals occur in the condemned cell; exercise, hygiene, legal work, visits, and medical checks require escorted movement.`, "journal-meta"), textEl("span", `${stay.suppressor.label}: ${titleCase(stay.suppressor.status)}, condition ${formatNumber(stay.suppressor.condition)}%. The physical collar and facility wards completely suppress magic.`, "journal-meta"), textEl("span", `Saved preparation: legal ${formatNumber(stay.progress.legalPreparation)} · outside communication ${formatNumber(stay.progress.outsideCommunication)} · conditioning ${formatNumber(stay.progress.physicalConditioning)} · security observation ${formatNumber(stay.progress.securityObservation)} · ${formatNumber(stay.progress.custodyDays)} custody day(s). Discipline standing ${formatNumber(stay.discipline.standing)} with ${stay.discipline.incidents.length} saved incident(s).`, "journal-meta"), textEl("span", `Named custody: ${stay.actors.map((actor) => `${actor.name} (${titleCase(actor.role)})`).join("; ")}.`, "journal-meta"));
     if (appeal) {
@@ -68557,13 +68636,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (appeal.successorCase?.status === "transferRequired") { const transfer = document.createElement("button"); transfer.type = "button"; transfer.textContent = appeal.successorCase.kind === "release" ? "Begin Physical Appellate Release" : `Begin Physical ${titleCase(appeal.successorCase.kind)} Transfer`; transfer.addEventListener("click", () => queueCapitalAppealTransfer(appeal.id)); row.append(transfer); }
     }
-    const blockingDecision = appeal?.decision.required ? appeal.decision : stay.decision.required ? stay.decision : null; if (blockingDecision) { row.append(textEl("span", `Time advance stopped: ${blockingDecision.reason}`, "journal-meta")); if (stay.decision.kind !== "executionProcessDue") { const button = document.createElement("button"); button.type = "button"; button.textContent = "Acknowledge and Continue"; button.addEventListener("click", acknowledgeDeathRowDecision); row.append(button); } }
+    if (commutation) {
+      row.append(textEl("strong", `Executive commutation · ${commutation.office.label}`, "journal-meta"), textEl("span", `Executive: ${commutation.office.executive.name}. Advisory council: ${commutation.office.advisors.map((advisor) => `${advisor.name} (${titleCase(advisor.role)})`).join("; ")}. This political remedy is separate from judicial appeal.`, "journal-meta"), textEl("span", `Status: ${titleCase(commutation.status)} · disclosed grant threshold ${formatNumber(ExecutiveCommutation.APPROVAL_THRESHOLD)} · one ordinary petition. A grant converts punishment only to the jurisdiction's ${ExecutiveCommutation.MAXIMUM_FINITE_MONTHS / 12}-year finite maximum.`, "journal-meta"));
+      const inputs = executiveCommutationInputs(stay, commutation); const automaticReviewResolved = appeal?.automaticReview.status === "affirmed"; const availability = ExecutiveCommutation.availability(commutation, { automaticReviewResolved, counselSessionId: inputs?.counselSessionId });
+      if (commutation.status === "available" && inputs) {
+        const rationale = document.createElement("select"); rationale.setAttribute("aria-label", "Primary executive commutation rationale");
+        for (const entry of ExecutiveCommutation.RATIONALES) { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.label; option.title = entry.description; rationale.append(option); }
+        const preview = textEl("span", "", "journal-meta"); const updatePreview = () => { const scored = ExecutiveCommutation.scoreSubmission({ ...inputs, rationaleId: rationale.value }); preview.textContent = `Current disclosed score: ${formatNumber(scored.score)}/${formatNumber(scored.threshold)}. ${scored.factors.map((factor) => `${factor.label} ${factor.score >= 0 ? "+" : ""}${formatNumber(factor.score)}`).join(" · ")}. Filing freezes every input.`; }; rationale.addEventListener("change", updatePreview); updatePreview();
+        const file = document.createElement("button"); file.type = "button"; file.textContent = "File One Ordinary Commutation Petition"; file.disabled = stay.status !== "active" || !availability.available || Boolean(appeal?.decision.required || stay.decision.required); file.title = availability.available ? "Acceptance automatically stays execution while the advisory recommendation and executive decision remain pending." : availability.reasons.join(" "); file.addEventListener("click", () => fileExecutiveCommutation(rationale.value));
+        row.append(rationale, preview, file); if (!availability.available) row.append(textEl("span", `Filing unavailable: ${availability.reasons.join(" ")}`, "journal-meta"));
+      }
+      if (commutation.petition.frozen) {
+        const frozen = commutation.petition.frozen; row.append(textEl("span", `Frozen petition: ${ExecutiveCommutation.RATIONALES.find((entry) => entry.id === frozen.rationaleId)?.label || titleCase(frozen.rationaleId)} · score ${formatNumber(commutation.petition.score)}/${formatNumber(commutation.petition.threshold)} · counsel ${frozen.counselName} (${formatNumber(frozen.counselSkill)}) · legal preparation ${formatNumber(frozen.legalPreparationDays)} day(s) · company credibility ${formatNumber(frozen.companyCredibility)} · custody standing ${formatNumber(frozen.custodyStanding)}.`, "journal-meta"), textEl("span", `Accepted ${formatClock(commutation.petition.filedAt)} · council recommendation ${formatClock(commutation.petition.advisoryAt)} · executive decision ${formatClock(commutation.petition.decisionAt)}. Administrative execution stay: ${commutation.execution.stayed ? "active" : commutation.execution.cancelledAt != null ? "execution cancelled by grant" : "lifted"}.`, "journal-meta"));
+        for (const factor of commutation.petition.factors) row.append(textEl("span", `${factor.label}: ${factor.score >= 0 ? "+" : ""}${formatNumber(factor.score)} — ${factor.reason}`, "journal-meta"));
+      }
+      if (commutation.advisory) row.append(textEl("span", `${commutation.advisory.summary} ${commutation.advisory.reasons.join(" ")}`, "journal-meta"));
+      if (commutation.outcome) row.append(textEl("span", `${commutation.outcome.summary} ${commutation.outcome.reasons.join(" ")}`, "journal-meta"));
+      if (commutation.status === "denied") row.append(textEl("span", `Renewal: ${titleCase(commutation.renewal.status)}. Qualifying changes: ${commutation.renewal.qualifyingChangeKinds.map(titleCase).join(", ")}. This first pass does not yet make renewal actionable.`, "journal-meta"));
+      if (commutation.instrument) row.append(textEl("span", `Executive instrument ${commutation.instrument.id}: ${titleCase(commutation.instrument.status)} · preserves conviction and original sentence record · replacement ${commutation.instrument.replacementMonths} months · capital-custody credit ${formatDuration(commutation.instrument.serviceCreditSeconds)}.`, "journal-meta"));
+      if (commutation.instrument?.status === "transferRequired") { const transfer = document.createElement("button"); transfer.type = "button"; transfer.textContent = "Begin Physical Commutation Prison Transfer"; transfer.disabled = state.tasks.some((task) => task.type === "executiveCommutationTransfer"); transfer.addEventListener("click", () => queueExecutiveCommutationTransfer(commutation.id)); row.append(transfer); }
+    }
+    const blockingDecision = appeal?.decision.required ? appeal.decision : commutation?.decision.required ? commutation.decision : stay.decision.required ? stay.decision : null; if (blockingDecision) { row.append(textEl("span", `Time advance stopped: ${blockingDecision.reason}`, "journal-meta")); if (blockingDecision.kind !== "executionProcessDue") { const button = document.createElement("button"); button.type = "button"; button.textContent = "Acknowledge and Continue"; button.addEventListener("click", acknowledgeDeathRowDecision); row.append(button); } }
     if (stay.status === "active") {
       const priority = document.createElement("select"); priority.setAttribute("aria-label", "Death-row custody priority"); for (const entry of DeathRowCustody.PRIORITIES) { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.label; option.selected = entry.id === stay.plan.priorityId; priority.append(option); } const save = document.createElement("button"); save.type = "button"; save.textContent = "Save Custody Priority"; save.addEventListener("click", () => saveDeathRowPriority(priority.value)); row.append(priority, save);
       for (const channel of DeathRowCustody.CHANNELS) { const request = stay.communications.requests.find((entry) => entry.channelId === channel.id && ["pending", "ready"].includes(entry.status)); const button = document.createElement("button"); button.type = "button"; button.textContent = request?.status === "ready" ? `Use ${channel.label}` : request ? `${channel.label} Pending` : `Request ${channel.label}`; button.disabled = request?.status === "pending" || stay.decision.required; button.addEventListener("click", () => request?.status === "ready" ? useDeathRowCommunication(request.id) : requestDeathRowCommunication(channel.id)); row.append(button); }
       for (const [days, label] of [[1, "Advance Custody Day"], [7, "Repeat Up to 7 Days"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.disabled = Boolean(blockingDecision); button.addEventListener("click", () => advanceDeathRowTime(days)); row.append(button); } const milestone = document.createElement("button"); milestone.type = "button"; milestone.textContent = "Advance to Next Custody Milestone"; milestone.disabled = Boolean(blockingDecision); milestone.addEventListener("click", advanceDeathRowMilestone); row.append(milestone);
     }
-    row.append(textEl("span", `Execution suite: locked and inaccessible. Appellate review and stays are active; political commutation, escape and covert rescue, and physical execution day remain separate systems.`, "journal-meta")); section.append(row); return section;
+    row.append(textEl("span", `Execution suite: locked and inaccessible. Appellate review, political commutation, escape and covert rescue, and physical execution day remain separate systems.`, "journal-meta")); section.append(row); return section;
   }
 
   function renderPrisonFugitivePanel(attempt) {
@@ -76684,6 +76783,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.prisonCustody = PrisonCustody.normalizeState(candidate?.prisonCustody);
     next.deathRowCustody = DeathRowCustody.normalizeState(candidate?.deathRowCustody);
     next.capitalAppeals = CapitalAppeals.normalizeState(candidate?.capitalAppeals);
+    next.executiveCommutation = ExecutiveCommutation.normalizeState(candidate?.executiveCommutation);
     next.prisonRelease = PrisonRelease.normalizeState(candidate?.prisonRelease);
     next.prisonBreak = PrisonBreak.normalizeState(candidate?.prisonBreak);
     next.jailEscapeRescue = JailEscapeRescue.normalizeState(candidate?.jailEscapeRescue);

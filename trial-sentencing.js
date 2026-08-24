@@ -154,7 +154,7 @@
       incarcerationMonths: legacyLife ? 120 : Math.max(0, Math.min(120, Math.floor(finite(candidate.incarcerationMonths)))), deathSentence: Boolean(candidate.deathSentence), penalService: Boolean(candidate.penalService),
       fine: Math.max(0, Math.round(finite(candidate.fine))), forfeiture: Math.max(0, Math.round(finite(candidate.forfeiture))), paid: Math.max(0, Math.round(finite(candidate.paid))), outstanding: Math.max(0, Math.round(finite(candidate.outstanding))),
       probationMonths: Math.max(0, Math.floor(finite(candidate.probationMonths))), restrictions: unique(candidate.restrictions), commitmentId: cleanId(candidate.commitmentId), provisionalExecutionProcessId: cleanId(candidate.provisionalExecutionProcessId),
-      reasons: unique([...(candidate.reasons || []), ...(legacyLife ? ["Legacy life-imprisonment data was normalized to the jurisdiction's ten-year maximum finite term."] : [])]), status: ["issued", "releasePending", "remandPending", "commitmentPending", "committed", "releaseDue", "completed"].includes(candidate.status) ? candidate.status : "issued"
+      reasons: unique([...(candidate.reasons || []), ...(legacyLife ? ["Legacy life-imprisonment data was normalized to the jurisdiction's ten-year maximum finite term."] : [])]), status: ["issued", "releasePending", "remandPending", "commitmentPending", "committed", "releaseDue", "completed", "superseded"].includes(candidate.status) ? candidate.status : "issued"
     };
   }
 
@@ -163,7 +163,7 @@
     const charges = (Array.isArray(source.charges) ? source.charges : []).map(normalizeCharge);
     return {
       id: cleanId(source.id) || `trial-case-${index + 1}`, proceedingId: cleanId(source.proceedingId), raidId: cleanId(source.raidId), stayId: cleanId(source.stayId), docket: String(source.docket || "CR-0000").trim(),
-      predecessorCaseId: cleanId(source.predecessorCaseId), successorKind: cleanId(source.successorKind), appealRecordId: cleanId(source.appealRecordId), appellateMandate: source.appellateMandate && typeof source.appellateMandate === "object" ? JSON.parse(JSON.stringify(source.appellateMandate)) : null,
+      predecessorCaseId: cleanId(source.predecessorCaseId), successorKind: cleanId(source.successorKind), appealRecordId: cleanId(source.appealRecordId), executiveInstrumentId: cleanId(source.executiveInstrumentId), appellateMandate: source.appellateMandate && typeof source.appellateMandate === "object" ? JSON.parse(JSON.stringify(source.appellateMandate)) : null,
       mode: source.mode === "plea" ? "plea" : "trial", status: CASE_STATUSES.includes(source.status) ? source.status : "scheduled", openedAt: Math.max(0, finite(source.openedAt)), trialAt: Math.max(0, finite(source.trialAt)),
       sentencingAt: source.sentencingAt == null ? null : Math.max(0, finite(source.sentencingAt)), appearanceDeadline: Math.max(0, finite(source.appearanceDeadline, finite(source.trialAt) + 4 * HOUR)),
       court: source.court && typeof source.court === "object" ? JSON.parse(JSON.stringify(source.court)) : {}, counsel: source.counsel && typeof source.counsel === "object" ? JSON.parse(JSON.stringify(source.counsel)) : {},
@@ -211,6 +211,15 @@
     if (!predecessor || predecessor.status !== "completed") return { state, case: null, created: false, reason: "A completed predecessor judgment is required." };
     const at = Math.max(0, finite(options.clock)); const excluded = new Set((options.excludedSupportIds || []).map(cleanId)); const charges = predecessor.charges.filter((charge) => charge.verdict === "guilty").map((charge, index) => normalizeCharge({ ...charge, support: charge.support.filter((support) => !excluded.has(support.id)), verdict: kind === "resentencing" ? "guilty" : "pending", elements: kind === "resentencing" ? charge.elements : elementsForCharge(charge.typeId) }, index));
     const caseRecord = normalizeCase({ id: `trial-case-${state.nextCaseNumber++}`, proceedingId: predecessor.proceedingId, raidId: predecessor.raidId, stayId: options.stayId || predecessor.stayId, docket: `${predecessor.docket}-${kind === "resentencing" ? "RS" : "RT"}${state.cases.filter((entry) => entry.predecessorCaseId === predecessor.id).length + 1}`, predecessorCaseId: predecessor.id, successorKind: kind, appealRecordId, appellateMandate: { capitalSentenceBarred: kind === "resentencing", excludedSupportIds: [...excluded], reasons: unique(options.reasons) }, mode: "trial", status: kind === "resentencing" ? "awaitingSentencing" : "scheduled", openedAt: at, trialAt: at + 2 * HOUR, sentencingAt: kind === "resentencing" ? at + 2 * HOUR : null, appearanceDeadline: at + 6 * HOUR, court: predecessor.court, counsel: predecessor.counsel, custodyStatus: "detained", pretrialHistory: predecessor.pretrialHistory, defenseClaims: predecessor.defenseClaims, preparation: predecessor.preparation, discoveryPacketId: predecessor.discoveryPacketId, charges, witnesses: predecessor.witnesses, strategy: predecessor.strategy, currentPhaseId: kind === "resentencing" ? "sentencing" : "prosecution", history: [{ at, action: "appellateSuccessorOpened", summary: `${kind === "resentencing" ? "Noncapital resentencing" : "Retrial"} opened as a linked successor to ${predecessor.id}; the original judgment remains immutable.` }] }, state.cases.length);
+    state.cases.push(caseRecord); return { state, case: caseRecord, created: true };
+  }
+
+  function recordExecutiveCommutation(candidate, predecessorCaseId, options = {}) {
+    const state = normalizeState(candidate); const predecessor = state.cases.find((entry) => entry.id === cleanId(predecessorCaseId)); const executiveInstrumentId = cleanId(options.executiveInstrumentId); const existing = state.cases.find((entry) => entry.predecessorCaseId === predecessor?.id && entry.executiveInstrumentId === executiveInstrumentId && entry.successorKind === "executiveCommutation"); if (existing) return { state, case: existing, created: false };
+    if (!predecessor || predecessor.status !== "completed" || predecessor.sentencing.order?.kind !== "deathRow" || !executiveInstrumentId) return { state, case: null, created: false, reason: "A completed capital predecessor and executive instrument are required." };
+    const at = Math.max(0, finite(options.clock)); const months = Math.max(1, Math.min(120, Math.floor(finite(options.incarcerationMonths, 120))));
+    const order = normalizeOrder({ id: `sentence-order-${state.nextOrderNumber++}`, kind: "finitePrison", label: "Executive commutation to maximum finite prison commitment", custodial: true, final: true, issuedAt: at, transferNotBefore: at, destinationId: "statePrisonIntake", incarcerationMonths: months, reasons: unique(options.reasons), status: "commitmentPending" });
+    const caseRecord = normalizeCase({ ...predecessor, id: `trial-case-${state.nextCaseNumber++}`, docket: `${predecessor.docket}-EC${state.cases.filter((entry) => entry.predecessorCaseId === predecessor.id && entry.successorKind === "executiveCommutation").length + 1}`, predecessorCaseId: predecessor.id, successorKind: "executiveCommutation", executiveInstrumentId, status: "completed", openedAt: at, verdictAt: at, sentencing: { ...predecessor.sentencing, order, reasons: [...predecessor.sentencing.reasons, ...unique(options.reasons)] }, history: [{ at, action: "executiveCommutationRecorded", summary: "A linked executive instrument converted punishment to the ten-year finite maximum without rewriting the conviction or original capital sentence." }] }, state.cases.length);
     state.cases.push(caseRecord); return { state, case: caseRecord, created: true };
   }
 
@@ -362,7 +371,7 @@
 
   function markOrderStatus(candidate, caseId, status, clock = 0, summary = "") {
     const state = normalizeState(candidate); const caseRecord = state.cases.find((entry) => entry.id === cleanId(caseId)); const order = caseRecord?.sentencing.order;
-    if (!order || !["releasePending", "remandPending", "commitmentPending", "committed", "releaseDue", "completed"].includes(status)) return { state, case: caseRecord, order, changed: false };
+    if (!order || !["releasePending", "remandPending", "commitmentPending", "committed", "releaseDue", "completed", "superseded"].includes(status)) return { state, case: caseRecord, order, changed: false };
     order.status = status; caseRecord.history.push({ at: Math.max(order.issuedAt, finite(clock)), action: "orderStatus", summary: String(summary || `${order.label} is now ${status}.`).trim() }); return { state, case: caseRecord, order, changed: true };
   }
 
@@ -384,5 +393,5 @@
     return events.sort((left, right) => left.at - right.at || left.caseId.localeCompare(right.caseId))[0] || null;
   }
 
-  return Object.freeze({ VERSION, CASE_STATUSES, PHASES, DEFENSE_THEORIES, CLOSING_PRIORITIES, SENTENCING_SUBMISSIONS, CHARGE_ELEMENTS, defaultState, normalizeState, normalizeCase, open, openSuccessor, configure, phaseDef, beginAppearance, completeAppearance, recordPayment, markOrderStatus, advance, nextEvent });
+  return Object.freeze({ VERSION, CASE_STATUSES, PHASES, DEFENSE_THEORIES, CLOSING_PRIORITIES, SENTENCING_SUBMISSIONS, CHARGE_ELEMENTS, defaultState, normalizeState, normalizeCase, open, openSuccessor, recordExecutiveCommutation, configure, phaseDef, beginAppearance, completeAppearance, recordPayment, markOrderStatus, advance, nextEvent });
 }));
