@@ -408,3 +408,165 @@ test('maintain-stock quality floor excludes unrated starter stock', async ({ pag
   expect(result.eligible).toBeGreaterThanOrEqual(1);
   expect(result.active).toBe(false);
 });
+
+test('component quality gate propagates to dependencies and leaves low-quality stock for other work', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(({ key }) => {
+    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const state = payload.state;
+    const source = state.physicalItemStacks.find((stack) => stack.section === 'resources' && stack.key === 'glass');
+    state.physicalItemStacks.push(
+      { ...structuredClone(source), id: 'test-low-glassware', key: 'glasswareComponents', quantity: 2, knownQuantity: 2, craftsmanship: 20, productionBillId: 'older-work' },
+      { ...structuredClone(source), id: 'test-low-seals', key: 'rubberSeals', quantity: 2, knownQuantity: 2, craftsmanship: 18, productionBillId: 'older-work' },
+    );
+    window.localStorage.setItem(key, JSON.stringify(payload));
+  }, { key: storageKey });
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+
+  await page.locator('[data-workspace-tab="production"]').click();
+  await page.locator('#productionRecipeSelect').selectOption('receptacle:sealedCollectionJar');
+  await page.locator('#productionComponentQualityInput').fill('40');
+  await page.locator('#productionBillForm button[type="submit"]').click();
+
+  const initial = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.recipeId === 'receptacle:sealedCollectionJar' && !bill.parentBillId);
+    return {
+      parent,
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === parent.id),
+      lowGlassware: state.physicalItemStacks.find((stack) => stack.id === 'test-low-glassware'),
+      lowSeals: state.physicalItemStacks.find((stack) => stack.id === 'test-low-seals'),
+    };
+  }, { key: storageKey });
+  expect(initial.parent.minimumComponentCraftsmanship).toBe(40);
+  expect(initial.dependencies).toHaveLength(2);
+  for (const dependency of initial.dependencies) {
+    expect(dependency).toMatchObject({
+      minimumComponentCraftsmanship: 40,
+      requiredOutputCraftsmanship: 40,
+      producedQuantity: 0,
+      rejectedQuantity: 0,
+      qualityRetryLimit: 3,
+    });
+  }
+  expect(initial.lowGlassware.reservedTaskId).toBe('');
+  expect(initial.lowSeals.reservedTaskId).toBe('');
+  await expect(page.locator(`[data-production-bill="${initial.parent.id}"]`)).toContainText('Component inputs must have 40+ craftsmanship');
+
+  await finishProductionChain(page, 'receptacle:sealedCollectionJar');
+  const completed = await page.evaluate(({ key }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.recipeId === 'receptacle:sealedCollectionJar' && !bill.parentBillId);
+    return {
+      parent,
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === parent.id),
+      lowGlassware: state.physicalItemStacks.find((stack) => stack.id === 'test-low-glassware'),
+      lowSeals: state.physicalItemStacks.find((stack) => stack.id === 'test-low-seals'),
+      jar: state.physicalItemStacks.find((stack) => stack.key === 'sealedCollectionJar' && stack.productionBillId === parent.id),
+    };
+  }, { key: storageKey });
+  expect(completed.parent.status).toBe('completed');
+  expect(completed.jar.craftsmanship).toBeGreaterThan(0);
+  expect(completed.lowGlassware).toMatchObject({ quantity: 2, craftsmanship: 20, reservedTaskId: '' });
+  expect(completed.lowSeals).toMatchObject({ quantity: 2, craftsmanship: 18, reservedTaskId: '' });
+  for (const dependency of completed.dependencies) {
+    expect(dependency.completedQuantity).toBeGreaterThan(0);
+    expect(dependency.rejectedQuantity).toBe(0);
+  }
+});
+
+test('quality retries retain rejected outputs, pause after three attempts, persist, and can be deliberately resumed or lowered', async ({ page }) => {
+  test.setTimeout(90_000);
+  await startRun(page);
+  const parentId = await page.evaluate(() => window.helixHeresyDebug.createProductionBill({
+    recipeId: 'receptacle:sealedCollectionJar', mode: 'once', scope: 'global',
+    materialStrategy: 'closest', allowedMaterialOptionIds: ['glass'], minimumComponentCraftsmanship: 100,
+  }).id);
+
+  await finishProductionUntilIdle(page, 10);
+  let snapshot = await page.evaluate(({ key, parentId: id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const parent = state.productionBills.find((bill) => bill.id === id);
+    const dependencies = state.productionBills.filter((bill) => bill.parentBillId === id);
+    return {
+      parent,
+      dependencies,
+      rejectedStacks: state.physicalItemStacks.filter((stack) => dependencies.some((bill) => bill.rejectedStackIds.includes(stack.id))),
+      activeTask: state.tasks.find((task) => task.type === 'productionWork') || null,
+    };
+  }, { key: storageKey, parentId });
+  expect(snapshot.dependencies).toHaveLength(2);
+  expect(snapshot.activeTask).toBeNull();
+  expect(snapshot.parent.blockedReason).toContain('Waiting for prerequisite');
+  for (const dependency of snapshot.dependencies) {
+    expect(dependency).toMatchObject({
+      status: 'paused',
+      completedQuantity: 0,
+      qualityRetryPaused: true,
+      consecutiveQualityRejections: 3,
+      qualityRetryLimit: 3,
+    });
+    expect(dependency.producedQuantity).toBe(dependency.rejectedQuantity);
+    expect(dependency.rejectedQuantity).toBeGreaterThan(0);
+    expect(dependency.rejectedStackIds).toHaveLength(3);
+    expect(dependency.blockedReason).toContain('Quality gate paused after 3 consecutive rejected outputs');
+  }
+  expect(snapshot.rejectedStacks).toHaveLength(6);
+  for (const stack of snapshot.rejectedStacks) {
+    expect(stack.tags).toContain('quality-rejected');
+    expect(stack.craftsmanship).toBeLessThan(100);
+    expect(stack.quantity).toBeGreaterThan(0);
+  }
+
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  snapshot = await page.evaluate(({ key, parentId: id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      parent: state.productionBills.find((bill) => bill.id === id),
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === id),
+    };
+  }, { key: storageKey, parentId });
+  expect(snapshot.parent.minimumComponentCraftsmanship).toBe(100);
+  expect(snapshot.dependencies.every((bill) => bill.qualityRetryPaused && bill.rejectedStackIds.length === 3)).toBe(true);
+
+  const resumedId = snapshot.dependencies[0].id;
+  await page.evaluate((billId) => window.helixHeresyDebug.setProductionBillStatus(billId, 'active'), resumedId);
+  let resumed = await page.evaluate(({ key, billId }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      bill: state.productionBills.find((entry) => entry.id === billId),
+      task: state.tasks.find((entry) => entry.type === 'productionWork'),
+    };
+  }, { key: storageKey, billId: resumedId });
+  expect(resumed.bill).toMatchObject({ status: 'active', qualityRetryPaused: false, consecutiveQualityRejections: 0 });
+  expect(resumed.task.data.billId).toBe(resumedId);
+
+  await page.evaluate((billId) => window.helixHeresyDebug.setProductionBillStatus(billId, 'paused'), resumedId);
+  await page.evaluate(({ id }) => window.helixHeresyDebug.setProductionBillComponentQuality(id, 1), { id: parentId });
+  const lowered = await page.evaluate(({ key, parentId: id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      parent: state.productionBills.find((bill) => bill.id === id),
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === id),
+      task: state.tasks.find((entry) => entry.type === 'productionWork'),
+    };
+  }, { key: storageKey, parentId });
+  expect(lowered.parent.minimumComponentCraftsmanship).toBe(1);
+  expect(lowered.dependencies.every((bill) => bill.minimumComponentCraftsmanship === 1 && bill.requiredOutputCraftsmanship === 1)).toBe(true);
+  expect(lowered.task).toBeTruthy();
+
+  await finishProductionChain(page, 'receptacle:sealedCollectionJar', 4);
+  const finished = await page.evaluate(({ key, parentId: id }) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    return {
+      parent: state.productionBills.find((bill) => bill.id === id),
+      dependencies: state.productionBills.filter((bill) => bill.parentBillId === id),
+      retainedRejected: state.physicalItemStacks.filter((stack) => stack.tags?.includes('quality-rejected')),
+    };
+  }, { key: storageKey, parentId });
+  expect(finished.parent.status).toBe('completed');
+  expect(finished.dependencies.every((bill) => ['completed', 'canceled'].includes(bill.status))).toBe(true);
+  expect(finished.retainedRejected.length).toBeGreaterThan(0);
+});
