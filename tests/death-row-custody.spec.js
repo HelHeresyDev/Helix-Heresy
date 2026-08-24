@@ -92,6 +92,18 @@ test('executive conversion cancels execution but requires a distinct physical pr
   const transferred = Capital.completeLegalTransfer(state, stay.id, 'finitePrison', 4000); expect(transferred.stay).toMatchObject({ status: 'transferred', suppressor: { status: 'removed', suppressionActive: false }, history: expect.arrayContaining([expect.objectContaining({ summary: expect.stringContaining('executive commutation') })]) });
 });
 
+test('escape preserves the capital calendar while judicial and executive relief continue for the fugitive', () => {
+  let { state, stay } = committed(); const originalExecutionAt = stay.calendar.provisionalExecutionAt;
+  const escaped = Capital.escape(state, stay.id, { attemptId: 'death-row-escape-1', summary: 'The sally port was physically cleared.' }, 2500); state = escaped.state;
+  expect(escaped.stay).toMatchObject({ status: 'escaped', escape: { attemptId: 'death-row-escape-1', escapedAt: 2500 }, calendar: { provisionalExecutionAt: originalExecutionAt }, suppressor: { suppressionActive: true } });
+  expect(Capital.advance(state, originalExecutionAt + Capital.DAY)).toMatchObject({ changed: false, stay: null });
+  let directive = Capital.applyLegalDirective(state, stay.id, { stayed: true, executionAt: originalExecutionAt, summary: 'Judicial review stayed execution while the scientist remained at large.' }, 3000); state = directive.state;
+  expect(directive.stay).toMatchObject({ status: 'escaped', calendar: { executionStatus: 'stayed' }, legalDisposition: null });
+  directive = Capital.applyLegalDirective(state, stay.id, { reliefKind: 'commutation', summary: 'Executive relief converted the sentence while the scientist remained at large.' }, 4000);
+  expect(directive.stay).toMatchObject({ status: 'escaped', calendar: { executionStatus: 'cancelled' }, legalDisposition: { kind: 'commutationTransferRequired', enteredAt: 4000 } });
+  expect(Capital.normalizeState(JSON.parse(JSON.stringify(directive.state)))).toEqual(directive.state);
+});
+
 test('@smoke capital sentencing physically transfers into daily custody and stops alive at execution day', async ({ page }) => {
   test.setTimeout(360_000); await startRun(page); await bookScientist(page);
   const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true, capital: true })); expect(caseId).toMatch(/^trial-case-/);
