@@ -163,6 +163,7 @@
     const charges = (Array.isArray(source.charges) ? source.charges : []).map(normalizeCharge);
     return {
       id: cleanId(source.id) || `trial-case-${index + 1}`, proceedingId: cleanId(source.proceedingId), raidId: cleanId(source.raidId), stayId: cleanId(source.stayId), docket: String(source.docket || "CR-0000").trim(),
+      predecessorCaseId: cleanId(source.predecessorCaseId), successorKind: cleanId(source.successorKind), appealRecordId: cleanId(source.appealRecordId), appellateMandate: source.appellateMandate && typeof source.appellateMandate === "object" ? JSON.parse(JSON.stringify(source.appellateMandate)) : null,
       mode: source.mode === "plea" ? "plea" : "trial", status: CASE_STATUSES.includes(source.status) ? source.status : "scheduled", openedAt: Math.max(0, finite(source.openedAt)), trialAt: Math.max(0, finite(source.trialAt)),
       sentencingAt: source.sentencingAt == null ? null : Math.max(0, finite(source.sentencingAt)), appearanceDeadline: Math.max(0, finite(source.appearanceDeadline, finite(source.trialAt) + 4 * HOUR)),
       court: source.court && typeof source.court === "object" ? JSON.parse(JSON.stringify(source.court)) : {}, counsel: source.counsel && typeof source.counsel === "object" ? JSON.parse(JSON.stringify(source.counsel)) : {},
@@ -202,6 +203,14 @@
       discoveryPacketId: handoff.discoveryPacketId, plea: pleaOffer, charges, witnesses: (proceeding.discovery?.witnesses || []).map((witness) => ({ ...witness, credibility: 55 + Math.min(30, witness.sourceItemIds?.length * 5 || 0) })), currentPhaseId: plea ? "sentencing" : "prosecution",
       history: [{ at, action: plea ? "pleaSentencingOpened" : "trialOpened", summary: plea ? "The accepted plea and exact dismissed charges were frozen for a separate sentencing appearance." : `A bench trial was opened before ${proceeding.court?.judge?.name || "the assigned judge"} from the immutable pretrial handoff.` }]
     }, state.cases.length);
+    state.cases.push(caseRecord); return { state, case: caseRecord, created: true };
+  }
+
+  function openSuccessor(candidate, predecessorCaseId, options = {}) {
+    const state = normalizeState(candidate); const predecessor = state.cases.find((entry) => entry.id === cleanId(predecessorCaseId)); const kind = options.kind === "resentencing" ? "resentencing" : "retrial"; const appealRecordId = cleanId(options.appealRecordId); const existing = state.cases.find((entry) => entry.predecessorCaseId === predecessor?.id && entry.appealRecordId === appealRecordId && entry.successorKind === kind); if (existing) return { state, case: existing, created: false };
+    if (!predecessor || predecessor.status !== "completed") return { state, case: null, created: false, reason: "A completed predecessor judgment is required." };
+    const at = Math.max(0, finite(options.clock)); const excluded = new Set((options.excludedSupportIds || []).map(cleanId)); const charges = predecessor.charges.filter((charge) => charge.verdict === "guilty").map((charge, index) => normalizeCharge({ ...charge, support: charge.support.filter((support) => !excluded.has(support.id)), verdict: kind === "resentencing" ? "guilty" : "pending", elements: kind === "resentencing" ? charge.elements : elementsForCharge(charge.typeId) }, index));
+    const caseRecord = normalizeCase({ id: `trial-case-${state.nextCaseNumber++}`, proceedingId: predecessor.proceedingId, raidId: predecessor.raidId, stayId: options.stayId || predecessor.stayId, docket: `${predecessor.docket}-${kind === "resentencing" ? "RS" : "RT"}${state.cases.filter((entry) => entry.predecessorCaseId === predecessor.id).length + 1}`, predecessorCaseId: predecessor.id, successorKind: kind, appealRecordId, appellateMandate: { capitalSentenceBarred: kind === "resentencing", excludedSupportIds: [...excluded], reasons: unique(options.reasons) }, mode: "trial", status: kind === "resentencing" ? "awaitingSentencing" : "scheduled", openedAt: at, trialAt: at + 2 * HOUR, sentencingAt: kind === "resentencing" ? at + 2 * HOUR : null, appearanceDeadline: at + 6 * HOUR, court: predecessor.court, counsel: predecessor.counsel, custodyStatus: "detained", pretrialHistory: predecessor.pretrialHistory, defenseClaims: predecessor.defenseClaims, preparation: predecessor.preparation, discoveryPacketId: predecessor.discoveryPacketId, charges, witnesses: predecessor.witnesses, strategy: predecessor.strategy, currentPhaseId: kind === "resentencing" ? "sentencing" : "prosecution", history: [{ at, action: "appellateSuccessorOpened", summary: `${kind === "resentencing" ? "Noncapital resentencing" : "Retrial"} opened as a linked successor to ${predecessor.id}; the original judgment remains immutable.` }] }, state.cases.length);
     state.cases.push(caseRecord); return { state, case: caseRecord, created: true };
   }
 
@@ -302,7 +311,7 @@
     if (caseRecord.mode === "plea") { mitigation += 4; reasons.push("The binding plea supplied 4 acceptance-of-responsibility points."); }
     let exposure = Math.max(0, totalWeight + aggravation - mitigation); reasons.push(`${round(mitigation)} total mitigation produced ${round(exposure)} net exposure.`);
     let kind = "finitePrison";
-    if (capitalEligible(caseRecord) && exposure >= 28) kind = "deathRow";
+    if (capitalEligible(caseRecord) && exposure >= 28 && !caseRecord.appellateMandate?.capitalSentenceBarred) kind = "deathRow";
     else if (exposure >= 32) kind = "penalLegion";
     else if (caseRecord.strategy.sentencingSubmissionId === "penalService" && exposure >= 12 && !convictions.some((charge) => charge.typeId === "violentResistance")) kind = "penalLegion";
     else if (exposure < 7) kind = "timeServed";
@@ -375,5 +384,5 @@
     return events.sort((left, right) => left.at - right.at || left.caseId.localeCompare(right.caseId))[0] || null;
   }
 
-  return Object.freeze({ VERSION, CASE_STATUSES, PHASES, DEFENSE_THEORIES, CLOSING_PRIORITIES, SENTENCING_SUBMISSIONS, CHARGE_ELEMENTS, defaultState, normalizeState, normalizeCase, open, configure, phaseDef, beginAppearance, completeAppearance, recordPayment, markOrderStatus, advance, nextEvent });
+  return Object.freeze({ VERSION, CASE_STATUSES, PHASES, DEFENSE_THEORIES, CLOSING_PRIORITIES, SENTENCING_SUBMISSIONS, CHARGE_ELEMENTS, defaultState, normalizeState, normalizeCase, open, openSuccessor, configure, phaseDef, beginAppearance, completeAppearance, recordPayment, markOrderStatus, advance, nextEvent });
 }));

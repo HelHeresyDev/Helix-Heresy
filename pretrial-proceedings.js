@@ -307,7 +307,8 @@
       resolution: source.resolution && typeof source.resolution === "object" ? {
         judgmentId: cleanId(source.resolution.judgmentId), enteredAt: Math.max(openedAt, finite(source.resolution.enteredAt)),
         verdicts: (Array.isArray(source.resolution.verdicts) ? source.resolution.verdicts : []).map((entry) => ({ chargeId: cleanId(entry?.chargeId), verdict: ["guilty", "notGuilty", "dismissed"].includes(entry?.verdict) ? entry.verdict : "notGuilty", reason: String(entry?.reason || "").trim() })),
-        sentenceOrderId: cleanId(source.resolution.sentenceOrderId), outcomeKind: cleanId(source.resolution.outcomeKind), summary: String(source.resolution.summary || "").trim()
+        sentenceOrderId: cleanId(source.resolution.sentenceOrderId), outcomeKind: cleanId(source.resolution.outcomeKind), summary: String(source.resolution.summary || "").trim(),
+        appellateJudgmentIds: uniqueIds(source.resolution.appellateJudgmentIds), appellateSentenceOrderId: cleanId(source.resolution.appellateSentenceOrderId), appellateOutcomeKind: cleanId(source.resolution.appellateOutcomeKind)
       } : null,
       history: normalizeHistory(source.history)
     };

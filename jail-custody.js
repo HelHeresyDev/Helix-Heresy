@@ -301,11 +301,11 @@
 
   function remand(candidate, stayId, clock = 0, options = {}) {
     const state = normalizeState(candidate); const stay = state.stays.find((entry) => entry.id === cleanId(stayId));
-    if (!stay || stay.status !== "released") return { state, stay, changed: false };
+    if (!stay || !["released", "transferred"].includes(stay.status)) return { state, stay, changed: false };
     const at = Math.max(stay.bookedAt, finite(clock)); stay.status = "active";
     stay.transport = { id: cleanId(options.transportId) || `${stay.id}-sentencing-remand`, label: "Armored court remand vehicle", vehicleClass: "armored custody vehicle", departedAt: Math.max(stay.bookedAt, at - 1800), arrivedAt: at, crewNames: Array.isArray(options.crewNames) ? options.crewNames.map(String) : [] };
     stay.suppressor = { id: cleanId(options.suppressorId) || `${stay.id}-sentencing-collar`, kind: "magicSuppressingCollar", label: "Warded magic-suppressing collar", status: "locked", suppressionActive: true, condition: 100, physicalStackId: "", toolInstanceId: "", appliedAt: at, removedAt: null };
-    stay.routine = { ...routineAt(at, at), updatedAt: at }; stay.history.push({ at, action: "sentencingRemand", summary: String(options.summary || "A court custody vehicle returned the convicted scientist to temporary jail for the saved commitment-transfer window.").trim() });
+    stay.routine = { ...routineAt(at, at), updatedAt: at }; stay.history.push({ at, action: options.action === "appellateRemand" ? "appellateRemand" : "sentencingRemand", summary: String(options.summary || "A court custody vehicle returned the convicted scientist to temporary jail for the saved commitment-transfer window.").trim() });
     return { state, stay, changed: true };
   }
 
