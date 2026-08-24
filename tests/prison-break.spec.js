@@ -26,6 +26,13 @@ function ready() {
   return { ...base, state, clock, record: Break.recordForStay(state, base.stay.id) };
 }
 
+function rescueReady(overrides = {}) {
+  const prepared = ready();
+  const contact = { id: 'contact-smuggler', name: 'Sable Underhook', archetype: 'industrialSmuggler', trust: 100, reliability: 0.99, riskProfile: 'reckless', ...overrides.contact };
+  const arranged = Break.arrangeRescue(prepared.state, prepared.record.id, { seed: overrides.seed || 'rescue-world', clock: prepared.clock, codedSessionId: 'prison-session-coded', collarStrategyId: overrides.collarStrategyId || 'keepLocked', contact, facilityAlert: overrides.facilityAlert || 0, standing: 70, sentenceServedSeconds: 10 * Break.DAY, unservedSentenceSeconds: 350 * Break.DAY, distractionActorId: overrides.distractionActorId || '', distractionActorName: overrides.distractionActorName || '', distractionRelationshipScore: overrides.distractionRelationshipScore || 0 });
+  return { ...prepared, contact, ...arranged };
+}
+
 test('preparation records concrete facts and physical assets instead of an abstract progress value', () => {
   const result = ready();
   expect(result.record.factIds).toEqual(expect.arrayContaining(Break.FACT_DEFS.map((entry) => entry.id)));
@@ -91,4 +98,41 @@ test('prison escape pauses the exact remainder while failed recapture leaves the
   const escaped = Prison.escape(prisonState, stay.id, { clock: stay.committedAt + 10 * Prison.DAY, completedPlanId: 'break-1', collarStatus: 'locked' });
   expect(escaped.stay).toMatchObject({ status: 'escaped', sentence: { servedSeconds: 10 * Prison.DAY, unservedSeconds: 350 * Prison.DAY, servicePausedAt: stay.committedAt + 10 * Prison.DAY }, suppressor: { suppressionActive: true } });
   expect(escaped.stay.sentence.releaseAt).toBe(stay.sentence.releaseAt);
+});
+
+test('covert rescue requires exact prison facts, a coded session, and a transport-capable contact', () => {
+  const prepared = ready();
+  const ordinary = { id: 'contact-ordinary', name: 'Mara Vale', archetype: 'occultFactor', trust: 100, reliability: 0.99 };
+  expect(Break.rescueAvailability(prepared.record, { codedSessionId: 'coded-1', collarStrategyId: 'keepLocked', contact: ordinary })).toMatchObject({ available: false, eligibleContact: false });
+  const smuggler = { ...ordinary, id: 'contact-smuggler', archetype: 'industrialSmuggler' };
+  expect(Break.rescueAvailability(prepared.record, { clock: 100, codedSessionId: 'coded-1', collarStrategyId: 'keepLocked', contact: { ...smuggler, unavailableUntil: 101 } })).toMatchObject({ available: false, eligibleContact: true, contactAvailable: false });
+  expect(Break.rescueAvailability(prepared.record, { codedSessionId: '', collarStrategyId: 'keepLocked', contact: smuggler })).toMatchObject({ available: false, reason: expect.stringContaining('coded-contact') });
+  expect(Break.rescueAvailability(prepared.record, { codedSessionId: 'coded-1', collarStrategyId: 'keepLocked', contact: smuggler })).toMatchObject({ available: true, missingFactIds: [] });
+});
+
+test('an accepted substituted-service deal freezes payment, crew, vehicle, window, and optional distraction', () => {
+  const result = rescueReady({ distractionActorId: 'prisoner-ally', distractionActorName: 'Ilen Cask', distractionRelationshipScore: 55 });
+  expect(result).toMatchObject({ changed: true, paymentCharged: true, decision: { status: 'accepted', payment: Break.RESCUE_COST }, attempt: { routeKind: 'covertRescue', status: 'planned', window: { label: 'Substituted maintenance collection window' }, frozen: { routeLabel: 'Substituted Maintenance Collection', payment: Break.RESCUE_COST, assistingActorId: 'prisoner-ally', crewPosture: 'abortFleeSurrender' }, crew: [expect.objectContaining({ role: 'rescueDriver', name: expect.any(String) }), expect.objectContaining({ role: 'rescueInfiltrator', name: expect.any(String) })], vehicle: { concealmentCompartment: true, nonviolentPosture: true, registration: expect.stringMatching(/^SVC-/) }, equipment: expect.arrayContaining([expect.objectContaining({ kind: 'credential' }), expect.objectContaining({ kind: 'coverall' }), expect.objectContaining({ kind: 'concealment' })]) } });
+  expect(Break.beginStage(result.state, result.attempt.id, { clock: result.attempt.window.startAt - 1 }).changed).toBe(false);
+  expect(Break.normalizeState(JSON.parse(JSON.stringify(result.state)))).toEqual(result.state);
+});
+
+test('detection before the workshop handoff records helper outcomes without punishing the scientist', () => {
+  const arranged = rescueReady(); arranged.state.attempts[0].stages[0].roll = 0;
+  const begun = Break.beginStage(arranged.state, arranged.attempt.id, { clock: arranged.attempt.window.startAt, officerExposure: 20 });
+  const completed = Break.completeStage(begun.state, arranged.attempt.id, arranged.attempt.window.startAt + 1200);
+  expect(completed).toMatchObject({ aborted: true, scientistCaptured: false, attempt: { status: 'abandoned', scientistCommitted: false, consequences: expect.arrayContaining(['Scientist remained in ordinary custody']), helperOutcomes: expect.arrayContaining([expect.objectContaining({ outcome: 'withdrew' })]) } });
+});
+
+test('the rescue physically reaches handoff and gate exit before pausing sentence service', () => {
+  const arranged = rescueReady({ collarStrategyId: 'removeAfter' });
+  for (const stage of arranged.state.attempts[0].stages) stage.roll = 1;
+  let state = arranged.state; let clock = arranged.attempt.window.startAt;
+  while (Break.activeAttempt(state)) {
+    const begun = Break.beginStage(state, arranged.attempt.id, { clock, officerExposure: 10 }); expect(begun.changed).toBe(true);
+    const completed = Break.completeStage(begun.state, arranged.attempt.id, clock + begun.stage.durationMinutes * 60); state = completed.state; clock += begun.stage.durationMinutes * 60 + 1;
+  }
+  const escaped = Break.latestEscape(state);
+  expect(escaped).toMatchObject({ status: 'escaped', scientistCommitted: true, collarStatus: 'locked', collarRemoval: { status: 'available' }, helperOutcomes: [expect.objectContaining({ outcome: 'escaped' }), expect.objectContaining({ outcome: 'escaped' })], pursuit: { status: 'watchingLab' } });
+  expect(escaped.stages.map((entry) => entry.id)).toEqual(['vehicleGateEntry', 'infiltratorToWorkshop', 'workshopHandoff', 'returnToVehicle', 'vehicleGateExit']);
 });
