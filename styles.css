@@ -4566,7 +4566,25 @@ html[data-reduced-motion="true"] *::after {
 .production-card-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: end;
   gap: 0.4rem;
+}
+
+.production-quality-update {
+  display: grid;
+  grid-template-columns: minmax(8rem, 11rem) auto;
+  align-items: end;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.production-quality-update span {
+  grid-column: 1 / -1;
+}
+
+.production-quality-update input {
+  width: 100%;
 }
 
 .experiment-notebook-panel {

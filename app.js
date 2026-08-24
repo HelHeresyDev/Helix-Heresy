@@ -804,6 +804,7 @@
     { id: "common", label: "Common", min: 32 },
     { id: "crude", label: "Crude", min: 0 }
   ];
+  const PRODUCTION_QUALITY_RETRY_LIMIT = 3;
   const PRODUCTION_BILL_MODE_DEFS = [
     { id: "once", label: "Make Once", description: "Produce one item, then complete the bill." },
     { id: "quantity", label: "Make Quantity", description: "Produce the requested total quantity, then complete the bill." },
@@ -10887,6 +10888,8 @@
       "productionQuantityInput",
       "productionQualityField",
       "productionMinimumQualityInput",
+      "productionComponentQualityField",
+      "productionComponentQualityInput",
       "productionPriorityInput",
       "productionMaterialStrategySelect",
       "productionScopeSelect",
@@ -12402,6 +12405,7 @@
       fulfillFixtureProductionBill: (billId) => fulfillFixtureProductionBill(billId),
       createProductionBill: (options) => createProductionBill(options),
       setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
+      setProductionBillComponentQuality: (billId, value) => setProductionBillComponentQuality(billId, value),
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
       experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
@@ -12748,6 +12752,7 @@
         quantity: Number(dom.productionQuantityInput.value) || 1,
         targetQuantity: Number(dom.productionQuantityInput.value) || 1,
         minimumCraftsmanship: Number(dom.productionMinimumQualityInput.value) || 0,
+        minimumComponentCraftsmanship: Number(dom.productionComponentQualityInput.value) || 0,
         priority: Number(dom.productionPriorityInput.value) || CONSTRUCTION_PRIORITY_DEFAULT,
         materialStrategy: dom.productionMaterialStrategySelect.value,
         scope: dom.productionScopeSelect.value,
@@ -26455,6 +26460,14 @@
       targetQuantity: Math.max(1, Math.floor(Number(candidate.targetQuantity) || quantity)),
       completedQuantity: Math.max(0, Math.floor(Number(candidate.completedQuantity) || 0)),
       minimumCraftsmanship: clamp(Math.floor(Number(candidate.minimumCraftsmanship) || 0), 0, 100),
+      minimumComponentCraftsmanship: recipe.chemistry ? 0 : clamp(Math.floor(Number(candidate.minimumComponentCraftsmanship) || 0), 0, 100),
+      requiredOutputCraftsmanship: recipe.chemistry ? 0 : clamp(Math.floor(Number(candidate.requiredOutputCraftsmanship) || 0), 0, 100),
+      producedQuantity: Math.max(0, Math.floor(Number(candidate.producedQuantity ?? candidate.completedQuantity) || 0)),
+      rejectedQuantity: Math.max(0, Math.floor(Number(candidate.rejectedQuantity) || 0)),
+      consecutiveQualityRejections: clamp(Math.floor(Number(candidate.consecutiveQualityRejections) || 0), 0, PRODUCTION_QUALITY_RETRY_LIMIT),
+      qualityRetryLimit: PRODUCTION_QUALITY_RETRY_LIMIT,
+      qualityRetryPaused: Boolean(candidate.qualityRetryPaused && candidate.status === "paused"),
+      rejectedStackIds: idList(candidate.rejectedStackIds),
       priority: clamp(Math.floor(Number(candidate.priority) || CONSTRUCTION_PRIORITY_DEFAULT), CONSTRUCTION_PRIORITY_MIN, CONSTRUCTION_PRIORITY_MAX),
       materialStrategy: PRODUCTION_MATERIAL_STRATEGY_BY_ID[candidate.materialStrategy]?.id || (candidate.materialPolicy === "best" ? "best" : "closest"),
       allowedMaterialOptionIds: allowed.length ? allowed : options.map((option) => option.id),
@@ -26709,9 +26722,21 @@
     return CHEMICAL_PRODUCT_BY_ID[output?.key]?.label || INVENTORY_ITEM_BY_KEY[output?.key]?.label || RESOURCE_BY_KEY[output?.key]?.label || output?.key || "output";
   }
 
-  function productionAvailableResourceAmount(key) {
+  function productionComponentQualityFloor(bill, key = "") {
+    if (!bill || productionRecipe(bill.recipeId)?.chemistry) return 0;
+    if (key && !PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]) return 0;
+    return clamp(Number(bill.minimumComponentCraftsmanship) || 0, 0, 100);
+  }
+
+  function productionResourceStackMeetsQuality(stack, bill) {
+    const floor = productionComponentQualityFloor(bill, stack?.key);
+    return floor <= 0 || Number(stack?.craftsmanship) + 0.001 >= floor;
+  }
+
+  function productionAvailableResourceAmount(key, bill = null) {
     return ensurePhysicalItemStacks()
       .filter((stack) => stack.section === "resources" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .filter((stack) => productionResourceStackMeetsQuality(stack, bill))
       .reduce((total, stack) => total + stack.quantity, 0);
   }
 
@@ -26722,8 +26747,66 @@
       return [...options].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
     }
     return options.find((option) => Object.entries(normalizeResourceCosts(option.costs))
-      .every(([key, amount]) => productionAvailableResourceAmount(key) >= amount))
+      .every(([key, amount]) => productionAvailableResourceAmount(key, bill) >= amount))
       || options[0];
+  }
+
+  function productionRecipeCurrentQualityCeiling(recipeOrId, seen = new Set()) {
+    const recipe = productionRecipe(recipeOrId);
+    if (!recipe || recipe.chemistry || seen.has(recipe.id)) return 0;
+    const nextSeen = new Set(seen).add(recipe.id);
+    const workstationCondition = (state.fixtures || [])
+      .filter((fixture) => fixture.condition > 0 && fixture.operationalState === "operational")
+      .filter((fixture) => (recipe.workstationCapabilities || []).every((capability) => fixtureDef(fixture)?.capabilities?.includes(capability)))
+      .reduce((best, fixture) => Math.max(best, Number(fixture.condition) || 0), 0);
+    if (!workstationCondition) return 0;
+    let best = 0;
+    for (const option of recipe.materialOptions || []) {
+      const samples = Object.entries(normalizeResourceCosts(option.costs)).map(([key, amount]) => {
+        const knownQuality = ensurePhysicalItemStacks()
+          .filter((stack) => stack.section === "resources" && stack.key === key && stack.quantity > 0)
+          .reduce((highest, stack) => Math.max(highest, Number(stack.craftsmanship) || 0), 0);
+        const producer = PRODUCTION_RECIPE_BY_OUTPUT_KEY[key];
+        const quality = producer
+          ? Math.max(knownQuality, productionRecipeCurrentQualityCeiling(producer, nextSeen))
+          : clamp(Number(option.score) || 50, 0, 100);
+        return { key, amount: Math.max(1, Number(amount) || 1), quality };
+      });
+      const total = samples.reduce((sum, sample) => sum + sample.amount, 0);
+      const inputQuality = total
+        ? samples.reduce((sum, sample) => sum + sample.quality * sample.amount, 0) / total
+        : clamp(Number(option.score) || 50, 0, 100);
+      const criticalKeys = new Set(recipe.criticalInputKeys || samples.map((sample) => sample.key));
+      const critical = samples.filter((sample) => criticalKeys.has(sample.key));
+      const criticalInputQuality = critical.length ? Math.min(...critical.map((sample) => sample.quality)) : inputQuality;
+      const processQuality = 18 + Math.min(26, skillLevel(recipe.skillId || "fabrication") * 0.52)
+        + 16 + workstationCondition * 0.1 + inputQuality * 0.28 + 4;
+      best = Math.max(best, clamp(Math.min(processQuality, criticalInputQuality + 18), 0, 100));
+    }
+    return best;
+  }
+
+  function productionQualityGateWarning(bill) {
+    const floor = productionComponentQualityFloor(bill);
+    const recipe = productionRecipe(bill?.recipeId);
+    if (!floor || !recipe || recipe.chemistry) return "";
+    const requirements = new Map();
+    for (const option of productionAllowedMaterialOptions(bill, recipe)) {
+      for (const [key, amount] of Object.entries(normalizeResourceCosts(option.costs))) {
+        if (PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]) requirements.set(key, Math.max(requirements.get(key) || 0, amount));
+      }
+    }
+    const implausible = [...requirements.keys()].map((key) => ({
+      key,
+      ceiling: productionRecipeCurrentQualityCeiling(PRODUCTION_RECIPE_BY_OUTPUT_KEY[key])
+    })).filter((entry) => entry.ceiling > 0 && floor > entry.ceiling + 0.001);
+    if (implausible.length) {
+      return `Quality warning: ${implausible.map((entry) => `${resourceLabel(entry.key)} is currently estimated to reach about ${Math.floor(entry.ceiling)} at best`).join("; ")}; the ${floor}+ gate may pause after ${PRODUCTION_QUALITY_RETRY_LIMIT} rejected attempts.`;
+    }
+    const unavailable = [...requirements].filter(([key, amount]) => productionAvailableResourceAmount(key, bill) < amount);
+    return unavailable.length
+      ? `Quality notice: no known ${unavailable.map(([key]) => resourceLabel(key)).join(" or ")} satisfies the ${floor}+ gate; automatic dependencies will attempt replacements and pause after ${PRODUCTION_QUALITY_RETRY_LIMIT} consecutive rejections.`
+      : "";
   }
 
   function productionDependencyDepth(bill) {
@@ -26764,6 +26847,8 @@
       quantity: targetQuantity,
       targetQuantity,
       completedQuantity: 0,
+      minimumComponentCraftsmanship: productionComponentQualityFloor(parentBill),
+      requiredOutputCraftsmanship: productionComponentQualityFloor(parentBill),
       priority: parentBill.priority,
       materialStrategy: "closest",
       allowedMaterialOptionIds: producer.materialOptions.map((option) => option.id),
@@ -26785,7 +26870,7 @@
     if (!option) return 0;
     let created = 0;
     for (const [key, amount] of Object.entries(normalizeResourceCosts(option.costs))) {
-      const missing = Math.max(0, amount - productionAvailableResourceAmount(key));
+      const missing = Math.max(0, amount - productionAvailableResourceAmount(key, bill));
       if (!missing || !PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]) continue;
       const existing = (state.productionBills || []).find((candidate) => candidate.parentBillId === bill.id
         && candidate.dependencyForKey === key && ["active", "paused"].includes(candidate.status));
@@ -26818,9 +26903,10 @@
     return bill.completedQuantity < target;
   }
 
-  function productionResourceStacks(key) {
+  function productionResourceStacks(key, bill = null) {
     return ensurePhysicalItemStacks()
       .filter((stack) => stack.section === "resources" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
+      .filter((stack) => productionResourceStackMeetsQuality(stack, bill))
       .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)));
   }
 
@@ -26915,12 +27001,14 @@
     let cursor = startCell;
     for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
       let remaining = amount;
-      const candidates = productionResourceStacks(key).map((stack) => {
+      const fabricatedComponent = Boolean(PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]);
+      const candidates = productionResourceStacks(key, bill).map((stack) => {
         const accessCell = stockpileHaulAccessCell(stack);
         const route = accessCell ? labMapPathBetweenCells(cursor, accessCell, { map: ensureLabMap(), ignoreDoors: true }) : [];
         return { stack, accessCell, route };
       }).filter((candidate) => candidate.route.length)
-        .sort((a, b) => a.route.length - b.route.length || a.stack.observedAt - b.stack.observedAt);
+        .sort((a, b) => (fabricatedComponent ? a.stack.craftsmanship - b.stack.craftsmanship : 0)
+          || a.route.length - b.route.length || a.stack.observedAt - b.stack.observedAt);
       for (const candidate of candidates) {
         if (remaining <= 0) break;
         const quantity = Math.min(candidate.stack.quantity, remaining);
@@ -26929,7 +27017,11 @@
         cursor = candidate.accessCell;
         remaining -= quantity;
       }
-      if (remaining > 0) return { ok: false, reason: `Not enough reachable ${resourceLabel(key)} is available.`, reservations: [], path: [] };
+      if (remaining > 0) {
+        const quality = productionComponentQualityFloor(bill, key);
+        const qualityText = quality ? ` at ${quality}+ craftsmanship` : "";
+        return { ok: false, reason: `Not enough reachable ${resourceLabel(key)}${qualityText} is available.`, reservations: [], path: [] };
+      }
     }
     const remainingByEntry = new Map(productionChemicalSourceEntries().map((entry) => [`${entry.stack.id}:${entry.entryId}`, entry.amount]));
     for (const [selectorIndex, selector] of (recipe?.inputSelectors || []).entries()) {
@@ -27215,6 +27307,7 @@
       quantity: options.quantity,
       targetQuantity: options.targetQuantity,
       minimumCraftsmanship: options.minimumCraftsmanship,
+      minimumComponentCraftsmanship: recipe.chemistry ? 0 : options.minimumComponentCraftsmanship,
       priority: options.priority,
       materialStrategy: options.materialStrategy,
       allowedMaterialOptionIds: options.allowedMaterialOptionIds,
@@ -27224,8 +27317,10 @@
     });
     if (!bill) return null;
     state.productionBills.push(bill);
+    const qualityWarning = productionQualityGateWarning(bill);
     claimNextProductionWork();
     addEvent(`${recipe.label} added to the ${bill.scope === "global" ? "global" : fixtureById(bill.workstationId)?.name || "workstation"} production queue.`);
+    if (qualityWarning) addEvent(qualityWarning);
     persist();
     render();
     return bill;
@@ -27527,6 +27622,9 @@
     }
     workpiece.progressSeconds = workpiece.requiredSeconds;
     workpiece.craftsmanship = productionCraftsmanship(task, workpiece);
+    const requiredOutputCraftsmanship = recipe.chemistry ? 0 : clamp(Number(bill.requiredOutputCraftsmanship) || 0, 0, 100);
+    const qualityRejected = requiredOutputCraftsmanship > 0
+      && workpiece.craftsmanship + 0.001 < requiredOutputCraftsmanship;
     workpiece.status = "completed";
     workpiece.completedAt = state.clock;
     workpiece.reservedTaskId = "";
@@ -27543,7 +27641,9 @@
       materialComposition: workpiece.materialComposition,
       productionBillId: bill.id,
       productionWorkpieceId: workpiece.id,
-      chemicalBatch
+      chemicalBatch,
+      tags: qualityRejected ? ["quality rejected", "fabricated component"] : [],
+      sourceLabels: [recipe.label]
     });
     workpiece.outputStackId = output?.id || "";
     workpiece.byproductStackIds = (recipe.byproducts || []).map((byproduct) => createPhysicalItemStack(
@@ -27585,13 +27685,30 @@
       });
       if (bill.parentOrderId && output) output.reservedTaskId = `order:${bill.parentOrderId}`;
     }
-    bill.completedQuantity += recipe.chemistry ? 1 : recipe.output.quantity || 1;
+    const producedAmount = recipe.chemistry ? 1 : recipe.output.quantity || 1;
+    bill.producedQuantity += producedAmount;
+    if (qualityRejected) {
+      bill.rejectedQuantity += producedAmount;
+      bill.consecutiveQualityRejections += 1;
+      if (output?.id && !bill.rejectedStackIds.includes(output.id)) bill.rejectedStackIds.push(output.id);
+    } else {
+      bill.completedQuantity += producedAmount;
+      bill.consecutiveQualityRejections = 0;
+      bill.qualityRetryPaused = false;
+    }
     bill.activeTaskId = "";
-    bill.blockedReason = "";
+    bill.blockedReason = qualityRejected
+      ? `${craftsmanshipBand(workpiece.craftsmanship).label} output (${formatNumber(workpiece.craftsmanship)}) did not satisfy the ${requiredOutputCraftsmanship}+ craftsmanship requirement.`
+      : "";
     const target = bill.mode === "once" ? 1 : bill.quantity;
-    if (["once", "quantity"].includes(bill.mode) && bill.completedQuantity >= target) {
+    if (qualityRejected && bill.consecutiveQualityRejections >= bill.qualityRetryLimit) {
+      bill.status = "paused";
+      bill.qualityRetryPaused = true;
+      bill.blockedReason = `Quality gate paused after ${bill.consecutiveQualityRejections} consecutive rejected outputs; ${bill.completedQuantity}/${target} acceptable quantity completed at ${requiredOutputCraftsmanship}+ craftsmanship.`;
+    } else if (["once", "quantity"].includes(bill.mode) && bill.completedQuantity >= target) {
       bill.status = "completed";
       bill.completedAt = state.clock;
+      finishSatisfiedProductionDependencyBills(bill.id);
     }
     workstation.productionTaskId = "";
     if (recipe.chemistry && workstation.process) {
@@ -27636,9 +27753,11 @@
         });
       }
     }
-    addEvent(`${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${productionOutputLabel(recipe.output)} produced at ${workstation.name}${byproductText}.`);
+    addEvent(qualityRejected
+      ? `${recipe.label} produced ${craftsmanshipBand(workpiece.craftsmanship).label} ${productionOutputLabel(recipe.output)} below the ${requiredOutputCraftsmanship}+ requirement. The physical output was stored; attempt ${bill.consecutiveQualityRejections}/${bill.qualityRetryLimit}${bill.qualityRetryPaused ? " paused the dependency" : " will be retried"}.`
+      : `${recipe.label} complete: ${craftsmanshipBand(workpiece.craftsmanship).label} ${productionOutputLabel(recipe.output)} produced at ${workstation.name}${byproductText}.`);
     emitMapFeedback("feedbackWork", workstation.origin, {
-      label: recipe.label + " completed",
+      label: recipe.label + (qualityRejected ? " quality rejected" : " completed"),
       intensityBand: "medium",
       coalesceKey: "workstation:" + workstation.id
     });
@@ -27746,12 +27865,26 @@
     }
   }
 
+  function finishSatisfiedProductionDependencyBills(parentBillId) {
+    for (const dependency of (state.productionBills || []).filter((bill) => bill.parentBillId === parentBillId
+      && !["completed", "canceled"].includes(bill.status))) {
+      const activeTaskId = dependency.activeTaskId;
+      dependency.status = "canceled";
+      dependency.pausedByParent = false;
+      dependency.qualityRetryPaused = false;
+      dependency.blockedReason = "Parent production requirement was satisfied by available qualifying stock.";
+      if (activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
+      finishSatisfiedProductionDependencyBills(dependency.id);
+    }
+  }
+
   function cancelProductionDependencyBills(parentBillId) {
     for (const dependency of (state.productionBills || []).filter((bill) => bill.parentBillId === parentBillId
       && !["completed", "canceled"].includes(bill.status))) {
       const activeTaskId = dependency.activeTaskId;
       dependency.status = "canceled";
       dependency.pausedByParent = false;
+      dependency.qualityRetryPaused = false;
       dependency.blockedReason = "Parent production bill canceled.";
       if (activeTaskId) cancelTask(activeTaskId, { quiet: true, noProductionClaim: true });
       cancelProductionDependencyBills(dependency.id);
@@ -27768,9 +27901,52 @@
     if (status === "paused") setProductionDependencyPause(bill.id, true);
     if (status === "canceled") cancelProductionDependencyBills(bill.id);
     if (status === "active") {
+      if (bill.qualityRetryPaused) {
+        bill.qualityRetryPaused = false;
+        bill.consecutiveQualityRejections = 0;
+      }
       setProductionDependencyPause(bill.id, false);
       claimNextProductionWork();
     }
+    persist();
+    render();
+    return true;
+  }
+
+  function setProductionBillComponentQuality(billId, value) {
+    const root = productionBillById(billId);
+    if (!root || productionRecipe(root.recipeId)?.chemistry || root.parentBillId || ["completed", "canceled"].includes(root.status)) return false;
+    const activeTask = findTask(root.activeTaskId);
+    const startedWorkpiece = productionPausedWorkpieceForBill(root) || productionWorkpieceById(activeTask?.data?.workpieceId);
+    if (startedWorkpiece) {
+      addEvent("Component quality cannot change after this bill's current inputs have entered its physical workpiece. Finish that unit or cancel the bill first.");
+      persist();
+      render();
+      return false;
+    }
+    const wasActive = root.status === "active";
+    if (activeTask) {
+      cancelTask(activeTask.id, { quiet: true, noProductionClaim: true });
+      if (wasActive) root.status = "active";
+    }
+    const floor = clamp(Math.floor(Number(value) || 0), 0, 100);
+    const update = (bill, isRoot = false) => {
+      bill.minimumComponentCraftsmanship = floor;
+      if (!isRoot) bill.requiredOutputCraftsmanship = floor;
+      bill.consecutiveQualityRejections = 0;
+      if (bill.qualityRetryPaused) {
+        bill.status = "active";
+        bill.qualityRetryPaused = false;
+        bill.blockedReason = "";
+      }
+      for (const dependency of (state.productionBills || []).filter((candidate) => candidate.parentBillId === bill.id
+        && !["completed", "canceled"].includes(candidate.status))) update(dependency);
+    };
+    update(root, true);
+    const warning = productionQualityGateWarning(root);
+    addEvent(`Component quality requirement for ${productionRecipe(root.recipeId)?.label || root.recipeId} set to ${floor || "any"}.`);
+    if (warning) addEvent(warning);
+    claimNextProductionWork();
     persist();
     render();
     return true;
@@ -54086,6 +54262,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.productionQuantityField.firstChild.textContent = dom.productionModeSelect.value === "maintain" ? "Target stock" : "Quantity";
     dom.productionQuantityField.hidden = dom.productionModeSelect.value === "once" || dom.productionModeSelect.value === "repeat";
     dom.productionQualityField.hidden = dom.productionModeSelect.value !== "maintain";
+    dom.productionComponentQualityField.hidden = Boolean(recipe?.chemistry);
     dom.productionMaterialRules.textContent = "";
     const legend = document.createElement("legend");
     legend.textContent = "Allowed materials";
@@ -54122,9 +54299,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function productionBillProgressText(bill) {
+    const target = bill.mode === "once" ? 1 : bill.quantity;
+    if (bill.requiredOutputCraftsmanship) {
+      return `${bill.completedQuantity}/${target} accepted; ${bill.producedQuantity} produced; ${bill.rejectedQuantity} rejected`;
+    }
     if (bill.mode === "repeat") return `${bill.completedQuantity} completed; repeating`;
     if (bill.mode === "maintain") return `${productionEligibleStockAmount(bill.recipeId, bill.minimumCraftsmanship)}/${bill.targetQuantity} eligible stock${bill.minimumCraftsmanship ? ` at ${bill.minimumCraftsmanship}+ quality` : ""}`;
-    return `${bill.completedQuantity}/${bill.mode === "once" ? 1 : bill.quantity} completed`;
+    return `${bill.completedQuantity}/${target} completed`;
   }
 
   function renderProductionBills() {
@@ -54140,6 +54321,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const card = productionCard(recipe?.label || bill.recipeId, `${owner}; priority ${bill.priority}; ${titleCase(bill.status)}`);
       card.dataset.productionBill = bill.id;
       card.append(emptyText(`${productionBillProgressText(bill)}. ${PRODUCTION_MATERIAL_STRATEGY_BY_ID[bill.materialStrategy]?.label || "Closest valid"}; ${productionAllowedMaterialOptions(bill, recipe).map((option) => option.label).join(", ") || "no allowed materials"}.`));
+      if (bill.minimumComponentCraftsmanship) card.append(emptyText(`Component inputs must have ${bill.minimumComponentCraftsmanship}+ craftsmanship when they are fabricated production stages.`));
+      if (bill.requiredOutputCraftsmanship) card.append(emptyText(`Dependency output must reach ${bill.requiredOutputCraftsmanship}+ craftsmanship; consecutive rejected attempts ${bill.consecutiveQualityRejections}/${bill.qualityRetryLimit}.`));
+      const qualityWarning = !bill.parentBillId && !bill.activeTaskId ? productionQualityGateWarning(bill) : "";
+      if (qualityWarning) card.append(emptyText(qualityWarning));
       const task = findTask(bill.activeTaskId);
       const workpiece = productionPausedWorkpieceForBill(bill) || productionWorkpieceById(task?.data?.workpieceId);
       if (task) card.append(emptyText(`Active: ${task.label}; ${formatDuration(Math.max(0, task.dueAt - state.clock))} remaining.`));
@@ -54147,6 +54332,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (bill.blockedReason) card.append(emptyText(`Blocked: ${bill.blockedReason}`));
       if (bill.parentOrderId) card.append(emptyText(`Linked dependency for construction order ${bill.parentOrderId}.`));
       if (bill.parentBillId) card.append(emptyText(`Prerequisite for ${productionRecipe(productionBillById(bill.parentBillId)?.recipeId)?.label || bill.parentBillId}: ${resourceLabel(bill.dependencyForKey)}.`));
+      if (bill.rejectedStackIds.length) card.append(emptyText(`Rejected physical outputs retained: ${bill.rejectedStackIds.map((id) => physicalStackLabel(ensurePhysicalItemStacks().find((stack) => stack.id === id)) || id).join(", ")}.`));
       const dependencies = (state.productionBills || []).filter((candidate) => candidate.parentBillId === bill.id);
       if (dependencies.length) card.append(emptyText(`Stages: ${dependencies.map((dependency) => `${productionRecipe(dependency.recipeId)?.label || dependency.recipeId} (${dependency.status})`).join(", ")}.`));
       const actions = document.createElement("div");
@@ -54158,6 +54344,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (!["completed", "canceled"].includes(bill.status)) {
         actions.append(storesActionButton("Cancel", "Cancel this bill. A started workpiece becomes physical crafting waste and releases its workstation.", () => setProductionBillStatus(bill.id, "canceled")));
+      }
+      if (!bill.parentBillId && !recipe?.chemistry && !["completed", "canceled"].includes(bill.status)) {
+        const qualityEditor = document.createElement("div");
+        qualityEditor.className = "production-quality-update";
+        const label = document.createElement("span");
+        label.textContent = "Component quality";
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.max = "100";
+        input.value = String(bill.minimumComponentCraftsmanship || 0);
+        input.setAttribute("aria-label", `Component quality for ${recipe?.label || bill.recipeId}`);
+        input.dataset.productionComponentQuality = bill.id;
+        const update = storesActionButton("Update Quality", "Apply this component requirement to the bill and its unfinished generated dependencies.", () => setProductionBillComponentQuality(bill.id, input.value));
+        update.dataset.updateProductionComponentQuality = bill.id;
+        const currentTask = findTask(bill.activeTaskId);
+        const updateBlockReason = productionPausedWorkpieceForBill(bill) || productionWorkpieceById(currentTask?.data?.workpieceId)
+          ? "Finish the current physical workpiece or cancel the bill before changing its component requirement."
+          : "";
+        setActionButtonState(update, Boolean(updateBlockReason), updateBlockReason || update.title);
+        qualityEditor.append(label, input, update);
+        actions.append(qualityEditor);
       }
       if (actions.childElementCount) card.append(actions);
       dom.productionBillList.append(card);
