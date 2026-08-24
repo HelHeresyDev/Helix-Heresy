@@ -154,7 +154,7 @@ test('missing a required trial appearance records nonappearance without resolvin
 });
 
 test('@smoke a detained scientist physically completes a bench trial and receives a saved prison commitment without game over', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await startRun(page);
   await bookScientist(page);
   const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true }));
@@ -201,6 +201,59 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
   let interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
   expect(interacted.activeStay.relationships.find((entry) => entry.actorId === prisoner.id).score).toBe(beforeRelationship + 2);
+
+  // Exercise the irreversible prison-break branch, then restore the saved custody
+  // point so this same smoke test continues to cover lawful release as well.
+  const lawfulCustodySave = await page.evaluate(() => window.localStorage.getItem('helix-heresy-v1-save'));
+  const accompliceId = await page.evaluate(() => window.helixHeresyDebug.makePrisonBreakReady());
+  expect(accompliceId).toMatch(/^prison-stay-\d+-prisoner-\d+$/);
+  let breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  const breakRecord = breakSnapshot.prisonBreak.records.find((record) => record.stayId === breakSnapshot.activeStay.id);
+  expect(breakRecord.factIds).toHaveLength(8);
+  expect(breakRecord.assets).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'latchShim', status: 'held', physicalStackId: expect.any(String) }),
+    expect.objectContaining({ id: 'maintenanceCredential', status: 'held', physicalStackId: expect.any(String), actorId: accompliceId }),
+    expect.objectContaining({ id: 'maintenanceUniform', status: 'held', physicalStackId: expect.any(String), actorId: accompliceId })
+  ]));
+  expect(await page.evaluate(() => window.helixHeresyDebug.planPrisonBreak('removeAfter'))).toBe(true);
+  breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  const attemptId = breakSnapshot.activePrisonBreak.id;
+  const frozenUnserved = breakSnapshot.activePrisonBreak.frozen.unservedSentenceSeconds;
+  expect(breakSnapshot.activePrisonBreak).toMatchObject({ collarStrategyId: 'removeAfter', status: 'planned', frozen: { assistingActorId: accompliceId, factIds: expect.any(Array), assetIds: expect.any(Array) } });
+  expect(await page.evaluate((id) => window.helixHeresyDebug.forcePrisonBreakSuccess(id), attemptId)).toBe(true);
+  for (let index = 0; index < breakSnapshot.activePrisonBreak.stages.length; index += 1) {
+    expect(await page.evaluate((id) => window.helixHeresyDebug.queueNextPrisonBreakStage(id), attemptId)).toBe(true);
+    const inMotion = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+    expect(inMotion.custodyTasks[0]).toMatchObject({ type: 'prisonBreakAction', data: { action: 'escapeStage', mapPath: expect.any(Array), stageId: expect.any(String) } });
+    expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  }
+  breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(breakSnapshot).toMatchObject({
+    activeStay: null,
+    escapedStay: { status: 'escaped', sentence: { servicePausedAt: expect.any(Number), unservedSeconds: frozenUnserved }, suppressor: { suppressionActive: true } },
+    latestPrisonEscape: { id: attemptId, status: 'escaped', pursuit: { status: 'watchingLab', labWatch: true } },
+    scientist: { roomId: 'correctionalServiceRoad', mapCell: { z: 4 } },
+    runEnded: false
+  });
+  expect(breakSnapshot.magicSuppressionReason).toContain('prison');
+  const fugitiveProceeding = (await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot())).proceedings[0];
+  expect(fugitiveProceeding).toMatchObject({ status: 'fugitive', fugitive: { active: true, benchWarrantStatus: 'issued' }, charges: expect.arrayContaining([expect.objectContaining({ typeId: 'escapeCustody', support: [expect.objectContaining({ kind: 'prisonCustody', sourceId: attemptId })] })]) });
+  await expect(page.locator('#visitsList')).toContainText('unserved and paused at escape');
+  expect(await page.evaluate(() => window.helixHeresyDebug.queueEscapedPrisonCollarRemoval())).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(breakSnapshot).toMatchObject({ escapedStay: { suppressor: { status: 'removed', suppressionActive: false } }, latestPrisonEscape: { collarStatus: 'removed', collarRemoval: { status: 'completed' } } });
+  expect(breakSnapshot.magicSuppressionReason).toBe('');
+  expect(await page.evaluate(() => window.helixHeresyDebug.queuePrisonFugitiveReturn('concealedExit'))).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.completePrisonTaskNow())).toBe(true);
+  breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(breakSnapshot).toMatchObject({ scientist: { roomId: 'concealedExit' }, latestPrisonEscape: { pursuit: { status: 'recaptureScheduled', labWatch: true } }, runEnded: false });
+
+  await page.evaluate((save) => window.localStorage.setItem('helix-heresy-v1-save', save), lawfulCustodySave);
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
+  expect(interacted).toMatchObject({ activeStay: { status: 'active' }, latestPrisonEscape: null, scientist: { mapCell: { z: 5 } }, runEnded: false });
 
   expect(await page.evaluate(() => window.helixHeresyDebug.makePrisonReviewEligibleNow(true))).toBe(true);
   interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
