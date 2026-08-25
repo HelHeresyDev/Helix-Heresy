@@ -861,7 +861,7 @@ test('Canvas preserves its surface through smooth pan, middle drag, and pointer-
 
   const before = await page.evaluate(() => {
     const scene = window.helixHeresyDebug.mapSceneSnapshot();
-    const state = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state;
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
     return {
       viewport: scene.viewport,
       clock: state.clock,
@@ -908,7 +908,7 @@ test('Canvas preserves its surface through smooth pan, middle drag, and pointer-
       relativeX: (cell.x - scene.viewport.x + 0.5) / scene.viewport.width,
       relativeY: (cell.y - scene.viewport.y + 0.5) / scene.viewport.height,
       zoom: window.helixHeresyDebug.mapViewSnapshot().zoom.index,
-      clock: JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state.clock,
+      clock: window.helixHeresyDebug.currentWorldRunSnapshot().run.state.clock,
     };
   }, anchorBefore.cell);
   expect(anchorAfter.zoom).toBeGreaterThan(anchorBefore.zoom);

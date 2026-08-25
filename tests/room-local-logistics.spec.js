@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +33,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 async function openOverlayMenu(page) {
@@ -91,7 +91,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       taskTypes: (state.tasks || []).map((task) => task.type),
       taskDurations: (state.tasks || []).map((task) => task.dueAt - task.createdAt),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(logisticsState.biomass).toBe(50);
   expect(logisticsState.mainBiomass).toBe(0);
@@ -128,7 +128,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       motion: scene.entities.find((entity) => entity.id === 'scientist:scientist')?.motion,
       storageBiomass: state.roomStockpiles?.storageRoom?.resources?.biomass || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(movingHaul.cell).not.toEqual(initialHaulMovement.cell);
   expect(movingHaul.movement.stepIndex).toBeGreaterThan(0);
   expect(movingHaul.movement.completed).toBe(false);
@@ -142,7 +142,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
     task.dueAt = task.createdAt + 982;
     delete task.data.pacingVersion;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   const migratedHaul = await page.evaluate(() =>
     window.helixHeresyDebug.taskStatusSnapshot().find((task) => task.type === 'resourceHaul'));
@@ -158,7 +158,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
     delete task.data.mapPath;
     delete task.data.transferMapPaths;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
   const multiTripHaul = await page.evaluate(() =>
@@ -176,7 +176,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
     delete task.data.mapPath;
     delete task.data.transferMapPaths;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
   await page.locator('#queueToggleBtn').click();
@@ -214,7 +214,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       scientistRoomId: state.scientist?.roomId,
       scientistInventory: state.scientist?.inventory,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(logisticsState.biomass).toBe(40);
   expect(logisticsState.mainBiomass).toBe(0);
@@ -241,7 +241,7 @@ test('synthesis queues Biomass hauling before starting the synthesis task', asyn
       slimes: (state.slimes || []).map((slime) => ({ name: slime.name, containerId: slime.containerId })),
       taskCount: (state.tasks || []).length,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(finalState.biomass).toBe(40);
   expect(finalState.mainBiomass).toBe(0);
@@ -312,7 +312,7 @@ test('resource overlay and selection inspector show known room supplies', async 
         return !occupied && !door;
       }),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const storageTile = page.locator(`[data-map-x="${fixture.storageCell.x}"][data-map-y="${fixture.storageCell.y}"]`);
@@ -415,7 +415,7 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome: organicGenome });
+  }, { key: await activeRunStorageKey(page), genome: organicGenome });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="specimens"]').click();
@@ -444,7 +444,7 @@ test('manual feeding queues feedstock delivery when the stockpile is in another 
       nutrition: slime?.stats?.nutrition?.current,
       residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(finalState.organic).toBe(0);
   expect(finalState.mainOrganic).toBe(0);

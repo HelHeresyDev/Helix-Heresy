@@ -6,7 +6,7 @@ const { pathToFileURL } = require('url');
 const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +33,7 @@ test('starter skills and sensory capabilities use the shared taxonomy', async ({
       skillIds: Object.keys(state.scientist.skills),
       scientist: window.helixHeresyDebug.sensorySnapshot('scientist'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.skillIds).toEqual(expect.arrayContaining(['analysis', 'perception', 'animancy', 'arcaneSenses']));
   expect(result.scientist.sensory.capabilities).toMatchObject({
@@ -75,7 +75,7 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return { seed: state.seed, complexity: state.complexity || 'clean', currentGenome: state.currentGenome };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     ...genomeContext,
     baseGenome: genomeContext.currentGenome,
@@ -145,7 +145,7 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return { left: left.cell, right };
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   const result = await page.evaluate(({ left, right }) => {
@@ -154,12 +154,12 @@ test('blind slime follows a local chemical gradient without gaining sight or hea
     // Cover the full deterministic AI cadence range before inspecting movement.
     window.helixHeresyDebug.advanceSimulation(3);
     const first = window.helixHeresyDebug.sensorySnapshot('gradient-slime');
-    const firstPayload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const firstSlime = (firstPayload.state || firstPayload).slimes.find((entry) => entry.id === 'gradient-slime');
+    const firstState = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
+    const firstSlime = firstState.slimes.find((entry) => entry.id === 'gradient-slime');
     window.helixHeresyDebug.advanceSimulation(10);
     const second = window.helixHeresyDebug.sensorySnapshot('gradient-slime');
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const slime = (payload.state || payload).slimes.find((entry) => entry.id === 'gradient-slime');
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
+    const slime = state.slimes.find((entry) => entry.id === 'gradient-slime');
     return { first, firstSlime, second, slime };
   }, fixture);
 

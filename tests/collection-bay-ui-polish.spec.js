@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -74,7 +74,7 @@ async function stageCollectionBayReadoutSave(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   const acidDropletGenome = genomeForTraits({
     seed: saveContext.seed,
@@ -116,7 +116,7 @@ async function stageCollectionBayReadoutSave(page) {
     state.slimes = slimes;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     slimes: [
       stagedSlime({ id: 'drip-vessel', name: 'DRIP-VES', genome: acidDropletGenome, containerId: 'basic-10' }),
       stagedSlime({ id: 'drip-jar', name: 'DRIP-JAR', genome: acidDropletGenome, containerId: 'basic-1' }),
@@ -136,7 +136,7 @@ async function stageCollectionBayAccumulationSave(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   const acidDropletGenome = genomeForTraits({
     seed: saveContext.seed,
@@ -175,7 +175,7 @@ async function stageCollectionBayAccumulationSave(page) {
     state.slimes = slimes;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     slimes: [
       stagedSlime({ id: 'single-acid', name: 'SINGLE-ACID', genome: acidDropletGenome, containerId: 'basic-10' }),
       stagedSlime({ id: 'double-acid-a', name: 'DOUBLE-ACID-A', genome: acidDropletGenome, containerId: 'basic-9' }),
@@ -219,7 +219,7 @@ async function stageCollectionBayTransferSave(page) {
     state.collectedByproducts = {};
     state.collectedByproductHistory = {};
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 }
 
@@ -315,7 +315,7 @@ test('Collection Bay stations passively accumulate per-container receptacles', a
       doubleMaterial: state.collectionBay?.stations?.['basic-9']?.material,
       immatureMaterial: state.collectionBay?.stations?.['basic-8']?.material,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(stationAmounts.singleMaterial).toBe('acid droplets');
   expect(stationAmounts.doubleMaterial).toBe('acid droplets');
@@ -385,7 +385,7 @@ test('@smoke Collection Bay transfer creates a filled physical vessel and instal
       receptacle: Number(stationState?.receptacle?.amount) || 0,
       overflow: Number(stationState?.overflow?.amount) || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(transferState.collected).toBe(4);
   expect(transferState.physicalAmount).toBe(4);

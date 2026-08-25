@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 const preferencesKey = 'helix-heresy-v1-preferences';
 
 async function startRun(page) {
@@ -73,7 +73,7 @@ test('message history keeps routine records while compact feed shows urgent obse
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   await expect(page.locator('#messageFeed')).toContainText('Critical test leak');

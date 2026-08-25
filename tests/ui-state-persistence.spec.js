@@ -6,7 +6,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 const preferencesKey = 'helix-heresy-v1-preferences';
 
 async function startRun(page) {
@@ -30,9 +30,9 @@ async function selectMapOverlay(page, overlayId) {
 test('@smoke importing a save resets transient UI to the map defaults', async ({ page }, testInfo) => {
   await startRun(page);
 
-  const importPayload = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  const importPayload = await page.evaluate(() => {
+    const current = window.helixHeresyDebug.currentWorldRunSnapshot();
+    const state = current.run.state;
     state.ui = {
       mode: 'command',
       activeWorkspaceTab: 'log',
@@ -48,14 +48,19 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
     state.selection = { kind: 'room', roomId: 'storageRoom', source: 'fixture' };
     state.selectedMapTarget = { kind: 'room', roomId: 'storageRoom', source: 'fixture' };
     state.selectedSlimeId = 'ghost-selection';
-    return { version: 1, savedAt: new Date().toISOString(), state };
-  }, { key: storageKey });
+    return {
+      format: 'helix-heresy-run-bundle',
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      world: current.world,
+      run: { ...current.run, state },
+    };
+  });
   const importPath = testInfo.outputPath('ui-state-import-save.json');
   fs.writeFileSync(importPath, JSON.stringify(importPayload, null, 2));
 
   await page.locator('#importFileInput').setInputFiles(importPath);
-  await expect(page.locator('#replaceRunDialog')).toBeVisible();
-  await page.locator('#confirmReplaceRunBtn').click();
+  await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/);
 
   await expect(page.locator('[data-workspace-tab="map"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-overlay-menu-toggle="true"]')).toContainText('None');
@@ -75,7 +80,7 @@ test('@smoke importing a save resets transient UI to the map defaults', async ({
       selectedSlimeId: state.selectedSlimeId,
       hasDebugFlag: Object.prototype.hasOwnProperty.call(state.ui || {}, 'debugEnabled'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(savedUi).toMatchObject({
     ui: {
@@ -203,7 +208,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
   expect(await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).ui?.activeWorkspaceTab;
-  }, { key: storageKey })).toBe('map');
+  }, { key: await activeRunStorageKey(page) })).toBe('map');
   await page.keyboard.press('Shift+/');
   await expect(page.locator('[data-keyboard-help="true"]')).toBeVisible();
   await page.mouse.click(640, 500, { button: 'right' });
@@ -230,7 +235,7 @@ test('@smoke reset UI preferences restores defaults and current map view', async
       ui: state.ui,
       selection: state.selection,
     };
-  }, { key: storageKey, prefsKey: preferencesKey });
+  }, { key: await activeRunStorageKey(page), prefsKey: preferencesKey });
 
   expect(resetState).toMatchObject({
     prefs: {

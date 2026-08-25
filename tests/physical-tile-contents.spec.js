@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -42,7 +42,7 @@ test('physical records overwrite stale global and room compatibility totals', as
     state.resources.biomass = 999;
     state.roomStockpiles.storageRoom.resources.biomass = 888;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const totals = await page.evaluate(({ key }) => {
@@ -55,7 +55,7 @@ test('physical records overwrite stale global and room compatibility totals', as
         .filter((stack) => stack.section === 'resources' && stack.key === 'biomass')
         .reduce((total, stack) => total + stack.quantity, 0),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(totals).toEqual({ global: 7, storage: 7, physical: 7 });
 
@@ -170,7 +170,7 @@ test('collection transfer is blocked without an empty replacement receptacle', a
       },
     } };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="map"]').click();
@@ -200,7 +200,7 @@ test('hazard cleanup waits for enough vessel capacity and produces contained phy
     });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return room.attributes.contamination.current;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   await skipSeconds(page, 1);
   await expect(page.locator('#taskList')).not.toContainText(/Clean Hazardous sludge/i);
@@ -215,7 +215,7 @@ test('hazard cleanup waits for enough vessel capacity and produces contained phy
       tags: [], contents: [], sourceLabels: [], sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
     });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   await skipSeconds(page, 1);
   await page.locator('#queueToggleBtn').click();
@@ -235,7 +235,7 @@ test('hazard cleanup waits for enough vessel capacity and produces contained phy
       derivedWaste: state.resources.waste,
       contamination: state.rooms.find((room) => room.id === 'mainLab').attributes.contamination.current,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.spillExists).toBe(false);
   expect(result.vesselAmounts.sort((a, b) => a - b)).toEqual([1, 12]);
@@ -256,7 +256,7 @@ test('tile occupancy permits sharing by small actors but rejects bodies or piles
       tags: [], contents: [], sourceLabels: [], sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
     });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const space = await page.evaluate(({ key }) => {
@@ -279,7 +279,7 @@ test('tile occupancy permits sharing by small actors but rejects bodies or piles
       largeShares: debug.genomeSpaceSnapshot(largeGenome, scientistCell),
       clutter: debug.physicalStockSnapshot().tileOccupancy(clutterCell),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(space.smallShares.fits).toBe(true);
   expect(space.largeEmpty.fits).toBe(true);

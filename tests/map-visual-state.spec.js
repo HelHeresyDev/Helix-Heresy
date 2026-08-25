@@ -9,7 +9,7 @@ const MapKnowledge = require('../map-knowledge.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -561,7 +561,7 @@ test('contained slime remains an interaction target without becoming a map entit
     slime.mapCell = null;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state: game }));
     return { containerId: container.id };
-  }, { key: storageKey, slimeId: created.id });
+  }, { key: await activeRunStorageKey(page), slimeId: created.id });
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();

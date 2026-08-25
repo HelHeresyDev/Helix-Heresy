@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +33,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 async function finishQueuedTask(page, label) {
@@ -124,7 +124,7 @@ async function stageToolDurabilitySlime(page, { genome, toolCurrent = 10 }) {
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, toolCurrent });
+  }, { key: await activeRunStorageKey(page), genome, toolCurrent });
   await loadSavedRun(page);
 }
 
@@ -165,7 +165,7 @@ test('hazardous handling wears a usable tool and shows condition in inventory', 
       max: gloves?.max,
       events: (state.events || []).map((event) => event.text || event.message || String(event)),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.current).toBeLessThan(result.max);
   expect(result.current).toBeGreaterThan(0);

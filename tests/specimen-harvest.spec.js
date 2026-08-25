@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +33,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 function livingSlimeFixture({ id, name, genome, containerId = 'basic-1', roomId = 'mainLab', stats = {} }) {
@@ -148,7 +148,7 @@ test('sampling a living specimen stores harvested material and worsens condition
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="specimens"]').click();
@@ -170,7 +170,7 @@ test('sampling a living specimen stores harvested material and worsens condition
       stress: slime?.stats?.stress?.current,
       welfare: window.helixHeresyDebug.welfareSnapshot('harvest-live'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.entries).toEqual(expect.arrayContaining([
     expect.objectContaining({
@@ -231,7 +231,7 @@ test('sampling a living specimen stores harvested material and worsens condition
       reservedStackCount: task?.data?.reservedStackIds?.length || 0,
       workStartsAfterCreation: task?.data?.workStartsAt > task?.createdAt,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(activeResearch).toEqual({
     activeProjectId: 'controlledStress',
     status: 'active',
@@ -246,7 +246,7 @@ test('sampling a living specimen stores harvested material and worsens condition
     const state = payload.state || payload;
     const task = (state.tasks || []).find((entry) => entry.type === 'researchWork');
     window.helixHeresyDebug.advanceSimulation(Math.max(1, task.data.workStartsAt - state.clock + 15));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await page.locator('[data-workspace-tab="tasks"]').click();
   await page.locator('#taskList .task-row').filter({ hasText: 'Controlled Stress Methodology' })
     .getByRole('button', { name: 'Cancel' }).click();
@@ -265,7 +265,7 @@ test('sampling a living specimen stores harvested material and worsens condition
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return (state.tasks || []).find((entry) => entry.type === 'researchWork')?.data?.reservedStackIds?.length;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(resumedReservationCount).toBe(0);
 
   await finishQueuedTask(page, 'Controlled Stress Methodology');
@@ -327,8 +327,7 @@ test('sampling a living specimen stores harvested material and worsens condition
     const queuedLabel = await page.evaluate((experimentId) => {
       const debug = window.helixHeresyDebug;
       if (!debug.queueExperimentNextStep(experimentId)) throw new Error('Experiment next step was not queued.');
-      const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-      const state = payload.state || payload;
+      const state = debug.currentWorldRunSnapshot().run.state;
       return state.tasks.find((task) => task.data?.experimentId === experimentId)?.label || '';
     }, experimentSetup.experimentId);
     expect(queuedLabel).not.toBe('');
@@ -340,8 +339,7 @@ test('sampling a living specimen stores harvested material and worsens condition
   const firstConclusion = await page.evaluate((experimentId) => {
     const debug = window.helixHeresyDebug;
     const queued = debug.queueExperimentConclusion(experimentId, 'supports');
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const state = payload.state || payload;
+    const state = debug.currentWorldRunSnapshot().run.state;
     const task = state.tasks.find((entry) => entry.type === 'experimentConclusion');
     const experiment = debug.experimentSnapshot().experiments.find((entry) => entry.id === experimentId);
     const fixture = state.fixtures.find((entry) => entry.id === task?.data?.workstationId);
@@ -366,8 +364,7 @@ test('sampling a living specimen stores harvested material and worsens condition
   const finalConclusionLabel = await page.evaluate((experimentId) => {
     const debug = window.helixHeresyDebug;
     if (!debug.queueExperimentConclusion(experimentId, 'supports')) throw new Error('Experiment conclusion was not re-queued.');
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const state = payload.state || payload;
+    const state = debug.currentWorldRunSnapshot().run.state;
     return state.tasks.find((task) => task.type === 'experimentConclusion')?.label || '';
   }, experimentSetup.experimentId);
   await finishQueuedTask(page, finalConclusionLabel);
@@ -411,16 +408,14 @@ test('sampling a living specimen stores harvested material and worsens condition
     });
     debug.startExperiment(id);
     if (!debug.queueExperimentNextStep(id)) throw new Error('Planned subject synthesis was not queued.');
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const state = payload.state || payload;
+    const state = debug.currentWorldRunSnapshot().run.state;
     const task = state.tasks.find((entry) => entry.data?.experimentId === id || entry.data?.continuation?.task?.data?.experimentId === id);
     return { id, taskType: task?.data?.continuation?.task?.type || task?.type, taskLabel: task?.label || '' };
   }, { genome: context.currentGenome });
   expect(plannedExperiment.taskType).toBe('synthesize');
   await finishQueuedTask(page, plannedExperiment.taskLabel);
   const synthesisFollowupLabel = await page.evaluate((experimentId) => {
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const state = payload.state || payload;
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
     return state.tasks.find((entry) => entry.type === 'synthesize' && entry.data?.experimentId === experimentId)?.label || '';
   }, plannedExperiment.id);
   if (synthesisFollowupLabel) await finishQueuedTask(page, synthesisFollowupLabel);
@@ -482,7 +477,7 @@ test('breaking down a living specimen consumes it and stores specimen material',
     state.slimes = [{ ...slime, containerId: jar.id, roomId: jar.roomId }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     slime: livingSlimeFixture({
       id: 'harvest-terminal',
       name: 'HAR-END',
@@ -509,7 +504,7 @@ test('breaking down a living specimen consumes it and stores specimen material',
       livingIds: (state.slimes || []).map((slime) => slime.id),
       entries: Object.values(state.specimenMaterials || {}),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.livingIds).not.toContain('harvest-terminal');
   expect(result.entries).toEqual(expect.arrayContaining([
@@ -568,7 +563,7 @@ test('breaking down a corpse removes the corpse and stores harvested material', 
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="specimens"]').click();
@@ -582,7 +577,7 @@ test('breaking down a corpse removes the corpse and stores harvested material', 
       corpseIds: (state.corpses || []).map((corpse) => corpse.id),
       entries: Object.values(state.specimenMaterials || {}),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.corpseIds).not.toContain('corpse-harvest');
   expect(result.entries).toEqual(expect.arrayContaining([

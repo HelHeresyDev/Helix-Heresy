@@ -8,6 +8,7 @@ For story background, long-term systems, current design direction, and open ques
 
 ## Current Prototype
 
+- A browser-local library of immutable, deterministically named worlds with saved World Theme, generation metadata, canonical playable year, and independent roguelike run branches. New Run can generate a world under “Choose Your Heresy,” the World Library can start or resume several isolated runs in one world, and portable run bundles include their exact canonical world.
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
 - Evidence-driven research projects that cite reusable observations, consume physical materials and scientist work, preserve interrupted workpieces, and unlock advanced tests or usable prototypes.
@@ -91,7 +92,8 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
-- `app.js` - Game state, genetics, time simulation, saves, tests, slime reproduction, jobs, derived Suspicion, rooms, corpses, and rendering.
+- `world-run-library.js` - Renderer-neutral deterministic world records, independent run envelopes, canonical digests, versioned browser-storage repository, and deletion/reference guards.
+- `app.js` - Game state, genetics, time simulation, world/run save integration, tests, slime reproduction, jobs, derived Suspicion, rooms, corpses, and rendering.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
 - `investigative-evidence.js` - Renderer-independent normalization, persistence, significance, lifecycle, provenance, and deterministic integrity rules for suspicious site evidence.
@@ -142,7 +144,11 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 ## Saves
 
-Helix Heresy stores one continuation run in browser `localStorage` and always opens to the title screen without materializing that save. Continue is enabled only for a readable started run and shows its company, scenario, and day. New Run and validated JSON import confirm before replacing any stored continuation; malformed data is reported and left untouched. The current run can also be exported from gameplay or directly from the replacement confirmation.
+Helix Heresy stores a versioned world/run library in browser `localStorage` and always opens to the title screen without materializing a run. Canonical worlds and mutable run records use separate namespaced records behind a storage adapter. A world owns its stable ID, world seed, deterministic generated name, World Theme, generation settings/version, canonical playable year, summary, digest, and authoritative generated data. Each run owns a separate ID and seed, scenario, starting-site record, mutable world-state branch, lifecycle, and complete simulation state.
+
+New Run explicitly generates a world before beginning its first independent branch. World Library can start several runs from one world's untouched canonical state, resume any active branch, delete runs, and delete only worlds with no remaining run references. Continue selects the most recently played readable active run and shows both world and run metadata. A run has one autosaved roguelike timeline rather than rewindable save slots; an ended run remains a library record but is no longer a continuation.
+
+JSON export produces a version-two run bundle containing the run and its exact canonical world. Import validates their generation version and canonical digest, reuses an identical saved world, and remaps colliding IDs without overwriting different records. Version-one single-continuation saves are intentionally not loaded into the new library because they have no authoritative world or World Theme.
 
 ## Development Notes
 

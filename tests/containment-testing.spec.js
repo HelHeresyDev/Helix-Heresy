@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -40,7 +40,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 async function stageContainmentSlime(page, options) {
@@ -117,7 +117,7 @@ async function stageContainmentSlime(page, options) {
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, options });
+  }, { key: await activeRunStorageKey(page), options });
   await loadSavedRun(page);
 }
 
@@ -174,7 +174,7 @@ test('stressed fluid slime actively seeps along weak containment', async ({ page
       condition: container?.condition,
       memory: slime?.behaviorMemory?.tags?.containmentTested || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.active).toBe(true);
   expect(result.method).toBe('seep');
@@ -227,7 +227,7 @@ test('elemental containment testing can use unstable ability force and practice 
       forceXp: slime?.skills?.force?.xp || 0,
       effects: slime?.containmentTest?.effects || [],
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.method).toBe('ability');
   expect(['high', 'critical']).toContain(result.pressureBand);
@@ -284,7 +284,7 @@ test('critical attack testing cracks a fragile container and removes it from ser
       lockdownActive: state.accessControl.lockdownActive,
       lockdownDoorWorked: [...state.tasks, ...state.taskHistory].some((entry) => entry.type === 'doorOperation' && entry.data?.lockdown),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.status).toBe('released');
   expect(result.containerId).toBe(null);
@@ -348,7 +348,7 @@ test('seeped seal breach leaves a compromised container physically usable', asyn
       containerContamination: container?.environment?.contamination?.current,
       eventText: state.events.slice(0, 5).map((event) => event.message || String(event)).join(' | '),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.status).toBe('released');
   expect(result.breachState).toBe('compromised');

@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 function normalXpToNextLevel(level) {
   return Math.round(25 + Math.pow(level + 1, 1.25) * 4);
@@ -92,8 +92,7 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
   await expect(skillList).not.toContainText('Observation');
 
   const savedSkills = await page.evaluate(() => {
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const state = payload.state || payload;
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
     return {
       analysis: state.scientist?.skills?.analysis || null,
       materialsScience: state.scientist?.skills?.materialsScience || null,
@@ -125,7 +124,7 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.scientist?.skills?.analysis || null;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(skill?.xp).toBe(firstBreakthrough + 3);
   expect(skill?.practiceTags?.selfcheck).toBe(3);
@@ -221,7 +220,7 @@ test('breakthrough progress decays after sustained idle time', async ({ page }) 
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.scientist?.skills?.materialsScience || null;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
   expect(skill?.xp).toBeCloseTo(expected, 4);
@@ -235,7 +234,7 @@ test('slime combat practice stores hidden component skills and pain memory', asy
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const flameGenome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
   const frostGenome = genomeForTraits({ seed, traits: { element: 'frost', behavior: 'idle pooling', stability: 'placid' } });
 
@@ -286,7 +285,7 @@ test('slime combat practice stores hidden component skills and pain memory', asy
     ];
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, flameGenome, frostGenome });
+  }, { key: await activeRunStorageKey(page), flameGenome, frostGenome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 90);
@@ -305,7 +304,7 @@ test('slime combat practice stores hidden component skills and pain memory', asy
       flameMemory: flame?.behaviorMemory?.tags?.combatHurt || 0,
       frostMemory: frost?.behaviorMemory?.tags?.combatHurt || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.scientistSkills).toEqual(expect.arrayContaining(['analysis', 'perception', 'animancy', 'arcaneSenses']));
   expect(result.flameThermal).toBeGreaterThan(0);
@@ -323,7 +322,7 @@ test('Analyze spends mana and reveals only level-one creature capabilities', asy
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome, firstBreakthrough }) => {
@@ -387,7 +386,7 @@ test('Analyze spends mana and reveals only level-one creature capabilities', asy
       },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, firstBreakthrough });
+  }, { key: await activeRunStorageKey(page), genome, firstBreakthrough });
   await loadSavedRun(page);
 
   await openWorkspace(page, 'specimens');
@@ -414,7 +413,7 @@ test('Analyze spends mana and reveals only level-one creature capabilities', asy
       analyzedBehaviors: Object.keys(slime?.analyzedCapabilities?.behaviors || {}),
       thermalHiddenXp: slime?.skills?.thermal?.xp || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.mana).toBe(92);
   expect(result.analysisXp).toBe(firstBreakthrough + 4);
@@ -428,7 +427,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome, analysisXp, toughnessXp, hiddenThermalXp }) => {
@@ -516,7 +515,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     genome,
     analysisXp: totalXpForLevel(51),
     toughnessXp: totalXpForLevel(3),
@@ -551,7 +550,7 @@ test('Advanced Analyze reveals exact levels only for already analyzed creature s
       thermalKnown: Boolean(slime?.analyzedCapabilities?.skills?.thermal),
       advancedAttempts: slime?.analyzedCapabilities?.advancedAttempts || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.mana).toBe(84);
   expect(result.analysisXp).toBe(totalXpForLevel(51) + 6);
@@ -566,7 +565,7 @@ test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async (
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'flame', behavior: 'vibration hunting', stability: 'predatory' } });
 
   await page.evaluate(({ key, genome, analysisXp }) => {
@@ -618,7 +617,7 @@ test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async (
       },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
+  }, { key: await activeRunStorageKey(page), genome, analysisXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
   await openWorkspace(page, 'specimens');
@@ -640,7 +639,7 @@ test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async (
       combatThreat: slime?.analyzedCapabilities?.combat?.threat || '',
       damageTags: slime?.analyzedCapabilities?.combat?.damageTags || '',
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.mana).toBe(86);
   expect(result.analysisXp).toBe(totalXpForLevel(51) + 7);
@@ -655,7 +654,7 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'frost', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome, analysisXp }) => {
@@ -693,7 +692,7 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
       nextOverflowEventAt: null,
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, analysisXp: totalXpForLevel(51) });
+  }, { key: await activeRunStorageKey(page), genome, analysisXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
   await openWorkspace(page, 'specimens');
@@ -711,7 +710,7 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
       evolvedLabel: state.scientist.skills.analysis.evolvedLabel,
       forensicSummary: corpse?.forensicReport?.summary || '',
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.mana).toBe(88);
   expect(result.analysisXp).toBe(totalXpForLevel(51) + 7);
@@ -725,7 +724,7 @@ test('Analyze displays evolved creature skill labels after breakthrough', async 
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome, strikingXp }) => {
@@ -779,7 +778,7 @@ test('Analyze displays evolved creature skill labels after breakthrough', async 
       },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, strikingXp: totalXpForLevel(51) });
+  }, { key: await activeRunStorageKey(page), genome, strikingXp: totalXpForLevel(51) });
   await loadSavedRun(page);
 
   await openWorkspace(page, 'specimens');
@@ -794,7 +793,7 @@ test('Analyze displays evolved creature skill labels after breakthrough', async 
       evolvedLabel: slime?.skills?.striking?.evolvedLabel || '',
       analyzedLabel: slime?.analyzedCapabilities?.skills?.striking?.label || '',
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.evolvedLabel).toBe('Lashing Strikes');
   expect(result.analyzedLabel).toBe('Lashing Strikes');
@@ -806,7 +805,7 @@ test('slime breakthrough progress decays at the same threshold as scientist skil
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
   const firstBreakthrough = xpToNextLevel(0);
 
@@ -858,7 +857,7 @@ test('slime breakthrough progress decays at the same threshold as scientist skil
       },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, firstBreakthrough });
+  }, { key: await activeRunStorageKey(page), genome, firstBreakthrough });
   await loadSavedRun(page);
 
   await skipSeconds(page, 60 * 60 * 48);
@@ -867,7 +866,7 @@ test('slime breakthrough progress decays at the same threshold as scientist skil
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.slimes.find((slime) => slime.id === 'threshold-slime')?.skills?.perception || null;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   const expected = (firstBreakthrough - 1) - firstBreakthrough * 0.1;
   expect(skill?.xp).toBeCloseTo(expected, 4);
@@ -879,7 +878,7 @@ test('slime pain memory biases loose threat response toward fleeing', async ({ p
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome }) => {
@@ -924,14 +923,14 @@ test('slime pain memory biases loose threat response toward fleeing', async ({ p
       },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   const response = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.slimes[0]?.ai?.response || null;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(response?.intent).toBe('flee');
   expect(response?.reasons).toContain('remembered combat pain');

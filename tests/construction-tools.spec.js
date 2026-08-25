@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -95,7 +95,7 @@ test('@smoke construction tools block inadequate work retain partial progress an
       task: state.tasks.find((task) => task.type === 'constructionWork'),
       tile: state.construction.orders.at(-1).tiles[0],
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(snapshot.task).toBeFalsy();
   expect(snapshot.tile.status).toBe('planned');
   expect(snapshot.tile.blockedReason).toContain('inadequate');
@@ -111,7 +111,7 @@ test('@smoke construction tools block inadequate work retain partial progress an
       task: state.tasks.find((task) => task.type === 'constructionWork'),
       tile: state.construction.orders.at(-1).tiles[0],
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(snapshot.task.data.toolSelections).toEqual([
     expect.objectContaining({ itemKey: 'miningPick', requirement: 'solid-rock excavation' }),
   ]);
@@ -138,7 +138,7 @@ test('@smoke construction tools block inadequate work retain partial progress an
       pick,
       metalParts: state.resources.metalParts,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(interrupted.task).toBeFalsy();
   expect(interrupted.tile.status).toBe('planned');
   expect(interrupted.tile.workCompletedSeconds).toBeGreaterThan(0);
@@ -162,7 +162,7 @@ test('@smoke construction tools block inadequate work retain partial progress an
       task: state.tasks.find((task) => task.type === 'constructionWork'),
       metalParts: state.resources.metalParts,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(repaired.pick.current).toBeGreaterThan(0);
   expect(repaired.metalParts).toBe(interrupted.metalParts - 1);
   expect(repaired.tile.workCompletedSeconds).toBe(interrupted.tile.workCompletedSeconds);
@@ -172,7 +172,7 @@ test('@smoke construction tools block inadequate work retain partial progress an
   const mined = await page.evaluate((cell) => ({
     encounter: window.helixHeresyDebug.geologyEncounterSnapshot().find((entry) =>
       entry.cell.x === cell.x && entry.cell.y === cell.y && entry.cell.z === (cell.z || 0)),
-    rubble: JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state.labMap.terrain.rubble
+    rubble: window.helixHeresyDebug.currentWorldRunSnapshot().run.state.labMap.terrain.rubble
       .find((pile) => pile.cell.x === cell.x && pile.cell.y === cell.y && pile.cell.z === (cell.z || 0)),
   }), { x: 46, y: 44, z: 0 });
   expect(mined.encounter).toMatchObject({ stratumId: geologyFoundation.sample.actual.stratum.id });

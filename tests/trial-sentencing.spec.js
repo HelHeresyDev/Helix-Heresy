@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const Trial = require('../trial-sentencing.js');
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -204,7 +205,8 @@ test('@smoke a detained scientist physically completes a bench trial and receive
 
   // Exercise the irreversible prison-break branch, then restore the saved custody
   // point so this same smoke test continues to cover lawful release as well.
-  const lawfulCustodySave = await page.evaluate(() => window.localStorage.getItem('helix-heresy-v1-save'));
+  const lawfulCustodyKey = await activeRunStorageKey(page);
+  const lawfulCustodySave = await page.evaluate((key) => window.localStorage.getItem(key), lawfulCustodyKey);
   const accompliceId = await page.evaluate(() => window.helixHeresyDebug.makePrisonBreakReady());
   expect(accompliceId).toMatch(/^prison-stay-\d+-prisoner-\d+$/);
   let breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
@@ -249,7 +251,7 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   breakSnapshot = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
   expect(breakSnapshot).toMatchObject({ scientist: { roomId: 'concealedExit' }, latestPrisonEscape: { pursuit: { status: 'recaptureScheduled', labWatch: true } }, runEnded: false });
 
-  await page.evaluate((save) => window.localStorage.setItem('helix-heresy-v1-save', save), lawfulCustodySave);
+  await page.evaluate(({ key, save }) => window.localStorage.setItem(key, save), { key: lawfulCustodyKey, save: lawfulCustodySave });
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
   interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());
@@ -321,7 +323,7 @@ test('@smoke a detained scientist physically completes a bench trial and receive
   const rescueProceeding = (await page.evaluate(() => window.helixHeresyDebug.pretrialProceedingsSnapshot())).proceedings[0];
   expect(rescueProceeding).toMatchObject({ status: 'fugitive', fugitive: { active: true, benchWarrantStatus: 'issued' }, charges: expect.arrayContaining([expect.objectContaining({ typeId: 'escapeCustody', support: [expect.objectContaining({ kind: 'prisonCustody', sourceId: rescueAttemptId })] })]) });
 
-  await page.evaluate((save) => window.localStorage.setItem('helix-heresy-v1-save', save), lawfulCustodySave);
+  await page.evaluate(({ key, save }) => window.localStorage.setItem(key, save), { key: lawfulCustodyKey, save: lawfulCustodySave });
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
   interacted = await page.evaluate(() => window.helixHeresyDebug.prisonCustodySnapshot());

@@ -57,7 +57,7 @@ test('@smoke market buys become paid inbound Loading Bay freight and affect publ
     market: window.helixHeresyDebug.commodityMarketSnapshot(),
     stacks: window.helixHeresyDebug.physicalStockSnapshot().stacks,
     visuals: window.helixHeresyDebug.physicalItemVisualSnapshot(),
-    state: (JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}').state || {}),
+    state: window.helixHeresyDebug.currentWorldRunSnapshot().run.state,
   }));
   expect(final.market.consignments.at(-1).status).toBe('received');
   expect(final.market.businessReputation).toBeGreaterThan(0);

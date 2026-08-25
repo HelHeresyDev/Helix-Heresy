@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -43,7 +43,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const flameGenome = genomeForTraits({ seed, traits: { element: 'flame' } });
   const frostGenome = genomeForTraits({ seed, traits: { element: 'frost' } });
 
@@ -100,7 +100,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, flameGenome, frostGenome });
+  }, { key: await activeRunStorageKey(page), flameGenome, frostGenome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 90);
@@ -142,7 +142,7 @@ test('elemental contact clash creates observed combat and pauses to 1x', async (
       flameIntegrity: flame.stats.bodyIntegrity.current,
       frostIntegrity: frost.stats.bodyIntegrity.current,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.paused).toBe(true);
   expect(result.timeSpeed).toBe('realtime');
@@ -157,7 +157,7 @@ test('@smoke scientist strike damages body integrity and can create a combat cor
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({ seed, traits: { element: 'none', behavior: 'idle pooling', stability: 'placid' } });
 
   await page.evaluate(({ key, genome }) => {
@@ -210,7 +210,7 @@ test('@smoke scientist strike damages body integrity and can create a combat cor
     state.corpses = [];
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="specimens"]').click();
@@ -228,7 +228,7 @@ test('@smoke scientist strike damages body integrity and can create a combat cor
       eventText: state.events.map((event) => event.message).join('\n'),
       injuryCount: state.injuries.filter((injury) => injury.actorId === 'strike-target').length,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.livingCount).toBe(0);
   expect(result.corpseCount).toBe(1);
@@ -243,7 +243,7 @@ test('starving hunting slime feed-attacks and triggers a prepared Intercept', as
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     seed,
     traits: { element: 'none', behavior: 'vibration hunting', stability: 'hungry' },
@@ -295,7 +295,7 @@ test('starving hunting slime feed-attacks and triggers a prepared Intercept', as
     state.injuries = [];
     state.nextInjuryNumber = 1;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'slime', id: 'feed-attacker' }));
@@ -324,7 +324,7 @@ test('starving hunting slime feed-attacks and triggers a prepared Intercept', as
       roomActivity: slime.roomActivity,
       activeCombatTypes: (state.combat.active || []).map((record) => `${record.type}:${record.combatIntent}`),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.scientistHealth).toBeLessThan(100);
   expect(result.paused).toBe(true);
@@ -350,7 +350,7 @@ test('injured placid slime flees contact instead of attacking', async ({ page })
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     seed,
     traits: { element: 'none', behavior: 'hiding', stability: 'placid' },
@@ -404,7 +404,7 @@ test('injured placid slime flees contact instead of attacking', async ({ page })
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 1);
@@ -422,7 +422,7 @@ test('injured placid slime flees contact instead of attacking', async ({ page })
       evasionXp: slime.skills?.evasion?.xp || 0,
       fledMemory: slime.behaviorMemory?.tags?.fledThreat || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.scientistHealth).toBe(100);
   expect(result.activeCombatCount).toBe(0);

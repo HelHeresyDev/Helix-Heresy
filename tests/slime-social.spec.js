@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -36,7 +36,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     seed,
     traits: { element: 'none', behavior: 'vibration hunting', stability: 'hungry' },
@@ -93,7 +93,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 90);
@@ -112,7 +112,7 @@ test('parent and brood siblings in contact do not attack each other', async ({ p
       group: state.slimes.find((slime) => slime.id === 'kin-child-a')?.groupBehavior,
       integrities: Object.fromEntries(state.slimes.map((slime) => [slime.id, slime.stats.bodyIntegrity.current])),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.attacks).toBe(0);
   expect(Object.values(result.decisions)).not.toContain('attack');
@@ -127,7 +127,7 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
   const seed = await page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     seed,
     traits: { element: 'none', behavior: 'vibration hunting', stability: 'hungry' },
@@ -183,7 +183,7 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
     state.combat = { active: [], cooldowns: {}, lastAwareCombatAt: null, lastAwareCombatKey: '' };
     state.incidents = [];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
 
   await skipSeconds(page, 90);
@@ -204,7 +204,7 @@ test('unrelated hungry hunting slimes in contact can attack', async ({ page }) =
       intent: strangerA?.ai?.combatDecision?.intent,
       group: strangerA?.groupBehavior,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.attacks).toBeGreaterThan(0);
   expect(Math.min(result.aIntegrity, result.bIntegrity)).toBeLessThan(100);
