@@ -4,6 +4,10 @@
   const PREFERENCES_STORAGE_KEY = "helix-heresy-v1-preferences";
   const PREFERENCES_VERSION = 1;
   const SAVE_FILE_NAME = "helix-heresy-run-bundle.json";
+  const ThemeContent = window.HelixThemeContent;
+  if (!ThemeContent) {
+    throw new Error("HelixThemeContent must load before app.js");
+  }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
   if (!WorldRunLibrary) {
     throw new Error("HelixWorldRunLibrary must load before app.js");
@@ -5062,6 +5066,7 @@
       seed,
       runIdentity: null,
       worldReference: null,
+      themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
       scientist: defaultScientist(),
@@ -12192,7 +12197,7 @@
         world: activeWorldRecord,
         run: activeRunRecord ? currentRunRecord(activeRunRecord.updatedAt) : null
       }),
-      generatedWorldName: (seed) => WorldRunLibrary.generatedWorldName(seed),
+      generatedWorldName: (seed, theme = "madcap", version = WorldRunLibrary.WORLD_NAME_VERSION) => WorldRunLibrary.generatedWorldName(seed, theme, version),
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
         const loadout = startingLoadoutProfile(blueprint.loadoutProfileId);
@@ -14119,6 +14124,24 @@
       generationVersion: world.generationVersion,
       canonicalDigest: world.canonicalDigest
     };
+    const openingSelection = ThemeContent.selectRenderedContent({
+      kind: "runOpening",
+      worldTheme: world.worldTheme,
+      seed: `${nextSeed}:run-opening:v${ThemeContent.VERSION}`,
+      context: {
+        companyName: next.siteIdentity?.legalName || next.company?.legalName || "The laboratory",
+        scenarioLabel: scenario.label,
+        worldName: world.name,
+        playableYear: world.playableYear
+      }
+    });
+    if (!openingSelection.ok) {
+      throw new Error(`Run opening generation failed: ${openingSelection.code}.`);
+    }
+    next.themeContent = {
+      version: ThemeContent.VERSION,
+      opening: ThemeContent.selectionRecord(openingSelection)
+    };
     next.journalMode = dom.journalModeSelect.value;
     next.complexity = dom.complexitySelect.value;
     next.economy = defaultEconomyState(next.seed);
@@ -14159,6 +14182,11 @@
     syncRoomObservationMemory();
     observeScientistRoom();
     addEvent(`${scenario.label} initialized.`);
+    addEvent(openingSelection.text, {
+      sourceKind: "themeContent",
+      sourceId: openingSelection.definitionId,
+      key: `theme-opening:${runId}`
+    });
     setActiveWorkspaceTab("map", { scroll: false });
     enterGameplay({ focus: false });
     persist();
@@ -77312,6 +77340,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       worldId: WorldRunLibrary.cleanId(candidate?.worldReference?.worldId || activeWorldRecord?.id),
       generationVersion: Math.max(1, Math.floor(Number(candidate?.worldReference?.generationVersion || activeWorldRecord?.generationVersion) || 1)),
       canonicalDigest: String(candidate?.worldReference?.canonicalDigest || activeWorldRecord?.canonicalDigest || "")
+    };
+    const opening = candidate?.themeContent?.opening;
+    next.themeContent = {
+      version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
+      opening: opening && typeof opening === "object" ? {
+        definitionId: String(opening.definitionId || ""),
+        sourceTheme: ThemeContent.COMPATIBILITIES.includes(opening.sourceTheme) ? opening.sourceTheme : "shared",
+        contentTags: Array.isArray(opening.contentTags)
+          ? opening.contentTags.filter((tag) => ThemeContent.CONTENT_TAGS.includes(tag))
+          : [],
+        usedFallback: Boolean(opening.usedFallback),
+        text: String(opening.text || "")
+      } : null
     };
     next.startingScenario = normalizeStartingScenarioRecord(candidate?.startingScenario);
     const normalizedScenario = startingScenarioDef(next.startingScenario.id);

@@ -8,7 +8,7 @@ For story background, long-term systems, current design direction, and open ques
 
 ## Current Prototype
 
-- A browser-local library of immutable, deterministically named worlds with saved World Theme, generation metadata, canonical playable year, and independent roguelike run branches. New Run can generate a world under “Choose Your Heresy,” the World Library can start or resume several isolated runs in one world, and portable run bundles include their exact canonical world.
+- A browser-local library of immutable, deterministically named worlds with saved World Theme, generation metadata, canonical playable year, and independent roguelike run branches. “Choose Your Heresy” offers Madcap, Grim, or the all-content Unbound theme. A central tagged-content registry drives deterministic theme-safe names, summaries, and saved run openings without letting incompatible authored content leak across themes.
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
 - Evidence-driven research projects that cite reusable observations, consume physical materials and scientist work, preserve interrupted workpieces, and unlock advanced tests or usable prototypes.
@@ -92,7 +92,8 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
-- `world-run-library.js` - Renderer-neutral deterministic world records, independent run envelopes, canonical digests, versioned browser-storage repository, and deletion/reference guards.
+- `theme-content.js` - Renderer-neutral authored-content contracts, validation, compatibility filtering, deterministic selection, explicit shared fallbacks, and the Madcap/Grim/Unbound World Theme catalog.
+- `world-run-library.js` - Renderer-neutral deterministic world records, themed names and summaries, independent run envelopes, canonical digests, versioned browser-storage repository, and deletion/reference guards.
 - `app.js` - Game state, genetics, time simulation, world/run save integration, tests, slime reproduction, jobs, derived Suspicion, rooms, corpses, and rendering.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
@@ -144,7 +145,7 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 ## Saves
 
-Helix Heresy stores a versioned world/run library in browser `localStorage` and always opens to the title screen without materializing a run. Canonical worlds and mutable run records use separate namespaced records behind a storage adapter. A world owns its stable ID, world seed, deterministic generated name, World Theme, generation settings/version, canonical playable year, summary, digest, and authoritative generated data. Each run owns a separate ID and seed, scenario, starting-site record, mutable world-state branch, lifecycle, and complete simulation state.
+Helix Heresy stores a versioned world/run library in browser `localStorage` and always opens to the title screen without materializing a run. Canonical worlds and mutable run records use separate namespaced records behind a storage adapter. A world owns its stable ID, world seed, deterministic generated name, World Theme, generation settings/version, canonical playable year, summary, digest, authoritative generated data, and the exact authored definition IDs selected for its name and summary. Each run owns a separate ID and seed, scenario, starting-site record, mutable world-state branch, lifecycle, complete simulation state, and its saved themed opening selection.
 
 New Run explicitly generates a world before beginning its first independent branch. World Library can start several runs from one world's untouched canonical state, resume any active branch, delete runs, and delete only worlds with no remaining run references. Continue selects the most recently played readable active run and shows both world and run metadata. A run has one autosaved roguelike timeline rather than rewindable save slots; an ended run remains a library record but is no longer a continuation.
 

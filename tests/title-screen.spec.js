@@ -39,18 +39,20 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('[data-starting-scenario="chemistryFront"]')).toBeVisible();
   await expect(page.locator('#setupBackBtn')).toBeFocused();
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
-  await page.locator('input[name="setupWorldTheme"][value="grim"]').check();
+  await page.locator('input[name="setupWorldTheme"][value="unbound"]').check();
   await page.locator('#seedInput').fill('run-seed-one');
   await page.locator('#startRunSubmitBtn').click();
 
   const snapshot = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot());
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
-    worldTheme: 'grim',
+    worldTheme: 'unbound',
     generationVersion: 1,
-    nameGeneratorVersion: 1,
+    nameGeneratorVersion: 2,
   });
-  expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one')));
+  expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
+  expect(['madcap', 'grim']).toContain(snapshot.world.generatedData.themeContent.worldName.sourceTheme);
+  expect(['madcap', 'grim']).toContain(snapshot.world.generatedData.themeContent.worldSummary.sourceTheme);
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -59,6 +61,21 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
     worldState: { changes: {} },
   });
   expect(snapshot.run.id).not.toBe(snapshot.world.id);
+  expect(snapshot.run.state.themeContent).toMatchObject({
+    version: 1,
+    opening: { definitionId: expect.stringMatching(/^run-opening\./) },
+  });
+  expect(['madcap', 'grim']).toContain(snapshot.run.state.themeContent.opening.sourceTheme);
+  expect(snapshot.run.state.events).toContainEqual(expect.objectContaining({
+    message: snapshot.run.state.themeContent.opening.text,
+    sourceKind: 'themeContent',
+    sourceId: snapshot.run.state.themeContent.opening.definitionId,
+  }));
+
+  await page.reload();
+  await page.locator('#loadLastSaveBtn').click();
+  const reloaded = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot());
+  expect(reloaded.run.state.themeContent).toEqual(snapshot.run.state.themeContent);
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {

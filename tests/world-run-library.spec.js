@@ -40,10 +40,43 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(first).toMatchObject({
     generationVersion: 1,
-    nameGeneratorVersion: 1,
+    nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: { worldTheme: 'grim', scale: 'prototype' },
+    generatedData: {
+      themeContent: {
+        version: 1,
+        worldName: { sourceTheme: 'grim' },
+        worldSummary: { sourceTheme: 'grim' },
+      },
+    },
   });
+});
+
+test('Unbound worlds consume both authored theme pools while legacy version-one names remain stable', () => {
+  const sourceThemes = new Set();
+  for (let index = 0; index < 100; index += 1) {
+    const world = Library.createWorld({
+      id: `unbound-${index}`,
+      worldSeed: `unbound-world-${index}`,
+      worldTheme: 'unbound',
+      createdAt: '2026-08-25T00:00:00.000Z',
+    });
+    expect(world.worldTheme).toBe('unbound');
+    sourceThemes.add(world.generatedData.themeContent.worldName.sourceTheme);
+    sourceThemes.add(world.generatedData.themeContent.worldSummary.sourceTheme);
+  }
+  expect(sourceThemes).toEqual(new Set(['madcap', 'grim']));
+
+  const legacy = Library.createWorld({
+    id: 'legacy-world',
+    worldSeed: 'legacy-name-seed',
+    worldTheme: 'grim',
+    nameGeneratorVersion: 1,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  expect(legacy.name).toBe(Library.generatedWorldName('legacy-name-seed', 1));
+  expect(Library.normalizeWorld(legacy)).toEqual(legacy);
 });
 
 test('several run records branch independently without modifying their canonical world', () => {
