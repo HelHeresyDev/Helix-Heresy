@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -67,7 +67,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 test('intended feedstock stays clean while mismatched feedstock leaves local residue', async ({ page }) => {
@@ -142,7 +142,7 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome: organicGenome });
+  }, { key: await activeRunStorageKey(page), genome: organicGenome });
   await loadSavedRun(page);
 
   await page.locator('[data-workspace-tab="specimens"]').click();
@@ -156,7 +156,7 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue');
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(residueState).toEqual([]);
 
   await feedstockSelect.selectOption('metalFeedstock');
@@ -170,7 +170,7 @@ test('intended feedstock stays clean while mismatched feedstock leaves local res
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue');
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(residueState).toEqual(expect.arrayContaining([
     expect.objectContaining({
       key: 'inertResidue',
@@ -245,7 +245,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
     state.tasks = [];
     state.slimes = [slime];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, slime: workerSlime });
+  }, { key: await activeRunStorageKey(page), slime: workerSlime });
   await loadSavedRun(page);
 
   await page.locator('#queueToggleBtn').click();
@@ -264,7 +264,7 @@ test('waste disposal can leave local feeding residue apart from elemental residu
       elementalResidue: state.resources?.elementalResidue,
       residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.waste).toBe(0);
   expect(result.pitWaste).toBe(0);
@@ -359,7 +359,7 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
       jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome: organicGenome });
+  }, { key: await activeRunStorageKey(page), genome: organicGenome });
   await loadSavedRun(page);
   await skipSeconds(page, 1200);
 
@@ -372,7 +372,7 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
       stress: slime.stats.stress.current,
       residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(goodResult.nutrition).toBeGreaterThan(10);
   expect(goodResult.stress).toBe(0);
@@ -430,7 +430,7 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
       jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome: metalGenome });
+  }, { key: await activeRunStorageKey(page), genome: metalGenome });
   await loadSavedRun(page);
   await skipSeconds(page, 2000);
 
@@ -443,7 +443,7 @@ test('loose scavenging uses Sustenance match quality for local residue', async (
       stress: slime.stats.stress.current,
       residues: (state.physicalItemStacks || []).filter((stack) => stack.section === 'residue'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(badResult.nutrition).toBeGreaterThan(10);
   expect(badResult.stress).toBeGreaterThan(0);

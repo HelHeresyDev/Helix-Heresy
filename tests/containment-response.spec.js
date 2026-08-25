@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -36,7 +36,7 @@ async function stageLooseSlime(page, options = {}) {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return { complexity: state.complexity || 'clean' };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const fixtureSeed = 'containment-response-fixture';
   const genome = genomeForTraits({
     seed: fixtureSeed,
@@ -136,7 +136,7 @@ async function stageLooseSlime(page, options = {}) {
     state.ui.selectionInspectorTab = 'summary';
     state.ui.selectionInspectorExpanded = false;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, options });
+  }, { key: await activeRunStorageKey(page), options });
   await loadSavedRun(page);
   await skipSeconds(page, 1);
 }
@@ -174,7 +174,7 @@ test('known loose slime can be physically recaptured into an explicit container'
       emergency: state.containmentEmergencies.find((entry) => entry.sourceId === 'loose-response-test'),
       incident: state.incidents.find((entry) => entry.emergencyId === state.containmentEmergencies.find((emergency) => emergency.sourceId === 'loose-response-test')?.id),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(result.slime, result.events).toEqual({ status: 'contained', containerId: 'basic-1', mapCell: null });
   expect(result.containerOpen).toBe(false);
   expect(result.activeTasks).toBe(0);
@@ -276,7 +276,7 @@ test('map selections expose explicit recapture destinations and physical bait co
       active: state.accessControl.lockdownActive,
       doorTasks: state.tasks.filter((task) => task.type === 'doorOperation' && task.data.lockdown).length,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(lockdown.active).toBe(true);
   expect(lockdown.doorTasks).toBeGreaterThan(0);
 });

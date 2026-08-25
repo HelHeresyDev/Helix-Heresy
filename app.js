@@ -1,10 +1,13 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "helix-heresy-v1-save";
   const PREFERENCES_STORAGE_KEY = "helix-heresy-v1-preferences";
   const PREFERENCES_VERSION = 1;
-  const SAVE_FILE_NAME = "helix-heresy-save.json";
+  const SAVE_FILE_NAME = "helix-heresy-run-bundle.json";
+  const WorldRunLibrary = window.HelixWorldRunLibrary;
+  if (!WorldRunLibrary) {
+    throw new Error("HelixWorldRunLibrary must load before app.js");
+  }
   const SECONDS_PER_MINUTE = 60;
   const SECONDS_PER_HOUR = 3600;
   const SECONDS_PER_DAY = 86400;
@@ -4447,12 +4450,15 @@
   });
   let state;
   let geneMap;
+  let worldRepository;
+  let activeWorldRecord = null;
+  let activeRunRecord = null;
+  let selectedWorldId = "";
+  let setupReturnView = "title";
   let selectedStartingScenarioId = "";
   let uiPreferences = null;
   let startupView = "title";
   let startupOverlayOpen = true;
-  let pendingReplacementAction = "";
-  let pendingImportedState = null;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
   let animationTimelineRevision = 1;
@@ -5054,6 +5060,8 @@
     return {
       started: false,
       seed,
+      runIdentity: null,
+      worldReference: null,
       journalMode: "auto",
       complexity: "clean",
       scientist: defaultScientist(),
@@ -11808,6 +11816,7 @@
 
   function init() {
     cacheDom();
+    worldRepository = WorldRunLibrary.createRepository(window.localStorage);
     ensureInventoryPanel();
     uiPreferences = loadUiPreferences();
     mapRendererMode = normalizeMapRendererMode(uiPreferences.mapRendererMode);
@@ -12058,6 +12067,7 @@
       "setupOverlay",
       "titleScreen",
       "titleNewRunBtn",
+      "titleWorldLibraryBtn",
       "titleImportFileInput",
       "titleImportStatus",
       "titleSettingsBtn",
@@ -12068,8 +12078,21 @@
       "titleSettingsStatus",
       "titleAboutPanel",
       "titleAboutBackBtn",
+      "worldLibraryPanel",
+      "worldLibraryKicker",
+      "worldLibraryBackBtn",
+      "worldCreationForm",
+      "worldSeedInput",
+      "randomWorldSeedBtn",
+      "generateWorldBtn",
+      "worldLibraryStatus",
+      "worldLibraryList",
       "setupForm",
       "setupBackBtn",
+      "selectedWorldSummary",
+      "newWorldSetupFieldset",
+      "setupWorldSeedInput",
+      "randomSetupWorldSeedBtn",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12080,13 +12103,7 @@
       "seedInput",
       "randomSeedBtn",
       "journalModeSelect",
-      "complexitySelect",
-      "replaceRunDialog",
-      "replaceRunDialogHeading",
-      "replaceRunDialogDescription",
-      "cancelReplaceRunBtn",
-      "exportBeforeReplaceBtn",
-      "confirmReplaceRunBtn"
+      "complexitySelect"
     ]) {
       dom[id] = document.getElementById(id);
     }
@@ -12170,6 +12187,12 @@
 
   function installDebugHooks() {
     window.helixHeresyDebug = {
+      worldLibrarySnapshot: () => clonePlainObject(worldRepository.snapshot()),
+      currentWorldRunSnapshot: () => clonePlainObject({
+        world: activeWorldRecord,
+        run: activeRunRecord ? currentRunRecord(activeRunRecord.updatedAt) : null
+      }),
+      generatedWorldName: (seed) => WorldRunLibrary.generatedWorldName(seed),
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
         const loadout = startingLoadoutProfile(blueprint.loadoutProfileId);
@@ -13780,6 +13803,7 @@
     dom.setupOverlay.classList.toggle("hidden", !open);
     dom.setupOverlay.dataset.startupView = startupView;
     dom.titleScreen.hidden = !open || startupView !== "title";
+    dom.worldLibraryPanel.hidden = !open || startupView !== "worlds";
     dom.setupForm.hidden = !open || startupView !== "setup";
     dom.titleSettingsPanel.hidden = !open || startupView !== "settings";
     dom.titleAboutPanel.hidden = !open || startupView !== "about";
@@ -13793,6 +13817,8 @@
     window.requestAnimationFrame(() => {
       const target = startupView === "setup"
         ? dom.setupBackBtn
+        : startupView === "worlds"
+          ? dom.worldLibraryBackBtn
         : startupView === "settings"
           ? dom.titleSettingsBackBtn
           : startupView === "about"
@@ -13805,10 +13831,11 @@
   }
 
   function showStartupView(view = "title", options = {}) {
-    startupView = ["title", "setup", "settings", "about"].includes(view) ? view : "title";
+    startupView = ["title", "worlds", "setup", "settings", "about"].includes(view) ? view : "title";
     startupOverlayOpen = true;
     lastTickAt = Date.now();
     if (startupView === "title") syncTitleContinue();
+    if (startupView === "worlds") renderWorldLibrary();
     if (startupView === "settings") syncTitleSettings();
     syncStartupShell();
     if (options.focus !== false) focusStartupView();
@@ -13821,9 +13848,40 @@
     if (options.focus !== false) window.requestAnimationFrame(() => dom.pauseBtn?.focus());
   }
 
-  function prepareNewRunForm() {
+  function createLibraryId(prefix) {
+    if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
+    return `${prefix}-${makeSeed().toLowerCase()}`;
+  }
+
+  function worldThemeLabel(theme) {
+    return WorldRunLibrary.THEMES[theme]?.label || WorldRunLibrary.THEMES.madcap.label;
+  }
+
+  function runDisplaySummary(run) {
+    const scenario = startingScenarioDef(run?.scenario?.id || run?.state?.startingScenario?.id);
+    const company = cleanCompanyName(run?.state?.siteIdentity?.legalName || run?.state?.company?.legalName || run?.state?.company?.name)
+      || "Unnamed laboratory";
+    const day = Math.floor(Math.max(0, Number(run?.state?.clock) || 0) / SECONDS_PER_DAY) + 1;
+    return `${company} · ${scenario.label} · Day ${day}`;
+  }
+
+  function prepareWorldLibrary(options = {}) {
+    dom.worldLibraryKicker.textContent = options.forNewRun ? "Select or Generate a World" : "Reusable Worlds";
+    dom.worldSeedInput.value = makeSeed();
+    dom.worldLibraryStatus.textContent = "";
+    showStartupView("worlds");
+  }
+
+  function prepareNewRunForm(worldId = selectedWorldId) {
+    const world = worldId ? worldRepository.getWorld(worldId) : null;
+    selectedWorldId = world?.id || "";
+    setupReturnView = world ? "worlds" : "title";
     selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
     const seed = makeSeed();
+    dom.newWorldSetupFieldset.hidden = Boolean(world);
+    dom.setupWorldSeedInput.value = makeSeed();
+    const madcap = dom.newWorldSetupFieldset.querySelector('input[name="setupWorldTheme"][value="madcap"]');
+    if (madcap) madcap.checked = true;
     dom.seedInput.value = seed;
     dom.journalModeSelect.value = "auto";
     dom.complexitySelect.value = "clean";
@@ -13832,53 +13890,151 @@
       dom.companyNameInput.dataset.generated = "true";
       dom.companyNameInput.dataset.variant = "0";
     }
+    dom.selectedWorldSummary.textContent = world
+      ? `${world.name} · ${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · World generation v${world.generationVersion}`
+      : "A new reusable world will be generated before this run begins.";
     renderStartingScenarioOptions();
     syncCompanyNameSetup();
+    return Boolean(world);
   }
 
-  function localSaveInspection() {
-    let raw = "";
+  function continuationInspection() {
     try {
-      raw = window.localStorage.getItem(STORAGE_KEY) || "";
-    } catch (_error) {
-      return { exists: false, valid: false, reason: "Browser storage is unavailable." };
-    }
-    if (!raw) return { exists: false, valid: false, reason: "No local continuation save found." };
-    try {
-      const payload = JSON.parse(raw);
-      const candidate = payload?.state || payload;
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.started !== true || !String(candidate.seed || "").trim()) {
-        throw new Error("The stored data is not a started Helix Heresy run.");
-      }
-      const scenario = startingScenarioDef(candidate.startingScenario?.id);
-      const company = cleanCompanyName(candidate.siteIdentity?.legalName || candidate.company?.legalName || candidate.company?.name)
-        || "Unnamed laboratory";
-      const day = Math.floor(Math.max(0, Number(candidate.clock) || 0) / 86400) + 1;
+      const run = worldRepository.continuation();
+      if (!run) return { exists: false, valid: false, reason: "No active run found. Generate or select a world to begin." };
+      const world = worldRepository.getWorld(run.worldId);
+      if (!world || !run.state?.started || !String(run.runSeed || "").trim()) throw new Error("The active run record is incomplete.");
       return {
         exists: true,
         valid: true,
-        raw,
-        summary: `${company} · ${scenario.label} · Day ${day}`
+        run,
+        world,
+        summary: `${world.name} · ${runDisplaySummary(run)}`
       };
     } catch (error) {
       return {
-        exists: true,
+        exists: Boolean(window.localStorage.getItem(WorldRunLibrary.MANIFEST_KEY)),
         valid: false,
-        raw,
-        reason: "The stored continuation save is unreadable. It has not been deleted; New Run and Import Run remain available."
+        reason: "The world/run library is unreadable. Its records have not been deleted and no replacement data was written."
       };
     }
   }
 
   function syncTitleContinue() {
-    const inspection = localSaveInspection();
+    const inspection = continuationInspection();
     const reason = inspection.exists
-      ? inspection.reason || "The local continuation save is invalid."
-      : "No local continuation save found.";
+      ? inspection.reason || "The active run is invalid."
+      : inspection.reason || "No active run found.";
     setActionButtonState(dom.loadLastSaveBtn, !inspection.valid, reason);
     dom.loadLastSaveStatus.textContent = inspection.valid
       ? `Continue ${inspection.summary}`
       : reason;
+  }
+
+  function libraryActionButton(label, action, id, options = {}) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.dataset.libraryAction = action;
+    if (options.worldId) button.dataset.worldId = options.worldId;
+    if (id) button.dataset.recordId = id;
+    if (options.primary) button.classList.add("primary");
+    button.disabled = Boolean(options.disabled);
+    if (options.title) button.title = options.title;
+    return button;
+  }
+
+  function runLibraryEntry(run) {
+    const entry = document.createElement("article");
+    entry.className = "run-library-entry";
+    entry.dataset.runId = run.id;
+    const copy = document.createElement("div");
+    const heading = document.createElement("h4");
+    heading.textContent = runDisplaySummary(run).split(" · ")[0];
+    const meta = document.createElement("p");
+    meta.className = "run-library-meta";
+    meta.textContent = `${run.status === "ended" ? "Ended" : "Active"} · ${runDisplaySummary(run)} · Run seed ${run.runSeed}`;
+    copy.append(heading, meta);
+    const actions = document.createElement("div");
+    actions.className = "run-library-actions";
+    if (run.status === "active") actions.append(libraryActionButton("Resume", "resume-run", run.id, { primary: true }));
+    actions.append(libraryActionButton("Delete Run", "delete-run", run.id));
+    entry.append(copy, actions);
+    return entry;
+  }
+
+  function worldLibraryCard(world) {
+    const runs = worldRepository.listRuns(world.id);
+    const card = document.createElement("article");
+    card.className = "world-card";
+    card.dataset.worldId = world.id;
+    const headingRow = document.createElement("div");
+    headingRow.className = "world-card-heading";
+    const copy = document.createElement("div");
+    const heading = document.createElement("h3");
+    heading.textContent = world.name;
+    const meta = document.createElement("p");
+    meta.className = "world-card-meta";
+    meta.textContent = `${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · Generation v${world.generationVersion} · Seed ${world.worldSeed}`;
+    copy.append(heading, meta);
+    const actions = document.createElement("div");
+    actions.className = "world-card-actions";
+    actions.append(libraryActionButton("Start New Run", "start-run", world.id, { primary: true }));
+    actions.append(libraryActionButton("Delete World", "delete-world", world.id, {
+      disabled: runs.length > 0,
+      title: runs.length > 0 ? "Delete this world's runs first." : "Delete this unused canonical world."
+    }));
+    headingRow.append(copy, actions);
+    const summary = document.createElement("p");
+    summary.className = "world-card-summary";
+    summary.textContent = world.summary;
+    const runList = document.createElement("div");
+    runList.className = "run-library-list";
+    if (runs.length) runList.append(...runs.map(runLibraryEntry));
+    else {
+      const empty = document.createElement("p");
+      empty.className = "journal-meta";
+      empty.textContent = "No runs have branched from this world yet.";
+      runList.append(empty);
+    }
+    card.append(headingRow, summary, runList);
+    return card;
+  }
+
+  function renderWorldLibrary() {
+    try {
+      const worlds = worldRepository.listWorlds();
+      if (!worlds.length) {
+        const empty = document.createElement("p");
+        empty.className = "world-library-empty";
+        empty.textContent = "No generated worlds are stored in this browser yet.";
+        dom.worldLibraryList.replaceChildren(empty);
+        return;
+      }
+      dom.worldLibraryList.replaceChildren(...worlds.map(worldLibraryCard));
+    } catch (error) {
+      const failure = document.createElement("p");
+      failure.className = "world-library-empty";
+      failure.textContent = "The saved world library could not be read. No records were changed.";
+      dom.worldLibraryList.replaceChildren(failure);
+    }
+  }
+
+  function generateConfiguredWorld() {
+    const worldSeed = WorldRunLibrary.cleanSeed(dom.worldSeedInput.value) || makeSeed();
+    const worldTheme = dom.worldCreationForm.querySelector('input[name="worldTheme"]:checked')?.value || "madcap";
+    const world = WorldRunLibrary.createWorld({
+      id: createLibraryId("world"),
+      worldSeed,
+      worldTheme,
+      createdAt: new Date().toISOString()
+    });
+    worldRepository.putWorld(world);
+    selectedWorldId = world.id;
+    dom.worldLibraryStatus.textContent = `${world.name} generated as an immutable ${worldThemeLabel(world.worldTheme)} world.`;
+    prepareNewRunForm(world.id);
+    showStartupView("setup");
+    return world;
   }
 
   function syncTitleSettings() {
@@ -13925,6 +14081,19 @@
   }
 
   function beginConfiguredRun() {
+    let world = selectedWorldId ? worldRepository.getWorld(selectedWorldId) : null;
+    if (!world) {
+      const worldSeed = WorldRunLibrary.cleanSeed(dom.setupWorldSeedInput.value) || makeSeed();
+      const worldTheme = dom.newWorldSetupFieldset.querySelector('input[name="setupWorldTheme"]:checked')?.value || "madcap";
+      world = WorldRunLibrary.createWorld({
+        id: createLibraryId("world"),
+        worldSeed,
+        worldTheme,
+        createdAt: new Date().toISOString()
+      });
+      worldRepository.putWorld(world);
+      selectedWorldId = world.id;
+    }
     const requestedScenario = startingScenarioDef(selectedStartingScenarioId);
     const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
       ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
@@ -13940,11 +14109,44 @@
     next.paused = true;
     next.timeSpeed = DEFAULT_TIME_SPEED;
     next.seed = nextSeed;
+    const runId = createLibraryId("run");
+    next.runIdentity = {
+      runId,
+      runSeed: nextSeed
+    };
+    next.worldReference = {
+      worldId: world.id,
+      generationVersion: world.generationVersion,
+      canonicalDigest: world.canonicalDigest
+    };
     next.journalMode = dom.journalModeSelect.value;
     next.complexity = dom.complexitySelect.value;
     next.economy = defaultEconomyState(next.seed);
     next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
     state = next;
+    activeWorldRecord = world;
+    activeRunRecord = WorldRunLibrary.createRun({
+      id: runId,
+      worldId: world.id,
+      worldGenerationVersion: world.generationVersion,
+      canonicalWorldDigest: world.canonicalDigest,
+      runSeed: nextSeed,
+      scenario: clonePlainObject(next.startingScenario),
+      site: {
+        id: `starting-site:${scenario.id}`,
+        kind: "startingSite",
+        strategicLocation: null,
+        selectionStatus: "deferredWorldPlacement",
+        blueprintId: next.startingScenario.blueprintId,
+        blueprintVersion: next.startingScenario.blueprintVersion
+      },
+      worldState: {
+        version: 1,
+        canonicalWorldDigest: world.canonicalDigest,
+        changes: {}
+      },
+      state
+    });
     state.siteVisits = SiteVisits.seedInitialSchedule(state.siteVisits, {
       clock: state.clock,
       enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
@@ -13962,15 +14164,28 @@
     persist();
     render();
     window.requestAnimationFrame(() => dom.pauseBtn?.focus());
+    return true;
   }
 
-  function loadContinuation() {
-    const loaded = loadLocalSave();
-    if (!loaded) {
+  function loadContinuation(runId = "") {
+    try {
+      const run = runId ? worldRepository.getRun(runId) : worldRepository.continuation();
+      if (!run || run.status !== "active") throw new Error("No active run is available.");
+      const world = worldRepository.getWorld(run.worldId);
+      if (!world || world.canonicalDigest !== run.canonicalWorldDigest || world.generationVersion !== run.worldGenerationVersion) {
+        throw new Error("The run's canonical world is missing or incompatible.");
+      }
+      if (Boolean(run.state?.runEnded) !== (run.status === "ended")) throw new Error("The run lifecycle is inconsistent.");
+      const loaded = normalizeState(run.state);
+      if (!loaded?.started) throw new Error("The run state is incomplete.");
+      activeRunRecord = worldRepository.setActiveRun(run.id);
+      activeWorldRecord = world;
+      selectedWorldId = world.id;
+      state = loaded;
+    } catch (error) {
       syncTitleContinue();
       return false;
     }
-    state = loaded;
     clearMapFeedbackEvents();
     markAnimationDiscontinuity("load");
     state.started = true;
@@ -13979,7 +14194,7 @@
     prepareCorpseState();
     syncRoomObservationMemory();
     observeScientistRoom();
-    addEvent("Loaded local save.");
+    addEvent(`Loaded run in ${activeWorldRecord.name}.`);
     setActiveWorkspaceTab("map", { scroll: false });
     enterGameplay({ focus: false });
     persist();
@@ -13988,64 +14203,86 @@
     return true;
   }
 
-  function showReplacementDialog(action, importedState = null) {
-    pendingReplacementAction = action;
-    pendingImportedState = importedState;
-    const importing = action === "import";
-    dom.replaceRunDialogHeading.textContent = importing ? "Replace Current Run with Import?" : "Replace Current Run?";
-    dom.replaceRunDialogDescription.textContent = importing
-      ? "The file is valid. Importing it will replace the continuation save in this browser."
-      : "Beginning this run will replace the continuation save in this browser.";
-    dom.confirmReplaceRunBtn.textContent = importing ? "Replace and Import" : "Replace and Begin";
-    dom.replaceRunDialog.showModal();
+  function importedSaveCandidate(payload) {
+    if (payload?.format !== "helix-heresy-run-bundle" || Number(payload?.version) !== 2) {
+      throw new Error("The file is not a version-two Helix Heresy run bundle.");
+    }
+    const world = WorldRunLibrary.normalizeWorld(payload.world);
+    const run = WorldRunLibrary.normalizeRun(payload.run);
+    if (
+      run.worldId !== world.id
+      || run.worldGenerationVersion !== world.generationVersion
+      || run.canonicalWorldDigest !== world.canonicalDigest
+      || run.worldState?.canonicalWorldDigest !== world.canonicalDigest
+      || !run.state?.started
+      || cleanSeed(run.state.seed) !== run.runSeed
+      || Boolean(run.state.runEnded) !== (run.status === "ended")
+    ) {
+      throw new Error("The bundled run does not reference its bundled canonical world.");
+    }
+    return { world, run };
   }
 
-  function clearPendingReplacement() {
-    pendingReplacementAction = "";
-    pendingImportedState = null;
-  }
-
-  function downloadStoredSave() {
-    const inspection = localSaveInspection();
-    if (!inspection.exists || !inspection.raw) return false;
-    const blob = new Blob([inspection.raw], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = SAVE_FILE_NAME;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    return true;
+  function nextImportedWorld(candidate) {
+    const existing = worldRepository.getWorld(candidate.id);
+    if (!existing || existing.canonicalDigest === candidate.canonicalDigest) return candidate;
+    return WorldRunLibrary.normalizeWorld({ ...candidate, id: createLibraryId("world") });
   }
 
   function applyImportedState(candidate) {
-    const imported = normalizeState(candidate);
-    if (!imported.started) throw new Error("Imported save is not a started run.");
+    if (state?.started && activeRunRecord) persist();
+    const world = nextImportedWorld(candidate.world);
+    if (!worldRepository.getWorld(world.id)) worldRepository.putWorld(world);
+    const importedRunId = worldRepository.getRun(candidate.run.id) ? createLibraryId("run") : candidate.run.id;
+    const importedState = clonePlainObject(candidate.run.state);
+    importedState.runIdentity = { runId: importedRunId, runSeed: candidate.run.runSeed };
+    importedState.worldReference = {
+      worldId: world.id,
+      generationVersion: world.generationVersion,
+      canonicalDigest: world.canonicalDigest
+    };
+    const importedRun = WorldRunLibrary.createRun({
+      ...candidate.run,
+      id: importedRunId,
+      worldId: world.id,
+      worldGenerationVersion: world.generationVersion,
+      canonicalWorldDigest: world.canonicalDigest,
+      worldState: {
+        ...(candidate.run.worldState || {}),
+        canonicalWorldDigest: world.canonicalDigest
+      },
+      state: importedState,
+      updatedAt: new Date().toISOString()
+    });
+    const savedImportedRun = worldRepository.putRun(importedRun, { activate: importedRun.status === "active" });
+    if (importedRun.status !== "active") {
+      activeRunRecord = worldRepository.continuation();
+      activeWorldRecord = activeRunRecord ? worldRepository.getWorld(activeRunRecord.worldId) : null;
+      selectedWorldId = world.id;
+      dom.titleImportStatus.textContent = `Imported ended run into ${world.name}.`;
+      prepareWorldLibrary();
+      return true;
+    }
+    activeRunRecord = savedImportedRun;
+    activeWorldRecord = world;
+    selectedWorldId = world.id;
+    const imported = normalizeState(importedState);
     state = imported;
     markAnimationDiscontinuity("import");
     resetRunUiToMapDefaults(state);
     geneMap = buildGeneMap(state.seed, state.complexity);
     prepareCorpseState();
-    addEvent("Save imported.");
+    addEvent(`Imported run in ${activeWorldRecord.name}.`);
     setActiveWorkspaceTab("map", { scroll: false });
     enterGameplay({ focus: false });
     persist();
     render();
     window.requestAnimationFrame(() => dom.pauseBtn?.focus());
-  }
-
-  function importedSaveCandidate(payload) {
-    const candidate = payload?.state || payload;
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.started !== true || !String(candidate.seed || "").trim()) {
-      throw new Error("The file is not a started Helix Heresy run.");
-    }
-    return candidate;
+    return true;
   }
 
   function reportImportFailure() {
-    const message = "Could not import that save file. The current continuation save was not changed.";
+    const message = "Could not import that run bundle. The world/run library was not changed.";
     if (startupOverlayOpen) {
       dom.titleImportStatus.textContent = message;
       showStartupView("title");
@@ -14076,11 +14313,61 @@
 
     dom.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (localSaveInspection().exists) {
-        showReplacementDialog("new");
-        return;
+      try {
+        beginConfiguredRun();
+      } catch (error) {
+        dom.selectedWorldSummary.textContent = "The world and run could not be saved. No existing library record was replaced.";
       }
-      beginConfiguredRun();
+    });
+
+    dom.worldCreationForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      try {
+        generateConfiguredWorld();
+      } catch (error) {
+        dom.worldLibraryStatus.textContent = "World generation could not be saved. No existing world was changed.";
+      }
+    });
+
+    dom.randomWorldSeedBtn.addEventListener("click", () => {
+      dom.worldSeedInput.value = makeSeed();
+    });
+
+    dom.randomSetupWorldSeedBtn.addEventListener("click", () => {
+      dom.setupWorldSeedInput.value = makeSeed();
+    });
+
+    dom.worldLibraryList.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-library-action]") : null;
+      if (!button) return;
+      const action = button.dataset.libraryAction;
+      const id = button.dataset.recordId;
+      try {
+        if (action === "start-run") {
+          if (prepareNewRunForm(id)) showStartupView("setup");
+        } else if (action === "resume-run") {
+          loadContinuation(id);
+        } else if (action === "delete-run") {
+          if (!window.confirm("Delete this run permanently? Its canonical world will remain unchanged.")) return;
+          worldRepository.deleteRun(id);
+          if (activeRunRecord?.id === id) {
+            activeRunRecord = null;
+            activeWorldRecord = null;
+            state = defaultState();
+            geneMap = buildGeneMap(state.seed, state.complexity);
+          }
+          renderWorldLibrary();
+          syncTitleContinue();
+        } else if (action === "delete-world") {
+          const world = worldRepository.getWorld(id);
+          if (!world || !window.confirm(`Delete ${world.name} permanently?`)) return;
+          worldRepository.deleteWorld(id);
+          if (selectedWorldId === id) selectedWorldId = "";
+          renderWorldLibrary();
+        }
+      } catch (error) {
+        dom.worldLibraryStatus.textContent = error?.message || "That library action could not be completed.";
+      }
     });
 
     dom.startingScenarioList?.addEventListener("change", (event) => {
@@ -14100,11 +14387,16 @@
     });
 
     dom.titleNewRunBtn.addEventListener("click", () => {
-      prepareNewRunForm();
+      prepareNewRunForm("");
       showStartupView("setup");
     });
 
-    dom.setupBackBtn.addEventListener("click", () => showStartupView("title"));
+    dom.titleWorldLibraryBtn.addEventListener("click", () => prepareWorldLibrary());
+    dom.worldLibraryBackBtn.addEventListener("click", () => showStartupView("title"));
+    dom.setupBackBtn.addEventListener("click", () => {
+      if (setupReturnView === "worlds") prepareWorldLibrary({ forNewRun: true });
+      else showStartupView("title");
+    });
     dom.titleSettingsBtn.addEventListener("click", () => showStartupView("settings"));
     dom.titleSettingsBackBtn.addEventListener("click", () => showStartupView("title"));
     dom.titleAboutBtn.addEventListener("click", () => showStartupView("about"));
@@ -14116,30 +14408,6 @@
       if (control) setTitlePreference(control);
     });
     dom.titleResetSettingsBtn.addEventListener("click", resetTitleSettings);
-
-    dom.cancelReplaceRunBtn.addEventListener("click", () => {
-      dom.replaceRunDialog.close();
-      clearPendingReplacement();
-      focusStartupView();
-    });
-    dom.replaceRunDialog.addEventListener("cancel", () => {
-      clearPendingReplacement();
-      focusStartupView();
-    });
-    dom.exportBeforeReplaceBtn.addEventListener("click", downloadStoredSave);
-    dom.confirmReplaceRunBtn.addEventListener("click", () => {
-      const action = pendingReplacementAction;
-      const imported = pendingImportedState;
-      dom.replaceRunDialog.close();
-      clearPendingReplacement();
-      if (action === "import" && imported) {
-        try {
-          applyImportedState(imported);
-        } catch (error) {
-          reportImportFailure();
-        }
-      } else if (action === "new") beginConfiguredRun();
-    });
 
     dom.randomSeedBtn.addEventListener("click", () => {
       dom.seedInput.value = makeSeed();
@@ -14569,7 +14837,8 @@
     if (startupOverlayOpen) {
       if (event.key === "Escape" && !isTypingTarget(event.target) && startupView !== "title") {
         event.preventDefault();
-        showStartupView("title");
+        if (startupView === "setup" && setupReturnView === "worlds") prepareWorldLibrary({ forNewRun: true });
+        else showStartupView("title");
       }
       return;
     }
@@ -76971,11 +77240,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function savePayload() {
+    if (!activeWorldRecord || !activeRunRecord || !state?.started) {
+      throw new Error("No active world-backed run is available to export.");
+    }
+    const savedAt = new Date().toISOString();
+    const run = currentRunRecord(savedAt);
     return {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      state
+      format: "helix-heresy-run-bundle",
+      version: 2,
+      exportedAt: savedAt,
+      world: clonePlainObject(activeWorldRecord),
+      run
     };
+  }
+
+  function currentRunRecord(savedAt = new Date().toISOString()) {
+    if (!activeRunRecord || !activeWorldRecord) throw new Error("No world-backed run is active.");
+    const ended = Boolean(state.runEnded);
+    return WorldRunLibrary.createRun({
+      ...activeRunRecord,
+      worldId: activeWorldRecord.id,
+      worldGenerationVersion: activeWorldRecord.generationVersion,
+      canonicalWorldDigest: activeWorldRecord.canonicalDigest,
+      runSeed: state.seed,
+      scenario: clonePlainObject(state.startingScenario),
+      status: ended ? "ended" : "active",
+      updatedAt: savedAt,
+      endedAt: ended ? activeRunRecord.endedAt || savedAt : null,
+      endReason: ended ? "death" : null,
+      state
+    });
   }
 
   function markStateDirty() {
@@ -76991,35 +77285,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function persist() {
     const startedAt = performance.now();
     try {
+      if (!state?.started || !activeRunRecord || !activeWorldRecord) return false;
       ensurePhysicalObjectPlacements();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(savePayload()));
+      activeRunRecord = currentRunRecord();
+      worldRepository.putRun(activeRunRecord, { overwrite: true, activate: activeRunRecord.status === "active" });
       stateDirtySinceAutosave = false;
       lastAutosaveAt = Date.now();
+      return true;
     } catch (error) {
       console.warn("Save failed", error);
+      return false;
     } finally {
       recordPerformanceSample(simulationPerformance.save, performance.now() - startedAt);
-    }
-  }
-
-  function loadLocalSave() {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return null;
-      }
-      const payload = JSON.parse(raw);
-      const loaded = normalizeState(payload.state || payload);
-      const previousState = state;
-      state = loaded;
-      syncRoomObservationMemory();
-      observeScientistRoom();
-      const observed = state;
-      state = previousState;
-      return observed;
-    } catch (error) {
-      console.warn("Load failed", error);
-      return null;
     }
   }
 
@@ -77027,6 +77304,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     navigationService.clear();
     movementReservations.clear();
     const next = { ...defaultState(), ...candidate };
+    next.runIdentity = {
+      runId: WorldRunLibrary.cleanId(candidate?.runIdentity?.runId || activeRunRecord?.id),
+      runSeed: cleanSeed(candidate?.runIdentity?.runSeed || candidate?.seed || activeRunRecord?.runSeed)
+    };
+    next.worldReference = {
+      worldId: WorldRunLibrary.cleanId(candidate?.worldReference?.worldId || activeWorldRecord?.id),
+      generationVersion: Math.max(1, Math.floor(Number(candidate?.worldReference?.generationVersion || activeWorldRecord?.generationVersion) || 1)),
+      canonicalDigest: String(candidate?.worldReference?.canonicalDigest || activeWorldRecord?.canonicalDigest || "")
+    };
     next.startingScenario = normalizeStartingScenarioRecord(candidate?.startingScenario);
     const normalizedScenario = startingScenarioDef(next.startingScenario.id);
     next.siteIdentity = normalizeSiteIdentity(candidate?.siteIdentity, normalizedScenario);
@@ -77784,11 +78070,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const payload = JSON.parse(String(reader.result));
         const candidate = importedSaveCandidate(payload);
         if (startupOverlayOpen) dom.titleImportStatus.textContent = "Import validated.";
-        if (localSaveInspection().exists) {
-          showReplacementDialog("import", candidate);
-        } else {
-          applyImportedState(candidate);
-        }
+        applyImportedState(candidate);
       } catch (error) {
         reportImportFailure();
       } finally {

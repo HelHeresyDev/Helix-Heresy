@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -56,7 +56,7 @@ async function resetEnvironmentalFixture(page, mutation = '') {
       sealed.wardIds = ['sealTightening', 'poisonSealing'];
     }
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, mutation });
+  }, { key: await activeRunStorageKey(page), mutation });
   await loadSavedRun(page);
 }
 
@@ -122,7 +122,7 @@ test('open porous containers exchange local air faster than sealed containers', 
       open: state.containers.find((container) => container.id === 'basic-7').mapCell,
       sealed: state.containers.find((container) => container.id === 'basic-2').mapCell,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await page.evaluate(({ fixture }) => {
     window.helixHeresyDebug.setTileEnvironment(fixture.open, { airborne: { 'test-fume': 50 } });
     window.helixHeresyDebug.setTileEnvironment(fixture.sealed, { airborne: { 'test-fume': 50 } });
@@ -134,7 +134,7 @@ test('open porous containers exchange local air faster than sealed containers', 
       open: state.containers.find((container) => container.id === 'basic-7').environment.airborne['test-fume'] || 0,
       sealed: state.containers.find((container) => container.id === 'basic-2').environment.airborne['test-fume'] || 0,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(result.open).toBeGreaterThan(result.sealed * 3);
 });
 
@@ -143,7 +143,7 @@ test('environment overlays expose physical units without revealing unobserved ti
   const cell = await page.evaluate(({ key }) => {
     const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
     return state.scientist.mapCell;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await page.evaluate(({ cell }) => window.helixHeresyDebug.setTileEnvironment(cell, {
     temperatureC: 31.5,
     humidity: 72,

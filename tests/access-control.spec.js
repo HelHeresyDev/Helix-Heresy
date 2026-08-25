@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -30,7 +30,7 @@ async function mutateSave(page, callbackSource) {
     // Tests pass only local fixture callbacks, evaluated inside the browser page.
     Function('state', callback)(state);
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, callback: callbackSource });
+  }, { key: await activeRunStorageKey(page), callback: callbackSource });
 }
 
 test('named access areas are assigned and painted through the map overlay', async ({ page }) => {
@@ -106,7 +106,7 @@ test('new restrictions block existing routine work while loose slimes ignore pol
 
   const result = await page.evaluate(() => {
     const statuses = window.helixHeresyDebug.taskStatusSnapshot();
-    const state = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save')).state;
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
     const target = state.tasks[0].data.mapPath.at(-1);
     return {
       task: statuses[0],
@@ -125,14 +125,14 @@ test('door commands and emergency lockdown create physical scientist tasks', asy
     const state = payload.state || payload;
     const entry = Object.values(state.doors).find((door) => door.state === 'open' && !door.breached);
     return { id: entry.id, state: entry.state };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   const task = await page.evaluate((doorId) => window.helixHeresyDebug.queueDoorOperation(doorId, 'position', 'closed'), doorFixture.id);
   expect(task).toMatchObject({ type: 'doorOperation', data: { doorId: doorFixture.id } });
   const before = await page.evaluate(({ key, doorId }) => {
     const state = JSON.parse(window.localStorage.getItem(key)).state;
     return { door: state.doors[doorId], tasks: state.tasks };
-  }, { key: storageKey, doorId: doorFixture.id });
+  }, { key: await activeRunStorageKey(page), doorId: doorFixture.id });
   expect(before.door.state).toBe('open');
   expect(before.tasks.some((entry) => entry.type === 'doorOperation')).toBe(true);
 
@@ -140,7 +140,7 @@ test('door commands and emergency lockdown create physical scientist tasks', asy
   const after = await page.evaluate(({ key, doorId }) => {
     const state = JSON.parse(window.localStorage.getItem(key)).state;
     return { door: state.doors[doorId], tasks: state.tasks, scientist: state.scientist };
-  }, { key: storageKey, doorId: doorFixture.id });
+  }, { key: await activeRunStorageKey(page), doorId: doorFixture.id });
   expect(after.door.state).toBe('closed');
   expect(after.tasks.some((entry) => entry.type === 'doorOperation')).toBe(false);
 
@@ -160,7 +160,7 @@ test('door commands and emergency lockdown create physical scientist tasks', asy
   const lockdown = await page.evaluate(({ key, doorId }) => {
     const state = JSON.parse(window.localStorage.getItem(key)).state;
     return { door: state.doors[doorId], tasks: state.tasks, active: state.accessControl.lockdownActive };
-  }, { key: storageKey, doorId: doorFixture.id });
+  }, { key: await activeRunStorageKey(page), doorId: doorFixture.id });
   expect(lockdown.active).toBe(true);
   expect(lockdown.door.state).toBe('open');
   expect(lockdown.tasks).toEqual(expect.arrayContaining([
@@ -177,7 +177,7 @@ test('door authorization guides routing but direct orders can warn and override 
     const door = Object.values(state.doors).find((entry) => entry.accessRuleId === 'containment' && !entry.breached);
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return door.id;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   page.once('dialog', (dialog) => dialog.dismiss());

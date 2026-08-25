@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -28,7 +28,7 @@ async function finishCurrentTask(page) {
     const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
     const task = window.helixHeresyDebug.taskStatusSnapshot()[0];
     return task ? { seconds: Math.max(1, task.dueAt - state.clock + 1), type: task.type } : null;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   if (!timing) throw new Error('No scientist task is available to finish.');
   await page.evaluate((seconds) => window.helixHeresyDebug.advanceSimulation(seconds), timing.seconds);
   return timing.type;
@@ -47,7 +47,7 @@ test('rubble hauling catalogs the physical pile as raw stock and exposes its ord
     });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return { source, destination };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   await page.evaluate(({ destination }) => window.helixHeresyDebug.createLaborOrder({
@@ -78,7 +78,7 @@ test('rubble hauling catalogs the physical pile as raw stock and exposes its ord
       rawStack: state.physicalItemStacks.find((entry) => entry.key === 'stoneRubble' && entry.tags?.includes('unprocessed-rubble')),
       order: window.helixHeresyDebug.workOrderSnapshot().find((entry) => entry.data.dedupeKey === 'test:rubble'),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(after.pile).toBeUndefined();
   expect(after.rawStack).toMatchObject({
     key: 'stoneRubble', quantity: 8, stockpileId: 'test-material-stockpile',
@@ -111,7 +111,7 @@ test('repair orders haul physical material before restoring a damaged door', asy
     }
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
     return id;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   await page.evaluate((id) => window.helixHeresyDebug.createLaborOrder({
@@ -129,7 +129,7 @@ test('repair orders haul physical material before restoring a damaged door', asy
       condition: state.doors[id].condition,
       order: window.helixHeresyDebug.workOrderSnapshot().find((entry) => entry.data.dedupeKey === `test:repair:${id}`),
     };
-  }, { key: storageKey, id: doorId });
+  }, { key: await activeRunStorageKey(page), id: doorId });
   expect(result.condition).toBeGreaterThan(20);
   expect(result.order.status).toBe('completed');
 });
@@ -160,7 +160,7 @@ test('collection service policy carries a real replacement and does not auto-cle
       form: 'stack', contents: [], tags: [], sourceLabels: [], sourceSlimeIds: [], createdAt: state.clock, updatedAt: state.clock,
     });
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   await page.evaluate(() => window.helixHeresyDebug.syncLaborOrders());
 
@@ -179,7 +179,7 @@ test('collection service policy carries a real replacement and does not auto-cle
       filled: state.physicalItemStacks.filter((stack) => stack.key === 'sealedCollectionJar' && stack.contents?.length),
       activePolicyOrders: window.helixHeresyDebug.workOrderSnapshot().filter((order) => order.source === 'policy' && !['completed', 'canceled'].includes(order.status)),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(result.filled).toHaveLength(1);
   expect(result.station.receptacle.amount).toBe(3);
   expect(result.station.overflow.amount).toBe(0);
@@ -199,7 +199,7 @@ test('checking an adapted task status does not cancel its work order', async ({ 
     });
     state.policies.labor.permissions.hauling = false;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
   const result = await page.evaluate(() => {
     window.helixHeresyDebug.taskStatusSnapshot();

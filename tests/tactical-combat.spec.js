@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -35,7 +35,7 @@ async function seedCombatSlime(page, id, options = {}) {
   const seed = await page.evaluate((key) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return (payload.state || payload).seed;
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   const behavior = options.behavior || 'idle pooling';
   const stability = options.stability || 'placid';
   const genome = genomeForTraits({
@@ -93,7 +93,7 @@ async function seedCombatSlime(page, id, options = {}) {
     state.nextInjuryNumber = 1;
     state.selectedSlimeId = id;
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, id, genome, options });
+  }, { key: await activeRunStorageKey(page), id, genome, options });
   await loadSavedRun(page);
 }
 
@@ -118,7 +118,7 @@ test('Soul Lash is a map command that spends Mana and deals Arcane damage', asyn
       injuries: state.injuries.filter((injury) => injury.actorId === 'soul-target'),
       eventText: state.events.map((event) => event.message).join('\n'),
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
 
   expect(result.integrity).toBe(86);
   expect(result.mana).toBe(88);
@@ -149,7 +149,7 @@ test('diagonal footprints count as adjacent for Shove and create persistent trau
       handlingXp: state.scientist.skills.creatureHandling?.xp || 0,
       injuries: state.injuries.filter((injury) => injury.actorId === 'diagonal-target'),
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
 
   expect(result.living).toBe(true);
   expect(result.integrity).toBe(94);
@@ -172,7 +172,7 @@ test('Guard suspends and then preserves the remaining scientist task schedule', 
       data: { slimeId: 'missing-fixture', testId: 'visual', staminaCost: 0 },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   await loadSavedRun(page);
 
   await page.evaluate(() => window.helixHeresyDebug.setScientistGuarding(true));
@@ -188,7 +188,7 @@ test('Guard suspends and then preserves the remaining scientist task schedule', 
       guarding: Boolean(state.combat.guarding.scientist),
       suspension: state.combat.routineSuspension,
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
 
   expect(result.clock).toBe(10);
   expect(result.dueAt).toBe(110);
@@ -219,7 +219,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
       guarding: Boolean(state.combat.guarding.scientist),
       injuries: state.injuries.filter((injury) => injury.actorId === 'scientist'),
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
 
   expect(result.health).toBe(97);
   expect(result.guardingXp).toBeGreaterThan(2);
@@ -239,7 +239,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
     const task = state.tasks.find((entry) => entry.type === 'injuryTreatment');
     const reserved = state.physicalItemStacks.find((stack) => stack.id === task?.data.supplyStackId);
     return { seconds: Math.ceil((task?.dueAt || state.clock) - state.clock) + 1, reservedTaskId: reserved?.reservedTaskId, taskId: task?.id };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   expect(queuedCare.reservedTaskId).toBe(queuedCare.taskId);
   await skipSeconds(page, queuedCare.seconds);
 
@@ -252,7 +252,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
       medicineXp: state.scientist.skills.medicine?.xp || 0,
       careQueued: state.tasks.some((task) => task.type === 'injuryTreatment'),
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   expect(careResult).toMatchObject({ careQueued: false, bandages: 7 });
   expect(careResult.statuses).toContain('stabilized');
   expect(careResult.bandages).toBe(7);
@@ -274,7 +274,7 @@ test('urgent movement runs ahead of routine work and resumes the preserved queue
       data: { slimeId: 'missing-fixture', testId: 'visual', staminaCost: 0 },
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   await loadSavedRun(page);
 
   const started = await page.evaluate(() => {
@@ -308,7 +308,7 @@ test('urgent movement runs ahead of routine work and resumes the preserved queue
       urgentStillQueued: state.tasks.some((task) => task.id !== 'routine-analysis'),
       suspension: state.combat.routineSuspension,
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
 
   expect(result.scientistCell).toEqual(started.target);
   expect(result.routineDueAt).toBe(200);

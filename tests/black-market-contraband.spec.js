@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -22,7 +22,7 @@ async function savedState(page) {
   return page.evaluate(({ key }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     return payload.state || payload;
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 test('contraband catalog exposes illicit formulas, transport pods, and separated offer categories', async ({ page }) => {

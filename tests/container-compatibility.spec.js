@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +33,7 @@ async function saveContext(page) {
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 }
 
 async function stageCompatibilitySlime(page, { genome, revealed = {} }) {
@@ -89,7 +89,7 @@ async function stageCompatibilitySlime(page, { genome, revealed = {} }) {
       },
     ];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome, revealed });
+  }, { key: await activeRunStorageKey(page), genome, revealed });
   await loadSavedRun(page);
   await page.locator('[data-workspace-tab="containers"]').click();
 }
@@ -210,7 +210,7 @@ test('bad hidden compatibility slowly stresses specimen and fouls container', as
       contamination: container?.environment?.contamination?.current,
       condition: container?.condition,
     };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   expect(result.stress).toBeGreaterThan(0);
   expect(result.contamination).toBeGreaterThan(0);

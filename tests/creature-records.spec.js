@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -62,7 +62,7 @@ test('creature records split confirmed living from stale unknown loose creatures
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.currentGenome || 'A'.repeat(26);
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   await page.evaluate(({ key, genome, contained, loose }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -96,7 +96,7 @@ test('creature records split confirmed living from stale unknown loose creatures
     };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     genome,
     contained: slimeFixture({ id: 'contained-record', name: 'REC-CONTAINED', genome }),
     loose: slimeFixture({ id: 'loose-stale', name: 'REC-LOOSE', genome, status: 'released', roomId: 'menagerie' }),
@@ -151,7 +151,7 @@ test('creature records expose deceased and lineage files without revealing hidde
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return state.currentGenome || 'A'.repeat(26);
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
 
   await page.evaluate(({ key, genome, child }) => {
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
@@ -201,7 +201,7 @@ test('creature records expose deceased and lineage files without revealing hidde
     };
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, {
-    key: storageKey,
+    key: await activeRunStorageKey(page),
     genome,
     child: slimeFixture({
       id: 'child-record',

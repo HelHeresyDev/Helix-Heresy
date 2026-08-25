@@ -83,8 +83,8 @@ test('semantic map cells expose renderer-neutral physical connectivity', async (
     const floor = view.cells.find((cell) => cell.terrainConnectivity?.floor);
     const rock = view.cells.find((cell) => cell.terrainConnectivity?.solid);
     const door = view.cells.find((cell) => cell.door?.connectivity);
-    const payload = JSON.parse(window.localStorage.getItem('helix-heresy-v1-save') || '{}');
-    const savedDoor = door ? (payload.state || payload).labMap.doors[door.door.key] : null;
+    const state = window.helixHeresyDebug.currentWorldRunSnapshot().run.state;
+    const savedDoor = door ? state.labMap.doors[door.door.key] : null;
     return {
       floor: floor?.terrainConnectivity,
       rock: rock?.terrainConnectivity,

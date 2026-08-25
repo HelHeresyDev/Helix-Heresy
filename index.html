@@ -711,6 +711,7 @@
         <nav class="title-actions" aria-label="Main menu">
           <button id="loadLastSaveBtn" class="primary" type="button">Continue</button>
           <button id="titleNewRunBtn" type="button">New Run</button>
+          <button id="titleWorldLibraryBtn" type="button">World Library</button>
           <label class="file-button title-file-button">
             Import Run
             <input id="titleImportFileInput" type="file" accept="application/json,.json">
@@ -722,7 +723,44 @@
           <p id="loadLastSaveStatus" class="journal-meta">Checking local save…</p>
           <p id="titleImportStatus" class="journal-meta"></p>
         </div>
-        <p class="title-build-note">Prototype build 1.0.0 · Single-run local save</p>
+        <p class="title-build-note">Prototype build 1.0.0 · Reusable worlds and independent roguelike runs</p>
+      </section>
+
+      <section id="worldLibraryPanel" class="setup-card world-library-panel" aria-labelledby="worldLibraryHeading" hidden>
+        <div class="startup-panel-heading">
+          <div>
+            <p id="worldLibraryKicker" class="title-kicker">Reusable Worlds</p>
+            <h2 id="worldLibraryHeading">World Library</h2>
+          </div>
+          <button id="worldLibraryBackBtn" type="button">Back</button>
+        </div>
+
+        <form id="worldCreationForm" class="world-creation-form">
+          <div>
+            <h3>Generate a World</h3>
+            <p class="journal-meta">The generated name, theme, playable year, and canonical facts remain fixed. Every run begins from this same untouched world.</p>
+          </div>
+          <fieldset class="world-theme-fieldset">
+            <legend>Choose Your Heresy</legend>
+            <label><input type="radio" name="worldTheme" value="madcap" checked><span><strong>Madcap Heresy</strong><small>Wildly inventive consequences with room for absurd triumph.</small></span></label>
+            <label><input type="radio" name="worldTheme" value="grim"><span><strong>Grim Heresy</strong><small>Harsh institutions, desperate survival, and severe consequences.</small></span></label>
+          </fieldset>
+          <label class="field-label" for="worldSeedInput">World Seed</label>
+          <div class="sequence-row">
+            <input id="worldSeedInput" type="text" autocomplete="off">
+            <button id="randomWorldSeedBtn" type="button">Random</button>
+          </div>
+          <button id="generateWorldBtn" class="primary" type="submit">Generate World and Configure Run</button>
+          <p id="worldLibraryStatus" class="journal-meta" aria-live="polite"></p>
+        </form>
+
+        <div class="world-library-heading">
+          <div>
+            <h3>Saved Worlds</h3>
+            <p class="journal-meta">Runs listed beneath a world are separate timelines. Starting one never replaces or alters another.</p>
+          </div>
+        </div>
+        <div id="worldLibraryList" class="world-library-list"></div>
       </section>
 
       <form id="setupForm" class="setup-card" aria-labelledby="newRunHeading" hidden>
@@ -730,9 +768,24 @@
           <div>
             <p class="title-kicker">New Run</p>
             <h2 id="newRunHeading">Choose a Starting Scenario</h2>
+            <p id="selectedWorldSummary" class="journal-meta"></p>
           </div>
           <button id="setupBackBtn" type="button">Back</button>
         </div>
+
+        <fieldset id="newWorldSetupFieldset" class="starting-scenario-fieldset new-world-setup-fieldset">
+          <legend>Choose Your Heresy</legend>
+          <p class="journal-meta">This seed and World Theme create an immutable reusable world before the run begins.</p>
+          <div class="world-theme-fieldset">
+            <label><input type="radio" name="setupWorldTheme" value="madcap" checked><span><strong>Madcap Heresy</strong><small>Wildly inventive consequences with room for absurd triumph.</small></span></label>
+            <label><input type="radio" name="setupWorldTheme" value="grim"><span><strong>Grim Heresy</strong><small>Harsh institutions, desperate survival, and severe consequences.</small></span></label>
+          </div>
+          <label class="field-label" for="setupWorldSeedInput">World Seed</label>
+          <div class="sequence-row">
+            <input id="setupWorldSeedInput" type="text" autocomplete="off">
+            <button id="randomSetupWorldSeedBtn" type="button">Random</button>
+          </div>
+        </fieldset>
 
         <fieldset class="starting-scenario-fieldset">
           <legend>Starting Scenario</legend>
@@ -810,21 +863,12 @@
         <div class="about-copy">
           <p>Helix Heresy is a laboratory-management roguelike about forbidden genetics, physical systems, scientific discovery, and the consequences of ambitious research.</p>
           <p>This prototype is developed by Nathaniel Tovar with AI-assisted implementation. It is shared for viewing only; all rights are reserved.</p>
-          <p>The current build uses browser-local storage and one continuation save. Export important runs before replacing them.</p>
+          <p>The current build stores reusable generated worlds and independent roguelike runs in this browser. A run export includes its exact canonical world.</p>
         </div>
       </section>
     </div>
 
-    <dialog id="replaceRunDialog" class="replacement-dialog" aria-labelledby="replaceRunDialogHeading" aria-describedby="replaceRunDialogDescription">
-      <h2 id="replaceRunDialogHeading">Replace Current Run?</h2>
-      <p id="replaceRunDialogDescription">Beginning another run will replace the continuation save in this browser.</p>
-      <div class="replacement-dialog-actions">
-        <button id="cancelReplaceRunBtn" type="button">Cancel</button>
-        <button id="exportBeforeReplaceBtn" type="button">Export Current Save</button>
-        <button id="confirmReplaceRunBtn" class="primary" type="button">Replace and Continue</button>
-      </div>
-    </dialog>
-
+    <script src="world-run-library.js"></script>
     <script src="creature-spatial.js"></script>
     <script src="geology-field.js"></script>
     <script src="research-system.js"></script>

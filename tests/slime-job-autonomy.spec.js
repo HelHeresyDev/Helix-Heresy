@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -64,7 +64,7 @@ test('pit roles are automatic while physical corpse feeding remains policy-indep
     const payload = JSON.parse(localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return { seed: state.seed, complexity: state.complexity || 'clean', currentGenome: state.currentGenome };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   const genome = genomeForTraits({
     seed: context.seed, complexity: context.complexity, baseGenome: context.currentGenome,
     traits: { sustenance: 'carrion feeder', element: 'none', consistency: 'mucous', behavior: 'idle pooling', stability: 'steady' },
@@ -85,7 +85,7 @@ test('pit roles are automatic while physical corpse feeding remains policy-indep
     state.policies.corpseHandlingTargets = { fresh: false, decaying: false, spoiled: false, ruined: false };
     state.slimes = [first]; state.corpses = [localCorpse, remoteCorpse];
     localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, first, second, localCorpse, remoteCorpse });
+  }, { key: await activeRunStorageKey(page), first, second, localCorpse, remoteCorpse });
   await loadSavedRun(page);
   await skipSeconds(page, 60);
 
@@ -102,7 +102,7 @@ test('pit roles are automatic while physical corpse feeding remains policy-indep
       contributors: Object.keys(local.processingContributions || {}).sort(),
       roles: state.slimes.map((slime) => ({ roleId: slime.roleId, roleSource: slime.roleSource, hasLegacyJob: Object.hasOwn(slime, 'job') })),
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   expect(result.localProgress).toBeGreaterThan(10);
   const firstProgress = result.localProgress;
   expect(result.remoteProgress).toBe(10);
@@ -116,14 +116,14 @@ test('pit roles are automatic while physical corpse feeding remains policy-indep
     state.slimes[0].roomId = 'mainLab';
     state.slimes.push(second);
     localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, second });
+  }, { key: await activeRunStorageKey(page), second });
   await loadSavedRun(page);
   await skipSeconds(page, 60);
   result = await page.evaluate((key) => {
     const state = JSON.parse(localStorage.getItem(key) || '{}').state;
     const local = state.corpses.find((item) => item.id === 'local-corpse');
     return { progress: local.consumedProgress, contributors: Object.keys(local.processingContributions || {}).sort() };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   expect(result.progress).toBeGreaterThan(firstProgress);
   expect(result.contributors).toEqual(['pit-worker-a', 'pit-worker-b']);
 
@@ -132,13 +132,13 @@ test('pit roles are automatic while physical corpse feeding remains policy-indep
     element.value = 'idle';
     element.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  let role = await page.evaluate((key) => (JSON.parse(localStorage.getItem(key) || '{}').state.slimes.find((slime) => slime.id === 'pit-worker-b')), storageKey);
+  let role = await page.evaluate((key) => (JSON.parse(localStorage.getItem(key) || '{}').state.slimes.find((slime) => slime.id === 'pit-worker-b')), await activeRunStorageKey(page));
   expect(role).toMatchObject({ roleId: 'idle', roleSource: 'manual' });
   await page.locator('[data-job-slime-id="pit-worker-b"]').evaluate((element) => {
     element.value = 'automatic';
     element.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  role = await page.evaluate((key) => (JSON.parse(localStorage.getItem(key) || '{}').state.slimes.find((slime) => slime.id === 'pit-worker-b')), storageKey);
+  role = await page.evaluate((key) => (JSON.parse(localStorage.getItem(key) || '{}').state.slimes.find((slime) => slime.id === 'pit-worker-b')), await activeRunStorageKey(page));
   expect(role).toMatchObject({ roleId: 'corpse', roleSource: 'automatic' });
   expect(pageErrors).toEqual([]);
 });
@@ -151,7 +151,7 @@ test('a hungry slime digests pit Waste regardless of its role and leaves physica
     const payload = JSON.parse(localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return { seed: state.seed, complexity: state.complexity || 'clean', currentGenome: state.currentGenome };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   const genome = genomeForTraits({
     seed: context.seed, complexity: context.complexity, baseGenome: context.currentGenome,
     traits: { sustenance: 'hazard feeder', element: 'none', consistency: 'soft gelatin', behavior: 'idle pooling', stability: 'steady' },
@@ -176,7 +176,7 @@ test('a hungry slime digests pit Waste regardless of its role and leaves physica
       processingProgress: 0.9999999, processingResidueProgress: 2.9,
     });
     localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, slime });
+  }, { key: await activeRunStorageKey(page), slime });
   await loadSavedRun(page);
   await skipSeconds(page, 60);
 
@@ -190,7 +190,7 @@ test('a hungry slime digests pit Waste regardless of its role and leaves physica
       containedResidue: state.physicalItemStacks.filter((stack) => stack.containerId === 'basic-13' && stack.key === 'elementalResidue').reduce((sum, stack) => sum + stack.quantity, 0),
       localResidue: state.physicalItemStacks.filter((stack) => stack.containerId === 'basic-13' && stack.section === 'residue').length,
     };
-  }, storageKey);
+  }, await activeRunStorageKey(page));
   expect(result.role).toBe('idle');
   expect(result.roomWaste).toBe(4);
   expect(result.pitWaste).toBe(0);

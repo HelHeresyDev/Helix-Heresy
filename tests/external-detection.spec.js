@@ -89,7 +89,7 @@ test('internal evidence creates no attention until an external source observes a
   await expect(page.locator('[data-external-signals]')).not.toContainText('reportDelaySeconds');
 
   const reportId = observed.reports[0].id;
-  const saved = await page.evaluate(() => JSON.parse(window.localStorage.getItem('helix-heresy-v1-save')).state.externalDetection);
+  const saved = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot().run.state.externalDetection);
   expect(saved.reports.some((report) => report.id === reportId)).toBe(true);
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();

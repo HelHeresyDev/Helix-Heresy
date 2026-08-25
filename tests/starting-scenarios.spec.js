@@ -5,7 +5,8 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const manifestKey = 'helix-heresy-v2-library';
+const runKeyPrefix = 'helix-heresy-v2-run:';
 
 async function openFreshSetup(page) {
   await page.goto(appUrl);
@@ -86,9 +87,11 @@ test('Chemistry Front materializes immutable scenario, blueprint, generated iden
 test('version-one Chemistry Front saves keep their provenance and do not gain the divided surface topology', async ({ page }) => {
   await openFreshSetup(page);
   await page.locator('#startRunSubmitBtn').click();
-  await page.evaluate((key) => {
+  await page.evaluate(({ manifestKey, runKeyPrefix }) => {
+    const manifest = JSON.parse(window.localStorage.getItem(manifestKey) || '{}');
+    const key = `${runKeyPrefix}${manifest.activeRunId}`;
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+    const state = payload.state;
     state.startingScenario = {
       ...state.startingScenario,
       version: 1,
@@ -110,7 +113,7 @@ test('version-one Chemistry Front saves keep their provenance and do not gain th
     state.doors = Object.fromEntries(Object.entries(state.doors).filter(([doorId]) => state.labMap.doors[doorId]));
     delete state.siteAccessPoints;
     window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
-  }, storageKey);
+  }, { manifestKey, runKeyPrefix });
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
@@ -133,9 +136,11 @@ test('version-one Chemistry Front saves keep their provenance and do not gain th
 test('version-two Chemistry Front saves do not acquire the later chemistry equipment line', async ({ page }) => {
   await openFreshSetup(page);
   await page.locator('#startRunSubmitBtn').click();
-  await page.evaluate((key) => {
+  await page.evaluate(({ manifestKey, runKeyPrefix }) => {
+    const manifest = JSON.parse(window.localStorage.getItem(manifestKey) || '{}');
+    const key = `${runKeyPrefix}${manifest.activeRunId}`;
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+    const state = payload.state;
     state.startingScenario = {
       ...state.startingScenario,
       version: 2,
@@ -144,7 +149,7 @@ test('version-two Chemistry Front saves do not acquire the later chemistry equip
     };
     state.fixtures = state.fixtures.filter((fixture) => !fixture.id.startsWith('starter-surface-'));
     window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
-  }, storageKey);
+  }, { manifestKey, runKeyPrefix });
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();
@@ -195,14 +200,16 @@ test('Debug Underground Laboratory removes surface topology and persists its cho
 test('scenario-less legacy saves gain Debug provenance without rebuilding their physical site', async ({ page }) => {
   await openFreshSetup(page);
   await page.locator('#startRunSubmitBtn').click();
-  await page.evaluate((key) => {
+  await page.evaluate(({ manifestKey, runKeyPrefix }) => {
+    const manifest = JSON.parse(window.localStorage.getItem(manifestKey) || '{}');
+    const key = `${runKeyPrefix}${manifest.activeRunId}`;
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+    const state = payload.state;
     delete state.startingScenario;
     delete state.siteIdentity;
     delete state.startingLiabilities;
     window.localStorage.setItem(key, JSON.stringify({ ...payload, state }));
-  }, storageKey);
+  }, { manifestKey, runKeyPrefix });
 
   await page.reload();
   await page.locator('#loadLastSaveBtn').click();

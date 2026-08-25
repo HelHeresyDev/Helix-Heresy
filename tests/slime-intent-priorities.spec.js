@@ -6,7 +6,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const storageKey = 'helix-heresy-v1-save';
+const { activeRunStorageKey } = require('./helpers/active-run-storage');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -43,7 +43,7 @@ test('job tags create no biological drive and a full slime remains quiescent', a
       revealed: {}, measured: {}, traitObservations: {}, testsRun: [], jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const snapshot = await page.evaluate(() => window.helixHeresyDebug.slimeAiSnapshot('tagged-full'));
@@ -59,7 +59,7 @@ test('recent pain interrupts feeding movement with fight flight or freeze', asyn
     const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
     const state = payload.state || payload;
     return { seed: state.seed, genome: state.currentGenome };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   const genome = genomeForTraits({
     seed: context.seed,
     baseGenome: context.genome,
@@ -102,7 +102,7 @@ test('recent pain interrupts feeding movement with fight flight or freeze', asyn
       revealed: { behavior: 'hiding', stability: 'nervous' }, measured: {}, traitObservations: {}, testsRun: [], jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey, genome });
+  }, { key: await activeRunStorageKey(page), genome });
   await loadSavedRun(page);
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
 
@@ -111,7 +111,7 @@ test('recent pain interrupts feeding movement with fight flight or freeze', asyn
     const state = payload.state || payload;
     const slime = state.slimes.find((candidate) => candidate.id === 'pain-interrupt');
     return { slime, messages: state.events.filter((entry) => entry.sourceId === slime.id) };
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   expect(result.slime.autonomousMovement).toBeNull();
   expect(['fight', 'flee', 'freeze']).toContain(result.slime.ai.intent);
   expect(result.slime.ai.intent).not.toBe('feed');
@@ -138,7 +138,7 @@ test('painful failures create longer avoidance than harmless failures', async ({
       revealed: {}, measured: {}, traitObservations: {}, testsRun: [], jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const failures = await page.evaluate(() => {
@@ -179,7 +179,7 @@ test('an unobserved slime exposes no live intent before the scientist observes i
       revealed: {}, measured: {}, traitObservations: {}, testsRun: [], jobKnowledge: {},
     }];
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: storageKey });
+  }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   const snapshot = await page.evaluate(() => window.helixHeresyDebug.slimeAiSnapshot('unobserved-injured'));
