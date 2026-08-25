@@ -18,16 +18,16 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Execution Day, Physical Death, and Resurrection Handoff
-2. Reusable Worlds, Random Names, and Run Separation
-3. World Themes and Content Boundaries
-4. Hex-Based World Generation Foundation and Strategic Map
-5. Global Geography, Biomes, Terrain, and Resources
-6. Settlements, Cities, Routes, and Candidate Sites
-7. Civilizations, Factions, Institutions, Religions, and Law
-8. Historical World Simulation and Playable Year
-9. New-Run World Selection, Site Choice, and Scenario Materialization
-10. Local Context Mechanics: Environment, Geology, and Travel
+1. Reusable Worlds, Random Names, and Run Separation
+2. World Themes and Content Boundaries
+3. Hex-Based World Generation Foundation and Strategic Map
+4. Global Geography, Biomes, Terrain, and Resources
+5. Settlements, Cities, Routes, and Candidate Sites
+6. Civilizations, Factions, Institutions, Religions, and Law
+7. Historical World Simulation and Playable Year
+8. New-Run World Selection, Site Choice, and Scenario Materialization
+9. Local Context Mechanics: Environment, Geology, and Travel
+10. Penal Flights and Beast-Territory Exile
 11. Penal Legions and Wilderness Service
 12. World Integration: Economy and Logistics
 13. World Integration: Investigations and Institutional Pressure
@@ -65,23 +65,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Execution Day, Physical Death, and Resurrection Handoff
-
-Design and implement the physical process after capital custody reaches its existing `execution process due` boundary. Move the scientist through named staff, medical checks, final counsel and optional spiritual access, nullstone suppression, and the locked execution suite. Use the approved nullstone-assisted alchemical injection method as a staged physical process with interruptible steps. Only completed lethal physiology causes death and game over; a stay, commutation, disruption, escape, rescue, or physical survival can stop the process. On death, hand off to the general death/resurrection systems without duplicating their rules.
-
-Questions for discussion:
-
-- Which execution stages remain interruptible after the scientist enters the suite?
-
-  Recommended answer: Preserve explicit boundaries for final identity check, restraint and suppression verification, line placement, reagent authorization, injection, and lethal physiological resolution; legal intervention can stop all pre-injection stages, while post-injection survival depends on physical treatment or resurrection.
-
-- How should an existing resurrection anchor affect the result?
-
-  Recommended answer: Let the execution create an ordinary physical death record, then allow the later resurrection system to consume it and the saved anchor state. Execution code should not grant special immunity or erase the body.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Reusable Worlds, Random Names, and Run Separation
+## 1. Reusable Worlds, Random Names, and Run Separation
 
 Design and implement the persistence boundary between reusable generated worlds and disposable roguelike runs.
 
@@ -103,7 +87,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Themes and Content Boundaries
+## 2. World Themes and Content Boundaries
 
 Design and implement the data contract for two selectable World Themes: Madcap Heresy and Grim Heresy. Present the selection under the heading "Choose Your Heresy," save it as `worldTheme`, and use the internal values `madcap` and `grim`.
 
@@ -121,7 +105,7 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Hex-Based World Generation Foundation and Strategic Map
+## 3. Hex-Based World Generation Foundation and Strategic Map
 
 Design and implement the smallest complete deterministic world that can be generated, randomly named, saved, selected, and viewed before a run begins. Represent its strategic geography with a finite hex grid, similar in role to RimWorld's world map, rather than square tiles. Establish stable world and region identities, axial or cube coordinates, world scale, land and water boundaries, neighboring and distance helpers, renderer-neutral diagnostics, and a player-visible preview. Generate the complete low-resolution world before play while leaving exact local maps lazy.
 
@@ -149,39 +133,51 @@ Questions for discussion:
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Global Geography, Biomes, Terrain, and Resources
+## 4. Global Geography, Biomes, Terrain, and Resources
 
 Design and implement coherent world-scale physical geography: elevation, oceans, coasts, mountains, drainage, rivers, climate tendencies, biome regions, broad geology, and resource distributions. Geography should constrain settlement, travel, trade, law, history, and site choice rather than being decorative noise.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Settlements, Cities, Routes, and Candidate Sites
+## 5. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement major cities, vulnerable towns and villages, defended corridors, transport hubs, frontier sites, candidate laboratory parcels, and route networks. Candidate sites should know both straight-line distance and practical route access to their nearest settlement.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Civilizations, Factions, Institutions, Religions, and Law
+## 6. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world: states, territorial control, relationships, factions, religious powers, commercial blocs, military forces, magitech traditions, and local institutional branches. Bind generated instances to stable semantic roles used by existing systems.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Historical World Simulation and Playable Year
+## 7. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year. History should causally change settlements, borders, powers, religions, routes, laws, public attitudes, ruins, and regional conditions. Every retained event should change a saved fact, explain a current condition, or create a discoverable hook.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run World Selection, Site Choice, and Scenario Materialization
+## 8. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world. The player chooses an existing world or generates a new one, then chooses a starting scenario, biome, and city-distance band from compatible saved candidate sites. The chosen scenario materializes the physical site blueprint and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Local Context Mechanics: Environment, Geology, and Travel
+## 9. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of selected world location: environmental baselines, exact geology inputs, water access, surface concealment, evidence persistence, waste risk, route reliability, legal-cover plausibility, visitor arrival windows, resource availability, and travel.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 10. Penal Flights and Beast-Territory Exile
+
+Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, defended corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
+
+Use a saved seven-day dispatch docket. If the scientist is the only real condemned person scheduled in that window, assign a remotely guided one-person Solo Castoff Glider. If two to eight real condemned people are scheduled, assign a larger Mass Castoff Glider; split larger groups across multiple craft and never invent anonymous filler prisoners. Freeze the roster when the flight order is issued.
+
+Both variants must physically move through a fortified penal-flight depot, restraint and suppression inspection, launch, remote flight beyond defended corridors, landing, and release. The craft gathers reconnaissance and carries minimal survival tools, suppression collars, and tracking beacons, but provides no extraction. It lands rather than deliberately crashing. Every mass-flight passenger is a named persistent actor with crimes, skills, injuries, affiliations, and a relationship to the scientist; landing together does not make them allies.
+
+Survivors remain playable and legally banished. Returning to protected human territory creates a new causal violation and physical response. Keep Penal Flight distinct from penal-legion service: legionaries receive command, equipment, objectives, logistics, and a possible lawful return, while castoffs receive none.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

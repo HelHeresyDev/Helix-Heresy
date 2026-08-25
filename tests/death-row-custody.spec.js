@@ -112,9 +112,9 @@ test('@smoke capital sentencing physically transfers into daily custody and stop
   let trial = await page.evaluate(() => window.helixHeresyDebug.trialSentencingSnapshot()); expect(trial.cases[0].sentencing.order).toMatchObject({ kind: 'deathRow', status: 'commitmentPending' });
   expect(await page.evaluate((id) => window.helixHeresyDebug.makeDeathRowTransferDueNow(id), caseId)).toBe(true);
   let custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot());
-  expect(custody).toMatchObject({ activeStay: { status: 'active', caseId, suppressor: { kind: 'nullstoneCollar', suppressionActive: true }, calendar: { executionStatus: 'provisional' }, actors: expect.any(Array) }, scientist: { roomId: 'capitalCustodyCell', mapCell: { z: 6 } }, runEnded: false });
+  expect(custody).toMatchObject({ activeStay: { status: 'active', caseId, sentence: { executionMethod: 'publicBeheading', publicEnemyDesignation: { status: 'entered', kind: 'publicEnemy' } }, suppressor: { kind: 'nullstoneCollar', suppressionActive: true }, calendar: { executionStatus: 'provisional' }, actors: expect.any(Array) }, scientist: { roomId: 'capitalCustodyCell', mapCell: { z: 6 } }, runEnded: false });
   expect(custody.activeStay.facility.roomIds).toEqual(expect.arrayContaining(['capitalCustodySallyPort', 'capitalCustodyIntake', 'capitalCustodyCell', 'capitalCustodyExecutionSuite']));
-  await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator(`[data-death-row-custody="${custody.activeStay.id}"]`)).toContainText('Execution suite: locked and inaccessible');
+  await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator(`[data-death-row-custody="${custody.activeStay.id}"]`)).toContainText('Execution-day transfer chamber: locked and inaccessible');
   expect(await page.evaluate(() => window.helixHeresyDebug.setDeathRowPriority('physicalConditioning'))).toBe(true);
   expect(await page.evaluate(() => window.helixHeresyDebug.requestDeathRowCommunication('legalCounsel'))).toBe(true);
   expect(await page.evaluate(() => window.helixHeresyDebug.advanceDeathRowTime(1))).toBe(true); custody = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(custody.activeStay.decision.kind).toBe('communicationReady');
