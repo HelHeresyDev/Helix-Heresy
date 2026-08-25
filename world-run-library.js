@@ -1,22 +1,24 @@
 (function initWorldRunLibrary(root, factory) {
-  const api = factory();
+  const themeContent = typeof module === "object" && module.exports
+    ? require("./theme-content")
+    : root?.HelixThemeContent;
+  const api = factory(themeContent);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi() {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent) {
   "use strict";
+
+  if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
   const WORLD_GENERATION_VERSION = 1;
-  const WORLD_NAME_VERSION = 1;
+  const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
   const RUN_KEY_PREFIX = "helix-heresy-v2-run:";
-  const THEMES = Object.freeze({
-    madcap: Object.freeze({ id: "madcap", label: "Madcap Heresy" }),
-    grim: Object.freeze({ id: "grim", label: "Grim Heresy" })
-  });
+  const THEMES = ThemeContent.WORLD_THEMES;
 
   const WORLD_NAME_OPENINGS = Object.freeze([
     "Aether", "Ash", "Aurora", "Brass", "Cinder", "Cloud", "Ember", "Glass",
@@ -64,9 +66,21 @@
     };
   }
 
-  function generatedWorldName(worldSeed, version = WORLD_NAME_VERSION) {
+  function generatedWorldName(worldSeed, themeOrVersion = "madcap", requestedVersion = WORLD_NAME_VERSION) {
     const seed = cleanSeed(worldSeed);
     if (!seed) throw new Error("A world seed is required to generate a name.");
+    const legacySignature = typeof themeOrVersion === "number";
+    const worldTheme = legacySignature ? "madcap" : (THEMES[themeOrVersion] ? themeOrVersion : "madcap");
+    const version = legacySignature ? themeOrVersion : requestedVersion;
+    if (version >= 2) {
+      const selected = ThemeContent.selectRenderedContent({
+        kind: "worldName",
+        worldTheme,
+        seed: `${seed}:world-name:v${version}`
+      });
+      if (!selected.ok) throw new Error(`World name generation failed: ${selected.code}.`);
+      return selected.text;
+    }
     const rng = seededNumbers(`${seed}:world-name:v${version}`);
     const opening = WORLD_NAME_OPENINGS[Math.floor(rng() * WORLD_NAME_OPENINGS.length)];
     const ending = WORLD_NAME_ENDINGS[Math.floor(rng() * WORLD_NAME_ENDINGS.length)];
@@ -108,9 +122,29 @@
     const playableYear = Number.isFinite(Number(options.playableYear))
       ? Math.floor(Number(options.playableYear))
       : generatedPlayableYear(worldSeed, generationVersion);
-    const name = String(options.name || generatedWorldName(worldSeed, nameGeneratorVersion)).trim();
-    const themeLabel = THEMES[worldTheme].label;
-    const summary = String(options.summary || `${themeLabel} world generated for the prototype era. Its strategic geography and pre-run history await later generation passes.`).trim();
+    const nameSelection = nameGeneratorVersion >= 2
+      ? ThemeContent.selectRenderedContent({
+        kind: "worldName",
+        worldTheme,
+        seed: `${worldSeed}:world-name:v${nameGeneratorVersion}`
+      })
+      : null;
+    const generatedName = nameSelection?.ok
+      ? nameSelection.text
+      : generatedWorldName(worldSeed, worldTheme, nameGeneratorVersion);
+    const providedName = String(options.name || "").trim();
+    const name = providedName || generatedName;
+    const summarySelection = ThemeContent.selectRenderedContent({
+      kind: "worldSummary",
+      worldTheme,
+      seed: `${worldSeed}:world-summary:v${ThemeContent.VERSION}`,
+      context: { worldName: name, playableYear }
+    });
+    if (!summarySelection.ok && !options.summary) {
+      throw new Error(`World summary generation failed: ${summarySelection.code}.`);
+    }
+    const providedSummary = String(options.summary || "").trim();
+    const summary = providedSummary || summarySelection.text;
     const createdAt = String(options.createdAt || new Date().toISOString());
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
@@ -130,6 +164,11 @@
       generatedData: clone(options.generatedData) || {
         version: generationVersion,
         strategicResolution: "prototype",
+        themeContent: {
+          version: ThemeContent.VERSION,
+          worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
+          worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
+        },
         canonicalState: {
           worldName: name,
           playableYear,
@@ -405,6 +444,7 @@
     RUN_RECORD_VERSION,
     WORLD_GENERATION_VERSION,
     WORLD_NAME_VERSION,
+    THEME_CONTENT_VERSION: ThemeContent.VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
