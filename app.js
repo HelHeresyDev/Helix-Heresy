@@ -120,6 +120,11 @@
   const CAPITAL_EXERCISE_ROOM_ID = "capitalCustodyExercise";
   const CAPITAL_EXECUTION_ROOM_ID = "capitalCustodyExecutionSuite";
   const CAPITAL_CUSTODY_Z = 6;
+  const PUBLIC_EXECUTION_ARRIVAL_ROOM_ID = "publicExecutionArrival";
+  const PUBLIC_EXECUTION_SQUARE_ROOM_ID = "civicExecutionSquare";
+  const PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID = "civicExecutionScaffold";
+  const PUBLIC_EXECUTION_MEDICAL_ROOM_ID = "civicExecutionMedicalStation";
+  const PUBLIC_EXECUTION_Z = 7;
   const FUGITIVE_ALLEY_ROOM_ID = "municipalServiceAlley";
   const FUGITIVE_SAFE_ROOM_ID = "fugitiveSafeRoom";
   const PRISON_FUGITIVE_ROAD_ROOM_ID = "correctionalServiceRoad";
@@ -4411,6 +4416,14 @@
   if (!DeathRowEscape) {
     throw new Error("HelixDeathRowEscape must load before app.js");
   }
+  const ScientistDeath = window.HelixScientistDeath;
+  if (!ScientistDeath) {
+    throw new Error("HelixScientistDeath must load before app.js");
+  }
+  const PublicExecution = window.HelixPublicExecution;
+  if (!PublicExecution) {
+    throw new Error("HelixPublicExecution must load before app.js");
+  }
   const JailEscapeRescue = window.HelixJailEscapeRescue;
   if (!JailEscapeRescue) {
     throw new Error("HelixJailEscapeRescue must load before app.js");
@@ -4830,6 +4843,7 @@
     "prisonDischarge",
     "prisonBreakAction",
     "deathRowEscapeAction",
+    "publicExecutionAction",
     "capitalAppealTransfer",
     "executiveCommutationTransfer",
     "rest"
@@ -5104,6 +5118,8 @@
       prisonRelease: PrisonRelease.defaultState(),
       prisonBreak: PrisonBreak.defaultState(),
       deathRowEscape: DeathRowEscape.defaultState(),
+      scientistDeath: ScientistDeath.defaultState(),
+      publicExecution: PublicExecution.defaultState(),
       jailEscapeRescue: JailEscapeRescue.defaultState(),
       feedingResidues: [],
       feedstockIncomeProgress: {},
@@ -6600,7 +6616,7 @@
   }
 
   function currentDeathRowStay() {
-    return ensureDeathRowCustody().stays.find((stay) => ["active", "executionProcessDue", "resentencingRequired", "retrialRequired", "releaseOrdered", "commutationTransferRequired"].includes(stay.status)) || null;
+    return ensureDeathRowCustody().stays.find((stay) => ["active", "executionProcessDue", "executionInProgress", "resentencingRequired", "retrialRequired", "releaseOrdered", "commutationTransferRequired"].includes(stay.status)) || null;
   }
 
   function legalDeathRowStay() {
@@ -6653,6 +6669,18 @@
   function activeDeathRowEscapeAttempt() { return DeathRowEscape.activeAttempt(ensureDeathRowEscape()); }
   function latestCompletedDeathRowEscape() { return DeathRowEscape.latestEscape(ensureDeathRowEscape()); }
   function escapedDeathRowStay() { const attempt = latestCompletedDeathRowEscape(); return attempt ? ensureDeathRowCustody().stays.find((stay) => stay.id === attempt.stayId && stay.status === "escaped") || null : null; }
+
+  function ensureScientistDeath(target = state) {
+    if (target.scientistDeath?.version === ScientistDeath.VERSION && Array.isArray(target.scientistDeath.records) && Array.isArray(target.scientistDeath.contingencies)) return target.scientistDeath;
+    target.scientistDeath = ScientistDeath.normalizeState(target.scientistDeath); return target.scientistDeath;
+  }
+  function latestScientistDeath() { return ScientistDeath.latestRecord(ensureScientistDeath()); }
+  function ensurePublicExecution(target = state) {
+    if (target.publicExecution?.version === PublicExecution.VERSION && Array.isArray(target.publicExecution.records)) return target.publicExecution;
+    target.publicExecution = PublicExecution.normalizeState(target.publicExecution); return target.publicExecution;
+  }
+  function activePublicExecution() { return PublicExecution.activeExecution(ensurePublicExecution()); }
+  function publicExecutionForStay(stay = currentDeathRowStay()) { return stay ? PublicExecution.recordForStay(ensurePublicExecution(), stay.id) : null; }
 
   function ensurePretrialProceedings(target = state) {
     if (target.pretrialProceedings?.version === PretrialProceedings.VERSION
@@ -8643,7 +8671,7 @@
       [CAPITAL_VISITATION_ROOM_ID, "Monitored Capital Visitation", "office", 22, 11, 7, 6, [CAPITAL_CORRIDOR_ROOM_ID], "A monitored booth for approved visitors, company access, and optional spiritual counsel."],
       [CAPITAL_MEDICAL_ROOM_ID, "Capital Custody Medical Room", "laboratory", 15, 20, 6, 6, [CAPITAL_CORRIDOR_ROOM_ID], "Daily medical checks and emergency stabilization occur here."],
       [CAPITAL_EXERCISE_ROOM_ID, "Capital Custody Exercise and Shower", "quarters", 22, 20, 7, 7, [CAPITAL_CORRIDOR_ROOM_ID], "A warded room for escorted exercise and hygiene."],
-      [CAPITAL_EXECUTION_ROOM_ID, "Locked Execution Suite", "laboratory", 15, 29, 10, 7, [CAPITAL_CONTROL_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID], "A separately locked suite that remains inaccessible until execution-day mechanics begin."]
+      [CAPITAL_EXECUTION_ROOM_ID, "Execution-Day Transfer Chamber", "office", 15, 29, 10, 7, [CAPITAL_CONTROL_ROOM_ID, CAPITAL_CORRIDOR_ROOM_ID], "A separately locked restraint and convoy-transfer chamber. Public executions occur at the fortified civic square, never inside the custody unit."]
     ];
     const roomIds = roomSpecs.map(([id]) => id);
     const rooms = roomSpecs.map(([id, name, purposeId, x, y, width, height, connections, description]) => normalizeRoom({ id, name, articleName: `the ${name.toLowerCase()}`, purposeId, facilityClass: "detention", description, geometry: { shape: "secure room", lengthM: width, widthM: height, heightM: 3, floorAreaM2: width * height, volumeM3: width * height * 3 }, connections, purposeSource: "sentence", purposeReason: "Capital custody commitment" }));
@@ -8659,7 +8687,7 @@
     map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...excavated]); state.doors = normalizeDoors(state.doors, state.rooms, map);
     for (const [id] of doorSpecs) { const door = state.doors[id]; door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; door.accessRuleId = "restricted"; door.typeId = "ironBandDoor"; }
     const proceeding = ensurePretrialProceedings().proceedings.find((entry) => entry.id === caseRecord.proceedingId); const counsel = proceeding?.counsel?.options?.find((entry) => entry.id === proceeding.counsel.selectedOptionId);
-    const committed = DeathRowCustody.commit(ensureDeathRowCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay.id, docket: caseRecord.docket, roomIds, counselName: counsel?.name, labSnapshot: jailLabSnapshot() }); state.deathRowCustody = committed.state;
+    const committed = DeathRowCustody.commit(ensureDeathRowCustody(), { seed: state.seed, clock: state.clock, caseId: caseRecord.id, orderId: order.id, jailStayId: jailStay.id, docket: caseRecord.docket, roomIds, counselName: counsel?.name, executionMethod: order.executionMethod, publicEnemyDesignation: order.publicEnemyDesignation, labSnapshot: jailLabSnapshot() }); state.deathRowCustody = committed.state;
     if (!committed.created) return false;
     const appeal = CapitalAppeals.open(ensureCapitalAppeals(), { seed: state.seed, clock: state.clock, stayId: committed.stay.id, caseRecord, proceeding, automaticReviewAt: committed.stay.calendar.automaticReviewAt, executionAt: committed.stay.calendar.provisionalExecutionAt }); state.capitalAppeals = appeal.state;
     const commutation = ExecutiveCommutation.open(ensureExecutiveCommutation(), { seed: state.seed, clock: state.clock, stayId: committed.stay.id, caseRecord }); state.executiveCommutation = commutation.state;
@@ -8670,7 +8698,7 @@
     const marked = TrialSentencing.markOrderStatus(ensureTrialSentencing(), caseRecord.id, "committed", state.clock, `${order.label} began at ${committed.stay.facility.label}.`); state.trialSentencing = marked.state;
     const raid = ensureLawEnforcementRaids().raids.find((entry) => entry.id === caseRecord.raidId); if (raid?.detention) { raid.status = "completed"; raid.detention.status = "transferred"; raid.outcome = { kind: "deathRowTransfer", at: state.clock, summary: `${caseRecord.docket}: capital-custody transfer completed.` }; }
     const ui = ensureUiState(); ui.mapCursor = { ...state.scientist.mapCell }; ui.mapCamera = normalizeMapCamera({ x: 1, y: 1, z: CAPITAL_CUSTODY_Z }, map, ui.mapZoomIndex); setSelection({ kind: "scientist", id: "scientist" }, { source: "deathRow", centerMap: true }); syncActorInventories();
-    addEvent(`${caseRecord.docket}: armored transfer completed. The scientist entered ${committed.stay.facility.label}; a thirty-day provisional execution date, automatic capital review, named staff, daily custody, and redundant nullstone suppression are active. The sentence did not end the run.`, { sourceKind: "deathRowCustody", sourceId: committed.stay.id }); return true;
+    addEvent(`${caseRecord.docket}: armored transfer completed. The scientist entered ${committed.stay.facility.label}; the supported Public Enemy designation, public-beheading method, thirty-day provisional date, automatic capital review, named staff, daily custody, and redundant nullstone suppression are active. The sentence did not end the run.`, { sourceKind: "deathRowCustody", sourceId: committed.stay.id }); return true;
   }
 
   function applyJailSuppressor(stay) {
@@ -9145,6 +9173,7 @@
       stay.calendar.automaticReviewStatus = record.automaticReview.status === "scheduled" ? "scheduled" : record.automaticReview.status === "pending" ? "opened" : "resolved";
       const outcome = record.directAppeal.outcome || record.automaticReview.outcome; const reliefKind = outcome && outcome.kind !== "affirmed" ? outcome.successorKind : "";
       const directive = DeathRowCustody.applyLegalDirective(ensureDeathRowCustody(), stay.id, { stayed: record.execution.stayed, executionAt: record.execution.executionAt, rescheduled: Boolean(record.calendar.finalAdverseDecisionAt), finalAdverseDecisionAt: record.calendar.finalAdverseDecisionAt, reliefKind, summary: reliefKind ? outcome.summary : record.execution.stayed ? `${record.execution.stayKind} stayed the execution calendar.` : record.calendar.finalAdverseDecisionAt ? `Final adverse review set the earliest execution date after the mandatory 72-hour interval.` : "Capital review updated the execution calendar." }, state.clock); state.deathRowCustody = directive.state; changes += directive.changed ? 1 : 0;
+      if (interruptPublicExecutionForLegalRelief(stay.id)) changes += 1;
       if (record.successorCase && ["retrial", "resentencing"].includes(record.successorCase.kind) && !record.successorCase.trialCaseId) {
         const successor = TrialSentencing.openSuccessor(ensureTrialSentencing(), record.predecessorCaseId, { kind: record.successorCase.kind, appealRecordId: record.id, excludedSupportIds: record.successorCase.excludedSupportIds, reasons: outcome?.reasons, clock: record.successorCase.scheduledAt, stayId: stay.jailStayId }); state.trialSentencing = successor.state;
         if (successor.case) { const marked = CapitalAppeals.markSuccessor(ensureCapitalAppeals(), record.id, { trialCaseId: successor.case.id, status: "transferRequired", summary: `${successor.case.docket} opened as the linked ${record.successorCase.kind} case without rewriting ${record.predecessorCaseId}.` }, state.clock); state.capitalAppeals = marked.state; record = marked.record; changes += 1; }
@@ -9170,6 +9199,7 @@
       const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === record.stayId); if (!stay) continue; const appeal = CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id); const granted = record.status === "granted" && record.instrument; const effectiveStay = Boolean(record.execution.stayed || appeal?.execution.stayed);
       if (granted && !record.instrument.convertedCaseId) { const converted = TrialSentencing.recordExecutiveCommutation(ensureTrialSentencing(), record.predecessorCaseId, { executiveInstrumentId: record.instrument.id, incarcerationMonths: record.instrument.replacementMonths, reasons: record.instrument.reasons, clock: record.instrument.issuedAt }); state.trialSentencing = converted.state; if (converted.case) { const marked = ExecutiveCommutation.markInstrument(ensureExecutiveCommutation(), record.id, { convertedCaseId: converted.case.id, status: "transferRequired", summary: `${converted.case.docket} linked the executive instrument to a ten-year finite-prison commitment without rewriting ${record.predecessorCaseId}.` }, state.clock); state.executiveCommutation = marked.state; record = marked.record; changes += 1; } }
       const directive = DeathRowCustody.applyLegalDirective(ensureDeathRowCustody(), stay.id, { stayed: effectiveStay, executionAt: appeal?.execution.executionAt || stay.calendar.provisionalExecutionAt, rescheduled: Boolean(record.outcome?.kind === "denied" || appeal?.calendar.finalAdverseDecisionAt), finalAdverseDecisionAt: appeal?.calendar.finalAdverseDecisionAt, reliefKind: granted ? "commutation" : "", summary: granted ? record.outcome.summary : record.execution.stayed ? "The accepted executive petition administratively stayed execution." : record.outcome?.kind === "denied" ? "The executive petition was denied; any separate judicial stay remains controlling." : "Executive commutation availability was updated." }, state.clock); state.deathRowCustody = directive.state; changes += directive.changed ? 1 : 0;
+      if (interruptPublicExecutionForLegalRelief(stay.id)) changes += 1;
       if (record.decision.required && before.get(record.id) !== `${record.status}:${record.decision.kind}:${record.decision.required}`) addEvent(`${record.docket}: ${record.decision.reason}`, { sourceKind: "executiveCommutation", sourceId: record.id });
     }
     return changes;
@@ -9429,6 +9459,55 @@
   function advanceDeathRowTime(days = 1) { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); const commutation = currentExecutiveCommutation(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required || commutation?.decision.required) return false; const originalClock = state.clock; const desired = originalClock + Math.max(1, Math.min(7, Math.floor(Number(days) || 1))) * DeathRowCustody.DAY; const appellate = CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock); const executive = ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock); const events = [appellate?.at, executive?.at, !["stayed", "cancelled"].includes(stay.calendar.executionStatus) ? stay.calendar.provisionalExecutionAt : null, ...stay.communications.requests.filter((entry) => entry.status === "pending").map((entry) => entry.readyAt)].filter((at) => Number.isFinite(at) && at > state.clock && at < desired); const target = events.length ? Math.min(...events) : desired; advanceTime(target - state.clock, { quiet: true }); const updated = currentDeathRowStay(); const updatedAppeal = currentCapitalAppeal(); const updatedCommutation = currentExecutiveCommutation(); addEvent(`Capital custody advanced ${formatDuration(target - originalClock)}${target < desired ? ` and stopped for ${updatedAppeal?.decision.reason || updatedCommutation?.decision.reason || updated?.decision.reason || "a custody milestone"}` : ""}. The outside laboratory and world advanced over the same interval.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
 
   function advanceDeathRowMilestone() { const stay = currentDeathRowStay(); const appeal = currentCapitalAppeal(); const commutation = currentExecutiveCommutation(); if (!stay || stay.status !== "active" || stay.decision.required || appeal?.decision.required || commutation?.decision.required) return false; const events = [DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock), DeathRowEscape.nextEvent(ensureDeathRowEscape(), state.clock)].filter(Boolean).sort((left, right) => left.at - right.at || left.label.localeCompare(right.label)); const event = events[0]; if (!event || event.at <= state.clock) return false; advanceTime(event.at - state.clock, { quiet: true }); addEvent(`Capital custody advanced to ${event.label}.`, { sourceKind: "deathRowCustody", sourceId: stay.id }); persist(); render(); return true; }
+
+  function materializePublicExecutionSite() {
+    const roomSpecs = [
+      [PUBLIC_EXECUTION_ARRIVAL_ROOM_ID, "Civic Execution Convoy Gate", "office", 2, 4, 8, 7, [PUBLIC_EXECUTION_SQUARE_ROOM_ID], "A fortified vehicle gate where the capital convoy transfers its restrained prisoner into public security custody."],
+      [PUBLIC_EXECUTION_SQUARE_ROOM_ID, "Civic Execution Square", "surface", 11, 2, 17, 14, [PUBLIC_EXECUTION_ARRIVAL_ROOM_ID, PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID, PUBLIC_EXECUTION_MEDICAL_ROOM_ID], "A fortified public square with crowd barriers, holographic relays, and a live internet broadcast perimeter."],
+      [PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID, "Public Execution Scaffold", "office", 29, 4, 9, 9, [PUBLIC_EXECUTION_SQUARE_ROOM_ID], "A guarded scaffold containing the block, executioner's axe, proclamation position, and final legal-clearance signal."],
+      [PUBLIC_EXECUTION_MEDICAL_ROOM_ID, "Execution Medical Station", "laboratory", 19, 17, 9, 7, [PUBLIC_EXECUTION_SQUARE_ROOM_ID], "The capital medical officer verifies physiology and treats any person who physically survives a failed execution."]
+    ];
+    const ids = roomSpecs.map(([id]) => id); const rooms = roomSpecs.map(([id, name, purposeId, _x, _y, width, height, connections, description]) => normalizeRoom({ id, name, articleName: `the ${name.toLowerCase()}`, purposeId, facilityClass: "civicExecution", description, geometry: { shape: "fortified civic site", lengthM: width, widthM: height, heightM: 4, floorAreaM2: width * height, volumeM3: width * height * 4 }, connections, purposeSource: "publicExecution", purposeReason: "Run-local physical public-enemy execution" }));
+    state.rooms = normalizeRooms([...state.rooms.filter((room) => !ids.includes(room.id)), ...rooms]); const map = ensureLabMap(); map.layers[String(PUBLIC_EXECUTION_Z)] = { id: "publicExecutionSite", kind: "surface", label: "Civic Execution Square" }; const excavated = [];
+    for (const [id, _name, _purposeId, x, y, width, height] of roomSpecs) { const rect = { roomId: id, x, y, z: PUBLIC_EXECUTION_Z, width, height }; const room = rooms.find((entry) => entry.id === id); map.rooms[id] = normalizeLabMapRoom({ ...rect, cells: rectangularRoomCells(rect), anchor: { x: x + Math.floor(width / 2), y: y + Math.floor(height / 2), z: PUBLIC_EXECUTION_Z } }, room); excavated.push(...rectangularRoomCells(rect)); state.roomStockpiles[id] ||= emptyRoomStockpile(); }
+    const doors = [["door-public-execution-gate", PUBLIC_EXECUTION_ARRIVAL_ROOM_ID, PUBLIC_EXECUTION_SQUARE_ROOM_ID, 10, 7], ["door-public-execution-scaffold", PUBLIC_EXECUTION_SQUARE_ROOM_ID, PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID, 28, 8], ["door-public-execution-medical", PUBLIC_EXECUTION_SQUARE_ROOM_ID, PUBLIC_EXECUTION_MEDICAL_ROOM_ID, 23, 16]];
+    for (const [id, leftRoomId, rightRoomId, x, y] of doors) { const cell = { x, y, z: PUBLIC_EXECUTION_Z }; excavated.push(cell); map.doors[id] = normalizeLabMapDoor({ id, roomIds: [leftRoomId, rightRoomId], cell, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 2, heightM: 3 } }, id, map.rooms); }
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...excavated]); state.doors = normalizeDoors(state.doors, state.rooms, map); for (const [id] of doors) { const door = state.doors[id]; door.state = DOOR_STATE_CLOSED; door.lockState = DOOR_LOCK_LOCKED; door.accessRuleId = "restricted"; door.typeId = "ironBandDoor"; }
+    return true;
+  }
+
+  function publicExecutionBusy() { return state.tasks.some((task) => task.type === "publicExecutionAction"); }
+  function publicExecutionStaff(stay, options = {}) { return (stay?.actors || []).filter((actor) => ["capitalSupervisor", "custodyOfficer", "medicalOfficer", "executionOfficer", "legalLiaison"].includes(actor.role) || actor.role === "capitalCounselVisitor" && options.counsel || actor.role === "spiritualAdvisor" && options.spiritualAccess).map((actor) => ({ id: actor.id, name: actor.name, role: actor.role })); }
+  function movePublicExecutionStaff(record, roomId) { const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === record?.stayId); const anchor = labMapRoomAnchor(roomId); if (!stay || !anchor) return; const ids = new Set(record.staff.map((entry) => entry.id)); let index = 0; for (const actor of stay.actors.filter((entry) => ids.has(entry.id))) { actor.present = true; actor.roomId = roomId; actor.mapCell = { x: anchor.x + (index % 3) - 1, y: anchor.y + Math.floor(index / 3), z: anchor.z }; index += 1; } }
+  function planPublicExecution(options = {}) {
+    const stay = currentDeathRowStay(); if (!stay || stay.status !== "executionProcessDue" || activeDeathRowEscapeAttempt() || publicExecutionBusy()) return false;
+    materializePublicExecutionSite(); const planned = PublicExecution.plan(ensurePublicExecution(), stay, { designation: stay.sentence.publicEnemyDesignation, staff: publicExecutionStaff(stay, options), counsel: options.counsel, spiritualAccess: options.spiritualAccess, statementStanceId: options.statementStanceId, statementText: options.statementText }, state.clock); state.publicExecution = planned.state; if (!planned.created) return false;
+    const begun = DeathRowCustody.beginExecution(ensureDeathRowCustody(), stay.id, planned.record.id, state.clock); state.deathRowCustody = begun.state; if (!begun.changed) return false;
+    addEvent(`${stay.docket}: the public-enemy execution record froze final access, the public statement, named staff, armored convoy, civic-square broadcast, block, axe, and physical death verification. The scientist remains alive.`, { sourceKind: "publicExecution", sourceId: planned.record.id }); persist(); render(); return true;
+  }
+  function queueNextPublicExecutionStage(recordId) {
+    const record = ensurePublicExecution().records.find((entry) => entry.id === recordId); const stay = record && ensureDeathRowCustody().stays.find((entry) => entry.id === record.stayId); if (!record || stay?.status !== "executionInProgress" || publicExecutionBusy()) return false;
+    const begun = PublicExecution.beginStage(ensurePublicExecution(), record.id, state.clock); state.publicExecution = begun.state; if (!begun.changed) return false; const stage = begun.stage; const destination = cleanMapCell(labMapRoomAnchor(stage.destinationRoomId));
+    state.tasks.push({ id: `task-${state.nextTaskNumber++}`, type: "publicExecutionAction", label: stage.label, createdAt: state.clock, dueAt: state.clock + minutesToSeconds(stage.durationMinutes), data: { recordId: record.id, stageId: stage.id, roomId: scientistRoomId(), destinationRoomId: stage.destinationRoomId, toCell: destination, mapPath: [], accessOverrideAll: true } });
+    addEvent(`${stage.label} began. It remains a saved physical stage; controlling legal relief can interrupt it before the axe physically lands.`, { sourceKind: "publicExecution", sourceId: record.id }); persist(); render(); return true;
+  }
+  function recordScientistPhysicalDeath(options = {}) {
+    const result = ScientistDeath.recordDeath(ensureScientistDeath(), { causeKind: options.causeKind, causeLabel: options.causeLabel, location: { roomId: options.roomId || scientistRoomId(), mapCell: options.mapCell || scientistMapCell() }, physiology: options.physiology || { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, injuryIds: options.injuryIds, body: options.body, legal: options.legal, summary: options.summary }, state.clock); state.scientistDeath = result.state; if (!result.created) return result;
+    state.paused = true; state.runEnded = result.terminal; addEvent(result.resurrectionPending ? `${result.record.summary} A completed remote resurrection contingency accepted the death handoff; physical resurrection remains pending.` : `${result.record.summary} No valid completed resurrection contingency survived, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id }); return result;
+  }
+  function finishPublicExecutionAction(task) {
+    const current = ensurePublicExecution().records.find((entry) => entry.id === task.data?.recordId); const stay = current && ensureDeathRowCustody().stays.find((entry) => entry.id === current.stayId); if (!current || !stay) return false;
+    if (task.data?.stageId !== "axeStrike") { const completed = PublicExecution.completeStage(ensurePublicExecution(), current.id, state.clock); state.publicExecution = completed.state; if (!completed.changed) return false; state.scientist.roomId = completed.stage.destinationRoomId; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(completed.stage.destinationRoomId)); movePublicExecutionStaff(completed.record, completed.stage.destinationRoomId); addEvent(`${completed.stage.label} completed${completed.nextStage ? `. Next: ${completed.nextStage.label}.` : "."}`, { sourceKind: "publicExecution", sourceId: current.id }); return true; }
+    const survived = Boolean(state.scientist.physicalState?.decapitationSurvival); const resolved = PublicExecution.resolveStrike(ensurePublicExecution(), current.id, { survived }, state.clock); state.publicExecution = resolved.state; if (!resolved.changed) return false;
+    recordCombatInjury(state.scientist, survived ? 95 : 100, ["physical", "severing"], "public executioner's axe strike", { observed: true });
+    if (survived) { scientistVital("health").current = Math.max(1, scientistVital("health").current); state.scientist.roomId = PUBLIC_EXECUTION_MEDICAL_ROOM_ID; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(PUBLIC_EXECUTION_MEDICAL_ROOM_ID)); const interrupted = DeathRowCustody.interruptExecution(ensureDeathRowCustody(), stay.id, { retryNotBefore: resolved.record.outcome.retryNotBefore, summary: resolved.record.outcome.summary }, state.clock); state.deathRowCustody = interrupted.state; movePublicExecutionStaff(resolved.record, PUBLIC_EXECUTION_MEDICAL_ROOM_ID); state.paused = true; addEvent(`${stay.docket}: catastrophic severing occurred, but the scientist remained physically alive. Emergency treatment began and no immediate repeat is lawful.`, { sourceKind: "publicExecution", sourceId: current.id }); return true; }
+    scientistVital("health").current = 0; state.scientist.roomId = PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID; state.scientist.mapCell = cleanMapCell(labMapRoomAnchor(PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID)); const death = recordScientistPhysicalDeath({ causeKind: "statePublicExecution", causeLabel: "Public beheading by executioner's axe", roomId: PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID, physiology: { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", brainContinuity: false, headAttached: false, lethal: true }, body: { custodyKind: "capitalAuthority", custodian: stay.facility.label, roomId: PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID, partIds: ["scientist-head-remains", "scientist-body-remains"] }, legal: { caseId: stay.caseId, stayId: stay.id, executionId: current.id }, summary: "The executioner's axe physically separated the scientist's head, and the capital medical officer confirmed death." });
+    const marked = DeathRowCustody.markDeceased(ensureDeathRowCustody(), stay.id, { deathRecordId: death.record?.id, summary: resolved.record.outcome.summary }, state.clock); state.deathRowCustody = marked.state; if (death.record) state.publicExecution = PublicExecution.attachDeathRecord(ensurePublicExecution(), current.id, death.record.id).state; movePublicExecutionStaff(resolved.record, PUBLIC_EXECUTION_SCAFFOLD_ROOM_ID); return true;
+  }
+  function interruptPublicExecutionForLegalRelief(stayId) {
+    const record = PublicExecution.recordForStay(ensurePublicExecution(), stayId); const stay = ensureDeathRowCustody().stays.find((entry) => entry.id === stayId); if (!record || !["planned", "active"].includes(record.status) || stay?.status === "executionInProgress") return false;
+    const result = PublicExecution.interrupt(ensurePublicExecution(), record.id, { kind: "lawfulRelief", summary: "Controlling legal relief stopped the public execution before the axe physically landed." }, state.clock); state.publicExecution = result.state; if (!result.changed) return false; state.tasks = state.tasks.filter((task) => !(task.type === "publicExecutionAction" && task.data?.recordId === record.id)); addEvent(`${record.docket}: controlling legal relief interrupted the physical public execution. The scientist remains alive at the stage where the order arrived.`, { sourceKind: "publicExecution", sourceId: record.id }); return true;
+  }
 
   function fileExecutiveCommutation(rationaleId) {
     const stay = legalDeathRowStay(); const record = currentExecutiveCommutation(); const appeal = currentCapitalAppeal(); const inputs = executiveCommutationInputs(stay, record); if (!stay || !["active", "escaped"].includes(stay.status) || !record || !inputs) return false;
@@ -12225,7 +12304,7 @@
         scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), mana: scientistVital("mana").current }, runEnded: state.runEnded
       }),
       prisonCustodySnapshot: () => clonePlainObject({ ...ensurePrisonCustody(), activeStay: currentPrisonStay(), escapedStay: escapedPrisonStay(), releaseRecord: currentPrisonReleaseRecord(), releaseRecords: ensurePrisonRelease().records, prisonBreak: ensurePrisonBreak(), activePrisonBreak: activePrisonBreakAttempt(), latestPrisonEscape: latestCompletedPrisonBreak(), nextEvent: PrisonCustody.nextEvent(ensurePrisonCustody(), state.clock), nextReleaseMilestone: currentPrisonStay() ? PrisonRelease.nextMilestone(ensurePrisonRelease(), currentPrisonStay().id, state.clock) : null, clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => ["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction"].includes(task.type)), money: ensureEconomy().money, runEnded: state.runEnded }),
-      deathRowCustodySnapshot: () => clonePlainObject({ ...ensureDeathRowCustody(), activeStay: currentDeathRowStay(), escapedStay: escapedDeathRowStay(), capitalAppeals: ensureCapitalAppeals(), activeAppeal: currentCapitalAppeal(), executiveCommutation: ensureExecutiveCommutation(), activeCommutation: currentExecutiveCommutation(), deathRowEscape: ensureDeathRowEscape(), activeEscape: activeDeathRowEscapeAttempt(), completedEscape: latestCompletedDeathRowEscape(), nextEvent: DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), nextAppealEvent: CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), nextCommutationEvent: ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock), nextEscapeEvent: DeathRowEscape.nextEvent(ensureDeathRowEscape(), state.clock), clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell() }, custodyTasks: state.tasks.filter((task) => ["capitalAppealTransfer", "executiveCommutationTransfer", "deathRowEscapeAction"].includes(task.type)), runEnded: state.runEnded }),
+      deathRowCustodySnapshot: () => clonePlainObject({ ...ensureDeathRowCustody(), activeStay: currentDeathRowStay(), escapedStay: escapedDeathRowStay(), capitalAppeals: ensureCapitalAppeals(), activeAppeal: currentCapitalAppeal(), executiveCommutation: ensureExecutiveCommutation(), activeCommutation: currentExecutiveCommutation(), deathRowEscape: ensureDeathRowEscape(), activeEscape: activeDeathRowEscapeAttempt(), completedEscape: latestCompletedDeathRowEscape(), publicExecution: ensurePublicExecution(), activePublicExecution: activePublicExecution(), scientistDeath: ensureScientistDeath(), latestDeath: latestScientistDeath(), nextEvent: DeathRowCustody.nextEvent(ensureDeathRowCustody(), state.clock), nextAppealEvent: CapitalAppeals.nextEvent(ensureCapitalAppeals(), state.clock), nextCommutationEvent: ExecutiveCommutation.nextEvent(ensureExecutiveCommutation(), state.clock), nextEscapeEvent: DeathRowEscape.nextEvent(ensureDeathRowEscape(), state.clock), clock: state.clock, magicSuppressionReason: scientistMagicSuppressionReason(), scientist: { roomId: scientistRoomId(), mapCell: scientistMapCell(), health: scientistVital("health").current }, custodyTasks: state.tasks.filter((task) => ["capitalAppealTransfer", "executiveCommutationTransfer", "deathRowEscapeAction", "publicExecutionAction"].includes(task.type)), runEnded: state.runEnded }),
       makePrisonTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "finitePrison") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentPrisonStay()); },
       makeDeathRowTransferDueNow: (caseId) => { const caseRecord = ensureTrialSentencing().cases.find((entry) => entry.id === caseId); if (!caseRecord?.sentencing.order || caseRecord.sentencing.order.kind !== "deathRow") return false; caseRecord.sentencing.order.transferNotBefore = state.clock; const changed = updateTrialSentencing(); persist(); render(); return Boolean(changed && currentDeathRowStay()); },
       setDeathRowPriority: (priorityId) => saveDeathRowPriority(priorityId),
@@ -12243,6 +12322,11 @@
       queueExecutiveCommutationTransfer: (recordId) => queueExecutiveCommutationTransfer(recordId),
       completeExecutiveCommutationTransferNow: () => { const task = state.tasks.find((entry) => entry.type === "executiveCommutationTransfer"); if (!task) return false; task.dueAt = state.clock; completeDueTasks(); persist(); render(); return true; },
       makeDeathRowExecutionDueNow: () => { let stay = currentDeathRowStay(); if (!stay || stay.status !== "active") return false; for (let index = 0; index < 8; index += 1) { const appeal = ensureCapitalAppeals().records.find((entry) => entry.stayId === stay.id); if (!appeal || appeal.status !== "active") break; if (appeal.decision.required) { state.capitalAppeals = CapitalAppeals.clearDecision(ensureCapitalAppeals(), appeal.id).state; continue; } if (appeal.automaticReview.status === "scheduled") appeal.calendar.automaticReviewAt = state.clock; else if (appeal.automaticReview.status === "pending") appeal.automaticReview.decisionAt = state.clock; else if (appeal.directAppeal.status === "filed") appeal.directAppeal.decisionAt = state.clock; else if (appeal.directAppeal.status === "available") appeal.calendar.directAppealDeadlineAt = state.clock; else break; updateCapitalAppeals(); stay = currentDeathRowStay(); if (!stay || stay.status !== "active") break; } const appeal = currentCapitalAppeal(); if (appeal?.decision.required) state.capitalAppeals = CapitalAppeals.clearDecision(ensureCapitalAppeals(), appeal.id).state; stay = currentDeathRowStay(); if (stay?.status === "active") { state.clock = Math.max(state.clock, stay.calendar.provisionalExecutionAt); state.deathRowCustody = DeathRowCustody.advance(ensureDeathRowCustody(), state.clock).state; } persist(); render(); return currentDeathRowStay()?.status === "executionProcessDue"; },
+      planPublicExecution: (options = {}) => planPublicExecution(options),
+      queueNextPublicExecutionStage: (recordId) => queueNextPublicExecutionStage(recordId),
+      completePublicExecutionActionNow: () => { const task = state.tasks.find((entry) => entry.type === "publicExecutionAction"); if (!task) return false; task.dueAt = state.clock; completeDueTasks(); persist(); render(); return true; },
+      forceDecapitationSurvival: (enabled = true) => { state.scientist.physicalState ||= {}; state.scientist.physicalState.decapitationSurvival = Boolean(enabled); persist(); return true; },
+      addTestResurrectionContingency: () => { const result = ScientistDeath.addContingency(ensureScientistDeath(), { kind: "soulAnchor", label: "Remote hidden-base resurrection anchor", status: "ready", siteId: "test-hidden-base", siteIntact: true, utilitiesOnline: true, preparedBodyId: "test-prepared-body", memoryTier: "perfected" }, state.clock); state.scientistDeath = result.state; persist(); return clonePlainObject(result.contingency); },
       prepareDeathRowEscapeTestSupport: (routeKind = "counterfeitTransfer") => { const stay = currentDeathRowStay(); const opened = currentDeathRowEscapeRecord() || openDeathRowEscapeRecord(stay); const record = ensureDeathRowEscape().records.find((entry) => entry.id === opened?.id); if (!stay || !record) return null; record.factIds = DeathRowEscape.FACT_DEFS.map((entry) => entry.id); const channelId = routeKind === "counterfeitTransfer" ? "companyPortal" : "approvedVisitor"; if (!stay.communications.sessions.some((entry) => entry.channelId === channelId)) stay.communications.sessions.push({ id: `capital-session-debug-${channelId}`, requestId: "debug", channelId, startedAt: state.clock, endedAt: state.clock, monitored: true, privileged: false, summary: "Debug completed access session." }); const contact = ensureEconomy().contacts[0]; if (contact) { contact.archetype = routeKind === "counterfeitTransfer" ? "industrialSmuggler" : contact.archetype; contact.trust = 100; contact.reliability = .99; contact.unavailableUntil = 0; } ensureEconomy().money = Math.max(ensureEconomy().money, 20000); persist(); render(); return clonePlainObject({ record, contact }); },
       deathRowEscapeAvailability: (routeKind, contactId, collarStrategyId = "keepLocked") => { const stay = currentDeathRowStay(); const record = currentDeathRowEscapeRecord(); const contact = ensureEconomy().contacts.find((entry) => entry.id === contactId); const session = deathRowEscapeSession(stay, routeKind); return clonePlainObject({ stayStatus: stay?.status, record, contact, session, money: ensureEconomy().money, active: activeDeathRowEscapeAttempt(), availability: DeathRowEscape.routeAvailability(record, routeKind, { collarStrategyId, visitorSessionId: routeKind === "visitorDiversion" ? session?.id : "", codedSessionId: routeKind === "counterfeitTransfer" ? session?.id : "", contact, money: ensureEconomy().money }) }); },
       planDeathRowEscape: (routeKind, contactId, collarStrategyId = "keepLocked") => planDeathRowEscape(routeKind, contactId, collarStrategyId),
@@ -17282,6 +17366,7 @@
     if (task.type === "prisonDischarge") { finishPrisonDischarge(task); return; }
     if (task.type === "prisonBreakAction") { finishPrisonBreakAction(task); return; }
     if (task.type === "deathRowEscapeAction") { finishDeathRowEscapeAction(task); return; }
+    if (task.type === "publicExecutionAction") { finishPublicExecutionAction(task); return; }
     if (task.type === "trialCourtAppearance") {
       finishTrialCourtAppearance(task);
       return;
@@ -35167,9 +35252,7 @@
     }
     addEvent(`Scientist hurt in combat: ${reason}.`);
     if (health.current <= 0 && before > 0) {
-      state.runEnded = true;
-      state.paused = true;
-      addEvent("The scientist died. Run ended.");
+      recordScientistPhysicalDeath({ causeKind: "combatTrauma", causeLabel: reason, physiology: { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, body: { custodyKind: "site", custodian: roomName(scientistRoomId()) }, summary: `The scientist died from ${reason}.` });
     }
     return true;
   }
@@ -41413,9 +41496,7 @@
     addEvent(`Scientist hurt during handling: ${reason}.`);
     recordCombatInjury(state.scientist, damage, ["physical"], reason, { observed: true });
     if (health.current <= 0 && before > 0) {
-      state.runEnded = true;
-      state.paused = true;
-      addEvent("The scientist died. Run ended.");
+      recordScientistPhysicalDeath({ causeKind: "handlingInjury", causeLabel: reason, physiology: { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, body: { custodyKind: "site", custodian: roomName(scientistRoomId()) }, summary: `The scientist died from ${reason}.` });
     }
     return true;
   }
@@ -58786,7 +58867,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dead: scientistHealthRatio <= 0
     });
     const scientistSpriteVisual = actorSpriteVisual("actor.scientist", scientistActorState);
-    entities.push({
+    const separatedScientistDeath = latestScientistDeath()?.physiology.headAttached === false;
+    if (!separatedScientistDeath) entities.push({
       id: "scientist:scientist",
       kind: "scientist",
       category: "actor",
@@ -58875,9 +58957,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         entities.push({ id: `prison-actor:${actor.id}`, kind: "prisonActor", category: "actor", subtype: actor.role, target: { kind: "prisonActor", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)], orientation: "square", facing: "south", pose: prisoner ? "waiting" : "walking", activity: { id: stay.routine.currentKind, label: `${stay.routine.currentLabel} · ${prisoner ? actor.affiliation : titleCase(actor.role)}`, source: "prison custody" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("prison-custody", prisoner ? "notice" : "warning", `${titleCase(actor.role)} · ${actor.affiliation}`, prisoner ? "P" : "C")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "direct prison observation" }, visual: { key: "actor.scientist", glyph: prisoner ? "P" : actor.role === "shiftSupervisor" ? "S" : "O", recipeKey: `prison:${actor.role}:${stay.routine.currentKind}` }, blocking: false });
       }
     }
-    for (const stay of ensureDeathRowCustody().stays.filter((entry) => ["active", "executionProcessDue"].includes(entry.status))) {
+    for (const stay of ensureDeathRowCustody().stays.filter((entry) => ["active", "executionProcessDue", "executionInProgress", "deceased"].includes(entry.status))) {
       for (const actor of stay.actors.filter((entry) => entry.present && entry.mapCell)) entities.push({ id: `capital-actor:${actor.id}`, kind: "capitalCustodyActor", category: "actor", subtype: actor.role, target: { kind: "capitalCustodyActor", id: actor.id }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)], orientation: "square", facing: "south", pose: "waiting", activity: { id: stay.routine.currentKind, label: `${stay.routine.currentLabel} · ${titleCase(actor.role)}`, source: "capital custody" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("capital-custody", "warning", `${titleCase(actor.role)} · ${actor.affiliation}`, "D")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "direct capital-custody observation" }, visual: { key: "actor.scientist", glyph: actor.role === "capitalSupervisor" ? "S" : actor.role === "executionOfficer" ? "E" : "O", recipeKey: `capital:${actor.role}:${stay.routine.currentKind}` }, blocking: false });
     }
+    const scientistDeath = latestScientistDeath();
+    if (scientistDeath?.physiology.headAttached === false && scientistDeath.location.mapCell) {
+      const base = cleanMapCell(scientistDeath.location.mapCell); for (const [partId, glyph, dx] of [["scientist-head-remains", "H", -1], ["scientist-body-remains", "B", 1]]) { const cell = { x: base.x + dx, y: base.y, z: base.z }; entities.push({ id: `scientist-remains:${partId}`, kind: "scientistRemains", category: "object", subtype: partId, target: { kind: "scientistRemains", id: partId }, anchorCell: cell, footprintCells: [cell], orientation: "square", facing: "south", pose: "still", activity: { id: "physicalDeath", label: `${partId === "scientist-head-remains" ? "Separated head" : "Separated body"} retained by ${scientistDeath.body.custodian}`, source: "scientist death" }, motion: null, condition: { ratio: 0, band: "destroyed", cues: ["physically separated remains"] }, statusCues: [sceneStatusCue("scientist-remains", "critical", scientistDeath.causeLabel, glyph)], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "physical death record" }, visual: { key: "actor.scientist", glyph, recipeKey: `scientist-remains:${partId}` }, blocking: false }); } }
     for (const attempt of ensurePrisonBreak().attempts.filter((entry) => entry.routeKind === "covertRescue" && ["planned", "active"].includes(entry.status) && entry.vehicle?.present && entry.vehicle?.mapCell)) {
       const vehicle = attempt.vehicle; entities.push({ id: `prison-rescue-vehicle:${vehicle.id}`, kind: "prisonRescueVehicle", category: "object", subtype: "covertServiceVehicle", target: { kind: "prisonRescueVehicle", id: vehicle.id }, anchorCell: cleanMapCell(vehicle.mapCell), footprintCells: [cleanMapCell(vehicle.mapCell)], orientation: "square", facing: "west", pose: "waiting", activity: { id: attempt.status, label: `${vehicle.label} · ${vehicle.registration}`, source: "prison rescue" }, motion: null, condition: { ratio: 1, band: "healthy", cues: [] }, statusCues: [sceneStatusCue("covert-extraction", "warning", `Physical concealment vehicle for ${attempt.id}`, "V")], knowledge: { state: "current", observedAt: state.clock, confidence: 1, source: "saved covert-rescue plan" }, visual: { key: "actor.scientist", glyph: "V", recipeKey: `prison-rescue-vehicle:${attempt.status}` }, blocking: false });
     }
@@ -59223,7 +59308,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "The scientist is in pretrial detention and cannot reach the laboratory.";
     }
     if (currentPrisonStay() && !["prisonInteraction", "prisonCommunication", "prisonReleaseReview", "prisonDischarge", "prisonBreakAction", "rest"].includes(task.type)) return "The scientist is serving a finite prison sentence and cannot reach or directly supervise the laboratory.";
-    if (currentDeathRowStay() && !["capitalAppealTransfer", "executiveCommutationTransfer", "deathRowEscapeAction", "rest"].includes(task.type)) return "The scientist is held in the State Capital Custody Unit and cannot reach or directly supervise the laboratory.";
+    if (currentDeathRowStay() && !["capitalAppealTransfer", "executiveCommutationTransfer", "deathRowEscapeAction", "publicExecutionAction", "rest"].includes(task.type)) return "The scientist is held in the State Capital Custody Unit and cannot reach or directly supervise the laboratory.";
     if (scientistInFugitiveStaging() && !["jailEscapeAction", "prisonBreakAction", "deathRowEscapeAction", "rest"].includes(task.type)) {
       return "The scientist is at an off-site fugitive staging location and cannot perform or directly supervise laboratory work.";
     }
@@ -68780,6 +68865,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function appendPublicExecutionControls(row, stay) {
+    const record = publicExecutionForStay(stay); row.append(textEl("strong", "Public Enemy Execution", "journal-meta"), textEl("span", `${stay.sentence.publicEnemyDesignation.label}: ${stay.sentence.publicEnemyDesignation.grounds.join(" ")} Method: public beheading by executioner's axe after armored transfer to a fortified civic square.`, "journal-meta"));
+    if (stay.status === "executionProcessDue" && (!record || record.status === "interrupted")) {
+      const counsel = document.createElement("label"); const counselInput = document.createElement("input"); counselInput.type = "checkbox"; counselInput.checked = true; counsel.append(counselInput, " Final privileged counsel");
+      const spiritual = document.createElement("label"); const spiritualInput = document.createElement("input"); spiritualInput.type = "checkbox"; spiritual.append(spiritualInput, " Optional spiritual access");
+      const stance = document.createElement("select"); stance.setAttribute("aria-label", "Final public statement stance"); for (const entry of PublicExecution.STATEMENT_STANCES) { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.label; stance.append(option); }
+      const statement = document.createElement("input"); statement.type = "text"; statement.maxLength = 500; statement.placeholder = "Optional final statement text"; statement.setAttribute("aria-label", "Optional final public statement text");
+      const begin = document.createElement("button"); begin.type = "button"; begin.className = "danger-button"; begin.textContent = record ? "Begin Newly Authorized Public Execution" : "Begin Physical Public Execution"; begin.disabled = publicExecutionBusy() || Boolean(activeDeathRowEscapeAttempt()); begin.addEventListener("click", () => planPublicExecution({ counsel: counselInput.checked, spiritualAccess: spiritualInput.checked, statementStanceId: stance.value, statementText: statement.value })); row.append(counsel, spiritual, stance, statement, begin);
+    }
+    if (record) {
+      row.append(textEl("span", `Status: ${titleCase(record.status)} · broadcast ${titleCase(record.broadcast.status)} through the public square, internet stream, and holographic relay · statement ${titleCase(record.choices.statementStanceId)}${record.choices.statementText ? `: “${record.choices.statementText}”` : ""}.`, "journal-meta"));
+      for (const stage of record.stages) row.append(textEl("span", `${stage.label}: ${titleCase(stage.status)}${stage.startedAt != null ? ` · ${formatClock(stage.startedAt)}` : ""}.`, "journal-meta"));
+      if (record.outcome) row.append(textEl("span", record.outcome.summary, "journal-meta"));
+      const next = record.stages[record.currentStageIndex]; if (["planned", "active"].includes(record.status) && next) { const advance = document.createElement("button"); advance.type = "button"; advance.className = "danger-button"; advance.textContent = `Advance Physical Stage: ${next.label}`; advance.disabled = publicExecutionBusy() || stay.status !== "executionInProgress"; advance.addEventListener("click", () => queueNextPublicExecutionStage(record.id)); row.append(advance); }
+    }
+  }
+
   function renderDeathRowCustodyPanel(stay) {
     const appeal = CapitalAppeals.recordForStay(ensureCapitalAppeals(), stay.id); const commutation = ExecutiveCommutation.recordForStay(ensureExecutiveCommutation(), stay.id); const section = document.createElement("section"); section.className = "subpanel raid-section"; section.dataset.deathRowCustody = stay.id; section.append(textEl("div", `Capital Custody · ${stay.facility.label}`, "subpanel-title"));
     const row = document.createElement("article"); row.className = "journal-row visit-row raid-row"; const dueIn = Math.max(0, stay.calendar.provisionalExecutionAt - state.clock);
@@ -68821,8 +68923,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const channel of DeathRowCustody.CHANNELS) { const request = stay.communications.requests.find((entry) => entry.channelId === channel.id && ["pending", "ready"].includes(entry.status)); const button = document.createElement("button"); button.type = "button"; button.textContent = request?.status === "ready" ? `Use ${channel.label}` : request ? `${channel.label} Pending` : `Request ${channel.label}`; button.disabled = request?.status === "pending" || stay.decision.required; button.addEventListener("click", () => request?.status === "ready" ? useDeathRowCommunication(request.id) : requestDeathRowCommunication(channel.id)); row.append(button); }
       for (const [days, label] of [[1, "Advance Custody Day"], [7, "Repeat Up to 7 Days"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.disabled = Boolean(blockingDecision); button.addEventListener("click", () => advanceDeathRowTime(days)); row.append(button); } const milestone = document.createElement("button"); milestone.type = "button"; milestone.textContent = "Advance to Next Custody Milestone"; milestone.disabled = Boolean(blockingDecision); milestone.addEventListener("click", advanceDeathRowMilestone); row.append(milestone);
     }
-    appendDeathRowEscapeControls(row, stay);
-    row.append(textEl("span", `Execution suite: locked and inaccessible. Appellate review, political commutation, capital escape, and physical execution day remain separate systems.`, "journal-meta")); section.append(row); return section;
+    if (!["executionInProgress"].includes(stay.status)) appendDeathRowEscapeControls(row, stay);
+    if (["executionProcessDue", "executionInProgress"].includes(stay.status) || publicExecutionForStay(stay)) appendPublicExecutionControls(row, stay);
+    row.append(textEl("span", `Execution-day transfer chamber: locked and inaccessible during ordinary custody. Any actual execution requires physical convoy travel to the public square, an interruptible legal-clearance sequence, an axe strike, and medically confirmed lethal physiology.`, "journal-meta")); section.append(row); return section;
   }
 
   function renderCapitalFugitivePanel(attempt) {
@@ -71191,9 +71294,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         health.current = clamp(health.current - damage, 0, health.max);
         healthChanged = Math.abs(health.current - healthBefore) >= 0.01;
         if (health.current <= 0 && healthBefore > 0) {
-          state.runEnded = true;
-          state.paused = true;
-          addEvent("The scientist collapsed from untreated exposure. Run ended.");
+          recordScientistPhysicalDeath({ causeKind: "untreatedExposure", causeLabel: "Untreated environmental exposure", physiology: { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, body: { custodyKind: "site", custodian: roomName(scientistRoomId()) }, summary: "The scientist collapsed and died from untreated exposure." });
         }
       }
     }
@@ -76958,6 +77059,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.prisonRelease = PrisonRelease.normalizeState(candidate?.prisonRelease);
     next.prisonBreak = PrisonBreak.normalizeState(candidate?.prisonBreak);
     next.deathRowEscape = DeathRowEscape.normalizeState(candidate?.deathRowEscape);
+    next.scientistDeath = ScientistDeath.normalizeState(candidate?.scientistDeath);
+    next.publicExecution = PublicExecution.normalizeState(candidate?.publicExecution);
     next.jailEscapeRescue = JailEscapeRescue.normalizeState(candidate?.jailEscapeRescue);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {
       next.externalDetection = ExternalDetection.addLegacyMemory(next.externalDetection, Math.min(30, Number(candidate.suspicion)), next.clock);
@@ -76971,7 +77074,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.corpses ||= [];
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist, next.rooms);
-    next.runEnded = Boolean(next.runEnded) || next.scientist.vitals.health.current <= 0;
+    const latestDeath = ScientistDeath.latestRecord(next.scientistDeath);
+    next.runEnded = Boolean(next.runEnded) || (next.scientist.vitals.health.current <= 0 && latestDeath?.resurrection.status !== "pending");
     if (next.runEnded) {
       next.paused = true;
     }

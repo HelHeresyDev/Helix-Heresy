@@ -128,7 +128,7 @@ test('capital eligibility creates a death-row order, not death or game over', ()
   let state = finishTrial(configuredCase(source)); const caseId = state.cases[0].id;
   state = Trial.beginAppearance(state, caseId, state.cases[0].sentencingAt).state;
   const completed = Trial.completeAppearance(state, caseId, state.cases[0].sentencingAt + 2700);
-  expect(completed.case.sentencing.order).toMatchObject({ kind: 'deathRow', deathSentence: true, destinationId: 'deathRowIntake', provisionalExecutionProcessId: expect.any(String), final: true });
+  expect(completed.case.sentencing.order).toMatchObject({ kind: 'deathRow', deathSentence: true, destinationId: 'deathRowIntake', provisionalExecutionProcessId: expect.any(String), publicEnemyDesignation: { status: 'entered', kind: 'publicEnemy', grounds: [expect.any(String)] }, executionMethod: 'publicBeheading', final: true });
   expect(completed.case.sentencing.order.reasons.at(-1)).toContain('does not kill the scientist');
   expect(completed.case).not.toHaveProperty('runEnded');
 });
