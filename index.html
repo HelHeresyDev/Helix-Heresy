@@ -805,6 +805,8 @@
                   <option value="precipitation">Precipitation</option>
                   <option value="hydrology">Hydrology</option>
                   <option value="biomes">Biomes</option>
+                  <option value="geology">Geology</option>
+                  <option value="hazards">Natural Hazards</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -838,6 +840,11 @@
                 <div><dt>Watershed</dt><dd id="strategicCellWatershed">—</dd></div>
                 <div><dt>Water</dt><dd id="strategicCellWater">—</dd></div>
                 <div><dt>Biome</dt><dd id="strategicCellBiome">—</dd></div>
+                <div><dt>Geological Province</dt><dd id="strategicCellGeologyProvince">—</dd></div>
+                <div><dt>Bedrock / Crust</dt><dd id="strategicCellBedrock">—</dd></div>
+                <div><dt>Surface Geology</dt><dd id="strategicCellSurfaceGeology">—</dd></div>
+                <div><dt>Geologic Properties</dt><dd id="strategicCellGeologyProperties">—</dd></div>
+                <div><dt>Natural Hazards</dt><dd id="strategicCellNaturalHazards">—</dd></div>
                 <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
                 <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
               </dl>
@@ -931,6 +938,7 @@
     <script src="strategic-world.js"></script>
     <script src="planetary-relief.js"></script>
     <script src="climate-hydrology-biomes.js"></script>
+    <script src="strategic-geology.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

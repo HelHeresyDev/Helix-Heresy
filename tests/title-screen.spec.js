@@ -46,9 +46,11 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('28 plates');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('watersheds');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('biomes');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('geological provinces');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
+  await expect(page.locator('#strategicCellBedrock')).toContainText('million years');
   await page.locator('#strategicGlobeLayerSelect').selectOption('elevation');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'elevation', hasRelief: true });
   await page.locator('#strategicGlobeLayerSelect').selectOption('tectonics');
@@ -56,6 +58,11 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   for (const layer of ['temperature', 'precipitation', 'hydrology', 'biomes']) {
     await page.locator('#strategicGlobeLayerSelect').selectOption(layer);
     expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer, hasEnvironment: true });
+    await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  }
+  for (const layer of ['geology', 'hazards']) {
+    await page.locator('#strategicGlobeLayerSelect').selectOption(layer);
+    expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer, hasGeology: true });
     await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
   }
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -69,7 +76,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 4,
+    generationVersion: 5,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -82,6 +89,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicMapAudit())).toMatchObject({ valid: true, boundaryCellCount: 0 });
   expect(await page.evaluate(() => window.helixHeresyDebug.planetaryReliefAudit())).toMatchObject({ valid: true, plateCount: 28 });
   expect(await page.evaluate(() => window.helixHeresyDebug.climateHydrologyBiomeAudit())).toMatchObject({ valid: true, drainageAcyclic: true, equatorWarmerThanPoles: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGeologyAudit())).toMatchObject({ valid: true, contiguousProvinces: true, representedBedrockClassCount: 7 });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -216,6 +224,27 @@ test('finalized generation-version-three worlds keep relief layers and report un
   await expect(page.locator('#strategicGlobeLayerSelect option[value="elevation"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="temperature"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasRelief: true, hasEnvironment: false });
+});
+
+test('finalized generation-version-four worlds keep environment layers and report unavailable geology', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'environment-only-world',
+      worldSeed: 'environment-only-seed',
+      worldTheme: 'madcap',
+      generationVersion: 4,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Geology and natural hazards unavailable for generation v4');
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="biomes"]')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="geology"]')).toHaveAttribute('disabled', '');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasEnvironment: true, hasGeology: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

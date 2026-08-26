@@ -75,6 +75,18 @@
       { label: "Ice / tundra", color: "#c5d9d2" }, { label: "Forest", color: "#3f704b" },
       { label: "Grass / shrub", color: "#8b9955" }, { label: "Desert", color: "#bd965a" },
       { label: "Wetland", color: "#4b8e78" }, { label: "Marine", color: "#315f78" }
+    ],
+    geology: [
+      { label: "Granitic", color: "#b39b87" }, { label: "Basaltic", color: "#4c5360" },
+      { label: "Siliciclastic", color: "#94775e" }, { label: "Carbonate", color: "#d2c8a6" },
+      { label: "Metamorphic", color: "#786987" }, { label: "Volcanic", color: "#8a493f" },
+      { label: "Ultramafic", color: "#566e52" }
+    ],
+    hazards: [
+      { label: "Minimal", color: "#59635b" }, { label: "Earthquake", color: "#de9c43" },
+      { label: "Volcanic", color: "#cf4c3f" }, { label: "Landslide", color: "#9b7048" },
+      { label: "Subsidence", color: "#826c93" }, { label: "Geothermal", color: "#d56e4b" },
+      { label: "Flood", color: "#3e8eae" }
     ]
   });
 
@@ -84,6 +96,8 @@
     if (map?.climate) layers.push("temperature", "precipitation");
     if (map?.hydrology) layers.push("hydrology");
     if (map?.biomes) layers.push("biomes");
+    if (map?.geology) layers.push("geology");
+    if (map?.naturalHazards) layers.push("hazards");
     return layers;
   }
 
@@ -210,6 +224,26 @@
       return shadedRgb(BIOME_COLORS[map.biomes.classes[index]] || [100, 100, 100], light);
     }
 
+    const GEOLOGY_COLORS = Object.freeze({
+      g: [179, 155, 135], b: [76, 83, 96], s: [148, 119, 94], c: [210, 200, 166],
+      m: [120, 105, 135], v: [138, 73, 63], u: [86, 110, 82]
+    });
+
+    function geologyColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      return shadedRgb(GEOLOGY_COLORS[map.geology.bedrockClasses[index]] || [100, 100, 100], light);
+    }
+
+    const HAZARD_COLORS = Object.freeze({
+      ".": [89, 99, 91], E: [222, 156, 67], V: [207, 76, 63], L: [155, 112, 72],
+      S: [130, 108, 147], G: [213, 110, 75], F: [62, 142, 174]
+    });
+
+    function hazardColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      return shadedRgb(HAZARD_COLORS[map.naturalHazards.dominantClasses[index]] || HAZARD_COLORS["."], light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -217,6 +251,8 @@
       if (layer === "precipitation" && map?.climate) return precipitationColor(index, light, selected);
       if (layer === "hydrology" && map?.hydrology) return hydrologyColor(index, light, selected);
       if (layer === "biomes" && map?.biomes) return biomeColor(index, light, selected);
+      if (layer === "geology" && map?.geology) return geologyColor(index, light, selected);
+      if (layer === "hazards" && map?.naturalHazards) return hazardColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -432,7 +468,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

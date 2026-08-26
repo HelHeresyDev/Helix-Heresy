@@ -18,22 +18,23 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Geology, Arcane Geography, Natural Hazards, and Resources
-2. Settlements, Cities, Routes, and Candidate Sites
-3. Civilizations, Factions, Institutions, Religions, and Law
-4. Historical World Simulation and Playable Year
-5. New-Run World Selection, Site Choice, and Scenario Materialization
-6. Local Context Mechanics: Environment, Geology, and Travel
-7. Penal Flights and Beast-Territory Exile
-8. Penal Legions and Wilderness Service
-9. World Integration: Economy and Logistics
-10. World Integration: Investigations and Institutional Pressure
-11. Lazy Local Detail and World Discovery
-12. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-13. Campaign Roadmap: From Hidden Laboratory to World Domination
-14. New-Run Onboarding and Contextual Tutorial
-15. Sound, Notifications, and Accessibility Audit
-16. Production Art Pass Using the Sprite Pipeline
+1. Arcane Geography and Magical Hazards
+2. Resource Potential, Survey Knowledge, and Discovery
+3. Settlements, Cities, Routes, and Candidate Sites
+4. Civilizations, Factions, Institutions, Religions, and Law
+5. Historical World Simulation and Playable Year
+6. New-Run World Selection, Site Choice, and Scenario Materialization
+7. Local Context Mechanics: Environment, Geology, and Travel
+8. Penal Flights and Beast-Territory Exile
+9. Penal Legions and Wilderness Service
+10. World Integration: Economy and Logistics
+11. World Integration: Investigations and Institutional Pressure
+12. Lazy Local Detail and World Discovery
+13. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+14. Campaign Roadmap: From Hidden Laboratory to World Domination
+15. New-Run Onboarding and Contextual Tutorial
+16. Sound, Notifications, and Accessibility Audit
+17. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -55,6 +56,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 - The entire campaign world is a seamless geodesic globe. Strategic cells are mostly hexagons with exactly twelve pentagonal anchors; mechanics must use saved graph adjacency and spherical distance rather than assuming a flat axial grid or map-edge boundary.
 - Generation-version-three worlds preserve generation version two's canonical land/ocean mask and add compact saved tectonic plates, boundary forces, elevation, bathymetry, relief, and coast classifications. Surface, Elevation, and Tectonics are player-visible globe layers; older generation-version-two worlds retain their surface globe and honestly report that detailed relief is unavailable.
 - Generation-version-four worlds add saved axial tilt, climate normals, circulation, ocean-current tendencies, conditioned drainage, watersheds, major lakes and rivers, wetlands, and terrestrial and marine biomes without changing generation version three's relief. Older generation-version-three worlds retain their relief layers and honestly report that climate, hydrology, and biomes are unavailable.
+- Generation-version-five worlds add saved contiguous geological provinces, crust, bedrock, surface deposits, tectonic regimes, physical-property tendencies, and causal natural-hazard baselines without changing generation version four's environment. Older generation-version-four worlds retain their environment layers and honestly report that geology and natural hazards are unavailable.
 - Use stable semantic role keys for mechanics and separate generated instance IDs and display names. Existing systems must not depend on a particular generated proper name.
 - Once a generated world is finalized, its canonical facts must not silently reroll. World-generation version changes create a new world rather than rewriting an existing one.
 - Keep generation and simulation renderer-neutral. UI previews and maps are projections of authoritative saved state.
@@ -65,43 +67,49 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Geology, Arcane Geography, Natural Hazards, and Resources
+## 1. Arcane Geography and Magical Hazards
 
-Build broad geology and resource geography from the saved plates, boundary forces, relief, climate, and hydrology. Generate rock provinces, sedimentary basins, volcanic and seismic tendencies, natural hazards, mundane mineral and material deposits, and explicitly magical geographic phenomena such as mana concentrations or suppression zones. Resources and hazards must be causally tied to their physical inputs rather than independent decorative noise. The player may inspect discovered broad geography, but exact resource quality and local deposits should remain hidden until appropriate survey or exploration reveals them. Add renderer-neutral discovery records and player-visible Geology, Arcane, Hazard, and surveyed-resource overlays without allowing World Theme to rewrite physical facts.
+Design and implement saved strategic mana concentration and flow, ley structures, null or suppression zones, magical aspects, and explicitly magical hazard tendencies. Derive them causally from the existing geology, water, climate, and biome facts rather than decorative independent noise. Keep ordinary geology and magical geography distinct, expose a player-visible Arcane layer and inspector facts, preserve broad-versus-local knowledge boundaries, and do not let World Theme rewrite physical or arcane facts.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Settlements, Cities, Routes, and Candidate Sites
+## 2. Resource Potential, Survey Knowledge, and Discovery
+
+Design and implement canonical hidden resource potential derived from geology, arcane geography, climate, hydrology, and biomes. Separate immutable world truth from run-specific survey knowledge and discoveries. The player-visible resource overlay must reveal only legitimately known broad potential, confidence, and surveyed findings; exact local veins, pockets, quality, and quantity remain lazy until appropriate exploration. Settlement generation may consume canonical resource truth without leaking it to the player. Feed discovered strategic context into local deterministic geology without rerolling existing cells.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement major cities, vulnerable towns and villages, defended corridors, transport hubs, frontier sites, candidate laboratory parcels, and route networks. Candidate sites should know both straight-line distance and practical route access to their nearest settlement.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Civilizations, Factions, Institutions, Religions, and Law
+## 4. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world: states, territorial control, relationships, factions, religious powers, commercial blocs, military forces, magitech traditions, and local institutional branches. Bind generated instances to stable semantic roles used by existing systems.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Historical World Simulation and Playable Year
+## 5. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year. History should causally change settlements, borders, powers, religions, routes, laws, public attitudes, ruins, and regional conditions. Every retained event should change a saved fact, explain a current condition, or create a discoverable hook.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run World Selection, Site Choice, and Scenario Materialization
+## 6. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world. The player chooses an existing world or generates a new one, then chooses a starting scenario, biome, and city-distance band from compatible saved candidate sites. The chosen scenario materializes the physical site blueprint and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Local Context Mechanics: Environment, Geology, and Travel
+## 7. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of selected world location: environmental baselines, exact geology inputs, water access, surface concealment, evidence persistence, waste risk, route reliability, legal-cover plausibility, visitor arrival windows, resource availability, and travel.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Penal Flights and Beast-Territory Exile
+## 8. Penal Flights and Beast-Territory Exile
 
 Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, defended corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
 
@@ -113,55 +121,55 @@ Survivors remain playable and legally banished. Returning to protected human ter
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Penal Legions and Wilderness Service
+## 9. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. World Integration: Economy and Logistics
+## 10. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. World Integration: Investigations and Institutional Pressure
+## 11. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Lazy Local Detail and World Discovery
+## 12. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 13. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 14. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. New-Run Onboarding and Contextual Tutorial
+## 15. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. Sound, Notifications, and Accessibility Audit
+## 16. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. Production Art Pass Using the Sprite Pipeline
+## 17. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

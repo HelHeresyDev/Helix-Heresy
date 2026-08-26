@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 4,
+    generationVersion: 5,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -49,15 +49,18 @@ test('world names, years, and canonical digests are deterministic and versioned'
       strategicMap: { refinementLevel: 5, radiusKm: 3000, landFraction: 0.38 },
       relief: { plateCount: 28 },
       environment: { climate: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
+      geology: { provinceCellTarget: 72 },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-environment',
+      strategicResolution: 'geodesic-globe-geology',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
         climate: { settings: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
         hydrology: { diagnostics: { watershedCount: expect.any(Number), lakeCount: expect.any(Number) } },
         biomes: { diagnostics: { representedBiomeCount: expect.any(Number) } },
+        geology: { diagnostics: { provinceCount: expect.any(Number), representedBedrockClassCount: 7 } },
+        naturalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: [], routes: [] },
       },
       themeContent: {
@@ -140,6 +143,23 @@ test('finalized generation-version-three worlds keep relief without silently gai
   expect(world.generatedData.strategicMap.climate).toBeUndefined();
   expect(world.generatedData.strategicMap.hydrology).toBeUndefined();
   expect(world.generatedData.strategicMap.biomes).toBeUndefined();
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-four worlds keep environment without silently gaining geology', () => {
+  const world = Library.createWorld({
+    id: 'generation-four-world',
+    worldSeed: 'generation-four-seed',
+    worldTheme: 'madcap',
+    generationVersion: 4,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-environment');
+  expect(world.generatedData.strategicMap.biomes).toBeDefined();
+  expect(world.generatedData.strategicMap.geology).toBeUndefined();
+  expect(world.generatedData.strategicMap.naturalHazards).toBeUndefined();
   expect(normalized).toEqual(world);
 });
 
