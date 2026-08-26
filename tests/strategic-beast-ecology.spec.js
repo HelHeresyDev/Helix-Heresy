@@ -65,6 +65,7 @@ test('every city is attackable without requiring migration or a current wave pro
   expect(audit.citiesWithoutWaveProfiles).toBeGreaterThan(0);
   expect(audit.sharedThreatCount).toBeGreaterThan(0);
   expect(map.beastEcology.waveProfiles.every((profile) => profile.triggerFacts.length > 0 && profile.threatenedCityIds.length > 0)).toBe(true);
+  expect(Math.max(...map.humanGeography.cities.map((city) => map.beastEcology.waveProfiles.filter((profile) => profile.threatenedCityIds.includes(city.id)).length))).toBeLessThanOrEqual(3);
   expect(map.beastEcology.sharedThreats.every((shared) => shared.coalitionFormed === false && shared.warningProtocol === 'sharedMonsterWaveWarningProtocol')).toBe(true);
 });
 

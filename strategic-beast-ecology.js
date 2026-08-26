@@ -463,14 +463,19 @@
     const maximum = Math.max(4, Math.round(map.humanGeography.cities.length * 1.25));
     const profiles = [];
     const sharedThreats = [];
+    const cityWaveCounts = new Map(map.humanGeography.cities.map((city) => [city.id, 0]));
     for (const candidate of candidates.sort((left, right) => right.priority - left.priority || left.population.id.localeCompare(right.population.id)).slice(0, maximum)) {
+      if ((cityWaveCounts.get(candidate.city.id) || 0) >= 3) continue;
       const originIndex = StrategicWorld.cellIndex(candidate.population.centerCellId);
       let path = shortestMovementPath(candidate.definition, map, originIndex, candidate.destinationIndex, candidate.destinationIndex === StrategicWorld.cellIndex(candidate.city.cellId));
       if (!path) continue;
       const threatenedCityIds = [candidate.city.id];
       const severe = candidate.definition.threatRank >= 4 || ["dense", "teeming"].includes(candidate.population.abundanceBand);
       if (severe && candidate.definition.realm !== "ocean" && seededNumber(worldSeed, `${candidate.population.id}:shared-threat`) >= 0.62) {
-        const corridor = corridorFromCity(map, candidate.city.id)[0];
+        const corridor = corridorFromCity(map, candidate.city.id).find((route) => {
+          const otherCityId = route.endpointIds.find((id) => id !== candidate.city.id);
+          return (cityWaveCounts.get(otherCityId) || 0) < 3;
+        });
         if (corridor) {
           const secondCityId = corridor.endpointIds.find((id) => id !== candidate.city.id);
           const corridorPath = corridor.cellPath.map(StrategicWorld.cellIndex);
@@ -500,6 +505,7 @@
         warningSigns: warningSigns(cause.cause, candidate.definition)
       };
       profiles.push(profile);
+      for (const cityId of threatenedCityIds) cityWaveCounts.set(cityId, (cityWaveCounts.get(cityId) || 0) + 1);
       if (threatenedCityIds.length > 1) {
         const polityIds = threatenedCityIds.map((cityId) => map.cityPolities.polities.find((polity) => polity.cityId === cityId)?.id).filter(Boolean).sort();
         const relation = map.cityPolities.relations.find((entry) => entry.cityPolityIds.every((id) => polityIds.includes(id)) && polityIds.length === 2);
