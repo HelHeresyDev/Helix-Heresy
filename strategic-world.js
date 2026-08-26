@@ -253,6 +253,8 @@
     if (map.cityPolities) core.cityPolities = map.cityPolities;
     if (map.beastEcology) core.beastEcology = map.beastEcology;
     if (map.publicBeastAtlas) core.publicBeastAtlas = map.publicBeastAtlas;
+    if (map.cityGovernments) core.cityGovernments = map.cityGovernments;
+    if (map.publicCityGovernmentDirectory) core.publicCityGovernmentDirectory = map.publicCityGovernmentDirectory;
     return core;
   }
 

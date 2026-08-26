@@ -4591,23 +4591,28 @@ html[data-reduced-motion="true"] *::after {
   overflow-wrap: anywhere;
 }
 
-.strategic-city-polity-directory {
+.strategic-city-polity-directory,
+.strategic-city-government-directory {
   display: grid;
   gap: 0.55rem;
   padding-top: 0.8rem;
   border-top: 1px solid var(--line);
 }
 
-.strategic-city-polity-directory[hidden] {
+.strategic-city-polity-directory[hidden],
+.strategic-city-government-directory[hidden] {
   display: none;
 }
 
 .strategic-city-polity-directory h4,
-.strategic-city-polity-directory p {
+.strategic-city-polity-directory p,
+.strategic-city-government-directory h4,
+.strategic-city-government-directory p {
   margin: 0;
 }
 
-.strategic-city-polity-list {
+.strategic-city-polity-list,
+.strategic-city-government-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: 0.55rem;
@@ -4615,19 +4620,22 @@ html[data-reduced-motion="true"] *::after {
   overflow: auto;
 }
 
-.strategic-city-polity-card {
+.strategic-city-polity-card,
+.strategic-city-government-card {
   padding: 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.13);
 }
 
-.strategic-city-polity-card summary {
+.strategic-city-polity-card summary,
+.strategic-city-government-card summary {
   cursor: pointer;
   color: var(--text);
 }
 
-.strategic-city-polity-card p {
+.strategic-city-polity-card p,
+.strategic-city-government-card p {
   margin-top: 0.55rem;
   line-height: 1.45;
 }
