@@ -801,6 +801,10 @@
                   <option value="surface">Surface</option>
                   <option value="elevation">Elevation</option>
                   <option value="tectonics">Tectonics</option>
+                  <option value="temperature">Temperature</option>
+                  <option value="precipitation">Precipitation</option>
+                  <option value="hydrology">Hydrology</option>
+                  <option value="biomes">Biomes</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -812,6 +816,7 @@
               <button type="button" data-globe-action="reset">Reset</button>
             </div>
           </div>
+          <div id="strategicGlobeLegend" class="strategic-globe-legend" aria-live="polite"></div>
           <div class="strategic-world-preview-layout">
             <canvas id="strategicWorldCanvas" width="720" height="480" tabindex="0" aria-label="Interactive strategic globe. Drag to rotate, use the mouse wheel to zoom, press arrow keys to rotate, and press Enter to inspect the centered cell."></canvas>
             <div id="strategicWorldInspector" class="strategic-world-inspector">
@@ -825,6 +830,14 @@
                 <div><dt>Coast</dt><dd id="strategicCellCoast">—</dd></div>
                 <div><dt>Plate</dt><dd id="strategicCellPlate">—</dd></div>
                 <div><dt>Boundary</dt><dd id="strategicCellBoundary">—</dd></div>
+                <div><dt>Temperature</dt><dd id="strategicCellTemperature">—</dd></div>
+                <div><dt>Precipitation</dt><dd id="strategicCellPrecipitation">—</dd></div>
+                <div><dt>Seasonality</dt><dd id="strategicCellSeasonality">—</dd></div>
+                <div><dt>Wind</dt><dd id="strategicCellWind">—</dd></div>
+                <div><dt>Ocean Current</dt><dd id="strategicCellOceanCurrent">—</dd></div>
+                <div><dt>Watershed</dt><dd id="strategicCellWatershed">—</dd></div>
+                <div><dt>Water</dt><dd id="strategicCellWater">—</dd></div>
+                <div><dt>Biome</dt><dd id="strategicCellBiome">—</dd></div>
                 <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
                 <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
               </dl>
@@ -917,6 +930,7 @@
     <script src="theme-content.js"></script>
     <script src="strategic-world.js"></script>
     <script src="planetary-relief.js"></script>
+    <script src="climate-hydrology-biomes.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

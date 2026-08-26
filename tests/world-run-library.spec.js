@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 3,
+    generationVersion: 4,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -48,12 +48,16 @@ test('world names, years, and canonical digests are deterministic and versioned'
       scale: 'planetary-prototype',
       strategicMap: { refinementLevel: 5, radiusKm: 3000, landFraction: 0.38 },
       relief: { plateCount: 28 },
+      environment: { climate: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-relief',
+      strategicResolution: 'geodesic-globe-environment',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
+        climate: { settings: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
+        hydrology: { diagnostics: { watershedCount: expect.any(Number), lakeCount: expect.any(Number) } },
+        biomes: { diagnostics: { representedBiomeCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: [], routes: [] },
       },
       themeContent: {
@@ -72,6 +76,7 @@ test('Unbound worlds consume both authored theme pools while legacy version-one 
       id: `unbound-${index}`,
       worldSeed: `unbound-world-${index}`,
       worldTheme: 'unbound',
+      generationVersion: 1,
       createdAt: '2026-08-25T00:00:00.000Z',
     });
     expect(world.worldTheme).toBe('unbound');
@@ -117,6 +122,24 @@ test('finalized generation-version-two worlds keep their original surface-only s
 
   expect(world.generatedData.strategicResolution).toBe('geodesic-globe');
   expect(world.generatedData.strategicMap.relief).toBeUndefined();
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-three worlds keep relief without silently gaining climate', () => {
+  const world = Library.createWorld({
+    id: 'generation-three-world',
+    worldSeed: 'generation-three-seed',
+    worldTheme: 'madcap',
+    generationVersion: 3,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-relief');
+  expect(world.generatedData.strategicMap.relief).toBeDefined();
+  expect(world.generatedData.strategicMap.climate).toBeUndefined();
+  expect(world.generatedData.strategicMap.hydrology).toBeUndefined();
+  expect(world.generatedData.strategicMap.biomes).toBeUndefined();
   expect(normalized).toEqual(world);
 });
 

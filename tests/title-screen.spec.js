@@ -44,12 +44,20 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('12 pentagons');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('28 plates');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('watersheds');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('biomes');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
+  await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
   await page.locator('#strategicGlobeLayerSelect').selectOption('elevation');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'elevation', hasRelief: true });
   await page.locator('#strategicGlobeLayerSelect').selectOption('tectonics');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'tectonics', hasRelief: true });
+  for (const layer of ['temperature', 'precipitation', 'hydrology', 'biomes']) {
+    await page.locator('#strategicGlobeLayerSelect').selectOption(layer);
+    expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer, hasEnvironment: true });
+    await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  }
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -61,7 +69,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 3,
+    generationVersion: 4,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -73,6 +81,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicMapAudit())).toMatchObject({ valid: true, boundaryCellCount: 0 });
   expect(await page.evaluate(() => window.helixHeresyDebug.planetaryReliefAudit())).toMatchObject({ valid: true, plateCount: 28 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.climateHydrologyBiomeAudit())).toMatchObject({ valid: true, drainageAcyclic: true, equatorWarmerThanPoles: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -184,6 +193,29 @@ test('finalized generation-version-two worlds keep their surface globe and repor
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Detailed relief unavailable for generation v2');
   await expect(page.locator('#strategicGlobeLayerSelect')).toBeDisabled();
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'surface', hasRelief: false });
+});
+
+test('finalized generation-version-three worlds keep relief layers and report unavailable climate', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'relief-only-world',
+      worldSeed: 'relief-only-seed',
+      worldTheme: 'grim',
+      generationVersion: 3,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Climate, hydrology, and biomes unavailable for generation v3');
+  await expect(page.locator('#strategicGlobeLayerSelect')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="elevation"]')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="temperature"]')).toHaveAttribute('disabled', '');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasRelief: true, hasEnvironment: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

@@ -8,20 +8,24 @@
   const planetaryRelief = typeof module === "object" && module.exports
     ? require("./planetary-relief")
     : root?.HelixPlanetaryRelief;
-  const api = factory(themeContent, strategicWorld, planetaryRelief);
+  const climateHydrologyBiomes = typeof module === "object" && module.exports
+    ? require("./climate-hydrology-biomes")
+    : root?.HelixClimateHydrologyBiomes;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before world-run-library.js");
   if (!PlanetaryRelief) throw new Error("HelixPlanetaryRelief must load before world-run-library.js");
+  if (!ClimateHydrologyBiomes) throw new Error("HelixClimateHydrologyBiomes must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 3;
+  const WORLD_GENERATION_VERSION = 4;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -159,12 +163,17 @@
       const baseStrategicMap = generationVersion >= 2
         ? StrategicWorld.createStrategicMap(worldSeed, options.creationSettings?.strategicMap)
         : null;
-      const generatedStrategicMap = generationVersion >= 3
+      let generatedStrategicMap = generationVersion >= 3
         ? PlanetaryRelief.attachRelief(worldSeed, baseStrategicMap, options.creationSettings?.relief)
         : baseStrategicMap;
+      if (generationVersion >= 4) {
+        generatedStrategicMap = ClimateHydrologyBiomes.attachEnvironment(worldSeed, generatedStrategicMap, options.creationSettings?.environment);
+      }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
-        strategicResolution: generationVersion >= 3 ? "geodesic-globe-relief" : "geodesic-globe",
+        strategicResolution: generationVersion >= 4
+          ? "geodesic-globe-environment"
+          : (generationVersion >= 3 ? "geodesic-globe-relief" : "geodesic-globe"),
         strategicMap: generatedStrategicMap,
         themeContent: {
           version: ThemeContent.VERSION,
@@ -193,6 +202,7 @@
     }
     if (generationVersion >= 2) StrategicWorld.validateStrategicMap(generatedData.strategicMap);
     if (generationVersion >= 3) PlanetaryRelief.validateRelief(generatedData.strategicMap);
+    if (generationVersion >= 4) ClimateHydrologyBiomes.validateEnvironment(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -213,6 +223,14 @@
         ...(generationVersion >= 3 ? {
           relief: {
             plateCount: PlanetaryRelief.DEFAULT_PLATE_COUNT
+          }
+        } : {}),
+        ...(generationVersion >= 4 ? {
+          environment: {
+            climate: {
+              axialTiltMinimumDeg: ClimateHydrologyBiomes.AXIAL_TILT_MINIMUM_DEG,
+              axialTiltMaximumDeg: ClimateHydrologyBiomes.AXIAL_TILT_MAXIMUM_DEG
+            }
           }
         } : {}),
         ...(clone(options.creationSettings) || {}),
@@ -493,6 +511,9 @@
     THEME_CONTENT_VERSION: ThemeContent.VERSION,
     STRATEGIC_MAP_VERSION: StrategicWorld.STRATEGIC_MAP_VERSION,
     RELIEF_VERSION: PlanetaryRelief.RELIEF_VERSION,
+    CLIMATE_VERSION: ClimateHydrologyBiomes.CLIMATE_VERSION,
+    HYDROLOGY_VERSION: ClimateHydrologyBiomes.HYDROLOGY_VERSION,
+    BIOME_VERSION: ClimateHydrologyBiomes.BIOME_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
