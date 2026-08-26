@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 5,
+    generationVersion: 6,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -50,9 +50,10 @@ test('world names, years, and canonical digests are deterministic and versioned'
       relief: { plateCount: 28 },
       environment: { climate: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
       geology: { provinceCellTarget: 72 },
+      arcaneGeography: { fieldWaveCount: 5, leyCellFraction: 0.065 },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-geology',
+      strategicResolution: 'geodesic-globe-arcane-geography',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
@@ -61,6 +62,8 @@ test('world names, years, and canonical digests are deterministic and versioned'
         biomes: { diagnostics: { representedBiomeCount: expect.any(Number) } },
         geology: { diagnostics: { provinceCount: expect.any(Number), representedBedrockClassCount: 7 } },
         naturalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
+        arcaneGeography: { diagnostics: { leyCellCount: expect.any(Number), representedPrimaryAspectCount: 8 } },
+        magicalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: [], routes: [] },
       },
       themeContent: {
@@ -160,6 +163,24 @@ test('finalized generation-version-four worlds keep environment without silently
   expect(world.generatedData.strategicMap.biomes).toBeDefined();
   expect(world.generatedData.strategicMap.geology).toBeUndefined();
   expect(world.generatedData.strategicMap.naturalHazards).toBeUndefined();
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-five worlds keep geology without silently gaining arcane geography', () => {
+  const world = Library.createWorld({
+    id: 'generation-five-world',
+    worldSeed: 'generation-five-seed',
+    worldTheme: 'madcap',
+    generationVersion: 5,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-geology');
+  expect(world.generatedData.strategicMap.geology).toBeDefined();
+  expect(world.generatedData.strategicMap.naturalHazards).toBeDefined();
+  expect(world.generatedData.strategicMap.arcaneGeography).toBeUndefined();
+  expect(world.generatedData.strategicMap.magicalHazards).toBeUndefined();
   expect(normalized).toEqual(world);
 });
 

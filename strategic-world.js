@@ -245,6 +245,8 @@
     if (map.biomes) core.biomes = map.biomes;
     if (map.geology) core.geology = map.geology;
     if (map.naturalHazards) core.naturalHazards = map.naturalHazards;
+    if (map.arcaneGeography) core.arcaneGeography = map.arcaneGeography;
+    if (map.magicalHazards) core.magicalHazards = map.magicalHazards;
     return core;
   }
 

@@ -87,6 +87,13 @@
       { label: "Volcanic", color: "#cf4c3f" }, { label: "Landslide", color: "#9b7048" },
       { label: "Subsidence", color: "#826c93" }, { label: "Geothermal", color: "#d56e4b" },
       { label: "Flood", color: "#3e8eae" }
+    ],
+    arcane: [
+      { label: "Earth", color: "#87705b" }, { label: "Flame", color: "#cf633e" },
+      { label: "Water", color: "#397fac" }, { label: "Frost", color: "#a7d8df" },
+      { label: "Storm", color: "#7168a5" }, { label: "Wind", color: "#9db7ae" },
+      { label: "Life", color: "#4f9b61" }, { label: "Ether", color: "#a65bb2" },
+      { label: "Ley structure", color: "#f6d578" }, { label: "Null zone", color: "#525360" }
     ]
   });
 
@@ -98,6 +105,7 @@
     if (map?.biomes) layers.push("biomes");
     if (map?.geology) layers.push("geology");
     if (map?.naturalHazards) layers.push("hazards");
+    if (map?.arcaneGeography) layers.push("arcane");
     return layers;
   }
 
@@ -244,6 +252,29 @@
       return shadedRgb(HAZARD_COLORS[map.naturalHazards.dominantClasses[index]] || HAZARD_COLORS["."], light);
     }
 
+    const ARCANE_ASPECT_COLORS = Object.freeze({
+      E: [135, 112, 91], F: [207, 99, 62], W: [57, 127, 172], I: [167, 216, 223],
+      S: [113, 104, 165], A: [157, 183, 174], L: [79, 155, 97], T: [166, 91, 178]
+    });
+
+    function mixRgb(left, right, amount) {
+      return left.map((value, index) => value * (1 - amount) + right[index] * amount);
+    }
+
+    function arcaneColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const nullStrength = map.arcaneGeography.nullPermille[index];
+      if (nullStrength >= 600) return shadedRgb([82, 83, 96], light);
+      const aspect = map.arcaneGeography.primaryAspectClasses[index];
+      const concentration = map.arcaneGeography.manaConcentrationPermille[index];
+      const intensity = 0.62 + concentration / 1000 * 0.5;
+      let base = (ARCANE_ASPECT_COLORS[aspect] || [110, 95, 125]).map((value) => clamp(value * intensity, 0, 255));
+      const ley = map.arcaneGeography.leyClasses[index];
+      if (ley === "c") base = mixRgb(base, [104, 224, 216], 0.48);
+      if (ley === "n") base = mixRgb(base, [246, 213, 120], 0.7);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -253,6 +284,7 @@
       if (layer === "biomes" && map?.biomes) return biomeColor(index, light, selected);
       if (layer === "geology" && map?.geology) return geologyColor(index, light, selected);
       if (layer === "hazards" && map?.naturalHazards) return hazardColor(index, light, selected);
+      if (layer === "arcane" && map?.arcaneGeography) return arcaneColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -468,7 +500,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }
