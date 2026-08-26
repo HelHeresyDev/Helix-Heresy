@@ -46,6 +46,10 @@
     return hash >>> 0;
   }
 
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, value));
+  }
+
   function cleanCell(candidate) {
     const x = Math.round(Number(candidate?.x));
     const y = Math.round(Number(candidate?.y));
@@ -65,7 +69,14 @@
     const hazard = candidate.hazardPermille && typeof candidate.hazardPermille === "object"
       ? Object.fromEntries(["earthquake", "volcanic", "landslide", "subsidence", "geothermal", "flood"].map((field) => [field, Math.max(0, Math.min(1000, Number(candidate.hazardPermille[field]) || 0))]))
       : null;
-    return bedrockClass || hazard ? { bedrockClass, hazardPermille: hazard } : null;
+    const magicalHazard = candidate.magicalHazardPermille && typeof candidate.magicalHazardPermille === "object"
+      ? Object.fromEntries(["manaSurge", "arcaneStorm", "realityDistortion", "elementalManifestation", "nullInterference"].map((field) => [field, Math.max(0, Math.min(1000, Number(candidate.magicalHazardPermille[field]) || 0))]))
+      : null;
+    const manaPermille = Number.isFinite(Number(candidate.manaPermille)) ? Math.max(0, Math.min(1000, Number(candidate.manaPermille))) : null;
+    const nullPermille = Number.isFinite(Number(candidate.nullPermille)) ? Math.max(0, Math.min(1000, Number(candidate.nullPermille))) : null;
+    return bedrockClass || hazard || magicalHazard || manaPermille !== null || nullPermille !== null
+      ? { bedrockClass, hazardPermille: hazard, magicalHazardPermille: magicalHazard, manaPermille, nullPermille }
+      : null;
   }
 
   function weightedStratum(seed, band, context) {
@@ -109,16 +120,23 @@
     if (!cell) return null;
     const roll = stableHash(`${seed}:geology-hazard:${cellKey(cell)}`) % 1000;
     const context = normalizeStrategicContext(strategicContext);
-    if (!context?.hazardPermille) {
+    if (!context) {
       if (roll >= 24) return null;
       return HAZARDS[stableHash(`${seed}:geology-hazard-type:${cellKey(cell)}`) % HAZARDS.length];
     }
+    const physicalHazards = context.hazardPermille || { subsidence: 0, flood: 0, geothermal: 0, volcanic: 0 };
+    const magicalHazards = context.magicalHazardPermille || { manaSurge: 0, realityDistortion: 0 };
+    const manaTendency = clamp(
+      12 + (context.manaPermille || 0) * 0.045 + magicalHazards.manaSurge * 0.02 + magicalHazards.realityDistortion * 0.012 - (context.nullPermille || 0) * 0.05,
+      2,
+      90
+    );
     const tendencies = [
-      18 + context.hazardPermille.subsidence * 0.025 + context.hazardPermille.flood * 0.008,
-      12,
-      18 + context.hazardPermille.geothermal * 0.045 + context.hazardPermille.volcanic * 0.018
+      18 + physicalHazards.subsidence * 0.025 + physicalHazards.flood * 0.008,
+      manaTendency,
+      18 + physicalHazards.geothermal * 0.045 + physicalHazards.volcanic * 0.018
     ];
-    const threshold = Math.min(120, Math.round(tendencies.reduce((sum, value) => sum + value, 0)));
+    const threshold = Math.min(160, Math.round(tendencies.reduce((sum, value) => sum + value, 0)));
     if (roll >= threshold) return null;
     const typeRoll = stableHash(`${seed}:geology-hazard-type:${cellKey(cell)}:strategic`) % Math.ceil(tendencies.reduce((sum, value) => sum + value, 0));
     let cursor = 0;

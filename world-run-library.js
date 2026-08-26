@@ -14,10 +14,13 @@
   const strategicGeology = typeof module === "object" && module.exports
     ? require("./strategic-geology")
     : root?.HelixStrategicGeology;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology);
+  const strategicArcaneGeography = typeof module === "object" && module.exports
+    ? require("./strategic-arcane-geography")
+    : root?.HelixStrategicArcaneGeography;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -25,11 +28,12 @@
   if (!PlanetaryRelief) throw new Error("HelixPlanetaryRelief must load before world-run-library.js");
   if (!ClimateHydrologyBiomes) throw new Error("HelixClimateHydrologyBiomes must load before world-run-library.js");
   if (!StrategicGeology) throw new Error("HelixStrategicGeology must load before world-run-library.js");
+  if (!StrategicArcaneGeography) throw new Error("HelixStrategicArcaneGeography must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 5;
+  const WORLD_GENERATION_VERSION = 6;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -176,10 +180,15 @@
       if (generationVersion >= 5) {
         generatedStrategicMap = StrategicGeology.attachGeology(worldSeed, generatedStrategicMap, options.creationSettings?.geology);
       }
+      if (generationVersion >= 6) {
+        generatedStrategicMap = StrategicArcaneGeography.attachArcaneGeography(worldSeed, generatedStrategicMap, options.creationSettings?.arcaneGeography);
+      }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
-        strategicResolution: generationVersion >= 5
-          ? "geodesic-globe-geology"
+        strategicResolution: generationVersion >= 6
+          ? "geodesic-globe-arcane-geography"
+          : generationVersion >= 5
+            ? "geodesic-globe-geology"
           : generationVersion >= 4
             ? "geodesic-globe-environment"
           : (generationVersion >= 3 ? "geodesic-globe-relief" : "geodesic-globe"),
@@ -213,6 +222,7 @@
     if (generationVersion >= 3) PlanetaryRelief.validateRelief(generatedData.strategicMap);
     if (generationVersion >= 4) ClimateHydrologyBiomes.validateEnvironment(generatedData.strategicMap);
     if (generationVersion >= 5) StrategicGeology.validateStrategicGeology(generatedData.strategicMap);
+    if (generationVersion >= 6) StrategicArcaneGeography.validateStrategicArcaneGeography(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -246,6 +256,12 @@
         ...(generationVersion >= 5 ? {
           geology: {
             provinceCellTarget: StrategicGeology.DEFAULT_PROVINCE_CELL_TARGET
+          }
+        } : {}),
+        ...(generationVersion >= 6 ? {
+          arcaneGeography: {
+            fieldWaveCount: StrategicArcaneGeography.DEFAULT_FIELD_WAVE_COUNT,
+            leyCellFraction: StrategicArcaneGeography.DEFAULT_LEY_CELL_FRACTION
           }
         } : {}),
         ...(clone(options.creationSettings) || {}),
@@ -531,6 +547,8 @@
     BIOME_VERSION: ClimateHydrologyBiomes.BIOME_VERSION,
     GEOLOGY_VERSION: StrategicGeology.GEOLOGY_VERSION,
     NATURAL_HAZARD_VERSION: StrategicGeology.NATURAL_HAZARD_VERSION,
+    ARCANE_GEOGRAPHY_VERSION: StrategicArcaneGeography.ARCANE_GEOGRAPHY_VERSION,
+    MAGICAL_HAZARD_VERSION: StrategicArcaneGeography.MAGICAL_HAZARD_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
