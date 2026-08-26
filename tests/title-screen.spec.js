@@ -54,6 +54,9 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('24 static beast species');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('reported population ranges');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('reported migrations');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('wave warnings');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('every city attackable');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -93,16 +96,28 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicCellPolity')).toContainText('independent city polity');
   await expect(page.locator('#strategicCellAuthority')).toContainText('authority');
   await expect(page.locator('#strategicCellCivicProfile')).toContainText('priorities:');
+  await expect(page.locator('#strategicCellAttackExposure')).toContainText('attack remains possible without a migration route');
   await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
   await expect(page.locator('.strategic-city-polity-card')).not.toHaveCount(0);
   await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Reported migration corridor');
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Wave-pressure approach');
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Known lair');
   const firstBeastReportIndex = await page.evaluate(() => window.helixHeresyDebug.strategicPublicBeastReportedIndices()[0]);
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstBeastReportIndex);
   await expect(page.locator('#strategicCellBeastReports')).not.toContainText('No major beast population');
   await expect(page.locator('#strategicBeastBestiary')).toBeVisible();
   await expect(page.locator('.strategic-beast-card')).toHaveCount(24);
+  await expect(page.locator('#strategicBeastPressureDirectory')).toBeVisible();
+  await expect(page.locator('.strategic-beast-pressure-card')).toHaveCount(31);
+  const cityThreats = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityThreatDirectory());
+  expect(cityThreats.every((entry) => entry.attackAssessment.attackPossible)).toBe(true);
+  expect(cityThreats.some((entry) => entry.migrations.length === 0)).toBe(true);
+  expect(cityThreats.some((entry) => entry.waveWarnings.length === 0)).toBe(true);
+  const firstWaveIndex = await page.evaluate(() => window.helixHeresyDebug.strategicPublicWavePressureIndices()[0]);
+  await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstWaveIndex);
+  await expect(page.locator('#strategicCellWavePressure')).not.toContainText('No recurring wave approach');
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -132,7 +147,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicResourcePotentialAudit())).toMatchObject({ valid: true, publicProjectionHidesTruth: true, representedFamilyCount: 12 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyAudit())).toMatchObject({ valid: true, allCitiesOnLand: true, allCorridorsOnLand: true, citiesFavorHabitableCells: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityPolitiesAudit())).toMatchObject({ valid: true, oneIndependentPolityPerCity: true, maximumCitiesPerPolity: 1, globalInternetCoverage: true, permanentAllianceCount: 0 });
-  expect(await page.evaluate(() => window.helixHeresyDebug.strategicBeastEcologyAudit())).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true, publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicBeastEcologyAudit())).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true, everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true, publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true, publicAtlasHidesExactPaths: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',

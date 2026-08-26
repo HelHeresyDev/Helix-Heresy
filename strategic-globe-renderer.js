@@ -121,6 +121,8 @@
       { label: "Dangerous", color: "#a95d45" },
       { label: "Catastrophic", color: "#782e45" },
       { label: "Contested range", color: "#a06cb0" },
+      { label: "Reported migration corridor", color: "#4b9eaf" },
+      { label: "Wave-pressure approach", color: "#d95b3f" },
       { label: "Known lair", color: "#f1d889" }
     ]
   });
@@ -368,6 +370,8 @@
             : threat === "1" ? [97, 116, 76]
               : (map.surface.classes[index] === "L" ? [47, 58, 49] : [22, 49, 64]);
       if (map.publicBeastAtlas.contestedClasses[index] === "c") base = mixRgb(base, [160, 108, 176], 0.32);
+      if (map.publicBeastAtlas.migrationClasses?.[index] === "m") base = mixRgb(base, [75, 158, 175], 0.52);
+      if (map.publicBeastAtlas.wavePressureClasses?.[index] === "w") base = mixRgb(base, [217, 91, 63], 0.68);
       return shadedRgb(base, light);
     }
 

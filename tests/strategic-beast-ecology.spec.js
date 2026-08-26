@@ -31,10 +31,41 @@ test('population ecology is deterministic, theme-independent, validated, and com
   expect(first.publicBeastAtlas).toEqual(same.publicBeastAtlas);
   expect(first.beastEcology.species).toEqual(grim.beastEcology.species);
   expect(first.beastEcology.populations).toEqual(grim.beastEcology.populations);
+  expect(first.beastEcology.migrations).toEqual(grim.beastEcology.migrations);
+  expect(first.beastEcology.cityAttackExposure).toEqual(grim.beastEcology.cityAttackExposure);
+  expect(first.beastEcology.waveProfiles).toEqual(grim.beastEcology.waveProfiles);
   expect(first.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })))
     .toEqual(grim.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })));
   expect(BeastEcology.validateBeastEcology(first)).toEqual({ ecology: first.beastEcology, publicAtlas: first.publicBeastAtlas });
-  expect(JSON.stringify(first).length).toBeLessThan(3_700_000);
+  expect(JSON.stringify(first).length).toBeLessThan(4_000_000);
+});
+
+test('seasonal migrations use eligible species, saved adjacency, movement realms, and four climate phases', () => {
+  const map = generatedWorld('beast-migrations');
+  expect(map.beastEcology.migrations.length).toBeGreaterThan(10);
+  for (const migration of map.beastEcology.migrations) {
+    const population = map.beastEcology.populations.find((entry) => entry.id === migration.populationId);
+    const species = BeastEcology.BEAST_SPECIES.find((entry) => entry.id === population.speciesId);
+    expect(BeastEcology.MIGRATORY_SOCIAL_PATTERNS).toContain(species.socialPattern);
+    expect(new Set(Object.values(migration.phases))).toEqual(new Set(BeastEcology.SEASON_PHASES));
+    for (let index = 1; index < migration.cellPath.length; index += 1) {
+      const left = StrategicWorld.cellIndex(migration.cellPath[index - 1]);
+      const right = StrategicWorld.cellIndex(migration.cellPath[index]);
+      expect(StrategicWorld.topologyForMap(map).neighbors[left]).toContain(right);
+    }
+  }
+});
+
+test('every city is attackable without requiring migration or a current wave profile', () => {
+  const map = generatedWorld('pressure-probe-a');
+  const audit = BeastEcology.auditBeastEcology(map);
+  expect(audit).toMatchObject({ everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true });
+  expect(audit.cityAttackExposureCount).toBe(map.humanGeography.cities.length);
+  expect(audit.waveProfileCount).toBeGreaterThan(0);
+  expect(audit.citiesWithoutWaveProfiles).toBeGreaterThan(0);
+  expect(audit.sharedThreatCount).toBeGreaterThan(0);
+  expect(map.beastEcology.waveProfiles.every((profile) => profile.triggerFacts.length > 0 && profile.threatenedCityIds.length > 0)).toBe(true);
+  expect(map.beastEcology.sharedThreats.every((shared) => shared.coalitionFormed === false && shared.warningProtocol === 'sharedMonsterWaveWarningProtocol')).toBe(true);
 });
 
 test('territories respect species surface realms, exclude fortified cores, overlap, and dominate most land', () => {
@@ -61,7 +92,7 @@ test('the public atlas exposes uncertainty without leaking exact populations or 
   const reportedIndex = [...map.publicBeastAtlas.threatClasses].findIndex((code) => code !== '.');
   const snapshot = BeastEcology.cellPublicBeastSnapshot(map, reportedIndex);
 
-  expect(audit).toMatchObject({ publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true });
+  expect(audit).toMatchObject({ publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true, publicAtlasHidesExactPaths: true });
   expect(snapshot?.reports.length).toBeGreaterThan(0);
   expect(snapshot?.reports[0]).toMatchObject({
     species: { id: expect.stringMatching(/^beast:/), name: expect.any(String) },
@@ -73,6 +104,12 @@ test('the public atlas exposes uncertainty without leaking exact populations or 
   expect(snapshot?.reports[0]).not.toHaveProperty('lairCellId');
   expect(map.publicBeastAtlas.reports.every((report) => /^beast-report:\d{4}$/.test(report.id))).toBe(true);
   expect(BeastEcology.publicBestiary(map)).toHaveLength(BeastEcology.BEAST_SPECIES.length);
+  expect(map.publicBeastAtlas.migrationReports.every((report) => !Object.hasOwn(report, 'populationId') && !Object.hasOwn(report, 'cellPath'))).toBe(true);
+  expect(map.publicBeastAtlas.waveWarnings.every((warning) => !Object.hasOwn(warning, 'populationId') && !Object.hasOwn(warning, 'cellPath') && !Object.hasOwn(warning, 'triggerFacts'))).toBe(true);
+  const directory = BeastEcology.publicCityThreatDirectory(map);
+  expect(directory).toHaveLength(map.humanGeography.cities.length);
+  expect(directory.every((entry) => entry.attackAssessment.attackPossible)).toBe(true);
+  expect(directory.some((entry) => entry.waveWarnings.length === 0)).toBe(true);
 });
 
 test('validation rejects altered canonical and public ecology', () => {
