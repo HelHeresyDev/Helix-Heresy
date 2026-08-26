@@ -29,6 +29,12 @@
   const ABUNDANCE_BANDS = Object.freeze(["relict", "sparse", "established", "dense", "teeming"]);
   const CONFIDENCE_BANDS = Object.freeze(["low", "moderate", "high"]);
   const RELATION_KINDS = Object.freeze(["predation", "rivalry", "displacement", "scavenging"]);
+  const SEASON_PHASES = Object.freeze(["thaw", "highSun", "stormturn", "deepCold"]);
+  const MIGRATORY_SOCIAL_PATTERNS = Object.freeze(["migratoryHerd", "migratoryPod", "driftingFlock", "aerialSchool", "stormSwarm"]);
+  const WAVE_CAUSES = Object.freeze(["breedingDispersal", "preyPressure", "territorialDefeat", "arcaneDisruption", "drought", "fire", "flood", "seasonalHabitatChange"]);
+  const WAVE_SEVERITY_BANDS = Object.freeze(["guarded", "dangerous", "catastrophic"]);
+  const RECURRENCE_BANDS = Object.freeze(["seasonal", "intermittent", "sporadic"]);
+  const ATTACK_EXPOSURE_BANDS = Object.freeze(["guarded", "elevated", "severe", "extreme"]);
   const THREAT_CLASS_LEGEND = Object.freeze({ ".": "none", "1": "low", "2": "guarded", "3": "dangerous", "4": "catastrophic" });
 
   function species(definition) {
@@ -276,6 +282,260 @@
     return relations;
   }
 
+  function movementAllowsCell(definition, map, index, allowFortifiedCore = false) {
+    if (!allowFortifiedCore && map.cityPolities.control.classes[index] === "c") return false;
+    if (definition.movementModes.includes("flight") || definition.movementModes.includes("levitation")) return true;
+    if (definition.realm === "ocean") return map.surface.classes[index] === "W";
+    if (definition.realm === "land") return map.surface.classes[index] === "L";
+    return surfaceMatches(definition, map, index);
+  }
+
+  function shortestMovementPath(definition, map, startIndex, endIndex, allowFortifiedDestination = false) {
+    const topology = StrategicWorld.topologyForMap(map);
+    const previous = new Int32Array(topology.cellCount);
+    previous.fill(-2);
+    const queue = new Int32Array(topology.cellCount);
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = startIndex;
+    previous[startIndex] = -1;
+    while (head < tail) {
+      const current = queue[head++];
+      if (current === endIndex) break;
+      for (const neighbor of topology.neighbors[current]) {
+        if (previous[neighbor] !== -2) continue;
+        if (!movementAllowsCell(definition, map, neighbor, allowFortifiedDestination && neighbor === endIndex)) continue;
+        previous[neighbor] = current;
+        queue[tail++] = neighbor;
+      }
+    }
+    if (previous[endIndex] === -2) return null;
+    const path = [];
+    for (let cursor = endIndex; cursor >= 0; cursor = previous[cursor]) path.push(cursor);
+    return path.reverse();
+  }
+
+  function pathLengthKm(map, path) {
+    let total = 0;
+    for (let index = 1; index < path.length; index += 1) total += StrategicWorld.greatCircleDistanceKm(map, path[index - 1], path[index]);
+    return Math.round(total);
+  }
+
+  function seasonalPhases(map, centerIndex, seed, populationId) {
+    const northern = StrategicWorld.topologyForMap(map).vertices[centerIndex][1] >= 0;
+    const offset = Math.floor(seededNumber(seed, `${populationId}:season-offset`) * SEASON_PHASES.length);
+    const ordered = Array.from({ length: SEASON_PHASES.length }, (_, index) => SEASON_PHASES[(index + offset) % SEASON_PHASES.length]);
+    if (!northern) ordered.reverse();
+    return { outboundPhase: ordered[0], residencePhase: ordered[1], returnPhase: ordered[2], homePhase: ordered[3] };
+  }
+
+  function migrationDestination(definition, population, map, seed) {
+    const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
+    const centerRegion = map.surface.regionByCell[centerIndex];
+    const flying = definition.movementModes.includes("flight") || definition.movementModes.includes("levitation");
+    const candidates = [];
+    for (let index = 0; index < map.topology.cellCount; index += 1) {
+      if (!movementAllowsCell(definition, map, index)) continue;
+      if (!flying && map.surface.regionByCell[index] !== centerRegion) continue;
+      const distance = StrategicWorld.greatCircleDistanceKm(map, centerIndex, index);
+      if (distance < 420 || distance > 2100) continue;
+      candidates.push({
+        index,
+        score: habitatSuitability(definition, map, index, seed) + Math.min(360, distance * 0.2) + seededNumber(seed, `${population.id}:migration-destination:${index}`) * 240
+      });
+    }
+    return candidates.sort((left, right) => right.score - left.score || left.index - right.index)[0]?.index ?? null;
+  }
+
+  function createMigrations(worldSeed, map, populations) {
+    const migrations = [];
+    for (const population of populations) {
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      if (!MIGRATORY_SOCIAL_PATTERNS.includes(definition.socialPattern)) continue;
+      const destinationIndex = migrationDestination(definition, population, map, worldSeed);
+      if (destinationIndex === null) continue;
+      const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
+      const path = shortestMovementPath(definition, map, centerIndex, destinationIndex);
+      if (!path || path.length < 3) continue;
+      migrations.push({
+        id: `beast-migration:${String(migrations.length + 1).padStart(4, "0")}`,
+        populationId: population.id,
+        kind: "seasonalCycle",
+        homeCellId: population.centerCellId,
+        seasonalCellId: StrategicWorld.cellId(destinationIndex),
+        cellPath: path.map(StrategicWorld.cellId),
+        distanceKm: pathLengthKm(map, path),
+        phases: seasonalPhases(map, centerIndex, worldSeed, population.id),
+        travelPaceBand: definition.movementModes.includes("flight") ? "rapid" : (definition.sizeBand === "colossal" ? "slow" : "steady")
+      });
+    }
+    return migrations;
+  }
+
+  function attackExposureBand(score) {
+    if (score >= 900) return "extreme";
+    if (score >= 620) return "severe";
+    if (score >= 360) return "elevated";
+    return "guarded";
+  }
+
+  function cityAttackExposures(map, populations) {
+    const topology = StrategicWorld.topologyForMap(map);
+    return map.humanGeography.cities.map((city) => {
+      const cityIndex = StrategicWorld.cellIndex(city.cellId);
+      const neighbors = topology.neighbors[cityIndex];
+      const landApproaches = neighbors.filter((index) => map.surface.classes[index] === "L");
+      const coastalApproaches = neighbors.filter((index) => map.surface.classes[index] === "W");
+      const approachIndices = [...new Set([...landApproaches, ...coastalApproaches])];
+      const nearby = populations.map((population) => {
+        const definition = SPECIES_BY_ID.get(population.speciesId);
+        const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
+        const distance = StrategicWorld.greatCircleDistanceKm(map, cityIndex, centerIndex);
+        const approachOverlap = approachIndices.some((index) => maskIncludes(population.territory.rangeMask, index));
+        return { population, definition, distance, approachOverlap, score: definition.threatRank * 120 + (approachOverlap ? 420 : Math.max(0, 260 - distance * 0.16)) };
+      }).sort((left, right) => right.score - left.score || left.population.id.localeCompare(right.population.id));
+      const score = nearby.slice(0, 5).reduce((total, entry) => total + entry.score, 0) / 3
+        + ({ low: 80, guarded: 180, dangerous: 300, extreme: 430 }[city.wildernessExposureBand] || 140);
+      return {
+        id: `city-beast-exposure:${city.id.slice(5)}`,
+        cityId: city.id,
+        attackable: true,
+        exposureBand: attackExposureBand(score),
+        approachCellIds: approachIndices.map(StrategicWorld.cellId),
+        approachClasses: [landApproaches.length ? "land" : "", coastalApproaches.length ? "coastal" : "", "aerial"].filter(Boolean),
+        credibleSpeciesIds: [...new Set(nearby.slice(0, 5).map((entry) => entry.population.speciesId))]
+      };
+    });
+  }
+
+  function attackDestination(definition, map, city) {
+    const cityIndex = StrategicWorld.cellIndex(city.cellId);
+    if (definition.movementModes.includes("flight") || definition.movementModes.includes("levitation") || definition.realm !== "ocean") return cityIndex;
+    const topology = StrategicWorld.topologyForMap(map);
+    return topology.neighbors[cityIndex].find((index) => map.surface.classes[index] === "W") ?? null;
+  }
+
+  function causeForWave(worldSeed, map, population, relations, migration) {
+    const definition = SPECIES_BY_ID.get(population.speciesId);
+    const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
+    const related = relations.filter((relation) => relation.populationIds.includes(population.id));
+    const precipitation = map.climate.precipitationMm[centerIndex];
+    const instability = 1000 - map.arcaneGeography.arcaneStabilityPermille[centerIndex];
+    const flood = map.naturalHazards.floodPermille[centerIndex];
+    const flame = map.arcaneGeography.primaryAspectClasses[centerIndex] === "F" || map.arcaneGeography.secondaryAspectClasses[centerIndex] === "F";
+    const candidates = [];
+    if (migration) candidates.push({ cause: "seasonalHabitatChange", score: 510, facts: [migration.id, migration.phases.outboundPhase] });
+    if (["dense", "teeming"].includes(population.abundanceBand)) candidates.push({ cause: "breedingDispersal", score: 620 + population.populationIndex * 0.2, facts: [population.abundanceBand, `population-index:${population.populationIndex}`] });
+    if (["apexPredator", "megapredator", "packPredator", "ambushPredator"].includes(definition.ecologicalRole) && related.some((relation) => relation.kind === "predation")) candidates.push({ cause: "preyPressure", score: 570, facts: related.filter((relation) => relation.kind === "predation").slice(0, 2).map((relation) => relation.id) });
+    if (related.some((relation) => relation.kind === "rivalry" || relation.kind === "displacement")) candidates.push({ cause: "territorialDefeat", score: 540, facts: related.filter((relation) => relation.kind === "rivalry" || relation.kind === "displacement").slice(0, 2).map((relation) => relation.id) });
+    if (instability >= 540) candidates.push({ cause: "arcaneDisruption", score: instability, facts: [`arcane-instability-permille:${instability}`, `cell:${population.centerCellId}`] });
+    if (precipitation <= 520) candidates.push({ cause: "drought", score: 760 - precipitation * 0.5, facts: [`precipitation-mm:${precipitation}`, `biome:${map.biomes.classes[centerIndex]}`] });
+    if (flame && precipitation <= 900) candidates.push({ cause: "fire", score: 520 + (900 - precipitation) * 0.2, facts: [`flame-aspect:${population.centerCellId}`, `precipitation-mm:${precipitation}`] });
+    if (flood >= 620) candidates.push({ cause: "flood", score: flood, facts: [`flood-permille:${flood}`, `cell:${population.centerCellId}`] });
+    if (!candidates.length) candidates.push({ cause: "breedingDispersal", score: 300, facts: [population.abundanceBand, definition.socialPattern] });
+    return candidates.sort((left, right) => (right.score + seededNumber(worldSeed, `${population.id}:${right.cause}`) * 90) - (left.score + seededNumber(worldSeed, `${population.id}:${left.cause}`) * 90) || left.cause.localeCompare(right.cause))[0];
+  }
+
+  function corridorFromCity(map, cityId) {
+    return map.routeGraph.routes.filter((route) => route.endpointIds.includes(cityId)).sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  function createWaveProfiles(worldSeed, map, populations, relations, migrations) {
+    const migrationByPopulation = new Map(migrations.map((migration) => [migration.populationId, migration]));
+    const candidates = [];
+    for (const population of populations) {
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      if (definition.threatRank < 3) continue;
+      const originIndex = StrategicWorld.cellIndex(population.centerCellId);
+      const reachable = map.humanGeography.cities.map((city) => {
+        const destinationIndex = attackDestination(definition, map, city);
+        if (destinationIndex === null) return null;
+        const distance = StrategicWorld.greatCircleDistanceKm(map, originIndex, destinationIndex);
+        const limit = definition.movementModes.includes("flight") ? 3600 : 2200;
+        return distance <= limit ? { city, destinationIndex, distance } : null;
+      }).filter(Boolean).sort((left, right) => left.distance - right.distance || left.city.id.localeCompare(right.city.id));
+      if (!reachable.length) continue;
+      const roll = seededNumber(worldSeed, `${population.id}:wave-candidate`);
+      const pressure = definition.threatRank * 0.12 + population.populationIndex / 2200 + (migrationByPopulation.has(population.id) ? 0.1 : 0);
+      if (roll > clamp(pressure, 0.22, 0.72)) continue;
+      candidates.push({ population, definition, ...reachable[0], priority: pressure - roll });
+    }
+    const maximum = Math.max(4, Math.round(map.humanGeography.cities.length * 1.25));
+    const profiles = [];
+    const sharedThreats = [];
+    for (const candidate of candidates.sort((left, right) => right.priority - left.priority || left.population.id.localeCompare(right.population.id)).slice(0, maximum)) {
+      const originIndex = StrategicWorld.cellIndex(candidate.population.centerCellId);
+      let path = shortestMovementPath(candidate.definition, map, originIndex, candidate.destinationIndex, candidate.destinationIndex === StrategicWorld.cellIndex(candidate.city.cellId));
+      if (!path) continue;
+      const threatenedCityIds = [candidate.city.id];
+      const severe = candidate.definition.threatRank >= 4 || ["dense", "teeming"].includes(candidate.population.abundanceBand);
+      if (severe && candidate.definition.realm !== "ocean" && seededNumber(worldSeed, `${candidate.population.id}:shared-threat`) >= 0.62) {
+        const corridor = corridorFromCity(map, candidate.city.id)[0];
+        if (corridor) {
+          const secondCityId = corridor.endpointIds.find((id) => id !== candidate.city.id);
+          const corridorPath = corridor.cellPath.map(StrategicWorld.cellIndex);
+          if (corridorPath[0] !== path[path.length - 1]) corridorPath.reverse();
+          path = [...path, ...corridorPath.slice(1)];
+          threatenedCityIds.push(secondCityId);
+        }
+      }
+      const migration = migrationByPopulation.get(candidate.population.id) || null;
+      const cause = causeForWave(worldSeed, map, candidate.population, relations, migration);
+      const severityBand = candidate.definition.threatRank >= 4 && candidate.population.populationIndex >= 500 ? "catastrophic" : (candidate.definition.threatRank >= 3 ? "dangerous" : "guarded");
+      const profile = {
+        id: `beast-wave:${String(profiles.length + 1).padStart(4, "0")}`,
+        populationId: candidate.population.id,
+        cause: cause.cause,
+        triggerFacts: cause.facts,
+        originCellId: candidate.population.centerCellId,
+        destinationCellId: StrategicWorld.cellId(path[path.length - 1]),
+        cellPath: path.map(StrategicWorld.cellId),
+        distanceKm: pathLengthKm(map, path),
+        threatenedCityIds,
+        threatenedCorridorIds: map.routeGraph.routes.filter((route) => route.cellPath.some((cellId) => profilePathIncludes(path, cellId))).map((route) => route.id),
+        severityBand,
+        recurrenceBand: cause.cause === "seasonalHabitatChange" ? "seasonal" : (candidate.population.abundanceBand === "relict" ? "sporadic" : "intermittent"),
+        seasonalWindow: migration?.phases.outboundPhase || SEASON_PHASES[Math.floor(seededNumber(worldSeed, `${candidate.population.id}:wave-season`) * SEASON_PHASES.length)],
+        warningLeadBand: candidate.definition.movementModes.includes("flight") ? "hours" : (path.length <= 12 ? "days" : "weeks"),
+        warningSigns: warningSigns(cause.cause, candidate.definition)
+      };
+      profiles.push(profile);
+      if (threatenedCityIds.length > 1) {
+        const polityIds = threatenedCityIds.map((cityId) => map.cityPolities.polities.find((polity) => polity.cityId === cityId)?.id).filter(Boolean).sort();
+        const relation = map.cityPolities.relations.find((entry) => entry.cityPolityIds.every((id) => polityIds.includes(id)) && polityIds.length === 2);
+        sharedThreats.push({
+          id: `shared-beast-threat:${String(sharedThreats.length + 1).padStart(4, "0")}`,
+          waveProfileId: profile.id,
+          cityIds: [...threatenedCityIds].sort(),
+          cityPolityIds: polityIds,
+          warningRelationId: relation?.id || null,
+          warningProtocol: "sharedMonsterWaveWarningProtocol",
+          coalitionFormed: false
+        });
+      }
+    }
+    return { profiles, sharedThreats };
+  }
+
+  function profilePathIncludes(path, cellId) {
+    return path.includes(StrategicWorld.cellIndex(cellId));
+  }
+
+  function warningSigns(cause, definition) {
+    const movement = definition.movementModes.includes("flight") ? "mass aerial sightings" : (definition.realm === "ocean" ? "coastal sonar and tide anomalies" : "tracks and displaced wildlife");
+    const causeSign = {
+      breedingDispersal: "juvenile groups leaving core habitat",
+      preyPressure: "prey populations abandoning the region",
+      territorialDefeat: "violent range-boundary activity",
+      arcaneDisruption: "unstable mana readings",
+      drought: "drying water sources",
+      fire: "smoke and flame-aspect surges",
+      flood: "rapidly rising drainage basins",
+      seasonalHabitatChange: "recurring seasonal movement"
+    }[cause];
+    return [causeSign, movement];
+  }
+
   function expandIndices(indices, steps, definition, map) {
     const topology = StrategicWorld.topologyForMap(map);
     const expanded = new Set(indices);
@@ -292,6 +552,48 @@
       frontier = next;
     }
     return [...expanded].sort((left, right) => left - right);
+  }
+
+  function expandMovementPath(cellPath, steps, definition, map) {
+    const topology = StrategicWorld.topologyForMap(map);
+    const expanded = new Set(cellPath.map(StrategicWorld.cellIndex));
+    let frontier = new Set(expanded);
+    for (let step = 0; step < steps; step += 1) {
+      const next = new Set();
+      for (const index of frontier) {
+        for (const neighbor of topology.neighbors[index]) {
+          if (expanded.has(neighbor) || !movementAllowsCell(definition, map, neighbor, true)) continue;
+          expanded.add(neighbor);
+          next.add(neighbor);
+        }
+      }
+      frontier = next;
+    }
+    return [...expanded].sort((left, right) => left - right);
+  }
+
+  function citiesNearPath(map, cellPath) {
+    const topology = StrategicWorld.topologyForMap(map);
+    const indices = new Set(cellPath.map(StrategicWorld.cellIndex));
+    return map.humanGeography.cities.filter((city) => {
+      const index = StrategicWorld.cellIndex(city.cellId);
+      return indices.has(index) || topology.neighbors[index].some((neighbor) => indices.has(neighbor));
+    }).map((city) => city.id);
+  }
+
+  function reportedWaveCause(cause) {
+    if (cause === "seasonalHabitatChange") return "seasonalMovement";
+    if (["preyPressure", "territorialDefeat", "breedingDispersal"].includes(cause)) return "ecologicalDisplacement";
+    if (cause === "arcaneDisruption") return "arcaneDisruption";
+    return "environmentalDisruption";
+  }
+
+  function blurExposureBand(actual, seed, cityId) {
+    const index = ATTACK_EXPOSURE_BANDS.indexOf(actual);
+    const roll = seededNumber(seed, `${cityId}:public-attack-exposure`);
+    if (roll >= 0.7) return actual;
+    const offset = roll < 0.35 ? -1 : 1;
+    return ATTACK_EXPOSURE_BANDS[clamp(index + offset, 0, ATTACK_EXPOSURE_BANDS.length - 1)];
   }
 
   function nearestCityDistanceKm(map, cellId) {
@@ -334,8 +636,72 @@
         publicReason: confidence === "high" ? "Repeated city and corridor observations" : (confidence === "moderate" ? "Correlated remote reports" : "Sparse long-range sightings")
       };
     });
+    const migrationReports = ecology.migrations.map((migration) => {
+      const population = ecology.populations.find((entry) => entry.id === migration.populationId);
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      const nearbyCityIds = citiesNearPath(map, migration.cellPath);
+      const confidence = nearbyCityIds.length ? "high" : (seededNumber(worldSeed, `${migration.id}:public-confidence`) >= 0.48 ? "moderate" : "low");
+      return { migration, population, definition, nearbyCityIds, confidence };
+    }).filter(({ migration, confidence }) => confidence !== "low" || seededNumber(worldSeed, `${migration.id}:publicly-reported`) >= 0.42)
+      .map(({ migration, population, definition, nearbyCityIds, confidence }, reportIndex) => {
+        const expanded = expandMovementPath(migration.cellPath, confidence === "high" ? 1 : 2, definition, map);
+        return {
+          id: `beast-migration-report:${String(reportIndex + 1).padStart(4, "0")}`,
+          speciesId: population.speciesId,
+          reportedPathMask: maskForIndices(map.topology.cellCount, expanded),
+          reportedPathCellCount: expanded.length,
+          seasonalWindow: migration.phases.outboundPhase,
+          travelPaceBand: migration.travelPaceBand,
+          nearbyCityIds,
+          confidence,
+          publicReason: confidence === "high" ? "Repeated seasonal sightings near defended infrastructure" : (confidence === "moderate" ? "Correlated regional movement reports" : "Sparse long-range movement reports")
+        };
+      });
+    const waveWarnings = ecology.waveProfiles.map((profile, warningIndex) => {
+      const population = ecology.populations.find((entry) => entry.id === profile.populationId);
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      const expanded = expandMovementPath(profile.cellPath, profile.warningLeadBand === "hours" ? 2 : 1, definition, map);
+      return {
+        id: `beast-wave-warning:${String(warningIndex + 1).padStart(4, "0")}`,
+        speciesId: population.speciesId,
+        reportedCause: reportedWaveCause(profile.cause),
+        reportedApproachMask: maskForIndices(map.topology.cellCount, expanded),
+        reportedApproachCellCount: expanded.length,
+        threatenedCityIds: [...profile.threatenedCityIds],
+        threatenedCorridorIds: [...profile.threatenedCorridorIds],
+        severityBand: profile.severityBand,
+        recurrenceBand: profile.recurrenceBand,
+        seasonalWindow: profile.seasonalWindow,
+        warningLeadBand: profile.warningLeadBand,
+        warningSigns: [...profile.warningSigns],
+        confidence: profile.warningLeadBand === "weeks" ? "high" : "moderate"
+      };
+    });
+    const cityAttackAssessments = ecology.cityAttackExposure.map((exposure) => {
+      const approachIndices = exposure.approachCellIds.map(StrategicWorld.cellIndex);
+      return {
+        id: `public-${exposure.id}`,
+        cityId: exposure.cityId,
+        attackPossible: true,
+        reportedExposureBand: blurExposureBand(exposure.exposureBand, worldSeed, exposure.cityId),
+        approachClasses: [...exposure.approachClasses],
+        reportedApproachMask: maskForIndices(map.topology.cellCount, approachIndices),
+        confidence: "high",
+        publicReason: "City defense surveys identify physically feasible beast approaches; this does not imply a current migration or wave."
+      };
+    });
+    const sharedThreatReports = ecology.sharedThreats.map((shared, index) => ({
+      id: `public-shared-beast-threat:${String(index + 1).padStart(4, "0")}`,
+      cityIds: [...shared.cityIds],
+      warningProtocol: shared.warningProtocol,
+      warningRelationId: shared.warningRelationId,
+      coalitionStatus: "none",
+      confidence: "high"
+    }));
     const threatClasses = new Array(map.topology.cellCount).fill(".");
     const contestedClasses = new Array(map.topology.cellCount).fill(".");
+    const migrationClasses = new Array(map.topology.cellCount).fill(".");
+    const wavePressureClasses = new Array(map.topology.cellCount).fill(".");
     const reportCounts = new Uint8Array(map.topology.cellCount);
     for (const report of reports) {
       const bytes = base64ToBytes(report.reportedRangeMask);
@@ -347,17 +713,37 @@
       }
     }
     for (let index = 0; index < reportCounts.length; index += 1) if (reportCounts[index] >= 2) contestedClasses[index] = "c";
+    for (const report of migrationReports) {
+      const bytes = base64ToBytes(report.reportedPathMask);
+      for (let index = 0; index < map.topology.cellCount; index += 1) if (bytes[index >> 3] & (1 << (index & 7))) migrationClasses[index] = "m";
+    }
+    for (const warning of waveWarnings) {
+      const bytes = base64ToBytes(warning.reportedApproachMask);
+      for (let index = 0; index < map.topology.cellCount; index += 1) if (bytes[index >> 3] & (1 << (index & 7))) wavePressureClasses[index] = "w";
+    }
     const atlas = {
       sourceEcologyDigest: ecology.digest,
       reports,
+      migrationReports,
+      waveWarnings,
+      cityAttackAssessments,
+      sharedThreatReports,
       threatClasses: threatClasses.join(""),
       contestedClasses: contestedClasses.join(""),
+      migrationClasses: migrationClasses.join(""),
+      wavePressureClasses: wavePressureClasses.join(""),
       diagnostics: {
         reportCount: reports.length,
+        migrationReportCount: migrationReports.length,
+        waveWarningCount: waveWarnings.length,
+        cityAttackAssessmentCount: cityAttackAssessments.length,
+        sharedThreatReportCount: sharedThreatReports.length,
         highConfidenceReportCount: reports.filter((report) => report.confidence === "high").length,
         knownLairCount: reports.filter((report) => report.knownLairCellId).length,
         reportedCellCount: threatClasses.filter((code) => code !== ".").length,
-        contestedCellCount: contestedClasses.filter((code) => code === "c").length
+        contestedCellCount: contestedClasses.filter((code) => code === "c").length,
+        reportedMigrationCellCount: migrationClasses.filter((code) => code === "m").length,
+        reportedWavePressureCellCount: wavePressureClasses.filter((code) => code === "w").length
       }
     };
     atlas.digest = `public-beast-atlas-${StrategicWorld.stableHash(atlas)}`;
@@ -372,6 +758,10 @@
       species: record.species,
       populations: record.populations,
       relations: record.relations,
+      migrations: record.migrations,
+      cityAttackExposure: record.cityAttackExposure,
+      waveProfiles: record.waveProfiles,
+      sharedThreats: record.sharedThreats,
       diagnostics: record.diagnostics
     };
   }
@@ -384,16 +774,29 @@
     ArcaneGeography.validateStrategicArcaneGeography(strategicMap);
     StrategicCityPolities.validateCityPolities(strategicMap);
     const { populations, temporaryRanges } = createPopulations(seed, strategicMap);
+    const relations = createRelations(populations, temporaryRanges);
+    const migrations = createMigrations(seed, strategicMap, populations);
+    const cityAttackExposure = cityAttackExposures(strategicMap, populations);
+    const generatedWaves = createWaveProfiles(seed, strategicMap, populations, relations, migrations);
     const ecology = {
       sourceEnvironmentDigest: StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }),
       sourceArcaneGeographyDigest: strategicMap.arcaneGeography.digest,
       sourceCityPolitiesDigest: strategicMap.cityPolities.digest,
       species: clone(BEAST_SPECIES),
       populations,
-      relations: createRelations(populations, temporaryRanges),
+      relations,
+      migrations,
+      cityAttackExposure,
+      waveProfiles: generatedWaves.profiles,
+      sharedThreats: generatedWaves.sharedThreats,
       diagnostics: {
         speciesCount: BEAST_SPECIES.length,
         populationCount: populations.length,
+        migrationCount: migrations.length,
+        attackableCityCount: cityAttackExposure.filter((entry) => entry.attackable).length,
+        waveProfileCount: generatedWaves.profiles.length,
+        citiesWithWaveProfiles: new Set(generatedWaves.profiles.flatMap((profile) => profile.threatenedCityIds)).size,
+        sharedThreatCount: generatedWaves.sharedThreats.length,
         landSpeciesCount: BEAST_SPECIES.filter((entry) => entry.realm !== "ocean").length,
         marineSpeciesCount: BEAST_SPECIES.filter((entry) => entry.realm !== "land").length,
         sapientSpeciesCount: BEAST_SPECIES.filter((entry) => entry.intelligenceBand === "sapient").length,
@@ -412,10 +815,19 @@
     return bytes;
   }
 
+  function validateCellPath(map, cellPath, label) {
+    if (!Array.isArray(cellPath) || cellPath.length < 2) throw new Error(`${label} requires an ordered multi-cell path.`);
+    const topology = StrategicWorld.topologyForMap(map);
+    const indices = cellPath.map((cellId) => StrategicWorld.cellIndex(cellId));
+    if (indices.some((index) => !Number.isInteger(index) || index < 0 || index >= topology.cellCount)) throw new Error(`${label} references an invalid strategic cell.`);
+    for (let index = 1; index < indices.length; index += 1) if (!topology.neighbors[indices[index - 1]].includes(indices[index])) throw new Error(`${label} must follow saved globe adjacency.`);
+    return indices;
+  }
+
   function validateBeastEcology(map, ecology = map?.beastEcology, publicAtlas = map?.publicBeastAtlas) {
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     StrategicCityPolities.validateCityPolities(strategicMap);
-    if (!ecology || !publicAtlas || !Array.isArray(ecology.species) || !Array.isArray(ecology.populations) || !Array.isArray(ecology.relations)) throw new Error("Strategic beast ecology is incomplete.");
+    if (!ecology || !publicAtlas || !Array.isArray(ecology.species) || !Array.isArray(ecology.populations) || !Array.isArray(ecology.relations) || !Array.isArray(ecology.migrations) || !Array.isArray(ecology.cityAttackExposure) || !Array.isArray(ecology.waveProfiles) || !Array.isArray(ecology.sharedThreats)) throw new Error("Strategic beast ecology is incomplete.");
     if (ecology.sourceEnvironmentDigest !== StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }) || ecology.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography.digest || ecology.sourceCityPolitiesDigest !== strategicMap.cityPolities.digest) throw new Error("Strategic beast ecology does not match its source world.");
     if (ecology.species.length !== BEAST_SPECIES.length || ecology.species.some((entry, index) => JSON.stringify(entry) !== JSON.stringify(BEAST_SPECIES[index]))) throw new Error("Every world must contain the complete static beast-species catalog.");
     const populationIds = new Set();
@@ -437,12 +849,61 @@
     for (const relation of ecology.relations) {
       if (!RELATION_KINDS.includes(relation.kind) || !Array.isArray(relation.populationIds) || relation.populationIds.length !== 2 || relation.populationIds.some((id) => !populationIds.has(id))) throw new Error("Beast ecological relations are invalid.");
     }
+    const migrationIds = new Set();
+    for (const migration of ecology.migrations) {
+      const population = ecology.populations.find((entry) => entry.id === migration.populationId);
+      const definition = population ? SPECIES_BY_ID.get(population.speciesId) : null;
+      const indices = validateCellPath(strategicMap, migration.cellPath, `${migration.id} migration`);
+      if (!/^beast-migration:\d{4}$/.test(String(migration.id || "")) || migrationIds.has(migration.id) || !population || !MIGRATORY_SOCIAL_PATTERNS.includes(definition.socialPattern) || migration.kind !== "seasonalCycle") throw new Error("Seasonal migrations require unique identities and behaviorally migratory populations.");
+      if (migration.homeCellId !== population.centerCellId || migration.cellPath[0] !== migration.homeCellId || migration.cellPath.at(-1) !== migration.seasonalCellId || !Number.isFinite(migration.distanceKm) || migration.distanceKm <= 0) throw new Error(`${migration.id} has inconsistent migration anchors.`);
+      if (!Object.values(migration.phases || {}).every((phase) => SEASON_PHASES.includes(phase)) || new Set(Object.values(migration.phases || {})).size !== 4) throw new Error(`${migration.id} has invalid seasonal timing.`);
+      if (indices.some((index) => !movementAllowsCell(definition, strategicMap, index))) throw new Error(`${migration.id} violates its species movement realm.`);
+      migrationIds.add(migration.id);
+    }
+    const cityIds = new Set(strategicMap.humanGeography.cities.map((city) => city.id));
+    if (ecology.cityAttackExposure.length !== cityIds.size) throw new Error("Every fortified city requires one beast-attack exposure assessment.");
+    const exposureCityIds = new Set();
+    const topology = StrategicWorld.topologyForMap(strategicMap);
+    for (const exposure of ecology.cityAttackExposure) {
+      const city = strategicMap.humanGeography.cities.find((entry) => entry.id === exposure.cityId);
+      const cityIndex = city ? StrategicWorld.cellIndex(city.cellId) : -1;
+      const approaches = Array.isArray(exposure.approachCellIds) ? exposure.approachCellIds.map(StrategicWorld.cellIndex) : [];
+      if (!/^city-beast-exposure:\d{5}$/.test(String(exposure.id || "")) || !city || exposureCityIds.has(exposure.cityId) || exposure.attackable !== true || !ATTACK_EXPOSURE_BANDS.includes(exposure.exposureBand) || !approaches.length) throw new Error("Every city must remain physically attackable without requiring a migration route.");
+      if (approaches.some((index) => !topology.neighbors[cityIndex].includes(index)) || !Array.isArray(exposure.approachClasses) || !exposure.approachClasses.includes("aerial") || !Array.isArray(exposure.credibleSpeciesIds) || exposure.credibleSpeciesIds.some((id) => !SPECIES_BY_ID.has(id))) throw new Error(`${exposure.id} has invalid feasible beast approaches.`);
+      exposureCityIds.add(exposure.cityId);
+    }
+    const corridorIds = new Set(strategicMap.routeGraph.routes.map((route) => route.id));
+    const waveIds = new Set();
+    for (const profile of ecology.waveProfiles) {
+      const population = ecology.populations.find((entry) => entry.id === profile.populationId);
+      const definition = population ? SPECIES_BY_ID.get(population.speciesId) : null;
+      const indices = validateCellPath(strategicMap, profile.cellPath, `${profile.id} wave`);
+      if (!/^beast-wave:\d{4}$/.test(String(profile.id || "")) || waveIds.has(profile.id) || !population || !WAVE_CAUSES.includes(profile.cause) || !Array.isArray(profile.triggerFacts) || !profile.triggerFacts.length) throw new Error("Monster-wave profiles require unique identities and causal saved facts.");
+      if (profile.originCellId !== population.centerCellId || profile.cellPath[0] !== profile.originCellId || profile.cellPath.at(-1) !== profile.destinationCellId || indices.some((index) => !movementAllowsCell(definition, strategicMap, index, true))) throw new Error(`${profile.id} has an invalid movement path.`);
+      if (!Array.isArray(profile.threatenedCityIds) || !profile.threatenedCityIds.length || profile.threatenedCityIds.some((id) => !cityIds.has(id)) || !Array.isArray(profile.threatenedCorridorIds) || profile.threatenedCorridorIds.some((id) => !corridorIds.has(id))) throw new Error(`${profile.id} has invalid threatened infrastructure.`);
+      if (!WAVE_SEVERITY_BANDS.includes(profile.severityBand) || !RECURRENCE_BANDS.includes(profile.recurrenceBand) || !SEASON_PHASES.includes(profile.seasonalWindow) || !["hours", "days", "weeks"].includes(profile.warningLeadBand) || !Array.isArray(profile.warningSigns) || profile.warningSigns.length < 2) throw new Error(`${profile.id} has invalid pressure and warning classifications.`);
+      waveIds.add(profile.id);
+    }
+    for (const shared of ecology.sharedThreats) {
+      const profile = ecology.waveProfiles.find((entry) => entry.id === shared.waveProfileId);
+      const relation = strategicMap.cityPolities.relations.find((entry) => entry.id === shared.warningRelationId);
+      if (!/^shared-beast-threat:\d{4}$/.test(String(shared.id || "")) || !profile || !Array.isArray(shared.cityIds) || shared.cityIds.length < 2 || shared.cityIds.some((id) => !profile.threatenedCityIds.includes(id)) || shared.warningProtocol !== "sharedMonsterWaveWarningProtocol" || !relation?.standingObligations.includes(shared.warningProtocol) || shared.coalitionFormed !== false) throw new Error("Shared beast threats require an existing neighboring-city warning handoff without a coalition.");
+    }
     if (ecology.digest !== `beast-ecology-${StrategicWorld.stableHash(ecologyCore(ecology))}`) throw new Error("Strategic beast ecology does not match its digest.");
-    if (publicAtlas.sourceEcologyDigest !== ecology.digest || !Array.isArray(publicAtlas.reports) || String(publicAtlas.threatClasses || "").length !== strategicMap.topology.cellCount || /[^.1234]/.test(publicAtlas.threatClasses) || String(publicAtlas.contestedClasses || "").length !== strategicMap.topology.cellCount || /[^.c]/.test(publicAtlas.contestedClasses)) throw new Error("Public beast atlas is invalid.");
+    if (publicAtlas.sourceEcologyDigest !== ecology.digest || !Array.isArray(publicAtlas.reports) || !Array.isArray(publicAtlas.migrationReports) || !Array.isArray(publicAtlas.waveWarnings) || !Array.isArray(publicAtlas.cityAttackAssessments) || !Array.isArray(publicAtlas.sharedThreatReports) || String(publicAtlas.threatClasses || "").length !== strategicMap.topology.cellCount || /[^.1234]/.test(publicAtlas.threatClasses) || String(publicAtlas.contestedClasses || "").length !== strategicMap.topology.cellCount || /[^.c]/.test(publicAtlas.contestedClasses) || String(publicAtlas.migrationClasses || "").length !== strategicMap.topology.cellCount || /[^.m]/.test(publicAtlas.migrationClasses) || String(publicAtlas.wavePressureClasses || "").length !== strategicMap.topology.cellCount || /[^.w]/.test(publicAtlas.wavePressureClasses)) throw new Error("Public beast atlas is invalid.");
     for (const report of publicAtlas.reports) {
       validateMask(report.reportedRangeMask, strategicMap.topology.cellCount, `${report.id} public range`);
       if (!/^beast-report:\d{4}$/.test(String(report.id || "")) || !SPECIES_BY_ID.has(report.speciesId) || !CONFIDENCE_BANDS.includes(report.confidence) || !ABUNDANCE_BANDS.includes(report.reportedAbundanceBand) || !THREAT_BANDS.includes(report.threatBand) || Object.hasOwn(report, "populationId") || Object.hasOwn(report, "populationIndex") || Object.hasOwn(report, "lairCellId")) throw new Error(`${report.id} leaks or contains invalid public ecology facts.`);
     }
+    for (const report of publicAtlas.migrationReports) {
+      validateMask(report.reportedPathMask, strategicMap.topology.cellCount, `${report.id} reported migration corridor`);
+      if (!/^beast-migration-report:\d{4}$/.test(String(report.id || "")) || !SPECIES_BY_ID.has(report.speciesId) || !SEASON_PHASES.includes(report.seasonalWindow) || !CONFIDENCE_BANDS.includes(report.confidence) || Object.hasOwn(report, "populationId") || Object.hasOwn(report, "cellPath")) throw new Error(`${report.id} leaks or contains invalid public migration facts.`);
+    }
+    for (const warning of publicAtlas.waveWarnings) {
+      validateMask(warning.reportedApproachMask, strategicMap.topology.cellCount, `${warning.id} reported wave approach`);
+      if (!/^beast-wave-warning:\d{4}$/.test(String(warning.id || "")) || !SPECIES_BY_ID.has(warning.speciesId) || !Array.isArray(warning.threatenedCityIds) || warning.threatenedCityIds.some((id) => !cityIds.has(id)) || !WAVE_SEVERITY_BANDS.includes(warning.severityBand) || !RECURRENCE_BANDS.includes(warning.recurrenceBand) || Object.hasOwn(warning, "populationId") || Object.hasOwn(warning, "cellPath") || Object.hasOwn(warning, "triggerFacts") || Object.hasOwn(warning, "cause")) throw new Error(`${warning.id} leaks or contains invalid public wave facts.`);
+    }
+    if (publicAtlas.cityAttackAssessments.length !== cityIds.size || publicAtlas.cityAttackAssessments.some((assessment) => !cityIds.has(assessment.cityId) || assessment.attackPossible !== true || !ATTACK_EXPOSURE_BANDS.includes(assessment.reportedExposureBand) || !CONFIDENCE_BANDS.includes(assessment.confidence))) throw new Error("Public city beast-attack assessments are incomplete.");
     const publicCore = clone(publicAtlas);
     delete publicCore.digest;
     if (publicAtlas.digest !== `public-beast-atlas-${StrategicWorld.stableHash(publicCore)}`) throw new Error("Public beast atlas does not match its digest.");
@@ -471,10 +932,22 @@
         publicReason: report.publicReason
       }))
       .sort((left, right) => THREAT_BANDS.indexOf(right.threatBand) - THREAT_BANDS.indexOf(left.threatBand) || left.species.name.localeCompare(right.species.name));
+    const migrationReports = map.publicBeastAtlas.migrationReports.filter((report) => maskIncludes(report.reportedPathMask, index)).map((report) => ({ ...clone(report), species: clone(SPECIES_BY_ID.get(report.speciesId)) }));
+    const waveWarnings = map.publicBeastAtlas.waveWarnings.filter((warning) => maskIncludes(warning.reportedApproachMask, index)).map((warning) => ({ ...clone(warning), species: clone(SPECIES_BY_ID.get(warning.speciesId)) }));
+    const cellId = StrategicWorld.cellId(index);
+    const attackAssessments = map.publicBeastAtlas.cityAttackAssessments.filter((assessment) => {
+      const city = map.humanGeography.cities.find((entry) => entry.id === assessment.cityId);
+      return city?.cellId === cellId || maskIncludes(assessment.reportedApproachMask, index);
+    }).map(clone);
     return {
       threatBand: THREAT_CLASS_LEGEND[map.publicBeastAtlas.threatClasses[index]],
       contested: map.publicBeastAtlas.contestedClasses[index] === "c",
-      reports
+      migrationPressure: map.publicBeastAtlas.migrationClasses[index] === "m",
+      wavePressure: map.publicBeastAtlas.wavePressureClasses[index] === "w",
+      reports,
+      migrationReports,
+      waveWarnings,
+      attackAssessments
     };
   }
 
@@ -488,6 +961,22 @@
         highestConfidence: [...reports].sort((left, right) => CONFIDENCE_BANDS.indexOf(right.confidence) - CONFIDENCE_BANDS.indexOf(left.confidence))[0]?.confidence || "low",
         knownLairCount: reports.filter((report) => report.knownLairCellId).length,
         reportedAbundanceBands: [...new Set(reports.map((report) => report.reportedAbundanceBand))]
+      };
+    });
+  }
+
+  function publicCityThreatDirectory(map) {
+    if (!map?.publicBeastAtlas || !map?.humanGeography || !map?.cityPolities) return [];
+    return map.humanGeography.cities.map((city) => {
+      const polity = map.cityPolities.polities.find((entry) => entry.cityId === city.id);
+      const assessment = map.publicBeastAtlas.cityAttackAssessments.find((entry) => entry.cityId === city.id);
+      return {
+        city: clone(city),
+        polity: clone(polity),
+        attackAssessment: clone(assessment),
+        migrations: map.publicBeastAtlas.migrationReports.filter((entry) => entry.nearbyCityIds.includes(city.id)).map((entry) => ({ ...clone(entry), species: clone(SPECIES_BY_ID.get(entry.speciesId)) })),
+        waveWarnings: map.publicBeastAtlas.waveWarnings.filter((entry) => entry.threatenedCityIds.includes(city.id)).map((entry) => ({ ...clone(entry), species: clone(SPECIES_BY_ID.get(entry.speciesId)) })),
+        sharedThreats: map.publicBeastAtlas.sharedThreatReports.filter((entry) => entry.cityIds.includes(city.id)).map(clone)
       };
     });
   }
@@ -508,8 +997,24 @@
       everySpeciesPresent: BEAST_SPECIES.every((definition) => ecology.populations.some((population) => population.speciesId === definition.id)),
       populationCount: ecology.populations.length,
       relationCount: ecology.relations.length,
+      migrationCount: ecology.migrations.length,
+      migrationsUseEligibleSpecies: ecology.migrations.every((migration) => {
+        const population = ecology.populations.find((entry) => entry.id === migration.populationId);
+        return MIGRATORY_SOCIAL_PATTERNS.includes(SPECIES_BY_ID.get(population.speciesId).socialPattern);
+      }),
+      cityAttackExposureCount: ecology.cityAttackExposure.length,
+      everyCityAttackable: ecology.cityAttackExposure.length === map.humanGeography.cities.length && ecology.cityAttackExposure.every((entry) => entry.attackable),
+      waveProfileCount: ecology.waveProfiles.length,
+      citiesWithWaveProfiles: new Set(ecology.waveProfiles.flatMap((profile) => profile.threatenedCityIds)).size,
+      citiesWithoutWaveProfiles: map.humanGeography.cities.length - new Set(ecology.waveProfiles.flatMap((profile) => profile.threatenedCityIds)).size,
+      causalWaveProfiles: ecology.waveProfiles.every((profile) => WAVE_CAUSES.includes(profile.cause) && profile.triggerFacts.length > 0),
+      sharedThreatCount: ecology.sharedThreats.length,
+      sharedThreatsUseWarningProtocols: ecology.sharedThreats.every((entry) => entry.warningProtocol === "sharedMonsterWaveWarningProtocol" && entry.coalitionFormed === false),
       canonicalLandCoveragePercent: canonicalLandCovered.size / Math.max(1, landIndices.length) * 100,
       publicReportCount: publicAtlas.reports.length,
+      publicMigrationReportCount: publicAtlas.migrationReports.length,
+      publicWaveWarningCount: publicAtlas.waveWarnings.length,
+      publicAtlasHidesExactPaths: [...publicAtlas.migrationReports, ...publicAtlas.waveWarnings].every((entry) => !Object.hasOwn(entry, "cellPath") && !Object.hasOwn(entry, "populationId")),
       publicAtlasHidesPopulationIdentity: publicAtlas.reports.every((report) => !Object.hasOwn(report, "populationId") && /^beast-report:\d{4}$/.test(report.id)),
       publicAtlasHidesPopulationIndex: publicAtlas.reports.every((report) => !Object.hasOwn(report, "populationIndex")),
       publicAtlasHidesUnknownLairs: publicAtlas.reports.some((report) => !report.knownLairCellId),
@@ -527,12 +1032,19 @@
     ABUNDANCE_BANDS,
     CONFIDENCE_BANDS,
     RELATION_KINDS,
+    SEASON_PHASES,
+    MIGRATORY_SOCIAL_PATTERNS,
+    WAVE_CAUSES,
+    WAVE_SEVERITY_BANDS,
+    RECURRENCE_BANDS,
+    ATTACK_EXPOSURE_BANDS,
     THREAT_CLASS_LEGEND,
     createBeastEcology,
     validateBeastEcology,
     attachBeastEcology,
     cellPublicBeastSnapshot,
     publicBestiary,
+    publicCityThreatDirectory,
     auditBeastEcology,
     maskIncludes,
     clone

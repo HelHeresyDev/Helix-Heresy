@@ -69,8 +69,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
         cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
-        beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number) } },
-        publicBeastAtlas: { diagnostics: { reportCount: expect.any(Number), knownLairCount: expect.any(Number) } },
+        beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), migrationCount: expect.any(Number), attackableCityCount: expect.any(Number), waveProfileCount: expect.any(Number) } },
+        publicBeastAtlas: { diagnostics: { reportCount: expect.any(Number), migrationReportCount: expect.any(Number), waveWarningCount: expect.any(Number), knownLairCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {

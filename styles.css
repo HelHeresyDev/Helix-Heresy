@@ -4632,23 +4632,28 @@ html[data-reduced-motion="true"] *::after {
   line-height: 1.45;
 }
 
-.strategic-beast-bestiary {
+.strategic-beast-bestiary,
+.strategic-beast-pressure-directory {
   display: grid;
   gap: 0.55rem;
   padding-top: 0.8rem;
   border-top: 1px solid var(--line);
 }
 
-.strategic-beast-bestiary[hidden] {
+.strategic-beast-bestiary[hidden],
+.strategic-beast-pressure-directory[hidden] {
   display: none;
 }
 
 .strategic-beast-bestiary h4,
-.strategic-beast-bestiary p {
+.strategic-beast-bestiary p,
+.strategic-beast-pressure-directory h4,
+.strategic-beast-pressure-directory p {
   margin: 0;
 }
 
-.strategic-beast-bestiary-list {
+.strategic-beast-bestiary-list,
+.strategic-beast-pressure-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 0.55rem;
@@ -4656,19 +4661,22 @@ html[data-reduced-motion="true"] *::after {
   overflow: auto;
 }
 
-.strategic-beast-card {
+.strategic-beast-card,
+.strategic-beast-pressure-card {
   padding: 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.13);
 }
 
-.strategic-beast-card summary {
+.strategic-beast-card summary,
+.strategic-beast-pressure-card summary {
   cursor: pointer;
   color: var(--text);
 }
 
-.strategic-beast-card p {
+.strategic-beast-card p,
+.strategic-beast-pressure-card p {
   margin-top: 0.55rem;
   line-height: 1.45;
 }

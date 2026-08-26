@@ -12159,6 +12159,9 @@
       "strategicCellLocalControl",
       "strategicCellPolityRelations",
       "strategicCellBeastThreat",
+      "strategicCellMigrationPressure",
+      "strategicCellWavePressure",
+      "strategicCellAttackExposure",
       "strategicCellBeastReports",
       "strategicCellKnownLairs",
       "strategicCellRegion",
@@ -12167,6 +12170,8 @@
       "strategicCityPolityList",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
+      "strategicBeastPressureDirectory",
+      "strategicBeastPressureList",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12363,6 +12368,13 @@
           ? StrategicBeastEcology.cellPublicBeastSnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
+      strategicPublicCityThreatDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicBeastAtlas
+          ? StrategicBeastEcology.publicCityThreatDirectory(map)
+          : [];
+      },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.biomes
@@ -12382,6 +12394,9 @@
         : [],
       strategicPublicBeastReportedIndices: () => currentStrategicPreviewMap?.publicBeastAtlas
         ? [...currentStrategicPreviewMap.publicBeastAtlas.threatClasses].map((code, index) => code !== "." ? index : -1).filter((index) => index >= 0)
+        : [],
+      strategicPublicWavePressureIndices: () => currentStrategicPreviewMap?.publicBeastAtlas
+        ? [...currentStrategicPreviewMap.publicBeastAtlas.wavePressureClasses].map((code, index) => code === "w" ? index : -1).filter((index) => index >= 0)
         : [],
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
@@ -14171,6 +14186,9 @@
       dom.strategicCellLocalControl.textContent = "—";
       dom.strategicCellPolityRelations.textContent = "—";
       dom.strategicCellBeastThreat.textContent = "—";
+      dom.strategicCellMigrationPressure.textContent = "—";
+      dom.strategicCellWavePressure.textContent = "—";
+      dom.strategicCellAttackExposure.textContent = "—";
       dom.strategicCellBeastReports.textContent = "—";
       dom.strategicCellKnownLairs.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
@@ -14253,6 +14271,15 @@
     dom.strategicCellBeastThreat.textContent = beastEcology
       ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
       : "Unavailable in this saved world";
+    dom.strategicCellMigrationPressure.textContent = beastEcology
+      ? (beastEcology.migrationReports.map((report) => `${report.species.name} · ${readableGeographyLabel(report.seasonalWindow)} · ${readableGeographyLabel(report.travelPaceBand)} movement · ${readableGeographyLabel(report.confidence)} confidence`).join(" · ") || "No migration corridor is publicly reported in this cell")
+      : "—";
+    dom.strategicCellWavePressure.textContent = beastEcology
+      ? (beastEcology.waveWarnings.map((warning) => `${warning.species.name} · ${readableGeographyLabel(warning.severityBand)} · ${readableGeographyLabel(warning.reportedCause)} · ${readableGeographyLabel(warning.seasonalWindow)} · ${warning.warningLeadBand} of warning`).join(" · ") || "No recurring wave approach is publicly reported in this cell")
+      : "—";
+    dom.strategicCellAttackExposure.textContent = beastEcology
+      ? (beastEcology.attackAssessments.map((assessment) => `${readableGeographyLabel(assessment.reportedExposureBand)} exposure · ${assessment.approachClasses.map(readableGeographyLabel).join(", ")} approaches · attack remains possible without a migration route`).join(" · ") || "No city defense assessment applies to this cell")
+      : "—";
     dom.strategicCellBeastReports.textContent = beastEcology
       ? (beastEcology.reports.map((report) => `${report.species.name} · ${readableGeographyLabel(report.threatBand)} threat · ${readableGeographyLabel(report.reportedAbundanceBand)} reported abundance · ${readableGeographyLabel(report.confidence)} confidence`).join(" · ") || "No major beast population is publicly reported in this cell")
       : "—";
@@ -14307,6 +14334,38 @@
     }
   }
 
+  function renderStrategicBeastPressureDirectory(map) {
+    dom.strategicBeastPressureList.textContent = "";
+    const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicCityThreatDirectory(map) : [];
+    dom.strategicBeastPressureDirectory.hidden = !entries.length;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const entry of entries) {
+      const card = document.createElement("details");
+      card.className = "strategic-beast-pressure-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = entry.city.name;
+      heading.append(strong, ` · ${readable(entry.attackAssessment.reportedExposureBand)} attack exposure`);
+      const migration = document.createElement("p");
+      migration.textContent = entry.migrations.length
+        ? `Migration pressure: ${entry.migrations.map((report) => `${report.species.name} during ${readable(report.seasonalWindow)} (${readable(report.confidence)} confidence)`).join(" · ")}`
+        : "Migration pressure: no recurring migration route is publicly reported nearby.";
+      const waves = document.createElement("p");
+      waves.textContent = entry.waveWarnings.length
+        ? `Wave warnings: ${entry.waveWarnings.map((warning) => `${reportSpeciesName(warning)} · ${readable(warning.severityBand)} · ${readable(warning.reportedCause)} · ${readable(warning.recurrenceBand)}`).join(" · ")}`
+        : "Wave warnings: none currently recorded; the city remains physically attackable.";
+      const facts = document.createElement("p");
+      facts.className = "journal-meta";
+      facts.textContent = `${entry.polity?.name || "Independent city polity"} · feasible ${entry.attackAssessment.approachClasses.map(readable).join(", ")} approaches · ${entry.sharedThreats.length} shared warning handoff${entry.sharedThreats.length === 1 ? "" : "s"} · no standing coalition`;
+      card.append(heading, migration, waves, facts);
+      dom.strategicBeastPressureList.append(card);
+    }
+  }
+
+  function reportSpeciesName(report) {
+    return report?.species?.name || "Unknown beast";
+  }
+
   function renderStrategicWorldPreview(world) {
     const map = world?.generatedData?.strategicMap;
     currentStrategicPreviewMap = map || null;
@@ -14321,6 +14380,7 @@
       renderStrategicCellInspector(null);
       renderStrategicCityPolityDirectory(null);
       renderStrategicBeastBestiary(null);
+      renderStrategicBeastPressureDirectory(null);
       return;
     }
     dom.strategicWorldCanvas.hidden = false;
@@ -14349,7 +14409,7 @@
       ? ` · ${map.cityPolities.polities.length.toLocaleString()} sovereign city polities · global internet, local physical authority`
       : (map.humanGeography ? " · City polities unavailable in this saved world" : "");
     const beastEcologySummary = map.publicBeastAtlas
-      ? ` · ${map.beastEcology.species.length.toLocaleString()} static beast species · ${map.publicBeastAtlas.reports.length.toLocaleString()} reported population ranges`
+      ? ` · ${map.beastEcology.species.length.toLocaleString()} static beast species · ${map.publicBeastAtlas.reports.length.toLocaleString()} reported population ranges · ${map.publicBeastAtlas.migrationReports.length.toLocaleString()} reported migrations · ${map.publicBeastAtlas.waveWarnings.length.toLocaleString()} wave warnings · every city attackable`
       : (map.cityPolities ? " · Beast ecology unavailable in this saved world" : "");
     dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}`;
     strategicGlobeRenderer.setMap(map);
@@ -14360,6 +14420,7 @@
     renderStrategicGlobeLegend("surface");
     renderStrategicCityPolityDirectory(map);
     renderStrategicBeastBestiary(map);
+    renderStrategicBeastPressureDirectory(map);
   }
 
   function renderStrategicGlobeLegend(layer) {
