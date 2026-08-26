@@ -232,13 +232,26 @@
   }
 
   function strategicMapCore(map) {
-    return {
+    const core = {
       version: map.version,
       topology: map.topology,
       surface: map.surface,
       routeGraph: map.routeGraph,
       diagnostics: map.diagnostics
     };
+    if (map.relief) core.relief = map.relief;
+    return core;
+  }
+
+  function strategicMapDigest(map) {
+    return `strategic-${stableHash(strategicMapCore(map))}`;
+  }
+
+  function finalizeStrategicMap(candidate) {
+    const map = clone(candidate);
+    delete map.digest;
+    map.digest = strategicMapDigest(map);
+    return map;
   }
 
   function createStrategicMap(worldSeed, options = {}) {
@@ -288,7 +301,7 @@
         topologyRegionCount: regions.length
       }
     };
-    map.digest = `strategic-${stableHash(strategicMapCore(map))}`;
+    map.digest = strategicMapDigest(map);
     return map;
   }
 
@@ -316,7 +329,7 @@
       const surfaceClass = classes[index] === "L" ? "land" : "ocean";
       if (!region || region.surfaceClass !== surfaceClass) throw new Error("Strategic region membership is inconsistent.");
     }
-    const expectedDigest = `strategic-${stableHash(strategicMapCore(candidate))}`;
+    const expectedDigest = strategicMapDigest(candidate);
     if (candidate.digest !== expectedDigest) throw new Error("Strategic map data does not match its digest.");
     return clone(candidate);
   }
@@ -483,6 +496,8 @@
     seededNumbers,
     buildTopology,
     createStrategicMap,
+    strategicMapDigest,
+    finalizeStrategicMap,
     validateStrategicMap,
     topologyForMap,
     cellId,

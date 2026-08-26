@@ -9,8 +9,9 @@
     throw new Error("HelixThemeContent must load before app.js");
   }
   const StrategicWorld = window.HelixStrategicWorld;
+  const PlanetaryRelief = window.HelixPlanetaryRelief;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -4465,6 +4466,7 @@
   let selectedWorldId = "";
   let setupReturnView = "title";
   let strategicGlobeRenderer = null;
+  let currentStrategicPreviewMap = null;
   let selectedStartingScenarioId = "";
   let uiPreferences = null;
   let startupView = "title";
@@ -12109,11 +12111,17 @@
       "randomSetupWorldSeedBtn",
       "strategicWorldPreview",
       "strategicWorldPreviewSummary",
+      "strategicGlobeLayerSelect",
       "strategicWorldCanvas",
       "strategicWorldInspector",
       "strategicCellId",
       "strategicCellCoordinates",
       "strategicCellSurface",
+      "strategicCellElevation",
+      "strategicCellRelief",
+      "strategicCellCoast",
+      "strategicCellPlate",
+      "strategicCellBoundary",
       "strategicCellRegion",
       "strategicCellGrid",
       "startingScenarioList",
@@ -12220,6 +12228,12 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap
           ? StrategicWorld.auditStrategicMap(world.generatedData.strategicMap)
+          : null;
+      },
+      planetaryReliefAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.relief
+          ? PlanetaryRelief.auditRelief(world.generatedData.strategicMap)
           : null;
       },
       strategicCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -13955,10 +13969,18 @@
   }
 
   function renderStrategicCellInspector(cell) {
+    const relief = cell && currentStrategicPreviewMap?.relief
+      ? PlanetaryRelief.cellReliefSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
       dom.strategicCellSurface.textContent = "—";
+      dom.strategicCellElevation.textContent = "—";
+      dom.strategicCellRelief.textContent = "—";
+      dom.strategicCellCoast.textContent = "—";
+      dom.strategicCellPlate.textContent = "—";
+      dom.strategicCellBoundary.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -13966,17 +13988,28 @@
     dom.strategicCellId.textContent = cell.id;
     dom.strategicCellCoordinates.textContent = `${Math.abs(cell.latitude).toFixed(2)}° ${cell.latitude >= 0 ? "N" : "S"}, ${Math.abs(cell.longitude).toFixed(2)}° ${cell.longitude >= 0 ? "E" : "W"}`;
     dom.strategicCellSurface.textContent = cell.surfaceClass === "land" ? "Land" : "Ocean";
+    dom.strategicCellElevation.textContent = relief ? `${relief.elevationM.toLocaleString()} m` : "Unavailable in this world version";
+    const readableGeographyLabel = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    dom.strategicCellRelief.textContent = relief ? `${readableGeographyLabel(relief.reliefClass)} · ${relief.slopePercent.toFixed(1)}% slope` : "—";
+    dom.strategicCellCoast.textContent = relief?.coastClass === "none" ? "None" : (readableGeographyLabel(relief?.coastClass) || "—");
+    dom.strategicCellPlate.textContent = relief?.plateId || "—";
+    dom.strategicCellBoundary.textContent = relief
+      ? `${readableGeographyLabel(relief.boundaryKind)} · ${relief.boundaryDistanceCells} cell${relief.boundaryDistanceCells === 1 ? "" : "s"} away`
+      : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
   }
 
   function renderStrategicWorldPreview(world) {
     const map = world?.generatedData?.strategicMap;
+    currentStrategicPreviewMap = map || null;
     if (!map) {
       dom.strategicWorldCanvas.hidden = true;
       dom.strategicWorldInspector.hidden = true;
       dom.strategicWorldPreviewSummary.textContent = "This finalized generation-version-one world predates strategic globe generation and remains unchanged.";
       strategicGlobeRenderer.setMap(null);
+      dom.strategicGlobeLayerSelect.value = "surface";
+      dom.strategicGlobeLayerSelect.disabled = true;
       renderStrategicCellInspector(null);
       return;
     }
@@ -13984,8 +14017,13 @@
     dom.strategicWorldInspector.hidden = false;
     const topology = map.topology;
     const landPercent = Math.round(Number(map.surface.landFraction) * 100);
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land`;
+    const reliefSummary = map.relief
+      ? ` · ${map.relief.plates.length} plates · ${map.relief.diagnostics.minimumElevationM.toLocaleString()} to ${map.relief.diagnostics.maximumElevationM.toLocaleString()} m`
+      : " · Detailed relief unavailable for generation v2";
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}`;
     strategicGlobeRenderer.setMap(map);
+    dom.strategicGlobeLayerSelect.value = "surface";
+    dom.strategicGlobeLayerSelect.disabled = !map.relief;
   }
 
   function continuationInspection() {
@@ -14536,6 +14574,10 @@
       else if (action === "zoom-in") strategicGlobeRenderer.setZoom(view.zoom + 0.1);
       else if (action === "zoom-out") strategicGlobeRenderer.setZoom(view.zoom - 0.1);
       else if (action === "reset") strategicGlobeRenderer.resetView();
+    });
+
+    dom.strategicGlobeLayerSelect.addEventListener("change", () => {
+      dom.strategicGlobeLayerSelect.value = strategicGlobeRenderer.setLayer(dom.strategicGlobeLayerSelect.value);
     });
 
     dom.randomSeedBtn.addEventListener("click", () => {
