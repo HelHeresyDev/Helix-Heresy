@@ -4493,6 +4493,18 @@ html[data-reduced-motion="true"] *::after {
   gap: 0.3rem;
 }
 
+.strategic-globe-controls label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.strategic-globe-controls select {
+  padding: 0.32rem 0.45rem;
+}
+
 .strategic-globe-controls button {
   min-width: 2.25rem;
   padding: 0.35rem 0.55rem;

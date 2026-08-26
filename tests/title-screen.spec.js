@@ -43,7 +43,13 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('12 pentagons');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('28 plates');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
+  await expect(page.locator('#strategicCellElevation')).toContainText('m');
+  await page.locator('#strategicGlobeLayerSelect').selectOption('elevation');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'elevation', hasRelief: true });
+  await page.locator('#strategicGlobeLayerSelect').selectOption('tectonics');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'tectonics', hasRelief: true });
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -55,7 +61,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 2,
+    generationVersion: 3,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -66,6 +72,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
     diagnostics: { boundaryCellCount: 0 },
   });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicMapAudit())).toMatchObject({ valid: true, boundaryCellCount: 0 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.planetaryReliefAudit())).toMatchObject({ valid: true, plateCount: 28 });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -156,6 +163,27 @@ test('finalized generation-version-one worlds remain selectable without silently
   const snapshot = await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot());
   expect(snapshot.worlds[0].generationVersion).toBe(1);
   expect(snapshot.worlds[0].generatedData.strategicMap).toBeUndefined();
+});
+
+test('finalized generation-version-two worlds keep their surface globe and report unavailable relief', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'surface-only-world',
+      worldSeed: 'surface-only-seed',
+      worldTheme: 'madcap',
+      generationVersion: 2,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Detailed relief unavailable for generation v2');
+  await expect(page.locator('#strategicGlobeLayerSelect')).toBeDisabled();
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'surface', hasRelief: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

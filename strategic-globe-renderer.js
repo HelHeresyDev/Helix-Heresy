@@ -56,6 +56,7 @@
     let pitch = -0.22;
     let zoom = 1;
     let selectedCellIndex = -1;
+    let layer = "surface";
     let dragging = null;
     let width = 0;
     let height = 0;
@@ -75,12 +76,45 @@
       render();
     }
 
-    function colorFor(surfaceClass, light, selected) {
+    function surfaceColor(surfaceClass, light, selected) {
       if (selected) return "#f5bd58";
       const band = clamp(Math.floor(light * 5), 0, 4);
       const land = ["#324436", "#40563d", "#526c46", "#668251", "#7e9a60"];
       const ocean = ["#132936", "#173647", "#1c4559", "#22556d", "#2b6882"];
       return surfaceClass === "land" ? land[band] : ocean[band];
+    }
+
+    function elevationColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const elevation = Number(map.relief.elevationM[index]);
+      const brightness = clamp(0.7 + light * 0.42, 0.7, 1.12);
+      const stops = elevation < 0
+        ? (elevation < -6000 ? [16, 38, 68] : elevation < -3500 ? [22, 62, 96] : elevation < -1200 ? [34, 92, 126] : [72, 139, 151])
+        : (elevation < 500 ? [74, 116, 69] : elevation < 1800 ? [137, 137, 79] : elevation < 3600 ? [139, 103, 76] : elevation < 5200 ? [156, 140, 123] : [225, 227, 220]);
+      return `rgb(${stops.map((value) => Math.round(clamp(value * brightness, 0, 255))).join(",")})`;
+    }
+
+    const PLATE_COLORS = [
+      [61, 107, 119], [113, 87, 128], [124, 104, 61], [70, 119, 86],
+      [124, 73, 76], [77, 93, 139], [130, 111, 97], [76, 123, 119]
+    ];
+
+    function tectonicsColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const boundaryIndex = map.relief.boundaryByCell[index];
+      if (boundaryIndex >= 0) {
+        return { convergent: "#ef6a4c", divergent: "#46c7d5", transform: "#d9a252" }[map.relief.boundaries[boundaryIndex]?.kind] || "#e3d0aa";
+      }
+      const plateIndex = Number(map.relief.plateByCell[index]) || 0;
+      const base = PLATE_COLORS[plateIndex % PLATE_COLORS.length];
+      const brightness = clamp(0.7 + light * 0.38, 0.7, 1.08);
+      return `rgb(${base.map((value) => Math.round(clamp(value * brightness, 0, 255))).join(",")})`;
+    }
+
+    function colorFor(index, light, selected) {
+      if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
+      if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
+      return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
     function render() {
@@ -126,7 +160,7 @@
         });
         context.closePath();
         const light = clamp((dot(center, lightDirection) + 1) / 2, 0, 1);
-        context.fillStyle = colorFor(StrategicWorld.cellSurfaceClass(map, index), light, index === selectedCellIndex);
+        context.fillStyle = colorFor(index, light, index === selectedCellIndex);
         context.fill();
         context.strokeStyle = index === selectedCellIndex
           ? "rgba(255, 240, 190, 0.98)"
@@ -218,10 +252,18 @@
       render();
     }
 
+    function setLayer(nextLayer) {
+      const requested = ["surface", "elevation", "tectonics"].includes(nextLayer) ? nextLayer : "surface";
+      layer = requested !== "surface" && !map?.relief ? "surface" : requested;
+      render();
+      return layer;
+    }
+
     function setMap(nextMap) {
       map = nextMap ? StrategicWorld.validateStrategicMap(nextMap) : null;
       topology = map ? StrategicWorld.topologyForMap(map) : null;
       selectedCellIndex = -1;
+      layer = "surface";
       resetView();
       if (map) selectCenterCell();
     }
@@ -282,11 +324,12 @@
       resize,
       rotate,
       setZoom,
+      setLayer,
       resetView,
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, selectedCellIndex, hasMap: Boolean(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

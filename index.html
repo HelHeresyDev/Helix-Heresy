@@ -796,6 +796,13 @@
               <p id="strategicWorldPreviewSummary" class="journal-meta" aria-live="polite"></p>
             </div>
             <div class="strategic-globe-controls" aria-label="Globe controls">
+              <label for="strategicGlobeLayerSelect">Layer
+                <select id="strategicGlobeLayerSelect">
+                  <option value="surface">Surface</option>
+                  <option value="elevation">Elevation</option>
+                  <option value="tectonics">Tectonics</option>
+                </select>
+              </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
               <button type="button" data-globe-action="rotate-up" aria-label="Rotate globe up">↑</button>
               <button type="button" data-globe-action="rotate-down" aria-label="Rotate globe down">↓</button>
@@ -813,6 +820,11 @@
                 <div><dt>Identity</dt><dd id="strategicCellId">None</dd></div>
                 <div><dt>Coordinates</dt><dd id="strategicCellCoordinates">—</dd></div>
                 <div><dt>Surface</dt><dd id="strategicCellSurface">—</dd></div>
+                <div><dt>Elevation</dt><dd id="strategicCellElevation">—</dd></div>
+                <div><dt>Relief</dt><dd id="strategicCellRelief">—</dd></div>
+                <div><dt>Coast</dt><dd id="strategicCellCoast">—</dd></div>
+                <div><dt>Plate</dt><dd id="strategicCellPlate">—</dd></div>
+                <div><dt>Boundary</dt><dd id="strategicCellBoundary">—</dd></div>
                 <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
                 <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
               </dl>
@@ -904,6 +916,7 @@
 
     <script src="theme-content.js"></script>
     <script src="strategic-world.js"></script>
+    <script src="planetary-relief.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

@@ -5,19 +5,23 @@
   const strategicWorld = typeof module === "object" && module.exports
     ? require("./strategic-world")
     : root?.HelixStrategicWorld;
-  const api = factory(themeContent, strategicWorld);
+  const planetaryRelief = typeof module === "object" && module.exports
+    ? require("./planetary-relief")
+    : root?.HelixPlanetaryRelief;
+  const api = factory(themeContent, strategicWorld, planetaryRelief);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before world-run-library.js");
+  if (!PlanetaryRelief) throw new Error("HelixPlanetaryRelief must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 2;
+  const WORLD_GENERATION_VERSION = 3;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -150,35 +154,45 @@
     const providedSummary = String(options.summary || "").trim();
     const summary = providedSummary || summarySelection.text;
     const createdAt = String(options.createdAt || new Date().toISOString());
-    const generatedData = clone(options.generatedData) || (generationVersion >= 2 ? {
-      version: generationVersion,
-      strategicResolution: "geodesic-globe",
-      strategicMap: StrategicWorld.createStrategicMap(worldSeed, options.creationSettings?.strategicMap),
-      themeContent: {
-        version: ThemeContent.VERSION,
-        worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
-        worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
-      },
-      canonicalState: {
-        worldName: name,
-        playableYear,
-        worldTheme
-      }
-    } : {
-      version: generationVersion,
-      strategicResolution: "prototype",
-      themeContent: {
-        version: ThemeContent.VERSION,
-        worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
-        worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
-      },
-      canonicalState: {
-        worldName: name,
-        playableYear,
-        worldTheme
-      }
-    });
+    let generatedData = clone(options.generatedData);
+    if (!generatedData) {
+      const baseStrategicMap = generationVersion >= 2
+        ? StrategicWorld.createStrategicMap(worldSeed, options.creationSettings?.strategicMap)
+        : null;
+      const generatedStrategicMap = generationVersion >= 3
+        ? PlanetaryRelief.attachRelief(worldSeed, baseStrategicMap, options.creationSettings?.relief)
+        : baseStrategicMap;
+      generatedData = generationVersion >= 2 ? {
+        version: generationVersion,
+        strategicResolution: generationVersion >= 3 ? "geodesic-globe-relief" : "geodesic-globe",
+        strategicMap: generatedStrategicMap,
+        themeContent: {
+          version: ThemeContent.VERSION,
+          worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
+          worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
+        },
+        canonicalState: {
+          worldName: name,
+          playableYear,
+          worldTheme
+        }
+      } : {
+        version: generationVersion,
+        strategicResolution: "prototype",
+        themeContent: {
+          version: ThemeContent.VERSION,
+          worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
+          worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
+        },
+        canonicalState: {
+          worldName: name,
+          playableYear,
+          worldTheme
+        }
+      };
+    }
     if (generationVersion >= 2) StrategicWorld.validateStrategicMap(generatedData.strategicMap);
+    if (generationVersion >= 3) PlanetaryRelief.validateRelief(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -194,6 +208,11 @@
             refinementLevel: StrategicWorld.DEFAULT_REFINEMENT_LEVEL,
             radiusKm: StrategicWorld.DEFAULT_PLANET_RADIUS_KM,
             landFraction: StrategicWorld.DEFAULT_LAND_FRACTION
+          }
+        } : {}),
+        ...(generationVersion >= 3 ? {
+          relief: {
+            plateCount: PlanetaryRelief.DEFAULT_PLATE_COUNT
           }
         } : {}),
         ...(clone(options.creationSettings) || {}),
@@ -473,6 +492,7 @@
     WORLD_NAME_VERSION,
     THEME_CONTENT_VERSION: ThemeContent.VERSION,
     STRATEGIC_MAP_VERSION: StrategicWorld.STRATEGIC_MAP_VERSION,
+    RELIEF_VERSION: PlanetaryRelief.RELIEF_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
