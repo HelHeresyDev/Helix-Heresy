@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 7,
+    generationVersion: 8,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -51,9 +51,10 @@ test('world names, years, and canonical digests are deterministic and versioned'
       environment: { climate: { axialTiltMinimumDeg: 18, axialTiltMaximumDeg: 28 } },
       geology: { provinceCellTarget: 72 },
       arcaneGeography: { fieldWaveCount: 5, leyCellFraction: 0.065 },
+      humanGeography: { cityCellsPerCity: 125, minimumCityCount: 18, maximumCityCount: 44, minimumCitySpacingKm: 340 },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-resource-potential',
+      strategicResolution: 'geodesic-globe-fortified-cities',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
@@ -66,7 +67,8 @@ test('world names, years, and canonical digests are deterministic and versioned'
         magicalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
         resourcePotential: { diagnostics: { representedFamilyCount: 12 } },
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
-        routeGraph: { version: 1, nodes: [], routes: [] },
+        humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
+        routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
         version: 1,
@@ -201,6 +203,24 @@ test('finalized generation-version-six worlds keep arcane geography without sile
   expect(world.generatedData.strategicMap.magicalHazards).toBeDefined();
   expect(world.generatedData.strategicMap.resourcePotential).toBeUndefined();
   expect(world.generatedData.strategicMap.publicResourceProspects).toBeUndefined();
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-seven worlds keep resource potential without silently gaining human geography', () => {
+  const world = Library.createWorld({
+    id: 'generation-seven-world',
+    worldSeed: 'generation-seven-seed',
+    worldTheme: 'madcap',
+    generationVersion: 7,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-resource-potential');
+  expect(world.generatedData.strategicMap.resourcePotential).toBeDefined();
+  expect(world.generatedData.strategicMap.publicResourceProspects).toBeDefined();
+  expect(world.generatedData.strategicMap.humanGeography).toBeUndefined();
+  expect(world.generatedData.strategicMap.routeGraph).toEqual({ version: 1, nodes: [], routes: [] });
   expect(normalized).toEqual(world);
 });
 

@@ -20,10 +20,13 @@
   const strategicResourcePotential = typeof module === "object" && module.exports
     ? require("./strategic-resource-potential")
     : root?.HelixStrategicResourcePotential;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential);
+  const strategicHumanGeography = typeof module === "object" && module.exports
+    ? require("./strategic-human-geography")
+    : root?.HelixStrategicHumanGeography;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -33,11 +36,12 @@
   if (!StrategicGeology) throw new Error("HelixStrategicGeology must load before world-run-library.js");
   if (!StrategicArcaneGeography) throw new Error("HelixStrategicArcaneGeography must load before world-run-library.js");
   if (!StrategicResourcePotential) throw new Error("HelixStrategicResourcePotential must load before world-run-library.js");
+  if (!StrategicHumanGeography) throw new Error("HelixStrategicHumanGeography must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 7;
+  const WORLD_GENERATION_VERSION = 8;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -190,9 +194,14 @@
       if (generationVersion >= 7) {
         generatedStrategicMap = StrategicResourcePotential.attachResourcePotential(worldSeed, generatedStrategicMap);
       }
+      if (generationVersion >= 8) {
+        generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);
+      }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
-        strategicResolution: generationVersion >= 7
+        strategicResolution: generationVersion >= 8
+          ? "geodesic-globe-fortified-cities"
+          : generationVersion >= 7
           ? "geodesic-globe-resource-potential"
           : generationVersion >= 6
             ? "geodesic-globe-arcane-geography"
@@ -233,6 +242,7 @@
     if (generationVersion >= 5) StrategicGeology.validateStrategicGeology(generatedData.strategicMap);
     if (generationVersion >= 6) StrategicArcaneGeography.validateStrategicArcaneGeography(generatedData.strategicMap);
     if (generationVersion >= 7) StrategicResourcePotential.validateStrategicResources(generatedData.strategicMap);
+    if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -272,6 +282,14 @@
           arcaneGeography: {
             fieldWaveCount: StrategicArcaneGeography.DEFAULT_FIELD_WAVE_COUNT,
             leyCellFraction: StrategicArcaneGeography.DEFAULT_LEY_CELL_FRACTION
+          }
+        } : {}),
+        ...(generationVersion >= 8 ? {
+          humanGeography: {
+            cityCellsPerCity: StrategicHumanGeography.DEFAULT_CITY_CELLS_PER_CITY,
+            minimumCityCount: StrategicHumanGeography.DEFAULT_MINIMUM_CITY_COUNT,
+            maximumCityCount: StrategicHumanGeography.DEFAULT_MAXIMUM_CITY_COUNT,
+            minimumCitySpacingKm: StrategicHumanGeography.DEFAULT_MINIMUM_CITY_SPACING_KM
           }
         } : {}),
         ...(clone(options.creationSettings) || {}),
@@ -561,6 +579,7 @@
     MAGICAL_HAZARD_VERSION: StrategicArcaneGeography.MAGICAL_HAZARD_VERSION,
     RESOURCE_POTENTIAL_VERSION: StrategicResourcePotential.RESOURCE_POTENTIAL_VERSION,
     PUBLIC_PROSPECT_VERSION: StrategicResourcePotential.PUBLIC_PROSPECT_VERSION,
+    HUMAN_GEOGRAPHY_VERSION: StrategicHumanGeography.HUMAN_GEOGRAPHY_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
