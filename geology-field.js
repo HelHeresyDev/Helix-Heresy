@@ -26,6 +26,15 @@
     Object.freeze({ id: "manaPocket", label: "Mana-saturated pocket", kind: "mana", severity: "serious" }),
     Object.freeze({ id: "thermalPocket", label: "Geothermal pocket", kind: "heat", severity: "serious" })
   ]);
+  const STRATEGIC_BEDROCK_WEIGHTS = Object.freeze({
+    granitic: Object.freeze({ limestone: 10, granite: 66, shale: 14, basalt: 10 }),
+    basaltic: Object.freeze({ limestone: 5, granite: 10, shale: 10, basalt: 75 }),
+    siliciclasticSedimentary: Object.freeze({ limestone: 22, granite: 8, shale: 64, basalt: 6 }),
+    carbonate: Object.freeze({ limestone: 72, granite: 6, shale: 18, basalt: 4 }),
+    metamorphic: Object.freeze({ limestone: 8, granite: 48, shale: 12, basalt: 32 }),
+    volcanic: Object.freeze({ limestone: 4, granite: 8, shale: 10, basalt: 78 }),
+    ultramafic: Object.freeze({ limestone: 3, granite: 14, shale: 5, basalt: 78 })
+  });
 
   function stableHash(value) {
     const text = Array.isArray(value) ? value.join("|") : String(value ?? "");
@@ -50,15 +59,37 @@
     return cell ? `${cell.x},${cell.y},${cell.z}` : "invalid";
   }
 
-  function stratumForCell(seed, candidate) {
+  function normalizeStrategicContext(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const bedrockClass = STRATEGIC_BEDROCK_WEIGHTS[candidate.bedrockClass] ? candidate.bedrockClass : null;
+    const hazard = candidate.hazardPermille && typeof candidate.hazardPermille === "object"
+      ? Object.fromEntries(["earthquake", "volcanic", "landslide", "subsidence", "geothermal", "flood"].map((field) => [field, Math.max(0, Math.min(1000, Number(candidate.hazardPermille[field]) || 0))]))
+      : null;
+    return bedrockClass || hazard ? { bedrockClass, hazardPermille: hazard } : null;
+  }
+
+  function weightedStratum(seed, band, context) {
+    const weights = STRATEGIC_BEDROCK_WEIGHTS[context.bedrockClass];
+    const roll = stableHash(`${seed}:geology-stratum:${band}:strategic:${context.bedrockClass}`) % 100;
+    let cursor = 0;
+    for (const stratum of STRATA) {
+      cursor += weights[stratum.id];
+      if (roll < cursor) return stratum;
+    }
+    return STRATA[STRATA.length - 1];
+  }
+
+  function stratumForCell(seed, candidate, strategicContext = null) {
     const cell = cleanCell(candidate);
     if (!cell) return STRATA[0];
     const bend = stableHash(`${seed}:geology-bend:${Math.floor(cell.x / 5)}:${cell.z}`) % 7 - 3;
     const band = Math.floor((cell.y + bend + cell.z * 7) / 7);
+    const context = normalizeStrategicContext(strategicContext);
+    if (context?.bedrockClass) return weightedStratum(seed, band, context);
     return STRATA[stableHash(`${seed}:geology-stratum:${band}:${cell.z}`) % STRATA.length];
   }
 
-  function depositForCell(seed, candidate, stratum = stratumForCell(seed, candidate)) {
+  function depositForCell(seed, candidate, stratum = stratumForCell(seed, candidate), strategicContext = null) {
     const cell = cleanCell(candidate);
     if (!cell) return null;
     const veinX = Math.floor((cell.x + stableHash(`${seed}:vein-x:${cell.z}`) % 4) / 4);
@@ -73,12 +104,29 @@
     };
   }
 
-  function hazardForCell(seed, candidate) {
+  function hazardForCell(seed, candidate, strategicContext = null) {
     const cell = cleanCell(candidate);
     if (!cell) return null;
     const roll = stableHash(`${seed}:geology-hazard:${cellKey(cell)}`) % 1000;
-    if (roll >= 24) return null;
-    return HAZARDS[stableHash(`${seed}:geology-hazard-type:${cellKey(cell)}`) % HAZARDS.length];
+    const context = normalizeStrategicContext(strategicContext);
+    if (!context?.hazardPermille) {
+      if (roll >= 24) return null;
+      return HAZARDS[stableHash(`${seed}:geology-hazard-type:${cellKey(cell)}`) % HAZARDS.length];
+    }
+    const tendencies = [
+      18 + context.hazardPermille.subsidence * 0.025 + context.hazardPermille.flood * 0.008,
+      12,
+      18 + context.hazardPermille.geothermal * 0.045 + context.hazardPermille.volcanic * 0.018
+    ];
+    const threshold = Math.min(120, Math.round(tendencies.reduce((sum, value) => sum + value, 0)));
+    if (roll >= threshold) return null;
+    const typeRoll = stableHash(`${seed}:geology-hazard-type:${cellKey(cell)}:strategic`) % Math.ceil(tendencies.reduce((sum, value) => sum + value, 0));
+    let cursor = 0;
+    for (let index = 0; index < HAZARDS.length; index += 1) {
+      cursor += tendencies[index];
+      if (typeRoll < cursor) return HAZARDS[index];
+    }
+    return HAZARDS[HAZARDS.length - 1];
   }
 
   function stabilityBand(score) {
@@ -95,10 +143,10 @@
     return "Soft";
   }
 
-  function profileForCell(seed, candidate) {
+  function profileForCell(seed, candidate, strategicContext = null) {
     const cell = cleanCell(candidate);
     if (!cell) return null;
-    const stratum = stratumForCell(seed, cell);
+    const stratum = stratumForCell(seed, cell, strategicContext);
     const depthMultiplier = 1 + Math.max(0, Math.abs(cell.z)) * 0.08;
     return {
       version: VERSION,
@@ -106,8 +154,8 @@
       stratum,
       hardnessBand: hardnessBand(stratum.hardness),
       stabilityBand: stabilityBand(stratum.stability),
-      deposit: depositForCell(seed, cell, stratum),
-      hazard: hazardForCell(seed, cell),
+      deposit: depositForCell(seed, cell, stratum, strategicContext),
+      hazard: hazardForCell(seed, cell, strategicContext),
       workMultiplier: stratum.workMultiplier * depthMultiplier,
       toolWearMultiplier: stratum.toolWearMultiplier * depthMultiplier,
       rubbleYield: stratum.rubbleYield
@@ -146,7 +194,7 @@
         for (const dx of dxMagnitude ? [-dxMagnitude, dxMagnitude] : [0]) {
           const cell = { x: origin.x + dx, y: origin.y + dy, z: origin.z };
           if (cell.x < 0 || cell.y < 0 || cell.x >= width || cell.y >= height) continue;
-          const profile = profileForCell(seed, cell);
+          const profile = profileForCell(seed, cell, options.geologyContext);
           if (feature === "hazard" && profile.hazard) return profile;
           if (feature === "deposit" && profile.deposit) return profile;
           if (STRATUM_BY_ID[feature] && profile.stratum.id === feature) return profile;
@@ -162,9 +210,11 @@
     STRATUM_BY_ID,
     DEPOSITS,
     HAZARDS,
+    STRATEGIC_BEDROCK_WEIGHTS,
     stableHash,
     cleanCell,
     cellKey,
+    normalizeStrategicContext,
     stratumForCell,
     depositForCell,
     hazardForCell,

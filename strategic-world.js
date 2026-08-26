@@ -243,6 +243,8 @@
     if (map.climate) core.climate = map.climate;
     if (map.hydrology) core.hydrology = map.hydrology;
     if (map.biomes) core.biomes = map.biomes;
+    if (map.geology) core.geology = map.geology;
+    if (map.naturalHazards) core.naturalHazards = map.naturalHazards;
     return core;
   }
 

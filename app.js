@@ -11,8 +11,9 @@
   const StrategicWorld = window.HelixStrategicWorld;
   const PlanetaryRelief = window.HelixPlanetaryRelief;
   const ClimateHydrologyBiomes = window.HelixClimateHydrologyBiomes;
+  const StrategicGeology = window.HelixStrategicGeology;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12132,6 +12133,11 @@
       "strategicCellWatershed",
       "strategicCellWater",
       "strategicCellBiome",
+      "strategicCellGeologyProvince",
+      "strategicCellBedrock",
+      "strategicCellSurfaceGeology",
+      "strategicCellGeologyProperties",
+      "strategicCellNaturalHazards",
       "strategicCellRegion",
       "strategicCellGrid",
       "startingScenarioList",
@@ -12250,6 +12256,18 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.biomes
           ? ClimateHydrologyBiomes.auditEnvironment(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicGeologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.geology
+          ? StrategicGeology.auditGeology(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicGeologyCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.geology
+          ? StrategicGeology.cellGeologySnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -13997,6 +14015,9 @@
     const environment = cell && currentStrategicPreviewMap?.biomes
       ? ClimateHydrologyBiomes.cellEnvironmentSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const geology = cell && currentStrategicPreviewMap?.geology
+      ? StrategicGeology.cellGeologySnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14014,6 +14035,11 @@
       dom.strategicCellWatershed.textContent = "—";
       dom.strategicCellWater.textContent = "—";
       dom.strategicCellBiome.textContent = "—";
+      dom.strategicCellGeologyProvince.textContent = "—";
+      dom.strategicCellBedrock.textContent = "—";
+      dom.strategicCellSurfaceGeology.textContent = "—";
+      dom.strategicCellGeologyProperties.textContent = "—";
+      dom.strategicCellNaturalHazards.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -14046,6 +14072,13 @@
     dom.strategicCellBiome.textContent = environment
       ? `${readableGeographyLabel(environment.biomeClass)}${environment.biomeModifiers.length ? ` · ${environment.biomeModifiers.map(readableGeographyLabel).join(", ")}` : ""}`
       : "—";
+    dom.strategicCellGeologyProvince.textContent = geology ? `${geology.provinceId} · ${readableGeographyLabel(geology.tectonicRegime)}` : "Unavailable in this world version";
+    dom.strategicCellBedrock.textContent = geology ? `${readableGeographyLabel(geology.bedrockClass)} · ${readableGeographyLabel(geology.crustClass)} · ${geology.crustAgeMyr.toLocaleString()} million years` : "—";
+    dom.strategicCellSurfaceGeology.textContent = geology ? readableGeographyLabel(geology.surfaceDeposit) : "—";
+    dom.strategicCellGeologyProperties.textContent = geology ? `${readableGeographyLabel(geology.permeabilityBand)} permeability · ${readableGeographyLabel(geology.stabilityBand)} stability · ${readableGeographyLabel(geology.geothermalBand)} geothermal tendency` : "—";
+    dom.strategicCellNaturalHazards.textContent = geology
+      ? `${readableGeographyLabel(geology.dominantHazard)} dominant · ${Object.entries(geology.hazardBands).map(([name, band]) => `${readableGeographyLabel(name)} ${readableGeographyLabel(band)}`).join(" · ")}`
+      : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
   }
@@ -14074,7 +14107,10 @@
     const environmentSummary = map.biomes
       ? ` · ${map.hydrology.watersheds.length.toLocaleString()} watersheds · ${map.hydrology.lakes.length.toLocaleString()} major lakes · ${map.biomes.diagnostics.representedBiomeCount} biomes`
       : (map.relief ? " · Climate, hydrology, and biomes unavailable for generation v3" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}`;
+    const geologySummary = map.geology
+      ? ` · ${map.geology.provinces.length.toLocaleString()} geological provinces · ${map.geology.diagnostics.representedBedrockClassCount} bedrock families`
+      : (map.biomes ? " · Geology and natural hazards unavailable for generation v4" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
