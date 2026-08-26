@@ -18,8 +18,9 @@
   const StrategicCityPolities = window.HelixStrategicCityPolities;
   const StrategicBeastEcology = window.HelixStrategicBeastEcology;
   const StrategicCityGovernments = window.HelixStrategicCityGovernments;
+  const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12162,6 +12163,9 @@
       "strategicCellGovernmentCharter",
       "strategicCellGovernmentInstitutions",
       "strategicCellGovernmentJurisdiction",
+      "strategicCellLawSummary",
+      "strategicCellLawProcedure",
+      "strategicCellPunishmentPolicy",
       "strategicCellBeastThreat",
       "strategicCellMigrationPressure",
       "strategicCellWavePressure",
@@ -12174,6 +12178,8 @@
       "strategicCityPolityList",
       "strategicCityGovernmentDirectory",
       "strategicCityGovernmentList",
+      "strategicCityLawDirectory",
+      "strategicCityLawList",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
@@ -12378,6 +12384,23 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCityGovernmentDirectory ? StrategicCityGovernments.publicCityGovernmentDirectory(map) : [];
+      },
+      strategicCityLawsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.cityLegalCodes
+          ? StrategicCityLaws.auditCityLegalCodes(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicCityLawSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicCityLawDirectory
+          ? StrategicCityLaws.cellPublicCityLawSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicPublicCityLawDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
       },
       strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
@@ -14174,6 +14197,9 @@
     const cityGovernment = cell && currentStrategicPreviewMap?.publicCityGovernmentDirectory
       ? StrategicCityGovernments.cellPublicCityGovernmentSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const cityLaw = cell && currentStrategicPreviewMap?.publicCityLawDirectory
+      ? StrategicCityLaws.cellPublicCityLawSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14214,6 +14240,9 @@
       dom.strategicCellGovernmentCharter.textContent = "—";
       dom.strategicCellGovernmentInstitutions.textContent = "—";
       dom.strategicCellGovernmentJurisdiction.textContent = "—";
+      dom.strategicCellLawSummary.textContent = "—";
+      dom.strategicCellLawProcedure.textContent = "—";
+      dom.strategicCellPunishmentPolicy.textContent = "—";
       dom.strategicCellBeastThreat.textContent = "—";
       dom.strategicCellMigrationPressure.textContent = "—";
       dom.strategicCellWavePressure.textContent = "—";
@@ -14306,6 +14335,19 @@
     dom.strategicCellGovernmentJurisdiction.textContent = cityGovernment
       ? `Core and approaches: exclusive city jurisdiction · corridors: facility, convoy, or agreement only · wilderness: none · internet: local effects and infrastructure only`
       : "—";
+    if (cityLaw) {
+      const importantOffenses = ["geneticEngineering", "artificialCreatureCreation", "animancy", "prohibitedMagic", "corporateLicensing"]
+        .map((offenseId) => cityLaw.offenseRules.find((rule) => rule.offenseId === offenseId))
+        .filter(Boolean);
+      dom.strategicCellLawSummary.textContent = importantOffenses.map((rule) => `${rule.label}: ${readableGeographyLabel(rule.legalStatus)} · ${readableGeographyLabel(rule.publicAttitude)} public attitude`).join(" · ");
+      dom.strategicCellLawProcedure.textContent = `Criminal proof: beyond reasonable doubt, with every element proven separately · ${readableGeographyLabel(cityLaw.procedure.counselRule)} counsel · ${readableGeographyLabel(cityLaw.procedure.discoveryRule)} discovery · ${readableGeographyLabel(cityLaw.procedure.pretrialReleaseRule)} release policy`;
+      const sanctions = cityLaw.punishmentPolicy.availableSanctions.map(readableGeographyLabel).join(", ");
+      dom.strategicCellPunishmentPolicy.textContent = `${cityLaw.punishmentPolicy.finitePrisonMaximumMonths / 12}-year finite prison maximum · no life imprisonment · available sanctions: ${sanctions} · Public Enemy designation requires a separate reviewed finding`;
+    } else {
+      dom.strategicCellLawSummary.textContent = currentStrategicPreviewMap?.publicCityLawDirectory ? "No city code applies at this cell" : "Unavailable in this saved world";
+      dom.strategicCellLawProcedure.textContent = "—";
+      dom.strategicCellPunishmentPolicy.textContent = "—";
+    }
     dom.strategicCellBeastThreat.textContent = beastEcology
       ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
       : "Unavailable in this saved world";
@@ -14371,6 +14413,43 @@
       facts.textContent = `City-only sovereignty · no superior government or state membership · core and approaches under exclusive jurisdiction · jail and prison administered by distinct institutions · ${entry.threatReadiness.waveWarningIds.length} public wave warning${entry.threatReadiness.waveWarningIds.length === 1 ? "" : "s"}`;
       card.append(heading, charter, institutions, facts);
       dom.strategicCityGovernmentList.append(card);
+    }
+  }
+
+  function renderStrategicCityLawDirectory(map) {
+    dom.strategicCityLawList.textContent = "";
+    const entries = map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
+    dom.strategicCityLawDirectory.hidden = !entries.length;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const entry of entries) {
+      const card = document.createElement("details");
+      card.className = "strategic-city-law-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = entry.city.name;
+      heading.append(strong, ` · ${entry.punishmentPolicy.finitePrisonMaximumMonths / 12}-year prison maximum`);
+      const highlights = document.createElement("p");
+      const highlightedIds = ["geneticEngineering", "artificialCreatureCreation", "animancy", "prohibitedMagic", "corporateLicensing"];
+      highlights.textContent = highlightedIds.map((offenseId) => {
+        const rule = entry.offenseRules.find((candidate) => candidate.offenseId === offenseId);
+        return `${rule.label}: ${readable(rule.legalStatus)}`;
+      }).join(" · ");
+      const procedure = document.createElement("p");
+      procedure.className = "journal-meta";
+      procedure.textContent = `Beyond reasonable doubt · each element proven separately · ${readable(entry.procedure.counselRule)} counsel · ${readable(entry.procedure.discoveryRule)} discovery · no life imprisonment · ${entry.punishmentPolicy.publicExecution.available ? "public beheading only after a separate Public Enemy finding" : "no public execution"} · ${entry.punishmentPolicy.penalFlight.available ? "Penal Flight authorized for eligible non-Public-Enemy condemnation" : "no Penal Flight"}`;
+      const rules = document.createElement("div");
+      rules.className = "strategic-city-law-rules";
+      card.addEventListener("toggle", () => {
+        if (!card.open || rules.childElementCount) return;
+        for (const rule of entry.offenseRules) {
+          const item = document.createElement("p");
+          const prison = rule.sentencing.finitePrisonRangeMonths ? ` · finite prison up to ${rule.sentencing.finitePrisonRangeMonths.maximum} months` : "";
+          item.textContent = `${rule.label} — ${readable(rule.legalStatus)} · ${readable(rule.culpability)} culpability · elements: ${rule.elements.map((element) => element.label).join(" / ")} · defenses: ${rule.defenses.map(readable).join(", ") || "none"} · official attitude: ${readable(rule.publicAttitude)}${prison}`;
+          rules.append(item);
+        }
+      });
+      card.append(heading, highlights, procedure, rules);
+      dom.strategicCityLawList.append(card);
     }
   }
 
@@ -14442,6 +14521,7 @@
       renderStrategicCellInspector(null);
       renderStrategicCityPolityDirectory(null);
       renderStrategicCityGovernmentDirectory(null);
+      renderStrategicCityLawDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
       return;
@@ -14477,7 +14557,10 @@
     const cityGovernmentSummary = map.publicCityGovernmentDirectory
       ? ` · ${map.publicCityGovernmentDirectory.entries.length.toLocaleString()} public city charters · distinct jail and prison authorities`
       : (map.publicBeastAtlas ? " · City-government charters unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}`;
+    const cityLawSummary = map.publicCityLawDirectory
+      ? ` · ${map.publicCityLawDirectory.entries.length.toLocaleString()} independent city law codes · no life imprisonment`
+      : (map.publicCityGovernmentDirectory ? " · City law codes unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14486,6 +14569,7 @@
     renderStrategicGlobeLegend("surface");
     renderStrategicCityPolityDirectory(map);
     renderStrategicCityGovernmentDirectory(map);
+    renderStrategicCityLawDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
   }

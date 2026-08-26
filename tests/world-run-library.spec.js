@@ -73,6 +73,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicBeastAtlas: { diagnostics: { reportCount: expect.any(Number), migrationReportCount: expect.any(Number), waveWarningCount: expect.any(Number), knownLairCount: expect.any(Number) } },
         cityGovernments: { diagnostics: { governmentCount: expect.any(Number), institutionCount: expect.any(Number), distinctJailAndPrisonCount: expect.any(Number), independentCityCount: expect.any(Number) } },
         publicCityGovernmentDirectory: { entries: expect.any(Array) },
+        cityLegalCodes: { diagnostics: { codeCount: expect.any(Number), offenseRuleCount: expect.any(Number), geneticEngineeringProhibitedCount: expect.any(Number), lifeImprisonmentCityCount: 0 } },
+        publicCityLawDirectory: { entries: expect.any(Array), offenseCatalog: expect.any(Array) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -127,6 +129,8 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicBeastAtlas;
     delete map.cityGovernments;
     delete map.publicCityGovernmentDirectory;
+    delete map.cityLegalCodes;
+    delete map.publicCityLawDirectory;
     delete map.digest;
     return map;
   });

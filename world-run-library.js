@@ -32,10 +32,13 @@
   const strategicCityGovernments = typeof module === "object" && module.exports
     ? require("./strategic-city-governments")
     : root?.HelixStrategicCityGovernments;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments);
+  const strategicCityLaws = typeof module === "object" && module.exports
+    ? require("./strategic-city-laws")
+    : root?.HelixStrategicCityLaws;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments, strategicCityLaws);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments, StrategicCityLaws) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -49,6 +52,7 @@
   if (!StrategicCityPolities) throw new Error("HelixStrategicCityPolities must load before world-run-library.js");
   if (!StrategicBeastEcology) throw new Error("HelixStrategicBeastEcology must load before world-run-library.js");
   if (!StrategicCityGovernments) throw new Error("HelixStrategicCityGovernments must load before world-run-library.js");
+  if (!StrategicCityLaws) throw new Error("HelixStrategicCityLaws must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -213,6 +217,7 @@
         generatedStrategicMap = StrategicCityPolities.attachCityPolities(worldSeed, worldTheme, generatedStrategicMap);
         generatedStrategicMap = StrategicBeastEcology.attachBeastEcology(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCityGovernments.attachCityGovernments(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicCityLaws.attachCityLegalCodes(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -265,6 +270,7 @@
     if (generationVersion >= 9) StrategicCityPolities.validateCityPolities(generatedData.strategicMap);
     if (generatedData.strategicMap?.beastEcology || generatedData.strategicMap?.publicBeastAtlas) StrategicBeastEcology.validateBeastEcology(generatedData.strategicMap);
     if (generatedData.strategicMap?.cityGovernments || generatedData.strategicMap?.publicCityGovernmentDirectory) StrategicCityGovernments.validateCityGovernments(generatedData.strategicMap);
+    if (generatedData.strategicMap?.cityLegalCodes || generatedData.strategicMap?.publicCityLawDirectory) StrategicCityLaws.validateCityLegalCodes(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,

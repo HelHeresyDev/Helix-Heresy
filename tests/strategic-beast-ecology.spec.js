@@ -37,7 +37,7 @@ test('population ecology is deterministic, theme-independent, validated, and com
   expect(first.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })))
     .toEqual(grim.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })));
   expect(BeastEcology.validateBeastEcology(first)).toEqual({ ecology: first.beastEcology, publicAtlas: first.publicBeastAtlas });
-  expect(JSON.stringify(first).length).toBeLessThan(4_000_000);
+  expect(JSON.stringify(first).length).toBeLessThan(5_000_000);
 });
 
 test('seasonal migrations use eligible species, saved adjacency, movement realms, and four climate phases', () => {

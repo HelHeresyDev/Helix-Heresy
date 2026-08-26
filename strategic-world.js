@@ -255,6 +255,8 @@
     if (map.publicBeastAtlas) core.publicBeastAtlas = map.publicBeastAtlas;
     if (map.cityGovernments) core.cityGovernments = map.cityGovernments;
     if (map.publicCityGovernmentDirectory) core.publicCityGovernmentDirectory = map.publicCityGovernmentDirectory;
+    if (map.cityLegalCodes) core.cityLegalCodes = map.cityLegalCodes;
+    if (map.publicCityLawDirectory) core.publicCityLawDirectory = map.publicCityLawDirectory;
     return core;
   }
 
