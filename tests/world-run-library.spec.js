@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 6,
+    generationVersion: 7,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -53,7 +53,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
       arcaneGeography: { fieldWaveCount: 5, leyCellFraction: 0.065 },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-arcane-geography',
+      strategicResolution: 'geodesic-globe-resource-potential',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
@@ -64,6 +64,8 @@ test('world names, years, and canonical digests are deterministic and versioned'
         naturalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
         arcaneGeography: { diagnostics: { leyCellCount: expect.any(Number), representedPrimaryAspectCount: 8 } },
         magicalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
+        resourcePotential: { diagnostics: { representedFamilyCount: 12 } },
+        publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
         routeGraph: { version: 1, nodes: [], routes: [] },
       },
       themeContent: {
@@ -181,6 +183,24 @@ test('finalized generation-version-five worlds keep geology without silently gai
   expect(world.generatedData.strategicMap.naturalHazards).toBeDefined();
   expect(world.generatedData.strategicMap.arcaneGeography).toBeUndefined();
   expect(world.generatedData.strategicMap.magicalHazards).toBeUndefined();
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-six worlds keep arcane geography without silently gaining resource potential', () => {
+  const world = Library.createWorld({
+    id: 'generation-six-world',
+    worldSeed: 'generation-six-seed',
+    worldTheme: 'madcap',
+    generationVersion: 6,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-arcane-geography');
+  expect(world.generatedData.strategicMap.arcaneGeography).toBeDefined();
+  expect(world.generatedData.strategicMap.magicalHazards).toBeDefined();
+  expect(world.generatedData.strategicMap.resourcePotential).toBeUndefined();
+  expect(world.generatedData.strategicMap.publicResourceProspects).toBeUndefined();
   expect(normalized).toEqual(world);
 });
 

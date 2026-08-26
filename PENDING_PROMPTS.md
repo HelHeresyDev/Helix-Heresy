@@ -18,12 +18,12 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Resource Potential, Survey Knowledge, and Discovery
-2. Settlements, Cities, Routes, and Candidate Sites
-3. Civilizations, Factions, Institutions, Religions, and Law
-4. Historical World Simulation and Playable Year
-5. New-Run World Selection, Site Choice, and Scenario Materialization
-6. Local Context Mechanics: Environment, Geology, and Travel
+1. Settlements, Cities, Routes, and Candidate Sites
+2. Civilizations, Factions, Institutions, Religions, and Law
+3. Historical World Simulation and Playable Year
+4. New-Run World Selection, Site Choice, and Scenario Materialization
+5. Local Context Mechanics: Environment, Geology, and Travel
+6. Strategic Survey Operations and Resource Discovery
 7. Penal Flights and Beast-Territory Exile
 8. Penal Legions and Wilderness Service
 9. World Integration: Economy and Logistics
@@ -57,6 +57,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Generation-version-four worlds add saved axial tilt, climate normals, circulation, ocean-current tendencies, conditioned drainage, watersheds, major lakes and rivers, wetlands, and terrestrial and marine biomes without changing generation version three's relief. Older generation-version-three worlds retain their relief layers and honestly report that climate, hydrology, and biomes are unavailable.
 - Generation-version-five worlds add saved contiguous geological provinces, crust, bedrock, surface deposits, tectonic regimes, physical-property tendencies, and causal natural-hazard baselines without changing generation version four's environment. Older generation-version-four worlds retain their environment layers and honestly report that geology and natural hazards are unavailable.
 - Generation-version-six worlds add saved mana concentration and flow, aspects, ley structures, natural null zones, arcane stability, and magical-hazard baselines without changing generation version five's geology. Older generation-version-five worlds retain their geology layers and honestly report that arcane geography and magical hazards are unavailable.
+- Generation-version-seven worlds add hidden canonical resource endowment and separate knowledge-safe public prospectivity without changing generation version six's arcane geography. Older generation-version-six worlds retain their Arcane layer and honestly report that resource potential is unavailable.
 - Use stable semantic role keys for mechanics and separate generated instance IDs and display names. Existing systems must not depend on a particular generated proper name.
 - Once a generated world is finalized, its canonical facts must not silently reroll. World-generation version changes create a new world rather than rewriting an existing one.
 - Keep generation and simulation renderer-neutral. UI previews and maps are projections of authoritative saved state.
@@ -67,39 +68,39 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Resource Potential, Survey Knowledge, and Discovery
-
-Design and implement canonical hidden resource potential derived from geology, arcane geography, climate, hydrology, and biomes. Separate immutable world truth from run-specific survey knowledge and discoveries. The player-visible resource overlay must reveal only legitimately known broad potential, confidence, and surveyed findings; exact local veins, pockets, quality, and quantity remain lazy until appropriate exploration. Settlement generation may consume canonical resource truth without leaking it to the player. Feed discovered strategic context into local deterministic geology without rerolling existing cells.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Settlements, Cities, Routes, and Candidate Sites
+## 1. Settlements, Cities, Routes, and Candidate Sites
 
 Design and implement major cities, vulnerable towns and villages, defended corridors, transport hubs, frontier sites, candidate laboratory parcels, and route networks. Candidate sites should know both straight-line distance and practical route access to their nearest settlement.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Civilizations, Factions, Institutions, Religions, and Law
+## 2. Civilizations, Factions, Institutions, Religions, and Law
 
 Design and implement the powers that inhabit, control, and contest the generated world: states, territorial control, relationships, factions, religious powers, commercial blocs, military forces, magitech traditions, and local institutional branches. Bind generated instances to stable semantic roles used by existing systems.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Historical World Simulation and Playable Year
+## 3. Historical World Simulation and Playable Year
 
 Design and implement a bounded pre-run history simulation that advances the generated world to its playable year. History should causally change settlements, borders, powers, religions, routes, laws, public attitudes, ruins, and regional conditions. Every retained event should change a saved fact, explain a current condition, or create a discoverable hook.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run World Selection, Site Choice, and Scenario Materialization
+## 4. New-Run World Selection, Site Choice, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world. The player chooses an existing world or generates a new one, then chooses a starting scenario, biome, and city-distance band from compatible saved candidate sites. The chosen scenario materializes the physical site blueprint and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Local Context Mechanics: Environment, Geology, and Travel
+## 5. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of selected world location: environmental baselines, exact geology inputs, water access, surface concealment, evidence persistence, waste risk, route reliability, legal-cover plausibility, visitor arrival windows, resource availability, and travel.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 6. Strategic Survey Operations and Resource Discovery
+
+Design and implement run-owned strategic resource knowledge after site selection and local travel exist. Begin each run with the world's public prospectivity but none of another run's private findings. Add physical survey and prospecting methods, equipment, travel, samples, confidence changes, bounded uncertainty, false negatives, and saved evidence provenance. Survey results may refine strategic estimates and feed authoritative resource context into lazy local maps, but exact veins, pockets, quality, and quantity remain hidden until an appropriate local method exposes them. The overlay must merge public and run-specific knowledge without reading canonical hidden endowment directly.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

@@ -94,6 +94,14 @@
       { label: "Storm", color: "#7168a5" }, { label: "Wind", color: "#9db7ae" },
       { label: "Life", color: "#4f9b61" }, { label: "Ether", color: "#a65bb2" },
       { label: "Ley structure", color: "#f6d578" }, { label: "Null zone", color: "#525360" }
+    ],
+    prospects: [
+      { label: "Ferrous ore", color: "#a85f48" }, { label: "Base metals", color: "#b47a51" },
+      { label: "Precious minerals", color: "#d2b85a" }, { label: "Construction stone", color: "#8b8580" },
+      { label: "Industrial minerals", color: "#b8aa8c" }, { label: "Chemical / fuel", color: "#685846" },
+      { label: "Mana crystals", color: "#9c65bd" }, { label: "Nullstone", color: "#575c68" },
+      { label: "Fresh water", color: "#4c98bd" }, { label: "Biological", color: "#67a55d" },
+      { label: "Timber / fiber", color: "#52764d" }, { label: "Geothermal", color: "#d47a45" }
     ]
   });
 
@@ -106,6 +114,7 @@
     if (map?.geology) layers.push("geology");
     if (map?.naturalHazards) layers.push("hazards");
     if (map?.arcaneGeography) layers.push("arcane");
+    if (map?.publicResourceProspects) layers.push("prospects");
     return layers;
   }
 
@@ -275,6 +284,29 @@
       return shadedRgb(base, light);
     }
 
+    const PROSPECT_COLORS = Object.freeze({
+      F: [168, 95, 72], B: [180, 122, 81], P: [210, 184, 90], C: [139, 133, 128],
+      I: [184, 170, 140], H: [104, 88, 70], M: [156, 101, 189], N: [87, 92, 104],
+      W: [76, 152, 189], G: [103, 165, 93], T: [82, 118, 77], E: [212, 122, 69], ".": [82, 86, 83]
+    });
+
+    function prospectColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const code = map.publicResourceProspects.dominantProspectClasses[index];
+      const familyId = {
+        F: "ferrousOre", B: "baseMetalOre", P: "preciousMinerals", C: "constructionStone",
+        I: "industrialMinerals", H: "chemicalFeedstock", M: "manaCrystals", N: "nullstone",
+        W: "freshWater", G: "biologicalProductivity", T: "timberFiber", E: "geothermalEnergy"
+      }[code];
+      const band = familyId ? map.publicResourceProspects.prospectBands[familyId][index] : "0";
+      const intensity = { "0": 0.55, "1": 0.72, "2": 0.9, "3": 1.08 }[band] || 0.55;
+      let base = (PROSPECT_COLORS[code] || PROSPECT_COLORS["."]).map((value) => clamp(value * intensity, 0, 255));
+      const confidence = map.publicResourceProspects.confidenceClasses[index];
+      if (confidence === "l") base = mixRgb(base, [105, 105, 105], 0.35);
+      if (confidence === "m") base = mixRgb(base, [105, 105, 105], 0.14);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -285,6 +317,7 @@
       if (layer === "geology" && map?.geology) return geologyColor(index, light, selected);
       if (layer === "hazards" && map?.naturalHazards) return hazardColor(index, light, selected);
       if (layer === "arcane" && map?.arcaneGeography) return arcaneColor(index, light, selected);
+      if (layer === "prospects" && map?.publicResourceProspects) return prospectColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -500,7 +533,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

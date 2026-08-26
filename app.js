@@ -13,8 +13,9 @@
   const ClimateHydrologyBiomes = window.HelixClimateHydrologyBiomes;
   const StrategicGeology = window.HelixStrategicGeology;
   const StrategicArcaneGeography = window.HelixStrategicArcaneGeography;
+  const StrategicResourcePotential = window.HelixStrategicResourcePotential;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12143,6 +12144,9 @@
       "strategicCellArcaneAspects",
       "strategicCellLeyNull",
       "strategicCellMagicalHazards",
+      "strategicCellResourceProspect",
+      "strategicCellProspectConfidence",
+      "strategicCellProspectBands",
       "strategicCellRegion",
       "strategicCellGrid",
       "startingScenarioList",
@@ -12285,6 +12289,24 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.arcaneGeography
           ? StrategicArcaneGeography.cellArcaneSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicResourcePotentialAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.resourcePotential
+          ? StrategicResourcePotential.auditResourcePotential(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicProspectSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicResourceProspects
+          ? StrategicResourcePotential.publicCellProspectSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicResourceTruthSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.resourcePotential
+          ? StrategicResourcePotential.cellResourceTruth(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -14038,6 +14060,9 @@
     const arcane = cell && currentStrategicPreviewMap?.arcaneGeography
       ? StrategicArcaneGeography.cellArcaneSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const prospects = cell && currentStrategicPreviewMap?.publicResourceProspects
+      ? StrategicResourcePotential.publicCellProspectSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14064,6 +14089,9 @@
       dom.strategicCellArcaneAspects.textContent = "—";
       dom.strategicCellLeyNull.textContent = "—";
       dom.strategicCellMagicalHazards.textContent = "—";
+      dom.strategicCellResourceProspect.textContent = "—";
+      dom.strategicCellProspectConfidence.textContent = "—";
+      dom.strategicCellProspectBands.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -14111,6 +14139,11 @@
     dom.strategicCellMagicalHazards.textContent = arcane
       ? `${readableGeographyLabel(arcane.dominantMagicalHazard)} dominant · ${Object.entries(arcane.magicalHazardBands).map(([name, band]) => `${readableGeographyLabel(name)} ${readableGeographyLabel(band)}`).join(" · ")}`
       : "—";
+    dom.strategicCellResourceProspect.textContent = prospects ? `${prospects.dominantProspectLabel} · ${readableGeographyLabel(prospects.dominantProspectBand)} prospect` : "Unavailable in this world version";
+    dom.strategicCellProspectConfidence.textContent = prospects ? `${readableGeographyLabel(prospects.inferenceConfidence)} geographic inference · ${prospects.publicReason}` : "—";
+    dom.strategicCellProspectBands.textContent = prospects
+      ? StrategicResourcePotential.RESOURCE_FAMILIES.map((family) => `${family.label}: ${readableGeographyLabel(prospects.prospectBands[family.id])}`).join(" · ")
+      : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
   }
@@ -14145,7 +14178,10 @@
     const arcaneSummary = map.arcaneGeography
       ? ` · ${map.arcaneGeography.leyNodes.length.toLocaleString()} ley nodes · ${map.arcaneGeography.nullZones.length.toLocaleString()} natural null zones · ${map.arcaneGeography.diagnostics.representedPrimaryAspectCount} arcane aspects`
       : (map.geology ? " · Arcane geography and magical hazards unavailable for generation v5" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}`;
+    const resourceSummary = map.publicResourceProspects
+      ? ` · ${map.resourcePotential.diagnostics.representedFamilyCount} resource families · public prospectivity only`
+      : (map.arcaneGeography ? " · Resource potential unavailable for generation v6" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

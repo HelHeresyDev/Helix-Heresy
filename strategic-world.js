@@ -247,6 +247,8 @@
     if (map.naturalHazards) core.naturalHazards = map.naturalHazards;
     if (map.arcaneGeography) core.arcaneGeography = map.arcaneGeography;
     if (map.magicalHazards) core.magicalHazards = map.magicalHazards;
+    if (map.resourcePotential) core.resourcePotential = map.resourcePotential;
+    if (map.publicResourceProspects) core.publicResourceProspects = map.publicResourceProspects;
     return core;
   }
 
