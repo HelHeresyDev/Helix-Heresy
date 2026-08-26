@@ -46,6 +46,51 @@
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   }
 
+  const LAYER_LEGENDS = Object.freeze({
+    surface: [{ label: "Land", color: "#526c46" }, { label: "Ocean", color: "#1c4559" }],
+    elevation: [
+      { label: "Deep ocean", color: "#102644" }, { label: "Shelf", color: "#488b97" },
+      { label: "Lowland", color: "#4a7445" }, { label: "Highland", color: "#8b674c" }, { label: "High peak", color: "#e1e3dc" }
+    ],
+    tectonics: [
+      { label: "Plate interiors", color: "#4c7b77" }, { label: "Convergent", color: "#ef6a4c" },
+      { label: "Divergent", color: "#46c7d5" }, { label: "Transform", color: "#d9a252" }
+    ],
+    temperature: [
+      { label: "≤ −15°C", color: "#dcecf1" }, { label: "−15–0°C", color: "#82b7cb" },
+      { label: "0–10°C", color: "#5a9e99" }, { label: "10–20°C", color: "#77a95d" },
+      { label: "20–30°C", color: "#d39a4d" }, { label: "> 30°C", color: "#b94f3f" }
+    ],
+    precipitation: [
+      { label: "< 150 mm", color: "#b28b57" }, { label: "150–400 mm", color: "#a5a060" },
+      { label: "400–800 mm", color: "#71945f" }, { label: "800–1,500 mm", color: "#47846d" },
+      { label: "1,500–2,500 mm", color: "#387987" }, { label: "> 2,500 mm", color: "#565f9b" }
+    ],
+    hydrology: [
+      { label: "Ocean", color: "#193e55" }, { label: "Land drainage", color: "#665f48" },
+      { label: "Wetland", color: "#4d8978" }, { label: "River", color: "#3f9db5" },
+      { label: "Major river", color: "#62c7dc" }, { label: "Major lake", color: "#80d7df" }
+    ],
+    biomes: [
+      { label: "Ice / tundra", color: "#c5d9d2" }, { label: "Forest", color: "#3f704b" },
+      { label: "Grass / shrub", color: "#8b9955" }, { label: "Desert", color: "#bd965a" },
+      { label: "Wetland", color: "#4b8e78" }, { label: "Marine", color: "#315f78" }
+    ]
+  });
+
+  function availableLayers(map) {
+    const layers = ["surface"];
+    if (map?.relief) layers.push("elevation", "tectonics");
+    if (map?.climate) layers.push("temperature", "precipitation");
+    if (map?.hydrology) layers.push("hydrology");
+    if (map?.biomes) layers.push("biomes");
+    return layers;
+  }
+
+  function legendForLayer(layer) {
+    return (LAYER_LEGENDS[layer] || LAYER_LEGENDS.surface).map((entry) => ({ ...entry }));
+  }
+
   function createRenderer(canvas, options = {}) {
     if (!canvas || typeof canvas.getContext !== "function") throw new Error("A Canvas element is required for globe rendering.");
     const context = canvas.getContext("2d");
@@ -111,9 +156,67 @@
       return `rgb(${base.map((value) => Math.round(clamp(value * brightness, 0, 255))).join(",")})`;
     }
 
+    function shadedRgb(base, light) {
+      const brightness = clamp(0.72 + light * 0.38, 0.72, 1.1);
+      return `rgb(${base.map((value) => Math.round(clamp(value * brightness, 0, 255))).join(",")})`;
+    }
+
+    function temperatureColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const temperatureC = map.climate.temperatureTenthsC[index] / 10;
+      const base = temperatureC <= -15 ? [220, 236, 241]
+        : temperatureC <= 0 ? [130, 183, 203]
+          : temperatureC <= 10 ? [90, 158, 153]
+            : temperatureC <= 20 ? [119, 169, 93]
+              : temperatureC <= 30 ? [211, 154, 77]
+                : [185, 79, 63];
+      return shadedRgb(base, light);
+    }
+
+    function precipitationColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const precipitationMm = map.climate.precipitationMm[index];
+      const base = precipitationMm < 150 ? [178, 139, 87]
+        : precipitationMm < 400 ? [165, 160, 96]
+          : precipitationMm < 800 ? [113, 148, 95]
+            : precipitationMm < 1500 ? [71, 132, 109]
+              : precipitationMm < 2500 ? [56, 121, 135]
+                : [86, 95, 155];
+      return shadedRgb(base, light);
+    }
+
+    function hydrologyColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      if (map.surface.classes[index] === "W") return shadedRgb([25, 62, 85], light);
+      if (map.hydrology.lakeByCell[index] >= 0) return shadedRgb([128, 215, 223], light);
+      const river = map.hydrology.riverClasses[index];
+      if (river === "G" || river === "R") return shadedRgb([98, 199, 220], light);
+      if (river === "r") return shadedRgb([63, 157, 181], light);
+      if (map.hydrology.wetlandClasses[index] !== ".") return shadedRgb([77, 137, 120], light);
+      const moisture = map.climate?.aridityIndexPermille[index] || 0;
+      return shadedRgb(moisture > 900 ? [91, 105, 74] : [102, 95, 72], light);
+    }
+
+    const BIOME_COLORS = Object.freeze({
+      I: [220, 234, 230], T: [170, 190, 175], B: [55, 101, 72], F: [63, 112, 75],
+      G: [141, 157, 81], S: [150, 137, 79], D: [189, 150, 90], Y: [73, 128, 67],
+      R: [40, 111, 67], A: [137, 132, 123], W: [75, 142, 120], p: [154, 196, 207],
+      c: [58, 106, 128], t: [49, 102, 128], w: [43, 112, 139], u: [54, 129, 123],
+      h: [69, 151, 148], o: [42, 84, 111], d: [27, 58, 82]
+    });
+
+    function biomeColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      return shadedRgb(BIOME_COLORS[map.biomes.classes[index]] || [100, 100, 100], light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
+      if (layer === "temperature" && map?.climate) return temperatureColor(index, light, selected);
+      if (layer === "precipitation" && map?.climate) return precipitationColor(index, light, selected);
+      if (layer === "hydrology" && map?.hydrology) return hydrologyColor(index, light, selected);
+      if (layer === "biomes" && map?.biomes) return biomeColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -253,8 +356,8 @@
     }
 
     function setLayer(nextLayer) {
-      const requested = ["surface", "elevation", "tectonics"].includes(nextLayer) ? nextLayer : "surface";
-      layer = requested !== "surface" && !map?.relief ? "surface" : requested;
+      const requested = availableLayers(map).includes(nextLayer) ? nextLayer : "surface";
+      layer = requested;
       render();
       return layer;
     }
@@ -329,10 +432,10 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }
 
-  return Object.freeze({ createRenderer, rotateVector, inverseRotateVector });
+  return Object.freeze({ createRenderer, rotateVector, inverseRotateVector, availableLayers, legendForLayer });
 });

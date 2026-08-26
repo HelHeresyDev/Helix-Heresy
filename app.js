@@ -10,8 +10,9 @@
   }
   const StrategicWorld = window.HelixStrategicWorld;
   const PlanetaryRelief = window.HelixPlanetaryRelief;
+  const ClimateHydrologyBiomes = window.HelixClimateHydrologyBiomes;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12112,6 +12113,7 @@
       "strategicWorldPreview",
       "strategicWorldPreviewSummary",
       "strategicGlobeLayerSelect",
+      "strategicGlobeLegend",
       "strategicWorldCanvas",
       "strategicWorldInspector",
       "strategicCellId",
@@ -12122,6 +12124,14 @@
       "strategicCellCoast",
       "strategicCellPlate",
       "strategicCellBoundary",
+      "strategicCellTemperature",
+      "strategicCellPrecipitation",
+      "strategicCellSeasonality",
+      "strategicCellWind",
+      "strategicCellOceanCurrent",
+      "strategicCellWatershed",
+      "strategicCellWater",
+      "strategicCellBiome",
       "strategicCellRegion",
       "strategicCellGrid",
       "startingScenarioList",
@@ -12234,6 +12244,18 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.relief
           ? PlanetaryRelief.auditRelief(world.generatedData.strategicMap)
+          : null;
+      },
+      climateHydrologyBiomeAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.biomes
+          ? ClimateHydrologyBiomes.auditEnvironment(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.biomes
+          ? ClimateHydrologyBiomes.cellEnvironmentSnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -13972,6 +13994,9 @@
     const relief = cell && currentStrategicPreviewMap?.relief
       ? PlanetaryRelief.cellReliefSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const environment = cell && currentStrategicPreviewMap?.biomes
+      ? ClimateHydrologyBiomes.cellEnvironmentSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -13981,6 +14006,14 @@
       dom.strategicCellCoast.textContent = "—";
       dom.strategicCellPlate.textContent = "—";
       dom.strategicCellBoundary.textContent = "—";
+      dom.strategicCellTemperature.textContent = "—";
+      dom.strategicCellPrecipitation.textContent = "—";
+      dom.strategicCellSeasonality.textContent = "—";
+      dom.strategicCellWind.textContent = "—";
+      dom.strategicCellOceanCurrent.textContent = "—";
+      dom.strategicCellWatershed.textContent = "—";
+      dom.strategicCellWater.textContent = "—";
+      dom.strategicCellBiome.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -13996,6 +14029,23 @@
     dom.strategicCellBoundary.textContent = relief
       ? `${readableGeographyLabel(relief.boundaryKind)} · ${relief.boundaryDistanceCells} cell${relief.boundaryDistanceCells === 1 ? "" : "s"} away`
       : "—";
+    dom.strategicCellTemperature.textContent = environment ? `${environment.temperatureC.toFixed(1)}°C mean` : "Unavailable in this world version";
+    dom.strategicCellPrecipitation.textContent = environment ? `${environment.precipitationMm.toLocaleString()} mm/year · aridity ${environment.aridityIndex.toFixed(2)}` : "—";
+    dom.strategicCellSeasonality.textContent = environment ? `${environment.seasonalRangeC.toFixed(1)}°C range · ${environment.snowIcePercent.toFixed(1)}% snow/ice tendency` : "—";
+    dom.strategicCellWind.textContent = environment ? `${environment.windBearingDeg}° bearing · ${environment.windStrengthPercent.toFixed(1)}% strength` : "—";
+    dom.strategicCellOceanCurrent.textContent = environment ? (environment.oceanCurrent === "land" ? "Not ocean" : readableGeographyLabel(environment.oceanCurrent)) : "—";
+    dom.strategicCellWatershed.textContent = environment?.watershedId
+      ? `${environment.watershedId} · ${readableGeographyLabel(environment.watershedTerminalType)}`
+      : (environment ? "Ocean" : "—");
+    const waterFeatures = environment ? [
+      environment.lakeId ? `${environment.lakeId} (${readableGeographyLabel(environment.lakeKind)})` : "",
+      environment.riverClass !== "none" ? readableGeographyLabel(environment.riverClass) : "",
+      environment.wetlandClass !== "none" ? readableGeographyLabel(environment.wetlandClass) : ""
+    ].filter(Boolean) : [];
+    dom.strategicCellWater.textContent = environment ? (waterFeatures.join(" · ") || "No major surface-water feature") : "—";
+    dom.strategicCellBiome.textContent = environment
+      ? `${readableGeographyLabel(environment.biomeClass)}${environment.biomeModifiers.length ? ` · ${environment.biomeModifiers.map(readableGeographyLabel).join(", ")}` : ""}`
+      : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
   }
@@ -14010,6 +14060,7 @@
       strategicGlobeRenderer.setMap(null);
       dom.strategicGlobeLayerSelect.value = "surface";
       dom.strategicGlobeLayerSelect.disabled = true;
+      renderStrategicGlobeLegend("surface");
       renderStrategicCellInspector(null);
       return;
     }
@@ -14020,10 +14071,28 @@
     const reliefSummary = map.relief
       ? ` · ${map.relief.plates.length} plates · ${map.relief.diagnostics.minimumElevationM.toLocaleString()} to ${map.relief.diagnostics.maximumElevationM.toLocaleString()} m`
       : " · Detailed relief unavailable for generation v2";
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}`;
+    const environmentSummary = map.biomes
+      ? ` · ${map.hydrology.watersheds.length.toLocaleString()} watersheds · ${map.hydrology.lakes.length.toLocaleString()} major lakes · ${map.biomes.diagnostics.representedBiomeCount} biomes`
+      : (map.relief ? " · Climate, hydrology, and biomes unavailable for generation v3" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
-    dom.strategicGlobeLayerSelect.disabled = !map.relief;
+    const availableLayers = StrategicGlobeRenderer.availableLayers(map);
+    for (const option of dom.strategicGlobeLayerSelect.options) option.disabled = !availableLayers.includes(option.value);
+    dom.strategicGlobeLayerSelect.disabled = availableLayers.length === 1;
+    renderStrategicGlobeLegend("surface");
+  }
+
+  function renderStrategicGlobeLegend(layer) {
+    dom.strategicGlobeLegend.textContent = "";
+    for (const entry of StrategicGlobeRenderer.legendForLayer(layer)) {
+      const item = document.createElement("span");
+      const swatch = document.createElement("i");
+      swatch.style.backgroundColor = entry.color;
+      swatch.setAttribute("aria-hidden", "true");
+      item.append(swatch, entry.label);
+      dom.strategicGlobeLegend.append(item);
+    }
   }
 
   function continuationInspection() {
@@ -14578,6 +14647,7 @@
 
     dom.strategicGlobeLayerSelect.addEventListener("change", () => {
       dom.strategicGlobeLayerSelect.value = strategicGlobeRenderer.setLayer(dom.strategicGlobeLayerSelect.value);
+      renderStrategicGlobeLegend(dom.strategicGlobeLayerSelect.value);
     });
 
     dom.randomSeedBtn.addEventListener("click", () => {

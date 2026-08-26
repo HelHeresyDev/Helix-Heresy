@@ -240,6 +240,9 @@
       diagnostics: map.diagnostics
     };
     if (map.relief) core.relief = map.relief;
+    if (map.climate) core.climate = map.climate;
+    if (map.hydrology) core.hydrology = map.hydrology;
+    if (map.biomes) core.biomes = map.biomes;
     return core;
   }
 
