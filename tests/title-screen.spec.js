@@ -23,6 +23,7 @@ async function beginRun(page, options = {}) {
 }
 
 test('@smoke fresh startup generates an explicitly themed world before entering its first run', async ({ page }) => {
+  test.setTimeout(60_000);
   await openFreshTitle(page);
 
   await expect(page.locator('#titleScreen')).toBeVisible();
@@ -59,6 +60,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('every city attackable');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('public city charters');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('distinct jail and prison authorities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('independent city law codes');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('no life imprisonment');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -101,6 +104,9 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicCellGovernmentCharter')).toContainText('Emergency powers expire without renewal');
   await expect(page.locator('#strategicCellGovernmentInstitutions')).toContainText('capacity');
   await expect(page.locator('#strategicCellGovernmentJurisdiction')).toContainText('exclusive city jurisdiction');
+  await expect(page.locator('#strategicCellLawSummary')).toContainText('Genetic Engineering');
+  await expect(page.locator('#strategicCellLawProcedure')).toContainText('beyond reasonable doubt');
+  await expect(page.locator('#strategicCellPunishmentPolicy')).toContainText('no life imprisonment');
   await expect(page.locator('#strategicCellAttackExposure')).toContainText('attack remains possible without a migration route');
   await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
   await expect(page.locator('.strategic-city-polity-card')).not.toHaveCount(0);
@@ -109,6 +115,11 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const governments = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityGovernmentDirectory());
   expect(governments).toHaveLength(31);
   expect(JSON.stringify(governments)).not.toContain('hiddenOperationalRisks');
+  await expect(page.locator('#strategicCityLawDirectory')).toBeVisible();
+  await expect(page.locator('.strategic-city-law-card')).toHaveCount(31);
+  const cityLaws = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityLawDirectory());
+  expect(cityLaws).toHaveLength(31);
+  expect(JSON.stringify(cityLaws)).not.toContain('hiddenEnforcement');
   await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Reported migration corridor');
@@ -159,6 +170,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityPolitiesAudit())).toMatchObject({ valid: true, oneIndependentPolityPerCity: true, maximumCitiesPerPolity: 1, globalInternetCoverage: true, permanentAllianceCount: 0 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicBeastEcologyAudit())).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true, everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true, publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true, publicAtlasHidesExactPaths: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityGovernmentsAudit())).toMatchObject({ valid: true, oneGovernmentPerCity: true, everyGovernmentCityOnly: true, everyEssentialRoleCovered: true, jailAndPrisonAlwaysDistinct: true, publicDirectoryHidesOperationalRisks: true, publicDirectoryHidesOfficeholders: true, allOfficeholdersLazy: true, emergencyPowersExpireWithoutRenewal: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityLawsAudit())).toMatchObject({ valid: true, oneCodePerCity: true, everyCodeCoversCatalog: true, majorityProhibitGeneticEngineering: true, animancyNeverOrdinaryCommerce: true, noLifeImprisonment: true, publicEnemyRequiresSeparateFinding: true, penalFlightIsNonterminalRelease: true, publicDirectoryHidesEnforcementPolicy: true, hiddenPolicyCannotInferGuilt: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
