@@ -48,11 +48,13 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('biomes');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('geological provinces');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('ley nodes');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource families');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
   await expect(page.locator('#strategicCellBedrock')).toContainText('million years');
   await expect(page.locator('#strategicCellMana')).toContainText('concentration');
+  await expect(page.locator('#strategicCellResourceProspect')).toContainText('prospect');
   await page.locator('#strategicGlobeLayerSelect').selectOption('elevation');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'elevation', hasRelief: true });
   await page.locator('#strategicGlobeLayerSelect').selectOption('tectonics');
@@ -70,6 +72,9 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.locator('#strategicGlobeLayerSelect').selectOption('arcane');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'arcane', hasArcaneGeography: true });
   await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  await page.locator('#strategicGlobeLayerSelect').selectOption('prospects');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'prospects', hasResourceProspects: true });
+  await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -81,7 +86,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 6,
+    generationVersion: 7,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -96,6 +101,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.climateHydrologyBiomeAudit())).toMatchObject({ valid: true, drainageAcyclic: true, equatorWarmerThanPoles: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGeologyAudit())).toMatchObject({ valid: true, contiguousProvinces: true, representedBedrockClassCount: 7 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicArcaneGeographyAudit())).toMatchObject({ valid: true, acyclicFlow: true, representedPrimaryAspectCount: 8 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicResourcePotentialAudit())).toMatchObject({ valid: true, publicProjectionHidesTruth: true, representedFamilyCount: 12 });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -272,6 +278,27 @@ test('finalized generation-version-five worlds keep geology layers and report un
   await expect(page.locator('#strategicGlobeLayerSelect option[value="geology"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="arcane"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasGeology: true, hasArcaneGeography: false });
+});
+
+test('finalized generation-version-six worlds keep arcane layers and report unavailable resource potential', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'arcane-only-world',
+      worldSeed: 'arcane-only-seed',
+      worldTheme: 'unbound',
+      generationVersion: 6,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Resource potential unavailable for generation v6');
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="arcane"]')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toHaveAttribute('disabled', '');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasArcaneGeography: true, hasResourceProspects: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

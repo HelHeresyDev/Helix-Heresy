@@ -17,10 +17,13 @@
   const strategicArcaneGeography = typeof module === "object" && module.exports
     ? require("./strategic-arcane-geography")
     : root?.HelixStrategicArcaneGeography;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography);
+  const strategicResourcePotential = typeof module === "object" && module.exports
+    ? require("./strategic-resource-potential")
+    : root?.HelixStrategicResourcePotential;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -29,11 +32,12 @@
   if (!ClimateHydrologyBiomes) throw new Error("HelixClimateHydrologyBiomes must load before world-run-library.js");
   if (!StrategicGeology) throw new Error("HelixStrategicGeology must load before world-run-library.js");
   if (!StrategicArcaneGeography) throw new Error("HelixStrategicArcaneGeography must load before world-run-library.js");
+  if (!StrategicResourcePotential) throw new Error("HelixStrategicResourcePotential must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 6;
+  const WORLD_GENERATION_VERSION = 7;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -183,10 +187,15 @@
       if (generationVersion >= 6) {
         generatedStrategicMap = StrategicArcaneGeography.attachArcaneGeography(worldSeed, generatedStrategicMap, options.creationSettings?.arcaneGeography);
       }
+      if (generationVersion >= 7) {
+        generatedStrategicMap = StrategicResourcePotential.attachResourcePotential(worldSeed, generatedStrategicMap);
+      }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
-        strategicResolution: generationVersion >= 6
-          ? "geodesic-globe-arcane-geography"
+        strategicResolution: generationVersion >= 7
+          ? "geodesic-globe-resource-potential"
+          : generationVersion >= 6
+            ? "geodesic-globe-arcane-geography"
           : generationVersion >= 5
             ? "geodesic-globe-geology"
           : generationVersion >= 4
@@ -223,6 +232,7 @@
     if (generationVersion >= 4) ClimateHydrologyBiomes.validateEnvironment(generatedData.strategicMap);
     if (generationVersion >= 5) StrategicGeology.validateStrategicGeology(generatedData.strategicMap);
     if (generationVersion >= 6) StrategicArcaneGeography.validateStrategicArcaneGeography(generatedData.strategicMap);
+    if (generationVersion >= 7) StrategicResourcePotential.validateStrategicResources(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -549,6 +559,8 @@
     NATURAL_HAZARD_VERSION: StrategicGeology.NATURAL_HAZARD_VERSION,
     ARCANE_GEOGRAPHY_VERSION: StrategicArcaneGeography.ARCANE_GEOGRAPHY_VERSION,
     MAGICAL_HAZARD_VERSION: StrategicArcaneGeography.MAGICAL_HAZARD_VERSION,
+    RESOURCE_POTENTIAL_VERSION: StrategicResourcePotential.RESOURCE_POTENTIAL_VERSION,
+    PUBLIC_PROSPECT_VERSION: StrategicResourcePotential.PUBLIC_PROSPECT_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,

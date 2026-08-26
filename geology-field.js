@@ -74,8 +74,11 @@
       : null;
     const manaPermille = Number.isFinite(Number(candidate.manaPermille)) ? Math.max(0, Math.min(1000, Number(candidate.manaPermille))) : null;
     const nullPermille = Number.isFinite(Number(candidate.nullPermille)) ? Math.max(0, Math.min(1000, Number(candidate.nullPermille))) : null;
-    return bedrockClass || hazard || magicalHazard || manaPermille !== null || nullPermille !== null
-      ? { bedrockClass, hazardPermille: hazard, magicalHazardPermille: magicalHazard, manaPermille, nullPermille }
+    const resourcePotential = candidate.resourcePotentialPermille && typeof candidate.resourcePotentialPermille === "object"
+      ? Object.fromEntries(["ferrousOre", "baseMetalOre"].map((field) => [field, Math.max(0, Math.min(1000, Number(candidate.resourcePotentialPermille[field]) || 0))]))
+      : null;
+    return bedrockClass || hazard || magicalHazard || resourcePotential || manaPermille !== null || nullPermille !== null
+      ? { bedrockClass, hazardPermille: hazard, magicalHazardPermille: magicalHazard, resourcePotentialPermille: resourcePotential, manaPermille, nullPermille }
       : null;
   }
 
@@ -105,10 +108,26 @@
     if (!cell) return null;
     const veinX = Math.floor((cell.x + stableHash(`${seed}:vein-x:${cell.z}`) % 4) / 4);
     const veinY = Math.floor((cell.y + stableHash(`${seed}:vein-y:${cell.z}`) % 4) / 4);
-    if (stableHash(`${seed}:vein:${veinX}:${veinY}:${cell.z}`) % 1000 >= 82) return null;
+    const context = normalizeStrategicContext(strategicContext);
+    const potential = context?.resourcePotentialPermille;
+    const occurrenceThreshold = potential ? Math.round(18 + Math.max(potential.ferrousOre, potential.baseMetalOre) * 0.135) : 82;
+    if (stableHash(`${seed}:vein:${veinX}:${veinY}:${cell.z}`) % 1000 >= occurrenceThreshold) return null;
     const compatible = DEPOSITS.filter((entry) => entry.compatibleStrata.includes(stratum.id));
     if (!compatible.length) return null;
-    const definition = compatible[stableHash(`${seed}:vein-type:${veinX}:${veinY}:${cell.z}`) % compatible.length];
+    let definition = compatible[stableHash(`${seed}:vein-type:${veinX}:${veinY}:${cell.z}`) % compatible.length];
+    if (potential && compatible.length > 1) {
+      const weights = compatible.map((entry) => entry.id === "ironOre" ? 20 + potential.ferrousOre : 20 + potential.baseMetalOre);
+      const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+      const roll = stableHash(`${seed}:vein-type:${veinX}:${veinY}:${cell.z}:resource-context`) % totalWeight;
+      let cursor = 0;
+      for (let index = 0; index < compatible.length; index += 1) {
+        cursor += weights[index];
+        if (roll < cursor) {
+          definition = compatible[index];
+          break;
+        }
+      }
+    }
     return {
       ...definition,
       yield: 1 + stableHash(`${seed}:vein-yield:${cellKey(cell)}`) % 2
