@@ -250,6 +250,7 @@
     if (map.resourcePotential) core.resourcePotential = map.resourcePotential;
     if (map.publicResourceProspects) core.publicResourceProspects = map.publicResourceProspects;
     if (map.humanGeography) core.humanGeography = map.humanGeography;
+    if (map.cityPolities) core.cityPolities = map.cityPolities;
     return core;
   }
 

@@ -105,9 +105,15 @@
     ],
     humanGeography: [
       { label: "Fortified city", color: "#f3d27a" },
-      { label: "Primary defended corridor", color: "#74c7c1" },
+      { label: "Primary intercity corridor", color: "#74c7c1" },
       { label: "Redundant corridor", color: "#9aada7" },
       { label: "Human wilderness", color: "#3e493e" }
+    ],
+    cityPolities: [
+      { label: "Fortified polity core", color: "#f0d27d" },
+      { label: "Controlled approach", color: "#8ca96a" },
+      { label: "Intermittent corridor support", color: "#63aaa6" },
+      { label: "Ungoverned wilderness", color: "#303a33" }
     ]
   });
 
@@ -122,6 +128,7 @@
     if (map?.arcaneGeography) layers.push("arcane");
     if (map?.publicResourceProspects) layers.push("prospects");
     if (map?.humanGeography) layers.push("humanGeography");
+    if (map?.cityPolities) layers.push("cityPolities");
     return layers;
   }
 
@@ -321,6 +328,28 @@
         : shadedRgb([24, 54, 68], light);
     }
 
+    const POLITY_COLORS = Object.freeze([
+      [208, 112, 92], [213, 159, 74], [145, 175, 92], [77, 165, 137],
+      [78, 151, 183], [111, 125, 194], [165, 106, 185], [196, 105, 145]
+    ]);
+
+    function polityBaseColor(polity) {
+      if (!polity) return [96, 110, 96];
+      return POLITY_COLORS[parseInt(StrategicWorld.stableHash(polity.id), 16) % POLITY_COLORS.length];
+    }
+
+    function cityPolityColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      if (map.surface.classes[index] === "W") return shadedRgb([22, 50, 64], light);
+      const controlClass = map.cityPolities.control.classes[index];
+      const controllerIndex = map.cityPolities.control.controllerByCell[index];
+      const base = polityBaseColor(controllerIndex >= 0 ? map.cityPolities.polities[controllerIndex] : null);
+      if (controlClass === "c") return shadedRgb(base.map((value) => clamp(value * 1.15, 0, 255)), light);
+      if (controlClass === "a") return shadedRgb(base.map((value) => value * 0.72), light);
+      if (controlClass === "i") return shadedRgb([63, 126, 123], light);
+      return shadedRgb([48, 58, 51], light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -333,17 +362,20 @@
       if (layer === "arcane" && map?.arcaneGeography) return arcaneColor(index, light, selected);
       if (layer === "prospects" && map?.publicResourceProspects) return prospectColor(index, light, selected);
       if (layer === "humanGeography" && map?.humanGeography) return humanGeographyColor(index, light, selected);
+      if (layer === "cityPolities" && map?.cityPolities) return cityPolityColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
     function renderHumanGeographyOverlay(centerX, centerY, radius) {
-      if (layer !== "humanGeography" || !map?.humanGeography) return;
+      if (!map?.humanGeography || (layer !== "humanGeography" && layer !== "cityPolities")) return;
       const corridorById = new Map(map.humanGeography.corridors.map((corridor) => [corridor.id, corridor]));
       context.lineCap = "round";
       context.lineJoin = "round";
       for (const route of map.routeGraph.routes) {
         const corridor = corridorById.get(route.id);
-        context.strokeStyle = corridor?.corridorClass === "redundant" ? "rgba(154, 173, 167, 0.82)" : "rgba(116, 199, 193, 0.94)";
+        context.strokeStyle = layer === "cityPolities"
+          ? "rgba(99, 170, 166, 0.86)"
+          : (corridor?.corridorClass === "redundant" ? "rgba(154, 173, 167, 0.82)" : "rgba(116, 199, 193, 0.94)");
         context.lineWidth = corridor?.corridorClass === "redundant" ? 1.15 : 1.8;
         const indices = route.cellPath.map(StrategicWorld.cellIndex);
         for (let index = 1; index < indices.length; index += 1) {
@@ -365,7 +397,9 @@
         const markerRadius = index === selectedCellIndex ? 5.1 : 3.6;
         context.beginPath();
         context.arc(x, y, markerRadius, 0, Math.PI * 2);
-        context.fillStyle = "#f3d27a";
+        const cityPolity = map.cityPolities?.polities.find((polity) => polity.cityId === city.id);
+        const markerColor = layer === "cityPolities" ? polityBaseColor(cityPolity) : null;
+        context.fillStyle = markerColor ? `rgb(${markerColor.join(",")})` : "#f3d27a";
         context.fill();
         context.strokeStyle = index === selectedCellIndex ? "#fff4c5" : "#392f22";
         context.lineWidth = index === selectedCellIndex ? 2 : 1;
@@ -586,7 +620,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

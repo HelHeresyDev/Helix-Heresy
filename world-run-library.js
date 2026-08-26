@@ -23,10 +23,13 @@
   const strategicHumanGeography = typeof module === "object" && module.exports
     ? require("./strategic-human-geography")
     : root?.HelixStrategicHumanGeography;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography);
+  const strategicCityPolities = typeof module === "object" && module.exports
+    ? require("./strategic-city-polities")
+    : root?.HelixStrategicCityPolities;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -37,11 +40,12 @@
   if (!StrategicArcaneGeography) throw new Error("HelixStrategicArcaneGeography must load before world-run-library.js");
   if (!StrategicResourcePotential) throw new Error("HelixStrategicResourcePotential must load before world-run-library.js");
   if (!StrategicHumanGeography) throw new Error("HelixStrategicHumanGeography must load before world-run-library.js");
+  if (!StrategicCityPolities) throw new Error("HelixStrategicCityPolities must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 8;
+  const WORLD_GENERATION_VERSION = 9;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -197,9 +201,14 @@
       if (generationVersion >= 8) {
         generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);
       }
+      if (generationVersion >= 9) {
+        generatedStrategicMap = StrategicCityPolities.attachCityPolities(worldSeed, worldTheme, generatedStrategicMap);
+      }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
-        strategicResolution: generationVersion >= 8
+        strategicResolution: generationVersion >= 9
+          ? "geodesic-globe-city-polities"
+          : generationVersion >= 8
           ? "geodesic-globe-fortified-cities"
           : generationVersion >= 7
           ? "geodesic-globe-resource-potential"
@@ -243,6 +252,7 @@
     if (generationVersion >= 6) StrategicArcaneGeography.validateStrategicArcaneGeography(generatedData.strategicMap);
     if (generationVersion >= 7) StrategicResourcePotential.validateStrategicResources(generatedData.strategicMap);
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
+    if (generationVersion >= 9) StrategicCityPolities.validateCityPolities(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -580,6 +590,7 @@
     RESOURCE_POTENTIAL_VERSION: StrategicResourcePotential.RESOURCE_POTENTIAL_VERSION,
     PUBLIC_PROSPECT_VERSION: StrategicResourcePotential.PUBLIC_PROSPECT_VERSION,
     HUMAN_GEOGRAPHY_VERSION: StrategicHumanGeography.HUMAN_GEOGRAPHY_VERSION,
+    CITY_POLITIES_VERSION: StrategicCityPolities.CITY_POLITIES_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
