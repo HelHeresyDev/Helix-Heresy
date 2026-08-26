@@ -102,6 +102,12 @@
       { label: "Mana crystals", color: "#9c65bd" }, { label: "Nullstone", color: "#575c68" },
       { label: "Fresh water", color: "#4c98bd" }, { label: "Biological", color: "#67a55d" },
       { label: "Timber / fiber", color: "#52764d" }, { label: "Geothermal", color: "#d47a45" }
+    ],
+    humanGeography: [
+      { label: "Fortified city", color: "#f3d27a" },
+      { label: "Primary defended corridor", color: "#74c7c1" },
+      { label: "Redundant corridor", color: "#9aada7" },
+      { label: "Human wilderness", color: "#3e493e" }
     ]
   });
 
@@ -115,6 +121,7 @@
     if (map?.naturalHazards) layers.push("hazards");
     if (map?.arcaneGeography) layers.push("arcane");
     if (map?.publicResourceProspects) layers.push("prospects");
+    if (map?.humanGeography) layers.push("humanGeography");
     return layers;
   }
 
@@ -307,6 +314,13 @@
       return shadedRgb(base, light);
     }
 
+    function humanGeographyColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      return StrategicWorld.cellSurfaceClass(map, index) === "land"
+        ? shadedRgb([62, 73, 62], light)
+        : shadedRgb([24, 54, 68], light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -318,7 +332,45 @@
       if (layer === "hazards" && map?.naturalHazards) return hazardColor(index, light, selected);
       if (layer === "arcane" && map?.arcaneGeography) return arcaneColor(index, light, selected);
       if (layer === "prospects" && map?.publicResourceProspects) return prospectColor(index, light, selected);
+      if (layer === "humanGeography" && map?.humanGeography) return humanGeographyColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
+    }
+
+    function renderHumanGeographyOverlay(centerX, centerY, radius) {
+      if (layer !== "humanGeography" || !map?.humanGeography) return;
+      const corridorById = new Map(map.humanGeography.corridors.map((corridor) => [corridor.id, corridor]));
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      for (const route of map.routeGraph.routes) {
+        const corridor = corridorById.get(route.id);
+        context.strokeStyle = corridor?.corridorClass === "redundant" ? "rgba(154, 173, 167, 0.82)" : "rgba(116, 199, 193, 0.94)";
+        context.lineWidth = corridor?.corridorClass === "redundant" ? 1.15 : 1.8;
+        const indices = route.cellPath.map(StrategicWorld.cellIndex);
+        for (let index = 1; index < indices.length; index += 1) {
+          const left = rotateVector(topology.vertices[indices[index - 1]], yaw, pitch);
+          const right = rotateVector(topology.vertices[indices[index]], yaw, pitch);
+          if (left[2] <= 0.01 || right[2] <= 0.01) continue;
+          context.beginPath();
+          context.moveTo(centerX + left[0] * radius, centerY - left[1] * radius);
+          context.lineTo(centerX + right[0] * radius, centerY - right[1] * radius);
+          context.stroke();
+        }
+      }
+      for (const city of map.humanGeography.cities) {
+        const index = StrategicWorld.cellIndex(city.cellId);
+        const center = rotateVector(topology.vertices[index], yaw, pitch);
+        if (center[2] <= 0.012) continue;
+        const x = centerX + center[0] * radius;
+        const y = centerY - center[1] * radius;
+        const markerRadius = index === selectedCellIndex ? 5.1 : 3.6;
+        context.beginPath();
+        context.arc(x, y, markerRadius, 0, Math.PI * 2);
+        context.fillStyle = "#f3d27a";
+        context.fill();
+        context.strokeStyle = index === selectedCellIndex ? "#fff4c5" : "#392f22";
+        context.lineWidth = index === selectedCellIndex ? 2 : 1;
+        context.stroke();
+      }
     }
 
     function render() {
@@ -388,6 +440,7 @@
       context.arc(centerX, centerY, radius, 0, Math.PI * 2);
       context.fillStyle = shade;
       context.fill();
+      renderHumanGeographyOverlay(centerX, centerY, radius);
     }
 
     function pickCell(clientX, clientY) {
@@ -533,7 +586,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

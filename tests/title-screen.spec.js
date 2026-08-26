@@ -49,6 +49,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('geological provinces');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('ley nodes');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource families');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('primary defended corridors');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -75,6 +77,13 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.locator('#strategicGlobeLayerSelect').selectOption('prospects');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'prospects', hasResourceProspects: true });
   await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  await page.locator('#strategicGlobeLayerSelect').selectOption('humanGeography');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'humanGeography', hasHumanGeography: true });
+  await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  const firstCityIndex = await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyCityIndices()[0]);
+  await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstCityIndex);
+  await expect(page.locator('#strategicCellCity')).toContainText('Fortified city');
+  await expect(page.locator('#strategicCellCityConditions')).toContainText('defensive position');
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -86,7 +95,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 7,
+    generationVersion: 8,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -102,6 +111,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGeologyAudit())).toMatchObject({ valid: true, contiguousProvinces: true, representedBedrockClassCount: 7 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicArcaneGeographyAudit())).toMatchObject({ valid: true, acyclicFlow: true, representedPrimaryAspectCount: 8 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicResourcePotentialAudit())).toMatchObject({ valid: true, publicProjectionHidesTruth: true, representedFamilyCount: 12 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyAudit())).toMatchObject({ valid: true, allCitiesOnLand: true, allCorridorsOnLand: true, citiesFavorHabitableCells: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -299,6 +309,27 @@ test('finalized generation-version-six worlds keep arcane layers and report unav
   await expect(page.locator('#strategicGlobeLayerSelect option[value="arcane"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasArcaneGeography: true, hasResourceProspects: false });
+});
+
+test('finalized generation-version-seven worlds keep resource prospects and report unavailable human geography', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'resource-only-world',
+      worldSeed: 'resource-only-seed',
+      worldTheme: 'unbound',
+      generationVersion: 7,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Human geography unavailable for generation v7');
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="humanGeography"]')).toHaveAttribute('disabled', '');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasResourceProspects: true, hasHumanGeography: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

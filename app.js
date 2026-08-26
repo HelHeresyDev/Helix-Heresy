@@ -14,8 +14,9 @@
   const StrategicGeology = window.HelixStrategicGeology;
   const StrategicArcaneGeography = window.HelixStrategicArcaneGeography;
   const StrategicResourcePotential = window.HelixStrategicResourcePotential;
+  const StrategicHumanGeography = window.HelixStrategicHumanGeography;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12147,6 +12148,9 @@
       "strategicCellResourceProspect",
       "strategicCellProspectConfidence",
       "strategicCellProspectBands",
+      "strategicCellCity",
+      "strategicCellCityConditions",
+      "strategicCellCorridors",
       "strategicCellRegion",
       "strategicCellGrid",
       "startingScenarioList",
@@ -12309,6 +12313,18 @@
           ? StrategicResourcePotential.cellResourceTruth(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
+      strategicHumanGeographyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.humanGeography
+          ? StrategicHumanGeography.auditHumanGeography(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicHumanGeographyCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.humanGeography
+          ? StrategicHumanGeography.cellHumanGeographySnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.biomes
@@ -12322,6 +12338,10 @@
           : null;
       },
       strategicGlobeSnapshot: () => strategicGlobeRenderer?.snapshot() || null,
+      strategicSelectCell: (cellIndex = 0) => strategicGlobeRenderer?.selectCell(Number(cellIndex)) || false,
+      strategicHumanGeographyCityIndices: () => currentStrategicPreviewMap?.humanGeography
+        ? currentStrategicPreviewMap.humanGeography.cities.map((city) => StrategicWorld.cellIndex(city.cellId))
+        : [],
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
         const loadout = startingLoadoutProfile(blueprint.loadoutProfileId);
@@ -14063,6 +14083,9 @@
     const prospects = cell && currentStrategicPreviewMap?.publicResourceProspects
       ? StrategicResourcePotential.publicCellProspectSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const humanGeography = cell && currentStrategicPreviewMap?.humanGeography
+      ? StrategicHumanGeography.cellHumanGeographySnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14092,6 +14115,9 @@
       dom.strategicCellResourceProspect.textContent = "—";
       dom.strategicCellProspectConfidence.textContent = "—";
       dom.strategicCellProspectBands.textContent = "—";
+      dom.strategicCellCity.textContent = "—";
+      dom.strategicCellCityConditions.textContent = "—";
+      dom.strategicCellCorridors.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -14144,6 +14170,15 @@
     dom.strategicCellProspectBands.textContent = prospects
       ? StrategicResourcePotential.RESOURCE_FAMILIES.map((family) => `${family.label}: ${readableGeographyLabel(prospects.prospectBands[family.id])}`).join(" · ")
       : "—";
+    dom.strategicCellCity.textContent = humanGeography
+      ? (humanGeography.city ? `${humanGeography.city.name} · Fortified city` : "No major city in this strategic cell")
+      : "Unavailable in this world version";
+    dom.strategicCellCityConditions.textContent = humanGeography?.city
+      ? `${readableGeographyLabel(humanGeography.city.defensibilityBand)} defensive position · ${readableGeographyLabel(humanGeography.city.infrastructurePotentialBand)} infrastructure potential · ${readableGeographyLabel(humanGeography.city.isolationBand)} isolation · ${readableGeographyLabel(humanGeography.city.wildernessExposureBand)} wilderness exposure · founded for ${humanGeography.city.foundingAdvantages.map(readableGeographyLabel).join(", ")}`
+      : "—";
+    dom.strategicCellCorridors.textContent = humanGeography
+      ? (humanGeography.corridors.map((corridor) => `${corridor.endpointNames.join(" ↔ ")} · ${readableGeographyLabel(corridor.corridorClass)} · ${corridor.lengthKm.toLocaleString()} km · ${readableGeographyLabel(corridor.exposureBand)} exposure`).join(" · ") || "No primary defended corridor crosses this cell")
+      : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
   }
@@ -14181,7 +14216,10 @@
     const resourceSummary = map.publicResourceProspects
       ? ` · ${map.resourcePotential.diagnostics.representedFamilyCount} resource families · public prospectivity only`
       : (map.arcaneGeography ? " · Resource potential unavailable for generation v6" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}`;
+    const humanGeographySummary = map.humanGeography
+      ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} primary defended corridors`
+      : (map.publicResourceProspects ? " · Human geography unavailable for generation v7" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

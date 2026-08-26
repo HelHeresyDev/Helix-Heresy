@@ -249,6 +249,7 @@
     if (map.magicalHazards) core.magicalHazards = map.magicalHazards;
     if (map.resourcePotential) core.resourcePotential = map.resourcePotential;
     if (map.publicResourceProspects) core.publicResourceProspects = map.publicResourceProspects;
+    if (map.humanGeography) core.humanGeography = map.humanGeography;
     return core;
   }
 
