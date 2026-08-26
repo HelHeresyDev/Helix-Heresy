@@ -26,10 +26,13 @@
   const strategicCityPolities = typeof module === "object" && module.exports
     ? require("./strategic-city-polities")
     : root?.HelixStrategicCityPolities;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities);
+  const strategicBeastEcology = typeof module === "object" && module.exports
+    ? require("./strategic-beast-ecology")
+    : root?.HelixStrategicBeastEcology;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -41,6 +44,7 @@
   if (!StrategicResourcePotential) throw new Error("HelixStrategicResourcePotential must load before world-run-library.js");
   if (!StrategicHumanGeography) throw new Error("HelixStrategicHumanGeography must load before world-run-library.js");
   if (!StrategicCityPolities) throw new Error("HelixStrategicCityPolities must load before world-run-library.js");
+  if (!StrategicBeastEcology) throw new Error("HelixStrategicBeastEcology must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -203,6 +207,7 @@
       }
       if (generationVersion >= 9) {
         generatedStrategicMap = StrategicCityPolities.attachCityPolities(worldSeed, worldTheme, generatedStrategicMap);
+        generatedStrategicMap = StrategicBeastEcology.attachBeastEcology(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -253,6 +258,7 @@
     if (generationVersion >= 7) StrategicResourcePotential.validateStrategicResources(generatedData.strategicMap);
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
     if (generationVersion >= 9) StrategicCityPolities.validateCityPolities(generatedData.strategicMap);
+    if (generatedData.strategicMap?.beastEcology || generatedData.strategicMap?.publicBeastAtlas) StrategicBeastEcology.validateBeastEcology(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -479,7 +485,7 @@
       const world = getWorld(run.worldId);
       if (!world) throw new Error("The run references a world that is not in this library.");
       if (run.canonicalWorldDigest !== world.canonicalDigest || run.worldGenerationVersion !== world.generationVersion) {
-        throw new Error("The run does not reference the saved canonical world version.");
+        throw new Error("The run does not reference the saved canonical world record.");
       }
       if (run.worldState?.canonicalWorldDigest !== world.canonicalDigest) {
         throw new Error("The run's mutable branch does not reference the saved canonical world.");

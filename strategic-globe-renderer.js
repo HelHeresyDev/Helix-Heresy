@@ -114,6 +114,14 @@
       { label: "Controlled approach", color: "#8ca96a" },
       { label: "Intermittent corridor support", color: "#63aaa6" },
       { label: "Ungoverned wilderness", color: "#303a33" }
+    ],
+    beastEcology: [
+      { label: "Low reported threat", color: "#61744c" },
+      { label: "Guarded", color: "#9a824c" },
+      { label: "Dangerous", color: "#a95d45" },
+      { label: "Catastrophic", color: "#782e45" },
+      { label: "Contested range", color: "#a06cb0" },
+      { label: "Known lair", color: "#f1d889" }
     ]
   });
 
@@ -129,6 +137,7 @@
     if (map?.publicResourceProspects) layers.push("prospects");
     if (map?.humanGeography) layers.push("humanGeography");
     if (map?.cityPolities) layers.push("cityPolities");
+    if (map?.publicBeastAtlas) layers.push("beastEcology");
     return layers;
   }
 
@@ -350,6 +359,18 @@
       return shadedRgb([48, 58, 51], light);
     }
 
+    function beastEcologyColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const threat = map.publicBeastAtlas.threatClasses[index];
+      let base = threat === "4" ? [120, 46, 69]
+        : threat === "3" ? [169, 93, 69]
+          : threat === "2" ? [154, 130, 76]
+            : threat === "1" ? [97, 116, 76]
+              : (map.surface.classes[index] === "L" ? [47, 58, 49] : [22, 49, 64]);
+      if (map.publicBeastAtlas.contestedClasses[index] === "c") base = mixRgb(base, [160, 108, 176], 0.32);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -363,6 +384,7 @@
       if (layer === "prospects" && map?.publicResourceProspects) return prospectColor(index, light, selected);
       if (layer === "humanGeography" && map?.humanGeography) return humanGeographyColor(index, light, selected);
       if (layer === "cityPolities" && map?.cityPolities) return cityPolityColor(index, light, selected);
+      if (layer === "beastEcology" && map?.publicBeastAtlas) return beastEcologyColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -402,6 +424,25 @@
         context.fillStyle = markerColor ? `rgb(${markerColor.join(",")})` : "#f3d27a";
         context.fill();
         context.strokeStyle = index === selectedCellIndex ? "#fff4c5" : "#392f22";
+        context.lineWidth = index === selectedCellIndex ? 2 : 1;
+        context.stroke();
+      }
+    }
+
+    function renderBeastEcologyOverlay(centerX, centerY, radius) {
+      if (layer !== "beastEcology" || !map?.publicBeastAtlas) return;
+      for (const report of map.publicBeastAtlas.reports) {
+        if (!report.knownLairCellId) continue;
+        const index = StrategicWorld.cellIndex(report.knownLairCellId);
+        const center = rotateVector(topology.vertices[index], yaw, pitch);
+        if (center[2] <= 0.012) continue;
+        const x = centerX + center[0] * radius;
+        const y = centerY - center[1] * radius;
+        context.beginPath();
+        context.arc(x, y, index === selectedCellIndex ? 4.5 : 2.8, 0, Math.PI * 2);
+        context.fillStyle = "#f1d889";
+        context.fill();
+        context.strokeStyle = "#3d2922";
         context.lineWidth = index === selectedCellIndex ? 2 : 1;
         context.stroke();
       }
@@ -475,6 +516,7 @@
       context.fillStyle = shade;
       context.fill();
       renderHumanGeographyOverlay(centerX, centerY, radius);
+      renderBeastEcologyOverlay(centerX, centerY, radius);
     }
 
     function pickCell(clientX, clientY) {
@@ -620,7 +662,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

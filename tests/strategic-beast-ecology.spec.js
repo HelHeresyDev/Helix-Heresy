@@ -1,0 +1,89 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+const Library = require('../world-run-library');
+const BeastEcology = require('../strategic-beast-ecology');
+const StrategicWorld = require('../strategic-world');
+
+function generatedWorld(seed, theme = 'madcap') {
+  return Library.createWorld({ id: `world-${seed}-${theme}`, worldSeed: seed, worldTheme: theme, createdAt: 'test' }).generatedData.strategicMap;
+}
+
+test('the complete authored species catalog exists unchanged in every world while populations vary', () => {
+  const first = generatedWorld('beast-catalog-first');
+  const second = generatedWorld('beast-catalog-second');
+
+  expect(first.beastEcology.species).toEqual(BeastEcology.BEAST_SPECIES);
+  expect(second.beastEcology.species).toEqual(BeastEcology.BEAST_SPECIES);
+  expect(first.beastEcology.species).toEqual(second.beastEcology.species);
+  expect(first.beastEcology.populations).not.toEqual(second.beastEcology.populations);
+  for (const species of BeastEcology.BEAST_SPECIES) {
+    expect(first.beastEcology.populations.some((population) => population.speciesId === species.id)).toBe(true);
+    expect(second.beastEcology.populations.some((population) => population.speciesId === species.id)).toBe(true);
+  }
+});
+
+test('population ecology is deterministic, theme-independent, validated, and compact', () => {
+  const first = generatedWorld('beast-determinism', 'madcap');
+  const same = generatedWorld('beast-determinism', 'madcap');
+  const grim = generatedWorld('beast-determinism', 'grim');
+
+  expect(first.beastEcology).toEqual(same.beastEcology);
+  expect(first.publicBeastAtlas).toEqual(same.publicBeastAtlas);
+  expect(first.beastEcology.species).toEqual(grim.beastEcology.species);
+  expect(first.beastEcology.populations).toEqual(grim.beastEcology.populations);
+  expect(first.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })))
+    .toEqual(grim.publicBeastAtlas.reports.map(({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason }) => ({ id, speciesId, reportedRangeMask, confidence, reportedAbundanceBand, threatBand, knownLairCellId, publicReason })));
+  expect(BeastEcology.validateBeastEcology(first)).toEqual({ ecology: first.beastEcology, publicAtlas: first.publicBeastAtlas });
+  expect(JSON.stringify(first).length).toBeLessThan(3_700_000);
+});
+
+test('territories respect species surface realms, exclude fortified cores, overlap, and dominate most land', () => {
+  const map = generatedWorld('beast-territories');
+  const audit = BeastEcology.auditBeastEcology(map);
+
+  expect(audit).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true });
+  expect(audit.populationCount).toBeGreaterThan(60);
+  expect(audit.relationCount).toBeGreaterThan(20);
+  expect(audit.canonicalLandCoveragePercent).toBeGreaterThan(70);
+  expect(audit.contestedCellCount).toBeGreaterThan(0);
+  for (const population of map.beastEcology.populations) {
+    const definition = BeastEcology.BEAST_SPECIES.find((species) => species.id === population.speciesId);
+    const center = StrategicWorld.cellIndex(population.centerCellId);
+    expect(map.cityPolities.control.classes[center]).not.toBe('c');
+    if (definition?.realm === 'land') expect(map.surface.classes[center]).toBe('L');
+    if (definition?.realm === 'ocean') expect(map.surface.classes[center]).toBe('W');
+  }
+});
+
+test('the public atlas exposes uncertainty without leaking exact populations or unknown lairs', () => {
+  const map = generatedWorld('beast-public-atlas');
+  const audit = BeastEcology.auditBeastEcology(map);
+  const reportedIndex = [...map.publicBeastAtlas.threatClasses].findIndex((code) => code !== '.');
+  const snapshot = BeastEcology.cellPublicBeastSnapshot(map, reportedIndex);
+
+  expect(audit).toMatchObject({ publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true });
+  expect(snapshot?.reports.length).toBeGreaterThan(0);
+  expect(snapshot?.reports[0]).toMatchObject({
+    species: { id: expect.stringMatching(/^beast:/), name: expect.any(String) },
+    confidence: expect.stringMatching(/^(low|moderate|high)$/),
+    reportedAbundanceBand: expect.stringMatching(/^(relict|sparse|established|dense|teeming)$/),
+  });
+  expect(snapshot?.reports[0]).not.toHaveProperty('populationIndex');
+  expect(snapshot?.reports[0]).not.toHaveProperty('populationId');
+  expect(snapshot?.reports[0]).not.toHaveProperty('lairCellId');
+  expect(map.publicBeastAtlas.reports.every((report) => /^beast-report:\d{4}$/.test(report.id))).toBe(true);
+  expect(BeastEcology.publicBestiary(map)).toHaveLength(BeastEcology.BEAST_SPECIES.length);
+});
+
+test('validation rejects altered canonical and public ecology', () => {
+  const map = generatedWorld('beast-integrity');
+  const alteredTruth = JSON.parse(JSON.stringify(map));
+  alteredTruth.beastEcology.populations[0].populationIndex += 1;
+  alteredTruth.digest = StrategicWorld.strategicMapDigest(alteredTruth);
+  expect(() => BeastEcology.validateBeastEcology(alteredTruth)).toThrow(/digest/i);
+
+  const alteredPublic = JSON.parse(JSON.stringify(map));
+  alteredPublic.publicBeastAtlas.reports[0].populationIndex = 999;
+  alteredPublic.digest = StrategicWorld.strategicMapDigest(alteredPublic);
+  expect(() => BeastEcology.validateBeastEcology(alteredPublic)).toThrow(/leaks/i);
+});

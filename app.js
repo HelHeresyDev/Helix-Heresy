@@ -16,8 +16,9 @@
   const StrategicResourcePotential = window.HelixStrategicResourcePotential;
   const StrategicHumanGeography = window.HelixStrategicHumanGeography;
   const StrategicCityPolities = window.HelixStrategicCityPolities;
+  const StrategicBeastEcology = window.HelixStrategicBeastEcology;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12157,10 +12158,15 @@
       "strategicCellCivicProfile",
       "strategicCellLocalControl",
       "strategicCellPolityRelations",
+      "strategicCellBeastThreat",
+      "strategicCellBeastReports",
+      "strategicCellKnownLairs",
       "strategicCellRegion",
       "strategicCellGrid",
       "strategicCityPolityDirectory",
       "strategicCityPolityList",
+      "strategicBeastBestiary",
+      "strategicBeastBestiaryList",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12345,6 +12351,18 @@
           ? StrategicCityPolities.cellCityPolitySnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
+      strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.beastEcology
+          ? StrategicBeastEcology.auditBeastEcology(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicBeastSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicBeastAtlas
+          ? StrategicBeastEcology.cellPublicBeastSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.biomes
@@ -12361,6 +12379,9 @@
       strategicSelectCell: (cellIndex = 0) => strategicGlobeRenderer?.selectCell(Number(cellIndex)) || false,
       strategicHumanGeographyCityIndices: () => currentStrategicPreviewMap?.humanGeography
         ? currentStrategicPreviewMap.humanGeography.cities.map((city) => StrategicWorld.cellIndex(city.cellId))
+        : [],
+      strategicPublicBeastReportedIndices: () => currentStrategicPreviewMap?.publicBeastAtlas
+        ? [...currentStrategicPreviewMap.publicBeastAtlas.threatClasses].map((code, index) => code !== "." ? index : -1).filter((index) => index >= 0)
         : [],
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
@@ -14061,7 +14082,7 @@
       dom.companyNameInput.dataset.variant = "0";
     }
     dom.selectedWorldSummary.textContent = world
-      ? `${world.name} · ${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · World generation v${world.generationVersion}`
+      ? `${world.name} · ${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear}`
       : "Previewing a new reusable world. Its globe becomes immutable when this run begins.";
     renderStrategicWorldPreview(world || configuredWorldPreview());
     renderStartingScenarioOptions();
@@ -14083,7 +14104,7 @@
   function refreshConfiguredWorldPreview() {
     if (selectedWorldId) return;
     const preview = configuredWorldPreview();
-    dom.selectedWorldSummary.textContent = `${preview.name} · ${worldThemeLabel(preview.worldTheme)} · Preview of world generation v${preview.generationVersion}`;
+    dom.selectedWorldSummary.textContent = `${preview.name} · ${worldThemeLabel(preview.worldTheme)} · World preview`;
     renderStrategicWorldPreview(preview);
   }
 
@@ -14108,6 +14129,9 @@
       : null;
     const cityPolity = cell && currentStrategicPreviewMap?.cityPolities
       ? StrategicCityPolities.cellCityPolitySnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
+    const beastEcology = cell && currentStrategicPreviewMap?.publicBeastAtlas
+      ? StrategicBeastEcology.cellPublicBeastSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
@@ -14146,6 +14170,9 @@
       dom.strategicCellCivicProfile.textContent = "—";
       dom.strategicCellLocalControl.textContent = "—";
       dom.strategicCellPolityRelations.textContent = "—";
+      dom.strategicCellBeastThreat.textContent = "—";
+      dom.strategicCellBeastReports.textContent = "—";
+      dom.strategicCellKnownLairs.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -14153,7 +14180,7 @@
     dom.strategicCellId.textContent = cell.id;
     dom.strategicCellCoordinates.textContent = `${Math.abs(cell.latitude).toFixed(2)}° ${cell.latitude >= 0 ? "N" : "S"}, ${Math.abs(cell.longitude).toFixed(2)}° ${cell.longitude >= 0 ? "E" : "W"}`;
     dom.strategicCellSurface.textContent = cell.surfaceClass === "land" ? "Land" : "Ocean";
-    dom.strategicCellElevation.textContent = relief ? `${relief.elevationM.toLocaleString()} m` : "Unavailable in this world version";
+    dom.strategicCellElevation.textContent = relief ? `${relief.elevationM.toLocaleString()} m` : "Unavailable in this saved world";
     const readableGeographyLabel = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
     dom.strategicCellRelief.textContent = relief ? `${readableGeographyLabel(relief.reliefClass)} · ${relief.slopePercent.toFixed(1)}% slope` : "—";
     dom.strategicCellCoast.textContent = relief?.coastClass === "none" ? "None" : (readableGeographyLabel(relief?.coastClass) || "—");
@@ -14161,7 +14188,7 @@
     dom.strategicCellBoundary.textContent = relief
       ? `${readableGeographyLabel(relief.boundaryKind)} · ${relief.boundaryDistanceCells} cell${relief.boundaryDistanceCells === 1 ? "" : "s"} away`
       : "—";
-    dom.strategicCellTemperature.textContent = environment ? `${environment.temperatureC.toFixed(1)}°C mean` : "Unavailable in this world version";
+    dom.strategicCellTemperature.textContent = environment ? `${environment.temperatureC.toFixed(1)}°C mean` : "Unavailable in this saved world";
     dom.strategicCellPrecipitation.textContent = environment ? `${environment.precipitationMm.toLocaleString()} mm/year · aridity ${environment.aridityIndex.toFixed(2)}` : "—";
     dom.strategicCellSeasonality.textContent = environment ? `${environment.seasonalRangeC.toFixed(1)}°C range · ${environment.snowIcePercent.toFixed(1)}% snow/ice tendency` : "—";
     dom.strategicCellWind.textContent = environment ? `${environment.windBearingDeg}° bearing · ${environment.windStrengthPercent.toFixed(1)}% strength` : "—";
@@ -14178,7 +14205,7 @@
     dom.strategicCellBiome.textContent = environment
       ? `${readableGeographyLabel(environment.biomeClass)}${environment.biomeModifiers.length ? ` · ${environment.biomeModifiers.map(readableGeographyLabel).join(", ")}` : ""}`
       : "—";
-    dom.strategicCellGeologyProvince.textContent = geology ? `${geology.provinceId} · ${readableGeographyLabel(geology.tectonicRegime)}` : "Unavailable in this world version";
+    dom.strategicCellGeologyProvince.textContent = geology ? `${geology.provinceId} · ${readableGeographyLabel(geology.tectonicRegime)}` : "Unavailable in this saved world";
     dom.strategicCellBedrock.textContent = geology ? `${readableGeographyLabel(geology.bedrockClass)} · ${readableGeographyLabel(geology.crustClass)} · ${geology.crustAgeMyr.toLocaleString()} million years` : "—";
     dom.strategicCellSurfaceGeology.textContent = geology ? readableGeographyLabel(geology.surfaceDeposit) : "—";
     dom.strategicCellGeologyProperties.textContent = geology ? `${readableGeographyLabel(geology.permeabilityBand)} permeability · ${readableGeographyLabel(geology.stabilityBand)} stability · ${readableGeographyLabel(geology.geothermalBand)} geothermal tendency` : "—";
@@ -14187,20 +14214,20 @@
       : "—";
     dom.strategicCellMana.textContent = arcane
       ? `${readableGeographyLabel(arcane.manaConcentrationBand)} concentration · ${readableGeographyLabel(arcane.manaFlowStrengthBand)} flow ${arcane.manaFlowTowardCellId ? `toward ${arcane.manaFlowTowardCellId}` : "into a local sink"} · ${readableGeographyLabel(arcane.arcaneStabilityBand)} stability`
-      : "Unavailable in this world version";
+      : "Unavailable in this saved world";
     dom.strategicCellArcaneAspects.textContent = arcane ? `${readableGeographyLabel(arcane.primaryAspect)} primary · ${readableGeographyLabel(arcane.secondaryAspect)} secondary` : "—";
     dom.strategicCellLeyNull.textContent = arcane ? `${readableGeographyLabel(arcane.leyStructure)} · ${readableGeographyLabel(arcane.nullIntensityBand)} natural null intensity` : "—";
     dom.strategicCellMagicalHazards.textContent = arcane
       ? `${readableGeographyLabel(arcane.dominantMagicalHazard)} dominant · ${Object.entries(arcane.magicalHazardBands).map(([name, band]) => `${readableGeographyLabel(name)} ${readableGeographyLabel(band)}`).join(" · ")}`
       : "—";
-    dom.strategicCellResourceProspect.textContent = prospects ? `${prospects.dominantProspectLabel} · ${readableGeographyLabel(prospects.dominantProspectBand)} prospect` : "Unavailable in this world version";
+    dom.strategicCellResourceProspect.textContent = prospects ? `${prospects.dominantProspectLabel} · ${readableGeographyLabel(prospects.dominantProspectBand)} prospect` : "Unavailable in this saved world";
     dom.strategicCellProspectConfidence.textContent = prospects ? `${readableGeographyLabel(prospects.inferenceConfidence)} geographic inference · ${prospects.publicReason}` : "—";
     dom.strategicCellProspectBands.textContent = prospects
       ? StrategicResourcePotential.RESOURCE_FAMILIES.map((family) => `${family.label}: ${readableGeographyLabel(prospects.prospectBands[family.id])}`).join(" · ")
       : "—";
     dom.strategicCellCity.textContent = humanGeography
       ? (humanGeography.city ? `${humanGeography.city.name} · Fortified city` : "No major city in this strategic cell")
-      : "Unavailable in this world version";
+      : "Unavailable in this saved world";
     dom.strategicCellCityConditions.textContent = humanGeography?.city
       ? `${readableGeographyLabel(humanGeography.city.defensibilityBand)} defensive position · ${readableGeographyLabel(humanGeography.city.infrastructurePotentialBand)} infrastructure potential · ${readableGeographyLabel(humanGeography.city.isolationBand)} isolation · ${readableGeographyLabel(humanGeography.city.wildernessExposureBand)} wilderness exposure · founded for ${humanGeography.city.foundingAdvantages.map(readableGeographyLabel).join(", ")}`
       : "—";
@@ -14210,7 +14237,7 @@
     const relevantPolity = cityPolity?.cityPolity || cityPolity?.controller;
     dom.strategicCellPolity.textContent = cityPolity
       ? (relevantPolity ? `${relevantPolity.name} · independent city polity` : "No city polity continuously controls this cell")
-      : "Unavailable in this world version";
+      : "Unavailable in this saved world";
     dom.strategicCellAuthority.textContent = relevantPolity
       ? `${relevantPolity.authority.name}, ${relevantPolity.authority.title} · ${readableGeographyLabel(relevantPolity.authority.kind)} authority`
       : "—";
@@ -14222,6 +14249,15 @@
       : "—";
     dom.strategicCellPolityRelations.textContent = cityPolity
       ? (cityPolity.relations.map((relation) => `${relation.counterpart.name}: ${readableGeographyLabel(relation.posture)} ${readableGeographyLabel(relation.basis)} · ${readableGeographyLabel(relation.cooperationReadiness)} crisis readiness`).join(" · ") || "No strategically notable standing relation from this cell")
+      : "—";
+    dom.strategicCellBeastThreat.textContent = beastEcology
+      ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
+      : "Unavailable in this saved world";
+    dom.strategicCellBeastReports.textContent = beastEcology
+      ? (beastEcology.reports.map((report) => `${report.species.name} · ${readableGeographyLabel(report.threatBand)} threat · ${readableGeographyLabel(report.reportedAbundanceBand)} reported abundance · ${readableGeographyLabel(report.confidence)} confidence`).join(" · ") || "No major beast population is publicly reported in this cell")
+      : "—";
+    dom.strategicCellKnownLairs.textContent = beastEcology
+      ? (beastEcology.reports.filter((report) => report.knownLairCellId).map((report) => `${report.species.name}: ${report.knownLairCellId}`).join(" · ") || "No lair location is publicly confirmed")
       : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
@@ -14249,19 +14285,42 @@
     }
   }
 
+  function renderStrategicBeastBestiary(map) {
+    dom.strategicBeastBestiaryList.textContent = "";
+    const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicBestiary(map) : [];
+    dom.strategicBeastBestiary.hidden = !entries.length;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const entry of entries) {
+      const card = document.createElement("details");
+      card.className = "strategic-beast-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = entry.species.name;
+      heading.append(strong, ` · ${readable(entry.species.sizeBand)} ${readable(entry.species.ecologicalRole)}`);
+      const description = document.createElement("p");
+      description.textContent = entry.species.description;
+      const facts = document.createElement("p");
+      facts.className = "journal-meta";
+      facts.textContent = `${readable(entry.species.intelligenceBand)} intelligence · ${entry.species.movementModes.map(readable).join(", ")} · ${readable(entry.species.socialPattern)} · ${entry.reportedPopulationCount} reported population ranges · ${entry.knownLairCount} known lairs · ${readable(entry.highestConfidence)} best confidence`;
+      card.append(heading, description, facts);
+      dom.strategicBeastBestiaryList.append(card);
+    }
+  }
+
   function renderStrategicWorldPreview(world) {
     const map = world?.generatedData?.strategicMap;
     currentStrategicPreviewMap = map || null;
     if (!map) {
       dom.strategicWorldCanvas.hidden = true;
       dom.strategicWorldInspector.hidden = true;
-      dom.strategicWorldPreviewSummary.textContent = "This finalized generation-version-one world predates strategic globe generation and remains unchanged.";
+      dom.strategicWorldPreviewSummary.textContent = "This saved world predates strategic globe generation and remains unchanged.";
       strategicGlobeRenderer.setMap(null);
       dom.strategicGlobeLayerSelect.value = "surface";
       dom.strategicGlobeLayerSelect.disabled = true;
       renderStrategicGlobeLegend("surface");
       renderStrategicCellInspector(null);
       renderStrategicCityPolityDirectory(null);
+      renderStrategicBeastBestiary(null);
       return;
     }
     dom.strategicWorldCanvas.hidden = false;
@@ -14270,26 +14329,29 @@
     const landPercent = Math.round(Number(map.surface.landFraction) * 100);
     const reliefSummary = map.relief
       ? ` · ${map.relief.plates.length} plates · ${map.relief.diagnostics.minimumElevationM.toLocaleString()} to ${map.relief.diagnostics.maximumElevationM.toLocaleString()} m`
-      : " · Detailed relief unavailable for generation v2";
+      : " · Detailed relief unavailable in this saved world";
     const environmentSummary = map.biomes
       ? ` · ${map.hydrology.watersheds.length.toLocaleString()} watersheds · ${map.hydrology.lakes.length.toLocaleString()} major lakes · ${map.biomes.diagnostics.representedBiomeCount} biomes`
-      : (map.relief ? " · Climate, hydrology, and biomes unavailable for generation v3" : "");
+      : (map.relief ? " · Climate, hydrology, and biomes unavailable in this saved world" : "");
     const geologySummary = map.geology
       ? ` · ${map.geology.provinces.length.toLocaleString()} geological provinces · ${map.geology.diagnostics.representedBedrockClassCount} bedrock families`
-      : (map.biomes ? " · Geology and natural hazards unavailable for generation v4" : "");
+      : (map.biomes ? " · Geology and natural hazards unavailable in this saved world" : "");
     const arcaneSummary = map.arcaneGeography
       ? ` · ${map.arcaneGeography.leyNodes.length.toLocaleString()} ley nodes · ${map.arcaneGeography.nullZones.length.toLocaleString()} natural null zones · ${map.arcaneGeography.diagnostics.representedPrimaryAspectCount} arcane aspects`
-      : (map.geology ? " · Arcane geography and magical hazards unavailable for generation v5" : "");
+      : (map.geology ? " · Arcane geography and magical hazards unavailable in this saved world" : "");
     const resourceSummary = map.publicResourceProspects
       ? ` · ${map.resourcePotential.diagnostics.representedFamilyCount} resource families · public prospectivity only`
-      : (map.arcaneGeography ? " · Resource potential unavailable for generation v6" : "");
+      : (map.arcaneGeography ? " · Resource potential unavailable in this saved world" : "");
     const humanGeographySummary = map.humanGeography
       ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} strategic intercity corridors`
-      : (map.publicResourceProspects ? " · Human geography unavailable for generation v7" : "");
+      : (map.publicResourceProspects ? " · Human geography unavailable in this saved world" : "");
     const cityPolitySummary = map.cityPolities
       ? ` · ${map.cityPolities.polities.length.toLocaleString()} sovereign city polities · global internet, local physical authority`
-      : (map.humanGeography ? " · City polities unavailable for generation v8" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}`;
+      : (map.humanGeography ? " · City polities unavailable in this saved world" : "");
+    const beastEcologySummary = map.publicBeastAtlas
+      ? ` · ${map.beastEcology.species.length.toLocaleString()} static beast species · ${map.publicBeastAtlas.reports.length.toLocaleString()} reported population ranges`
+      : (map.cityPolities ? " · Beast ecology unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14297,6 +14359,7 @@
     dom.strategicGlobeLayerSelect.disabled = availableLayers.length === 1;
     renderStrategicGlobeLegend("surface");
     renderStrategicCityPolityDirectory(map);
+    renderStrategicBeastBestiary(map);
   }
 
   function renderStrategicGlobeLegend(layer) {
@@ -14388,7 +14451,7 @@
     heading.textContent = world.name;
     const meta = document.createElement("p");
     meta.className = "world-card-meta";
-    meta.textContent = `${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · Generation v${world.generationVersion} · Seed ${world.worldSeed}`;
+    meta.textContent = `${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · Seed ${world.worldSeed}`;
     copy.append(heading, meta);
     const actions = document.createElement("div");
     actions.className = "world-card-actions";
@@ -14761,7 +14824,7 @@
       try {
         generateConfiguredWorld();
       } catch (error) {
-        dom.worldLibraryStatus.textContent = "World generation could not be saved. No existing world was changed.";
+        dom.worldLibraryStatus.textContent = "The generated world could not be saved. No existing world was changed.";
       }
     });
 

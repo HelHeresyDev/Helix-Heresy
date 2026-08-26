@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Strategic Beast Ecology, Territories, Migration, and Monster Waves
+1. Strategic Beast Migration and Monster-Wave Pressure
 2. City Governments, Civic Institutions, and Local Law
 3. Religions, Gods, Churches, and Divine Competition
 4. Commercial, Research, Military, and Internet Networks
@@ -60,15 +60,12 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Conquest does not merge cities into a durable state. Occupation, tribute, puppet rule, and imposed authorities may connect several cities temporarily, but each conquered city remains a distinct polity and a potential point of revolt or collapse.
 - The world must be finite and enumerable enough for territorial control and world domination to have a real, testable meaning.
 - The entire campaign world is a seamless geodesic globe. Strategic cells are mostly hexagons with exactly twelve pentagonal anchors; mechanics must use saved graph adjacency and spherical distance rather than assuming a flat axial grid or map-edge boundary.
-- Generation-version-three worlds preserve generation version two's canonical land/ocean mask and add compact saved tectonic plates, boundary forces, elevation, bathymetry, relief, and coast classifications. Surface, Elevation, and Tectonics are player-visible globe layers; older generation-version-two worlds retain their surface globe and honestly report that detailed relief is unavailable.
-- Generation-version-four worlds add saved axial tilt, climate normals, circulation, ocean-current tendencies, conditioned drainage, watersheds, major lakes and rivers, wetlands, and terrestrial and marine biomes without changing generation version three's relief. Older generation-version-three worlds retain their relief layers and honestly report that climate, hydrology, and biomes are unavailable.
-- Generation-version-five worlds add saved contiguous geological provinces, crust, bedrock, surface deposits, tectonic regimes, physical-property tendencies, and causal natural-hazard baselines without changing generation version four's environment. Older generation-version-four worlds retain their environment layers and honestly report that geology and natural hazards are unavailable.
-- Generation-version-six worlds add saved mana concentration and flow, aspects, ley structures, natural null zones, arcane stability, and magical-hazard baselines without changing generation version five's geology. Older generation-version-five worlds retain their geology layers and honestly report that arcane geography and magical hazards are unavailable.
-- Generation-version-seven worlds add hidden canonical resource endowment and separate knowledge-safe public prospectivity without changing generation version six's arcane geography. Older generation-version-six worlds retain their Arcane layer and honestly report that resource potential is unavailable.
-- Generation-version-eight worlds add geography-driven fortified cities and land-only strategic intercity corridors without implying continuous defense or rewriting generation version seven's resource geography. Older generation-version-seven worlds retain public Resource Prospects and honestly report that human geography is unavailable.
-- Generation-version-nine worlds assign exactly one sovereign city polity and one individual or collective ruling authority to each fortified city. They add themed civic identity, local-control reach, public logistical dependencies, sparse strategic relations, globally available internet contact, and corridor-neighbor monster-wave warning protocols without creating states or permanent alliances. Older generation-version-eight worlds retain Human Geography and honestly report that City Polities are unavailable.
+- New worlds use the current complete generator rather than numbered generator milestones. Do not give implementation passes artificial milestone numbers. Existing technical save-compatibility fields may remain until a dedicated cleanup, and older records may honestly lack newer world facts.
+- The current generator preserves causal layers: globe topology and surface, relief, climate, hydrology, biomes, geology, natural and magical hazards, arcane geography, hidden resources and public prospects, fortified cities, strategic intercity corridors, sovereign city polities, and beast ecology.
+- The natural beast catalog is a fixed authored list shared by every world. Every species must have at least one living population in every newly generated world; the world seed changes population count, abundance, territory, lairs, overlap, and knowledge rather than species identity.
+- Canonical beast populations and lairs remain separate from the uncertain public threat atlas. Ordinary UI must not infer exact ecological truth from public reports.
 - Use stable semantic role keys for mechanics and separate generated instance IDs and display names. Existing systems must not depend on a particular generated proper name.
-- Once a generated world is finalized, its canonical facts must not silently reroll. World-generation version changes create a new world rather than rewriting an existing one.
+- Once a generated world is finalized, its canonical facts must not silently reroll. Generator changes affect newly created worlds rather than rewriting an existing saved world.
 - Keep generation and simulation renderer-neutral. UI previews and maps are projections of authoritative saved state.
 - Every implementation pass must include deterministic tests, save/load coverage for its new state, and at least one player-visible or mechanically consumed result.
 - Helix Heresy is a roguelike. Ordinary play must be compelling when a run ends in the laboratory or local-power phase; the overwhelming majority of runs should end long before world domination.
@@ -77,15 +74,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Strategic Beast Ecology, Territories, Migration, and Monster Waves
+## 1. Strategic Beast Migration and Monster-Wave Pressure
 
-Design and implement the beast-dominated strategic ecology that makes city independence and weak physical logistics necessary. Generate aggregated species populations, ecological roles, overlapping territories, lairs or nesting centers, predation and rivalry pressures, migration tendencies, and monster-wave risks without materializing every creature. Territories may overlap and change; they are ecological ranges rather than political borders. Monster waves must have causal origins, paths, timing bands, threatened cities and satellites, warning opportunities, and reasons neighboring sovereign cities may need an event-specific coalition.
+Design and implement migration routes and recurrent monster-wave pressure from the existing static species catalog, randomized populations, overlapping territories, ecological relations, and public threat atlas. Give migratory populations seasonal or displacement routes appropriate to their movement modes. Monster-wave profiles require a causal origin such as breeding dispersal, prey collapse, arcane disruption, territorial defeat, fire, drought, or deliberate provocation; a saved path; timing and recurrence bands; public warning opportunities; and specific threatened city polities. When one profile can strike multiple neighboring cities, create a shared-threat fact and warning-protocol handoff, but leave actual historical coalition formation to the later history pass. Do not materialize individual creatures or begin run-time simulation.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
 ## 2. City Governments, Civic Institutions, and Local Law
 
-Deepen each saved sovereign city polity into its own playable legal and civic context. Generate bounded city-specific governing offices, succession and legitimacy rules, courts, jail and prison authorities, law enforcement, civic services, military defense, public attitudes, local laws, punishments, and institutional branches. Consume generation v9 authority, civic priorities, dependencies, and relationships rather than rerolling them. Do not create states, national law, or a superior government above cities; cross-city recognition and extradition must be explicit agreements or case-specific actions.
+Deepen each saved sovereign city polity into its own playable legal and civic context. Generate bounded city-specific governing offices, succession and legitimacy rules, courts, jail and prison authorities, law enforcement, civic services, military defense, public attitudes, local laws, punishments, and institutional branches. Consume the existing authority, civic priorities, dependencies, and relationships rather than rerolling them. Do not create states, national law, or a superior government above cities; cross-city recognition and extradition must be explicit agreements or case-specific actions.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
