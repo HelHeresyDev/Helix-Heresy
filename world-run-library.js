@@ -2,18 +2,22 @@
   const themeContent = typeof module === "object" && module.exports
     ? require("./theme-content")
     : root?.HelixThemeContent;
-  const api = factory(themeContent);
+  const strategicWorld = typeof module === "object" && module.exports
+    ? require("./strategic-world")
+    : root?.HelixStrategicWorld;
+  const api = factory(themeContent, strategicWorld);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
+  if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
   const RUN_RECORD_VERSION = 1;
-  const WORLD_GENERATION_VERSION = 1;
+  const WORLD_GENERATION_VERSION = 2;
   const WORLD_NAME_VERSION = 2;
   const MANIFEST_KEY = "helix-heresy-v2-library";
   const WORLD_KEY_PREFIX = "helix-heresy-v2-world:";
@@ -146,6 +150,35 @@
     const providedSummary = String(options.summary || "").trim();
     const summary = providedSummary || summarySelection.text;
     const createdAt = String(options.createdAt || new Date().toISOString());
+    const generatedData = clone(options.generatedData) || (generationVersion >= 2 ? {
+      version: generationVersion,
+      strategicResolution: "geodesic-globe",
+      strategicMap: StrategicWorld.createStrategicMap(worldSeed, options.creationSettings?.strategicMap),
+      themeContent: {
+        version: ThemeContent.VERSION,
+        worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
+        worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
+      },
+      canonicalState: {
+        worldName: name,
+        playableYear,
+        worldTheme
+      }
+    } : {
+      version: generationVersion,
+      strategicResolution: "prototype",
+      themeContent: {
+        version: ThemeContent.VERSION,
+        worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
+        worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
+      },
+      canonicalState: {
+        worldName: name,
+        playableYear,
+        worldTheme
+      }
+    });
+    if (generationVersion >= 2) StrategicWorld.validateStrategicMap(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
@@ -155,26 +188,20 @@
       name,
       worldTheme,
       creationSettings: {
-        scale: "prototype",
+        scale: generationVersion >= 2 ? "planetary-prototype" : "prototype",
+        ...(generationVersion >= 2 ? {
+          strategicMap: {
+            refinementLevel: StrategicWorld.DEFAULT_REFINEMENT_LEVEL,
+            radiusKm: StrategicWorld.DEFAULT_PLANET_RADIUS_KM,
+            landFraction: StrategicWorld.DEFAULT_LAND_FRACTION
+          }
+        } : {}),
         ...(clone(options.creationSettings) || {}),
         worldTheme
       },
       playableYear,
       summary,
-      generatedData: clone(options.generatedData) || {
-        version: generationVersion,
-        strategicResolution: "prototype",
-        themeContent: {
-          version: ThemeContent.VERSION,
-          worldName: providedName ? null : ThemeContent.selectionRecord(nameSelection),
-          worldSummary: providedSummary ? null : ThemeContent.selectionRecord(summarySelection)
-        },
-        canonicalState: {
-          worldName: name,
-          playableYear,
-          worldTheme
-        }
-      },
+      generatedData,
       createdAt
     };
     world.canonicalDigest = canonicalWorldDigest(world);
@@ -445,6 +472,7 @@
     WORLD_GENERATION_VERSION,
     WORLD_NAME_VERSION,
     THEME_CONTENT_VERSION: ThemeContent.VERSION,
+    STRATEGIC_MAP_VERSION: StrategicWorld.STRATEGIC_MAP_VERSION,
     MANIFEST_KEY,
     WORLD_KEY_PREFIX,
     RUN_KEY_PREFIX,
