@@ -14,7 +14,7 @@ function memoryStorage() {
   };
 }
 
-test('world names, years, and canonical digests are deterministic and versioned', () => {
+test('world names, years, and canonical digests are deterministic and stable', () => {
   const first = Library.createWorld({
     id: 'world-one',
     worldSeed: 'reusable-seed',
@@ -69,6 +69,8 @@ test('world names, years, and canonical digests are deterministic and versioned'
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
         cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
+        beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number) } },
+        publicBeastAtlas: { diagnostics: { reportCount: expect.any(Number), knownLairCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -80,7 +82,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   });
 });
 
-test('Unbound worlds consume both authored theme pools while legacy version-one names remain stable', () => {
+test('Unbound worlds consume both authored theme pools while legacy names remain stable', () => {
   const sourceThemes = new Set();
   for (let index = 0; index < 100; index += 1) {
     const world = Library.createWorld({
@@ -119,16 +121,19 @@ test('physical strategic geography ignores World Theme while city identity honor
   const physicalMaps = worlds.map((world) => {
     const map = JSON.parse(JSON.stringify(world.generatedData.strategicMap));
     delete map.cityPolities;
+    delete map.beastEcology;
+    delete map.publicBeastAtlas;
     delete map.digest;
     return map;
   });
   expect(physicalMaps[0]).toEqual(physicalMaps[1]);
   expect(physicalMaps[1]).toEqual(physicalMaps[2]);
   expect(worlds[0].generatedData.strategicMap.cityPolities).not.toEqual(worlds[1].generatedData.strategicMap.cityPolities);
+  expect(worlds[0].generatedData.strategicMap.beastEcology.populations).toEqual(worlds[1].generatedData.strategicMap.beastEcology.populations);
   expect(new Set(worlds.map((world) => world.canonicalDigest)).size).toBe(3);
 });
 
-test('finalized generation-version-two worlds keep their original surface-only strategic maps', () => {
+test('legacy surface-only worlds do not silently gain relief', () => {
   const world = Library.createWorld({
     id: 'generation-two-world',
     worldSeed: 'generation-two-seed',
@@ -143,7 +148,7 @@ test('finalized generation-version-two worlds keep their original surface-only s
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-three worlds keep relief without silently gaining climate', () => {
+test('legacy relief worlds do not silently gain climate', () => {
   const world = Library.createWorld({
     id: 'generation-three-world',
     worldSeed: 'generation-three-seed',
@@ -161,7 +166,7 @@ test('finalized generation-version-three worlds keep relief without silently gai
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-four worlds keep environment without silently gaining geology', () => {
+test('legacy environment worlds do not silently gain geology', () => {
   const world = Library.createWorld({
     id: 'generation-four-world',
     worldSeed: 'generation-four-seed',
@@ -178,7 +183,7 @@ test('finalized generation-version-four worlds keep environment without silently
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-five worlds keep geology without silently gaining arcane geography', () => {
+test('legacy geology worlds do not silently gain arcane geography', () => {
   const world = Library.createWorld({
     id: 'generation-five-world',
     worldSeed: 'generation-five-seed',
@@ -196,7 +201,7 @@ test('finalized generation-version-five worlds keep geology without silently gai
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-six worlds keep arcane geography without silently gaining resource potential', () => {
+test('legacy arcane worlds do not silently gain resource potential', () => {
   const world = Library.createWorld({
     id: 'generation-six-world',
     worldSeed: 'generation-six-seed',
@@ -214,7 +219,7 @@ test('finalized generation-version-six worlds keep arcane geography without sile
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-seven worlds keep resource potential without silently gaining human geography', () => {
+test('legacy resource worlds do not silently gain human geography', () => {
   const world = Library.createWorld({
     id: 'generation-seven-world',
     worldSeed: 'generation-seven-seed',
@@ -232,7 +237,7 @@ test('finalized generation-version-seven worlds keep resource potential without 
   expect(normalized).toEqual(world);
 });
 
-test('finalized generation-version-eight worlds keep city routes without silently gaining sovereign polities', () => {
+test('legacy routed worlds do not silently gain sovereign polities', () => {
   const world = Library.createWorld({
     id: 'generation-eight-world',
     worldSeed: 'generation-eight-seed',

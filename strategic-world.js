@@ -251,6 +251,8 @@
     if (map.publicResourceProspects) core.publicResourceProspects = map.publicResourceProspects;
     if (map.humanGeography) core.humanGeography = map.humanGeography;
     if (map.cityPolities) core.cityPolities = map.cityPolities;
+    if (map.beastEcology) core.beastEcology = map.beastEcology;
+    if (map.publicBeastAtlas) core.publicBeastAtlas = map.publicBeastAtlas;
     return core;
   }
 

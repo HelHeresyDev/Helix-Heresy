@@ -4632,6 +4632,47 @@ html[data-reduced-motion="true"] *::after {
   line-height: 1.45;
 }
 
+.strategic-beast-bestiary {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.strategic-beast-bestiary[hidden] {
+  display: none;
+}
+
+.strategic-beast-bestiary h4,
+.strategic-beast-bestiary p {
+  margin: 0;
+}
+
+.strategic-beast-bestiary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.55rem;
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.strategic-beast-card {
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.strategic-beast-card summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.strategic-beast-card p {
+  margin-top: 0.55rem;
+  line-height: 1.45;
+}
+
 .world-card-actions,
 .run-library-actions {
   display: flex;

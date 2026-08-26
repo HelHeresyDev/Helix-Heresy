@@ -723,7 +723,7 @@
           <p id="loadLastSaveStatus" class="journal-meta">Checking local save…</p>
           <p id="titleImportStatus" class="journal-meta"></p>
         </div>
-        <p class="title-build-note">Prototype build 1.0.0 · Reusable worlds and independent roguelike runs</p>
+        <p class="title-build-note">Prototype · Reusable worlds and independent roguelike runs</p>
       </section>
 
       <section id="worldLibraryPanel" class="setup-card world-library-panel" aria-labelledby="worldLibraryHeading" hidden>
@@ -811,6 +811,7 @@
                   <option value="prospects">Resource Prospects</option>
                   <option value="humanGeography">Human Geography</option>
                   <option value="cityPolities">City Polities</option>
+                  <option value="beastEcology">Beast Ecology</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -864,6 +865,9 @@
                 <div><dt>Civic Profile</dt><dd id="strategicCellCivicProfile">—</dd></div>
                 <div><dt>Local Control</dt><dd id="strategicCellLocalControl">—</dd></div>
                 <div><dt>Relevant Relations</dt><dd id="strategicCellPolityRelations">—</dd></div>
+                <div><dt>Beast Threat</dt><dd id="strategicCellBeastThreat">—</dd></div>
+                <div><dt>Reported Species</dt><dd id="strategicCellBeastReports">—</dd></div>
+                <div><dt>Known Lairs</dt><dd id="strategicCellKnownLairs">—</dd></div>
                 <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
                 <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
               </dl>
@@ -874,6 +878,11 @@
             <h4 id="strategicCityPolityDirectoryHeading">Sovereign City Polities</h4>
             <p class="journal-meta">Each fortified city governs itself. Internet diplomacy spans the globe, while physical authority ends near the walls.</p>
             <div id="strategicCityPolityList" class="strategic-city-polity-list"></div>
+          </section>
+          <section id="strategicBeastBestiary" class="strategic-beast-bestiary" aria-labelledby="strategicBeastBestiaryHeading" hidden>
+            <h4 id="strategicBeastBestiaryHeading">Strategic Beast Bestiary</h4>
+            <p class="journal-meta">Every known beast species exists in every world. Reports describe uncertain populations and ranges, not exact ecological truth.</p>
+            <div id="strategicBeastBestiaryList" class="strategic-beast-bestiary-list"></div>
           </section>
         </section>
 
@@ -945,7 +954,7 @@
       <section id="titleAboutPanel" class="setup-card startup-info-card" aria-labelledby="titleAboutHeading" hidden>
         <div class="startup-panel-heading">
           <div>
-            <p class="title-kicker">Prototype build 1.0.0</p>
+            <p class="title-kicker">Prototype</p>
             <h2 id="titleAboutHeading">About Helix Heresy</h2>
           </div>
           <button id="titleAboutBackBtn" type="button">Back</button>
@@ -967,6 +976,7 @@
     <script src="strategic-resource-potential.js"></script>
     <script src="strategic-human-geography.js"></script>
     <script src="strategic-city-polities.js"></script>
+    <script src="strategic-beast-ecology.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

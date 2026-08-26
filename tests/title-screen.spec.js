@@ -52,6 +52,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('strategic intercity corridors');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('24 static beast species');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('reported population ranges');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -93,6 +95,14 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicCellCivicProfile')).toContainText('priorities:');
   await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
   await expect(page.locator('.strategic-city-polity-card')).not.toHaveCount(0);
+  await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Known lair');
+  const firstBeastReportIndex = await page.evaluate(() => window.helixHeresyDebug.strategicPublicBeastReportedIndices()[0]);
+  await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstBeastReportIndex);
+  await expect(page.locator('#strategicCellBeastReports')).not.toContainText('No major beast population');
+  await expect(page.locator('#strategicBeastBestiary')).toBeVisible();
+  await expect(page.locator('.strategic-beast-card')).toHaveCount(24);
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -122,6 +132,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicResourcePotentialAudit())).toMatchObject({ valid: true, publicProjectionHidesTruth: true, representedFamilyCount: 12 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyAudit())).toMatchObject({ valid: true, allCitiesOnLand: true, allCorridorsOnLand: true, citiesFavorHabitableCells: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityPolitiesAudit())).toMatchObject({ valid: true, oneIndependentPolityPerCity: true, maximumCitiesPerPolity: 1, globalInternetCoverage: true, permanentAllianceCount: 0 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicBeastEcologyAudit())).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true, publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -131,7 +142,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   });
   expect(snapshot.run.id).not.toBe(snapshot.world.id);
   expect(snapshot.run.state.themeContent).toMatchObject({
-    version: 1,
+    version: 2,
     opening: { definitionId: expect.stringMatching(/^run-opening\./) },
   });
   expect(['madcap', 'grim']).toContain(snapshot.run.state.themeContent.opening.sourceTheme);
@@ -191,7 +202,7 @@ test('malformed library data disables Continue without deleting it', async ({ pa
   expect(await page.evaluate((key) => window.localStorage.getItem(key), manifestKey)).toBe(corrupt);
 });
 
-test('finalized generation-version-one worlds remain selectable without silently gaining a globe', async ({ page }) => {
+test('legacy worlds without a globe remain selectable', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -214,7 +225,7 @@ test('finalized generation-version-one worlds remain selectable without silently
   expect(snapshot.worlds[0].generatedData.strategicMap).toBeUndefined();
 });
 
-test('finalized generation-version-two worlds keep their surface globe and report unavailable relief', async ({ page }) => {
+test('legacy surface worlds report unavailable relief', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -230,12 +241,12 @@ test('finalized generation-version-two worlds keep their surface globe and repor
   await page.locator('[data-library-action="start-run"]').click();
 
   await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Detailed relief unavailable for generation v2');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Detailed relief unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect')).toBeDisabled();
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'surface', hasRelief: false });
 });
 
-test('finalized generation-version-three worlds keep relief layers and report unavailable climate', async ({ page }) => {
+test('legacy relief worlds report unavailable climate', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -251,14 +262,14 @@ test('finalized generation-version-three worlds keep relief layers and report un
   await page.locator('[data-library-action="start-run"]').click();
 
   await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Climate, hydrology, and biomes unavailable for generation v3');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Climate, hydrology, and biomes unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="elevation"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="temperature"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasRelief: true, hasEnvironment: false });
 });
 
-test('finalized generation-version-four worlds keep environment layers and report unavailable geology', async ({ page }) => {
+test('legacy environment worlds report unavailable geology', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -273,13 +284,13 @@ test('finalized generation-version-four worlds keep environment layers and repor
   await page.locator('#titleWorldLibraryBtn').click();
   await page.locator('[data-library-action="start-run"]').click();
 
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Geology and natural hazards unavailable for generation v4');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Geology and natural hazards unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect option[value="biomes"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="geology"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasEnvironment: true, hasGeology: false });
 });
 
-test('finalized generation-version-five worlds keep geology layers and report unavailable arcane geography', async ({ page }) => {
+test('legacy geology worlds report unavailable arcane geography', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -294,13 +305,13 @@ test('finalized generation-version-five worlds keep geology layers and report un
   await page.locator('#titleWorldLibraryBtn').click();
   await page.locator('[data-library-action="start-run"]').click();
 
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Arcane geography and magical hazards unavailable for generation v5');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Arcane geography and magical hazards unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect option[value="geology"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="arcane"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasGeology: true, hasArcaneGeography: false });
 });
 
-test('finalized generation-version-six worlds keep arcane layers and report unavailable resource potential', async ({ page }) => {
+test('legacy arcane worlds report unavailable resource potential', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -315,13 +326,13 @@ test('finalized generation-version-six worlds keep arcane layers and report unav
   await page.locator('#titleWorldLibraryBtn').click();
   await page.locator('[data-library-action="start-run"]').click();
 
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Resource potential unavailable for generation v6');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Resource potential unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect option[value="arcane"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasArcaneGeography: true, hasResourceProspects: false });
 });
 
-test('finalized generation-version-seven worlds keep resource prospects and report unavailable human geography', async ({ page }) => {
+test('legacy resource worlds report unavailable human geography', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -336,13 +347,13 @@ test('finalized generation-version-seven worlds keep resource prospects and repo
   await page.locator('#titleWorldLibraryBtn').click();
   await page.locator('[data-library-action="start-run"]').click();
 
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Human geography unavailable for generation v7');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Human geography unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="humanGeography"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasResourceProspects: true, hasHumanGeography: false });
 });
 
-test('finalized generation-version-eight worlds keep human geography and report unavailable city polities', async ({ page }) => {
+test('legacy routed worlds report unavailable city polities', async ({ page }) => {
   await openFreshTitle(page);
   await page.evaluate(() => {
     const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
@@ -357,7 +368,7 @@ test('finalized generation-version-eight worlds keep human geography and report 
   await page.locator('#titleWorldLibraryBtn').click();
   await page.locator('[data-library-action="start-run"]').click();
 
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('City polities unavailable for generation v8');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('City polities unavailable in this saved world');
   await expect(page.locator('#strategicGlobeLayerSelect option[value="humanGeography"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="cityPolities"]')).toHaveAttribute('disabled', '');
   await expect(page.locator('#strategicCityPolityDirectory')).toBeHidden();
