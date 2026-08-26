@@ -40,7 +40,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.name).not.toBe(different.name);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(first).toMatchObject({
-    generationVersion: 8,
+    generationVersion: 9,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
     creationSettings: {
@@ -54,7 +54,7 @@ test('world names, years, and canonical digests are deterministic and versioned'
       humanGeography: { cityCellsPerCity: 125, minimumCityCount: 18, maximumCityCount: 44, minimumCitySpacingKm: 340 },
     },
     generatedData: {
-      strategicResolution: 'geodesic-globe-fortified-cities',
+      strategicResolution: 'geodesic-globe-city-polities',
       strategicMap: {
         topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
         relief: { settings: { plateCount: 28 } },
@@ -68,10 +68,11 @@ test('world names, years, and canonical digests are deterministic and versioned'
         resourcePotential: { diagnostics: { representedFamilyCount: 12 } },
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
+        cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
-        version: 1,
+        version: 2,
         worldName: { sourceTheme: 'grim' },
         worldSummary: { sourceTheme: 'grim' },
       },
@@ -108,15 +109,22 @@ test('Unbound worlds consume both authored theme pools while legacy version-one 
   expect(Library.normalizeWorld(legacy)).toEqual(legacy);
 });
 
-test('strategic geography depends on world seed and generation version, not World Theme', () => {
+test('physical strategic geography ignores World Theme while city identity honors it', () => {
   const worlds = ['madcap', 'grim', 'unbound'].map((worldTheme) => Library.createWorld({
     id: `same-planet-${worldTheme}`,
     worldSeed: 'same-physical-world',
     worldTheme,
     createdAt: '2026-08-25T00:00:00.000Z',
   }));
-  expect(worlds[0].generatedData.strategicMap).toEqual(worlds[1].generatedData.strategicMap);
-  expect(worlds[1].generatedData.strategicMap).toEqual(worlds[2].generatedData.strategicMap);
+  const physicalMaps = worlds.map((world) => {
+    const map = JSON.parse(JSON.stringify(world.generatedData.strategicMap));
+    delete map.cityPolities;
+    delete map.digest;
+    return map;
+  });
+  expect(physicalMaps[0]).toEqual(physicalMaps[1]);
+  expect(physicalMaps[1]).toEqual(physicalMaps[2]);
+  expect(worlds[0].generatedData.strategicMap.cityPolities).not.toEqual(worlds[1].generatedData.strategicMap.cityPolities);
   expect(new Set(worlds.map((world) => world.canonicalDigest)).size).toBe(3);
 });
 
@@ -221,6 +229,22 @@ test('finalized generation-version-seven worlds keep resource potential without 
   expect(world.generatedData.strategicMap.publicResourceProspects).toBeDefined();
   expect(world.generatedData.strategicMap.humanGeography).toBeUndefined();
   expect(world.generatedData.strategicMap.routeGraph).toEqual({ version: 1, nodes: [], routes: [] });
+  expect(normalized).toEqual(world);
+});
+
+test('finalized generation-version-eight worlds keep city routes without silently gaining sovereign polities', () => {
+  const world = Library.createWorld({
+    id: 'generation-eight-world',
+    worldSeed: 'generation-eight-seed',
+    worldTheme: 'madcap',
+    generationVersion: 8,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+
+  expect(world.generatedData.strategicResolution).toBe('geodesic-globe-fortified-cities');
+  expect(world.generatedData.strategicMap.humanGeography).toBeDefined();
+  expect(world.generatedData.strategicMap.cityPolities).toBeUndefined();
   expect(normalized).toEqual(world);
 });
 

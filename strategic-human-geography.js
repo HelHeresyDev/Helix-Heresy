@@ -462,7 +462,7 @@
       const routeId = `corridor:${endpointIds.map((id) => id.slice(5)).join("-")}`;
       routeGraph.routes.push({
         id: routeId,
-        kind: "defendedGroundCorridor",
+        kind: "strategicIntercityCorridor",
         endpointIds,
         cellPath: result.path.map(StrategicWorld.cellId)
       });
@@ -553,7 +553,7 @@
       if (!CORRIDOR_CLASSES.includes(corridor.corridorClass) || !EXPOSURE_BANDS.includes(corridor.exposureBand)) throw new Error(`${corridor.id} has invalid corridor classifications.`);
       if (!Array.isArray(corridor.endpointCityIds) || corridor.endpointCityIds.length !== 2 || corridor.endpointCityIds.some((id) => !cityById.has(id)) || corridor.endpointCityIds.join("|") !== route.endpointIds.join("|")) throw new Error(`${corridor.id} has invalid endpoints.`);
       const path = route.cellPath.map(StrategicWorld.cellIndex);
-      if (route.kind !== "defendedGroundCorridor") throw new Error(`${corridor.id} has an invalid route kind.`);
+      if (!["strategicIntercityCorridor", "defendedGroundCorridor"].includes(route.kind)) throw new Error(`${corridor.id} has an invalid route kind.`);
       if (path.some((index) => strategicMap.surface.classes[index] !== "L")) throw new Error(`${corridor.id} crosses ocean cells.`);
       const pathEndpointCells = [route.cellPath[0], route.cellPath[route.cellPath.length - 1]].sort();
       const cityEndpointCells = corridor.endpointCityIds.map((id) => cityById.get(id).cellId).sort();

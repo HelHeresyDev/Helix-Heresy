@@ -50,7 +50,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('ley nodes');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource families');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('primary defended corridors');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('strategic intercity corridors');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -80,10 +81,18 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.locator('#strategicGlobeLayerSelect').selectOption('humanGeography');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'humanGeography', hasHumanGeography: true });
   await expect(page.locator('#strategicGlobeLegend span')).not.toHaveCount(0);
+  await page.locator('#strategicGlobeLayerSelect').selectOption('cityPolities');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'cityPolities', hasCityPolities: true });
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Ungoverned wilderness');
   const firstCityIndex = await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyCityIndices()[0]);
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstCityIndex);
   await expect(page.locator('#strategicCellCity')).toContainText('Fortified city');
   await expect(page.locator('#strategicCellCityConditions')).toContainText('defensive position');
+  await expect(page.locator('#strategicCellPolity')).toContainText('independent city polity');
+  await expect(page.locator('#strategicCellAuthority')).toContainText('authority');
+  await expect(page.locator('#strategicCellCivicProfile')).toContainText('priorities:');
+  await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
+  await expect(page.locator('.strategic-city-polity-card')).not.toHaveCount(0);
   const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
   await page.locator('[data-globe-action="rotate-right"]').click();
   const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
@@ -95,7 +104,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 8,
+    generationVersion: 9,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
@@ -112,6 +121,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicArcaneGeographyAudit())).toMatchObject({ valid: true, acyclicFlow: true, representedPrimaryAspectCount: 8 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicResourcePotentialAudit())).toMatchObject({ valid: true, publicProjectionHidesTruth: true, representedFamilyCount: 12 });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicHumanGeographyAudit())).toMatchObject({ valid: true, allCitiesOnLand: true, allCorridorsOnLand: true, citiesFavorHabitableCells: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityPolitiesAudit())).toMatchObject({ valid: true, oneIndependentPolityPerCity: true, maximumCitiesPerPolity: 1, globalInternetCoverage: true, permanentAllianceCount: 0 });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -330,6 +340,28 @@ test('finalized generation-version-seven worlds keep resource prospects and repo
   await expect(page.locator('#strategicGlobeLayerSelect option[value="prospects"]')).toBeEnabled();
   await expect(page.locator('#strategicGlobeLayerSelect option[value="humanGeography"]')).toHaveAttribute('disabled', '');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasResourceProspects: true, hasHumanGeography: false });
+});
+
+test('finalized generation-version-eight worlds keep human geography and report unavailable city polities', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'human-geography-world',
+      worldSeed: 'human-geography-seed',
+      worldTheme: 'madcap',
+      generationVersion: 8,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('City polities unavailable for generation v8');
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="humanGeography"]')).toBeEnabled();
+  await expect(page.locator('#strategicGlobeLayerSelect option[value="cityPolities"]')).toHaveAttribute('disabled', '');
+  await expect(page.locator('#strategicCityPolityDirectory')).toBeHidden();
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ hasHumanGeography: true, hasCityPolities: false });
 });
 
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {

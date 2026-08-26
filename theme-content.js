@@ -5,7 +5,7 @@
 })(typeof window !== "undefined" ? window : globalThis, function createThemeContentApi() {
   "use strict";
 
-  const VERSION = 1;
+  const VERSION = 2;
   const COMPATIBILITIES = Object.freeze(["shared", "madcap", "grim"]);
   const WORLD_THEMES = Object.freeze({
     madcap: Object.freeze({
@@ -124,6 +124,84 @@
       contentTags: Object.freeze(["neutral"]),
       fallback: true,
       template: "{worldName} is a divided magitech world whose fortified settlements endure amid beast-dominated wilds."
+    }),
+    Object.freeze({
+      id: "city-polity.madcap.licensed-visionary",
+      kind: "cityPolityIdentity",
+      compatibility: "madcap",
+      contentTags: Object.freeze(["absurdity", "fortified-civilization", "hope", "invention"]),
+      authorityKind: "individual",
+      authorityTitles: Object.freeze(["Licensed Visionary", "Emergency Genius", "Principal Enthusiast"]),
+      authorityNameOpenings: Object.freeze(["Aster", "Bramble", "Copper", "Jubilee", "Lumen", "Quill", "Spark", "Wonder"]),
+      authorityNameEndings: Object.freeze(["Bell", "Fizz", "Glint", "Quirk", "Ramble", "Sprocket", "Vale", "Whim"]),
+      polityNameTemplates: Object.freeze(["The Free City of {cityName}", "The Independent Works of {cityName}"]),
+      governingForms: Object.freeze(["licensed personal rule", "inventor sovereignty", "emergency visionary rule"]),
+      successionPrinciples: Object.freeze(["publicly demonstrated competence", "named experimental successor", "victory in the civic challenge trials"]),
+      mottos: Object.freeze(["Preparedness Is Just Invention With A Deadline", "No Wall Without A Workshop", "Survive First, Improve Immediately"]),
+      civicPriorities: Object.freeze(["open invention", "spectacular civil defense", "public education", "monster-warning science", "experimental infrastructure", "civic festivals"]),
+      template: "{polityName} recognizes no higher government. {authorityTitle} {authorityName} rules through {governingForm}, while the city remains globally connected and physically dependent on its own walls."
+    }),
+    Object.freeze({
+      id: "city-polity.madcap.emergency-committee",
+      kind: "cityPolityIdentity",
+      compatibility: "madcap",
+      contentTags: Object.freeze(["absurdity", "fortified-civilization", "invention", "survival"]),
+      authorityKind: "collective",
+      authorityGroupTemplates: Object.freeze(["The {cityName} Emergency Committee", "The Municipal League of Improbable Survival", "The Civic Continuity Workshop"]),
+      authorityTitles: Object.freeze(["Sovereign Committee", "Collective Custodian", "Municipal Directorate"]),
+      polityNameTemplates: Object.freeze(["The Cooperative City of {cityName}", "The Unsupervised Municipality of {cityName}"]),
+      governingForms: Object.freeze(["committee sovereignty", "rotating technical council", "chartered guild assembly"]),
+      successionPrinciples: Object.freeze(["appointment by the surviving committee", "election by licensed guilds", "rotation among emergency departments"]),
+      mottos: Object.freeze(["Consensus Before Catastrophe, Usually", "Every Citizen An Emergency Contact", "The Agenda Includes Survival"]),
+      civicPriorities: Object.freeze(["distributed workshops", "civil defense drills", "public provisioning", "open data", "corridor warnings", "cooperative research"]),
+      template: "{polityName} answers only to itself. {authorityName}, acting as its {authorityTitle}, governs through {governingForm} and maintains internet ties that cannot substitute for a supply convoy."
+    }),
+    Object.freeze({
+      id: "city-polity.grim.sovereign-protector",
+      kind: "cityPolityIdentity",
+      compatibility: "grim",
+      contentTags: Object.freeze(["coercion", "fortified-civilization", "institutional-cruelty", "survival"]),
+      authorityKind: "individual",
+      authorityTitles: Object.freeze(["Sovereign Protector", "First Castellan", "Keeper of the Last Gate"]),
+      authorityNameOpenings: Object.freeze(["Aldren", "Cassia", "Damar", "Ilyra", "Mordane", "Severin", "Thessa", "Veyr"]),
+      authorityNameEndings: Object.freeze(["Ash", "Black", "Grave", "Harrow", "Rook", "Scar", "Thorn", "Voss"]),
+      polityNameTemplates: Object.freeze(["The Sovereign Bastion of {cityName}", "The Closed City of {cityName}"]),
+      governingForms: Object.freeze(["personal emergency sovereignty", "fortress autocracy", "hereditary custodianship"]),
+      successionPrinciples: Object.freeze(["designation by the reigning protector", "armed confirmation by the gate command", "inheritance under emergency law"]),
+      mottos: Object.freeze(["The Gate Opens Outward Only", "Order Outlives Mercy", "The Wall Remembers Every Failure"]),
+      civicPriorities: Object.freeze(["fortress discipline", "ration security", "weapons production", "surveillance", "monster extermination", "suppression infrastructure"]),
+      template: "{polityName} accepts no distant master. {authorityTitle} {authorityName} rules through {governingForm}; the internet carries orders and threats, but every material promise must survive the wilderness."
+    }),
+    Object.freeze({
+      id: "city-polity.grim.bastion-directorate",
+      kind: "cityPolityIdentity",
+      compatibility: "grim",
+      contentTags: Object.freeze(["fortified-civilization", "institutional-cruelty", "scarcity", "warfare"]),
+      authorityKind: "collective",
+      authorityGroupTemplates: Object.freeze(["The {cityName} Bastion Directorate", "The Continuity Tribunal", "The Sealed Council"]),
+      authorityTitles: Object.freeze(["Sovereign Directorate", "Ruling Tribunal", "Continuity Authority"]),
+      polityNameTemplates: Object.freeze(["The Directorate City of {cityName}", "The Autonomous Fortress of {cityName}"]),
+      governingForms: Object.freeze(["military-civic directorate", "closed administrative tribunal", "ration-holder oligarchy"]),
+      successionPrinciples: Object.freeze(["internal selection under sealed vote", "promotion by continuity rank", "appointment by the surviving directorates"]),
+      mottos: Object.freeze(["Nothing Enters Uncounted", "Continuity Is The Only Mandate", "The Living Owe The Wall"]),
+      civicPriorities: Object.freeze(["continuity planning", "ration control", "corridor intelligence", "compulsory service", "weapons reserves", "population accounting"]),
+      template: "{polityName} is diplomatically independent and logistically alone. {authorityName}, its {authorityTitle}, governs through {governingForm} and treats every external dependency as a future siege."
+    }),
+    Object.freeze({
+      id: "city-polity.shared.fallback",
+      kind: "cityPolityIdentity",
+      compatibility: "shared",
+      contentTags: Object.freeze(["fortified-civilization", "neutral"]),
+      fallback: true,
+      authorityKind: "collective",
+      authorityGroupTemplates: Object.freeze(["The {cityName} Civic Authority"]),
+      authorityTitles: Object.freeze(["Sovereign Council"]),
+      polityNameTemplates: Object.freeze(["The Independent City of {cityName}"]),
+      governingForms: Object.freeze(["independent civic government"]),
+      successionPrinciples: Object.freeze(["selection under the city charter"]),
+      mottos: Object.freeze(["The City Sustains Itself"]),
+      civicPriorities: Object.freeze(["civil defense", "local provisioning", "infrastructure maintenance"]),
+      template: "{polityName} recognizes no higher territorial government. {authorityName} governs locally while maintaining global communications and strictly limited physical reach."
     }),
     Object.freeze({
       id: "run-opening.madcap.respectable-staircase",

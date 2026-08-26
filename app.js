@@ -15,8 +15,9 @@
   const StrategicArcaneGeography = window.HelixStrategicArcaneGeography;
   const StrategicResourcePotential = window.HelixStrategicResourcePotential;
   const StrategicHumanGeography = window.HelixStrategicHumanGeography;
+  const StrategicCityPolities = window.HelixStrategicCityPolities;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12151,8 +12152,15 @@
       "strategicCellCity",
       "strategicCellCityConditions",
       "strategicCellCorridors",
+      "strategicCellPolity",
+      "strategicCellAuthority",
+      "strategicCellCivicProfile",
+      "strategicCellLocalControl",
+      "strategicCellPolityRelations",
       "strategicCellRegion",
       "strategicCellGrid",
+      "strategicCityPolityDirectory",
+      "strategicCityPolityList",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12323,6 +12331,18 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.humanGeography
           ? StrategicHumanGeography.cellHumanGeographySnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicCityPolitiesAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.cityPolities
+          ? StrategicCityPolities.auditCityPolities(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicCityPolityCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.cityPolities
+          ? StrategicCityPolities.cellCityPolitySnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicEnvironmentCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -14086,6 +14106,9 @@
     const humanGeography = cell && currentStrategicPreviewMap?.humanGeography
       ? StrategicHumanGeography.cellHumanGeographySnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const cityPolity = cell && currentStrategicPreviewMap?.cityPolities
+      ? StrategicCityPolities.cellCityPolitySnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14118,6 +14141,11 @@
       dom.strategicCellCity.textContent = "—";
       dom.strategicCellCityConditions.textContent = "—";
       dom.strategicCellCorridors.textContent = "—";
+      dom.strategicCellPolity.textContent = "—";
+      dom.strategicCellAuthority.textContent = "—";
+      dom.strategicCellCivicProfile.textContent = "—";
+      dom.strategicCellLocalControl.textContent = "—";
+      dom.strategicCellPolityRelations.textContent = "—";
       dom.strategicCellRegion.textContent = "—";
       dom.strategicCellGrid.textContent = "—";
       return;
@@ -14177,10 +14205,48 @@
       ? `${readableGeographyLabel(humanGeography.city.defensibilityBand)} defensive position · ${readableGeographyLabel(humanGeography.city.infrastructurePotentialBand)} infrastructure potential · ${readableGeographyLabel(humanGeography.city.isolationBand)} isolation · ${readableGeographyLabel(humanGeography.city.wildernessExposureBand)} wilderness exposure · founded for ${humanGeography.city.foundingAdvantages.map(readableGeographyLabel).join(", ")}`
       : "—";
     dom.strategicCellCorridors.textContent = humanGeography
-      ? (humanGeography.corridors.map((corridor) => `${corridor.endpointNames.join(" ↔ ")} · ${readableGeographyLabel(corridor.corridorClass)} · ${corridor.lengthKm.toLocaleString()} km · ${readableGeographyLabel(corridor.exposureBand)} exposure`).join(" · ") || "No primary defended corridor crosses this cell")
+      ? (humanGeography.corridors.map((corridor) => `${corridor.endpointNames.join(" ↔ ")} · ${readableGeographyLabel(corridor.corridorClass)} · ${corridor.lengthKm.toLocaleString()} km · ${readableGeographyLabel(corridor.exposureBand)} exposure`).join(" · ") || "No strategic intercity corridor crosses this cell")
+      : "—";
+    const relevantPolity = cityPolity?.cityPolity || cityPolity?.controller;
+    dom.strategicCellPolity.textContent = cityPolity
+      ? (relevantPolity ? `${relevantPolity.name} · independent city polity` : "No city polity continuously controls this cell")
+      : "Unavailable in this world version";
+    dom.strategicCellAuthority.textContent = relevantPolity
+      ? `${relevantPolity.authority.name}, ${relevantPolity.authority.title} · ${readableGeographyLabel(relevantPolity.authority.kind)} authority`
+      : "—";
+    dom.strategicCellCivicProfile.textContent = relevantPolity
+      ? `${readableGeographyLabel(relevantPolity.governingForm)} · succession by ${readableGeographyLabel(relevantPolity.successionPrinciple)} · priorities: ${relevantPolity.civicPriorities.map(readableGeographyLabel).join(", ")} · dependencies: ${relevantPolity.logisticalDependencies.map(readableGeographyLabel).join(", ")} · “${relevantPolity.publicMotto}”`
+      : "—";
+    dom.strategicCellLocalControl.textContent = cityPolity
+      ? `${readableGeographyLabel(cityPolity.controlClass)}${cityPolity.controller ? ` · controlled by ${cityPolity.controller.name}` : " · no continuous sovereign authority"}`
+      : "—";
+    dom.strategicCellPolityRelations.textContent = cityPolity
+      ? (cityPolity.relations.map((relation) => `${relation.counterpart.name}: ${readableGeographyLabel(relation.posture)} ${readableGeographyLabel(relation.basis)} · ${readableGeographyLabel(relation.cooperationReadiness)} crisis readiness`).join(" · ") || "No strategically notable standing relation from this cell")
       : "—";
     dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
     dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
+  }
+
+  function renderStrategicCityPolityDirectory(map) {
+    dom.strategicCityPolityList.textContent = "";
+    const polities = map?.cityPolities?.polities || [];
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    dom.strategicCityPolityDirectory.hidden = !polities.length;
+    for (const polity of polities) {
+      const card = document.createElement("details");
+      card.className = "strategic-city-polity-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = polity.name;
+      heading.append(strong, ` · ${polity.authority.name}`);
+      const summary = document.createElement("p");
+      summary.textContent = polity.publicSummary;
+      const facts = document.createElement("p");
+      facts.className = "journal-meta";
+      facts.textContent = `${polity.authority.title} · ${readable(polity.governingForm)} · priorities: ${polity.civicPriorities.map(readable).join(", ")} · dependencies: ${polity.logisticalDependencies.map(readable).join(", ")}`;
+      card.append(heading, summary, facts);
+      dom.strategicCityPolityList.append(card);
+    }
   }
 
   function renderStrategicWorldPreview(world) {
@@ -14195,6 +14261,7 @@
       dom.strategicGlobeLayerSelect.disabled = true;
       renderStrategicGlobeLegend("surface");
       renderStrategicCellInspector(null);
+      renderStrategicCityPolityDirectory(null);
       return;
     }
     dom.strategicWorldCanvas.hidden = false;
@@ -14217,15 +14284,19 @@
       ? ` · ${map.resourcePotential.diagnostics.representedFamilyCount} resource families · public prospectivity only`
       : (map.arcaneGeography ? " · Resource potential unavailable for generation v6" : "");
     const humanGeographySummary = map.humanGeography
-      ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} primary defended corridors`
+      ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} strategic intercity corridors`
       : (map.publicResourceProspects ? " · Human geography unavailable for generation v7" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}`;
+    const cityPolitySummary = map.cityPolities
+      ? ` · ${map.cityPolities.polities.length.toLocaleString()} sovereign city polities · global internet, local physical authority`
+      : (map.humanGeography ? " · City polities unavailable for generation v8" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
     for (const option of dom.strategicGlobeLayerSelect.options) option.disabled = !availableLayers.includes(option.value);
     dom.strategicGlobeLayerSelect.disabled = availableLayers.length === 1;
     renderStrategicGlobeLegend("surface");
+    renderStrategicCityPolityDirectory(map);
   }
 
   function renderStrategicGlobeLegend(layer) {

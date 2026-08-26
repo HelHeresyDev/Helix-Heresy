@@ -810,6 +810,7 @@
                   <option value="arcane">Arcane</option>
                   <option value="prospects">Resource Prospects</option>
                   <option value="humanGeography">Human Geography</option>
+                  <option value="cityPolities">City Polities</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -857,13 +858,23 @@
                 <div><dt>Prospect Bands</dt><dd id="strategicCellProspectBands">—</dd></div>
                 <div><dt>Fortified City</dt><dd id="strategicCellCity">—</dd></div>
                 <div><dt>City Conditions</dt><dd id="strategicCellCityConditions">—</dd></div>
-                <div><dt>Defended Corridors</dt><dd id="strategicCellCorridors">—</dd></div>
+                <div><dt>Intercity Corridors</dt><dd id="strategicCellCorridors">—</dd></div>
+                <div><dt>Sovereign Polity</dt><dd id="strategicCellPolity">—</dd></div>
+                <div><dt>Ruling Authority</dt><dd id="strategicCellAuthority">—</dd></div>
+                <div><dt>Civic Profile</dt><dd id="strategicCellCivicProfile">—</dd></div>
+                <div><dt>Local Control</dt><dd id="strategicCellLocalControl">—</dd></div>
+                <div><dt>Relevant Relations</dt><dd id="strategicCellPolityRelations">—</dd></div>
                 <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
                 <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
               </dl>
               <p class="journal-meta">The twelve five-sided cells are the unavoidable anchors of a seamless hexagonal globe.</p>
             </div>
           </div>
+          <section id="strategicCityPolityDirectory" class="strategic-city-polity-directory" aria-labelledby="strategicCityPolityDirectoryHeading" hidden>
+            <h4 id="strategicCityPolityDirectoryHeading">Sovereign City Polities</h4>
+            <p class="journal-meta">Each fortified city governs itself. Internet diplomacy spans the globe, while physical authority ends near the walls.</p>
+            <div id="strategicCityPolityList" class="strategic-city-polity-list"></div>
+          </section>
         </section>
 
         <fieldset class="starting-scenario-fieldset">
@@ -955,6 +966,7 @@
     <script src="strategic-arcane-geography.js"></script>
     <script src="strategic-resource-potential.js"></script>
     <script src="strategic-human-geography.js"></script>
+    <script src="strategic-city-polities.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>
