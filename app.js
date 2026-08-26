@@ -8,6 +8,11 @@
   if (!ThemeContent) {
     throw new Error("HelixThemeContent must load before app.js");
   }
+  const StrategicWorld = window.HelixStrategicWorld;
+  const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
+  if (!StrategicWorld || !StrategicGlobeRenderer) {
+    throw new Error("Strategic world generation and globe rendering must load before app.js");
+  }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
   if (!WorldRunLibrary) {
     throw new Error("HelixWorldRunLibrary must load before app.js");
@@ -4459,6 +4464,7 @@
   let activeRunRecord = null;
   let selectedWorldId = "";
   let setupReturnView = "title";
+  let strategicGlobeRenderer = null;
   let selectedStartingScenarioId = "";
   let uiPreferences = null;
   let startupView = "title";
@@ -11821,6 +11827,9 @@
 
   function init() {
     cacheDom();
+    strategicGlobeRenderer = StrategicGlobeRenderer.createRenderer(dom.strategicWorldCanvas, {
+      onSelect: renderStrategicCellInspector
+    });
     worldRepository = WorldRunLibrary.createRepository(window.localStorage);
     ensureInventoryPanel();
     uiPreferences = loadUiPreferences();
@@ -12098,6 +12107,15 @@
       "newWorldSetupFieldset",
       "setupWorldSeedInput",
       "randomSetupWorldSeedBtn",
+      "strategicWorldPreview",
+      "strategicWorldPreviewSummary",
+      "strategicWorldCanvas",
+      "strategicWorldInspector",
+      "strategicCellId",
+      "strategicCellCoordinates",
+      "strategicCellSurface",
+      "strategicCellRegion",
+      "strategicCellGrid",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12198,6 +12216,19 @@
         run: activeRunRecord ? currentRunRecord(activeRunRecord.updatedAt) : null
       }),
       generatedWorldName: (seed, theme = "madcap", version = WorldRunLibrary.WORLD_NAME_VERSION) => WorldRunLibrary.generatedWorldName(seed, theme, version),
+      strategicMapAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap
+          ? StrategicWorld.auditStrategicMap(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicCellSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap
+          ? StrategicWorld.cellSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicGlobeSnapshot: () => strategicGlobeRenderer?.snapshot() || null,
       startingScenarioCatalogSnapshot: () => STARTING_SCENARIO_DEFS.map((scenario) => {
         const blueprint = siteBlueprintDef(scenario.blueprintId);
         const loadout = startingLoadoutProfile(blueprint.loadoutProfileId);
@@ -13843,6 +13874,7 @@
     if (startupView === "worlds") renderWorldLibrary();
     if (startupView === "settings") syncTitleSettings();
     syncStartupShell();
+    if (startupView === "setup") window.requestAnimationFrame(() => strategicGlobeRenderer?.resize());
     if (options.focus !== false) focusStartupView();
   }
 
@@ -13897,10 +13929,63 @@
     }
     dom.selectedWorldSummary.textContent = world
       ? `${world.name} · ${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear} · World generation v${world.generationVersion}`
-      : "A new reusable world will be generated before this run begins.";
+      : "Previewing a new reusable world. Its globe becomes immutable when this run begins.";
+    renderStrategicWorldPreview(world || configuredWorldPreview());
     renderStartingScenarioOptions();
     syncCompanyNameSetup();
     return Boolean(world);
+  }
+
+  function configuredWorldPreview() {
+    const worldSeed = WorldRunLibrary.cleanSeed(dom.setupWorldSeedInput.value) || "preview-world";
+    const worldTheme = dom.newWorldSetupFieldset.querySelector('input[name="setupWorldTheme"]:checked')?.value || "madcap";
+    return WorldRunLibrary.createWorld({
+      id: "preview-world",
+      worldSeed,
+      worldTheme,
+      createdAt: "preview"
+    });
+  }
+
+  function refreshConfiguredWorldPreview() {
+    if (selectedWorldId) return;
+    const preview = configuredWorldPreview();
+    dom.selectedWorldSummary.textContent = `${preview.name} · ${worldThemeLabel(preview.worldTheme)} · Preview of world generation v${preview.generationVersion}`;
+    renderStrategicWorldPreview(preview);
+  }
+
+  function renderStrategicCellInspector(cell) {
+    if (!cell) {
+      dom.strategicCellId.textContent = "None";
+      dom.strategicCellCoordinates.textContent = "—";
+      dom.strategicCellSurface.textContent = "—";
+      dom.strategicCellRegion.textContent = "—";
+      dom.strategicCellGrid.textContent = "—";
+      return;
+    }
+    dom.strategicCellId.textContent = cell.id;
+    dom.strategicCellCoordinates.textContent = `${Math.abs(cell.latitude).toFixed(2)}° ${cell.latitude >= 0 ? "N" : "S"}, ${Math.abs(cell.longitude).toFixed(2)}° ${cell.longitude >= 0 ? "E" : "W"}`;
+    dom.strategicCellSurface.textContent = cell.surfaceClass === "land" ? "Land" : "Ocean";
+    dom.strategicCellRegion.textContent = cell.topologyRegionId || "Unassigned";
+    dom.strategicCellGrid.textContent = `${cell.sides === 5 ? "Pentagonal anchor" : "Hexagonal cell"} · ${cell.neighborIds.length} neighbors`;
+  }
+
+  function renderStrategicWorldPreview(world) {
+    const map = world?.generatedData?.strategicMap;
+    if (!map) {
+      dom.strategicWorldCanvas.hidden = true;
+      dom.strategicWorldInspector.hidden = true;
+      dom.strategicWorldPreviewSummary.textContent = "This finalized generation-version-one world predates strategic globe generation and remains unchanged.";
+      strategicGlobeRenderer.setMap(null);
+      renderStrategicCellInspector(null);
+      return;
+    }
+    dom.strategicWorldCanvas.hidden = false;
+    dom.strategicWorldInspector.hidden = false;
+    const topology = map.topology;
+    const landPercent = Math.round(Number(map.surface.landFraction) * 100);
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land`;
+    strategicGlobeRenderer.setMap(map);
   }
 
   function continuationInspection() {
@@ -14363,7 +14448,10 @@
 
     dom.randomSetupWorldSeedBtn.addEventListener("click", () => {
       dom.setupWorldSeedInput.value = makeSeed();
+      refreshConfiguredWorldPreview();
     });
+
+    dom.newWorldSetupFieldset.addEventListener("change", refreshConfiguredWorldPreview);
 
     dom.worldLibraryList.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-library-action]") : null;
@@ -14436,6 +14524,19 @@
       if (control) setTitlePreference(control);
     });
     dom.titleResetSettingsBtn.addEventListener("click", resetTitleSettings);
+
+    dom.strategicWorldPreview.addEventListener("click", (event) => {
+      const action = event.target instanceof Element ? event.target.closest("[data-globe-action]")?.dataset.globeAction : "";
+      if (!action) return;
+      const view = strategicGlobeRenderer.snapshot();
+      if (action === "rotate-left") strategicGlobeRenderer.rotate(-0.18, 0);
+      else if (action === "rotate-right") strategicGlobeRenderer.rotate(0.18, 0);
+      else if (action === "rotate-up") strategicGlobeRenderer.rotate(0, 0.14);
+      else if (action === "rotate-down") strategicGlobeRenderer.rotate(0, -0.14);
+      else if (action === "zoom-in") strategicGlobeRenderer.setZoom(view.zoom + 0.1);
+      else if (action === "zoom-out") strategicGlobeRenderer.setZoom(view.zoom - 0.1);
+      else if (action === "reset") strategicGlobeRenderer.resetView();
+    });
 
     dom.randomSeedBtn.addEventListener("click", () => {
       dom.seedInput.value = makeSeed();

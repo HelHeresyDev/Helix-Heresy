@@ -39,11 +39,20 @@ test('world names, years, and canonical digests are deterministic and versioned'
   expect(first.canonicalDigest).toBe(same.canonicalDigest);
   expect(first.name).not.toBe(different.name);
   expect(first).toMatchObject({
-    generationVersion: 1,
+    generationVersion: 2,
     nameGeneratorVersion: 2,
     worldTheme: 'grim',
-    creationSettings: { worldTheme: 'grim', scale: 'prototype' },
+    creationSettings: {
+      worldTheme: 'grim',
+      scale: 'planetary-prototype',
+      strategicMap: { refinementLevel: 5, radiusKm: 3000, landFraction: 0.38 },
+    },
     generatedData: {
+      strategicResolution: 'geodesic-globe',
+      strategicMap: {
+        topology: { cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
+        routeGraph: { version: 1, nodes: [], routes: [] },
+      },
       themeContent: {
         version: 1,
         worldName: { sourceTheme: 'grim' },
@@ -72,11 +81,25 @@ test('Unbound worlds consume both authored theme pools while legacy version-one 
     id: 'legacy-world',
     worldSeed: 'legacy-name-seed',
     worldTheme: 'grim',
+    generationVersion: 1,
     nameGeneratorVersion: 1,
     createdAt: '2026-08-25T00:00:00.000Z',
   });
   expect(legacy.name).toBe(Library.generatedWorldName('legacy-name-seed', 1));
+  expect(legacy.generatedData.strategicMap).toBeUndefined();
   expect(Library.normalizeWorld(legacy)).toEqual(legacy);
+});
+
+test('strategic geography depends on world seed and generation version, not World Theme', () => {
+  const worlds = ['madcap', 'grim', 'unbound'].map((worldTheme) => Library.createWorld({
+    id: `same-planet-${worldTheme}`,
+    worldSeed: 'same-physical-world',
+    worldTheme,
+    createdAt: '2026-08-25T00:00:00.000Z',
+  }));
+  expect(worlds[0].generatedData.strategicMap).toEqual(worlds[1].generatedData.strategicMap);
+  expect(worlds[1].generatedData.strategicMap).toEqual(worlds[2].generatedData.strategicMap);
+  expect(new Set(worlds.map((world) => world.canonicalDigest)).size).toBe(3);
 });
 
 test('several run records branch independently without modifying their canonical world', () => {

@@ -776,7 +776,7 @@
 
         <fieldset id="newWorldSetupFieldset" class="starting-scenario-fieldset new-world-setup-fieldset">
           <legend>Choose Your Heresy</legend>
-          <p class="journal-meta">This seed and World Theme create an immutable reusable world before the run begins.</p>
+          <p class="journal-meta">This seed and World Theme generate the exact immutable globe previewed below before the run begins.</p>
           <div class="world-theme-fieldset">
             <label><input type="radio" name="setupWorldTheme" value="madcap" checked><span><strong>Madcap Heresy</strong><small>Wildly inventive consequences with room for absurd triumph.</small></span></label>
             <label><input type="radio" name="setupWorldTheme" value="grim"><span><strong>Grim Heresy</strong><small>Harsh institutions, desperate survival, and severe consequences.</small></span></label>
@@ -788,6 +788,38 @@
             <button id="randomSetupWorldSeedBtn" type="button">Random</button>
           </div>
         </fieldset>
+
+        <section id="strategicWorldPreview" class="strategic-world-preview" aria-labelledby="strategicWorldPreviewHeading">
+          <div class="strategic-world-preview-heading">
+            <div>
+              <h3 id="strategicWorldPreviewHeading">Strategic Globe</h3>
+              <p id="strategicWorldPreviewSummary" class="journal-meta" aria-live="polite"></p>
+            </div>
+            <div class="strategic-globe-controls" aria-label="Globe controls">
+              <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
+              <button type="button" data-globe-action="rotate-up" aria-label="Rotate globe up">↑</button>
+              <button type="button" data-globe-action="rotate-down" aria-label="Rotate globe down">↓</button>
+              <button type="button" data-globe-action="rotate-right" aria-label="Rotate globe right">→</button>
+              <button type="button" data-globe-action="zoom-out" aria-label="Zoom globe out">−</button>
+              <button type="button" data-globe-action="zoom-in" aria-label="Zoom globe in">+</button>
+              <button type="button" data-globe-action="reset">Reset</button>
+            </div>
+          </div>
+          <div class="strategic-world-preview-layout">
+            <canvas id="strategicWorldCanvas" width="720" height="480" tabindex="0" aria-label="Interactive strategic globe. Drag to rotate, use the mouse wheel to zoom, press arrow keys to rotate, and press Enter to inspect the centered cell."></canvas>
+            <div id="strategicWorldInspector" class="strategic-world-inspector">
+              <h4>Selected Cell</h4>
+              <dl>
+                <div><dt>Identity</dt><dd id="strategicCellId">None</dd></div>
+                <div><dt>Coordinates</dt><dd id="strategicCellCoordinates">—</dd></div>
+                <div><dt>Surface</dt><dd id="strategicCellSurface">—</dd></div>
+                <div><dt>Region</dt><dd id="strategicCellRegion">—</dd></div>
+                <div><dt>Grid</dt><dd id="strategicCellGrid">—</dd></div>
+              </dl>
+              <p class="journal-meta">The twelve five-sided cells are the unavoidable anchors of a seamless hexagonal globe.</p>
+            </div>
+          </div>
+        </section>
 
         <fieldset class="starting-scenario-fieldset">
           <legend>Starting Scenario</legend>
@@ -871,7 +903,9 @@
     </div>
 
     <script src="theme-content.js"></script>
+    <script src="strategic-world.js"></script>
     <script src="world-run-library.js"></script>
+    <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>
     <script src="geology-field.js"></script>
     <script src="research-system.js"></script>

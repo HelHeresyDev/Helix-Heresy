@@ -8,7 +8,7 @@ For story background, long-term systems, current design direction, and open ques
 
 ## Current Prototype
 
-- A browser-local library of immutable, deterministically named worlds with saved World Theme, generation metadata, canonical playable year, and independent roguelike run branches. “Choose Your Heresy” offers Madcap, Grim, or the all-content Unbound theme. A central tagged-content registry drives deterministic theme-safe names, summaries, and saved run openings without letting incompatible authored content leak across themes.
+- A browser-local library of immutable, deterministically named worlds with saved World Theme, generation metadata, canonical playable year, and independent roguelike run branches. Every new world includes a seamless rotatable geodesic globe with 10,230 hexagonal cells, the sphere's required 12 pentagons, deterministic land and ocean, stable topology regions, spherical distance helpers, and an empty cell-anchored route graph for later infrastructure. “Choose Your Heresy” offers Madcap, Grim, or the all-content Unbound theme.
 - Clickable ASCII DNA helix and seeded procedural gene mapping.
 - Slime synthesis with Biomass costs, testing, longer lifespans, maturity, current mass, division pressure, condition stats, and local saves.
 - Evidence-driven research projects that cite reusable observations, consume physical materials and scientist work, preserve interrupted workpieces, and unlock advanced tests or usable prototypes.
@@ -86,13 +86,15 @@ npm run benchmark:map
 npm run benchmark:map:full
 ```
 
-The smoke command is the quick cross-system check for routine iteration. The full correctness command runs the complete Chromium regression suite with four workers to avoid overcommitting the Ubuntu desktop. Run the full suite before publishing substantial changes. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
+The smoke command is a quick cross-system check, but routine changes should run only the smallest focused test files or named cases that cover them. Do not run the complete suite automatically; reserve it for an explicit developer request. The visual command checks committed Ubuntu/Chromium baselines without changing them; use `npm run test:visual:update` only after deliberately reviewing an intended rendering change. The quick benchmark is intended for iteration; the full mode takes more samples. Timing budgets are advisory across different computers, while visible-count and idle-frame invariants fail the command.
 
 ## Project Files
 
 - `index.html` - Page structure and UI panels.
 - `styles.css` - Visual design, layout, and responsive behavior.
 - `theme-content.js` - Renderer-neutral authored-content contracts, validation, compatibility filtering, deterministic selection, explicit shared fallbacks, and the Madcap/Grim/Unbound World Theme catalog.
+- `strategic-world.js` - Renderer-neutral geodesic globe topology, seamless seeded land/ocean generation, stable cell and topology-region identities, spherical and graph-distance helpers, diagnostics, and route contracts.
+- `strategic-globe-renderer.js` - Interactive Canvas projection for rotating, zooming, selecting, and inspecting the saved strategic globe.
 - `world-run-library.js` - Renderer-neutral deterministic world records, themed names and summaries, independent run envelopes, canonical digests, versioned browser-storage repository, and deletion/reference guards.
 - `app.js` - Game state, genetics, time simulation, world/run save integration, tests, slime reproduction, jobs, derived Suspicion, rooms, corpses, and rendering.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
@@ -145,7 +147,7 @@ The smoke command is the quick cross-system check for routine iteration. The ful
 
 ## Saves
 
-Helix Heresy stores a versioned world/run library in browser `localStorage` and always opens to the title screen without materializing a run. Canonical worlds and mutable run records use separate namespaced records behind a storage adapter. A world owns its stable ID, world seed, deterministic generated name, World Theme, generation settings/version, canonical playable year, summary, digest, authoritative generated data, and the exact authored definition IDs selected for its name and summary. Each run owns a separate ID and seed, scenario, starting-site record, mutable world-state branch, lifecycle, complete simulation state, and its saved themed opening selection.
+Helix Heresy stores a versioned world/run library in browser `localStorage` and always opens to the title screen without materializing a run. Canonical worlds and mutable run records use separate namespaced records behind a storage adapter. A generation-version-two world owns its stable ID, world seed, deterministic generated name, World Theme, playable year, exact authored definition IDs, and a compact canonical geodesic globe record. The universal versioned mesh is reconstructed deterministically while the world's land/ocean classes, topology regions, settings, diagnostics, and digest remain saved facts. Each run owns a separate ID and seed, scenario, starting-site record, mutable world-state branch, lifecycle, complete simulation state, and its saved themed opening selection.
 
 New Run explicitly generates a world before beginning its first independent branch. World Library can start several runs from one world's untouched canonical state, resume any active branch, delete runs, and delete only worlds with no remaining run references. Continue selects the most recently played readable active run and shows both world and run metadata. A run has one autosaved roguelike timeline rather than rewindable save slots; an ended run remains a library record but is no longer a continuation.
 

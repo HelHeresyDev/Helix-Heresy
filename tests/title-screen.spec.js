@@ -40,6 +40,14 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#setupBackBtn')).toBeFocused();
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
   await page.locator('input[name="setupWorldTheme"][value="unbound"]').check();
+  await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('12 pentagons');
+  await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
+  const globeBefore = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
+  await page.locator('[data-globe-action="rotate-right"]').click();
+  const globeAfter = await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot());
+  expect(globeAfter.yaw).toBeGreaterThan(globeBefore.yaw);
   await page.locator('#seedInput').fill('run-seed-one');
   await page.locator('#startRunSubmitBtn').click();
 
@@ -47,12 +55,17 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(snapshot.world).toMatchObject({
     worldSeed: 'world-seed-one',
     worldTheme: 'unbound',
-    generationVersion: 1,
+    generationVersion: 2,
     nameGeneratorVersion: 2,
   });
   expect(snapshot.world.name).toBe(await page.evaluate(() => window.helixHeresyDebug.generatedWorldName('world-seed-one', 'unbound')));
   expect(['madcap', 'grim']).toContain(snapshot.world.generatedData.themeContent.worldName.sourceTheme);
   expect(['madcap', 'grim']).toContain(snapshot.world.generatedData.themeContent.worldSummary.sourceTheme);
+  expect(snapshot.world.generatedData.strategicMap).toMatchObject({
+    topology: { kind: 'geodesic-icosphere-dual', cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
+    diagnostics: { boundaryCellCount: 0 },
+  });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicMapAudit())).toMatchObject({ valid: true, boundaryCellCount: 0 });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
@@ -76,6 +89,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.locator('#loadLastSaveBtn').click();
   const reloaded = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot());
   expect(reloaded.run.state.themeContent).toEqual(snapshot.run.state.themeContent);
+  expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
@@ -121,6 +135,29 @@ test('malformed library data disables Continue without deleting it', async ({ pa
   expect(await page.evaluate((key) => window.localStorage.getItem(key), manifestKey)).toBe(corrupt);
 });
 
+test('finalized generation-version-one worlds remain selectable without silently gaining a globe', async ({ page }) => {
+  await openFreshTitle(page);
+  await page.evaluate(() => {
+    const repository = window.HelixWorldRunLibrary.createRepository(window.localStorage);
+    repository.putWorld(window.HelixWorldRunLibrary.createWorld({
+      id: 'legacy-world',
+      worldSeed: 'legacy-world-seed',
+      worldTheme: 'grim',
+      generationVersion: 1,
+      nameGeneratorVersion: 1,
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+  });
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+
+  await expect(page.locator('#strategicWorldCanvas')).toBeHidden();
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('predates strategic globe generation');
+  const snapshot = await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot());
+  expect(snapshot.worlds[0].generationVersion).toBe(1);
+  expect(snapshot.worlds[0].generatedData.strategicMap).toBeUndefined();
+});
+
 test('two runs in one world retain independent seeds and saves', async ({ page }) => {
   await openFreshTitle(page);
   await beginRun(page, { worldSeed: 'shared-world-seed', runSeed: 'first-run-seed' });
@@ -128,7 +165,7 @@ test('two runs in one world retain independent seeds and saves', async ({ page }
   await page.locator('#titleWorldLibraryBtn').click();
   const worldName = await page.locator('.world-card h3').textContent();
   await page.locator('[data-library-action="start-run"]').click();
-  await expect(page.locator('#newWorldSetupFieldset')).toBeHidden();
+  await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
   await expect(page.locator('#selectedWorldSummary')).toContainText(worldName || '');
   await page.locator('#seedInput').fill('second-run-seed');
   await page.locator('#startRunSubmitBtn').click();
