@@ -4594,7 +4594,8 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-polity-directory,
 .strategic-city-government-directory,
 .strategic-city-law-directory,
-.cross-city-recognition-directory {
+.cross-city-recognition-directory,
+.strategic-religion-directory {
   display: grid;
   gap: 0.55rem;
   padding-top: 0.8rem;
@@ -4604,7 +4605,8 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-polity-directory[hidden],
 .strategic-city-government-directory[hidden],
 .strategic-city-law-directory[hidden],
-.cross-city-recognition-directory[hidden] {
+.cross-city-recognition-directory[hidden],
+.strategic-religion-directory[hidden] {
   display: none;
 }
 
@@ -4615,7 +4617,10 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-law-directory h4,
 .strategic-city-law-directory p,
 .cross-city-recognition-directory h4,
-.cross-city-recognition-directory p {
+.cross-city-recognition-directory p,
+.strategic-religion-directory h4,
+.strategic-religion-directory h5,
+.strategic-religion-directory p {
   margin: 0;
 }
 
@@ -4685,6 +4690,42 @@ html[data-reduced-motion="true"] *::after {
 .cross-city-recognition-profile h5,
 .cross-city-recognition-profile p {
   margin: 0;
+}
+
+.strategic-god-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.55rem;
+  max-height: 34rem;
+  overflow: auto;
+}
+
+.strategic-god-card,
+.religion-city-standing-entry,
+.strategic-holy-site-entry {
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.strategic-god-card summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.strategic-god-card p {
+  margin-top: 0.55rem;
+  line-height: 1.45;
+}
+
+.religion-city-standing-list,
+.strategic-holy-site-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.45rem;
+  max-height: 24rem;
+  overflow: auto;
 }
 
 @media (max-width: 760px) {

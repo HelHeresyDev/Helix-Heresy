@@ -20,8 +20,9 @@
   const StrategicCityGovernments = window.HelixStrategicCityGovernments;
   const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
+  const StrategicReligions = window.HelixStrategicReligions;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12167,6 +12168,8 @@
       "strategicCellLawSummary",
       "strategicCellLawProcedure",
       "strategicCellPunishmentPolicy",
+      "strategicCellReligiousPresence",
+      "strategicCellHolySites",
       "strategicCellBeastThreat",
       "strategicCellMigrationPressure",
       "strategicCellWavePressure",
@@ -12185,6 +12188,11 @@
       "recognitionRequestingCitySelect",
       "recognitionReceivingCitySelect",
       "crossCityRecognitionProfile",
+      "strategicReligionDirectory",
+      "strategicGodList",
+      "religionCitySelect",
+      "religionCityStandingList",
+      "strategicHolySiteList",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
@@ -12422,6 +12430,23 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCrossCityRecognitionDirectory ? StrategicCityRecognition.evaluateExtraditionRequest(map, request) : null;
+      },
+      strategicReligionsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.strategicReligions
+          ? StrategicReligions.auditStrategicReligions(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicReligionDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicReligionDirectory ? StrategicReligions.publicReligionDirectory(map) : null;
+      },
+      strategicPublicReligionSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicReligionDirectory
+          ? StrategicReligions.cellPublicReligionSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
       },
       strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
@@ -14221,6 +14246,9 @@
     const cityLaw = cell && currentStrategicPreviewMap?.publicCityLawDirectory
       ? StrategicCityLaws.cellPublicCityLawSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const religion = cell && currentStrategicPreviewMap?.publicReligionDirectory
+      ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14264,6 +14292,8 @@
       dom.strategicCellLawSummary.textContent = "—";
       dom.strategicCellLawProcedure.textContent = "—";
       dom.strategicCellPunishmentPolicy.textContent = "—";
+      dom.strategicCellReligiousPresence.textContent = "—";
+      dom.strategicCellHolySites.textContent = "—";
       dom.strategicCellBeastThreat.textContent = "—";
       dom.strategicCellMigrationPressure.textContent = "—";
       dom.strategicCellWavePressure.textContent = "—";
@@ -14369,6 +14399,16 @@
       dom.strategicCellLawProcedure.textContent = "—";
       dom.strategicCellPunishmentPolicy.textContent = "—";
     }
+    if (religion?.cityStanding) {
+      const established = religion.cityStanding.standings.find((entry) => entry.standing === "established");
+      const branches = religion.cityStanding.standings.filter((entry) => entry.branch);
+      dom.strategicCellReligiousPresence.textContent = `${established ? `${established.tradition.name} established` : "No established faith"} · ${branches.length} organized branch${branches.length === 1 ? "" : "es"} · every branch remains under city law`;
+    } else {
+      dom.strategicCellReligiousPresence.textContent = currentStrategicPreviewMap?.publicReligionDirectory ? "No fortified-city religious standing applies at this cell" : "Unavailable in this saved world";
+    }
+    dom.strategicCellHolySites.textContent = religion?.holySites.length
+      ? religion.holySites.map((site) => `${site.name} · ${readableGeographyLabel(site.siteKind)} · ${readableGeographyLabel(site.accessClass)} · divinely confirmed`).join(" · ")
+      : (currentStrategicPreviewMap?.publicReligionDirectory ? "No major confirmed holy site at this strategic cell" : "Unavailable in this saved world");
     dom.strategicCellBeastThreat.textContent = beastEcology
       ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
       : "Unavailable in this saved world";
@@ -14527,6 +14567,69 @@
     renderProfile();
   }
 
+  function renderStrategicReligionDirectory(map) {
+    dom.strategicGodList.textContent = "";
+    dom.religionCitySelect.textContent = "";
+    dom.religionCityStandingList.textContent = "";
+    dom.strategicHolySiteList.textContent = "";
+    const directory = map?.publicReligionDirectory ? StrategicReligions.publicReligionDirectory(map) : null;
+    dom.strategicReligionDirectory.hidden = !directory;
+    if (!directory) return;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const god of directory.gods) {
+      const card = document.createElement("details");
+      card.className = "strategic-god-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = god.name;
+      heading.append(strong, ` · ${god.epithet}`);
+      const summary = document.createElement("p");
+      summary.textContent = `${god.publicSummary} Domains: ${god.domains.map(readable).join(", ")}.`;
+      const communication = document.createElement("p");
+      communication.textContent = `Routine communication: ${god.communication.methods.join("; ")} · repeatable divine signature · faithful may receive direct replies.`;
+      const avatar = document.createElement("p");
+      avatar.textContent = `Finite avatars: ${god.avatarManifestation.forms.join("; ")} · ${readable(god.avatarManifestation.fullManifestationCost)} full-manifestation cost.`;
+      const doctrine = document.createElement("p");
+      doctrine.className = "journal-meta";
+      doctrine.textContent = `Confirmed doctrine: ${Object.entries(god.doctrine).map(([topic, position]) => `${readable(topic)} — ${readable(position)}`).join(" · ")}`;
+      const relations = directory.divineRelations.filter((relation) => relation.godIds.includes(god.id)).map((relation) => {
+        const counterpartId = relation.godIds.find((id) => id !== god.id);
+        return `${directory.gods.find((entry) => entry.id === counterpartId)?.name || counterpartId}: ${readable(relation.relation)}`;
+      });
+      const relationSummary = document.createElement("p");
+      relationSummary.className = "journal-meta";
+      relationSummary.textContent = `Divine relations: ${relations.join(" · ") || "none"}. One god, one confirmed faith; same-god heresy and doctrinal schism do not exist.`;
+      card.append(heading, summary, communication, avatar, doctrine, relationSummary);
+      dom.strategicGodList.append(card);
+    }
+    const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
+    for (const cityId of directory.cityOrder) {
+      const option = document.createElement("option");
+      option.value = cityId;
+      option.textContent = cityById.get(cityId)?.name || cityId;
+      dom.religionCitySelect.append(option);
+    }
+    const renderCityStandings = () => {
+      dom.religionCityStandingList.textContent = "";
+      const cityStanding = StrategicReligions.cityReligiousStanding(map, dom.religionCitySelect.value);
+      for (const entry of cityStanding?.standings || []) {
+        const item = document.createElement("p");
+        item.className = "religion-city-standing-entry";
+        item.textContent = `${entry.tradition.name} — ${readable(entry.standing)}${entry.branch ? ` · ${entry.branch.publicName} · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.adherentBand)} adherents · ${readable(entry.branch.capacityBand)} capacity` : " · no organized public branch"}`;
+        dom.religionCityStandingList.append(item);
+      }
+    };
+    dom.religionCitySelect.onchange = renderCityStandings;
+    renderCityStandings();
+    for (const site of directory.holySites) {
+      const god = directory.gods.find((entry) => entry.id === site.godId);
+      const item = document.createElement("p");
+      item.className = "strategic-holy-site-entry";
+      item.textContent = `${site.name} — ${god?.name || site.godId} · ${site.cellId} · ${readable(site.siteKind)} · ${readable(site.accessClass)} · routine, repeatable divine activity · recognized avatar anchor`;
+      dom.strategicHolySiteList.append(item);
+    }
+  }
+
   function renderStrategicBeastBestiary(map) {
     dom.strategicBeastBestiaryList.textContent = "";
     const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicBestiary(map) : [];
@@ -14597,6 +14700,7 @@
       renderStrategicCityGovernmentDirectory(null);
       renderStrategicCityLawDirectory(null);
       renderCrossCityRecognitionDirectory(null);
+      renderStrategicReligionDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
       return;
@@ -14638,7 +14742,10 @@
     const recognitionSummary = map.publicCrossCityRecognitionDirectory
       ? ` · ${map.crossCityRecognition.diagnostics.directedPairCount.toLocaleString()} directional city-pair recognition policies · foreign warrants require local orders`
       : (map.publicCityLawDirectory ? " · Cross-city recognition unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}`;
+    const religionSummary = map.publicReligionDirectory
+      ? ` · ${map.strategicReligions.diagnostics.godCount} real communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} confirmed strategic holy sites · one faith per god`
+      : (map.publicCrossCityRecognitionDirectory ? " · Religions and holy sites unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14649,6 +14756,7 @@
     renderStrategicCityGovernmentDirectory(map);
     renderStrategicCityLawDirectory(map);
     renderCrossCityRecognitionDirectory(map);
+    renderStrategicReligionDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
   }

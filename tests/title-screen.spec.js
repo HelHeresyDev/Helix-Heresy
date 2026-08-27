@@ -23,7 +23,7 @@ async function beginRun(page, options = {}) {
 }
 
 test('@smoke fresh startup generates an explicitly themed world before entering its first run', async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await openFreshTitle(page);
 
   await expect(page.locator('#titleScreen')).toBeVisible();
@@ -64,6 +64,9 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('no life imprisonment');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('directional city-pair recognition policies');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('foreign warrants require local orders');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('real communicating gods');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('confirmed strategic holy sites');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('one faith per god');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -131,6 +134,19 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const publicRecognition = await page.evaluate(([requestingCityId, receivingCityId]) => window.helixHeresyDebug.strategicPublicCrossCityRecognitionProfile(requestingCityId, receivingCityId), [recognitionCityIds[1], recognitionCityIds[0]]);
   expect(publicRecognition).toMatchObject({ extradition: { foreignWarrantSelfExecuting: false, receivingCityMustIssueLocalCustodyOrder: true } });
   expect(JSON.stringify(publicRecognition)).not.toContain('discretionaryCooperationPosture');
+  await expect(page.locator('#strategicReligionDirectory')).toBeVisible();
+  const publicReligions = await page.evaluate(() => window.helixHeresyDebug.strategicPublicReligionDirectory());
+  await expect(page.locator('.strategic-god-card')).toHaveCount(publicReligions.gods.length);
+  await expect(page.locator('#religionCityStandingList .religion-city-standing-entry')).toHaveCount(publicReligions.traditions.length);
+  expect(publicReligions.gods.every((god) => god.objectiveExistence === 'confirmed' && god.communication.routine && god.avatarManifestation.possible)).toBe(true);
+  expect(JSON.stringify(publicReligions)).not.toContain('hiddenGodStateCodes');
+  expect(JSON.stringify(publicReligions)).not.toContain('currentAttentionBand');
+  await page.locator('#strategicGlobeLayerSelect').selectOption('religions');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'religions', hasReligions: true });
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Confirmed holy site');
+  const firstHolySiteIndex = Number(publicReligions.holySites[0].cellId.split(':')[1]);
+  await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstHolySiteIndex);
+  await expect(page.locator('#strategicCellHolySites')).toContainText('divinely confirmed');
   await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Reported migration corridor');
@@ -171,6 +187,10 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
     topology: { kind: 'geodesic-icosphere-dual', cellCount: 10242, hexagonCount: 10230, pentagonCount: 12 },
     diagnostics: { boundaryCellCount: 0 },
   });
+  const storedLibrary = await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot());
+  expect(storedLibrary.worlds).toHaveLength(1);
+  expect(storedLibrary.runs).toHaveLength(1);
+  expect(storedLibrary.manifest.activeRunId).toBe(snapshot.run.id);
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicMapAudit())).toMatchObject({ valid: true, boundaryCellCount: 0 });
   expect(await page.evaluate(() => window.helixHeresyDebug.planetaryReliefAudit())).toMatchObject({ valid: true, plateCount: 28 });
   expect(await page.evaluate(() => window.helixHeresyDebug.climateHydrologyBiomeAudit())).toMatchObject({ valid: true, drainageAcyclic: true, equatorWarmerThanPoles: true });
@@ -183,6 +203,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityGovernmentsAudit())).toMatchObject({ valid: true, oneGovernmentPerCity: true, everyGovernmentCityOnly: true, everyEssentialRoleCovered: true, jailAndPrisonAlwaysDistinct: true, publicDirectoryHidesOperationalRisks: true, publicDirectoryHidesOfficeholders: true, allOfficeholdersLazy: true, emergencyPowersExpireWithoutRenewal: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityLawsAudit())).toMatchObject({ valid: true, oneCodePerCity: true, everyCodeCoversCatalog: true, majorityProhibitGeneticEngineering: true, animancyNeverOrdinaryCommerce: true, noLifeImprisonment: true, publicEnemyRequiresSeparateFinding: true, penalFlightIsNonterminalRelease: true, publicDirectoryHidesEnforcementPolicy: true, hiddenPolicyCannotInferGuilt: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCrossCityRecognitionAudit())).toMatchObject({ valid: true, everyOrderedCityPairCovered: true, recognitionIsDirectional: true, standingAgreementsAreSparse: true, foreignWarrantsNeverSelfExecute: true, localCustodyOrderAlwaysRequired: true, doubleCriminalityAlwaysRequired: true, deportationAlwaysDistinct: true, wildernessNeverOrdinaryJurisdiction: true, publicDirectoryHidesDiscretion: true, hiddenPolicyCannotAlterDueProcess: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicReligionsAudit())).toMatchObject({ valid: true, everyGodObjectivelyReal: true, everyGodFinite: true, routineDirectCommunication: true, everyGodAvatarCapable: true, exactlyOneConfirmedFaithPerGod: true, noSameGodHeresyOrSchism: true, everyTraditionHasCityStanding: true, everyNetworkNonSovereign: true, everyBranchLocallyBound: true, everyHolySiteDivinelyConfirmed: true, nonTheisticMovementsAcknowledgeGods: true, publicDirectoryHidesDivineAttention: true, publicDirectoryHidesBranchIntegrity: true, hiddenAttentionCannotBePubliclyInferred: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',

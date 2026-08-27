@@ -812,6 +812,7 @@
                   <option value="humanGeography">Human Geography</option>
                   <option value="cityPolities">City Polities</option>
                   <option value="beastEcology">Beast Ecology</option>
+                  <option value="religions">Religion and Holy Sites</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -871,6 +872,8 @@
                 <div><dt>City Law</dt><dd id="strategicCellLawSummary">—</dd></div>
                 <div><dt>Criminal Procedure</dt><dd id="strategicCellLawProcedure">—</dd></div>
                 <div><dt>Punishment Policy</dt><dd id="strategicCellPunishmentPolicy">—</dd></div>
+                <div><dt>Religious Presence</dt><dd id="strategicCellReligiousPresence">—</dd></div>
+                <div><dt>Confirmed Holy Sites</dt><dd id="strategicCellHolySites">—</dd></div>
                 <div><dt>Beast Threat</dt><dd id="strategicCellBeastThreat">—</dd></div>
                 <div><dt>Migration Pressure</dt><dd id="strategicCellMigrationPressure">—</dd></div>
                 <div><dt>Wave Pressure</dt><dd id="strategicCellWavePressure">—</dd></div>
@@ -908,6 +911,17 @@
               <select id="recognitionReceivingCitySelect"></select>
             </div>
             <article id="crossCityRecognitionProfile" class="cross-city-recognition-profile" aria-live="polite"></article>
+          </section>
+          <section id="strategicReligionDirectory" class="strategic-religion-directory" aria-labelledby="strategicReligionDirectoryHeading" hidden>
+            <h4 id="strategicReligionDirectoryHeading">Gods, Faith Networks, and Holy Sites</h4>
+            <p class="journal-meta">Every listed god is objectively real, communicates routinely, and can manifest through finite avatars. Each god confirms one faith; local branches remain subject to their independent city.</p>
+            <div id="strategicGodList" class="strategic-god-list"></div>
+            <h5>City Religious Standing</h5>
+            <label class="field-label" for="religionCitySelect">Fortified city</label>
+            <select id="religionCitySelect"></select>
+            <div id="religionCityStandingList" class="religion-city-standing-list"></div>
+            <h5>Confirmed Strategic Holy Sites</h5>
+            <div id="strategicHolySiteList" class="strategic-holy-site-list"></div>
           </section>
           <section id="strategicBeastBestiary" class="strategic-beast-bestiary" aria-labelledby="strategicBeastBestiaryHeading" hidden>
             <h4 id="strategicBeastBestiaryHeading">Strategic Beast Bestiary</h4>
@@ -1015,6 +1029,7 @@
     <script src="strategic-city-governments.js"></script>
     <script src="strategic-city-laws.js"></script>
     <script src="strategic-city-recognition.js"></script>
+    <script src="strategic-religions.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

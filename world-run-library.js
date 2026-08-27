@@ -38,10 +38,13 @@
   const strategicCityRecognition = typeof module === "object" && module.exports
     ? require("./strategic-city-recognition")
     : root?.HelixStrategicCityRecognition;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments, strategicCityLaws, strategicCityRecognition);
+  const strategicReligions = typeof module === "object" && module.exports
+    ? require("./strategic-religions")
+    : root?.HelixStrategicReligions;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -57,6 +60,7 @@
   if (!StrategicCityGovernments) throw new Error("HelixStrategicCityGovernments must load before world-run-library.js");
   if (!StrategicCityLaws) throw new Error("HelixStrategicCityLaws must load before world-run-library.js");
   if (!StrategicCityRecognition) throw new Error("HelixStrategicCityRecognition must load before world-run-library.js");
+  if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -223,6 +227,7 @@
         generatedStrategicMap = StrategicCityGovernments.attachCityGovernments(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCityLaws.attachCityLegalCodes(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCityRecognition.attachCrossCityRecognition(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicReligions.attachStrategicReligions(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -277,6 +282,7 @@
     if (generatedData.strategicMap?.cityGovernments || generatedData.strategicMap?.publicCityGovernmentDirectory) StrategicCityGovernments.validateCityGovernments(generatedData.strategicMap);
     if (generatedData.strategicMap?.cityLegalCodes || generatedData.strategicMap?.publicCityLawDirectory) StrategicCityLaws.validateCityLegalCodes(generatedData.strategicMap);
     if (generatedData.strategicMap?.crossCityRecognition || generatedData.strategicMap?.publicCrossCityRecognitionDirectory) StrategicCityRecognition.validateCrossCityRecognition(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicReligions || generatedData.strategicMap?.publicReligionDirectory) StrategicReligions.validateStrategicReligions(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
