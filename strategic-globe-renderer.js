@@ -124,6 +124,12 @@
       { label: "Reported migration corridor", color: "#4b9eaf" },
       { label: "Wave-pressure approach", color: "#d95b3f" },
       { label: "Known lair", color: "#f1d889" }
+    ],
+    religions: [
+      { label: "Confirmed holy site", color: "#f2d477" },
+      { label: "City with established faith", color: "#ad72c9" },
+      { label: "Organized religious branches", color: "#668fbd" },
+      { label: "No major public religious feature", color: "#39433f" }
     ]
   });
 
@@ -140,6 +146,7 @@
     if (map?.humanGeography) layers.push("humanGeography");
     if (map?.cityPolities) layers.push("cityPolities");
     if (map?.publicBeastAtlas) layers.push("beastEcology");
+    if (map?.publicReligionDirectory) layers.push("religions");
     return layers;
   }
 
@@ -158,6 +165,7 @@
     let zoom = 1;
     let selectedCellIndex = -1;
     let layer = "surface";
+    let religionCellClasses = new Map();
     let dragging = null;
     let width = 0;
     let height = 0;
@@ -375,6 +383,16 @@
       return shadedRgb(base, light);
     }
 
+    function religionColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const publicClass = religionCellClasses.get(index);
+      const base = publicClass === "h" ? [242, 212, 119]
+        : publicClass === "e" ? [173, 114, 201]
+          : publicClass === "c" ? [102, 143, 189]
+            : (map.surface.classes[index] === "L" ? [57, 67, 63] : [23, 48, 63]);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -389,6 +407,7 @@
       if (layer === "humanGeography" && map?.humanGeography) return humanGeographyColor(index, light, selected);
       if (layer === "cityPolities" && map?.cityPolities) return cityPolityColor(index, light, selected);
       if (layer === "beastEcology" && map?.publicBeastAtlas) return beastEcologyColor(index, light, selected);
+      if (layer === "religions" && map?.publicReligionDirectory) return religionColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -447,6 +466,25 @@
         context.fillStyle = "#f1d889";
         context.fill();
         context.strokeStyle = "#3d2922";
+        context.lineWidth = index === selectedCellIndex ? 2 : 1;
+        context.stroke();
+      }
+    }
+
+    function renderReligionOverlay(centerX, centerY, radius) {
+      if (layer !== "religions" || !map?.publicReligionDirectory) return;
+      for (const site of map.publicReligionDirectory.holySites) {
+        const index = StrategicWorld.cellIndex(site.cellId);
+        const center = rotateVector(topology.vertices[index], yaw, pitch);
+        if (center[2] <= 0.012) continue;
+        const x = centerX + center[0] * radius;
+        const y = centerY - center[1] * radius;
+        const markerRadius = index === selectedCellIndex ? 5 : 3.2;
+        context.beginPath();
+        context.arc(x, y, markerRadius, 0, Math.PI * 2);
+        context.fillStyle = "#f2d477";
+        context.fill();
+        context.strokeStyle = index === selectedCellIndex ? "#fff6cd" : "#513b62";
         context.lineWidth = index === selectedCellIndex ? 2 : 1;
         context.stroke();
       }
@@ -521,6 +559,7 @@
       context.fill();
       renderHumanGeographyOverlay(centerX, centerY, radius);
       renderBeastEcologyOverlay(centerX, centerY, radius);
+      renderReligionOverlay(centerX, centerY, radius);
     }
 
     function pickCell(clientX, clientY) {
@@ -599,6 +638,7 @@
     function setMap(nextMap) {
       map = nextMap ? StrategicWorld.validateStrategicMap(nextMap) : null;
       topology = map ? StrategicWorld.topologyForMap(map) : null;
+      religionCellClasses = new Map((map?.publicReligionDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       selectedCellIndex = -1;
       layer = "surface";
       resetView();
@@ -666,7 +706,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), hasReligions: Boolean(map?.publicReligionDirectory), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }
