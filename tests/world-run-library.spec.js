@@ -81,6 +81,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicReligionDirectory: { gods: expect.any(Array), traditions: expect.any(Array), standingRows: expect.any(Array), holySites: expect.any(Array) },
         strategicNonStateNetworks: { diagnostics: { networkCount: 21, categoryCount: 7, publicBranchCount: expect.any(Number), affiliateCount: 15, covertCellCount: expect.any(Number) } },
         publicNonStateNetworkDirectory: { networkRecords: expect.any(Array), standingRows: expect.any(Array), publicBranchCodes: expect.any(Array), publicRelationCodes: expect.any(Array), affiliateCodes: expect.any(Array), cellFeatures: expect.any(Array) },
+        strategicSettlements: { diagnostics: { resourceAnchorCount: expect.any(Number), independentRefugeCount: expect.any(Number), representedExploitationFamilyCount: 12, jointRouteStrongholdCount: expect.any(Number), satelliteSettlementCount: expect.any(Number) } },
+        publicSettlementDirectory: { foundationRows: expect.any(Array), strongholdCodes: expect.any(Array), satelliteCodes: expect.any(Array), satelliteRoutePaths: expect.any(Array), cellFeatures: expect.any(Array) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -143,6 +145,8 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicReligionDirectory;
     delete map.strategicNonStateNetworks;
     delete map.publicNonStateNetworkDirectory;
+    delete map.strategicSettlements;
+    delete map.publicSettlementDirectory;
     delete map.digest;
     return map;
   });

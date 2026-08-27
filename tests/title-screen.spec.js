@@ -23,7 +23,7 @@ async function beginRun(page, options = {}) {
 }
 
 test('@smoke fresh startup generates an explicitly themed world before entering its first run', async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   await openFreshTitle(page);
 
   await expect(page.locator('#titleScreen')).toBeVisible();
@@ -70,6 +70,9 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('21 major non-state networks');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('orbital arcane internet');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('rocket and individual spaceflight');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource-anchor cities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('joint route strongholds');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('dependent satellites');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -165,6 +168,23 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const firstOrbitalNetworkIndex = Number.parseInt(publicNetworks.cellFeatures.find((feature) => feature.endsWith(':o')), 36);
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstOrbitalNetworkIndex);
   await expect(page.locator('#strategicCellOrbitalInfrastructure')).toContainText('public launch or relay');
+  await expect(page.locator('#strategicSettlementDirectory')).toBeVisible();
+  const publicSettlements = await page.evaluate(() => window.helixHeresyDebug.strategicPublicSettlementDirectory());
+  expect(publicSettlements.foundations).toHaveLength(31);
+  expect(publicSettlements.strongholds.length).toBeGreaterThan(0);
+  expect(publicSettlements.satellites.length).toBeGreaterThan(31);
+  expect(JSON.stringify(publicSettlements)).not.toContain('hiddenSatelliteReadinessCodes');
+  expect(JSON.stringify(publicSettlements)).not.toContain('supplementalEndowmentCodes');
+  await expect(page.locator('.strategic-foundation-card')).toHaveCount(publicSettlements.foundations.length);
+  await expect(page.locator('.strategic-stronghold-card')).toHaveCount(publicSettlements.strongholds.length);
+  await expect(page.locator('.strategic-satellite-card')).not.toHaveCount(0);
+  await page.locator('#strategicGlobeLayerSelect').selectOption('settlements');
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'settlements', hasSettlements: true });
+  await expect(page.locator('#strategicGlobeLegend')).toContainText('Joint route stronghold');
+  const firstStrongholdIndex = Number.parseInt(publicSettlements.cellFeatures.find((feature) => feature.endsWith(':s')), 36);
+  await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstStrongholdIndex);
+  await expect(page.locator('#strategicCellSettlement')).toContainText('jointly governed dependency');
+  await expect(page.locator('#strategicCellSettlementLogistics')).toContainText('jointly staff and fund upkeep');
   await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Reported migration corridor');
@@ -223,6 +243,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCrossCityRecognitionAudit())).toMatchObject({ valid: true, everyOrderedCityPairCovered: true, recognitionIsDirectional: true, standingAgreementsAreSparse: true, foreignWarrantsNeverSelfExecute: true, localCustodyOrderAlwaysRequired: true, doubleCriminalityAlwaysRequired: true, deportationAlwaysDistinct: true, wildernessNeverOrdinaryJurisdiction: true, publicDirectoryHidesDiscretion: true, hiddenPolicyCannotAlterDueProcess: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicReligionsAudit())).toMatchObject({ valid: true, everyGodObjectivelyReal: true, everyGodFinite: true, routineDirectCommunication: true, everyGodAvatarCapable: true, exactlyOneConfirmedFaithPerGod: true, noSameGodHeresyOrSchism: true, everyTraditionHasCityStanding: true, everyNetworkNonSovereign: true, everyBranchLocallyBound: true, everyHolySiteDivinelyConfirmed: true, nonTheisticMovementsAcknowledgeGods: true, publicDirectoryHidesDivineAttention: true, publicDirectoryHidesBranchIntegrity: true, hiddenAttentionCannotBePubliclyInferred: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicNonStateNetworksAudit())).toMatchObject({ valid: true, everyCategoryPresent: true, everyNetworkNonSovereign: true, physicalReachLocallyBound: true, globalInternetUsesOrbitalArcaneMesh: true, rocketSpaceflightExists: true, individualSpaceflightExists: true, cityStandingComplete: true, shellOwnershipSeparated: true, publicDirectoryHidesCovertCells: true, playerCompanyExcludedFromCanonicalWorld: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicSettlementsAudit())).toMatchObject({ valid: true, everyCityHasFoundingReason: true, everyResourceFamilyExploited: true, independentRefugesRare: true, powerfulFoundersExplicit: true, normalCitiesMutuallySupported: true, supportLegsWithinMaximum: true, strongholdsJointlyResponsible: true, everySatelliteFunctionCausal: true, everySatelliteHasPopulationCapacity: true, everySatelliteHasEvacuationPlan: true, publicDirectoryHidesOperationalTruth: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',

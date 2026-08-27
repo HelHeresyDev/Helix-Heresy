@@ -263,6 +263,8 @@
     if (map.publicReligionDirectory) core.publicReligionDirectory = map.publicReligionDirectory;
     if (map.strategicNonStateNetworks) core.strategicNonStateNetworks = map.strategicNonStateNetworks;
     if (map.publicNonStateNetworkDirectory) core.publicNonStateNetworkDirectory = map.publicNonStateNetworkDirectory;
+    if (map.strategicSettlements) core.strategicSettlements = map.strategicSettlements;
+    if (map.publicSettlementDirectory) core.publicSettlementDirectory = map.publicSettlementDirectory;
     return core;
   }
 

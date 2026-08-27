@@ -22,8 +22,9 @@
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
   const StrategicReligions = window.HelixStrategicReligions;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
+  const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicNonStateNetworks || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12173,6 +12174,9 @@
       "strategicCellHolySites",
       "strategicCellNetworkPresence",
       "strategicCellOrbitalInfrastructure",
+      "strategicCellFoundation",
+      "strategicCellSettlement",
+      "strategicCellSettlementLogistics",
       "strategicCellBeastThreat",
       "strategicCellMigrationPressure",
       "strategicCellWavePressure",
@@ -12202,6 +12206,11 @@
       "networkCitySelect",
       "networkCityStandingList",
       "strategicNetworkAffiliateList",
+      "strategicSettlementDirectory",
+      "strategicFoundationList",
+      "strategicStrongholdList",
+      "settlementParentSelect",
+      "strategicSatelliteList",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
@@ -12472,6 +12481,23 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.publicNonStateNetworkDirectory
           ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicSettlementsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.strategicSettlements
+          ? StrategicSettlements.auditStrategicSettlements(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicSettlementDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicSettlementDirectory ? StrategicSettlements.publicSettlementDirectory(map) : null;
+      },
+      strategicPublicSettlementSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicSettlementDirectory
+          ? StrategicSettlements.cellPublicSettlementSnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -14278,6 +14304,9 @@
     const nonStateNetworks = cell && currentStrategicPreviewMap?.publicNonStateNetworkDirectory
       ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const settlement = cell && currentStrategicPreviewMap?.publicSettlementDirectory
+      ? StrategicSettlements.cellPublicSettlementSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14325,6 +14354,9 @@
       dom.strategicCellHolySites.textContent = "—";
       dom.strategicCellNetworkPresence.textContent = "—";
       dom.strategicCellOrbitalInfrastructure.textContent = "—";
+      dom.strategicCellFoundation.textContent = "—";
+      dom.strategicCellSettlement.textContent = "—";
+      dom.strategicCellSettlementLogistics.textContent = "—";
       dom.strategicCellBeastThreat.textContent = "—";
       dom.strategicCellMigrationPressure.textContent = "—";
       dom.strategicCellWavePressure.textContent = "—";
@@ -14450,6 +14482,29 @@
     } else {
       dom.strategicCellNetworkPresence.textContent = currentStrategicPreviewMap?.publicNonStateNetworkDirectory ? "No fortified-city network profile applies at this cell" : "Unavailable in this saved world";
       dom.strategicCellOrbitalInfrastructure.textContent = currentStrategicPreviewMap?.publicNonStateNetworkDirectory ? "No major public orbital infrastructure at this cell" : "Unavailable in this saved world";
+    }
+    if (settlement?.foundation) {
+      const foundation = settlement.foundation;
+      const resources = [foundation.primaryExploitation?.label, foundation.secondaryExploitation?.label].filter(Boolean).join(" and ");
+      dom.strategicCellFoundation.textContent = foundation.foundingPurpose === "independentRefuge"
+        ? `Rare independent refuge · ${foundation.foundingPower.exceptionalIndividualCount} self-powered founder · intentionally outside the mutual-support compact`
+        : `${resources} resource anchor · ${foundation.foundingPower.exceptionalIndividualCount} exceptional founding power${foundation.foundingPower.exceptionalIndividualCount === 1 ? "" : "s"} · ${readableGeographyLabel(foundation.foundingPower.affiliation)}${foundation.foundingPower.patronGod ? ` of ${foundation.foundingPower.patronGod.name}` : ""}`;
+    } else {
+      dom.strategicCellFoundation.textContent = currentStrategicPreviewMap?.publicSettlementDirectory ? "No sovereign city foundation at this cell" : "Unavailable in this saved world";
+    }
+    const dependentSettlement = settlement?.stronghold || settlement?.satellite;
+    if (settlement?.stronghold) {
+      const stronghold = settlement.stronghold;
+      const sponsorNames = stronghold.sponsorCityIds.map((id) => currentStrategicPreviewMap.humanGeography.cities.find((city) => city.id === id)?.name || id);
+      dom.strategicCellSettlement.textContent = `${stronghold.name} · jointly governed dependency of ${sponsorNames.join(" and ")} · locally administered, not politically sovereign`;
+      dom.strategicCellSettlementLogistics.textContent = `${stronghold.serviceMode.replace(/([a-z])([A-Z])/g, "$1 $2")} service · ${stronghold.populationCapacity.toLocaleString()} capacity · sponsors jointly staff and fund upkeep · evacuation divides between both sponsor cities`;
+    } else if (settlement?.satellite) {
+      const satellite = settlement.satellite;
+      dom.strategicCellSettlement.textContent = `${satellite.name} · ${readableGeographyLabel(satellite.form)} · ${satellite.initialPopulation.toLocaleString()} of ${satellite.populationCapacity.toLocaleString()} supported population · ${readableGeographyLabel(satellite.arableLandBand)} arable land`;
+      dom.strategicCellSettlementLogistics.textContent = `${readableGeographyLabel(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days stored supplies · evacuation ${readableGeographyLabel(satellite.evacuation.advertisedReadiness)} · ${satellite.evacuation.singleLiftCapacity.toLocaleString()} single-lift capacity · refuge access and survival not guaranteed`;
+    } else {
+      dom.strategicCellSettlement.textContent = currentStrategicPreviewMap?.publicSettlementDirectory ? "No major dependent settlement at this cell" : "Unavailable in this saved world";
+      dom.strategicCellSettlementLogistics.textContent = dependentSettlement ? "See settlement record" : "—";
     }
     dom.strategicCellBeastThreat.textContent = beastEcology
       ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
@@ -14745,6 +14800,87 @@
     }
   }
 
+  function renderStrategicSettlementDirectory(map) {
+    dom.strategicFoundationList.textContent = "";
+    dom.strategicStrongholdList.textContent = "";
+    dom.settlementParentSelect.textContent = "";
+    dom.strategicSatelliteList.textContent = "";
+    const directory = map?.publicSettlementDirectory ? StrategicSettlements.publicSettlementDirectory(map) : null;
+    dom.strategicSettlementDirectory.hidden = !directory;
+    if (!directory) return;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const foundation of directory.foundations) {
+      const card = document.createElement("details");
+      card.className = "strategic-foundation-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = foundation.city.name;
+      heading.append(strong, ` · ${readable(foundation.foundingPurpose)} · ${foundation.polity.name}`);
+      const purpose = document.createElement("p");
+      purpose.textContent = foundation.foundingPurpose === "independentRefuge"
+        ? "Founded in exceptional isolation to escape divine and political control; it is exempt from the mutual-support network and bears the resulting logistical risk."
+        : `Purpose-built to exploit ${foundation.primaryExploitation.label}${foundation.secondaryExploitation ? `, with ${foundation.secondaryExploitation.label} as a secondary specialization` : ""}.${foundation.founderEstablishedEndowment ? " Its founders established a previously unexploited local endowment needed by the wider market." : ""}`;
+      const power = document.createElement("p");
+      power.className = "journal-meta";
+      power.textContent = `${foundation.foundingPower.exceptionalIndividualCount} exceptional founding power${foundation.foundingPower.exceptionalIndividualCount === 1 ? "" : "s"} · ${readable(foundation.foundingPower.affiliation)}${foundation.foundingPower.patronGod ? ` · affiliated with ${foundation.foundingPower.patronGod.name}` : " · no divine patron"} · ${readable(foundation.foundingPower.civicRelationship)} · ${readable(foundation.arableLandBand)} nearby arable land`;
+      card.append(heading, purpose, power);
+      dom.strategicFoundationList.append(card);
+      const option = document.createElement("option");
+      option.value = foundation.city.id;
+      option.textContent = `${foundation.city.name} — sovereign city`;
+      dom.settlementParentSelect.append(option);
+    }
+    for (const stronghold of directory.strongholds) {
+      const card = document.createElement("details");
+      card.className = "strategic-stronghold-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = stronghold.name;
+      heading.append(strong, ` · ${stronghold.initialPopulation.toLocaleString()} residents`);
+      const sponsorNames = stronghold.sponsorCityIds.map((id) => map.humanGeography.cities.find((city) => city.id === id)?.name || id);
+      const governance = document.createElement("p");
+      governance.textContent = `Joint dependency of ${sponsorNames.join(" and ")}. It runs local operations through ${readable(stronghold.administration)} but has no independent sovereignty or diplomacy.`;
+      const shares = document.createElement("p");
+      shares.className = "journal-meta";
+      shares.textContent = `${stronghold.sponsorContributions.map((entry) => `${map.humanGeography.cities.find((city) => city.id === entry.cityId)?.name || entry.cityId}: ${entry.staffingPercent}% staffing and ${entry.upkeepPercent}% upkeep`).join(" · ")} · local joint code and custody process · ${readable(stronghold.serviceMode)} support · ${stronghold.populationCapacity.toLocaleString()} capacity`;
+      card.append(heading, governance, shares);
+      dom.strategicStrongholdList.append(card);
+      const option = document.createElement("option");
+      option.value = stronghold.id;
+      option.textContent = `${stronghold.name} — joint stronghold`;
+      dom.settlementParentSelect.append(option);
+    }
+    const renderSatellites = () => {
+      dom.strategicSatelliteList.textContent = "";
+      const profile = StrategicSettlements.parentSettlementProfile(map, dom.settlementParentSelect.value);
+      if (!profile?.satellites.length) {
+        const empty = document.createElement("p");
+        empty.className = "journal-meta";
+        empty.textContent = "No major dependent satellites are recorded for this parent.";
+        dom.strategicSatelliteList.append(empty);
+        return;
+      }
+      for (const satellite of profile.satellites) {
+        const card = document.createElement("article");
+        card.className = "strategic-satellite-card";
+        const heading = document.createElement("strong");
+        heading.textContent = `${satellite.name} · ${readable(satellite.function)}`;
+        const population = document.createElement("p");
+        population.textContent = `${readable(satellite.sizeBand)} · ${satellite.initialPopulation.toLocaleString()} initial residents of ${satellite.populationCapacity.toLocaleString()} supported capacity · ${readable(satellite.arableLandBand)} arable land${satellite.exportResource ? ` · exports ${satellite.exportResource.label}` : ""}`;
+        const logistics = document.createElement("p");
+        logistics.className = "journal-meta";
+        logistics.textContent = `${readable(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days storage · ${satellite.localRouteCellIds.length - 1} local route legs · imports ${satellite.requiredImports.map(readable).join(", ")} · delivery not guaranteed`;
+        const evacuation = document.createElement("p");
+        evacuation.className = "journal-meta";
+        evacuation.textContent = `${readable(satellite.evacuation.warningSource)} warning · ${readable(satellite.evacuation.advertisedReadiness)} advertised evacuation readiness · ${satellite.evacuation.singleLiftCapacity.toLocaleString()} single-lift capacity · fallback: ${satellite.evacuation.fallbackCityIds.map((id) => map.humanGeography.cities.find((city) => city.id === id)?.name || id).join(", ")} · survival and gate access not guaranteed`;
+        card.append(heading, population, logistics, evacuation);
+        dom.strategicSatelliteList.append(card);
+      }
+    };
+    dom.settlementParentSelect.onchange = renderSatellites;
+    renderSatellites();
+  }
+
   function renderStrategicBeastBestiary(map) {
     dom.strategicBeastBestiaryList.textContent = "";
     const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicBestiary(map) : [];
@@ -14817,6 +14953,7 @@
       renderCrossCityRecognitionDirectory(null);
       renderStrategicReligionDirectory(null);
       renderStrategicNetworkDirectory(null);
+      renderStrategicSettlementDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
       return;
@@ -14864,7 +15001,10 @@
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`
       : (map.publicReligionDirectory ? " · Non-state networks unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}`;
+    const settlementSummary = map.publicSettlementDirectory
+      ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
+      : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14877,6 +15017,7 @@
     renderCrossCityRecognitionDirectory(map);
     renderStrategicReligionDirectory(map);
     renderStrategicNetworkDirectory(map);
+    renderStrategicSettlementDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
   }

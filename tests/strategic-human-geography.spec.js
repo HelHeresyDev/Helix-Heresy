@@ -61,6 +61,10 @@ test('fortified cities favor viable land while preserving sparse wilderness and 
   expect(minimumSameRegionDistance).toBeGreaterThanOrEqual(HumanGeography.DEFAULT_MINIMUM_CITY_SPACING_KM);
   expect(new Set(cities.map((city) => city.name)).size).toBe(cities.length);
   expect(cities.every((city) => city.foundingAdvantages.length === 3)).toBe(true);
+  const cityCountsByRegion = new Map();
+  cities.forEach((city) => cityCountsByRegion.set(city.topologyRegionId, (cityCountsByRegion.get(city.topologyRegionId) || 0) + 1));
+  expect([...cityCountsByRegion.values()].every((count) => count >= 2)).toBe(true);
+  expect(cities.every((city) => map.routeGraph.routes.some((route) => route.endpointIds.includes(city.id)))).toBe(true);
 });
 
 test('primary and redundant corridors follow adjacent land cells and favor practical terrain', () => {
