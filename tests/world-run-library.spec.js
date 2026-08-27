@@ -75,6 +75,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicCityGovernmentDirectory: { entries: expect.any(Array) },
         cityLegalCodes: { diagnostics: { codeCount: expect.any(Number), offenseRuleCount: expect.any(Number), geneticEngineeringProhibitedCount: expect.any(Number), lifeImprisonmentCityCount: 0 } },
         publicCityLawDirectory: { entries: expect.any(Array), offenseCatalog: expect.any(Array) },
+        crossCityRecognition: { diagnostics: { directedPairCount: expect.any(Number), standingAgreementCount: expect.any(Number), standingExtraditionReviewCount: expect.any(Number) } },
+        publicCrossCityRecognitionDirectory: { cityOrder: expect.any(Array), profileRows: expect.any(Array) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -131,6 +133,8 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicCityGovernmentDirectory;
     delete map.cityLegalCodes;
     delete map.publicCityLawDirectory;
+    delete map.crossCityRecognition;
+    delete map.publicCrossCityRecognitionDirectory;
     delete map.digest;
     return map;
   });

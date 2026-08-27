@@ -19,8 +19,9 @@
   const StrategicBeastEcology = window.HelixStrategicBeastEcology;
   const StrategicCityGovernments = window.HelixStrategicCityGovernments;
   const StrategicCityLaws = window.HelixStrategicCityLaws;
+  const StrategicCityRecognition = window.HelixStrategicCityRecognition;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12180,6 +12181,10 @@
       "strategicCityGovernmentList",
       "strategicCityLawDirectory",
       "strategicCityLawList",
+      "crossCityRecognitionDirectory",
+      "recognitionRequestingCitySelect",
+      "recognitionReceivingCitySelect",
+      "crossCityRecognitionProfile",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
@@ -12401,6 +12406,22 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
+      },
+      strategicCrossCityRecognitionAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.crossCityRecognition
+          ? StrategicCityRecognition.auditCrossCityRecognition(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicCrossCityRecognitionProfile: (requestingCityId, receivingCityId, worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCrossCityRecognitionDirectory ? StrategicCityRecognition.publicProfileFor(map, requestingCityId, receivingCityId) : null;
+      },
+      strategicEvaluateExtraditionRequest: (request, worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCrossCityRecognitionDirectory ? StrategicCityRecognition.evaluateExtraditionRequest(map, request) : null;
       },
       strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
@@ -14453,6 +14474,59 @@
     }
   }
 
+  function renderCrossCityRecognitionDirectory(map) {
+    dom.recognitionRequestingCitySelect.textContent = "";
+    dom.recognitionReceivingCitySelect.textContent = "";
+    dom.crossCityRecognitionProfile.textContent = "";
+    const directory = map?.publicCrossCityRecognitionDirectory;
+    dom.crossCityRecognitionDirectory.hidden = !directory;
+    if (!directory) return;
+    const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    for (const cityId of directory.cityOrder) {
+      for (const select of [dom.recognitionRequestingCitySelect, dom.recognitionReceivingCitySelect]) {
+        const option = document.createElement("option");
+        option.value = cityId;
+        option.textContent = cityById.get(cityId)?.name || cityId;
+        select.append(option);
+      }
+    }
+    if (directory.cityOrder.length > 1) dom.recognitionReceivingCitySelect.value = directory.cityOrder[1];
+    const renderProfile = () => {
+      const requestingCityId = dom.recognitionRequestingCitySelect.value;
+      if (dom.recognitionReceivingCitySelect.value === requestingCityId) {
+        dom.recognitionReceivingCitySelect.value = directory.cityOrder.find((cityId) => cityId !== requestingCityId) || "";
+      }
+      for (const option of dom.recognitionReceivingCitySelect.options) option.disabled = option.value === requestingCityId;
+      const profile = StrategicCityRecognition.publicProfileFor(map, requestingCityId, dom.recognitionReceivingCitySelect.value);
+      dom.crossCityRecognitionProfile.textContent = "";
+      if (!profile) return;
+      const heading = document.createElement("h5");
+      heading.textContent = `${profile.requestingCity.name} → ${profile.receivingCity.name}`;
+      const agreement = document.createElement("p");
+      agreement.textContent = profile.standingAgreement.exists
+        ? `${readable(profile.standingAgreement.type)} standing agreement · ${profile.standingAgreement.scopes.map(readable).join(", ") || "limited published scope"}`
+        : "No standing agreement · requests require case-specific consideration.";
+      const recognition = document.createElement("p");
+      recognition.textContent = Object.entries(profile.recognition).map(([subject, policy]) => `${readable(subject)}: ${readable(policy)}`).join(" · ");
+      const extradition = document.createElement("p");
+      extradition.textContent = `${readable(profile.extradition.reviewAccess)} extradition access · double criminality required · ${readable(profile.extradition.evidentiaryGateway)} · ${readable(profile.extradition.punishmentAssurance)} · ${readable(profile.extradition.asylumReview)}`;
+      const jurisdiction = document.createElement("p");
+      jurisdiction.className = "journal-meta";
+      jurisdiction.textContent = `Foreign warrants never self-execute · ${profile.receivingCity.name} must issue a local custody order · deportation is not extradition · wilderness has no ordinary city jurisdiction · ${readable(profile.transitCustody.routeClass)} · every intermediate city must separately consent`;
+      const refusals = document.createElement("p");
+      refusals.className = "journal-meta";
+      refusals.textContent = `Published refusal grounds: ${profile.extradition.refusalReasons.map(readable).join(", ")}.`;
+      const consequences = document.createElement("p");
+      consequences.className = "journal-meta";
+      consequences.textContent = `Diplomatic consequences: lawful cooperation may improve recognition reliability; refusal may draw protest; unlawful foreign seizure is a sovereignty violation. No decision creates a superior authority or permanent alliance.`;
+      dom.crossCityRecognitionProfile.append(heading, agreement, recognition, extradition, jurisdiction, refusals, consequences);
+    };
+    dom.recognitionRequestingCitySelect.onchange = renderProfile;
+    dom.recognitionReceivingCitySelect.onchange = renderProfile;
+    renderProfile();
+  }
+
   function renderStrategicBeastBestiary(map) {
     dom.strategicBeastBestiaryList.textContent = "";
     const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicBestiary(map) : [];
@@ -14522,6 +14596,7 @@
       renderStrategicCityPolityDirectory(null);
       renderStrategicCityGovernmentDirectory(null);
       renderStrategicCityLawDirectory(null);
+      renderCrossCityRecognitionDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
       return;
@@ -14560,7 +14635,10 @@
     const cityLawSummary = map.publicCityLawDirectory
       ? ` · ${map.publicCityLawDirectory.entries.length.toLocaleString()} independent city law codes · no life imprisonment`
       : (map.publicCityGovernmentDirectory ? " · City law codes unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}`;
+    const recognitionSummary = map.publicCrossCityRecognitionDirectory
+      ? ` · ${map.crossCityRecognition.diagnostics.directedPairCount.toLocaleString()} directional city-pair recognition policies · foreign warrants require local orders`
+      : (map.publicCityLawDirectory ? " · Cross-city recognition unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14570,6 +14648,7 @@
     renderStrategicCityPolityDirectory(map);
     renderStrategicCityGovernmentDirectory(map);
     renderStrategicCityLawDirectory(map);
+    renderCrossCityRecognitionDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
   }

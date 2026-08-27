@@ -257,6 +257,8 @@
     if (map.publicCityGovernmentDirectory) core.publicCityGovernmentDirectory = map.publicCityGovernmentDirectory;
     if (map.cityLegalCodes) core.cityLegalCodes = map.cityLegalCodes;
     if (map.publicCityLawDirectory) core.publicCityLawDirectory = map.publicCityLawDirectory;
+    if (map.crossCityRecognition) core.crossCityRecognition = map.crossCityRecognition;
+    if (map.publicCrossCityRecognitionDirectory) core.publicCrossCityRecognitionDirectory = map.publicCrossCityRecognitionDirectory;
     return core;
   }
 
