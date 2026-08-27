@@ -130,6 +130,12 @@
       { label: "City with established faith", color: "#ad72c9" },
       { label: "Organized religious branches", color: "#668fbd" },
       { label: "No major public religious feature", color: "#39433f" }
+    ],
+    networks: [
+      { label: "Orbital launch or relay hub", color: "#e4c66d" },
+      { label: "Dense institutional hub", color: "#a875bd" },
+      { label: "Public network branches", color: "#57989a" },
+      { label: "No major public network hub", color: "#39433f" }
     ]
   });
 
@@ -147,6 +153,7 @@
     if (map?.cityPolities) layers.push("cityPolities");
     if (map?.publicBeastAtlas) layers.push("beastEcology");
     if (map?.publicReligionDirectory) layers.push("religions");
+    if (map?.publicNonStateNetworkDirectory) layers.push("networks");
     return layers;
   }
 
@@ -166,6 +173,7 @@
     let selectedCellIndex = -1;
     let layer = "surface";
     let religionCellClasses = new Map();
+    let networkCellClasses = new Map();
     let dragging = null;
     let width = 0;
     let height = 0;
@@ -393,6 +401,16 @@
       return shadedRgb(base, light);
     }
 
+    function networkColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const publicClass = networkCellClasses.get(index);
+      const base = publicClass === "o" ? [228, 198, 109]
+        : publicClass === "d" ? [168, 117, 189]
+          : publicClass === "b" ? [87, 152, 154]
+            : (map.surface.classes[index] === "L" ? [57, 67, 63] : [23, 48, 63]);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -408,6 +426,7 @@
       if (layer === "cityPolities" && map?.cityPolities) return cityPolityColor(index, light, selected);
       if (layer === "beastEcology" && map?.publicBeastAtlas) return beastEcologyColor(index, light, selected);
       if (layer === "religions" && map?.publicReligionDirectory) return religionColor(index, light, selected);
+      if (layer === "networks" && map?.publicNonStateNetworkDirectory) return networkColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -639,6 +658,7 @@
       map = nextMap ? StrategicWorld.validateStrategicMap(nextMap) : null;
       topology = map ? StrategicWorld.topologyForMap(map) : null;
       religionCellClasses = new Map((map?.publicReligionDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
+      networkCellClasses = new Map((map?.publicNonStateNetworkDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       selectedCellIndex = -1;
       layer = "surface";
       resetView();
@@ -706,7 +726,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), hasReligions: Boolean(map?.publicReligionDirectory), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), hasReligions: Boolean(map?.publicReligionDirectory), hasNonStateNetworks: Boolean(map?.publicNonStateNetworkDirectory), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

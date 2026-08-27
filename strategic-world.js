@@ -261,6 +261,8 @@
     if (map.publicCrossCityRecognitionDirectory) core.publicCrossCityRecognitionDirectory = map.publicCrossCityRecognitionDirectory;
     if (map.strategicReligions) core.strategicReligions = map.strategicReligions;
     if (map.publicReligionDirectory) core.publicReligionDirectory = map.publicReligionDirectory;
+    if (map.strategicNonStateNetworks) core.strategicNonStateNetworks = map.strategicNonStateNetworks;
+    if (map.publicNonStateNetworkDirectory) core.publicNonStateNetworkDirectory = map.publicNonStateNetworkDirectory;
     return core;
   }
 
