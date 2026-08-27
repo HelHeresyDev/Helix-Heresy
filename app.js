@@ -21,8 +21,9 @@
   const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
   const StrategicReligions = window.HelixStrategicReligions;
+  const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicNonStateNetworks || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12170,6 +12171,8 @@
       "strategicCellPunishmentPolicy",
       "strategicCellReligiousPresence",
       "strategicCellHolySites",
+      "strategicCellNetworkPresence",
+      "strategicCellOrbitalInfrastructure",
       "strategicCellBeastThreat",
       "strategicCellMigrationPressure",
       "strategicCellWavePressure",
@@ -12193,6 +12196,12 @@
       "religionCitySelect",
       "religionCityStandingList",
       "strategicHolySiteList",
+      "strategicNetworkDirectory",
+      "networkCategorySelect",
+      "strategicNetworkList",
+      "networkCitySelect",
+      "networkCityStandingList",
+      "strategicNetworkAffiliateList",
       "strategicBeastBestiary",
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
@@ -12446,6 +12455,23 @@
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.publicReligionDirectory
           ? StrategicReligions.cellPublicReligionSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
+      },
+      strategicNonStateNetworksAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.strategicNonStateNetworks
+          ? StrategicNonStateNetworks.auditStrategicNonStateNetworks(world.generatedData.strategicMap)
+          : null;
+      },
+      strategicPublicNonStateNetworkDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map) : null;
+      },
+      strategicPublicNonStateNetworkSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicNonStateNetworkDirectory
+          ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -14249,6 +14275,9 @@
     const religion = cell && currentStrategicPreviewMap?.publicReligionDirectory
       ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const nonStateNetworks = cell && currentStrategicPreviewMap?.publicNonStateNetworkDirectory
+      ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14294,6 +14323,8 @@
       dom.strategicCellPunishmentPolicy.textContent = "—";
       dom.strategicCellReligiousPresence.textContent = "—";
       dom.strategicCellHolySites.textContent = "—";
+      dom.strategicCellNetworkPresence.textContent = "—";
+      dom.strategicCellOrbitalInfrastructure.textContent = "—";
       dom.strategicCellBeastThreat.textContent = "—";
       dom.strategicCellMigrationPressure.textContent = "—";
       dom.strategicCellWavePressure.textContent = "—";
@@ -14409,6 +14440,17 @@
     dom.strategicCellHolySites.textContent = religion?.holySites.length
       ? religion.holySites.map((site) => `${site.name} · ${readableGeographyLabel(site.siteKind)} · ${readableGeographyLabel(site.accessClass)} · divinely confirmed`).join(" · ")
       : (currentStrategicPreviewMap?.publicReligionDirectory ? "No major confirmed holy site at this strategic cell" : "Unavailable in this saved world");
+    if (nonStateNetworks?.cityProfile) {
+      const branches = nonStateNetworks.cityProfile.standings.filter((entry) => entry.branch);
+      const categories = [...new Set(branches.map((entry) => entry.network.category))];
+      dom.strategicCellNetworkPresence.textContent = `${branches.length} public local branches · ${categories.map(readableGeographyLabel).join(", ")} · global contact does not guarantee delivery or enforcement`;
+      dom.strategicCellOrbitalInfrastructure.textContent = nonStateNetworks.cityProfile.orbitalInfrastructure.length
+        ? `${nonStateNetworks.cityProfile.orbitalInfrastructure.length} public launch or relay branch${nonStateNetworks.cityProfile.orbitalInfrastructure.length === 1 ? "" : "es"} · rockets and exceptional individual spaceflight exist`
+        : "No major public launch or orbital-relay branch in this city";
+    } else {
+      dom.strategicCellNetworkPresence.textContent = currentStrategicPreviewMap?.publicNonStateNetworkDirectory ? "No fortified-city network profile applies at this cell" : "Unavailable in this saved world";
+      dom.strategicCellOrbitalInfrastructure.textContent = currentStrategicPreviewMap?.publicNonStateNetworkDirectory ? "No major public orbital infrastructure at this cell" : "Unavailable in this saved world";
+    }
     dom.strategicCellBeastThreat.textContent = beastEcology
       ? `${readableGeographyLabel(beastEcology.threatBand)}${beastEcology.contested ? " · overlapping reported ranges" : ""}`
       : "Unavailable in this saved world";
@@ -14630,6 +14672,79 @@
     }
   }
 
+  function renderStrategicNetworkDirectory(map) {
+    dom.strategicNetworkList.textContent = "";
+    dom.networkCitySelect.textContent = "";
+    dom.networkCityStandingList.textContent = "";
+    dom.strategicNetworkAffiliateList.textContent = "";
+    const directory = map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map) : null;
+    dom.strategicNetworkDirectory.hidden = !directory;
+    if (!directory) return;
+    const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    const renderNetworkCards = () => {
+      dom.strategicNetworkList.textContent = "";
+      const category = dom.networkCategorySelect.value;
+      for (const network of directory.networks.filter((entry) => category === "all" || entry.category === category)) {
+        const card = document.createElement("details");
+        card.className = "strategic-network-card";
+        const heading = document.createElement("summary");
+        const strong = document.createElement("strong");
+        strong.textContent = network.name;
+        heading.append(strong, ` · ${readable(network.category)} · founded in ${network.originCity.name}`);
+        const purpose = document.createElement("p");
+        purpose.textContent = network.publicPurpose;
+        const capabilities = document.createElement("p");
+        capabilities.textContent = `Advertised capabilities: ${Object.entries(network.advertisedCapabilities).map(([key, value]) => `${readable(key)} ${readable(value)}`).join(" · ")}`;
+        const roles = document.createElement("p");
+        roles.className = "journal-meta";
+        roles.textContent = `Roles: ${network.roles.map(readable).join(", ")} · priorities: ${network.priorities.map(readable).join(", ")} · prohibitions: ${network.prohibitions.map(readable).join(", ")}`;
+        const physical = document.createElement("p");
+        physical.className = "journal-meta";
+        physical.textContent = `${readable(network.internetReach)} · physical authority limited to local sites and contracted assets · no guaranteed long-range material support · no sovereign or automatic enforcement authority${network.orbitalRoles.length ? ` · orbital roles: ${network.orbitalRoles.map(readable).join(", ")}` : ""}`;
+        const relations = directory.relationships.filter((relation) => relation.networkIds.includes(network.id)).map((relation) => {
+          const counterpartId = relation.networkIds.find((id) => id !== network.id);
+          return `${directory.networks.find((entry) => entry.id === counterpartId)?.name || counterpartId}: ${readable(relation.relation)}`;
+        });
+        const relationshipSummary = document.createElement("p");
+        relationshipSummary.className = "journal-meta";
+        relationshipSummary.textContent = `Public relationships: ${relations.join(" · ") || "none strategically notable"}.`;
+        card.append(heading, purpose, capabilities, roles, physical, relationshipSummary);
+        dom.strategicNetworkList.append(card);
+      }
+    };
+    dom.networkCategorySelect.onchange = () => {
+      renderNetworkCards();
+      renderCityStandings();
+    };
+    renderNetworkCards();
+    for (const city of map.humanGeography.cities) {
+      const option = document.createElement("option");
+      option.value = city.id;
+      option.textContent = city.name;
+      dom.networkCitySelect.append(option);
+    }
+    function renderCityStandings() {
+      dom.networkCityStandingList.textContent = "";
+      const category = dom.networkCategorySelect.value;
+      const profile = StrategicNonStateNetworks.cityNetworkProfile(map, dom.networkCitySelect.value);
+      for (const entry of (profile?.standings || []).filter((standing) => category === "all" || standing.network.category === category)) {
+        const item = document.createElement("p");
+        item.className = "network-city-standing-entry";
+        item.textContent = `${entry.network.name} — ${readable(entry.standing)}${entry.branch ? ` · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.capacityBand)} capacity · ${readable(entry.branch.serviceReliability)} service` : " · no public physical branch"}`;
+        dom.networkCityStandingList.append(item);
+      }
+    }
+    dom.networkCitySelect.onchange = renderCityStandings;
+    renderCityStandings();
+    for (const affiliate of directory.affiliates) {
+      const item = document.createElement("p");
+      item.className = "strategic-network-affiliate-entry";
+      const city = map.humanGeography.cities.find((entry) => entry.id === affiliate.registrationCityId);
+      item.textContent = `${affiliate.registeredName} — ${city?.name || affiliate.registrationCityId} · ${readable(affiliate.declaredActivity)} · ${readable(affiliate.ownershipDisclosure)}${affiliate.disclosedParentNetworkId ? ` · disclosed parent: ${directory.networks.find((entry) => entry.id === affiliate.disclosedParentNetworkId)?.name || affiliate.disclosedParentNetworkId}` : " · beneficial owner not public"}`;
+      dom.strategicNetworkAffiliateList.append(item);
+    }
+  }
+
   function renderStrategicBeastBestiary(map) {
     dom.strategicBeastBestiaryList.textContent = "";
     const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicBestiary(map) : [];
@@ -14701,6 +14816,7 @@
       renderStrategicCityLawDirectory(null);
       renderCrossCityRecognitionDirectory(null);
       renderStrategicReligionDirectory(null);
+      renderStrategicNetworkDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
       return;
@@ -14745,7 +14861,10 @@
     const religionSummary = map.publicReligionDirectory
       ? ` · ${map.strategicReligions.diagnostics.godCount} real communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} confirmed strategic holy sites · one faith per god`
       : (map.publicCrossCityRecognitionDirectory ? " · Religions and holy sites unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}`;
+    const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
+      ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`
+      : (map.publicReligionDirectory ? " · Non-state networks unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -14757,6 +14876,7 @@
     renderStrategicCityLawDirectory(map);
     renderCrossCityRecognitionDirectory(map);
     renderStrategicReligionDirectory(map);
+    renderStrategicNetworkDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
   }
