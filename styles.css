@@ -4593,7 +4593,8 @@ html[data-reduced-motion="true"] *::after {
 
 .strategic-city-polity-directory,
 .strategic-city-government-directory,
-.strategic-city-law-directory {
+.strategic-city-law-directory,
+.cross-city-recognition-directory {
   display: grid;
   gap: 0.55rem;
   padding-top: 0.8rem;
@@ -4602,7 +4603,8 @@ html[data-reduced-motion="true"] *::after {
 
 .strategic-city-polity-directory[hidden],
 .strategic-city-government-directory[hidden],
-.strategic-city-law-directory[hidden] {
+.strategic-city-law-directory[hidden],
+.cross-city-recognition-directory[hidden] {
   display: none;
 }
 
@@ -4611,7 +4613,9 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-government-directory h4,
 .strategic-city-government-directory p,
 .strategic-city-law-directory h4,
-.strategic-city-law-directory p {
+.strategic-city-law-directory p,
+.cross-city-recognition-directory h4,
+.cross-city-recognition-directory p {
   margin: 0;
 }
 
@@ -4654,6 +4658,39 @@ html[data-reduced-motion="true"] *::after {
   margin-top: 0.55rem;
   padding-top: 0.45rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cross-city-recognition-controls {
+  display: grid;
+  grid-template-columns: auto minmax(12rem, 1fr) auto minmax(12rem, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.cross-city-recognition-controls label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.cross-city-recognition-profile {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.cross-city-recognition-profile h5,
+.cross-city-recognition-profile p {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .cross-city-recognition-controls {
+    grid-template-columns: 1fr;
+  }
 }
 
 .strategic-beast-bestiary,

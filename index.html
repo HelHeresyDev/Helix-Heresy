@@ -898,6 +898,17 @@
             <p class="journal-meta">Every city publishes its own code. These records show legal elements and official penalties, not hidden enforcement priorities or presumed guilt.</p>
             <div id="strategicCityLawList" class="strategic-city-law-list"></div>
           </section>
+          <section id="crossCityRecognitionDirectory" class="cross-city-recognition-directory" aria-labelledby="crossCityRecognitionDirectoryHeading" hidden>
+            <h4 id="crossCityRecognitionDirectoryHeading">Cross-City Recognition and Extradition</h4>
+            <p class="journal-meta">Recognition is directional. Choose the city making a request and the city receiving it; foreign warrants provide notice but never execute themselves.</p>
+            <div class="cross-city-recognition-controls">
+              <label for="recognitionRequestingCitySelect">Requesting city</label>
+              <select id="recognitionRequestingCitySelect"></select>
+              <label for="recognitionReceivingCitySelect">Receiving city</label>
+              <select id="recognitionReceivingCitySelect"></select>
+            </div>
+            <article id="crossCityRecognitionProfile" class="cross-city-recognition-profile" aria-live="polite"></article>
+          </section>
           <section id="strategicBeastBestiary" class="strategic-beast-bestiary" aria-labelledby="strategicBeastBestiaryHeading" hidden>
             <h4 id="strategicBeastBestiaryHeading">Strategic Beast Bestiary</h4>
             <p class="journal-meta">Every known beast species exists in every world. Reports describe uncertain populations and ranges, not exact ecological truth.</p>
@@ -1003,6 +1014,7 @@
     <script src="strategic-beast-ecology.js"></script>
     <script src="strategic-city-governments.js"></script>
     <script src="strategic-city-laws.js"></script>
+    <script src="strategic-city-recognition.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

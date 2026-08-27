@@ -62,6 +62,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('distinct jail and prison authorities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('independent city law codes');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('no life imprisonment');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('directional city-pair recognition policies');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('foreign warrants require local orders');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -120,6 +122,15 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const cityLaws = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityLawDirectory());
   expect(cityLaws).toHaveLength(31);
   expect(JSON.stringify(cityLaws)).not.toContain('hiddenEnforcement');
+  await expect(page.locator('#crossCityRecognitionDirectory')).toBeVisible();
+  await expect(page.locator('#crossCityRecognitionProfile')).toContainText('double criminality required');
+  await expect(page.locator('#crossCityRecognitionProfile')).toContainText('Foreign warrants never self-execute');
+  const recognitionCityIds = await page.locator('#recognitionRequestingCitySelect option').evaluateAll((options) => options.map((option) => option.value));
+  await page.locator('#recognitionRequestingCitySelect').selectOption(recognitionCityIds[1]);
+  await page.locator('#recognitionReceivingCitySelect').selectOption(recognitionCityIds[0]);
+  const publicRecognition = await page.evaluate(([requestingCityId, receivingCityId]) => window.helixHeresyDebug.strategicPublicCrossCityRecognitionProfile(requestingCityId, receivingCityId), [recognitionCityIds[1], recognitionCityIds[0]]);
+  expect(publicRecognition).toMatchObject({ extradition: { foreignWarrantSelfExecuting: false, receivingCityMustIssueLocalCustodyOrder: true } });
+  expect(JSON.stringify(publicRecognition)).not.toContain('discretionaryCooperationPosture');
   await page.locator('#strategicGlobeLayerSelect').selectOption('beastEcology');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'beastEcology', hasBeastEcology: true });
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Reported migration corridor');
@@ -171,6 +182,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicBeastEcologyAudit())).toMatchObject({ valid: true, staticSpeciesCount: 24, everySpeciesPresent: true, everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true, publicAtlasHidesPopulationIdentity: true, publicAtlasHidesPopulationIndex: true, publicAtlasHidesUnknownLairs: true, publicAtlasHidesExactPaths: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityGovernmentsAudit())).toMatchObject({ valid: true, oneGovernmentPerCity: true, everyGovernmentCityOnly: true, everyEssentialRoleCovered: true, jailAndPrisonAlwaysDistinct: true, publicDirectoryHidesOperationalRisks: true, publicDirectoryHidesOfficeholders: true, allOfficeholdersLazy: true, emergencyPowersExpireWithoutRenewal: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCityLawsAudit())).toMatchObject({ valid: true, oneCodePerCity: true, everyCodeCoversCatalog: true, majorityProhibitGeneticEngineering: true, animancyNeverOrdinaryCommerce: true, noLifeImprisonment: true, publicEnemyRequiresSeparateFinding: true, penalFlightIsNonterminalRelease: true, publicDirectoryHidesEnforcementPolicy: true, hiddenPolicyCannotInferGuilt: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicCrossCityRecognitionAudit())).toMatchObject({ valid: true, everyOrderedCityPairCovered: true, recognitionIsDirectional: true, standingAgreementsAreSparse: true, foreignWarrantsNeverSelfExecute: true, localCustodyOrderAlwaysRequired: true, doubleCriminalityAlwaysRequired: true, deportationAlwaysDistinct: true, wildernessNeverOrdinaryJurisdiction: true, publicDirectoryHidesDiscretion: true, hiddenPolicyCannotAlterDueProcess: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
