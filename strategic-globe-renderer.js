@@ -136,6 +136,15 @@
       { label: "Dense institutional hub", color: "#a875bd" },
       { label: "Public network branches", color: "#57989a" },
       { label: "No major public network hub", color: "#39433f" }
+    ],
+    settlements: [
+      { label: "Sovereign resource-anchor city", color: "#d4b35e" },
+      { label: "Rare independent refuge", color: "#b786c7" },
+      { label: "Joint route stronghold", color: "#d6795b" },
+      { label: "Agricultural satellite", color: "#79a95c" },
+      { label: "Extraction satellite", color: "#aa9070" },
+      { label: "Hunting, utility, or service satellite", color: "#5f9fa2" },
+      { label: "Beast-dominated or unsettled land", color: "#39433f" }
     ]
   });
 
@@ -154,6 +163,7 @@
     if (map?.publicBeastAtlas) layers.push("beastEcology");
     if (map?.publicReligionDirectory) layers.push("religions");
     if (map?.publicNonStateNetworkDirectory) layers.push("networks");
+    if (map?.publicSettlementDirectory) layers.push("settlements");
     return layers;
   }
 
@@ -174,6 +184,7 @@
     let layer = "surface";
     let religionCellClasses = new Map();
     let networkCellClasses = new Map();
+    let settlementCellClasses = new Map();
     let dragging = null;
     let width = 0;
     let height = 0;
@@ -411,6 +422,19 @@
       return shadedRgb(base, light);
     }
 
+    function settlementColor(index, light, selected) {
+      if (selected) return "#f5bd58";
+      const publicClass = settlementCellClasses.get(index);
+      const base = publicClass === "c" ? [212, 179, 94]
+        : publicClass === "r" ? [183, 134, 199]
+          : publicClass === "s" ? [214, 121, 91]
+            : publicClass === "a" ? [121, 169, 92]
+              : publicClass === "e" ? [170, 144, 112]
+                : ["h", "u", "t"].includes(publicClass) ? [95, 159, 162]
+                  : (map.surface.classes[index] === "L" ? [57, 67, 63] : [23, 48, 63]);
+      return shadedRgb(base, light);
+    }
+
     function colorFor(index, light, selected) {
       if (layer === "elevation" && map?.relief) return elevationColor(index, light, selected);
       if (layer === "tectonics" && map?.relief) return tectonicsColor(index, light, selected);
@@ -427,6 +451,7 @@
       if (layer === "beastEcology" && map?.publicBeastAtlas) return beastEcologyColor(index, light, selected);
       if (layer === "religions" && map?.publicReligionDirectory) return religionColor(index, light, selected);
       if (layer === "networks" && map?.publicNonStateNetworkDirectory) return networkColor(index, light, selected);
+      if (layer === "settlements" && map?.publicSettlementDirectory) return settlementColor(index, light, selected);
       return surfaceColor(StrategicWorld.cellSurfaceClass(map, index), light, selected);
     }
 
@@ -659,6 +684,7 @@
       topology = map ? StrategicWorld.topologyForMap(map) : null;
       religionCellClasses = new Map((map?.publicReligionDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       networkCellClasses = new Map((map?.publicNonStateNetworkDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
+      settlementCellClasses = new Map((map?.publicSettlementDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       selectedCellIndex = -1;
       layer = "surface";
       resetView();
@@ -726,7 +752,7 @@
       selectCell,
       selectCenterCell,
       pickCell,
-      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), hasReligions: Boolean(map?.publicReligionDirectory), hasNonStateNetworks: Boolean(map?.publicNonStateNetworkDirectory), availableLayers: availableLayers(map) }),
+      snapshot: () => ({ yaw, pitch, zoom, layer, selectedCellIndex, hasMap: Boolean(map), hasRelief: Boolean(map?.relief), hasEnvironment: Boolean(map?.biomes), hasGeology: Boolean(map?.geology), hasArcaneGeography: Boolean(map?.arcaneGeography), hasResourceProspects: Boolean(map?.publicResourceProspects), hasHumanGeography: Boolean(map?.humanGeography), hasCityPolities: Boolean(map?.cityPolities), hasBeastEcology: Boolean(map?.publicBeastAtlas), hasReligions: Boolean(map?.publicReligionDirectory), hasNonStateNetworks: Boolean(map?.publicNonStateNetworkDirectory), hasSettlements: Boolean(map?.publicSettlementDirectory), availableLayers: availableLayers(map) }),
       destroy: () => resizeObserver?.disconnect()
     });
   }

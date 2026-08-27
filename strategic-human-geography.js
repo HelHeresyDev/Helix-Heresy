@@ -228,11 +228,12 @@
       .map((region, index) => ({ ...region, index }))
       .filter((region) => region.surfaceClass === "land" && region.cellCount >= 12);
     const eligibleCells = landRegions.reduce((total, region) => total + region.cellCount, 0);
-    const targetTotal = clamp(Math.round(eligibleCells / cellsPerCity), minimum, maximum);
+    const minimumSupportedTotal = Math.min(maximum, landRegions.length * 2);
+    const targetTotal = clamp(Math.round(eligibleCells / cellsPerCity), Math.max(minimum, minimumSupportedTotal), maximum);
     const allocations = landRegions.map((region) => ({
       regionIndex: region.index,
       regionCellCount: region.cellCount,
-      target: Math.max(1, Math.floor(targetTotal * region.cellCount / Math.max(1, eligibleCells))),
+      target: Math.max(2, Math.floor(targetTotal * region.cellCount / Math.max(1, eligibleCells))),
       remainder: targetTotal * region.cellCount / Math.max(1, eligibleCells) % 1
     }));
     let allocated = allocations.reduce((total, allocation) => total + allocation.target, 0);
@@ -242,7 +243,7 @@
       allocated += 1;
     }
     while (allocated > targetTotal) {
-      const reducible = [...allocations].filter((allocation) => allocation.target > 1).sort((left, right) => left.remainder - right.remainder || right.target - left.target)[0];
+      const reducible = [...allocations].filter((allocation) => allocation.target > 2).sort((left, right) => left.remainder - right.remainder || right.target - left.target)[0];
       if (!reducible) break;
       reducible.target -= 1;
       allocated -= 1;

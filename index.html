@@ -814,6 +814,7 @@
                   <option value="beastEcology">Beast Ecology</option>
                   <option value="religions">Religion and Holy Sites</option>
                   <option value="networks">Non-State Networks</option>
+                  <option value="settlements">City Foundations and Settlements</option>
                 </select>
               </label>
               <button type="button" data-globe-action="rotate-left" aria-label="Rotate globe left">←</button>
@@ -877,6 +878,9 @@
                 <div><dt>Confirmed Holy Sites</dt><dd id="strategicCellHolySites">—</dd></div>
                 <div><dt>Non-State Networks</dt><dd id="strategicCellNetworkPresence">—</dd></div>
                 <div><dt>Orbital Infrastructure</dt><dd id="strategicCellOrbitalInfrastructure">—</dd></div>
+                <div><dt>City Foundation</dt><dd id="strategicCellFoundation">—</dd></div>
+                <div><dt>Dependent Settlement</dt><dd id="strategicCellSettlement">—</dd></div>
+                <div><dt>Local Logistics / Evacuation</dt><dd id="strategicCellSettlementLogistics">—</dd></div>
                 <div><dt>Beast Threat</dt><dd id="strategicCellBeastThreat">—</dd></div>
                 <div><dt>Migration Pressure</dt><dd id="strategicCellMigrationPressure">—</dd></div>
                 <div><dt>Wave Pressure</dt><dd id="strategicCellWavePressure">—</dd></div>
@@ -947,6 +951,18 @@
             <div id="networkCityStandingList" class="network-city-standing-list"></div>
             <h5>Registered Affiliates and Opaque Shells</h5>
             <div id="strategicNetworkAffiliateList" class="strategic-network-affiliate-list"></div>
+          </section>
+          <section id="strategicSettlementDirectory" class="strategic-settlement-directory" aria-labelledby="strategicSettlementDirectoryHeading" hidden>
+            <h4 id="strategicSettlementDirectoryHeading">City Foundations, Joint Strongholds, and Satellites</h4>
+            <p class="journal-meta">Sovereign cities exist around exploitable resources and rare powerful founders. Politically dependent route strongholds are jointly staffed and maintained by two sponsor cities; satellites survive through short physical supply and evacuation routes.</p>
+            <h5>Sovereign City Foundations</h5>
+            <div id="strategicFoundationList" class="strategic-foundation-list"></div>
+            <h5>Joint Route Strongholds</h5>
+            <div id="strategicStrongholdList" class="strategic-stronghold-list"></div>
+            <h5>Dependent Satellites by Parent</h5>
+            <label class="field-label" for="settlementParentSelect">Parent city or stronghold</label>
+            <select id="settlementParentSelect"></select>
+            <div id="strategicSatelliteList" class="strategic-satellite-list"></div>
           </section>
           <section id="strategicBeastBestiary" class="strategic-beast-bestiary" aria-labelledby="strategicBeastBestiaryHeading" hidden>
             <h4 id="strategicBeastBestiaryHeading">Strategic Beast Bestiary</h4>
@@ -1056,6 +1072,7 @@
     <script src="strategic-city-recognition.js"></script>
     <script src="strategic-religions.js"></script>
     <script src="strategic-non-state-networks.js"></script>
+    <script src="strategic-settlements.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>

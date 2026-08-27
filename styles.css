@@ -4596,7 +4596,8 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-law-directory,
 .cross-city-recognition-directory,
 .strategic-religion-directory,
-.strategic-network-directory {
+.strategic-network-directory,
+.strategic-settlement-directory {
   display: grid;
   gap: 0.55rem;
   padding-top: 0.8rem;
@@ -4608,7 +4609,8 @@ html[data-reduced-motion="true"] *::after {
 .strategic-city-law-directory[hidden],
 .cross-city-recognition-directory[hidden],
 .strategic-religion-directory[hidden],
-.strategic-network-directory[hidden] {
+.strategic-network-directory[hidden],
+.strategic-settlement-directory[hidden] {
   display: none;
 }
 
@@ -4625,7 +4627,10 @@ html[data-reduced-motion="true"] *::after {
 .strategic-religion-directory p,
 .strategic-network-directory h4,
 .strategic-network-directory h5,
-.strategic-network-directory p {
+.strategic-network-directory p,
+.strategic-settlement-directory h4,
+.strategic-settlement-directory h5,
+.strategic-settlement-directory p {
   margin: 0;
 }
 
@@ -4767,6 +4772,38 @@ html[data-reduced-motion="true"] *::after {
   gap: 0.45rem;
   max-height: 26rem;
   overflow: auto;
+}
+
+.strategic-foundation-list,
+.strategic-stronghold-list,
+.strategic-satellite-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.5rem;
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.strategic-foundation-card,
+.strategic-stronghold-card,
+.strategic-satellite-card {
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.strategic-foundation-card summary,
+.strategic-stronghold-card summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.strategic-foundation-card p,
+.strategic-stronghold-card p,
+.strategic-satellite-card p {
+  margin-top: 0.5rem;
+  line-height: 1.45;
 }
 
 @media (max-width: 760px) {
