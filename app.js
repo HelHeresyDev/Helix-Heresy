@@ -22,11 +22,12 @@
   const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
   const StrategicReligions = window.HelixStrategicReligions;
+  const StrategicDivinity = window.HelixStrategicDivinity;
   const StrategicFaiths = window.HelixStrategicFaiths;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicFaiths || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12464,6 +12465,16 @@
           ? StrategicFaiths.auditPreCivicFaiths(map)
           : null;
       },
+      strategicPreCivicDivinityAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicDivinity ? StrategicDivinity.auditPreCivicDivinity(map) : null;
+      },
+      strategicPublicDivinityDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicDivinityDirectory ? StrategicDivinity.publicDivinityDirectory(map) : null;
+      },
       strategicPublicFaithDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
@@ -14700,6 +14711,7 @@
     dom.strategicHolySiteList.textContent = "";
     const directory = map?.publicReligionDirectory ? StrategicReligions.publicReligionDirectory(map) : null;
     const faithDirectory = map?.publicPreCivicFaithDirectory ? StrategicFaiths.publicFaithDirectory(map) : null;
+    const divinityDirectory = map?.publicDivinityDirectory ? StrategicDivinity.publicDivinityDirectory(map) : null;
     dom.strategicReligionDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
@@ -14719,6 +14731,9 @@
       communication.textContent = `Routine communication: ${god.communication.methods.join("; ")} · repeatable divine signature · faithful may receive direct replies.`;
       const avatar = document.createElement("p");
       avatar.textContent = `Finite avatars: ${god.avatarManifestation.forms.join("; ")} · ${readable(god.avatarManifestation.fullManifestationCost)} full-manifestation cost.`;
+      const knownPractices = (divinityDirectory?.knownPractices || []).filter((entry) => entry.godId === god.id);
+      const worship = document.createElement("p");
+      worship.textContent = `Authenticated worship: ${knownPractices.map((entry) => `${entry.sourceKind === "beast" ? readable(entry.subjectId.replace("beast:", "")) : "human"} ${readable(entry.practiceId)} (${readable(entry.evidence)})`).join(" · ") || "identity authenticated; worship practice not yet documented"} · exact cohorts, population sources, and follower allocations hidden.`;
       const doctrine = document.createElement("p");
       doctrine.className = "journal-meta";
       doctrine.textContent = faith
@@ -14741,7 +14756,7 @@
       const relationSummary = document.createElement("p");
       relationSummary.className = "journal-meta";
       relationSummary.textContent = `Divine relations: ${relations.join(" · ") || "none"}. One god, one confirmed faith; same-god heresy and doctrinal schism do not exist.`;
-      card.append(heading, summary, divineStanding, communication, avatar, doctrine, practice, socialTeaching, relationSummary);
+      card.append(heading, summary, divineStanding, communication, avatar, worship, doctrine, practice, socialTeaching, relationSummary);
       dom.strategicGodList.append(card);
     }
     const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
@@ -15044,7 +15059,7 @@
       ? ` · ${map.crossCityRecognition.diagnostics.directedPairCount.toLocaleString()} directional city-pair recognition policies · foreign warrants require local orders`
       : (map.publicCityLawDirectory ? " · Cross-city recognition unavailable in this saved world" : "");
     const religionSummary = map.publicReligionDirectory
-      ? ` · ${map.strategicReligions.diagnostics.godCount} real communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} pre-civic confirmed holy sites · one semantic confirmed faith per actively divine god`
+      ? ` · ${map.strategicReligions.diagnostics.godCount} human-authenticated communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} supported pre-civic holy sites · population-backed human and beast worship · unsupported divine identities omitted`
       : (map.publicCrossCityRecognitionDirectory ? " · Religions and holy sites unavailable in this saved world" : "");
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`

@@ -237,10 +237,10 @@
       }
       if (generationVersion >= 7) {
         generatedStrategicMap = StrategicResourcePotential.attachResourcePotential(worldSeed, generatedStrategicMap);
-        generatedStrategicMap = StrategicDivinity.attachPreCivicDivinity(worldSeed, worldTheme, generatedStrategicMap);
-        generatedStrategicMap = StrategicFaiths.attachPreCivicFaiths(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicBeastEcology.attachPristineBeastEcology(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicPreUrbanHumanity.attachPreUrbanHumanity(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicDivinity.attachPreCivicDivinity(worldSeed, worldTheme, generatedStrategicMap);
+        generatedStrategicMap = StrategicFaiths.attachPreCivicFaiths(worldSeed, generatedStrategicMap);
       }
       if (generationVersion >= 8) {
         generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);

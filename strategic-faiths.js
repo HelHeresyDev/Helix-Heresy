@@ -2,15 +2,17 @@
   const strategicWorld = typeof module === "object" && module.exports ? require("./strategic-world") : root?.HelixStrategicWorld;
   const strategicReligions = typeof module === "object" && module.exports ? require("./strategic-religions") : root?.HelixStrategicReligions;
   const strategicDivinity = typeof module === "object" && module.exports ? require("./strategic-divinity") : root?.HelixStrategicDivinity;
-  const api = factory(strategicWorld, strategicReligions, strategicDivinity);
+  const preUrbanHumanity = typeof module === "object" && module.exports ? require("./strategic-pre-urban-humanity") : root?.HelixStrategicPreUrbanHumanity;
+  const api = factory(strategicWorld, strategicReligions, strategicDivinity, preUrbanHumanity);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicFaiths = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicFaithsApi(StrategicWorld, StrategicReligions, StrategicDivinity) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicFaithsApi(StrategicWorld, StrategicReligions, StrategicDivinity, StrategicPreUrbanHumanity) {
   "use strict";
 
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before strategic-faiths.js");
   if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before strategic-faiths.js");
   if (!StrategicDivinity) throw new Error("HelixStrategicDivinity must load before strategic-faiths.js");
+  if (!StrategicPreUrbanHumanity) throw new Error("HelixStrategicPreUrbanHumanity must load before strategic-faiths.js");
 
   const CONFIRMATION_STATES = Object.freeze(["activelyConfirmed", "historicallyConfirmed", "unconfirmedSuccessor"]);
   const OUTSIDER_STANCES = Object.freeze(["aidWithoutCompulsoryConversion", "cooperativePluralism", "conversionByDemonstration", "cautiousCoexistence", "conditionalSubmission"]);
@@ -310,7 +312,7 @@
   }
 
   function publicCore(directory) {
-    return { worldTheme: directory.worldTheme, faithRows: directory.faithRows, holySiteRows: directory.holySiteRows };
+    return { worldTheme: directory.worldTheme, knowledgePolicy: directory.knowledgePolicy, humanReligiousKnowledgeDigest: directory.humanReligiousKnowledgeDigest, faithRows: directory.faithRows, holySiteRows: directory.holySiteRows };
   }
 
   function faithCore(record) {
@@ -324,6 +326,9 @@
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
       divinityHolySiteSupportDigest: record.divinityHolySiteSupportDigest,
       publicDirectoryDigest: record.publicDirectoryDigest,
+      faithRows: record.faithRows,
+      holySiteRows: record.holySiteRows,
+      siteKnowledgeRows: record.siteKnowledgeRows,
       hiddenSiteRows: record.hiddenSiteRows,
       diagnostics: record.diagnostics
     };
@@ -337,11 +342,27 @@
     if (startingMap.humanGeography) throw new Error("Pre-civic faiths and holy sites must be generated before human geography.");
     const gods = StrategicReligions.createGods(seed, startingMap.strategicDivinity.worldTheme);
     const privateGods = gods.map((god) => StrategicDivinity.privateDivineStateFor(startingMap, god.id));
-    const godStates = StrategicDivinity.publicDivinityDirectory(startingMap).godStates;
+    const godStates = privateGods.map((god) => ({ godId: god.id, rank: god.rank, publicStatus: god.lifecycle.publicStatus }));
     const faithRows = gods.map((god, index) => createFaithRow(god, privateGods[index], seed));
     const sitePlan = createSitePlan(seed, startingMap, gods, godStates);
     const next = StrategicDivinity.applyHolySiteSupport(startingMap, sitePlan.supportByGod);
-    const directory = { worldTheme: next.strategicDivinity.worldTheme, faithRows, holySiteRows: sitePlan.publicRows };
+    const knownGodIds = new Set(next.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
+    const humanGroups = StrategicPreUrbanHumanity.expandPopulationGroups(next);
+    const siteKnowledgeRows = sitePlan.publicRows.filter((row) => knownGodIds.has(row[1])).flatMap((row) => {
+      const cellId = StrategicWorld.cellId(row[3]);
+      const witness = humanGroups.find((group) => group.rangeCellIds.includes(cellId));
+      if (witness) return [[row[0], "physicalDiscovery", witness.id]];
+      if (seededNumber(seed, `site-disclosure:${row[0]}`) > 0.55) return [[row[0], "authenticatedSiteDisclosure", row[1]]];
+      return [];
+    });
+    const knownSiteIds = new Set(siteKnowledgeRows.map((row) => row[0]));
+    const directory = {
+      worldTheme: next.strategicDivinity.worldTheme,
+      knowledgePolicy: "omitUnsupportedIdentitiesAndSites",
+      humanReligiousKnowledgeDigest: next.humanReligiousKnowledge.digest,
+      faithRows: faithRows.filter((row) => knownGodIds.has(row[1])),
+      holySiteRows: sitePlan.publicRows.filter((row) => knownSiteIds.has(row[0]))
+    };
     directory.digest = `public-faiths-${StrategicWorld.stableHash(publicCore(directory))}`;
     const record = {
       sourceDivinityDigest: next.strategicDivinity.digest,
@@ -353,11 +374,16 @@
       sourceArcaneGeographyDigest: next.arcaneGeography.digest,
       divinityHolySiteSupportDigest: next.strategicDivinity.holySiteSupportDigest,
       publicDirectoryDigest: directory.digest,
+      faithRows,
+      holySiteRows: sitePlan.publicRows,
+      siteKnowledgeRows,
       hiddenSiteRows: sitePlan.hiddenRows,
       diagnostics: {
         faithCount: faithRows.length,
         activelyConfirmedFaithCount: faithRows.filter((row) => row[4] === 0).length,
         holySiteCount: sitePlan.publicRows.length,
+        humanKnownFaithCount: directory.faithRows.length,
+        humanKnownHolySiteCount: directory.holySiteRows.length,
         majorGodSiteCount: godStates.filter((state) => state.rank === "major").reduce((total, state) => total + sitePlan.publicRows.filter((row) => row[1] === state.godId).length, 0),
         siteSupportedGodCount: Object.values(sitePlan.supportByGod).filter((value) => value > 0).length,
         suppressedAscensionOriginCount: sitePlan.hiddenRows.filter((row) => row[3] === SITE_ORIGINS.indexOf("suppressedAscensionEvent")).length
@@ -372,17 +398,30 @@
   function validatePreCivicFaiths(map, record = map?.preCivicFaiths, directory = map?.publicPreCivicFaithDirectory) {
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     const divinity = StrategicDivinity.validatePreCivicDivinity(strategicMap);
-    if (!record || !directory || record.sourceDivinityDigest !== strategicMap.strategicDivinity.digest || record.sourceReliefDigest !== strategicMap.relief?.digest || record.sourceClimateDigest !== strategicMap.climate?.digest || record.sourceHydrologyDigest !== strategicMap.hydrology?.digest || record.sourceBiomeDigest !== strategicMap.biomes?.digest || record.sourceGeologyDigest !== strategicMap.geology?.digest || record.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography?.digest || record.divinityHolySiteSupportDigest !== strategicMap.strategicDivinity.holySiteSupportDigest || record.publicDirectoryDigest !== directory.digest) throw new Error("Pre-civic faith records are incomplete or do not match their causal sources.");
-    const faiths = directory.faithRows.map(expandFaithRow);
+    if (!record || !directory || record.sourceDivinityDigest !== strategicMap.strategicDivinity.digest || record.sourceReliefDigest !== strategicMap.relief?.digest || record.sourceClimateDigest !== strategicMap.climate?.digest || record.sourceHydrologyDigest !== strategicMap.hydrology?.digest || record.sourceBiomeDigest !== strategicMap.biomes?.digest || record.sourceGeologyDigest !== strategicMap.geology?.digest || record.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography?.digest || record.divinityHolySiteSupportDigest !== strategicMap.strategicDivinity.holySiteSupportDigest || record.publicDirectoryDigest !== directory.digest || directory.humanReligiousKnowledgeDigest !== strategicMap.humanReligiousKnowledge?.digest) throw new Error("Pre-civic faith records are incomplete or do not match their causal sources.");
+    if (!Array.isArray(record.faithRows) || !Array.isArray(record.holySiteRows) || !Array.isArray(record.siteKnowledgeRows)) throw new Error("Canonical faith and holy-site truth is incomplete.");
+    const faiths = record.faithRows.map(expandFaithRow);
     const godIds = divinity.strategicDivinity.godOrder;
     if (faiths.length !== godIds.length || new Set(faiths.map((faith) => faith.id)).size !== faiths.length || godIds.some((godId) => faiths.filter((faith) => faith.godId === godId).length !== 1) || faiths.some((faith) => faith.confirmation.state !== "activelyConfirmed" || faith.sameGodHeresyClaimsValid || faith.coreTenets.length < 3 || faith.commandments.length < 2 || faith.prohibitions.length < 2 || faith.promises.some((promise) => !promise.conditionalOnFiniteCapacity) || faith.civicTeaching.churchHasAutomaticSovereignty || JSON.stringify(faith).toLowerCase().includes("alignment"))) throw new Error("Every divine god requires one semantic actively confirmed faith without alignment or automatic sovereignty.");
-    const sites = directory.holySiteRows.map((row) => expandSiteRow(row, strategicMap));
+    const sites = record.holySiteRows.map((row) => expandSiteRow(row, strategicMap));
     if (new Set(sites.map((site) => site.id)).size !== sites.length || new Set(sites.map((site) => site.cellId)).size !== sites.length || sites.some((site) => !godIds.includes(site.godId) || StrategicWorld.cellIndex(site.cellId) < 0 || StrategicWorld.cellIndex(site.cellId) >= strategicMap.topology.cellCount || site.discoveryStatus !== "confirmed" || !site.confirmedByGod || site.routineCommunicationRequired || site.causalFactors.some((factor) => /city|corridor|beastPressure|population/i.test(factor)))) throw new Error("Pre-civic holy sites must be unique, physical, confirmed, optional for communication, and independent of later settlement facts.");
-    const publicStates = StrategicDivinity.publicDivinityDirectory(strategicMap).godStates;
-    if (publicStates.some((state) => state.rank === "major" && !sites.some((site) => site.godId === state.godId)) || publicStates.some((state) => sites.filter((site) => site.godId === state.godId).length > (state.rank === "major" ? 3 : 2))) throw new Error("Holy-site distribution does not match bounded major and minor god rules.");
+    const godStates = godIds.map((godId) => StrategicDivinity.privateDivineStateFor(strategicMap, godId));
+    if (godStates.some((state) => state.rank === "major" && !sites.some((site) => site.godId === state.id)) || godStates.some((state) => sites.filter((site) => site.godId === state.id).length > (state.rank === "major" ? 3 : 2))) throw new Error("Holy-site distribution does not match bounded major and minor god rules.");
+    const knownGodIds = new Set(strategicMap.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
+    const humanGroupById = new Map(StrategicPreUrbanHumanity.expandPopulationGroups(strategicMap).map((group) => [group.id, group]));
+    const siteById = new Map(sites.map((site) => [site.id, site]));
+    const siteEvidenceSupported = (row) => {
+      const site = siteById.get(row[0]);
+      if (!site || !knownGodIds.has(site.godId)) return false;
+      if (row[1] === "authenticatedSiteDisclosure") return row[2] === site.godId;
+      const witness = humanGroupById.get(row[2]);
+      return row[1] === "physicalDiscovery" && witness?.rangeCellIds.includes(site.cellId);
+    };
+    const knownSiteIds = new Set(record.siteKnowledgeRows.map((row) => row[0]));
+    if (directory.knowledgePolicy !== "omitUnsupportedIdentitiesAndSites" || directory.faithRows.some((row) => !knownGodIds.has(row[1])) || JSON.stringify(directory.faithRows) !== JSON.stringify(record.faithRows.filter((row) => knownGodIds.has(row[1]))) || JSON.stringify(directory.holySiteRows) !== JSON.stringify(record.holySiteRows.filter((row) => knownSiteIds.has(row[0]))) || record.siteKnowledgeRows.some((row) => !siteEvidenceSupported(row)) || JSON.stringify(directory).match(/undiscovered|hiddenGod|unknownGod|Unknown Monster/i)) throw new Error("Human-facing faith records expose an unsupported identity or site.");
     if (!Array.isArray(record.hiddenSiteRows) || record.hiddenSiteRows.length !== sites.length || record.hiddenSiteRows.some((row) => !sites.some((site) => site.id === row[0]) || !Number.isInteger(row[1]) || !Number.isInteger(row[2]) || !SITE_ORIGINS[row[3]]) || JSON.stringify(directory).includes("hiddenSiteRows") || JSON.stringify(directory).includes("suppressedAscensionEvent") || JSON.stringify(directory).includes("exactScore")) throw new Error("Hidden holy-site origin and power records are invalid or publicly leaked.");
     const diagnostics = record.diagnostics;
-    if (!diagnostics || diagnostics.faithCount !== faiths.length || diagnostics.activelyConfirmedFaithCount !== faiths.length || diagnostics.holySiteCount !== sites.length || diagnostics.siteSupportedGodCount !== new Set(sites.map((site) => site.godId)).size || diagnostics.suppressedAscensionOriginCount !== record.hiddenSiteRows.filter((row) => row[3] === SITE_ORIGINS.indexOf("suppressedAscensionEvent")).length) throw new Error("Pre-civic faith diagnostics do not match saved facts.");
+    if (!diagnostics || diagnostics.faithCount !== faiths.length || diagnostics.activelyConfirmedFaithCount !== faiths.length || diagnostics.holySiteCount !== sites.length || diagnostics.humanKnownFaithCount !== directory.faithRows.length || diagnostics.humanKnownHolySiteCount !== directory.holySiteRows.length || diagnostics.siteSupportedGodCount !== new Set(sites.map((site) => site.godId)).size || diagnostics.suppressedAscensionOriginCount !== record.hiddenSiteRows.filter((row) => row[3] === SITE_ORIGINS.indexOf("suppressedAscensionEvent")).length) throw new Error("Pre-civic faith diagnostics do not match saved facts.");
     if (directory.digest !== `public-faiths-${StrategicWorld.stableHash(publicCore(directory))}` || record.digest !== `strategic-faiths-${StrategicWorld.stableHash(faithCore(record))}`) throw new Error("Pre-civic faith records do not match their digests.");
     return { preCivicFaiths: clone(record), publicDirectory: clone(directory) };
   }
@@ -437,15 +476,18 @@
   function auditPreCivicFaiths(map) {
     const { preCivicFaiths } = validatePreCivicFaiths(map);
     const directory = publicFaithDirectory(map);
+    const canonicalFaiths = preCivicFaiths.faithRows.map(expandFaithRow);
+    const canonicalSites = preCivicFaiths.holySiteRows.map((row) => expandSiteRow(row, map));
     return {
       valid: true,
       independentOfCities: !preCivicFaiths.sourceCityDigest,
-      exactlyOneConfirmedFaithPerGod: directory.faiths.length === map.strategicDivinity.godOrder.length,
-      everyFaithSemantic: directory.faiths.every((faith) => faith.coreTenets.length && faith.commandments.length && faith.prohibitions.length && faith.promises.length && faith.acceptableMethods.length && faith.unacceptableMethods.length && faith.verifiedConduct.length),
-      noSameGodHeresyWhileCorrectionActive: directory.faiths.every((faith) => !faith.doctrinalSchismAvailable && !faith.sameGodHeresyClaimsValid),
-      promisesAcknowledgeFiniteCapacity: directory.faiths.every((faith) => faith.promises.every((promise) => promise.conditionalOnFiniteCapacity)),
-      holySitesIndependentOfCitiesAndBeasts: directory.holySites.every((site) => site.causalFactors.every((factor) => !/city|corridor|beastPressure|population/i.test(factor))),
-      routineCommunicationNeedsNoSite: directory.holySites.every((site) => !site.routineCommunicationRequired),
+      exactlyOneConfirmedFaithPerGod: canonicalFaiths.length === map.strategicDivinity.godOrder.length,
+      everyFaithSemantic: canonicalFaiths.every((faith) => faith.coreTenets.length && faith.commandments.length && faith.prohibitions.length && faith.promises.length && faith.acceptableMethods.length && faith.unacceptableMethods.length && faith.verifiedConduct.length),
+      noSameGodHeresyWhileCorrectionActive: canonicalFaiths.every((faith) => !faith.doctrinalSchismAvailable && !faith.sameGodHeresyClaimsValid),
+      promisesAcknowledgeFiniteCapacity: canonicalFaiths.every((faith) => faith.promises.every((promise) => promise.conditionalOnFiniteCapacity)),
+      holySitesIndependentOfCitiesAndBeasts: canonicalSites.every((site) => site.causalFactors.every((factor) => !/city|corridor|beastPressure|population/i.test(factor))),
+      routineCommunicationNeedsNoSite: canonicalSites.every((site) => !site.routineCommunicationRequired),
+      humanDirectoryOmitsUnsupportedFaithsAndSites: directory.faiths.length < canonicalFaiths.length && directory.holySites.length <= canonicalSites.length && !directory.faiths.some((faith) => faith.godId === map.humanReligiousKnowledge.hiddenGodId),
       exactSitePowerAndOriginsHidden: !JSON.stringify(map.publicPreCivicFaithDirectory).includes("hiddenSiteRows") && !JSON.stringify(map.publicPreCivicFaithDirectory).includes("suppressedAscensionEvent"),
       diagnostics: clone(preCivicFaiths.diagnostics)
     };
