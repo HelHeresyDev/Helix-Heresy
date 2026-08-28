@@ -65,8 +65,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('directional city-pair recognition policies');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('foreign warrants require local orders');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('real communicating gods');
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('confirmed strategic holy sites');
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('one faith per god');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('pre-civic confirmed holy sites');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('one semantic confirmed faith per actively divine god');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('21 major non-state networks');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('orbital arcane internet');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('rocket and individual spaceflight');
@@ -142,7 +142,14 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(JSON.stringify(publicRecognition)).not.toContain('discretionaryCooperationPosture');
   await expect(page.locator('#strategicReligionDirectory')).toBeVisible();
   const publicReligions = await page.evaluate(() => window.helixHeresyDebug.strategicPublicReligionDirectory());
+  const faithAudit = await page.evaluate(() => window.helixHeresyDebug.strategicPreCivicFaithsAudit());
+  const publicFaiths = await page.evaluate(() => window.helixHeresyDebug.strategicPublicFaithDirectory());
+  expect(faithAudit).toMatchObject({ valid: true, independentOfCities: true, everyFaithSemantic: true, routineCommunicationNeedsNoSite: true });
+  expect(publicFaiths.faiths).toHaveLength(publicReligions.gods.length);
   await expect(page.locator('.strategic-god-card')).toHaveCount(publicReligions.gods.length);
+  await page.locator('.strategic-god-card').first().click();
+  await expect(page.locator('.strategic-god-card').first()).toContainText('Core tenets:');
+  await expect(page.locator('.strategic-god-card').first()).toContainText('Finite promises:');
   await expect(page.locator('#religionCityStandingList .religion-city-standing-entry')).toHaveCount(publicReligions.traditions.length);
   expect(publicReligions.gods.every((god) => god.objectiveExistence === 'confirmed' && god.communication.routine && god.avatarManifestation.possible)).toBe(true);
   expect(JSON.stringify(publicReligions)).not.toContain('hiddenGodStateCodes');
