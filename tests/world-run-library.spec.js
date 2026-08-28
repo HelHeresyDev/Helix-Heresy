@@ -75,6 +75,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicPreCivicFaithDirectory: { faithRows: expect.any(Array), holySiteRows: expect.any(Array) },
         civilizationOrigins: { firstCityId: expect.any(String), eraEndYear: expect.any(Number), diagnostics: { successfulOriginCityCount: expect.any(Number), retainedFailureCount: expect.any(Number) } },
         publicCivilizationOrigins: { chronology: expect.any(Array), infrastructureState: 'independentOriginComponentsWithoutIntercityCorridorsOrStrongholds' },
+        cityExpansionHistory: { historicalHorizonYear: first.playableYear, diagnostics: { laterCityCount: expect.any(Number), lineageCorridorCount: expect.any(Number), currentSupportComponentCount: expect.any(Number) } },
+        publicCityExpansionDirectory: { chronology: expect.any(Array), currentSupportComponents: expect.any(Array) },
         pristineBeastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), humanPressureFactCount: 0, cityTargetedWaveCount: 0 } },
         preUrbanHumanity: { diagnostics: { peopleCount: expect.any(Number), populationGroupCount: expect.any(Number), cityCount: 0 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
@@ -160,6 +162,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicPreCivicFaithDirectory;
     delete map.civilizationOrigins;
     delete map.publicCivilizationOrigins;
+    delete map.cityExpansionHistory;
+    delete map.publicCityExpansionDirectory;
     delete map.pristineBeastEcology;
     delete map.preUrbanHumanity;
     delete map.publicPreUrbanOverview;
@@ -284,6 +288,7 @@ test('legacy resource worlds do not silently gain human geography', () => {
   expect(world.generatedData.strategicMap.preUrbanHumanity).toBeDefined();
   expect(world.generatedData.strategicMap.humanReligiousKnowledge).toBeDefined();
   expect(world.generatedData.strategicMap.civilizationOrigins).toBeDefined();
+  expect(world.generatedData.strategicMap.cityExpansionHistory).toBeDefined();
   expect(world.generatedData.strategicMap.publicPreUrbanOverview).toBeUndefined();
   expect(PreUrbanHumanity.publicPreUrbanOverview(world.generatedData.strategicMap)).toMatchObject({ peoples: expect.any(Array), groupSummaries: expect.any(Array), beastBaseline: expect.any(Array) });
   expect(world.generatedData.strategicMap.humanGeography).toBeUndefined();

@@ -22,7 +22,7 @@
   const CITY_BANDS = Object.freeze(["limited", "adequate", "strong", "formidable"]);
   const EXPOSURE_BANDS = Object.freeze(["limited", "moderate", "high", "extreme"]);
   const ISOLATION_BANDS = Object.freeze(["connected", "remote", "extreme"]);
-  const CORRIDOR_CLASSES = Object.freeze(["primary", "redundant"]);
+  const CORRIDOR_CLASSES = Object.freeze(["primary", "redundant", "lineageSupport", "componentBridge"]);
   const FOUNDING_ADVANTAGES = Object.freeze([
     "freshWater",
     "productiveHinterland",
@@ -405,6 +405,7 @@
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
       sourceResourcePotentialDigest: record.sourceResourcePotentialDigest,
       sourceCivilizationOriginsDigest: record.sourceCivilizationOriginsDigest,
+      sourceCityExpansionDigest: record.sourceCityExpansionDigest,
       sourceRouteGraphDigest: record.sourceRouteGraphDigest,
       settings: record.settings,
       cities: record.cities,
@@ -422,20 +423,29 @@
     const minimumCityCount = Math.max(1, Math.floor(Number(options.minimumCityCount) || DEFAULT_MINIMUM_CITY_COUNT));
     const maximumCityCount = Math.max(minimumCityCount, Math.floor(Number(options.maximumCityCount) || DEFAULT_MAXIMUM_CITY_COUNT));
     const minimumSpacingKm = Math.max(150, Math.round(Number(options.minimumCitySpacingKm) || DEFAULT_MINIMUM_CITY_SPACING_KM));
-    const allocations = allocateCityTargets(strategicMap, { cityCellsPerCity, minimumCityCount, maximumCityCount });
     const originSeeds = (strategicMap.civilizationOrigins?.attemptRows || []).filter((attempt) => attempt.outcome === "enduringCity");
+    const historicalSeeds = strategicMap.cityExpansionHistory
+      ? [
+        ...originSeeds.map((attempt) => ({ cityId: attempt.cityId, cityName: attempt.cityName, cellId: attempt.siteCellId })),
+        ...strategicMap.cityExpansionHistory.foundationRows.map((foundation) => ({ cityId: foundation.cityId, cityName: foundation.cityName, cellId: foundation.siteCellId }))
+      ]
+      : null;
+    const allocations = historicalSeeds ? [] : allocateCityTargets(strategicMap, { cityCellsPerCity, minimumCityCount, maximumCityCount });
     const originByCell = new Map(originSeeds.map((attempt) => [StrategicWorld.cellIndex(attempt.siteCellId), attempt]));
-    const selectedCells = allocations.flatMap((allocation) => {
-      const fixedIndices = originSeeds.map((attempt) => StrategicWorld.cellIndex(attempt.siteCellId)).filter((index) => strategicMap.surface.regionByCell[index] === allocation.regionIndex);
-      return selectRegionCityCells(strategicMap, seed, allocation.regionIndex, Math.max(allocation.target, fixedIndices.length), minimumSpacingKm, fixedIndices);
-    });
-    const usedNames = new Set(originSeeds.map((attempt) => attempt.cityName));
-    let cities = selectedCells
+    const historicalByCell = new Map((historicalSeeds || []).map((city) => [StrategicWorld.cellIndex(city.cellId), city]));
+    const selectedCells = historicalSeeds
+      ? historicalSeeds.map((city) => StrategicWorld.cellIndex(city.cellId))
+      : allocations.flatMap((allocation) => {
+        const fixedIndices = originSeeds.map((attempt) => StrategicWorld.cellIndex(attempt.siteCellId)).filter((index) => strategicMap.surface.regionByCell[index] === allocation.regionIndex);
+        return selectRegionCityCells(strategicMap, seed, allocation.regionIndex, Math.max(allocation.target, fixedIndices.length), minimumSpacingKm, fixedIndices);
+      });
+    const usedNames = new Set(historicalSeeds ? historicalSeeds.map((city) => city.cityName) : originSeeds.map((attempt) => attempt.cityName));
+    let cities = [...new Set(selectedCells)]
       .sort((left, right) => left - right)
       .map((index) => ({
-        id: `city:${String(index).padStart(5, "0")}`,
+        id: historicalByCell.get(index)?.cityId || `city:${String(index).padStart(5, "0")}`,
         kind: "fortifiedCity",
-        name: originByCell.get(index)?.cityName || generatedCityName(seed, index, usedNames),
+        name: historicalByCell.get(index)?.cityName || originByCell.get(index)?.cityName || generatedCityName(seed, index, usedNames),
         cellId: StrategicWorld.cellId(index),
         topologyRegionId: strategicMap.surface.regions[strategicMap.surface.regionByCell[index]].id,
         foundingAdvantages: foundingAdvantages(strategicMap, index),
@@ -453,7 +463,24 @@
     };
     const corridors = [];
     const existingCells = new Set();
-    for (const pair of connectionPairs(strategicMap, cities)) {
+    if (strategicMap.cityExpansionHistory) {
+      for (const historical of strategicMap.cityExpansionHistory.corridorRows) {
+        const path = historical.cellPath.map(StrategicWorld.cellIndex);
+        path.forEach((index) => existingCells.add(index));
+        routeGraph.routes.push({ id: historical.id, kind: "strategicIntercityCorridor", endpointIds: clone(historical.endpointCityIds), cellPath: clone(historical.cellPath) });
+        const meanExposure = path.reduce((total, index) => total + wildernessExposurePermille(strategicMap, index), 0) / path.length;
+        corridors.push({
+          id: historical.id,
+          corridorClass: historical.corridorClass,
+          endpointCityIds: clone(historical.endpointCityIds),
+          lengthKm: historical.lengthKm,
+          relativeConstructionCost: historical.relativeConstructionCost,
+          exposureBand: exposureBandFor(meanExposure),
+          constructionYear: historical.constructionYear,
+          constructionPurpose: historical.constructionPurpose
+        });
+      }
+    } else for (const pair of connectionPairs(strategicMap, cities)) {
       const leftIndex = StrategicWorld.cellIndex(pair.left.cellId);
       const rightIndex = StrategicWorld.cellIndex(pair.right.cellId);
       const result = leastCostLandPath(strategicMap, leftIndex, rightIndex, existingCells);
@@ -488,6 +515,7 @@
       sourceArcaneGeographyDigest: strategicMap.arcaneGeography.digest,
       sourceResourcePotentialDigest: strategicMap.resourcePotential.digest,
       sourceCivilizationOriginsDigest: strategicMap.civilizationOrigins?.digest || null,
+      sourceCityExpansionDigest: strategicMap.cityExpansionHistory?.digest || null,
       sourceRouteGraphDigest: StrategicWorld.stableHash(validatedRouteGraph),
       settings: {
         cityCellsPerCity,
@@ -502,6 +530,8 @@
         corridorCount: corridors.length,
         primaryCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "primary").length,
         redundantCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "redundant").length,
+        lineageCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "lineageSupport").length,
+        bridgeCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "componentBridge").length,
         inhabitedLandRegionCount: new Set(cities.map((city) => city.topologyRegionId)).size,
         corridorCellCount: existingCells.size,
         originCityCount: originSeeds.length
@@ -519,7 +549,8 @@
       || candidate.sourceGeologyDigest !== strategicMap.geology?.digest
       || candidate.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography?.digest
       || candidate.sourceResourcePotentialDigest !== strategicMap.resourcePotential?.digest
-      || candidate.sourceCivilizationOriginsDigest !== (strategicMap.civilizationOrigins?.digest || null)) {
+      || candidate.sourceCivilizationOriginsDigest !== (strategicMap.civilizationOrigins?.digest || null)
+      || candidate.sourceCityExpansionDigest !== (strategicMap.cityExpansionHistory?.digest || null)) {
       throw new Error("Strategic human geography does not match its source geography.");
     }
     const routeGraph = StrategicWorld.validateRouteGraph(strategicMap, strategicMap.routeGraph);
@@ -546,6 +577,10 @@
     for (const origin of (strategicMap.civilizationOrigins?.attemptRows || []).filter((attempt) => attempt.outcome === "enduringCity")) {
       const city = cityById.get(origin.cityId);
       if (!city || city.cellId !== origin.siteCellId || city.name !== origin.cityName) throw new Error(`${origin.cityId} does not preserve its authoritative civilization-origin site and name.`);
+    }
+    for (const foundation of strategicMap.cityExpansionHistory?.foundationRows || []) {
+      const city = cityById.get(foundation.cityId);
+      if (!city || city.cellId !== foundation.siteCellId || city.name !== foundation.cityName) throw new Error(`${foundation.cityId} does not preserve its authoritative expansion-history site and name.`);
     }
     const graphNodeIds = new Set(routeGraph.nodes.map((node) => node.id));
     if (routeGraph.nodes.length !== cityIds.size || graphNodeIds.size !== cityIds.size || [...cityIds].some((id) => !graphNodeIds.has(id))) throw new Error("The route graph does not contain every fortified city node exactly once.");
@@ -578,7 +613,7 @@
       adjacency.get(corridor.endpointCityIds[0]).add(corridor.endpointCityIds[1]);
       adjacency.get(corridor.endpointCityIds[1]).add(corridor.endpointCityIds[0]);
     }
-    for (const regionId of new Set(candidate.cities.map((city) => city.topologyRegionId))) {
+    for (const regionId of strategicMap.cityExpansionHistory ? [] : new Set(candidate.cities.map((city) => city.topologyRegionId))) {
       const regionCities = candidate.cities.filter((city) => city.topologyRegionId === regionId);
       const visited = new Set([regionCities[0].id]);
       const queue = [regionCities[0].id];
@@ -588,6 +623,14 @@
         }
       }
       if (regionCities.some((city) => !visited.has(city.id))) throw new Error(`Fortified cities in ${regionId} are not connected by primary corridors.`);
+    }
+    if (strategicMap.cityExpansionHistory) {
+      if (candidate.cities.length !== strategicMap.cityExpansionHistory.diagnostics.totalCityCount || candidate.corridors.length !== strategicMap.cityExpansionHistory.corridorRows.length) throw new Error("Playable human geography does not project the complete authoritative expansion history.");
+      for (const historical of strategicMap.cityExpansionHistory.corridorRows) {
+        const corridor = candidate.corridors.find((entry) => entry.id === historical.id);
+        const route = routeById.get(historical.id);
+        if (!corridor || !route || corridor.corridorClass !== historical.corridorClass || corridor.constructionYear !== historical.constructionYear || corridor.constructionPurpose !== historical.constructionPurpose || JSON.stringify(route.cellPath) !== JSON.stringify(historical.cellPath)) throw new Error(`${historical.id} does not preserve its authoritative construction history.`);
+      }
     }
     const expectedDigest = `human-geography-${StrategicWorld.stableHash(humanGeographyCore(candidate))}`;
     if (candidate.digest !== expectedDigest) throw new Error("Strategic human-geography data does not match its digest.");

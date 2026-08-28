@@ -4775,6 +4775,7 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-origins-chronology,
+.strategic-expansion-chronology,
 .strategic-foundation-list,
 .strategic-stronghold-list,
 .strategic-satellite-list {
@@ -4786,6 +4787,7 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-origin-card,
+.strategic-expansion-card,
 .strategic-foundation-card,
 .strategic-stronghold-card,
 .strategic-satellite-card {
@@ -4796,6 +4798,7 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-origin-card summary,
+.strategic-expansion-card summary,
 .strategic-foundation-card summary,
 .strategic-stronghold-card summary {
   cursor: pointer;
@@ -4803,6 +4806,7 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-origin-card p,
+.strategic-expansion-card p,
 .strategic-foundation-card p,
 .strategic-stronghold-card p,
 .strategic-satellite-card p {

@@ -21,6 +21,7 @@ function resignSettlements(map) {
     sourceResourcePotentialDigest: record.sourceResourcePotentialDigest,
     sourceHumanGeographyDigest: record.sourceHumanGeographyDigest,
     sourceCivilizationOriginsDigest: record.sourceCivilizationOriginsDigest,
+    sourceCityExpansionDigest: record.sourceCityExpansionDigest,
     sourceCityPolitiesDigest: record.sourceCityPolitiesDigest,
     sourceBeastEcologyDigest: record.sourceBeastEcologyDigest,
     sourceReligionsDigest: record.sourceReligionsDigest,
@@ -45,8 +46,8 @@ test('city foundations are deterministic, powerful, causal, and cover every reso
   expect(directory.foundations.every((entry) => entry.foundingPower.exceptionalIndividualCount >= 1)).toBe(true);
   expect(directory.foundations.filter((entry) => entry.foundingPurpose === 'resourceAnchor').every((entry) => entry.primaryExploitation && entry.foundingPower.patronGod)).toBe(true);
   expect(new Set(directory.foundations.flatMap((entry) => [entry.primaryExploitation?.id, entry.secondaryExploitation?.id]).filter(Boolean))).toEqual(new Set(Resources.RESOURCE_FAMILIES.map((family) => family.id)));
-  expect(map.strategicSettlements.supplementalEndowmentCodes.length).toBeGreaterThan(0);
-  expect(Settlements.auditStrategicSettlements(map)).toMatchObject({ valid: true, everyCityHasFoundingReason: true, everyResourceFamilyExploited: true, powerfulFoundersExplicit: true });
+  expect(map.cityExpansionHistory.diagnostics.representedPrimaryResourceFamilyCount).toBe(Resources.RESOURCE_FAMILIES.length);
+  expect(Settlements.auditStrategicSettlements(map)).toMatchObject({ valid: true, everyCityHasFoundingReason: true, everyResourceFamilyExploited: true, powerfulFoundersExplicit: true, expansionHistoryAuthoritative: true, strongholdHistoryAuthoritative: true });
 });
 
 test('rare isolationist refuges reject divine patronage and are exempt from mutual support', () => {
@@ -93,7 +94,7 @@ test('public settlement projections hide exact supplemental endowments and opera
   expect(publicJson).not.toContain('supplementalEndowmentCodes');
   expect(publicJson).not.toContain('hiddenSatelliteReadinessCodes');
   expect(publicJson).not.toContain('hiddenStrongholdTensionCodes');
-  expect(map.strategicSettlements.supplementalEndowmentCodes.length).toBeGreaterThan(0);
+  expect(map.strategicSettlements.supplementalEndowmentCodes).toEqual([]);
 
   const leaked = JSON.parse(JSON.stringify(map));
   leaked.publicSettlementDirectory.hiddenSatelliteReadinessCodes = leaked.strategicSettlements.hiddenSatelliteReadinessCodes;

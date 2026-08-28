@@ -76,10 +76,8 @@
   function investmentScore(value) { return ({ none: 0, limited: 1, measured: 2, substantial: 3 })[value] ?? 0; }
 
   function qualifiedGodRows(worldSeed, map, groupsById) {
-    const knownGodIds = new Set(map.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
     const publicGodById = new Map(StrategicReligions.createGods(worldSeed, map.strategicDivinity.worldTheme).map((god) => [god.id, god]));
     return map.strategicDivinity.godOrder.flatMap((godId) => {
-      if (!knownGodIds.has(godId)) return [];
       const state = StrategicDivinity.privateDivineStateFor(map, godId);
       const humanSources = state.worshipSources.filter((source) => source.kind === "human" && groupsById.has(source.sourcePopulationId));
       if (!humanSources.length) return [];
@@ -203,6 +201,7 @@
       divinePowerSpent,
       endingDivineReserve: godRow.state.power.reserve - divinePowerSpent,
       canonicalMotive: ordinal === 0 ? pick(["protectFollowers", "secureResource", "organizeWorship"], seed, "motive") : pick(CANONICAL_MOTIVES.slice(3), seed, "motive"),
+      commitmentChange: ordinal > 0 && godRow.investment === 0 ? "rivalryProvokedInvestment" : null,
       failureCause: outcome === "retainedFailure" ? pick(FAILURE_CAUSES, seed, "failure-cause") : null,
       retainedConsequence: outcome === "retainedFailure" ? { kind: pick(FAILURE_CONSEQUENCES, seed, "failure-consequence"), name: `${cityName} Remnant`, cellId: StrategicWorld.cellId(site.index) } : null
     };
@@ -302,8 +301,9 @@
     const remainingPopulation = new Map(groups.map((group) => [group.id, group.population]));
     const humanConnectedGods = qualifiedGodRows(seed, strategicMap, groupsById);
     const qualified = humanConnectedGods.filter((entry) => entry.interest >= 2 && entry.investment >= 1 && entry.state.power.reserve >= 180);
-    const eligible = qualified.length >= 2 ? qualified : humanConnectedGods.filter((entry) => entry.interest >= 1 && entry.investment >= 1 && entry.state.power.reserve >= 180);
-    if (eligible.length < 2) throw new Error("The first city requires at least two human-connected divine patrons capable of urban foundations.");
+    const provokable = humanConnectedGods.filter((entry) => entry.interest >= 1 && entry.state.power.reserve >= 180);
+    if (!qualified.length || provokable.length < 2) throw new Error("The first city requires one committed patron and at least one human-connected rival capable of responding to its success.");
+    const eligible = [qualified[0], ...provokable.filter((entry) => entry.god.id !== qualified[0].god.id)];
     const rivalLimit = Math.max(1, Math.floor((eligible.length - 1) / 2));
     const successfulRivals = Math.min(3, rivalLimit, Math.max(1, Math.floor((eligible.length - 1) / 3)));
     const failedRivals = Math.min(2, rivalLimit - successfulRivals, eligible.length - 1 - successfulRivals);
@@ -372,17 +372,16 @@
     if (!record || !directory || record.sourceResourcePotentialDigest !== strategicMap.resourcePotential?.digest || record.sourcePreUrbanHumanityDigest !== strategicMap.preUrbanHumanity?.digest || record.sourceDivinityDigest !== strategicMap.strategicDivinity?.digest || record.sourcePreCivicFaithDigest !== strategicMap.preCivicFaiths?.digest || record.publicDirectoryDigest !== directory.digest) throw new Error("Civilization origins are incomplete or source-inconsistent.");
     const groups = StrategicPreUrbanHumanity.expandPopulationGroups(strategicMap);
     const groupsById = new Map(groups.map((group) => [group.id, group]));
-    const knownGodIds = new Set(strategicMap.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
     const allocated = new Map();
     const patronIds = new Set();
     const siteIds = new Set();
     const successful = [];
     if (!Array.isArray(record.attemptRows) || record.attemptRows.length < 2 || record.attemptRows.length > 6 || record.attemptRows.length >= strategicMap.strategicDivinity.godOrder.length || record.attemptRows[0]?.year !== 0 || record.attemptRows[0]?.outcome !== "enduringCity" || record.firstCityId !== record.attemptRows[0].cityId || record.rivalryTrigger !== "firstCityDemonstratedConcentratedWorshipEfficiency" || record.firstEraInfrastructure !== "noIntercityCorridorsOrStrongholds") throw new Error("The First Era requires one Year 0 city, an explicit rivalry trigger, and bounded later origin attempts without intercity infrastructure.");
     for (const [ordinal, attempt] of record.attemptRows.entries()) {
-      if (attempt.id !== `origin-event:${String(ordinal + 1).padStart(2, "0")}` || !ORIGIN_OUTCOMES.includes(attempt.outcome) || !knownGodIds.has(attempt.patronGodId) || patronIds.has(attempt.patronGodId) || !CANONICAL_MOTIVES.includes(attempt.canonicalMotive) || attempt.year < 0 || attempt.year > 120 || (ordinal > 0 && attempt.year <= record.attemptRows[ordinal - 1].year)) throw new Error("A civilization-origin event has invalid chronology, outcome, patron, or motive.");
+      if (attempt.id !== `origin-event:${String(ordinal + 1).padStart(2, "0")}` || !ORIGIN_OUTCOMES.includes(attempt.outcome) || patronIds.has(attempt.patronGodId) || !CANONICAL_MOTIVES.includes(attempt.canonicalMotive) || attempt.year < 0 || attempt.year > 120 || (ordinal > 0 && attempt.year <= record.attemptRows[ordinal - 1].year)) throw new Error("A civilization-origin event has invalid chronology, outcome, patron, or motive.");
       patronIds.add(attempt.patronGodId);
       const god = StrategicDivinity.privateDivineStateFor(strategicMap, attempt.patronGodId);
-      if (god.urbanInterest === "opposed" || god.investmentWillingness === "none") throw new Error("An origin patron must have meaningful urban interest and investment willingness rather than power alone.");
+      if (god.urbanInterest === "opposed" || (god.investmentWillingness === "none" && (ordinal === 0 || attempt.commitmentChange !== "rivalryProvokedInvestment")) || (god.investmentWillingness !== "none" && attempt.commitmentChange)) throw new Error("An origin patron must have meaningful urban interest and either prior investment willingness or a saved rivalry-provoked commitment rather than power alone.");
       const humanSourceIds = new Set(god.worshipSources.filter((source) => source.kind === "human").map((source) => source.sourcePopulationId));
       if (!Array.isArray(attempt.sourcePopulationRows) || !attempt.sourcePopulationRows.length || new Set(attempt.sourcePopulationRows.map((row) => row[0])).size !== attempt.sourcePopulationRows.length || !attempt.sourcePopulationRows.some((row) => humanSourceIds.has(row[0])) || attempt.sourcePopulationRows.reduce((total, row) => total + row[1], 0) !== attempt.initialPopulation) throw new Error("An origin attempt lacks population from its patron's real human worship cohorts.");
       for (const row of attempt.sourcePopulationRows) {

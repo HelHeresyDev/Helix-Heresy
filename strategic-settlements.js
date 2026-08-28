@@ -6,19 +6,20 @@
   const beastEcology = typeof module === "object" && module.exports ? require("./strategic-beast-ecology") : root?.HelixStrategicBeastEcology;
   const religions = typeof module === "object" && module.exports ? require("./strategic-religions") : root?.HelixStrategicReligions;
   const civilizationOrigins = typeof module === "object" && module.exports ? require("./strategic-civilization-origins") : root?.HelixStrategicCivilizationOrigins;
+  const cityExpansion = typeof module === "object" && module.exports ? require("./strategic-city-expansion") : root?.HelixStrategicCityExpansion;
   const nonStateNetworks = typeof module === "object" && module.exports ? require("./strategic-non-state-networks") : root?.HelixStrategicNonStateNetworks;
-  const api = factory(strategicWorld, resourcePotential, humanGeography, cityPolities, beastEcology, religions, civilizationOrigins, nonStateNetworks);
+  const api = factory(strategicWorld, resourcePotential, humanGeography, cityPolities, beastEcology, religions, civilizationOrigins, cityExpansion, nonStateNetworks);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicSettlements = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicSettlementsApi(StrategicWorld, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicReligions, StrategicCivilizationOrigins, StrategicNonStateNetworks) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicSettlementsApi(StrategicWorld, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicReligions, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicNonStateNetworks) {
   "use strict";
 
-  if (!StrategicWorld || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicReligions || !StrategicCivilizationOrigins || !StrategicNonStateNetworks) throw new Error("Strategic settlement dependencies must load before strategic-settlements.js");
+  if (!StrategicWorld || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicReligions || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicNonStateNetworks) throw new Error("Strategic settlement dependencies must load before strategic-settlements.js");
 
   const CITY_PURPOSES = Object.freeze(["resourceAnchor", "independentRefuge"]);
   const DIVINE_AFFILIATIONS = Object.freeze(["chosenRepresentative", "divinelyInvestedChampion", "godAffiliatedHero", "selfPoweredIndependent"]);
   const POWER_CIVIC_RELATIONS = Object.freeze(["sovereignIsFoundingPower", "foundingPowerSupportsSovereign", "foundingCircleSharesAuthority"]);
-  const STRONGHOLD_ADMINISTRATIONS = Object.freeze(["jointCommandCouncil", "locallyElectedServiceCouncil", "appointedCompactAdministrator", "rotatingSponsorCommand"]);
+  const STRONGHOLD_ADMINISTRATIONS = Object.freeze(["jointCommandCouncil", "locallyElectedServiceCouncil", "appointedCompactAdministrator", "rotatingSponsorCommand", "dividedSponsorFacilities", "neutralCompactAdministration"]);
   const SATELLITE_FUNCTIONS = Object.freeze(["agriculture", "extraction", "hunting", "utilityRelay", "corridorService"]);
   const SATELLITE_FORMS = Object.freeze({ agriculture: "farmVillage", extraction: "extractionCamp", hunting: "huntingOutpost", utilityRelay: "utilityStation", corridorService: "serviceTown" });
   const SIZE_BANDS = Object.freeze(["camp", "hamlet", "village", "town"]);
@@ -84,6 +85,10 @@
   }
 
   function refugeCityIndex(seed, map) {
+    if (map.cityExpansionHistory) {
+      const refuge = StrategicCityExpansion.allCitySeeds(map).find((city) => city.independentRefuge);
+      return refuge ? map.humanGeography.cities.findIndex((city) => city.id === refuge.cityId) : -1;
+    }
     if (seededNumber(seed, "independent-refuge-world") >= REFUGE_WORLD_CHANCE) return -1;
     const degrees = new Map(map.humanGeography.cities.map((city) => [city.id, 0]));
     for (const route of map.routeGraph.routes) route.endpointIds.forEach((id) => degrees.set(id, (degrees.get(id) || 0) + 1));
@@ -97,19 +102,19 @@
 
   function createFoundations(seed, map) {
     const refugeIndex = refugeCityIndex(seed, map);
-    const originByCityId = new Map(StrategicCivilizationOrigins.originCitySeeds(map).map((origin) => [origin.cityId, origin]));
+    const historyByCityId = new Map(StrategicCityExpansion.allCitySeeds(map).map((history) => [history.cityId, history]));
     const counts = new Array(RESOURCE_FAMILIES.length).fill(0);
     const rows = map.humanGeography.cities.map((city, cityIndex) => {
       if (cityIndex === refugeIndex) return { purpose: 1, primary: -1, secondary: -1 };
-      const origin = originByCityId.get(city.id);
-      if (origin) {
-        const primary = RESOURCE_FAMILIES.findIndex((family) => family.id === origin.resourcePurposeId);
+      const history = historyByCityId.get(city.id);
+      if (history) {
+        const primary = RESOURCE_FAMILIES.findIndex((family) => family.id === history.resourcePurposeId);
         const secondary = RESOURCE_FAMILIES.map((family, familyIndex) => ({ familyIndex, site: resourceSiteFor(map, cityIndex, familyIndex) }))
           .filter((entry) => entry.familyIndex !== primary)
           .sort((left, right) => right.site.score - left.site.score || left.familyIndex - right.familyIndex)[0].familyIndex;
         counts[primary] += 1;
         counts[secondary] += 1;
-        return { purpose: 0, primary, secondary, origin };
+        return { purpose: 0, primary, secondary, history };
       }
       const ranked = RESOURCE_FAMILIES.map((family, familyIndex) => ({ familyIndex, site: resourceSiteFor(map, cityIndex, familyIndex) }))
         .sort((left, right) => (right.site.score - counts[right.familyIndex] * 155) - (left.site.score - counts[left.familyIndex] * 155) || left.familyIndex - right.familyIndex);
@@ -135,7 +140,7 @@
       const arableValues = localCells(map, StrategicWorld.cellIndex(city.cellId), 3).map((entry) => arablePermille(map, entry.index)).sort((left, right) => right - left).slice(0, 12);
       const arableIndex = arableBandIndex(arableValues.reduce((total, value) => total + value, 0) / Math.max(1, arableValues.length));
       let supplementFlags = 0;
-      if (row.purpose === 0 && !row.origin) {
+      if (row.purpose === 0 && !row.history) {
         [row.primary, row.secondary].forEach((familyIndex, position) => {
           const site = resourceSiteFor(map, cityIndex, familyIndex);
           if (site.score >= 600) return;
@@ -144,11 +149,12 @@
           supplementalEndowmentCodes.push(`${code2(cityIndex)}${familyIndex.toString(36)}${code3(site.index)}${band.toString(36)}`);
         });
       }
-      const powerCount = row.origin?.founderCount ?? (row.purpose === 1 ? 1 : 1 + Math.floor(seededNumber(seed, `founding-power-count:${city.id}`) * 3));
-      const affiliation = row.origin ? DIVINE_AFFILIATIONS.indexOf(row.origin.foundingAffiliation) : (row.purpose === 1 ? 3 : Math.floor(seededNumber(seed, `founding-affiliation:${city.id}`) * 3));
-      const godIndex = row.origin ? map.publicReligionDirectory.gods.findIndex((god) => god.id === row.origin.patronGodId) : (row.purpose === 1 ? -1 : Math.floor(seededNumber(seed, `founding-god:${city.id}`) * map.publicReligionDirectory.gods.length) % map.publicReligionDirectory.gods.length);
-      const civicRelation = row.origin ? POWER_CIVIC_RELATIONS.indexOf(row.origin.civicRelation) : Math.floor(seededNumber(seed, `founding-civic-relation:${city.id}`) * POWER_CIVIC_RELATIONS.length) % POWER_CIVIC_RELATIONS.length;
-      if (row.origin && (affiliation < 0 || godIndex < 0 || civicRelation < 0)) throw new Error(`${city.id} cannot project its authoritative origin founder or patron into the settlement directory.`);
+      const history = row.history || historyByCityId.get(city.id);
+      const powerCount = history?.founderRows?.length ?? (row.purpose === 1 ? 1 : 1 + Math.floor(seededNumber(seed, `founding-power-count:${city.id}`) * 3));
+      const affiliation = history ? DIVINE_AFFILIATIONS.indexOf(history.foundingAffiliation) : (row.purpose === 1 ? 3 : Math.floor(seededNumber(seed, `founding-affiliation:${city.id}`) * 3));
+      const godIndex = history?.patronGodId ? map.publicReligionDirectory.gods.findIndex((god) => god.id === history.patronGodId) : -1;
+      const civicRelation = history ? POWER_CIVIC_RELATIONS.indexOf(history.civicRelation) : Math.floor(seededNumber(seed, `founding-civic-relation:${city.id}`) * POWER_CIVIC_RELATIONS.length) % POWER_CIVIC_RELATIONS.length;
+      if (history && (affiliation < 0 || (!history.independentRefuge && godIndex < 0) || civicRelation < 0)) throw new Error(`${city.id} cannot project its authoritative historical founder or patron into the settlement directory.`);
       return `${row.purpose.toString(36)}${row.primary < 0 ? "z" : row.primary.toString(36)}${row.secondary < 0 ? "z" : row.secondary.toString(36)}${powerCount.toString(36)}${affiliation.toString(36)}${godIndex < 0 ? "z" : godIndex.toString(36)}${civicRelation.toString(36)}${arableIndex.toString(36)}${supplementFlags.toString(36)}`;
     });
     return { foundationRows, supplementalEndowmentCodes, refugeIndex };
@@ -196,6 +202,17 @@
   }
 
   function createStrongholdCodes(seed, map, refugeIndex) {
+    if (map.cityExpansionHistory) {
+      return StrategicCityExpansion.strongholdSeeds(map).map((stronghold) => {
+        const routeIndex = map.routeGraph.routes.findIndex((route) => route.id === stronghold.corridorId);
+        const administration = STRONGHOLD_ADMINISTRATIONS.indexOf(stronghold.administration);
+        const shareBand = [35, 40, 45, 50].indexOf(stronghold.sponsorContributionRows[0][1]);
+        const populationBand = [800, 1800, 4000, 8000].indexOf(stronghold.populationCapacity);
+        const vehicle = VEHICLE_MODES.indexOf(stronghold.serviceMode);
+        if ([routeIndex, administration, shareBand, populationBand, vehicle].some((value) => value < 0)) throw new Error(`${stronghold.id} cannot be projected into the compact stronghold directory.`);
+        return `${code2(routeIndex)}${code2(stronghold.ordinal)}${code3(StrategicWorld.cellIndex(stronghold.cellId))}${administration.toString(36)}${shareBand.toString(36)}${populationBand.toString(36)}${vehicle.toString(36)}`;
+      });
+    }
     const refugeCityId = refugeIndex >= 0 ? map.humanGeography.cities[refugeIndex].id : null;
     const cityCells = new Set(map.humanGeography.cities.map((city) => StrategicWorld.cellIndex(city.cellId)));
     const codes = [];
@@ -222,12 +239,14 @@
     const shareIndex = parseInt(code[8], 36);
     const leftShare = [35, 40, 45, 50][shareIndex];
     const populationCapacity = [800, 1800, 4000, 8000][parseInt(code[9], 36)];
+    const history = map.cityExpansionHistory?.strongholdRows.find((stronghold) => stronghold.corridorId === route.id && stronghold.ordinal === ordinal) || null;
     return {
-      id: `joint-stronghold:${routeIndex.toString(36)}:${ordinal.toString(36)}`,
+      id: history?.id || `joint-stronghold:${routeIndex.toString(36)}:${ordinal.toString(36)}`,
       kind: "jointRouteStronghold",
       name: `${sponsors[0].name}–${sponsors[1].name} Stronghold ${ordinal + 1}`,
       cellId: StrategicWorld.cellId(cellIndex),
       corridorId: route.id,
+      foundingYear: history?.foundingYear ?? null,
       sponsorCityIds: route.endpointIds,
       sponsorContributions: [
         { cityId: route.endpointIds[0], staffingPercent: leftShare, upkeepPercent: leftShare },
@@ -363,6 +382,7 @@
     return {
       sourceResourcePotentialDigest: record.sourceResourcePotentialDigest, sourceHumanGeographyDigest: record.sourceHumanGeographyDigest,
       sourceCivilizationOriginsDigest: record.sourceCivilizationOriginsDigest,
+      sourceCityExpansionDigest: record.sourceCityExpansionDigest,
       sourceCityPolitiesDigest: record.sourceCityPolitiesDigest, sourceBeastEcologyDigest: record.sourceBeastEcologyDigest,
       sourceReligionsDigest: record.sourceReligionsDigest, sourceNonStateNetworksDigest: record.sourceNonStateNetworksDigest,
       publicDirectoryDigest: record.publicDirectoryDigest, supplementalEndowmentCodes: record.supplementalEndowmentCodes,
@@ -391,6 +411,7 @@
       sourceResourcePotentialDigest: strategicMap.resourcePotential.digest,
       sourceHumanGeographyDigest: strategicMap.humanGeography.digest,
       sourceCivilizationOriginsDigest: strategicMap.civilizationOrigins.digest,
+      sourceCityExpansionDigest: strategicMap.cityExpansionHistory?.digest || null,
       sourceCityPolitiesDigest: strategicMap.cityPolities.digest,
       sourceBeastEcologyDigest: strategicMap.beastEcology.digest,
       sourceReligionsDigest: strategicMap.strategicReligions.digest,
@@ -424,6 +445,7 @@
       const polity = map.cityPolities.polities.find((entry) => entry.cityId === city.id);
       const godIndex = row[5] === "z" ? -1 : parseInt(row[5], 36);
       const originEvent = map.publicCivilizationOrigins?.chronology.find((event) => event.cityId === city.id) || null;
+      const expansionEvent = map.publicCityExpansionDirectory?.chronology.find((event) => event.kind === "cityFoundation" && event.city.id === city.id) || null;
       return {
         city: clone(city), polity: clone(polity), foundingPurpose: CITY_PURPOSES[parseInt(row[0], 36)],
         primaryExploitation: row[1] === "z" ? null : clone(readableFamily(parseInt(row[1], 36))),
@@ -435,7 +457,9 @@
         arableLandBand: ARABLE_BANDS[parseInt(row[7], 36)],
         founderEstablishedEndowment: parseInt(row[8], 36) > 0,
         politicallySovereign: true,
-        supportException: row[0] === "1" ? "intentionalIsolationFromGodsAndPolitics" : null,
+        supportException: row[0] === "1"
+          ? "intentionalIsolationFromGodsAndPolitics"
+          : (originEvent && map.routeGraph.routes.every((route) => !route.endpointIds.includes(city.id)) ? "survivingDivineOriginIsolation" : null),
         originHistory: originEvent ? {
           foundingYear: originEvent.year,
           firstCity: originEvent.cityId === map.civilizationOrigins.firstCityId,
@@ -444,6 +468,18 @@
           foundingPopulationBand: originEvent.foundingPopulationBand,
           observedDivineAssistance: clone(originEvent.observedDivineAssistance),
           publicExplanation: originEvent.publicExplanation
+        } : null,
+        foundationHistory: expansionEvent ? {
+          foundingYear: expansionEvent.year,
+          parentCity: clone(expansionEvent.parentCity),
+          originLineageCityId: expansionEvent.originLineageCityId,
+          cause: expansionEvent.cause,
+          relationshipAtFoundation: expansionEvent.relationshipAtFoundation,
+          independentRefuge: expansionEvent.independentRefuge,
+          foundingPopulationBand: expansionEvent.foundingPopulationBand,
+          founders: clone(expansionEvent.founders),
+          supportAtFoundation: expansionEvent.supportAtFoundation,
+          publicExplanation: expansionEvent.publicExplanation
         } : null
       };
     });
@@ -487,7 +523,7 @@
   function validateStrategicSettlements(map, record = map?.strategicSettlements, publicDirectory = map?.publicSettlementDirectory) {
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     StrategicNonStateNetworks.validateStrategicNonStateNetworks(strategicMap);
-    if (!record || !publicDirectory || record.sourceResourcePotentialDigest !== strategicMap.resourcePotential.digest || record.sourceHumanGeographyDigest !== strategicMap.humanGeography.digest || record.sourceCivilizationOriginsDigest !== strategicMap.civilizationOrigins?.digest || record.sourceCityPolitiesDigest !== strategicMap.cityPolities.digest || record.sourceBeastEcologyDigest !== strategicMap.beastEcology.digest || record.sourceReligionsDigest !== strategicMap.strategicReligions.digest || record.sourceNonStateNetworksDigest !== strategicMap.strategicNonStateNetworks.digest || record.publicDirectoryDigest !== publicDirectory.digest) throw new Error("Strategic settlement records are incomplete or source-inconsistent.");
+    if (!record || !publicDirectory || record.sourceResourcePotentialDigest !== strategicMap.resourcePotential.digest || record.sourceHumanGeographyDigest !== strategicMap.humanGeography.digest || record.sourceCivilizationOriginsDigest !== strategicMap.civilizationOrigins?.digest || record.sourceCityExpansionDigest !== (strategicMap.cityExpansionHistory?.digest || null) || record.sourceCityPolitiesDigest !== strategicMap.cityPolities.digest || record.sourceBeastEcologyDigest !== strategicMap.beastEcology.digest || record.sourceReligionsDigest !== strategicMap.strategicReligions.digest || record.sourceNonStateNetworksDigest !== strategicMap.strategicNonStateNetworks.digest || record.publicDirectoryDigest !== publicDirectory.digest) throw new Error("Strategic settlement records are incomplete or source-inconsistent.");
     if (publicDirectory.supportMaximumLegKm !== SUPPORT_MAXIMUM_LEG_KM || JSON.stringify(publicDirectory.jointStrongholdBaseline) !== JSON.stringify(JOINT_STRONGHOLD_BASELINE)) throw new Error("Settlement support or joint-governance baseline is invalid.");
     if (!Array.isArray(publicDirectory.foundationRows) || publicDirectory.foundationRows.length !== strategicMap.humanGeography.cities.length || publicDirectory.foundationRows.some((row) => !/^[01][0-9a-bz]{2}[1-3][0-3][0-9a-z][0-2][0-3][0-3]$/.test(row))) throw new Error("City foundation records are invalid.");
     const familyCodes = new Set(publicDirectory.foundationRows.flatMap((row) => [row[1], row[2]]).filter((code) => code !== "z"));
@@ -495,14 +531,19 @@
     if (!Array.isArray(record.supplementalEndowmentCodes) || record.supplementalEndowmentCodes.some((code) => !/^[0-9a-z]{7}$/.test(code) || parseInt(code.slice(0, 2), 36) >= publicDirectory.foundationRows.length || parseInt(code[2], 36) >= RESOURCE_FAMILIES.length || parseInt(code.slice(3, 6), 36) >= strategicMap.topology.cellCount || ![2, 3].includes(parseInt(code[6], 36)))) throw new Error("Supplemental city endowments are invalid.");
     if (!Array.isArray(publicDirectory.strongholdCodes) || publicDirectory.strongholdCodes.some((code) => !/^[0-9a-z]{11}$/.test(code) || parseInt(code.slice(0, 2), 36) >= strategicMap.routeGraph.routes.length || parseInt(code.slice(4, 7), 36) >= strategicMap.topology.cellCount || parseInt(code[7], 36) >= STRONGHOLD_ADMINISTRATIONS.length || parseInt(code[8], 36) >= 4 || parseInt(code[9], 36) >= 4 || parseInt(code[10], 36) >= VEHICLE_MODES.length)) throw new Error("Joint route strongholds are invalid.");
     const expanded = publicSettlementDirectory(strategicMap);
-    for (const origin of StrategicCivilizationOrigins.originCitySeeds(strategicMap)) {
-      const foundation = expanded.foundations.find((entry) => entry.city.id === origin.cityId);
-      if (!foundation || foundation.foundingPurpose !== "resourceAnchor" || foundation.primaryExploitation?.id !== origin.resourcePurposeId || foundation.foundingPower.exceptionalIndividualCount !== origin.founderCount || foundation.foundingPower.affiliation !== origin.foundingAffiliation || foundation.foundingPower.patronGod?.id !== origin.patronGodId || foundation.foundingPower.civicRelationship !== origin.civicRelation || foundation.originHistory?.foundingYear !== origin.foundingYear) throw new Error(`${origin.cityId} does not preserve its authoritative origin foundation facts.`);
+    for (const history of StrategicCityExpansion.allCitySeeds(strategicMap)) {
+      const foundation = expanded.foundations.find((entry) => entry.city.id === history.cityId);
+      const expectedPurpose = history.independentRefuge ? "independentRefuge" : "resourceAnchor";
+      if (!foundation || foundation.foundingPurpose !== expectedPurpose || (!history.independentRefuge && foundation.primaryExploitation?.id !== history.resourcePurposeId) || foundation.foundingPower.exceptionalIndividualCount !== history.founderRows.length || foundation.foundingPower.affiliation !== history.foundingAffiliation || foundation.foundingPower.patronGod?.id !== (history.patronGodId || undefined) || foundation.foundingPower.civicRelationship !== history.civicRelation || (history.parentCityId ? foundation.foundationHistory?.foundingYear : foundation.originHistory?.foundingYear) !== history.foundingYear) throw new Error(`${history.cityId} does not preserve its authoritative city-foundation history.`);
+    }
+    for (const history of StrategicCityExpansion.strongholdSeeds(strategicMap)) {
+      const stronghold = expanded.strongholds.find((entry) => entry.corridorId === history.corridorId && entry.cellId === history.cellId);
+      if (!stronghold || stronghold.id !== history.id || stronghold.foundingYear !== history.foundingYear || stronghold.administration !== history.administration || stronghold.populationCapacity !== history.populationCapacity || stronghold.serviceMode !== history.serviceMode || JSON.stringify(stronghold.sponsorCityIds) !== JSON.stringify(history.sponsorCityIds)) throw new Error(`${history.id} does not preserve its authoritative stronghold history.`);
     }
     if (expanded.strongholds.some((stronghold) => stronghold.sponsorCityIds.length !== 2 || stronghold.sponsorContributions.reduce((sum, entry) => sum + entry.staffingPercent, 0) !== 100 || stronghold.sponsorContributions.reduce((sum, entry) => sum + entry.upkeepPercent, 0) !== 100 || stronghold.independentlySovereign || stronghold.independentDiplomacy)) throw new Error("Every route stronghold requires exactly two jointly responsible political sponsors.");
     if (expanded.supportRoutes.filter((route) => route.supportCapable).some((route) => route.maximumLegKm > SUPPORT_MAXIMUM_LEG_KM)) throw new Error("A normal city support route exceeds the maximum feasible leg.");
     const supportedCities = new Set(expanded.supportRoutes.filter((route) => route.supportCapable).flatMap((route) => route.sponsorCityIds));
-    if (expanded.foundations.some((foundation) => foundation.foundingPurpose !== "independentRefuge" && !supportedCities.has(foundation.city.id))) throw new Error("Every normal city must have physically feasible mutual support.");
+    if (expanded.foundations.some((foundation) => !foundation.supportException && !supportedCities.has(foundation.city.id))) throw new Error("Every ordinary city without a saved support exception must have physically feasible mutual support.");
     if (!Array.isArray(publicDirectory.satelliteCodes) || publicDirectory.satelliteCodes.length !== publicDirectory.satelliteRoutePaths.length || new Set(publicDirectory.satelliteCodes.map((code) => code.slice(0, 4))).size !== publicDirectory.satelliteCodes.length || publicDirectory.satelliteCodes.some((code) => !/^[cs][0-9a-z]{2}[0-9a-z][0-9a-z]{3}[0-4][0-3][0-3][0-9a-bz][0-3][0-3][1-3][0-3][0-3]$/.test(code))) throw new Error("Satellite settlement records are invalid.");
     const topology = StrategicWorld.topologyForMap(strategicMap);
     for (const satellite of expanded.satellites) {
@@ -537,7 +578,9 @@
       independentRefugesRare: directory.foundations.filter((entry) => entry.foundingPurpose === "independentRefuge").length <= 1,
       powerfulFoundersExplicit: directory.foundations.every((entry) => entry.foundingPower.exceptionalIndividualCount >= 1),
       originFoundationsAuthoritative: StrategicCivilizationOrigins.originCitySeeds(map).every((origin) => directory.foundations.some((foundation) => foundation.city.id === origin.cityId && foundation.primaryExploitation?.id === origin.resourcePurposeId && foundation.foundingPower.patronGod?.id === origin.patronGodId && foundation.originHistory?.foundingYear === origin.foundingYear)),
-      normalCitiesMutuallySupported: directory.foundations.filter((entry) => entry.foundingPurpose !== "independentRefuge").every((entry) => directory.supportRoutes.some((route) => route.supportCapable && route.sponsorCityIds.includes(entry.city.id))),
+      expansionHistoryAuthoritative: StrategicCityExpansion.allCitySeeds(map).every((history) => directory.foundations.some((foundation) => foundation.city.id === history.cityId && (history.independentRefuge || foundation.primaryExploitation?.id === history.resourcePurposeId) && foundation.foundingPower.affiliation === history.foundingAffiliation && (history.parentCityId ? foundation.foundationHistory?.foundingYear : foundation.originHistory?.foundingYear) === history.foundingYear)),
+      strongholdHistoryAuthoritative: StrategicCityExpansion.strongholdSeeds(map).every((history) => directory.strongholds.some((stronghold) => stronghold.id === history.id && stronghold.corridorId === history.corridorId && stronghold.cellId === history.cellId && stronghold.foundingYear === history.foundingYear)),
+      normalCitiesMutuallySupported: directory.foundations.filter((entry) => !entry.supportException).every((entry) => directory.supportRoutes.some((route) => route.supportCapable && route.sponsorCityIds.includes(entry.city.id))),
       supportLegsWithinMaximum: directory.supportRoutes.filter((route) => route.supportCapable).every((route) => route.maximumLegKm <= SUPPORT_MAXIMUM_LEG_KM),
       strongholdsJointlyResponsible: directory.strongholds.every((entry) => entry.sponsorContributions.length === 2 && !entry.independentlySovereign && !entry.independentDiplomacy),
       everySatelliteFunctionCausal: directory.satellites.every((entry) => SATELLITE_FUNCTIONS.includes(entry.function)),
