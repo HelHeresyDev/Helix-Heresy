@@ -20,6 +20,7 @@ function resignSettlements(map) {
   record.digest = `strategic-settlements-${StrategicWorld.stableHash({
     sourceResourcePotentialDigest: record.sourceResourcePotentialDigest,
     sourceHumanGeographyDigest: record.sourceHumanGeographyDigest,
+    sourceCivilizationOriginsDigest: record.sourceCivilizationOriginsDigest,
     sourceCityPolitiesDigest: record.sourceCityPolitiesDigest,
     sourceBeastEcologyDigest: record.sourceBeastEcologyDigest,
     sourceReligionsDigest: record.sourceReligionsDigest,

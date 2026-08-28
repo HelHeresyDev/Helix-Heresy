@@ -195,14 +195,14 @@
     return name;
   }
 
-  function selectRegionCityCells(map, worldSeed, regionIndex, targetCount, minimumSpacingKm) {
+  function selectRegionCityCells(map, worldSeed, regionIndex, targetCount, minimumSpacingKm, fixedIndices = []) {
     const candidates = [];
     for (let index = 0; index < map.topology.cellCount; index += 1) {
       if (map.surface.classes[index] !== "L" || map.surface.regionByCell[index] !== regionIndex) continue;
       candidates.push({ index, score: citySuitabilityPermille(map, index, worldSeed) });
     }
     candidates.sort((left, right) => right.score - left.score || left.index - right.index);
-    const selected = [];
+    const selected = [...fixedIndices];
     for (const candidate of candidates) {
       if (selected.length >= targetCount) break;
       if (selected.every((index) => StrategicWorld.greatCircleDistanceKm(map, index, candidate.index) >= minimumSpacingKm)) {
@@ -404,6 +404,7 @@
       sourceGeologyDigest: record.sourceGeologyDigest,
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
       sourceResourcePotentialDigest: record.sourceResourcePotentialDigest,
+      sourceCivilizationOriginsDigest: record.sourceCivilizationOriginsDigest,
       sourceRouteGraphDigest: record.sourceRouteGraphDigest,
       settings: record.settings,
       cities: record.cities,
@@ -422,20 +423,19 @@
     const maximumCityCount = Math.max(minimumCityCount, Math.floor(Number(options.maximumCityCount) || DEFAULT_MAXIMUM_CITY_COUNT));
     const minimumSpacingKm = Math.max(150, Math.round(Number(options.minimumCitySpacingKm) || DEFAULT_MINIMUM_CITY_SPACING_KM));
     const allocations = allocateCityTargets(strategicMap, { cityCellsPerCity, minimumCityCount, maximumCityCount });
-    const selectedCells = allocations.flatMap((allocation) => selectRegionCityCells(
-      strategicMap,
-      seed,
-      allocation.regionIndex,
-      allocation.target,
-      minimumSpacingKm
-    ));
-    const usedNames = new Set();
+    const originSeeds = (strategicMap.civilizationOrigins?.attemptRows || []).filter((attempt) => attempt.outcome === "enduringCity");
+    const originByCell = new Map(originSeeds.map((attempt) => [StrategicWorld.cellIndex(attempt.siteCellId), attempt]));
+    const selectedCells = allocations.flatMap((allocation) => {
+      const fixedIndices = originSeeds.map((attempt) => StrategicWorld.cellIndex(attempt.siteCellId)).filter((index) => strategicMap.surface.regionByCell[index] === allocation.regionIndex);
+      return selectRegionCityCells(strategicMap, seed, allocation.regionIndex, Math.max(allocation.target, fixedIndices.length), minimumSpacingKm, fixedIndices);
+    });
+    const usedNames = new Set(originSeeds.map((attempt) => attempt.cityName));
     let cities = selectedCells
       .sort((left, right) => left - right)
       .map((index) => ({
         id: `city:${String(index).padStart(5, "0")}`,
         kind: "fortifiedCity",
-        name: generatedCityName(seed, index, usedNames),
+        name: originByCell.get(index)?.cityName || generatedCityName(seed, index, usedNames),
         cellId: StrategicWorld.cellId(index),
         topologyRegionId: strategicMap.surface.regions[strategicMap.surface.regionByCell[index]].id,
         foundingAdvantages: foundingAdvantages(strategicMap, index),
@@ -487,6 +487,7 @@
       sourceGeologyDigest: strategicMap.geology.digest,
       sourceArcaneGeographyDigest: strategicMap.arcaneGeography.digest,
       sourceResourcePotentialDigest: strategicMap.resourcePotential.digest,
+      sourceCivilizationOriginsDigest: strategicMap.civilizationOrigins?.digest || null,
       sourceRouteGraphDigest: StrategicWorld.stableHash(validatedRouteGraph),
       settings: {
         cityCellsPerCity,
@@ -502,7 +503,8 @@
         primaryCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "primary").length,
         redundantCorridorCount: corridors.filter((corridor) => corridor.corridorClass === "redundant").length,
         inhabitedLandRegionCount: new Set(cities.map((city) => city.topologyRegionId)).size,
-        corridorCellCount: existingCells.size
+        corridorCellCount: existingCells.size,
+        originCityCount: originSeeds.length
       }
     };
     record.digest = `human-geography-${StrategicWorld.stableHash(humanGeographyCore(record))}`;
@@ -516,7 +518,8 @@
       || candidate.sourceEnvironmentDigest !== strategicMap.biomes?.digest
       || candidate.sourceGeologyDigest !== strategicMap.geology?.digest
       || candidate.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography?.digest
-      || candidate.sourceResourcePotentialDigest !== strategicMap.resourcePotential?.digest) {
+      || candidate.sourceResourcePotentialDigest !== strategicMap.resourcePotential?.digest
+      || candidate.sourceCivilizationOriginsDigest !== (strategicMap.civilizationOrigins?.digest || null)) {
       throw new Error("Strategic human geography does not match its source geography.");
     }
     const routeGraph = StrategicWorld.validateRouteGraph(strategicMap, strategicMap.routeGraph);
@@ -539,6 +542,10 @@
       cityNames.add(city.name);
       cityCellIds.add(city.cellId);
       cityById.set(city.id, city);
+    }
+    for (const origin of (strategicMap.civilizationOrigins?.attemptRows || []).filter((attempt) => attempt.outcome === "enduringCity")) {
+      const city = cityById.get(origin.cityId);
+      if (!city || city.cellId !== origin.siteCellId || city.name !== origin.cityName) throw new Error(`${origin.cityId} does not preserve its authoritative civilization-origin site and name.`);
     }
     const graphNodeIds = new Set(routeGraph.nodes.map((node) => node.id));
     if (routeGraph.nodes.length !== cityIds.size || graphNodeIds.size !== cityIds.size || [...cityIds].some((id) => !graphNodeIds.has(id))) throw new Error("The route graph does not contain every fortified city node exactly once.");
@@ -645,6 +652,7 @@
     citySuitabilityPermille,
     wildernessExposurePermille,
     leastCostLandPath,
+    generatedCityName,
     createHumanGeography,
     validateHumanGeography,
     attachHumanGeography,

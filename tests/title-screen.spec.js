@@ -54,6 +54,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('aggregated human communities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('agriculture, literacy, metalworking, and established magic before cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('pristine beast ecology preserved');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Year 0 first enduring city');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('disconnected divine origin cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('strategic intercity corridors');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
@@ -197,7 +199,13 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstOrbitalNetworkIndex);
   await expect(page.locator('#strategicCellOrbitalInfrastructure')).toContainText('public launch or relay');
   await expect(page.locator('#strategicSettlementDirectory')).toBeVisible();
+  const originsAudit = await page.evaluate(() => window.helixHeresyDebug.strategicCivilizationOriginsAudit());
+  const publicOrigins = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCivilizationOrigins());
   const publicSettlements = await page.evaluate(() => window.helixHeresyDebug.strategicPublicSettlementDirectory());
+  expect(originsAudit).toMatchObject({ valid: true, firstCityFoundedAtYearZero: true, everyOriginPopulationBacked: true, everySuccessfulOriginMateriallyViable: true, divineAidFiniteAndMaterialLaborRequired: true, qualifiedMinorityAttempts: true, originCitiesInitiallyDisconnected: true, publicChronologyHidesPrivateTruth: true });
+  expect(publicOrigins.chronology.length).toBeGreaterThan(1);
+  expect(JSON.stringify(publicOrigins)).not.toMatch(/canonicalMotive|divinePowerSpent|endingDivineReserve|sourcePopulationId|initialPopulation|materialRows/);
+  await expect(page.locator('.strategic-origin-card')).toHaveCount(publicOrigins.chronology.length);
   expect(publicSettlements.foundations).toHaveLength(31);
   expect(publicSettlements.strongholds.length).toBeGreaterThan(0);
   expect(publicSettlements.satellites.length).toBeGreaterThan(31);
@@ -271,7 +279,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicCrossCityRecognitionAudit())).toMatchObject({ valid: true, everyOrderedCityPairCovered: true, recognitionIsDirectional: true, standingAgreementsAreSparse: true, foreignWarrantsNeverSelfExecute: true, localCustodyOrderAlwaysRequired: true, doubleCriminalityAlwaysRequired: true, deportationAlwaysDistinct: true, wildernessNeverOrdinaryJurisdiction: true, publicDirectoryHidesDiscretion: true, hiddenPolicyCannotAlterDueProcess: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicReligionsAudit())).toMatchObject({ valid: true, everyGodObjectivelyReal: true, everyGodFinite: true, routineDirectCommunication: true, everyGodAvatarCapable: true, exactlyOneConfirmedFaithPerGod: true, noSameGodHeresyOrSchism: true, everyTraditionHasCityStanding: true, everyNetworkNonSovereign: true, everyBranchLocallyBound: true, everyHolySiteDivinelyConfirmed: true, nonTheisticMovementsAcknowledgeGods: true, publicDirectoryHidesDivineAttention: true, publicDirectoryHidesBranchIntegrity: true, hiddenAttentionCannotBePubliclyInferred: true });
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicNonStateNetworksAudit())).toMatchObject({ valid: true, everyCategoryPresent: true, everyNetworkNonSovereign: true, physicalReachLocallyBound: true, globalInternetUsesOrbitalArcaneMesh: true, rocketSpaceflightExists: true, individualSpaceflightExists: true, cityStandingComplete: true, shellOwnershipSeparated: true, publicDirectoryHidesCovertCells: true, playerCompanyExcludedFromCanonicalWorld: true });
-  expect(await page.evaluate(() => window.helixHeresyDebug.strategicSettlementsAudit())).toMatchObject({ valid: true, everyCityHasFoundingReason: true, everyResourceFamilyExploited: true, independentRefugesRare: true, powerfulFoundersExplicit: true, normalCitiesMutuallySupported: true, supportLegsWithinMaximum: true, strongholdsJointlyResponsible: true, everySatelliteFunctionCausal: true, everySatelliteHasPopulationCapacity: true, everySatelliteHasEvacuationPlan: true, publicDirectoryHidesOperationalTruth: true });
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicSettlementsAudit())).toMatchObject({ valid: true, everyCityHasFoundingReason: true, everyResourceFamilyExploited: true, independentRefugesRare: true, powerfulFoundersExplicit: true, originFoundationsAuthoritative: true, normalCitiesMutuallySupported: true, supportLegsWithinMaximum: true, strongholdsJointlyResponsible: true, everySatelliteFunctionCausal: true, everySatelliteHasPopulationCapacity: true, everySatelliteHasEvacuationPlan: true, publicDirectoryHidesOperationalTruth: true });
   expect(snapshot.run).toMatchObject({
     worldId: snapshot.world.id,
     runSeed: 'run-seed-one',
