@@ -18,6 +18,7 @@ function resignReligions(map) {
   delete record.digest;
   record.digest = `strategic-religions-${StrategicWorld.stableHash({
     sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
+    sourceDivinityDigest: record.sourceDivinityDigest,
     sourceBeastEcologyDigest: record.sourceBeastEcologyDigest,
     sourceCityRecognitionDigest: record.sourceCityRecognitionDigest,
     publicDirectoryDigest: record.publicDirectoryDigest,
@@ -42,7 +43,7 @@ test('real finite gods, communication, avatars, and public facts are determinist
     routineDirectCommunication: true,
     everyGodAvatarCapable: true,
   });
-  for (const god of map.publicReligionDirectory.gods) {
+  for (const god of Religions.publicReligionDirectory(map).gods) {
     expect(god).toMatchObject({
       kind: 'realFiniteGod',
       objectiveExistence: 'confirmed',
@@ -51,6 +52,7 @@ test('real finite gods, communication, avatars, and public facts are determinist
       attentionFinite: true,
       communication: { routine: true, faithfulMayReceiveDirectReplies: true, identityVerification: 'repeatableDivineSignature' },
       avatarManifestation: { possible: true, strategicallySignificant: true },
+      divineStanding: { rank: expect.stringMatching(/^(minor|major)$/), publicStatus: 'active', exactPowerPublic: false },
     });
   }
 });
