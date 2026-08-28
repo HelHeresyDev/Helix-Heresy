@@ -59,7 +59,7 @@ test('seasonal migrations use eligible species, saved adjacency, movement realms
 test('every city is attackable without requiring migration or a current wave profile', () => {
   const map = generatedWorld('pressure-probe-a');
   const audit = BeastEcology.auditBeastEcology(map);
-  expect(audit).toMatchObject({ everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true });
+  expect(audit).toMatchObject({ everyCityAttackable: true, causalWaveProfiles: true, sharedThreatsUseWarningProtocols: true, currentPressureMarkedProvisionalUntilHistory: true });
   expect(audit.cityAttackExposureCount).toBe(map.humanGeography.cities.length);
   expect(audit.waveProfileCount).toBeGreaterThan(0);
   expect(audit.citiesWithoutWaveProfiles).toBeGreaterThan(0);

@@ -17,6 +17,7 @@
   const StrategicHumanGeography = window.HelixStrategicHumanGeography;
   const StrategicCityPolities = window.HelixStrategicCityPolities;
   const StrategicBeastEcology = window.HelixStrategicBeastEcology;
+  const StrategicPreUrbanHumanity = window.HelixStrategicPreUrbanHumanity;
   const StrategicCityGovernments = window.HelixStrategicCityGovernments;
   const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
@@ -25,7 +26,7 @@
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicFaiths || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicFaiths || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12519,6 +12520,21 @@
           ? StrategicBeastEcology.auditBeastEcology(world.generatedData.strategicMap)
           : null;
       },
+      strategicPristineBeastEcologyAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.pristineBeastEcology ? StrategicBeastEcology.auditPristineBeastEcology(map) : null;
+      },
+      strategicPreUrbanHumanityAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.preUrbanHumanity ? StrategicPreUrbanHumanity.auditPreUrbanHumanity(map) : null;
+      },
+      strategicPublicPreUrbanOverview: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.preUrbanHumanity ? StrategicPreUrbanHumanity.publicPreUrbanOverview(map) : null;
+      },
       strategicPublicBeastSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
         return world?.generatedData?.strategicMap?.publicBeastAtlas
@@ -14926,7 +14942,7 @@
       description.textContent = entry.species.description;
       const facts = document.createElement("p");
       facts.className = "journal-meta";
-      facts.textContent = `${readable(entry.species.intelligenceBand)} intelligence · ${entry.species.movementModes.map(readable).join(", ")} · ${readable(entry.species.socialPattern)} · ${entry.reportedPopulationCount} reported population ranges · ${entry.knownLairCount} known lairs · ${readable(entry.highestConfidence)} best confidence`;
+      facts.textContent = `${readable(entry.species.intelligenceBand)} intelligence · ${entry.species.movementModes.map(readable).join(", ")} · ${readable(entry.species.socialPattern)} · ${readable(entry.pristinePopulationBand)} reconstructed pre-urban distribution · exact pristine counts hidden · ${entry.reportedPopulationCount} current reported population ranges · ${entry.knownLairCount} known lairs · ${readable(entry.highestConfidence)} best confidence`;
       card.append(heading, description, facts);
       dom.strategicBeastBestiaryList.append(card);
     }
@@ -15006,6 +15022,9 @@
     const resourceSummary = map.publicResourceProspects
       ? ` · ${map.resourcePotential.diagnostics.representedFamilyCount} resource families · public prospectivity only`
       : (map.arcaneGeography ? " · Resource potential unavailable in this saved world" : "");
+    const preUrbanSummary = map.preUrbanHumanity && map.pristineBeastEcology
+      ? ` · ${map.preUrbanHumanity.diagnostics.peopleCount} pre-urban peoples · ${map.preUrbanHumanity.diagnostics.populationGroupCount} aggregated human communities · agriculture, literacy, metalworking, and established magic before cities · pristine beast ecology preserved`
+      : (map.publicResourceProspects ? " · Pre-urban humanity and pristine beast ecology unavailable in this saved world" : "");
     const humanGeographySummary = map.humanGeography
       ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} strategic intercity corridors`
       : (map.publicResourceProspects ? " · Human geography unavailable in this saved world" : "");
@@ -15033,7 +15052,7 @@
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
