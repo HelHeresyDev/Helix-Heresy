@@ -14682,6 +14682,8 @@
       heading.append(strong, ` · ${god.epithet}`);
       const summary = document.createElement("p");
       summary.textContent = `${god.publicSummary} Domains: ${god.domains.map(readable).join(", ")}.`;
+      const divineStanding = document.createElement("p");
+      divineStanding.textContent = `${readable(god.divineStanding.rank)} god · ${readable(god.divineStanding.publicStatus)} · ${readable(god.divineStanding.powerCondition)} observable power · exact reserves and mortal origin are not public.`;
       const communication = document.createElement("p");
       communication.textContent = `Routine communication: ${god.communication.methods.join("; ")} · repeatable divine signature · faithful may receive direct replies.`;
       const avatar = document.createElement("p");
@@ -14696,7 +14698,7 @@
       const relationSummary = document.createElement("p");
       relationSummary.className = "journal-meta";
       relationSummary.textContent = `Divine relations: ${relations.join(" · ") || "none"}. One god, one confirmed faith; same-god heresy and doctrinal schism do not exist.`;
-      card.append(heading, summary, communication, avatar, doctrine, relationSummary);
+      card.append(heading, summary, divineStanding, communication, avatar, doctrine, relationSummary);
       dom.strategicGodList.append(card);
     }
     const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));

@@ -41,16 +41,19 @@
   const strategicReligions = typeof module === "object" && module.exports
     ? require("./strategic-religions")
     : root?.HelixStrategicReligions;
+  const strategicDivinity = typeof module === "object" && module.exports
+    ? require("./strategic-divinity")
+    : root?.HelixStrategicDivinity;
   const strategicNonStateNetworks = typeof module === "object" && module.exports
     ? require("./strategic-non-state-networks")
     : root?.HelixStrategicNonStateNetworks;
   const strategicSettlements = typeof module === "object" && module.exports
     ? require("./strategic-settlements")
     : root?.HelixStrategicSettlements;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicNonStateNetworks, strategicSettlements);
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicNonStateNetworks, strategicSettlements);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicNonStateNetworks, StrategicSettlements) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicNonStateNetworks, StrategicSettlements) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -67,6 +70,7 @@
   if (!StrategicCityLaws) throw new Error("HelixStrategicCityLaws must load before world-run-library.js");
   if (!StrategicCityRecognition) throw new Error("HelixStrategicCityRecognition must load before world-run-library.js");
   if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before world-run-library.js");
+  if (!StrategicDivinity) throw new Error("HelixStrategicDivinity must load before world-run-library.js");
   if (!StrategicNonStateNetworks) throw new Error("HelixStrategicNonStateNetworks must load before world-run-library.js");
   if (!StrategicSettlements) throw new Error("HelixStrategicSettlements must load before world-run-library.js");
 
@@ -225,6 +229,7 @@
       }
       if (generationVersion >= 7) {
         generatedStrategicMap = StrategicResourcePotential.attachResourcePotential(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicDivinity.attachPreCivicDivinity(worldSeed, worldTheme, generatedStrategicMap);
       }
       if (generationVersion >= 8) {
         generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);
@@ -286,6 +291,7 @@
     if (generationVersion >= 5) StrategicGeology.validateStrategicGeology(generatedData.strategicMap);
     if (generationVersion >= 6) StrategicArcaneGeography.validateStrategicArcaneGeography(generatedData.strategicMap);
     if (generationVersion >= 7) StrategicResourcePotential.validateStrategicResources(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicDivinity || generatedData.strategicMap?.publicDivinityDirectory) StrategicDivinity.validatePreCivicDivinity(generatedData.strategicMap);
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
     if (generationVersion >= 9) StrategicCityPolities.validateCityPolities(generatedData.strategicMap);
     if (generatedData.strategicMap?.beastEcology || generatedData.strategicMap?.publicBeastAtlas) StrategicBeastEcology.validateBeastEcology(generatedData.strategicMap);

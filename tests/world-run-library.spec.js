@@ -67,6 +67,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         magicalHazards: { diagnostics: { highHazardCellCount: expect.any(Number) } },
         resourcePotential: { diagnostics: { representedFamilyCount: 12 } },
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
+        strategicDivinity: { diagnostics: { godCount: expect.any(Number), livingGodCount: expect.any(Number), descendedGodCount: 0, deadGodCount: 0 } },
+        publicDivinityDirectory: { godStateRows: expect.any(Array) },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
         cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
         beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), migrationCount: expect.any(Number), attackableCityCount: expect.any(Number), waveProfileCount: expect.any(Number) } },
@@ -143,6 +145,8 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicCrossCityRecognitionDirectory;
     delete map.strategicReligions;
     delete map.publicReligionDirectory;
+    delete map.strategicDivinity;
+    delete map.publicDivinityDirectory;
     delete map.strategicNonStateNetworks;
     delete map.publicNonStateNetworkDirectory;
     delete map.strategicSettlements;
