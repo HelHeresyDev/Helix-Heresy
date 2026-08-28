@@ -53,16 +53,19 @@
   const strategicCivilizationOrigins = typeof module === "object" && module.exports
     ? require("./strategic-civilization-origins")
     : root?.HelixStrategicCivilizationOrigins;
+  const strategicCityExpansion = typeof module === "object" && module.exports
+    ? require("./strategic-city-expansion")
+    : root?.HelixStrategicCityExpansion;
   const strategicNonStateNetworks = typeof module === "object" && module.exports
     ? require("./strategic-non-state-networks")
     : root?.HelixStrategicNonStateNetworks;
   const strategicSettlements = typeof module === "object" && module.exports
     ? require("./strategic-settlements")
     : root?.HelixStrategicSettlements;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicNonStateNetworks, strategicSettlements);
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicNonStateNetworks, strategicSettlements);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicNonStateNetworks, StrategicSettlements) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicNonStateNetworks, StrategicSettlements) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -83,6 +86,7 @@
   if (!StrategicDivinity) throw new Error("HelixStrategicDivinity must load before world-run-library.js");
   if (!StrategicFaiths) throw new Error("HelixStrategicFaiths must load before world-run-library.js");
   if (!StrategicCivilizationOrigins) throw new Error("HelixStrategicCivilizationOrigins must load before world-run-library.js");
+  if (!StrategicCityExpansion) throw new Error("HelixStrategicCityExpansion must load before world-run-library.js");
   if (!StrategicNonStateNetworks) throw new Error("HelixStrategicNonStateNetworks must load before world-run-library.js");
   if (!StrategicSettlements) throw new Error("HelixStrategicSettlements must load before world-run-library.js");
 
@@ -246,6 +250,7 @@
         generatedStrategicMap = StrategicDivinity.attachPreCivicDivinity(worldSeed, worldTheme, generatedStrategicMap);
         generatedStrategicMap = StrategicFaiths.attachPreCivicFaiths(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCivilizationOrigins.attachCivilizationOrigins(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicCityExpansion.attachCityExpansionHistory(worldSeed, generatedStrategicMap, { historicalHorizonYear: playableYear });
       }
       if (generationVersion >= 8) {
         generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);
@@ -310,6 +315,7 @@
     if (generatedData.strategicMap?.strategicDivinity || generatedData.strategicMap?.publicDivinityDirectory) StrategicDivinity.validatePreCivicDivinity(generatedData.strategicMap);
     if (generatedData.strategicMap?.preCivicFaiths || generatedData.strategicMap?.publicPreCivicFaithDirectory) StrategicFaiths.validatePreCivicFaiths(generatedData.strategicMap);
     if (generatedData.strategicMap?.civilizationOrigins || generatedData.strategicMap?.publicCivilizationOrigins) StrategicCivilizationOrigins.validateCivilizationOrigins(generatedData.strategicMap);
+    if (generatedData.strategicMap?.cityExpansionHistory || generatedData.strategicMap?.publicCityExpansionDirectory) StrategicCityExpansion.validateCityExpansionHistory(generatedData.strategicMap);
     if (generatedData.strategicMap?.pristineBeastEcology) StrategicBeastEcology.validatePristineBeastEcology(generatedData.strategicMap);
     if (generatedData.strategicMap?.preUrbanHumanity || generatedData.strategicMap?.publicPreUrbanOverview) StrategicPreUrbanHumanity.validatePreUrbanHumanity(generatedData.strategicMap);
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);

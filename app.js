@@ -25,10 +25,11 @@
   const StrategicDivinity = window.HelixStrategicDivinity;
   const StrategicFaiths = window.HelixStrategicFaiths;
   const StrategicCivilizationOrigins = window.HelixStrategicCivilizationOrigins;
+  const StrategicCityExpansion = window.HelixStrategicCityExpansion;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12212,6 +12213,7 @@
       "strategicNetworkAffiliateList",
       "strategicSettlementDirectory",
       "strategicOriginsChronology",
+      "strategicExpansionChronology",
       "strategicFoundationList",
       "strategicStrongholdList",
       "settlementParentSelect",
@@ -12491,6 +12493,16 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCivilizationOrigins ? StrategicCivilizationOrigins.publicCivilizationOrigins(map) : null;
+      },
+      strategicCityExpansionAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.cityExpansionHistory ? StrategicCityExpansion.auditCityExpansionHistory(map) : null;
+      },
+      strategicPublicCityExpansion: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCityExpansionDirectory ? StrategicCityExpansion.publicCityExpansion(map) : null;
       },
       strategicPublicReligionDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
@@ -14874,6 +14886,7 @@
 
   function renderStrategicSettlementDirectory(map) {
     dom.strategicOriginsChronology.textContent = "";
+    dom.strategicExpansionChronology.textContent = "";
     dom.strategicFoundationList.textContent = "";
     dom.strategicStrongholdList.textContent = "";
     dom.settlementParentSelect.textContent = "";
@@ -14900,6 +14913,36 @@
       card.append(heading, foundation, founders, account);
       dom.strategicOriginsChronology.append(card);
     }
+    const expansion = map.publicCityExpansionDirectory ? StrategicCityExpansion.publicCityExpansion(map) : null;
+    for (const event of expansion?.chronology || []) {
+      const card = document.createElement("details");
+      card.className = "strategic-expansion-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      if (event.kind === "cityFoundation") strong.textContent = `Year ${event.year} · ${event.city.name}`;
+      else if (event.kind === "failedExpansion") strong.textContent = `Year ${event.year} · ${event.retainedConsequence.name}`;
+      else strong.textContent = `Year ${event.year} · ${event.endpointCities.map((city) => city.name).join("–")}`;
+      heading.append(strong, ` · ${readable(event.kind)}`);
+      const facts = document.createElement("p");
+      if (event.kind === "cityFoundation") {
+        facts.textContent = `${event.parentCity.name} lineage · ${readable(event.cause)} · ${readable(event.relationshipAtFoundation)} at foundation · ${event.resourcePurpose.label} · ${readable(event.foundingPopulationBand)} · ${event.independentRefuge ? "intentionally disconnected refuge" : "parent support corridor"}.`;
+      } else if (event.kind === "failedExpansion") {
+        facts.textContent = `${event.sponsorCity.name} sponsored the failed project at ${event.siteCellId}; the ${readable(event.retainedConsequence.kind)} remains.`;
+      } else {
+        facts.textContent = `${event.endpointCities.map((city) => city.name).join(" and ")} · ${event.lengthKm.toLocaleString()} km · ${event.strongholdCount} jointly maintained stronghold${event.strongholdCount === 1 ? "" : "s"} · ${readable(event.relationshipAtConstruction)} · ${readable(event.administration)}.`;
+      }
+      const account = document.createElement("p");
+      account.className = "journal-meta";
+      account.textContent = event.publicExplanation;
+      card.append(heading, facts, account);
+      dom.strategicExpansionChronology.append(card);
+    }
+    if (expansion) {
+      const componentSummary = document.createElement("p");
+      componentSummary.className = "journal-meta";
+      componentSummary.textContent = `${expansion.currentSupportComponents.length} current physical support component${expansion.currentSupportComponents.length === 1 ? "" : "s"}. Connectivity does not imply common government, religion, diplomacy, or allegiance.`;
+      dom.strategicExpansionChronology.prepend(componentSummary);
+    }
     for (const foundation of directory.foundations) {
       const card = document.createElement("details");
       card.className = "strategic-foundation-card";
@@ -14918,7 +14961,9 @@
       origin.className = "journal-meta";
       origin.textContent = foundation.originHistory
         ? `${foundation.originHistory.firstCity ? "First enduring city" : "Rival origin city"} · founded Year ${foundation.originHistory.foundingYear} · ${readable(foundation.originHistory.foundingPopulationBand)} · initially an independent support component without corridors or strongholds · recorded founders: ${foundation.originHistory.founders.map((founder) => founder.name).join(", ")}`
-        : "Later foundation; detailed lineage awaits the city-expansion history pass.";
+        : foundation.foundationHistory
+          ? `Founded Year ${foundation.foundationHistory.foundingYear} from ${foundation.foundationHistory.parentCity.name} · ${readable(foundation.foundationHistory.cause)} · ${readable(foundation.foundationHistory.relationshipAtFoundation)} · ${readable(foundation.foundationHistory.supportAtFoundation)} · recorded founders: ${foundation.foundationHistory.founders.map((founder) => founder.name).join(", ")}`
+          : "Later foundation history unavailable in this saved world.";
       card.append(heading, purpose, power, origin);
       dom.strategicFoundationList.append(card);
       const option = document.createElement("option");
@@ -15079,6 +15124,9 @@
     const originsSummary = map.publicCivilizationOrigins
       ? ` · Year 0 first enduring city · ${map.civilizationOrigins.diagnostics.successfulOriginCityCount} disconnected divine origin cities · ${map.civilizationOrigins.diagnostics.retainedFailureCount} retained failed foundation${map.civilizationOrigins.diagnostics.retainedFailureCount === 1 ? "" : "s"}`
       : (map.preUrbanHumanity ? " · Civilization origins unavailable in this saved world" : "");
+    const expansionSummary = map.publicCityExpansionDirectory
+      ? ` · ${map.cityExpansionHistory.diagnostics.laterCityCount} later sovereign foundations · ${map.cityExpansionHistory.diagnostics.lineageCorridorCount} lineage support corridors · ${map.cityExpansionHistory.diagnostics.bridgeCorridorCount} component bridges · ${map.cityExpansionHistory.diagnostics.currentSupportComponentCount} current physical support components`
+      : (map.publicCivilizationOrigins ? " · Later city-expansion history unavailable in this saved world" : "");
     const humanGeographySummary = map.humanGeography
       ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} strategic intercity corridors`
       : (map.publicResourceProspects ? " · Human geography unavailable in this saved world" : "");
@@ -15106,7 +15154,7 @@
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
