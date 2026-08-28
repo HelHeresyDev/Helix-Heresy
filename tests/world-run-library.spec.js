@@ -69,6 +69,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicResourceProspects: { diagnostics: { representedDominantProspectCount: 12 } },
         strategicDivinity: { diagnostics: { godCount: expect.any(Number), livingGodCount: expect.any(Number), descendedGodCount: 0, deadGodCount: 0 } },
         publicDivinityDirectory: { godStateRows: expect.any(Array) },
+        preCivicFaiths: { diagnostics: { faithCount: expect.any(Number), activelyConfirmedFaithCount: expect.any(Number), holySiteCount: expect.any(Number) } },
+        publicPreCivicFaithDirectory: { faithRows: expect.any(Array), holySiteRows: expect.any(Array) },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
         cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
         beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), migrationCount: expect.any(Number), attackableCityCount: expect.any(Number), waveProfileCount: expect.any(Number) } },
@@ -80,7 +82,7 @@ test('world names, years, and canonical digests are deterministic and stable', (
         crossCityRecognition: { diagnostics: { directedPairCount: expect.any(Number), standingAgreementCount: expect.any(Number), standingExtraditionReviewCount: expect.any(Number) } },
         publicCrossCityRecognitionDirectory: { cityOrder: expect.any(Array), profileRows: expect.any(Array) },
         strategicReligions: { diagnostics: { godCount: expect.any(Number), confirmedDivineFaithCount: expect.any(Number), branchCount: expect.any(Number), holySiteCount: expect.any(Number), avatarCapableGodCount: expect.any(Number) } },
-        publicReligionDirectory: { gods: expect.any(Array), traditions: expect.any(Array), standingRows: expect.any(Array), holySites: expect.any(Array) },
+        publicReligionDirectory: { gods: expect.any(Array), traditions: expect.any(Array), standingRows: expect.any(Array), preCivicFaithDirectoryDigest: expect.any(String) },
         strategicNonStateNetworks: { diagnostics: { networkCount: 21, categoryCount: 7, publicBranchCount: expect.any(Number), affiliateCount: 15, covertCellCount: expect.any(Number) } },
         publicNonStateNetworkDirectory: { networkRecords: expect.any(Array), standingRows: expect.any(Array), publicBranchCodes: expect.any(Array), publicRelationCodes: expect.any(Array), affiliateCodes: expect.any(Array), cellFeatures: expect.any(Array) },
         strategicSettlements: { diagnostics: { resourceAnchorCount: expect.any(Number), independentRefugeCount: expect.any(Number), representedExploitationFamilyCount: 12, jointRouteStrongholdCount: expect.any(Number), satelliteSettlementCount: expect.any(Number) } },
@@ -147,6 +149,8 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicReligionDirectory;
     delete map.strategicDivinity;
     delete map.publicDivinityDirectory;
+    delete map.preCivicFaiths;
+    delete map.publicPreCivicFaithDirectory;
     delete map.strategicNonStateNetworks;
     delete map.publicNonStateNetworkDirectory;
     delete map.strategicSettlements;

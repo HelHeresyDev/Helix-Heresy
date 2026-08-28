@@ -21,10 +21,11 @@
   const StrategicCityLaws = window.HelixStrategicCityLaws;
   const StrategicCityRecognition = window.HelixStrategicCityRecognition;
   const StrategicReligions = window.HelixStrategicReligions;
+  const StrategicFaiths = window.HelixStrategicFaiths;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicFaiths || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12455,6 +12456,18 @@
           ? StrategicReligions.auditStrategicReligions(world.generatedData.strategicMap)
           : null;
       },
+      strategicPreCivicFaithsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.preCivicFaiths
+          ? StrategicFaiths.auditPreCivicFaiths(map)
+          : null;
+      },
+      strategicPublicFaithDirectory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicPreCivicFaithDirectory ? StrategicFaiths.publicFaithDirectory(map) : null;
+      },
       strategicPublicReligionDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
@@ -14670,10 +14683,12 @@
     dom.religionCityStandingList.textContent = "";
     dom.strategicHolySiteList.textContent = "";
     const directory = map?.publicReligionDirectory ? StrategicReligions.publicReligionDirectory(map) : null;
+    const faithDirectory = map?.publicPreCivicFaithDirectory ? StrategicFaiths.publicFaithDirectory(map) : null;
     dom.strategicReligionDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
     for (const god of directory.gods) {
+      const faith = faithDirectory?.faiths.find((entry) => entry.godId === god.id);
       const card = document.createElement("details");
       card.className = "strategic-god-card";
       const heading = document.createElement("summary");
@@ -14690,7 +14705,19 @@
       avatar.textContent = `Finite avatars: ${god.avatarManifestation.forms.join("; ")} · ${readable(god.avatarManifestation.fullManifestationCost)} full-manifestation cost.`;
       const doctrine = document.createElement("p");
       doctrine.className = "journal-meta";
-      doctrine.textContent = `Confirmed doctrine: ${Object.entries(god.doctrine).map(([topic, position]) => `${readable(topic)} — ${readable(position)}`).join(" · ")}`;
+      doctrine.textContent = faith
+        ? `Core tenets: ${faith.coreTenets.map((entry) => entry.summary).join(" · ")} Commandments: ${faith.commandments.map((entry) => entry.summary).join(" · ")} Prohibitions: ${faith.prohibitions.map((entry) => entry.summary).join(" · ")}`
+        : `Confirmed doctrine: ${Object.entries(god.doctrine).map(([topic, position]) => `${readable(topic)} — ${readable(position)}`).join(" · ")}`;
+      const practice = document.createElement("p");
+      practice.className = "journal-meta";
+      practice.textContent = faith
+        ? `Finite promises: ${faith.promises.map((entry) => entry.summary).join(" · ")} Acceptable methods: ${faith.acceptableMethods.map((entry) => entry.summary).join(" · ")} Forbidden methods: ${faith.unacceptableMethods.map((entry) => entry.summary).join(" · ")}`
+        : "";
+      const socialTeaching = document.createElement("p");
+      socialTeaching.className = "journal-meta";
+      socialTeaching.textContent = faith
+        ? `Outsiders: ${faith.outsiderTreatment.summary}. Civic teaching: ${faith.civicTeaching.summary} Urban teaching: ${faith.urbanTeaching.summary} Verified conduct: ${faith.verifiedConduct.map((entry) => readable(entry.kind)).join(", ")}.`
+        : "";
       const relations = directory.divineRelations.filter((relation) => relation.godIds.includes(god.id)).map((relation) => {
         const counterpartId = relation.godIds.find((id) => id !== god.id);
         return `${directory.gods.find((entry) => entry.id === counterpartId)?.name || counterpartId}: ${readable(relation.relation)}`;
@@ -14698,7 +14725,7 @@
       const relationSummary = document.createElement("p");
       relationSummary.className = "journal-meta";
       relationSummary.textContent = `Divine relations: ${relations.join(" · ") || "none"}. One god, one confirmed faith; same-god heresy and doctrinal schism do not exist.`;
-      card.append(heading, summary, divineStanding, communication, avatar, doctrine, relationSummary);
+      card.append(heading, summary, divineStanding, communication, avatar, doctrine, practice, socialTeaching, relationSummary);
       dom.strategicGodList.append(card);
     }
     const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
@@ -14724,7 +14751,7 @@
       const god = directory.gods.find((entry) => entry.id === site.godId);
       const item = document.createElement("p");
       item.className = "strategic-holy-site-entry";
-      item.textContent = `${site.name} — ${god?.name || site.godId} · ${site.cellId} · ${readable(site.siteKind)} · ${readable(site.accessClass)} · routine, repeatable divine activity · recognized avatar anchor`;
+      item.textContent = `${site.name} — ${god?.name || site.godId} · ${site.cellId} · ${readable(site.siteKind)} · ${readable(site.significance)} significance · ${readable(site.accessClass)} · active and divinely confirmed · pre-civic physical or arcane origin · routine communication needs no holy site`;
       dom.strategicHolySiteList.append(item);
     }
   }
@@ -14998,7 +15025,7 @@
       ? ` · ${map.crossCityRecognition.diagnostics.directedPairCount.toLocaleString()} directional city-pair recognition policies · foreign warrants require local orders`
       : (map.publicCityLawDirectory ? " · Cross-city recognition unavailable in this saved world" : "");
     const religionSummary = map.publicReligionDirectory
-      ? ` · ${map.strategicReligions.diagnostics.godCount} real communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} confirmed strategic holy sites · one faith per god`
+      ? ` · ${map.strategicReligions.diagnostics.godCount} real communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} pre-civic confirmed holy sites · one semantic confirmed faith per actively divine god`
       : (map.publicCrossCityRecognitionDirectory ? " · Religions and holy sites unavailable in this saved world" : "");
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`

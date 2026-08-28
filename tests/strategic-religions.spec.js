@@ -19,6 +19,7 @@ function resignReligions(map) {
   record.digest = `strategic-religions-${StrategicWorld.stableHash({
     sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
     sourceDivinityDigest: record.sourceDivinityDigest,
+    sourcePreCivicFaithDigest: record.sourcePreCivicFaithDigest,
     sourceBeastEcologyDigest: record.sourceBeastEcologyDigest,
     sourceCityRecognitionDigest: record.sourceCityRecognitionDigest,
     publicDirectoryDigest: record.publicDirectoryDigest,
@@ -59,14 +60,14 @@ test('real finite gods, communication, avatars, and public facts are determinist
 
 test('each god confirms exactly one faith with no same-god heresy or schism', () => {
   const map = generatedMap('one-faith-per-god', 'grim');
-  const directory = map.publicReligionDirectory;
+  const directory = Religions.publicReligionDirectory(map);
   const divineFaiths = directory.traditions.filter((tradition) => tradition.kind === 'confirmedDivineFaith');
 
   expect(divineFaiths).toHaveLength(directory.gods.length);
   for (const god of directory.gods) {
     const faiths = divineFaiths.filter((faith) => faith.deityIds[0] === god.id);
     expect(faiths).toHaveLength(1);
-    expect(faiths[0]).toMatchObject({ doctrinalSchismAvailable: false, sameGodHeresyClaimsValid: false, correctionAuthority: god.id, correctionChannel: 'routineDirectDivineCommunication' });
+    expect(faiths[0]).toMatchObject({ preCivicFaithId: faiths[0].id, confirmationState: 'activelyConfirmed', doctrinalSchismAvailable: false, sameGodHeresyClaimsValid: false, correctionAuthority: god.id, correctionChannel: 'routineDirectDivineCommunication', confirmedDoctrine: god.doctrine });
     expect(directory.networks.filter((network) => network.traditionId === faiths[0].id)).toEqual([
       expect.objectContaining({ kind: 'singleGodChurchNetwork', recognizedByDeityId: god.id, sovereignAuthority: false, physicalAuthority: 'localBranchesOnly' }),
     ]);
@@ -94,15 +95,16 @@ test('every city publishes standing while physical branches remain locally bound
 
 test('holy sites are unique physical and divinely confirmed strategic facts', () => {
   const map = generatedMap('confirmed-holy-sites');
-  const directory = map.publicReligionDirectory;
+  const directory = Religions.publicReligionDirectory(map);
 
-  expect(directory.holySites).toHaveLength(directory.gods.length);
+  expect(directory.holySites.length).toBe(map.preCivicFaiths.diagnostics.holySiteCount);
   expect(new Set(directory.holySites.map((site) => site.cellId)).size).toBe(directory.holySites.length);
   for (const site of directory.holySites) {
     const index = StrategicWorld.cellIndex(site.cellId);
     expect(index).toBeGreaterThanOrEqual(0);
     expect(index).toBeLessThan(map.topology.cellCount);
-    expect(site).toMatchObject({ confirmedByGod: true, divineActivity: 'routineAndRepeatable', publicEffects: expect.arrayContaining(['recognizedAvatarManifestationAnchor']) });
+    expect(site).toMatchObject({ confirmedByGod: true, divineActivity: 'active', routineCommunicationRequired: false, publicEffects: expect.arrayContaining(['boundedManifestationSupport']) });
+    expect(site.causalFactors.join(' ')).not.toMatch(/city|corridor|beastPressure|population/i);
     expect(Religions.cellPublicReligionSnapshot(map, index).holySites).toContainEqual(site);
   }
   expect(GlobeRenderer.availableLayers(map)).toContain('religions');

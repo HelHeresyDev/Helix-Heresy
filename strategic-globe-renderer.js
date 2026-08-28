@@ -517,8 +517,8 @@
 
     function renderReligionOverlay(centerX, centerY, radius) {
       if (layer !== "religions" || !map?.publicReligionDirectory) return;
-      for (const site of map.publicReligionDirectory.holySites) {
-        const index = StrategicWorld.cellIndex(site.cellId);
+      for (const siteRow of map.publicPreCivicFaithDirectory?.holySiteRows || []) {
+        const index = siteRow[3];
         const center = rotateVector(topology.vertices[index], yaw, pitch);
         if (center[2] <= 0.012) continue;
         const x = centerX + center[0] * radius;

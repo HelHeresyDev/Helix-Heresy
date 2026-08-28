@@ -64,7 +64,7 @@
       organizationPermille: integerBetween(seed, "organization", 280, 920),
       ritualInfrastructurePermille: integerBetween(seed, "ritual", 120, 840),
       offeringPermille: integerBetween(seed, "offerings", 100, 780),
-      holySiteSupportPermille: integerBetween(seed, "holy-site", 0, 500),
+      holySiteSupportPermille: 0,
       coercedWorshipPermille: integerBetween(seed, "coerced", 0, 280),
       receptionEfficiencyPermille: integerBetween(seed, "reception", 650, 1000)
     };
@@ -269,6 +269,7 @@
   function divinityCore(record) {
     return {
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
+      holySiteSupportDigest: record.holySiteSupportDigest,
       worldTheme: record.worldTheme,
       godOrder: record.godOrder,
       godRows: record.godRows,
@@ -301,6 +302,7 @@
     directory.digest = `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}`;
     const record = {
       sourceArcaneGeographyDigest: map.arcaneGeography.digest,
+      holySiteSupportDigest: null,
       worldTheme,
       godOrder: gods.map((god) => god.id),
       godRows: gods.map(packCanonicalGod),
@@ -312,6 +314,7 @@
         descendedGodCount: 0,
         deadGodCount: 0,
         majorGodCount: gods.filter((god) => god.rank === "major").length,
+        holySiteSupportedGodCount: 0,
         humanOriginCount: gods.filter((god) => god.stableIdentity.originKind === "human").length,
         beastOriginCount: gods.filter((god) => god.stableIdentity.originKind === "beast").length
       }
@@ -337,7 +340,7 @@
     const gods = canonicalGods(record);
     if (!Array.isArray(directory.godStateRows) || directory.worshipBasis !== "intentionalFaithNotMereFactualBelief" || directory.exactPowerPublic !== false || directory.originPolicy !== "hiddenUnlessDiscovered" || JSON.stringify(directory.godStateRows) !== JSON.stringify(gods.map(publicGodStateRow)) || JSON.stringify(directory).includes("reserveCapacity") || JSON.stringify(directory).includes("privateObjective") || JSON.stringify(directory).includes("mortalIdentityId")) throw new Error("The public divinity projection is invalid or leaks hidden state.");
     const diagnostics = record.diagnostics;
-    if (!diagnostics || diagnostics.godCount !== gods.length || diagnostics.livingGodCount !== gods.filter((god) => god.lifecycle.lifeState === "living").length || diagnostics.divineGodCount !== gods.filter((god) => god.lifecycle.divinityState === "divine").length || diagnostics.majorGodCount !== gods.filter((god) => god.rank === "major").length) throw new Error("Divinity diagnostics do not match canonical facts.");
+    if (!diagnostics || diagnostics.godCount !== gods.length || diagnostics.livingGodCount !== gods.filter((god) => god.lifecycle.lifeState === "living").length || diagnostics.divineGodCount !== gods.filter((god) => god.lifecycle.divinityState === "divine").length || diagnostics.majorGodCount !== gods.filter((god) => god.rank === "major").length || diagnostics.holySiteSupportedGodCount !== gods.filter((god) => god.worshipSources.some((source) => source.holySiteSupportPermille > 0)).length) throw new Error("Divinity diagnostics do not match canonical facts.");
     if (directory.digest !== `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}` || record.digest !== `strategic-divinity-${StrategicWorld.stableHash({ ...divinityCore(record), publicDirectoryDigest: record.publicDirectoryDigest })}`) throw new Error("Divinity records do not match their digests.");
     return { strategicDivinity: clone(record), publicDirectory: clone(directory) };
   }
@@ -347,6 +350,39 @@
     const generated = createPreCivicDivinity(worldSeed, worldTheme, next);
     next.strategicDivinity = generated.strategicDivinity;
     next.publicDivinityDirectory = generated.publicDirectory;
+    return StrategicWorld.finalizeStrategicMap(next);
+  }
+
+  function applyHolySiteSupport(map, supportByGod) {
+    const next = StrategicWorld.validateStrategicMap(map);
+    const { strategicDivinity, publicDirectory } = validatePreCivicDivinity(next);
+    if (!supportByGod || typeof supportByGod !== "object" || Array.isArray(supportByGod)) throw new Error("Holy-site support requires one bounded value per canonical god.");
+    const gods = canonicalGods(strategicDivinity);
+    const normalizedSupport = {};
+    for (const god of gods) {
+      const support = clampInteger(supportByGod[god.id], 0, 1000);
+      normalizedSupport[god.id] = support;
+      god.worshipSources = god.worshipSources.map((source, ordinal) => ({
+        ...source,
+        holySiteSupportPermille: Math.max(0, support - ordinal * 35)
+      }));
+      god.power.worshipIncome = calculateWorshipIncome(god.worshipSources, god.divineCore.receivingCapacity);
+      god.rank = rankForSustainablePower(god.divineCore.innateCapacity + god.power.worshipIncome, god.rank);
+    }
+    const directory = clone(publicDirectory);
+    directory.godStateRows = gods.map(publicGodStateRow);
+    delete directory.digest;
+    directory.digest = `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}`;
+    const record = clone(strategicDivinity);
+    record.holySiteSupportDigest = `holy-site-support-${StrategicWorld.stableHash(normalizedSupport)}`;
+    record.godRows = gods.map(packCanonicalGod);
+    record.publicDirectoryDigest = directory.digest;
+    record.diagnostics.majorGodCount = gods.filter((god) => god.rank === "major").length;
+    record.diagnostics.holySiteSupportedGodCount = gods.filter((god) => god.worshipSources.some((source) => source.holySiteSupportPermille > 0)).length;
+    delete record.digest;
+    record.digest = `strategic-divinity-${StrategicWorld.stableHash({ ...divinityCore(record), publicDirectoryDigest: record.publicDirectoryDigest })}`;
+    next.strategicDivinity = record;
+    next.publicDivinityDirectory = directory;
     return StrategicWorld.finalizeStrategicMap(next);
   }
 
@@ -541,6 +577,7 @@
     createPreCivicDivinity,
     validatePreCivicDivinity,
     attachPreCivicDivinity,
+    applyHolySiteSupport,
     forceDivineDescent,
     advanceDivineCycle,
     restoreDescendedDivinity,
