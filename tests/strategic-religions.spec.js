@@ -97,7 +97,8 @@ test('holy sites are unique physical and divinely confirmed strategic facts', ()
   const map = generatedMap('confirmed-holy-sites');
   const directory = Religions.publicReligionDirectory(map);
 
-  expect(directory.holySites.length).toBe(map.preCivicFaiths.diagnostics.holySiteCount);
+  expect(directory.holySites.length).toBe(map.preCivicFaiths.diagnostics.humanKnownHolySiteCount);
+  expect(directory.holySites.length).toBeLessThanOrEqual(map.preCivicFaiths.diagnostics.holySiteCount);
   expect(new Set(directory.holySites.map((site) => site.cellId)).size).toBe(directory.holySites.length);
   for (const site of directory.holySites) {
     const index = StrategicWorld.cellIndex(site.cellId);

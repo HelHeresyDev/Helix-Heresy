@@ -457,7 +457,8 @@
       publicStatus: DIVINE_PUBLIC_STATUSES[row[2]],
       powerCondition: DIVINE_POWER_CONDITIONS[row[3]]
     }]));
-    const gods = createGods(seed, worldTheme).map((god) => {
+    const knownGodIds = new Set(divineStateById.keys());
+    const gods = createGods(seed, worldTheme).filter((god) => knownGodIds.has(god.id)).map((god) => {
       const divineState = divineStateById.get(god.id);
       const divineIndex = strategicMap.strategicDivinity.godOrder.indexOf(god.id);
       if (!divineState || divineIndex < 0 || strategicMap.strategicDivinity.godRows[divineIndex]?.[0] !== god.themeContent.definitionId) throw new Error("Religion identity does not match the pre-civic canonical god roster.");
@@ -504,6 +505,7 @@
       hiddenBranchIntegrityCodes,
       diagnostics: {
         godCount: gods.length,
+        knowledgePolicy: "humanAuthenticatedIdentitiesOnly",
         majorGodCount: [...divineStateById.values()].filter((state) => state.rank === "major").length,
         confirmedDivineFaithCount: gods.length,
         nonTheisticMovementCount: traditions.filter((tradition) => tradition.kind === "nonTheisticMovement").length,
@@ -572,7 +574,7 @@
     const faithRows = strategicMap.publicPreCivicFaithDirectory?.faithRows || [];
     const holySiteRows = strategicMap.publicPreCivicFaithDirectory?.holySiteRows || [];
     const sites = holySiteRows.map((row) => expandPreCivicHolySite(row, strategicMap));
-    if (!Array.isArray(gods) || gods.length < 6 || !Array.isArray(traditions) || !Array.isArray(networks) || !Array.isArray(branchCodes) || typeof publicDirectory.divineRelationCodes !== "string" || !Array.isArray(publicDirectory.pantheons)) throw new Error("Public religion records are incomplete.");
+    if (!Array.isArray(gods) || gods.length < 1 || !Array.isArray(traditions) || !Array.isArray(networks) || !Array.isArray(branchCodes) || typeof publicDirectory.divineRelationCodes !== "string" || !Array.isArray(publicDirectory.pantheons)) throw new Error("Public religion records are incomplete.");
     const divineRows = strategicMap.publicDivinityDirectory?.godStateRows || [];
     if (new Set(gods.map((god) => god.id)).size !== gods.length || gods.some((god) => god.kind !== "realFiniteGod" || god.objectiveExistence !== "confirmed" || god.omnipotent || god.omniscient || !god.attentionFinite || !god.communication.routine || !god.communication.faithfulMayReceiveDirectReplies || !god.avatarManifestation.possible || !divineRows.some((row) => row[0] === god.id && DIVINE_RANKS_COMPATIBLE.has(["minor", "major"][row[1]])))) throw new Error("Every generated god must be real, finite, communicative, avatar-capable, and sourced from pre-civic divinity.");
     const divineTraditions = traditions.filter((tradition) => tradition.kind === "confirmedDivineFaith");
@@ -601,7 +603,8 @@
     if (typeof record.hiddenGodStateCodes !== "string" || record.hiddenGodStateCodes.length !== gods.length * 3 || /[^0-5]/.test(record.hiddenGodStateCodes) || typeof record.hiddenBranchIntegrityCodes !== "string" || record.hiddenBranchIntegrityCodes.length !== branchCodes.length || /[^0-3]/.test(record.hiddenBranchIntegrityCodes)) throw new Error("Hidden religious state is invalid.");
     if (Object.hasOwn(publicDirectory, "hiddenGodStateCodes") || Object.hasOwn(publicDirectory, "hiddenBranchIntegrityCodes") || JSON.stringify(publicDirectory).includes("currentAttentionBand")) throw new Error("The public religion directory leaks hidden divine or branch state.");
     const diagnostics = record.diagnostics;
-    if (!diagnostics || diagnostics.godCount !== gods.length || diagnostics.majorGodCount !== divineRows.filter((row) => row[1] === 1).length || diagnostics.confirmedDivineFaithCount !== divineTraditions.length || diagnostics.nonTheisticMovementCount !== traditions.length - divineTraditions.length || diagnostics.networkCount !== networks.length || diagnostics.branchCount !== branchCodes.length || diagnostics.holySiteCount !== sites.length || diagnostics.avatarCapableGodCount !== gods.length || diagnostics.routineCommunicationGodCount !== gods.length || diagnostics.establishedCityCount !== publicDirectory.standingRows.filter((row) => row.includes(STANDING_CODES.established)).length || diagnostics.pantheonCount !== publicDirectory.pantheons.length) throw new Error("Religion diagnostics do not match the saved public facts.");
+    if (!diagnostics || diagnostics.godCount !== gods.length || diagnostics.knowledgePolicy !== "humanAuthenticatedIdentitiesOnly" || diagnostics.majorGodCount !== divineRows.filter((row) => row[1] === 1).length || diagnostics.confirmedDivineFaithCount !== divineTraditions.length || diagnostics.nonTheisticMovementCount !== traditions.length - divineTraditions.length || diagnostics.networkCount !== networks.length || diagnostics.branchCount !== branchCodes.length || diagnostics.holySiteCount !== sites.length || diagnostics.avatarCapableGodCount !== gods.length || diagnostics.routineCommunicationGodCount !== gods.length || diagnostics.establishedCityCount !== publicDirectory.standingRows.filter((row) => row.includes(STANDING_CODES.established)).length || diagnostics.pantheonCount !== publicDirectory.pantheons.length) throw new Error("Religion diagnostics do not match the saved public facts.");
+    if (gods.some((god) => god.id === strategicMap.humanReligiousKnowledge?.hiddenGodId) || JSON.stringify(publicDirectory).match(/hiddenGod|unknownGod|Unknown Monster/i)) throw new Error("Public religion records expose an unsupported divine identity.");
     const publicCore = clone(publicDirectory);
     delete publicCore.digest;
     if (publicDirectory.digest !== `public-religions-${StrategicWorld.stableHash(publicCore)}` || record.digest !== `strategic-religions-${StrategicWorld.stableHash(religionsCore(record))}`) throw new Error("Religion records do not match their digests.");

@@ -17,6 +17,9 @@ function deliberateWorship(id = 'worship:test:1') {
   return {
     id,
     kind: 'human',
+    sourcePopulationId: 'human-population:test',
+    sourcePopulationUnits: 1_000_000,
+    practiceId: 'villageShrines',
     followerUnits: 900,
     beliefOnlyPopulation: 10000,
     devotionPermille: 900,
@@ -42,6 +45,10 @@ test('pre-civic divinity is deterministic, city-independent, compact, and knowle
     independentOfCities: true,
     allInitiallyLivingAndDivine: true,
     worshipRequiresIntentionalFaith: true,
+    everyCohortPopulationBacked: true,
+    humanDirectoryOmitsUnsupportedGods: true,
+    beastOnlyUnknownGodPreserved: true,
+    publicPracticesHideExactAllocations: true,
     exactPowerHiddenFromPublic: true,
     originsHiddenFromPublic: true,
     alignmentAbsent: true,
@@ -74,7 +81,7 @@ test('worship income requires deliberate devotion and rewards organization and i
 test('losing every follower causes reversible descent without death', () => {
   const map = divinityMap('fallen-god');
   const original = Divinity.privateDivineStateFor(map, map.strategicDivinity.godOrder[0]);
-  const noWorship = original.worshipSources.map((source) => ({ ...source, followerUnits: 0, beliefOnlyPopulation: source.beliefOnlyPopulation + 10000 }));
+  const noWorship = original.worshipSources.map((source) => ({ ...source, followerUnits: 0, beliefOnlyPopulation: source.sourcePopulationUnits }));
   const descended = Divinity.advanceDivineCycle(original, { worshipSources: noWorship, publiclyObserved: true });
 
   expect(descended.lifecycle).toMatchObject({ lifeState: 'living', divinityState: 'descended', publicStatus: 'fallen' });

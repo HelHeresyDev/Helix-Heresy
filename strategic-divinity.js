@@ -5,21 +5,32 @@
   const strategicReligions = typeof module === "object" && module.exports
     ? require("./strategic-religions")
     : root?.HelixStrategicReligions;
-  const api = factory(strategicWorld, strategicReligions);
+  const beastEcology = typeof module === "object" && module.exports
+    ? require("./strategic-beast-ecology")
+    : root?.HelixStrategicBeastEcology;
+  const preUrbanHumanity = typeof module === "object" && module.exports
+    ? require("./strategic-pre-urban-humanity")
+    : root?.HelixStrategicPreUrbanHumanity;
+  const api = factory(strategicWorld, strategicReligions, beastEcology, preUrbanHumanity);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicDivinity = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicDivinityApi(StrategicWorld, StrategicReligions) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicDivinityApi(StrategicWorld, StrategicReligions, StrategicBeastEcology, StrategicPreUrbanHumanity) {
   "use strict";
 
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before strategic-divinity.js");
   if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before strategic-divinity.js");
+  if (!StrategicBeastEcology) throw new Error("HelixStrategicBeastEcology must load before strategic-divinity.js");
+  if (!StrategicPreUrbanHumanity) throw new Error("HelixStrategicPreUrbanHumanity must load before strategic-divinity.js");
 
   const LIFE_STATES = Object.freeze(["living", "dead"]);
   const DIVINITY_STATES = Object.freeze(["divine", "descended", "none"]);
   const PUBLIC_STATUSES = Object.freeze(["active", "diminished", "silent", "missing", "fallen", "confirmedDead"]);
   const DIVINE_RANKS = Object.freeze(["minor", "major"]);
   const ORIGIN_KINDS = Object.freeze(["human", "beast", "otherCreature"]);
-  const WORSHIP_SOURCE_KINDS = Object.freeze(["human", "beast", "mixed"]);
+  const WORSHIP_SOURCE_KINDS = Object.freeze(["human", "beast"]);
+  const HUMAN_PRACTICES = Object.freeze(["householdRites", "villageShrines", "oralLiturgy", "ritualGuild", "pilgrimageTradition"]);
+  const BEAST_PRACTICES = Object.freeze(["formalDoctrine", "ordainedClergy", "templeCustody", "relicTradition", "ritualCustodians", "sacredTerritory", "sacredMigration", "dominanceRite", "sacredHunt", "learnedOffering", "nestTaboo", "cultivatedDivineBond", "instinctiveOffering"]);
+  const KNOWLEDGE_EVIDENCE = Object.freeze(["directHumanWorship", "authenticatedReply", "manifestation", "verifiedBeastPracticeReport"]);
   const POWER_CONDITIONS = Object.freeze(["failing", "strained", "stable", "abundant"]);
   const PRIVATE_OBJECTIVES = Object.freeze(["protectFollowers", "expandWorship", "pursueDomainWork", "opposeRivals", "prepareManifestation", "accumulatePower"]);
   const URBAN_INTERESTS = Object.freeze(["opposed", "indifferent", "conditional", "interested", "committed"]);
@@ -53,16 +64,66 @@
     return ratio < 0.12 ? "failing" : (ratio < 0.35 ? "strained" : (ratio < 0.75 ? "stable" : "abundant"));
   }
 
-  function worshipSource(worldSeed, godId, ordinal) {
-    const seed = `${worldSeed}:${godId}:worship:${ordinal}`;
+  function beastPractice(definition, seed, channel) {
+    if (definition.intelligenceBand === "sapient") return pick(["formalDoctrine", "ordainedClergy", "templeCustody", "relicTradition"], seed, channel);
+    if (definition.intelligenceBand === "reasoning") {
+      const social = !["solitary", "matedPair"].includes(definition.socialPattern);
+      return pick(social ? ["formalDoctrine", "ritualCustodians", "templeCustody", "relicTradition"] : ["sacredTerritory", "learnedOffering", "relicTradition"], seed, channel);
+    }
+    if (definition.intelligenceBand === "cunning") return pick(["dominanceRite", "sacredHunt", "learnedOffering", "nestTaboo"], seed, channel);
+    return pick(definition.socialPattern.startsWith("migratory") ? ["sacredMigration", "cultivatedDivineBond"] : ["cultivatedDivineBond", "instinctiveOffering"], seed, channel);
+  }
+
+  function beastPracticeAllowed(definition, practiceId) {
+    if (definition.intelligenceBand === "sapient") return ["formalDoctrine", "ordainedClergy", "templeCustody", "relicTradition"].includes(practiceId);
+    if (definition.intelligenceBand === "reasoning") return ["formalDoctrine", "ritualCustodians", "templeCustody", "relicTradition", "sacredTerritory", "learnedOffering"].includes(practiceId);
+    if (definition.intelligenceBand === "cunning") return ["dominanceRite", "sacredHunt", "learnedOffering", "nestTaboo"].includes(practiceId);
+    return ["sacredMigration", "cultivatedDivineBond", "instinctiveOffering"].includes(practiceId);
+  }
+
+  function worshipPopulationPools(map) {
+    StrategicBeastEcology.validatePristineBeastEcology(map);
+    StrategicPreUrbanHumanity.validatePreUrbanHumanity(map);
+    const humanGroups = StrategicPreUrbanHumanity.expandPopulationGroups(map).map((group) => ({
+      kind: "human",
+      populationId: group.id,
+      populationUnits: group.population,
+      practiceOptions: HUMAN_PRACTICES
+    }));
+    const pristine = StrategicBeastEcology.expandPristineBeastEcology(map);
+    const beastGroups = pristine.populations.map((population) => {
+      const definition = StrategicBeastEcology.BEAST_SPECIES.find((entry) => entry.id === population.speciesId);
+      return {
+        kind: "beast",
+        populationId: population.id,
+        populationUnits: population.devotionalUnitCount,
+        speciesId: population.speciesId,
+        definition
+      };
+    });
+    return { humanGroups, beastGroups };
+  }
+
+  function worshipSource(worldSeed, godId, ordinal, sourcePopulation, remainingUnits) {
+    const seed = `${worldSeed}:${godId}:worship:${ordinal}:${sourcePopulation.populationId}`;
+    const desiredShare = sourcePopulation.kind === "human"
+      ? 35 + integerBetween(seed, "share", 0, 85)
+      : 150 + integerBetween(seed, "share", 0, 400);
+    const followerUnits = Math.max(1, Math.min(remainingUnits, Math.floor(sourcePopulation.populationUnits * desiredShare / 1000)));
+    const practiceId = sourcePopulation.kind === "human"
+      ? pick(HUMAN_PRACTICES, seed, "practice")
+      : beastPractice(sourcePopulation.definition, seed, "practice");
     return {
       id: `worship:${godId.slice(4)}:${ordinal + 1}`,
-      kind: pick(WORSHIP_SOURCE_KINDS, seed, "kind"),
-      followerUnits: integerBetween(seed, "followers", 180, 760),
-      beliefOnlyPopulation: integerBetween(seed, "belief-only", 50, 1200),
+      kind: sourcePopulation.kind,
+      sourcePopulationId: sourcePopulation.populationId,
+      sourcePopulationUnits: sourcePopulation.populationUnits,
+      practiceId,
+      followerUnits,
+      beliefOnlyPopulation: Math.min(sourcePopulation.populationUnits, followerUnits + integerBetween(seed, "belief-only", 0, Math.max(1, Math.floor(sourcePopulation.populationUnits * 0.25)))),
       devotionPermille: integerBetween(seed, "devotion", 420, 940),
-      organizationPermille: integerBetween(seed, "organization", 280, 920),
-      ritualInfrastructurePermille: integerBetween(seed, "ritual", 120, 840),
+      organizationPermille: integerBetween(seed, "organization", sourcePopulation.kind === "human" ? 360 : 180, sourcePopulation.kind === "human" ? 920 : 780),
+      ritualInfrastructurePermille: integerBetween(seed, "ritual", sourcePopulation.kind === "human" ? 120 : 20, sourcePopulation.kind === "human" ? 840 : 680),
       offeringPermille: integerBetween(seed, "offerings", 100, 780),
       holySiteSupportPermille: 0,
       coercedWorshipPermille: integerBetween(seed, "coerced", 0, 280),
@@ -70,8 +131,52 @@
     };
   }
 
+  function allocatePopulationBackedWorship(worldSeed, publicGods, map) {
+    const pools = worshipPopulationPools(map);
+    const allPopulations = [...pools.humanGroups, ...pools.beastGroups];
+    const remaining = new Map(allPopulations.map((population) => [population.populationId, population.populationUnits]));
+    const beastDomainGods = publicGods.filter((god) => god.domains.some((domain) => ["beasts", "wilderness", "hunting"].includes(domain)));
+    const hiddenGod = [...(beastDomainGods.length ? beastDomainGods : publicGods)]
+      .sort((left, right) => seededNumber(worldSeed, `hidden-beast-god:${left.id}`) - seededNumber(worldSeed, `hidden-beast-god:${right.id}`) || left.id.localeCompare(right.id))[0];
+    const knownBeastOnlyGod = publicGods.filter((god) => god.id !== hiddenGod.id)
+      .sort((left, right) => seededNumber(worldSeed, `known-beast-only-god:${left.id}`) - seededNumber(worldSeed, `known-beast-only-god:${right.id}`) || left.id.localeCompare(right.id))[0];
+    const knowledgeRows = [];
+    const publicPracticeRows = [];
+    const sourcesByGod = {};
+    const selectPopulation = (kind, godId, ordinal) => {
+      const candidates = (kind === "human" ? pools.humanGroups : pools.beastGroups).filter((population) => remaining.get(population.populationId) > 0);
+      if (!candidates.length) throw new Error(`No ${kind} population remains available for ${godId}.`);
+      return [...candidates].sort((left, right) => seededNumber(worldSeed, `worship-population:${godId}:${ordinal}:${left.populationId}`) - seededNumber(worldSeed, `worship-population:${godId}:${ordinal}:${right.populationId}`) || left.populationId.localeCompare(right.populationId))[0];
+    };
+    for (const god of publicGods) {
+      const hiddenFromHumans = god.id === hiddenGod.id;
+      const beastOnly = hiddenFromHumans || god.id === knownBeastOnlyGod.id;
+      const sourceKinds = beastOnly ? ["beast", "beast"] : ["human", seededNumber(worldSeed, `secondary-worship-kind:${god.id}`) < 0.46 ? "beast" : "human"];
+      const sources = sourceKinds.map((kind, ordinal) => {
+        const population = selectPopulation(kind, god.id, ordinal);
+        const source = worshipSource(worldSeed, god.id, ordinal, population, remaining.get(population.populationId));
+        remaining.set(population.populationId, remaining.get(population.populationId) - source.followerUnits);
+        if (!hiddenFromHumans) {
+          const subject = population.kind === "beast" ? population.speciesId : "human";
+          const evidence = population.kind === "human" ? "directHumanWorship" : "verifiedBeastPracticeReport";
+          if (population.kind === "human" || (god.id === knownBeastOnlyGod.id && ordinal === 0) || seededNumber(worldSeed, `known-practice:${god.id}:${population.populationId}`) > 0.35) publicPracticeRows.push([god.id, WORSHIP_SOURCE_KINDS.indexOf(population.kind), source.practiceId, subject, KNOWLEDGE_EVIDENCE.indexOf(evidence)]);
+        }
+        return source;
+      });
+      sourcesByGod[god.id] = sources;
+      if (!hiddenFromHumans) {
+        const humanSource = sources.find((source) => source.kind === "human");
+        const witness = humanSource || selectPopulation("human", god.id, "knowledge-witness");
+        const evidence = humanSource ? "directHumanWorship" : (seededNumber(worldSeed, `beast-only-evidence:${god.id}`) < 0.5 ? "authenticatedReply" : "manifestation");
+        knowledgeRows.push([god.id, KNOWLEDGE_EVIDENCE.indexOf(evidence), witness.populationId || witness.sourcePopulationId]);
+      }
+    }
+    return { sourcesByGod, hiddenGodId: hiddenGod.id, knowledgeRows, publicPracticeRows };
+  }
+
   function validateWorshipSource(source) {
-    if (!source || !WORSHIP_SOURCE_KINDS.includes(source.kind) || !String(source.id || "").startsWith("worship:") || !Number.isInteger(source.followerUnits) || source.followerUnits < 0 || !Number.isInteger(source.beliefOnlyPopulation) || source.beliefOnlyPopulation < 0) throw new Error("A worship source requires a stable identity, source kind, and non-negative intentional and belief-only populations.");
+    const practices = source?.kind === "human" ? HUMAN_PRACTICES : BEAST_PRACTICES;
+    if (!source || !WORSHIP_SOURCE_KINDS.includes(source.kind) || !String(source.id || "").startsWith("worship:") || !String(source.sourcePopulationId || "").startsWith(source.kind === "human" ? "human-population:" : "beast-population:") || !Number.isInteger(source.sourcePopulationUnits) || source.sourcePopulationUnits < 1 || !practices.includes(source.practiceId) || !Number.isInteger(source.followerUnits) || source.followerUnits < 0 || source.followerUnits > source.sourcePopulationUnits || !Number.isInteger(source.beliefOnlyPopulation) || source.beliefOnlyPopulation < 0 || source.beliefOnlyPopulation > source.sourcePopulationUnits) throw new Error("A worship source requires a real population, cognition-appropriate practice, and bounded intentional and belief-only populations.");
     for (const key of ["devotionPermille", "organizationPermille", "ritualInfrastructurePermille", "offeringPermille", "holySiteSupportPermille", "coercedWorshipPermille", "receptionEfficiencyPermille"]) {
       if (!Number.isInteger(source[key]) || source[key] < 0 || source[key] > 1000) throw new Error(`Worship source ${source.id} has an invalid ${key}.`);
     }
@@ -109,12 +214,11 @@
     return power >= 760 ? "major" : "minor";
   }
 
-  function createCanonicalGod(worldSeed, publicGod) {
+  function createCanonicalGod(worldSeed, publicGod, sources) {
     const seed = `${worldSeed}:${publicGod.id}:${publicGod.themeContent.definitionId}`;
     const innateCapacity = integerBetween(seed, "innate-capacity", 310, 790);
     const receivingCapacity = integerBetween(seed, "receiving-capacity", 360, 1050);
     const reserveCapacity = integerBetween(seed, "reserve-capacity", 1250, 2800);
-    const sources = [worshipSource(worldSeed, publicGod.id, 0), worshipSource(worldSeed, publicGod.id, 1)];
     const worshipIncome = calculateWorshipIncome(sources, receivingCapacity);
     const expenditures = {
       existence: integerBetween(seed, "existence-cost", 24, 58),
@@ -189,27 +293,30 @@
   function worshipSourceCode(source) {
     validateWorshipSource(source);
     return [
-      WORSHIP_SOURCE_KINDS.indexOf(source.kind), source.followerUnits, source.beliefOnlyPopulation,
+      WORSHIP_SOURCE_KINDS.indexOf(source.kind), source.sourcePopulationId, source.sourcePopulationUnits, source.practiceId, source.followerUnits, source.beliefOnlyPopulation,
       source.devotionPermille, source.organizationPermille, source.ritualInfrastructurePermille,
       source.offeringPermille, source.holySiteSupportPermille, source.coercedWorshipPermille,
       source.receptionEfficiencyPermille
-    ].map((value) => value.toString(36)).join(".");
+    ].map((value, index) => [1, 3].includes(index) ? value : Number(value).toString(36)).join(".");
   }
 
   function worshipSourceFromCode(godId, ordinal, code) {
-    const values = String(code || "").split(".").map((value) => parseInt(value, 36));
+    const values = String(code || "").split(".");
     const source = {
       id: `worship:${godId.slice(4)}:${ordinal + 1}`,
-      kind: WORSHIP_SOURCE_KINDS[values[0]],
-      followerUnits: values[1],
-      beliefOnlyPopulation: values[2],
-      devotionPermille: values[3],
-      organizationPermille: values[4],
-      ritualInfrastructurePermille: values[5],
-      offeringPermille: values[6],
-      holySiteSupportPermille: values[7],
-      coercedWorshipPermille: values[8],
-      receptionEfficiencyPermille: values[9]
+      kind: WORSHIP_SOURCE_KINDS[parseInt(values[0], 36)],
+      sourcePopulationId: values[1],
+      sourcePopulationUnits: parseInt(values[2], 36),
+      practiceId: values[3],
+      followerUnits: parseInt(values[4], 36),
+      beliefOnlyPopulation: parseInt(values[5], 36),
+      devotionPermille: parseInt(values[6], 36),
+      organizationPermille: parseInt(values[7], 36),
+      ritualInfrastructurePermille: parseInt(values[8], 36),
+      offeringPermille: parseInt(values[9], 36),
+      holySiteSupportPermille: parseInt(values[10], 36),
+      coercedWorshipPermille: parseInt(values[11], 36),
+      receptionEfficiencyPermille: parseInt(values[12], 36)
     };
     return validateWorshipSource(source);
   }
@@ -269,6 +376,9 @@
   function divinityCore(record) {
     return {
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
+      sourcePristineBeastEcologyDigest: record.sourcePristineBeastEcologyDigest,
+      sourcePreUrbanHumanityDigest: record.sourcePreUrbanHumanityDigest,
+      humanReligiousKnowledgeDigest: record.humanReligiousKnowledgeDigest,
       holySiteSupportDigest: record.holySiteSupportDigest,
       worldTheme: record.worldTheme,
       godOrder: record.godOrder,
@@ -283,7 +393,22 @@
       worshipBasis: directory.worshipBasis,
       exactPowerPublic: directory.exactPowerPublic,
       originPolicy: directory.originPolicy,
-      godStateRows: directory.godStateRows
+      knowledgePolicy: directory.knowledgePolicy,
+      humanReligiousKnowledgeDigest: directory.humanReligiousKnowledgeDigest,
+      godStateRows: directory.godStateRows,
+      knownPracticeRows: directory.knownPracticeRows
+    };
+  }
+
+  function knowledgeCore(record) {
+    return {
+      sourcePristineBeastEcologyDigest: record.sourcePristineBeastEcologyDigest,
+      sourcePreUrbanHumanityDigest: record.sourcePreUrbanHumanityDigest,
+      sourceGodRosterDigest: record.sourceGodRosterDigest,
+      knownGodRows: record.knownGodRows,
+      practiceEvidenceRows: record.practiceEvidenceRows,
+      hiddenGodId: record.hiddenGodId,
+      diagnostics: record.diagnostics
     };
   }
 
@@ -291,17 +416,44 @@
     const seed = String(worldSeed || "").trim();
     if (!seed) throw new Error("A world seed is required for pre-civic divinity generation.");
     if (!map?.arcaneGeography?.digest) throw new Error("Arcane geography must exist before pre-civic divinity generation.");
-    const gods = StrategicReligions.createGods(seed, worldTheme).map((god) => createCanonicalGod(seed, god));
+    StrategicBeastEcology.validatePristineBeastEcology(map);
+    StrategicPreUrbanHumanity.validatePreUrbanHumanity(map);
+    const publicGods = StrategicReligions.createGods(seed, worldTheme);
+    const allocation = allocatePopulationBackedWorship(seed, publicGods, map);
+    const gods = publicGods.map((god) => createCanonicalGod(seed, god, allocation.sourcesByGod[god.id]));
+    const sourceGodRosterDigest = StrategicWorld.stableHash(gods.map((god) => [god.id, god.definitionId]));
+    const knowledge = {
+      sourcePristineBeastEcologyDigest: map.pristineBeastEcology.digest,
+      sourcePreUrbanHumanityDigest: map.preUrbanHumanity.digest,
+      sourceGodRosterDigest,
+      knownGodRows: allocation.knowledgeRows,
+      practiceEvidenceRows: allocation.publicPracticeRows,
+      hiddenGodId: allocation.hiddenGodId,
+      diagnostics: {
+        authenticatedGodCount: allocation.knowledgeRows.length,
+        humanUnknownGodCount: gods.length - allocation.knowledgeRows.length,
+        beastOnlyUnknownGodCount: 1,
+        supportedPracticeCount: allocation.publicPracticeRows.length
+      }
+    };
+    knowledge.digest = `human-religious-knowledge-${StrategicWorld.stableHash(knowledgeCore(knowledge))}`;
+    const knownGodIds = new Set(knowledge.knownGodRows.map((row) => row[0]));
     const directory = {
       worldTheme,
       worshipBasis: "intentionalFaithNotMereFactualBelief",
       exactPowerPublic: false,
       originPolicy: "hiddenUnlessDiscovered",
-      godStateRows: gods.map(publicGodStateRow)
+      knowledgePolicy: "omitUnsupportedIdentitiesAndTotals",
+      humanReligiousKnowledgeDigest: knowledge.digest,
+      godStateRows: gods.filter((god) => knownGodIds.has(god.id)).map(publicGodStateRow),
+      knownPracticeRows: clone(knowledge.practiceEvidenceRows)
     };
     directory.digest = `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}`;
     const record = {
       sourceArcaneGeographyDigest: map.arcaneGeography.digest,
+      sourcePristineBeastEcologyDigest: map.pristineBeastEcology.digest,
+      sourcePreUrbanHumanityDigest: map.preUrbanHumanity.digest,
+      humanReligiousKnowledgeDigest: knowledge.digest,
       holySiteSupportDigest: null,
       worldTheme,
       godOrder: gods.map((god) => god.id),
@@ -320,7 +472,7 @@
       }
     };
     record.digest = `strategic-divinity-${StrategicWorld.stableHash({ ...divinityCore(record), publicDirectoryDigest: record.publicDirectoryDigest })}`;
-    return { strategicDivinity: record, publicDirectory: directory };
+    return { strategicDivinity: record, humanReligiousKnowledge: knowledge, publicDirectory: directory };
   }
 
   function validateCanonicalGod(god) {
@@ -335,12 +487,51 @@
   }
 
   function validatePreCivicDivinity(map, record = map?.strategicDivinity, directory = map?.publicDivinityDirectory) {
-    if (!record || !directory || !map?.arcaneGeography?.digest || record.sourceArcaneGeographyDigest !== map.arcaneGeography.digest || record.publicDirectoryDigest !== directory.digest || record.worldTheme !== directory.worldTheme) throw new Error("Pre-civic divinity records are incomplete or do not match their source world.");
+    const knowledge = map?.humanReligiousKnowledge;
+    if (!record || !directory || !knowledge || !map?.arcaneGeography?.digest || record.sourceArcaneGeographyDigest !== map.arcaneGeography.digest || record.sourcePristineBeastEcologyDigest !== map.pristineBeastEcology?.digest || record.sourcePreUrbanHumanityDigest !== map.preUrbanHumanity?.digest || record.humanReligiousKnowledgeDigest !== knowledge.digest || directory.humanReligiousKnowledgeDigest !== knowledge.digest || record.publicDirectoryDigest !== directory.digest || record.worldTheme !== directory.worldTheme) throw new Error("Pre-civic divinity records are incomplete or do not match their population-backed source world.");
     if (!Array.isArray(record.godOrder) || record.godOrder.length < 6 || new Set(record.godOrder).size !== record.godOrder.length || !Array.isArray(record.godRows) || record.godRows.length !== record.godOrder.length) throw new Error("The canonical god roster is incomplete or unstable.");
     const gods = canonicalGods(record);
-    if (!Array.isArray(directory.godStateRows) || directory.worshipBasis !== "intentionalFaithNotMereFactualBelief" || directory.exactPowerPublic !== false || directory.originPolicy !== "hiddenUnlessDiscovered" || JSON.stringify(directory.godStateRows) !== JSON.stringify(gods.map(publicGodStateRow)) || JSON.stringify(directory).includes("reserveCapacity") || JSON.stringify(directory).includes("privateObjective") || JSON.stringify(directory).includes("mortalIdentityId")) throw new Error("The public divinity projection is invalid or leaks hidden state.");
+    const humanGroups = StrategicPreUrbanHumanity.expandPopulationGroups(map);
+    const pristine = StrategicBeastEcology.expandPristineBeastEcology(map);
+    const populations = new Map([
+      ...humanGroups.map((group) => [group.id, { kind: "human", units: group.population }]),
+      ...pristine.populations.map((population) => [population.id, { kind: "beast", units: population.devotionalUnitCount, speciesId: population.speciesId }])
+    ]);
+    const assigned = new Map();
+    for (const god of gods) {
+      if (!god.worshipSources.some((source) => source.followerUnits > 0 && source.devotionPermille > 0)) throw new Error("Every initially active god requires deliberate population-backed worship.");
+      for (const source of god.worshipSources) {
+        const population = populations.get(source.sourcePopulationId);
+        if (!population || population.kind !== source.kind || source.sourcePopulationUnits !== population.units) throw new Error("A worship cohort does not match its saved source population.");
+        if (source.kind === "beast") {
+          const definition = StrategicBeastEcology.BEAST_SPECIES.find((entry) => entry.id === population.speciesId);
+          if (!definition || !beastPracticeAllowed(definition, source.practiceId)) throw new Error("A beast worship practice exceeds its species' cognition or social behavior.");
+        }
+        assigned.set(source.sourcePopulationId, (assigned.get(source.sourcePopulationId) || 0) + source.followerUnits);
+      }
+    }
+    if ([...assigned].some(([populationId, units]) => units > populations.get(populationId).units)) throw new Error("Worship cohorts exceed their source population.");
+    if (knowledge.sourcePristineBeastEcologyDigest !== map.pristineBeastEcology.digest || knowledge.sourcePreUrbanHumanityDigest !== map.preUrbanHumanity.digest || knowledge.sourceGodRosterDigest !== StrategicWorld.stableHash(gods.map((god) => [god.id, god.definitionId])) || knowledge.digest !== `human-religious-knowledge-${StrategicWorld.stableHash(knowledgeCore(knowledge))}`) throw new Error("Human religious knowledge does not match canonical populations and gods.");
+    const knownGodIds = new Set((knowledge.knownGodRows || []).map((row) => row[0]));
+    if (!Array.isArray(knowledge.knownGodRows) || new Set(knowledge.knownGodRows.map((row) => row[0])).size !== knowledge.knownGodRows.length || knowledge.knownGodRows.some((row) => !record.godOrder.includes(row[0]) || !KNOWLEDGE_EVIDENCE[row[1]] || !populations.has(row[2]) || populations.get(row[2]).kind !== "human") || !record.godOrder.includes(knowledge.hiddenGodId) || knownGodIds.has(knowledge.hiddenGodId)) throw new Error("Human religious identity evidence is invalid.");
+    const hiddenGod = gods.find((god) => god.id === knowledge.hiddenGodId);
+    if (!hiddenGod || hiddenGod.worshipSources.some((source) => source.kind !== "beast") || gods.filter((god) => !knownGodIds.has(god.id)).length !== 1) throw new Error("A sufficiently populated world requires exactly one initially human-unknown beast-only god.");
+    const godById = new Map(gods.map((god) => [god.id, god]));
+    const practiceEvidenceSupported = (row) => {
+      const god = godById.get(row[0]);
+      const kind = WORSHIP_SOURCE_KINDS[row[1]];
+      const evidence = KNOWLEDGE_EVIDENCE[row[4]];
+      if (!god || !knownGodIds.has(god.id) || !kind || ![...HUMAN_PRACTICES, ...BEAST_PRACTICES].includes(row[2]) || (kind === "human" ? evidence !== "directHumanWorship" || row[3] !== "human" : evidence !== "verifiedBeastPracticeReport")) return false;
+      return god.worshipSources.some((source) => source.kind === kind && source.practiceId === row[2] && (kind === "human" || populations.get(source.sourcePopulationId)?.speciesId === row[3]));
+    };
+    if (!Array.isArray(knowledge.practiceEvidenceRows) || knowledge.practiceEvidenceRows.some((row) => !practiceEvidenceSupported(row))) throw new Error("Supported public religious-practice evidence is invalid.");
+    const knownBeastOnlyGods = gods.filter((god) => knownGodIds.has(god.id) && god.worshipSources.every((source) => source.kind === "beast"));
+    if (!knownBeastOnlyGods.some((god) => knowledge.knownGodRows.some((row) => row[0] === god.id && ["authenticatedReply", "manifestation"].includes(KNOWLEDGE_EVIDENCE[row[1]])) && knowledge.practiceEvidenceRows.some((row) => row[0] === god.id && WORSHIP_SOURCE_KINDS[row[1]] === "beast"))) throw new Error("At least one beast-only god must be human-known through authenticated contact and supported practice evidence.");
+    const expectedGodRows = gods.filter((god) => knownGodIds.has(god.id)).map(publicGodStateRow);
+    if (!Array.isArray(directory.godStateRows) || directory.worshipBasis !== "intentionalFaithNotMereFactualBelief" || directory.exactPowerPublic !== false || directory.originPolicy !== "hiddenUnlessDiscovered" || directory.knowledgePolicy !== "omitUnsupportedIdentitiesAndTotals" || JSON.stringify(directory.godStateRows) !== JSON.stringify(expectedGodRows) || JSON.stringify(directory.knownPracticeRows) !== JSON.stringify(knowledge.practiceEvidenceRows) || JSON.stringify(directory).match(/reserveCapacity|privateObjective|mortalIdentityId|sourcePopulationId|followerUnits|hiddenGodId|Unknown Monster/i)) throw new Error("The public divinity projection is invalid or leaks hidden state or unsupported identities.");
     const diagnostics = record.diagnostics;
     if (!diagnostics || diagnostics.godCount !== gods.length || diagnostics.livingGodCount !== gods.filter((god) => god.lifecycle.lifeState === "living").length || diagnostics.divineGodCount !== gods.filter((god) => god.lifecycle.divinityState === "divine").length || diagnostics.majorGodCount !== gods.filter((god) => god.rank === "major").length || diagnostics.holySiteSupportedGodCount !== gods.filter((god) => god.worshipSources.some((source) => source.holySiteSupportPermille > 0)).length) throw new Error("Divinity diagnostics do not match canonical facts.");
+    if (!knowledge.diagnostics || knowledge.diagnostics.authenticatedGodCount !== knownGodIds.size || knowledge.diagnostics.humanUnknownGodCount !== gods.length - knownGodIds.size || knowledge.diagnostics.beastOnlyUnknownGodCount !== 1 || knowledge.diagnostics.supportedPracticeCount !== knowledge.practiceEvidenceRows.length) throw new Error("Human religious knowledge diagnostics do not match canonical facts.");
     if (directory.digest !== `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}` || record.digest !== `strategic-divinity-${StrategicWorld.stableHash({ ...divinityCore(record), publicDirectoryDigest: record.publicDirectoryDigest })}`) throw new Error("Divinity records do not match their digests.");
     return { strategicDivinity: clone(record), publicDirectory: clone(directory) };
   }
@@ -349,6 +540,7 @@
     const next = StrategicWorld.validateStrategicMap(map);
     const generated = createPreCivicDivinity(worldSeed, worldTheme, next);
     next.strategicDivinity = generated.strategicDivinity;
+    next.humanReligiousKnowledge = generated.humanReligiousKnowledge;
     next.publicDivinityDirectory = generated.publicDirectory;
     return StrategicWorld.finalizeStrategicMap(next);
   }
@@ -370,7 +562,8 @@
       god.rank = rankForSustainablePower(god.divineCore.innateCapacity + god.power.worshipIncome, god.rank);
     }
     const directory = clone(publicDirectory);
-    directory.godStateRows = gods.map(publicGodStateRow);
+    const knownGodIds = new Set(next.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
+    directory.godStateRows = gods.filter((god) => knownGodIds.has(god.id)).map(publicGodStateRow);
     delete directory.digest;
     directory.digest = `public-divinity-${StrategicWorld.stableHash(publicDirectoryCore(directory))}`;
     const record = clone(strategicDivinity);
@@ -543,7 +736,9 @@
       worshipBasis: directory.worshipBasis,
       exactPowerPublic: directory.exactPowerPublic,
       originPolicy: directory.originPolicy,
+      knowledgePolicy: directory.knowledgePolicy,
       godStates: directory.godStateRows.map(publicGodStateFromRow),
+      knownPractices: directory.knownPracticeRows.map((row) => ({ godId: row[0], sourceKind: WORSHIP_SOURCE_KINDS[row[1]], practiceId: row[2], subjectId: row[3], evidence: KNOWLEDGE_EVIDENCE[row[4]], exactFollowerCountPublic: false, sourcePopulationIdentityPublic: false })),
       digest: directory.digest
     };
   }
@@ -556,6 +751,10 @@
       independentOfCities: !strategicDivinity.sourceCityDigest,
       allInitiallyLivingAndDivine: gods.every((god) => god.lifecycle.lifeState === "living" && god.lifecycle.divinityState === "divine"),
       worshipRequiresIntentionalFaith: gods.every((god) => god.worshipSources.every((source) => source.beliefOnlyPopulation >= 0) && god.power.worshipIncome === calculateWorshipIncome(god.worshipSources, god.divineCore.receivingCapacity)),
+      everyCohortPopulationBacked: gods.every((god) => god.worshipSources.every((source) => source.sourcePopulationId && source.followerUnits <= source.sourcePopulationUnits)),
+      humanDirectoryOmitsUnsupportedGods: publicDirectory.godStateRows.length < gods.length && !publicDirectory.godStateRows.some((row) => row[0] === map.humanReligiousKnowledge.hiddenGodId),
+      beastOnlyUnknownGodPreserved: gods.find((god) => god.id === map.humanReligiousKnowledge.hiddenGodId)?.worshipSources.every((source) => source.kind === "beast") === true,
+      publicPracticesHideExactAllocations: !JSON.stringify(publicDirectory).match(/sourcePopulationId|followerUnits|sourcePopulationUnits/),
       exactPowerHiddenFromPublic: !JSON.stringify(publicDirectory).includes("reserve") && !JSON.stringify(publicDirectory).includes("receivingCapacity"),
       originsHiddenFromPublic: publicDirectory.originPolicy === "hiddenUnlessDiscovered",
       alignmentAbsent: !JSON.stringify(strategicDivinity).toLowerCase().includes("alignment"),
@@ -570,6 +769,9 @@
     DIVINE_RANKS,
     ORIGIN_KINDS,
     WORSHIP_SOURCE_KINDS,
+    HUMAN_PRACTICES,
+    BEAST_PRACTICES,
+    KNOWLEDGE_EVIDENCE,
     POWER_CONDITIONS,
     worshipPowerFromSource,
     calculateWorshipIncome,

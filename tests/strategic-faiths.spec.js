@@ -17,7 +17,7 @@ function faithMap() {
   return cachedMap;
 }
 
-test('pre-civic faith identities are deterministic, semantic, and generated before humans', () => {
+test('pre-civic faith identities are deterministic, semantic, and filtered by human knowledge before cities', () => {
   const map = faithMap();
   const directory = Faiths.publicFaithDirectory(map);
   const audit = Faiths.auditPreCivicFaiths(map);
@@ -31,7 +31,9 @@ test('pre-civic faith identities are deterministic, semantic, and generated befo
     noSameGodHeresyWhileCorrectionActive: true,
     promisesAcknowledgeFiniteCapacity: true,
   });
-  expect(directory.faiths).toHaveLength(map.strategicDivinity.godOrder.length);
+  expect(directory.faiths).toHaveLength(map.publicDivinityDirectory.godStateRows.length);
+  expect(directory.faiths.length).toBeLessThan(map.strategicDivinity.godOrder.length);
+  expect(directory.faiths.some((faith) => faith.godId === map.humanReligiousKnowledge.hiddenGodId)).toBe(false);
   for (const faith of directory.faiths) {
     expect(faith).toMatchObject({
       confirmation: { state: 'activelyConfirmed', authorityId: faith.godId, channel: 'repeatableDirectDivineCommunication' },
@@ -56,15 +58,14 @@ test('pre-civic faith identities are deterministic, semantic, and generated befo
 test('holy sites use bounded rank-based counts and pre-civic physical causes', () => {
   const map = faithMap();
   const directory = Faiths.publicFaithDirectory(map);
-  const states = Divinity.publicDivinityDirectory(map).godStates;
+  const states = map.strategicDivinity.godOrder.map((godId) => Divinity.privateDivineStateFor(map, godId));
 
   expect(new Set(directory.holySites.map((site) => site.cellId)).size).toBe(directory.holySites.length);
   for (const state of states) {
-    const count = directory.holySites.filter((site) => site.godId === state.godId).length;
+    const count = map.preCivicFaiths.holySiteRows.filter((row) => row[1] === state.id).length;
     expect(count).toBeGreaterThanOrEqual(state.rank === 'major' ? 1 : 0);
     expect(count).toBeLessThanOrEqual(state.rank === 'major' ? 3 : 2);
   }
-  expect(states.some((state) => state.rank === 'minor' && !directory.holySites.some((site) => site.godId === state.godId))).toBe(true);
   for (const site of directory.holySites) {
     expect(site).toMatchObject({
       confirmedByGod: true,
@@ -80,7 +81,7 @@ test('holy sites use bounded rank-based counts and pre-civic physical causes', (
 test('holy-site support finalizes divine power while exact power and suppressed origins stay hidden', () => {
   const map = faithMap();
   const directory = Faiths.publicFaithDirectory(map);
-  const supportedGodIds = new Set(directory.holySites.map((site) => site.godId));
+  const supportedGodIds = new Set(map.preCivicFaiths.holySiteRows.map((row) => row[1]));
 
   for (const godId of map.strategicDivinity.godOrder) {
     const privateState = Divinity.privateDivineStateFor(map, godId);

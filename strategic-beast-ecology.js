@@ -199,6 +199,15 @@
     return "teeming";
   }
 
+  function devotionalUnitCount(definition, populationIndex) {
+    const index = Math.max(1, Math.floor(Number(populationIndex) || 0));
+    if (definition.socialPattern === "superorganism") return Math.max(1, Math.ceil(index / 250));
+    if (definition.socialPattern === "hiveColony" || definition.socialPattern === "burrowColony") return Math.max(1, Math.ceil(index / 60));
+    if (definition.socialPattern === "choralColony") return Math.max(1, Math.ceil(index / 20));
+    const scale = ({ small: 8, humanScale: 3, large: 1, colossal: 0.22 })[definition.sizeBand] || 1;
+    return Math.max(1, Math.round(index * scale));
+  }
+
   function createPopulations(worldSeed, map, options = {}) {
     const applyCityPressure = options.applyCityPressure !== false;
     const populations = [];
@@ -797,6 +806,7 @@
         lairKind: definition.lairKind,
         populationIndex,
         abundanceBand: abundanceBand(populationIndex),
+        devotionalUnitCount: devotionalUnitCount(definition, populationIndex),
         territory: {
           rangeMask: maskForIndices(map.topology.cellCount, territory.range),
           coreMask: maskForIndices(map.topology.cellCount, territory.core),
@@ -936,6 +946,7 @@
         lairCellId: StrategicWorld.cellId(lairIndex),
         populationIndex,
         abundanceBand: abundanceBand(populationIndex),
+        devotionalUnitCount: devotionalUnitCount(definition, populationIndex),
         territory: { rangeMask: maskForIndices(map.topology.cellCount, range), coreMask: maskForIndices(map.topology.cellCount, core), rangeCellCount: range.length, coreCellCount: core.length },
         pristinePopulationId: population.id,
         retainedPristineRangePermille: retainedPermille
@@ -1035,7 +1046,7 @@
     const speciesPopulationCounts = new Map(BEAST_SPECIES.map((entry) => [entry.id, 0]));
     for (const population of ecology.populations) {
       if (!/^beast-population:[a-z0-9-]+:\d{2}$/.test(String(population.id || "")) || populationIds.has(population.id) || !SPECIES_BY_ID.has(population.speciesId)) throw new Error("Beast populations require unique stable identities and known species.");
-      if (!ABUNDANCE_BANDS.includes(population.abundanceBand) || !Number.isInteger(population.populationIndex) || population.populationIndex < 1 || !String(population.lairKind || "").trim()) throw new Error(`${population.id} has invalid population facts.`);
+      if (!ABUNDANCE_BANDS.includes(population.abundanceBand) || !Number.isInteger(population.populationIndex) || population.populationIndex < 1 || !Number.isInteger(population.devotionalUnitCount) || population.devotionalUnitCount < 1 || !String(population.lairKind || "").trim()) throw new Error(`${population.id} has invalid population facts.`);
       const range = validateMask(population.territory?.rangeMask, strategicMap.topology.cellCount, `${population.id} range`);
       const core = validateMask(population.territory?.coreMask, strategicMap.topology.cellCount, `${population.id} core`);
       const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
