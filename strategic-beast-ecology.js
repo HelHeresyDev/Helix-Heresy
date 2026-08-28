@@ -121,12 +121,12 @@
     return definition.realm === "either" || (definition.realm === "land" ? land : !land);
   }
 
-  function habitatSuitability(definition, map, index, seed = "") {
+  function habitatSuitability(definition, map, index, seed = "", applyCityPressure = true) {
     if (!surfaceMatches(definition, map, index)) return -100000;
     const biome = map.biomes.classes[index];
     const aspect = map.arcaneGeography.primaryAspectClasses[index];
     const secondaryAspect = map.arcaneGeography.secondaryAspectClasses[index];
-    const controlClass = map.cityPolities.control.classes[index];
+    const controlClass = applyCityPressure ? map.cityPolities?.control?.classes?.[index] : ".";
     if (controlClass === "c") return -100000;
     let score = definition.biomeCodes.includes(biome) ? 620 : 80;
     if (definition.aspectCodes.includes(aspect)) score += 190;
@@ -148,10 +148,10 @@
     return ranges[0] + Math.floor(seededNumber(seed, `${definition.id}:population-count`) * (ranges[1] - ranges[0] + 1));
   }
 
-  function selectCenters(definition, count, map, seed) {
+  function selectCenters(definition, count, map, seed, applyCityPressure = true) {
     const candidates = Array.from({ length: map.topology.cellCount }, (_, index) => ({
       index,
-      score: habitatSuitability(definition, map, index, seed) + seededNumber(seed, `${definition.id}:center:${index}`) * 260
+      score: habitatSuitability(definition, map, index, seed, applyCityPressure) + seededNumber(seed, `${definition.id}:center:${index}`) * 260
     })).filter((entry) => entry.score > 150).sort((left, right) => right.score - left.score || left.index - right.index);
     if (!candidates.length) throw new Error(`${definition.name} has no viable habitat in this world.`);
     const selected = [];
@@ -167,7 +167,7 @@
     return selected;
   }
 
-  function territoryIndices(definition, centerIndex, radius, map, seed) {
+  function territoryIndices(definition, centerIndex, radius, map, seed, applyCityPressure = true) {
     const topology = StrategicWorld.topologyForMap(map);
     const distances = new Map([[centerIndex, 0]]);
     const queue = [centerIndex];
@@ -177,8 +177,8 @@
       if (distance >= radius) continue;
       for (const neighbor of topology.neighbors[current]) {
         if (distances.has(neighbor) || !surfaceMatches(definition, map, neighbor)) continue;
-        if (map.cityPolities.control.classes[neighbor] === "c") continue;
-        const suitability = habitatSuitability(definition, map, neighbor, seed);
+        if (applyCityPressure && map.cityPolities?.control?.classes?.[neighbor] === "c") continue;
+        const suitability = habitatSuitability(definition, map, neighbor, seed, applyCityPressure);
         const edgeTolerance = seededNumber(seed, `${definition.id}:range:${centerIndex}:${neighbor}`) * 240;
         if (suitability + edgeTolerance < 250) continue;
         distances.set(neighbor, distance + 1);
@@ -199,15 +199,16 @@
     return "teeming";
   }
 
-  function createPopulations(worldSeed, map) {
+  function createPopulations(worldSeed, map, options = {}) {
+    const applyCityPressure = options.applyCityPressure !== false;
     const populations = [];
     const temporaryRanges = new Map();
     for (const definition of BEAST_SPECIES) {
       const count = populationCount(definition, worldSeed);
-      const centers = selectCenters(definition, count, map, worldSeed);
+      const centers = selectCenters(definition, count, map, worldSeed, applyCityPressure);
       centers.forEach((centerIndex, ordinal) => {
         const radius = definition.radius[0] + Math.floor(seededNumber(worldSeed, `${definition.id}:radius:${ordinal}`) * (definition.radius[1] - definition.radius[0] + 1));
-        const territory = territoryIndices(definition, centerIndex, radius, map, worldSeed);
+        const territory = territoryIndices(definition, centerIndex, radius, map, worldSeed, applyCityPressure);
         const populationIndex = Math.round(clamp(
           territory.range.length * (0.7 + definition.prevalenceRank * 0.23) * (0.72 + seededNumber(worldSeed, `${definition.id}:abundance:${ordinal}`) * 0.72),
           30,
@@ -223,6 +224,7 @@
           lairKind: definition.lairKind,
           populationIndex,
           abundanceBand: abundanceBand(populationIndex),
+          ...(options.includeGenerationFacts ? { generationRadius: radius } : {}),
           territory: {
             rangeMask: maskForIndices(map.topology.cellCount, territory.range),
             coreMask: maskForIndices(map.topology.cellCount, territory.core),
@@ -282,15 +284,15 @@
     return relations;
   }
 
-  function movementAllowsCell(definition, map, index, allowFortifiedCore = false) {
-    if (!allowFortifiedCore && map.cityPolities.control.classes[index] === "c") return false;
+  function movementAllowsCell(definition, map, index, allowFortifiedCore = false, applyCityPressure = true) {
+    if (applyCityPressure && !allowFortifiedCore && map.cityPolities?.control?.classes?.[index] === "c") return false;
     if (definition.movementModes.includes("flight") || definition.movementModes.includes("levitation")) return true;
     if (definition.realm === "ocean") return map.surface.classes[index] === "W";
     if (definition.realm === "land") return map.surface.classes[index] === "L";
     return surfaceMatches(definition, map, index);
   }
 
-  function shortestMovementPath(definition, map, startIndex, endIndex, allowFortifiedDestination = false) {
+  function shortestMovementPath(definition, map, startIndex, endIndex, allowFortifiedDestination = false, applyCityPressure = true) {
     const topology = StrategicWorld.topologyForMap(map);
     const previous = new Int32Array(topology.cellCount);
     previous.fill(-2);
@@ -304,7 +306,7 @@
       if (current === endIndex) break;
       for (const neighbor of topology.neighbors[current]) {
         if (previous[neighbor] !== -2) continue;
-        if (!movementAllowsCell(definition, map, neighbor, allowFortifiedDestination && neighbor === endIndex)) continue;
+        if (!movementAllowsCell(definition, map, neighbor, allowFortifiedDestination && neighbor === endIndex, applyCityPressure)) continue;
         previous[neighbor] = current;
         queue[tail++] = neighbor;
       }
@@ -329,33 +331,33 @@
     return { outboundPhase: ordered[0], residencePhase: ordered[1], returnPhase: ordered[2], homePhase: ordered[3] };
   }
 
-  function migrationDestination(definition, population, map, seed) {
+  function migrationDestination(definition, population, map, seed, applyCityPressure = true) {
     const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
     const centerRegion = map.surface.regionByCell[centerIndex];
     const flying = definition.movementModes.includes("flight") || definition.movementModes.includes("levitation");
     const candidates = [];
     for (let index = 0; index < map.topology.cellCount; index += 1) {
-      if (!movementAllowsCell(definition, map, index)) continue;
+      if (!movementAllowsCell(definition, map, index, false, applyCityPressure)) continue;
       if (!flying && map.surface.regionByCell[index] !== centerRegion) continue;
       const distance = StrategicWorld.greatCircleDistanceKm(map, centerIndex, index);
       if (distance < 420 || distance > 2100) continue;
       candidates.push({
         index,
-        score: habitatSuitability(definition, map, index, seed) + Math.min(360, distance * 0.2) + seededNumber(seed, `${population.id}:migration-destination:${index}`) * 240
+        score: habitatSuitability(definition, map, index, seed, applyCityPressure) + Math.min(360, distance * 0.2) + seededNumber(seed, `${population.id}:migration-destination:${index}`) * 240
       });
     }
     return candidates.sort((left, right) => right.score - left.score || left.index - right.index)[0]?.index ?? null;
   }
 
-  function createMigrations(worldSeed, map, populations) {
+  function createMigrations(worldSeed, map, populations, applyCityPressure = true) {
     const migrations = [];
     for (const population of populations) {
       const definition = SPECIES_BY_ID.get(population.speciesId);
       if (!MIGRATORY_SOCIAL_PATTERNS.includes(definition.socialPattern)) continue;
-      const destinationIndex = migrationDestination(definition, population, map, worldSeed);
+      const destinationIndex = migrationDestination(definition, population, map, worldSeed, applyCityPressure);
       if (destinationIndex === null) continue;
       const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
-      const path = shortestMovementPath(definition, map, centerIndex, destinationIndex);
+      const path = shortestMovementPath(definition, map, centerIndex, destinationIndex, false, applyCityPressure);
       if (!path || path.length < 3) continue;
       migrations.push({
         id: `beast-migration:${String(migrations.length + 1).padStart(4, "0")}`,
@@ -756,11 +758,199 @@
     return atlas;
   }
 
+  function indicesFromMask(mask, cellCount) {
+    const bytes = base64ToBytes(mask);
+    const indices = [];
+    for (let index = 0; index < cellCount; index += 1) if (bytes[index >> 3] & (1 << (index & 7))) indices.push(index);
+    return indices;
+  }
+
+  function pristineCore(record) {
+    return {
+      sourceEnvironmentDigest: record.sourceEnvironmentDigest,
+      sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
+      catalogDigest: record.catalogDigest,
+      generationSalt: record.generationSalt,
+      populationRows: record.populationRows,
+      migrationRows: record.migrationRows,
+      diagnostics: record.diagnostics
+    };
+  }
+
+  function expandPristineBeastEcology(map, record = map?.pristineBeastEcology) {
+    if (!record) return null;
+    const populations = record.populationRows.map((row) => {
+      const definition = BEAST_SPECIES[row[0]];
+      const ordinal = row[1];
+      const centerIndex = row[2];
+      const lairIndex = row[3];
+      const radius = row[4];
+      const populationIndex = row[5];
+      if (!definition) throw new Error("A pristine beast population references an unknown species.");
+      const territory = territoryIndices(definition, centerIndex, radius, map, record.generationSalt, false);
+      const id = `beast-population:${definition.id.slice(6)}:${String(ordinal + 1).padStart(2, "0")}`;
+      return {
+        id,
+        speciesId: definition.id,
+        centerCellId: StrategicWorld.cellId(centerIndex),
+        lairCellId: StrategicWorld.cellId(lairIndex),
+        lairKind: definition.lairKind,
+        populationIndex,
+        abundanceBand: abundanceBand(populationIndex),
+        territory: {
+          rangeMask: maskForIndices(map.topology.cellCount, territory.range),
+          coreMask: maskForIndices(map.topology.cellCount, territory.core),
+          rangeCellCount: territory.range.length,
+          coreCellCount: territory.core.length
+        }
+      };
+    });
+    const temporaryRanges = new Map(populations.map((population) => [population.id, new Set(indicesFromMask(population.territory.rangeMask, map.topology.cellCount))]));
+    const relations = createRelations(populations, temporaryRanges);
+    const migrations = record.migrationRows.map((row, index) => {
+      const population = populations[row[0]];
+      const definition = population ? SPECIES_BY_ID.get(population.speciesId) : null;
+      const destinationIndex = row[1];
+      if (!population || !definition) throw new Error("A pristine migration references an unknown population.");
+      const centerIndex = StrategicWorld.cellIndex(population.centerCellId);
+      const path = shortestMovementPath(definition, map, centerIndex, destinationIndex, false, false);
+      if (!path) throw new Error("A pristine migration can no longer be reconstructed from its physical world.");
+      return {
+        id: `beast-migration:${String(index + 1).padStart(4, "0")}`,
+        populationId: population.id,
+        kind: "seasonalCycle",
+        homeCellId: population.centerCellId,
+        seasonalCellId: StrategicWorld.cellId(destinationIndex),
+        cellPath: path.map(StrategicWorld.cellId),
+        distanceKm: pathLengthKm(map, path),
+        phases: seasonalPhases(map, centerIndex, record.generationSalt, population.id),
+        travelPaceBand: definition.movementModes.includes("flight") ? "rapid" : (definition.sizeBand === "colossal" ? "slow" : "steady")
+      };
+    });
+    return { species: clone(BEAST_SPECIES), populations, relations, migrations, temporaryRanges, digest: record.digest };
+  }
+
+  function createPristineBeastEcology(worldSeed, map) {
+    const seed = String(worldSeed || "").trim();
+    if (!seed) throw new Error("A world seed is required for pristine beast ecology.");
+    const strategicMap = StrategicWorld.validateStrategicMap(map);
+    Environment.validateEnvironment(strategicMap);
+    ArcaneGeography.validateStrategicArcaneGeography(strategicMap);
+    if (strategicMap.humanGeography || strategicMap.cityPolities) throw new Error("Pristine beast ecology must be generated before humans and cities.");
+    const generationSalt = StrategicWorld.stableHash(`${seed}:pristine-beast-ecology`);
+    const { populations, temporaryRanges } = createPopulations(generationSalt, strategicMap, { applyCityPressure: false, includeGenerationFacts: true });
+    const relations = createRelations(populations, temporaryRanges);
+    const migrations = createMigrations(generationSalt, strategicMap, populations, false);
+    const populationRows = populations.map((population) => [
+      BEAST_SPECIES.findIndex((entry) => entry.id === population.speciesId),
+      Number(population.id.slice(-2)) - 1,
+      StrategicWorld.cellIndex(population.centerCellId),
+      StrategicWorld.cellIndex(population.lairCellId),
+      population.generationRadius,
+      population.populationIndex
+    ]);
+    const populationIndexById = new Map(populations.map((population, index) => [population.id, index]));
+    const migrationRows = migrations.map((migration) => [populationIndexById.get(migration.populationId), StrategicWorld.cellIndex(migration.seasonalCellId)]);
+    const record = {
+      sourceEnvironmentDigest: StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }),
+      sourceArcaneGeographyDigest: strategicMap.arcaneGeography.digest,
+      catalogDigest: StrategicWorld.stableHash(BEAST_SPECIES),
+      generationSalt,
+      populationRows,
+      migrationRows,
+      diagnostics: {
+        speciesCount: BEAST_SPECIES.length,
+        populationCount: populations.length,
+        relationCount: relations.length,
+        migrationCount: migrations.length,
+        humanPressureFactCount: 0,
+        cityTargetedWaveCount: 0,
+        occupiedRangeCellMemberships: populations.reduce((total, population) => total + population.territory.rangeCellCount, 0)
+      }
+    };
+    record.digest = `pristine-beast-ecology-${StrategicWorld.stableHash(pristineCore(record))}`;
+    return record;
+  }
+
+  function validatePristineBeastEcology(map, record = map?.pristineBeastEcology) {
+    const strategicMap = StrategicWorld.validateStrategicMap(map);
+    Environment.validateEnvironment(strategicMap);
+    ArcaneGeography.validateStrategicArcaneGeography(strategicMap);
+    if (!record || record.sourceEnvironmentDigest !== StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }) || record.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography.digest || record.catalogDigest !== StrategicWorld.stableHash(BEAST_SPECIES) || !Array.isArray(record.populationRows) || !Array.isArray(record.migrationRows)) throw new Error("Pristine beast ecology is incomplete or does not match its physical world.");
+    if (record.populationRows.some((row) => !Array.isArray(row) || row.length !== 6 || !BEAST_SPECIES[row[0]] || !Number.isInteger(row[1]) || !Number.isInteger(row[2]) || !Number.isInteger(row[3]) || !Number.isInteger(row[4]) || row[4] < 1 || !Number.isInteger(row[5]) || row[5] < 1)) throw new Error("A pristine beast population row is invalid.");
+    const expanded = expandPristineBeastEcology(strategicMap, record);
+    const populationIds = new Set(expanded.populations.map((population) => population.id));
+    if (populationIds.size !== expanded.populations.length || BEAST_SPECIES.some((definition) => !expanded.populations.some((population) => population.speciesId === definition.id))) throw new Error("Every static beast species requires a pristine population.");
+    for (const population of expanded.populations) {
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      const range = validateMask(population.territory.rangeMask, strategicMap.topology.cellCount, `${population.id} pristine range`);
+      const core = validateMask(population.territory.coreMask, strategicMap.topology.cellCount, `${population.id} pristine core`);
+      if (!maskIncludes(range, StrategicWorld.cellIndex(population.centerCellId)) || !maskIncludes(core, StrategicWorld.cellIndex(population.lairCellId))) throw new Error(`${population.id} has inconsistent pristine anchors.`);
+      for (let index = 0; index < strategicMap.topology.cellCount; index += 1) if (range[index >> 3] & (1 << (index & 7)) && !surfaceMatches(definition, strategicMap, index)) throw new Error(`${population.id} occupies an impossible pristine surface realm.`);
+    }
+    for (const migration of expanded.migrations) {
+      const population = expanded.populations.find((entry) => entry.id === migration.populationId);
+      const definition = population ? SPECIES_BY_ID.get(population.speciesId) : null;
+      const indices = validateCellPath(strategicMap, migration.cellPath, `${migration.id} pristine migration`);
+      if (!definition || !MIGRATORY_SOCIAL_PATTERNS.includes(definition.socialPattern) || indices.some((index) => !movementAllowsCell(definition, strategicMap, index, false, false))) throw new Error(`${migration.id} violates pristine movement behavior.`);
+    }
+    const diagnostics = record.diagnostics;
+    if (!diagnostics || diagnostics.speciesCount !== BEAST_SPECIES.length || diagnostics.populationCount !== expanded.populations.length || diagnostics.relationCount !== expanded.relations.length || diagnostics.migrationCount !== expanded.migrations.length || diagnostics.humanPressureFactCount !== 0 || diagnostics.cityTargetedWaveCount !== 0) throw new Error("Pristine beast ecology diagnostics are invalid.");
+    if (record.digest !== `pristine-beast-ecology-${StrategicWorld.stableHash(pristineCore(record))}`) throw new Error("Pristine beast ecology does not match its digest.");
+    return clone(record);
+  }
+
+  function attachPristineBeastEcology(worldSeed, map) {
+    const next = StrategicWorld.validateStrategicMap(map);
+    next.pristineBeastEcology = createPristineBeastEcology(worldSeed, next);
+    return StrategicWorld.finalizeStrategicMap(next);
+  }
+
+  function pressurePristinePopulations(worldSeed, map, pristine) {
+    const populations = pristine.populations.map((population) => {
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      const pristineRange = indicesFromMask(population.territory.rangeMask, map.topology.cellCount);
+      let range = pristineRange.filter((index) => {
+        const control = map.cityPolities.control.classes[index];
+        if (control === "c") return false;
+        if (control === "a") return seededNumber(worldSeed, `${population.id}:approach-survival:${index}`) >= 0.58;
+        if (control === "i") return seededNumber(worldSeed, `${population.id}:corridor-survival:${index}`) >= 0.16;
+        return true;
+      });
+      if (!range.length) range = pristineRange.filter((index) => map.cityPolities.control.classes[index] !== "c").slice(0, 1);
+      if (!range.length) throw new Error(`${population.id} has no habitat outside fortified city cores.`);
+      const originalCenter = StrategicWorld.cellIndex(population.centerCellId);
+      const centerIndex = range.includes(originalCenter)
+        ? originalCenter
+        : [...range].sort((left, right) => habitatSuitability(definition, map, right, worldSeed, true) - habitatSuitability(definition, map, left, worldSeed, true) || left - right)[0];
+      const pristineCore = new Set(indicesFromMask(population.territory.coreMask, map.topology.cellCount));
+      let core = range.filter((index) => pristineCore.has(index));
+      if (!core.length) core = [centerIndex];
+      const originalLair = StrategicWorld.cellIndex(population.lairCellId);
+      const lairIndex = core.includes(originalLair) ? originalLair : core[Math.floor(seededNumber(worldSeed, `${population.id}:displaced-lair`) * core.length) % core.length];
+      const retainedPermille = Math.round(range.length / Math.max(1, pristineRange.length) * 1000);
+      const populationIndex = Math.max(30, Math.round(population.populationIndex * (550 + retainedPermille * 0.45) / 1000));
+      return {
+        ...clone(population),
+        centerCellId: StrategicWorld.cellId(centerIndex),
+        lairCellId: StrategicWorld.cellId(lairIndex),
+        populationIndex,
+        abundanceBand: abundanceBand(populationIndex),
+        territory: { rangeMask: maskForIndices(map.topology.cellCount, range), coreMask: maskForIndices(map.topology.cellCount, core), rangeCellCount: range.length, coreCellCount: core.length },
+        pristinePopulationId: population.id,
+        retainedPristineRangePermille: retainedPermille
+      };
+    });
+    return { populations, temporaryRanges: new Map(populations.map((population) => [population.id, new Set(indicesFromMask(population.territory.rangeMask, map.topology.cellCount))])) };
+  }
+
   function ecologyCore(record) {
     return {
       sourceEnvironmentDigest: record.sourceEnvironmentDigest,
       sourceArcaneGeographyDigest: record.sourceArcaneGeographyDigest,
       sourceCityPolitiesDigest: record.sourceCityPolitiesDigest,
+      sourcePristineBeastEcologyDigest: record.sourcePristineBeastEcologyDigest,
+      historicalCausalityStatus: record.historicalCausalityStatus,
       species: record.species,
       populations: record.populations,
       relations: record.relations,
@@ -779,7 +969,9 @@
     Environment.validateEnvironment(strategicMap);
     ArcaneGeography.validateStrategicArcaneGeography(strategicMap);
     StrategicCityPolities.validateCityPolities(strategicMap);
-    const { populations, temporaryRanges } = createPopulations(seed, strategicMap);
+    validatePristineBeastEcology(strategicMap);
+    const pristine = expandPristineBeastEcology(strategicMap);
+    const { populations, temporaryRanges } = pressurePristinePopulations(seed, strategicMap, pristine);
     const relations = createRelations(populations, temporaryRanges);
     const migrations = createMigrations(seed, strategicMap, populations);
     const cityAttackExposure = cityAttackExposures(strategicMap, populations);
@@ -788,6 +980,8 @@
       sourceEnvironmentDigest: StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }),
       sourceArcaneGeographyDigest: strategicMap.arcaneGeography.digest,
       sourceCityPolitiesDigest: strategicMap.cityPolities.digest,
+      sourcePristineBeastEcologyDigest: strategicMap.pristineBeastEcology.digest,
+      historicalCausalityStatus: "provisionalCityPressureUntilCivilizationHistory",
       species: clone(BEAST_SPECIES),
       populations,
       relations,
@@ -834,7 +1028,8 @@
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     StrategicCityPolities.validateCityPolities(strategicMap);
     if (!ecology || !publicAtlas || !Array.isArray(ecology.species) || !Array.isArray(ecology.populations) || !Array.isArray(ecology.relations) || !Array.isArray(ecology.migrations) || !Array.isArray(ecology.cityAttackExposure) || !Array.isArray(ecology.waveProfiles) || !Array.isArray(ecology.sharedThreats)) throw new Error("Strategic beast ecology is incomplete.");
-    if (ecology.sourceEnvironmentDigest !== StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }) || ecology.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography.digest || ecology.sourceCityPolitiesDigest !== strategicMap.cityPolities.digest) throw new Error("Strategic beast ecology does not match its source world.");
+    validatePristineBeastEcology(strategicMap);
+    if (ecology.sourceEnvironmentDigest !== StrategicWorld.stableHash({ climate: strategicMap.climate, hydrology: strategicMap.hydrology, biomes: strategicMap.biomes }) || ecology.sourceArcaneGeographyDigest !== strategicMap.arcaneGeography.digest || ecology.sourceCityPolitiesDigest !== strategicMap.cityPolities.digest || ecology.sourcePristineBeastEcologyDigest !== strategicMap.pristineBeastEcology.digest || ecology.historicalCausalityStatus !== "provisionalCityPressureUntilCivilizationHistory") throw new Error("Strategic beast ecology does not match its source world.");
     if (ecology.species.length !== BEAST_SPECIES.length || ecology.species.some((entry, index) => JSON.stringify(entry) !== JSON.stringify(BEAST_SPECIES[index]))) throw new Error("Every world must contain the complete static beast-species catalog.");
     const populationIds = new Set();
     const speciesPopulationCounts = new Map(BEAST_SPECIES.map((entry) => [entry.id, 0]));
@@ -959,10 +1154,14 @@
 
   function publicBestiary(map) {
     if (!map?.publicBeastAtlas) return [];
-    return BEAST_SPECIES.map((definition) => {
+    return BEAST_SPECIES.map((definition, speciesIndex) => {
       const reports = map.publicBeastAtlas.reports.filter((report) => report.speciesId === definition.id);
+      const pristinePopulationCount = map.pristineBeastEcology?.populationRows?.filter((row) => row[0] === speciesIndex).length || 0;
+      const pristinePopulationBand = pristinePopulationCount <= 1 ? "few" : pristinePopulationCount <= 3 ? "scattered" : pristinePopulationCount <= 5 ? "numerous" : "widespread";
       return {
         species: clone(definition),
+        pristinePopulationBand: map.pristineBeastEcology ? pristinePopulationBand : "unknown",
+        exactPristinePopulationCountPublic: false,
         reportedPopulationCount: reports.length,
         highestConfidence: [...reports].sort((left, right) => CONFIDENCE_BANDS.indexOf(right.confidence) - CONFIDENCE_BANDS.indexOf(left.confidence))[0]?.confidence || "low",
         knownLairCount: reports.filter((report) => report.knownLairCellId).length,
@@ -1024,8 +1223,35 @@
       publicAtlasHidesPopulationIdentity: publicAtlas.reports.every((report) => !Object.hasOwn(report, "populationId") && /^beast-report:\d{4}$/.test(report.id)),
       publicAtlasHidesPopulationIndex: publicAtlas.reports.every((report) => !Object.hasOwn(report, "populationIndex")),
       publicAtlasHidesUnknownLairs: publicAtlas.reports.some((report) => !report.knownLairCellId),
+      currentPressureMarkedProvisionalUntilHistory: ecology.historicalCausalityStatus === "provisionalCityPressureUntilCivilizationHistory",
       knownLairCount: publicAtlas.diagnostics.knownLairCount,
       contestedCellCount: publicAtlas.diagnostics.contestedCellCount
+    };
+  }
+
+  function auditPristineBeastEcology(map) {
+    const record = validatePristineBeastEcology(map);
+    const expanded = expandPristineBeastEcology(map, record);
+    const canonicalLandCovered = new Set();
+    for (const population of expanded.populations) {
+      const definition = SPECIES_BY_ID.get(population.speciesId);
+      if (definition.realm === "ocean") continue;
+      for (const index of indicesFromMask(population.territory.rangeMask, map.topology.cellCount)) if (map.surface.classes[index] === "L") canonicalLandCovered.add(index);
+    }
+    const landCellCount = [...map.surface.classes].filter((code) => code === "L").length;
+    return {
+      valid: true,
+      generatedBeforeHumansAndCities: !record.sourceHumanGeographyDigest && !record.sourceCityPolitiesDigest,
+      physicalAndArcaneCausesOnly: !JSON.stringify(record).match(/humanGeography|cityPolities|corridor|humanControl|beastPressure/i),
+      everySpeciesPresent: BEAST_SPECIES.every((definition) => expanded.populations.some((population) => population.speciesId === definition.id)),
+      noCityTargetedWaves: record.diagnostics.cityTargetedWaveCount === 0,
+      migrationsUsePhysicalMovementRealms: expanded.migrations.every((migration) => {
+        const population = expanded.populations.find((entry) => entry.id === migration.populationId);
+        const definition = SPECIES_BY_ID.get(population.speciesId);
+        return migration.cellPath.every((cellId) => movementAllowsCell(definition, map, StrategicWorld.cellIndex(cellId), false, false));
+      }),
+      canonicalLandCoveragePercent: canonicalLandCovered.size / Math.max(1, landCellCount) * 100,
+      diagnostics: clone(record.diagnostics)
     };
   }
 
@@ -1046,12 +1272,17 @@
     ATTACK_EXPOSURE_BANDS,
     THREAT_CLASS_LEGEND,
     createBeastEcology,
+    createPristineBeastEcology,
+    validatePristineBeastEcology,
+    attachPristineBeastEcology,
+    expandPristineBeastEcology,
     validateBeastEcology,
     attachBeastEcology,
     cellPublicBeastSnapshot,
     publicBestiary,
     publicCityThreatDirectory,
     auditBeastEcology,
+    auditPristineBeastEcology,
     maskIncludes,
     clone
   });

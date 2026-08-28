@@ -1,6 +1,7 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 const Library = require('../world-run-library');
+const PreUrbanHumanity = require('../strategic-pre-urban-humanity');
 
 function memoryStorage() {
   const values = new Map();
@@ -71,6 +72,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicDivinityDirectory: { godStateRows: expect.any(Array) },
         preCivicFaiths: { diagnostics: { faithCount: expect.any(Number), activelyConfirmedFaithCount: expect.any(Number), holySiteCount: expect.any(Number) } },
         publicPreCivicFaithDirectory: { faithRows: expect.any(Array), holySiteRows: expect.any(Array) },
+        pristineBeastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), humanPressureFactCount: 0, cityTargetedWaveCount: 0 } },
+        preUrbanHumanity: { diagnostics: { peopleCount: expect.any(Number), populationGroupCount: expect.any(Number), cityCount: 0 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
         cityPolities: { diagnostics: { polityCount: expect.any(Number), corridorRelationCount: expect.any(Number), notableInternetRelationCount: expect.any(Number) } },
         beastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), migrationCount: expect.any(Number), attackableCityCount: expect.any(Number), waveProfileCount: expect.any(Number) } },
@@ -151,6 +154,9 @@ test('physical strategic geography ignores World Theme while city identity honor
     delete map.publicDivinityDirectory;
     delete map.preCivicFaiths;
     delete map.publicPreCivicFaithDirectory;
+    delete map.pristineBeastEcology;
+    delete map.preUrbanHumanity;
+    delete map.publicPreUrbanOverview;
     delete map.strategicNonStateNetworks;
     delete map.publicNonStateNetworkDirectory;
     delete map.strategicSettlements;
@@ -264,6 +270,10 @@ test('legacy resource worlds do not silently gain human geography', () => {
   expect(world.generatedData.strategicResolution).toBe('geodesic-globe-resource-potential');
   expect(world.generatedData.strategicMap.resourcePotential).toBeDefined();
   expect(world.generatedData.strategicMap.publicResourceProspects).toBeDefined();
+  expect(world.generatedData.strategicMap.pristineBeastEcology).toBeDefined();
+  expect(world.generatedData.strategicMap.preUrbanHumanity).toBeDefined();
+  expect(world.generatedData.strategicMap.publicPreUrbanOverview).toBeUndefined();
+  expect(PreUrbanHumanity.publicPreUrbanOverview(world.generatedData.strategicMap)).toMatchObject({ peoples: expect.any(Array), groupSummaries: expect.any(Array), beastBaseline: expect.any(Array) });
   expect(world.generatedData.strategicMap.humanGeography).toBeUndefined();
   expect(world.generatedData.strategicMap.routeGraph).toEqual({ version: 1, nodes: [], routes: [] });
   expect(normalized).toEqual(world);

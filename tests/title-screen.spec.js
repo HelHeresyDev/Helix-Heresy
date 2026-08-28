@@ -23,7 +23,7 @@ async function beginRun(page, options = {}) {
 }
 
 test('@smoke fresh startup generates an explicitly themed world before entering its first run', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await openFreshTitle(page);
 
   await expect(page.locator('#titleScreen')).toBeVisible();
@@ -50,6 +50,10 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('geological provinces');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('ley nodes');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource families');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('pre-urban peoples');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('aggregated human communities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('agriculture, literacy, metalworking, and established magic before cities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('pristine beast ecology preserved');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('strategic intercity corridors');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
@@ -144,6 +148,12 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const publicReligions = await page.evaluate(() => window.helixHeresyDebug.strategicPublicReligionDirectory());
   const faithAudit = await page.evaluate(() => window.helixHeresyDebug.strategicPreCivicFaithsAudit());
   const publicFaiths = await page.evaluate(() => window.helixHeresyDebug.strategicPublicFaithDirectory());
+  const preUrbanAudit = await page.evaluate(() => window.helixHeresyDebug.strategicPreUrbanHumanityAudit());
+  const pristineAudit = await page.evaluate(() => window.helixHeresyDebug.strategicPristineBeastEcologyAudit());
+  const publicPreUrban = await page.evaluate(() => window.helixHeresyDebug.strategicPublicPreUrbanOverview());
+  expect(preUrbanAudit).toMatchObject({ valid: true, generatedBeforeCities: true, allGroupsAgriculturalLiterateMetalworkingAndMagical: true });
+  expect(pristineAudit).toMatchObject({ valid: true, generatedBeforeHumansAndCities: true, physicalAndArcaneCausesOnly: true });
+  expect(publicPreUrban.groupSummaries.every((summary) => !Object.hasOwn(summary, 'population') && !Object.hasOwn(summary, 'centerCellId'))).toBe(true);
   expect(faithAudit).toMatchObject({ valid: true, independentOfCities: true, everyFaithSemantic: true, routineCommunicationNeedsNoSite: true });
   expect(publicFaiths.faiths).toHaveLength(publicReligions.gods.length);
   await expect(page.locator('.strategic-god-card')).toHaveCount(publicReligions.gods.length);
@@ -160,6 +170,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const firstHolySiteIndex = Number(publicReligions.holySites[0].cellId.split(':')[1]);
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstHolySiteIndex);
   await expect(page.locator('#strategicCellHolySites')).toContainText('divinely confirmed');
+  await expect(page.locator('.strategic-beast-card').first()).toContainText('reconstructed pre-urban distribution');
+  await expect(page.locator('.strategic-beast-card').first()).toContainText('exact pristine counts hidden');
   await expect(page.locator('#strategicNetworkDirectory')).toBeVisible();
   const publicNetworks = await page.evaluate(() => window.helixHeresyDebug.strategicPublicNonStateNetworkDirectory());
   expect(publicNetworks.networks).toHaveLength(21);

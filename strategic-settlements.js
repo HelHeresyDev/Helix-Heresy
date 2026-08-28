@@ -192,7 +192,7 @@
         const shareBand = Math.floor(seededNumber(seed, `stronghold-share:${route.id}:${ordinal}`) * 4) % 4;
         const populationBand = clamp(1 + Math.floor(corridorLength(map, routeIndex) / 900) + Math.floor(seededNumber(seed, `stronghold-population:${route.id}:${ordinal}`) * 2), 0, 3);
         const vehicle = Math.floor(seededNumber(seed, `stronghold-vehicle:${route.id}:${ordinal}`) * VEHICLE_MODES.length) % VEHICLE_MODES.length;
-        codes.push(`${code2(routeIndex)}${ordinal.toString(36)}${code3(cellIndex)}${administration.toString(36)}${shareBand.toString(36)}${populationBand.toString(36)}${vehicle.toString(36)}`);
+        codes.push(`${code2(routeIndex)}${code2(ordinal)}${code3(cellIndex)}${administration.toString(36)}${shareBand.toString(36)}${populationBand.toString(36)}${vehicle.toString(36)}`);
       });
     });
     return codes;
@@ -200,13 +200,13 @@
 
   function decodeStronghold(code, index, map) {
     const routeIndex = parseInt(code.slice(0, 2), 36);
-    const ordinal = parseInt(code[2], 36);
-    const cellIndex = parseInt(code.slice(3, 6), 36);
+    const ordinal = parseInt(code.slice(2, 4), 36);
+    const cellIndex = parseInt(code.slice(4, 7), 36);
     const route = map.routeGraph.routes[routeIndex];
     const sponsors = route.endpointIds.map((id) => map.humanGeography.cities.find((city) => city.id === id));
-    const shareIndex = parseInt(code[7], 36);
+    const shareIndex = parseInt(code[8], 36);
     const leftShare = [35, 40, 45, 50][shareIndex];
-    const populationCapacity = [800, 1800, 4000, 8000][parseInt(code[8], 36)];
+    const populationCapacity = [800, 1800, 4000, 8000][parseInt(code[9], 36)];
     return {
       id: `joint-stronghold:${routeIndex.toString(36)}:${ordinal.toString(36)}`,
       kind: "jointRouteStronghold",
@@ -218,14 +218,14 @@
         { cityId: route.endpointIds[0], staffingPercent: leftShare, upkeepPercent: leftShare },
         { cityId: route.endpointIds[1], staffingPercent: 100 - leftShare, upkeepPercent: 100 - leftShare }
       ],
-      administration: STRONGHOLD_ADMINISTRATIONS[parseInt(code[6], 36)],
+      administration: STRONGHOLD_ADMINISTRATIONS[parseInt(code[7], 36)],
       politicalStatus: JOINT_STRONGHOLD_BASELINE.politicalStatus,
       locallyAdministered: true,
       independentlySovereign: false,
       independentDiplomacy: false,
       populationCapacity,
       initialPopulation: Math.round(populationCapacity * (0.62 + seededNumber(map.humanGeography.digest, `stronghold-initial:${index}`) * 0.25)),
-      serviceMode: VEHICLE_MODES[parseInt(code[9], 36)],
+      serviceMode: VEHICLE_MODES[parseInt(code[10], 36)],
       supportMaximumLegKm: SUPPORT_MAXIMUM_LEG_KM,
       jointLegalFramework: clone(JOINT_STRONGHOLD_BASELINE),
       evacuation: { primaryDestinations: [...route.endpointIds], allocation: "capacityAndRouteConditionAtDispatch", localCustodyProcessRequired: true }
@@ -339,7 +339,7 @@
   function cellFeatures(map, foundationRows, strongholdCodes, satelliteCodes) {
     const features = new Map();
     foundationRows.forEach((row, cityIndex) => features.set(StrategicWorld.cellIndex(map.humanGeography.cities[cityIndex].cellId), row[0] === "1" ? "r" : "c"));
-    strongholdCodes.forEach((code) => features.set(parseInt(code.slice(3, 6), 36), "s"));
+    strongholdCodes.forEach((code) => features.set(parseInt(code.slice(4, 7), 36), "s"));
     satelliteCodes.forEach((code) => features.set(parseInt(code.slice(4, 7), 36), ({ agriculture: "a", extraction: "e", hunting: "h", utilityRelay: "u", corridorService: "t" })[SATELLITE_FUNCTIONS[parseInt(code[7], 36)]]));
     return [...features.entries()].sort((left, right) => left[0] - right[0]).map(([index, feature]) => `${index.toString(36)}:${feature}`);
   }
@@ -465,7 +465,7 @@
     const familyCodes = new Set(publicDirectory.foundationRows.flatMap((row) => [row[1], row[2]]).filter((code) => code !== "z"));
     if (familyCodes.size !== RESOURCE_FAMILIES.length || publicDirectory.foundationRows.filter((row) => row[0] === "1").length > 1) throw new Error("City foundations must cover every resource family and keep independent refuges rare.");
     if (!Array.isArray(record.supplementalEndowmentCodes) || record.supplementalEndowmentCodes.some((code) => !/^[0-9a-z]{7}$/.test(code) || parseInt(code.slice(0, 2), 36) >= publicDirectory.foundationRows.length || parseInt(code[2], 36) >= RESOURCE_FAMILIES.length || parseInt(code.slice(3, 6), 36) >= strategicMap.topology.cellCount || ![2, 3].includes(parseInt(code[6], 36)))) throw new Error("Supplemental city endowments are invalid.");
-    if (!Array.isArray(publicDirectory.strongholdCodes) || publicDirectory.strongholdCodes.some((code) => !/^[0-9a-z]{10}$/.test(code) || parseInt(code.slice(0, 2), 36) >= strategicMap.routeGraph.routes.length || parseInt(code.slice(3, 6), 36) >= strategicMap.topology.cellCount || parseInt(code[6], 36) >= STRONGHOLD_ADMINISTRATIONS.length || parseInt(code[7], 36) >= 4 || parseInt(code[8], 36) >= 4 || parseInt(code[9], 36) >= VEHICLE_MODES.length)) throw new Error("Joint route strongholds are invalid.");
+    if (!Array.isArray(publicDirectory.strongholdCodes) || publicDirectory.strongholdCodes.some((code) => !/^[0-9a-z]{11}$/.test(code) || parseInt(code.slice(0, 2), 36) >= strategicMap.routeGraph.routes.length || parseInt(code.slice(4, 7), 36) >= strategicMap.topology.cellCount || parseInt(code[7], 36) >= STRONGHOLD_ADMINISTRATIONS.length || parseInt(code[8], 36) >= 4 || parseInt(code[9], 36) >= 4 || parseInt(code[10], 36) >= VEHICLE_MODES.length)) throw new Error("Joint route strongholds are invalid.");
     const expanded = publicSettlementDirectory(strategicMap);
     if (expanded.strongholds.some((stronghold) => stronghold.sponsorCityIds.length !== 2 || stronghold.sponsorContributions.reduce((sum, entry) => sum + entry.staffingPercent, 0) !== 100 || stronghold.sponsorContributions.reduce((sum, entry) => sum + entry.upkeepPercent, 0) !== 100 || stronghold.independentlySovereign || stronghold.independentDiplomacy)) throw new Error("Every route stronghold requires exactly two jointly responsible political sponsors.");
     if (expanded.supportRoutes.filter((route) => route.supportCapable).some((route) => route.maximumLegKm > SUPPORT_MAXIMUM_LEG_KM)) throw new Error("A normal city support route exceeds the maximum feasible leg.");

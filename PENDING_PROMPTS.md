@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Pre-Urban Humanity, Pristine Beast Ecology, and Monster Faiths
+1. Population-Backed Worship, Beast Religious Practice, and Human Religious Knowledge
 2. The First City and Divine Rivalry
 3. City Expansion, Secession, and Support-Network Formation
 4. Civilizational Capabilities and Magitech Eras
@@ -64,7 +64,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 - The world must be finite and enumerable enough for territorial control and world domination to have a real, testable meaning.
 - The entire campaign world is a seamless geodesic globe. Strategic cells are mostly hexagons with exactly twelve pentagonal anchors; mechanics must use saved graph adjacency and spherical distance rather than assuming a flat axial grid or map-edge boundary.
 - New worlds use the current complete generator rather than numbered generator milestones. Do not give implementation passes artificial milestone numbers. Existing technical save-compatibility fields may remain until a dedicated cleanup, and older records may honestly lack newer world facts.
-- The current generator preserves causal layers: globe topology and surface, relief, climate, hydrology, biomes, geology, natural and magical hazards, arcane geography, hidden resources and public prospects, pre-civic canonical divinity, semantic confirmed-faith identities and causally placed holy sites, fortified cities, strategic intercity corridors, sovereign city polities, beast ecology, city governments, city law codes, directional cross-city recognition, later faith networks and city religious standing, commercial, research, military, transport, media, black-market, and standards networks, city founding purposes and powerful founders, joint route strongholds, dependent satellites, local logistics, and evacuation plans with separate public directories.
+- The current generator preserves causal layers: globe topology and surface, relief, climate, hydrology, biomes, geology, natural and magical hazards, arcane geography, hidden resources and public prospects, pre-civic canonical divinity, semantic confirmed-faith identities and causally placed holy sites, compact pristine beast ecology, named pre-urban peoples and aggregate human population groups, fortified cities, strategic intercity corridors, sovereign city polities, separately derived playable-year beast ecology, city governments, city law codes, directional cross-city recognition, later faith networks and city religious standing, commercial, research, military, transport, media, black-market, and standards networks, city founding purposes and powerful founders, joint route strongholds, dependent satellites, local logistics, and evacuation plans with separate public directories.
 - Every city charter is supreme only within its own city jurisdiction. Core and controlled approaches may have continuous jurisdiction; corridor authority requires a specific facility, convoy, or agreement; wilderness has none; internet contact does not create extraterritorial police power.
 - Every city government covers the same essential civic responsibilities through stable semantic roles, even when its organization chart combines compatible offices. Temporary jail custody and long-term prison or corrections authority must always remain distinct.
 - Every city uses the shared semantic offense catalog but owns its legal status, authorization exceptions, public attitudes, procedure, and punishment policy. World Theme must not act as a legality, competence, or cruelty score.
@@ -100,11 +100,13 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Pre-Urban Humanity, Pristine Beast Ecology, and Monster Faiths
+## 1. Population-Backed Worship, Beast Religious Practice, and Human Religious Knowledge
 
-Establish compact strategic records for dispersed pre-urban humans and the ecology that exists before urban displacement. Humans already have agriculture, literacy, metalworking, established magic, religious communities, and mobile populations, but not the complete modern infrastructure. Generate beast populations and territories from physical and arcane habitat before applying city exclusion, corridor resistance, or human control; later history must cause those pressures and displacements.
+Replace abstract divine worship sources with cohorts belonging to real saved pre-urban human or pristine beast populations. A cohort's followers cannot exceed its source population, one population may contain multiple cohorts, and every initially active god requires at least one deliberate-worship cohort. Gods may have only human followers, only beast followers, or both; factual awareness without devotion still supplies no power.
 
-Assign human and beast worship to real physical populations. Sapient or reasoning beasts may maintain doctrine, clergy, temples, relics, and organized worship, while other species may express sacred migrations, offerings, dominance structures, or instinctive divine bonds. A god may have human followers, beast followers, or both. Preserve canonical monster gods, ascended-beast possibilities, and beast holy sites even when human public knowledge has not discovered them; human-facing projections may show only supported reports.
+Sapient or reasoning beasts may maintain doctrine, clergy, temples, relics, and organized ritual. Other species may express the same confirmed faith through sacred migrations, offerings, dominance practices, or instinctive divine bonds appropriate to their cognition and social behavior. These are cultural expressions of one god-confirmed faith rather than competing same-god doctrines.
+
+Treat “monster god” as a human-knowledge and accessibility category rather than a separate kind of divinity. Preserve canonical gods, faiths, beast religious practice, ascended-beast origins, and holy sites even when humans have not discovered them. Human-facing directories must omit unsupported identities rather than expose mystery placeholders or hidden totals; authenticated replies, manifestations, physical discovery, and supported reports may reveal them. Keep exact worship allocations and undiscovered divine facts outside ordinary public projections.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
