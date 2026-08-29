@@ -26,10 +26,11 @@
   const StrategicFaiths = window.HelixStrategicFaiths;
   const StrategicCivilizationOrigins = window.HelixStrategicCivilizationOrigins;
   const StrategicCityExpansion = window.HelixStrategicCityExpansion;
+  const StrategicCapabilityHistory = window.HelixStrategicCapabilityHistory;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12213,6 +12214,7 @@
       "strategicNetworkAffiliateList",
       "strategicSettlementDirectory",
       "strategicOriginsChronology",
+      "strategicCapabilityChronology",
       "strategicExpansionChronology",
       "strategicFoundationList",
       "strategicStrongholdList",
@@ -12503,6 +12505,16 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCityExpansionDirectory ? StrategicCityExpansion.publicCityExpansion(map) : null;
+      },
+      strategicCapabilityHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicCapabilityHistory ? StrategicCapabilityHistory.auditStrategicCapabilityHistory(map) : null;
+      },
+      strategicPublicCapabilityHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCapabilityHistory ? StrategicCapabilityHistory.publicCapabilityHistory(map) : null;
       },
       strategicPublicReligionDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
@@ -14307,7 +14319,16 @@
     dom.selectedWorldSummary.textContent = world
       ? `${world.name} · ${worldThemeLabel(world.worldTheme)} · Year ${world.playableYear}`
       : "Previewing a new reusable world. Its globe becomes immutable when this run begins.";
-    renderStrategicWorldPreview(world || configuredWorldPreview());
+    if (world) {
+      renderStrategicWorldPreview(world);
+    } else {
+      try {
+        renderStrategicWorldPreview(configuredWorldPreview());
+      } catch (error) {
+        renderStrategicWorldPreview(null);
+        dom.selectedWorldSummary.textContent = "That random preview could not satisfy world-generation constraints. Enter another seed or generate a new one.";
+      }
+    }
     renderStartingScenarioOptions();
     syncCompanyNameSetup();
     return Boolean(world);
@@ -14886,6 +14907,7 @@
 
   function renderStrategicSettlementDirectory(map) {
     dom.strategicOriginsChronology.textContent = "";
+    dom.strategicCapabilityChronology.textContent = "";
     dom.strategicExpansionChronology.textContent = "";
     dom.strategicFoundationList.textContent = "";
     dom.strategicStrongholdList.textContent = "";
@@ -14912,6 +14934,37 @@
       account.textContent = event.publicExplanation;
       card.append(heading, foundation, founders, account);
       dom.strategicOriginsChronology.append(card);
+    }
+    const capabilities = map.publicCapabilityHistory ? StrategicCapabilityHistory.publicCapabilityHistory(map) : null;
+    for (const era of capabilities?.eras || []) {
+      const eraCard = document.createElement("details");
+      eraCard.className = "strategic-capability-era-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = `${era.label} · Year ${era.startYear}–${era.endYear}`;
+      heading.append(strong);
+      const summary = document.createElement("p");
+      summary.textContent = era.summary;
+      eraCard.append(heading, summary);
+      for (const milestone of capabilities.milestones.filter((entry) => entry.eraId === era.id)) {
+        const item = document.createElement("p");
+        const uneven = milestone.adoption.deploymentIsUneven ? "uneven local deployment" : "every city equipped";
+        item.textContent = `Year ${milestone.discoveryYear}: ${milestone.capability.label} — ${milestone.sourceCity.name}; standardized Year ${milestone.standardizationYear}; ${milestone.adoption.deployedCityCount} city site${milestone.adoption.deployedCityCount === 1 ? "" : "s"}, ${milestone.adoption.supportComponentCount}/${milestone.adoption.totalSupportComponentCount} support components, ${uneven}. ${milestone.publicAccount}`;
+        eraCard.append(item);
+      }
+      dom.strategicCapabilityChronology.append(eraCard);
+    }
+    for (const failure of capabilities?.chronology.filter((event) => event.kind === "capabilityFailure") || []) {
+      const item = document.createElement("p");
+      item.className = "journal-meta";
+      item.textContent = `Year ${failure.year} · ${failure.publicExplanation}`;
+      dom.strategicCapabilityChronology.append(item);
+    }
+    if (capabilities) {
+      const baseline = document.createElement("p");
+      baseline.className = "journal-meta";
+      baseline.textContent = "Playable-year baseline: aircraft, flying mounts, mechs, holographic systems, rockets, rare individual spaceflight, and an orbital-arcane internet. Global communication creates neither sovereign authority nor dependable material support.";
+      dom.strategicCapabilityChronology.prepend(baseline);
     }
     const expansion = map.publicCityExpansionDirectory ? StrategicCityExpansion.publicCityExpansion(map) : null;
     for (const event of expansion?.chronology || []) {
@@ -15127,6 +15180,9 @@
     const expansionSummary = map.publicCityExpansionDirectory
       ? ` · ${map.cityExpansionHistory.diagnostics.laterCityCount} later sovereign foundations · ${map.cityExpansionHistory.diagnostics.lineageCorridorCount} lineage support corridors · ${map.cityExpansionHistory.diagnostics.bridgeCorridorCount} component bridges · ${map.cityExpansionHistory.diagnostics.currentSupportComponentCount} current physical support components`
       : (map.publicCivilizationOrigins ? " · Later city-expansion history unavailable in this saved world" : "");
+    const capabilitySummary = map.publicCapabilityHistory
+      ? ` · ${map.strategicCapabilityHistory.diagnostics.eraCount} magitech eras · ${map.strategicCapabilityHistory.diagnostics.capabilityCount} causal capabilities · ${map.strategicCapabilityHistory.diagnostics.rocketLaunchSiteCount} rocket launch site${map.strategicCapabilityHistory.diagnostics.rocketLaunchSiteCount === 1 ? "" : "s"} · orbital-arcane internet`
+      : (map.publicCityExpansionDirectory ? " · Civilizational capability history unavailable in this saved world" : "");
     const humanGeographySummary = map.humanGeography
       ? ` · ${map.humanGeography.cities.length.toLocaleString()} fortified cities · ${map.humanGeography.corridors.length.toLocaleString()} strategic intercity corridors`
       : (map.publicResourceProspects ? " · Human geography unavailable in this saved world" : "");
@@ -15154,7 +15210,7 @@
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

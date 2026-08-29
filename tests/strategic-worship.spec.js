@@ -84,7 +84,7 @@ test('human-facing directories omit the beast-only unknown god without mystery p
 test('population-backed worship and human knowledge survive compact save/load and reject demographic over-allocation', () => {
   const world = Library.createWorld({ id: 'worship-roundtrip', worldSeed: 'population-backed-worship', worldTheme: 'unbound', createdAt: 'test' });
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(world)))).toEqual(world);
-  expect(JSON.stringify(world).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(world).length).toBeLessThan(5_500_000);
 
   const altered = JSON.parse(JSON.stringify(world.generatedData.strategicMap));
   const fields = altered.strategicDivinity.godRows[0][6][0].split('.');

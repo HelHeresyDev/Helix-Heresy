@@ -370,7 +370,8 @@
     originAttempts.forEach((attempt) => resourceCounts.set(attempt.resourcePurposeId, (resourceCounts.get(attempt.resourcePurposeId) || 0) + 1));
     const people = StrategicPreUrbanHumanity.publicPreUrbanOverview(strategicMap).peoples;
     const groups = StrategicPreUrbanHumanity.expandPopulationGroups(strategicMap);
-    const gods = StrategicReligions.createGods(seed, strategicMap.strategicDivinity.worldTheme);
+    const publiclyKnownGodIds = new Set(strategicMap.publicDivinityDirectory.godStateRows.map((row) => row[0]));
+    const gods = StrategicReligions.createGods(seed, strategicMap.strategicDivinity.worldTheme).filter((god) => publiclyKnownGodIds.has(god.id));
     const foundationRows = [];
     const corridorRows = [];
     const refugePlanned = seededNumber(seed, "independent-refuge-world") < 0.16 && targetCityCount > originAttempts.length + 5;

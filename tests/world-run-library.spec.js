@@ -15,6 +15,24 @@ function memoryStorage() {
   };
 }
 
+test('large world and run records use transparent compressed storage while plain JSON remains readable', () => {
+  const storage = memoryStorage();
+  const repository = Library.createRepository(storage);
+  const world = Library.createWorld({ id: 'compressed-world', worldSeed: 'world-seed-one', worldTheme: 'unbound', createdAt: 'test' });
+  repository.putWorld(world);
+
+  const storedWorld = storage.getItem(`${Library.WORLD_KEY_PREFIX}${world.id}`);
+  expect(storedWorld.startsWith('lz16:')).toBe(true);
+  expect(storedWorld.length).toBeLessThan(JSON.stringify(world).length / 4);
+  expect(repository.getWorld(world.id)).toEqual(world);
+  expect(Library.decompressStorageText(Library.compressStorageText('magic, machinery, and 🛰️ relays'))).toBe('magic, machinery, and 🛰️ relays');
+
+  const plainStorage = memoryStorage();
+  plainStorage.setItem(Library.MANIFEST_KEY, JSON.stringify({ version: 2, worldIds: [world.id], runIds: [] }));
+  plainStorage.setItem(`${Library.WORLD_KEY_PREFIX}${world.id}`, JSON.stringify(world));
+  expect(Library.createRepository(plainStorage).getWorld(world.id)).toEqual(world);
+});
+
 test('world names, years, and canonical digests are deterministic and stable', () => {
   const first = Library.createWorld({
     id: 'world-one',
@@ -77,6 +95,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicCivilizationOrigins: { chronology: expect.any(Array), infrastructureState: 'independentOriginComponentsWithoutIntercityCorridorsOrStrongholds' },
         cityExpansionHistory: { historicalHorizonYear: first.playableYear, diagnostics: { laterCityCount: expect.any(Number), lineageCorridorCount: expect.any(Number), currentSupportComponentCount: expect.any(Number) } },
         publicCityExpansionDirectory: { chronology: expect.any(Array), currentSupportComponents: expect.any(Array) },
+        strategicCapabilityHistory: { diagnostics: { eraCount: 6, capabilityCount: 12, infrastructureSiteCount: expect.any(Number), rocketLaunchSiteCount: expect.any(Number) } },
+        publicCapabilityHistory: { eras: expect.any(Array), milestoneRows: expect.any(Array), failureRows: expect.any(Array), cityProfileRows: expect.any(Array), currentBaseline: expect.any(Object) },
         pristineBeastEcology: { diagnostics: { speciesCount: 24, populationCount: expect.any(Number), humanPressureFactCount: 0, cityTargetedWaveCount: 0 } },
         preUrbanHumanity: { diagnostics: { peopleCount: expect.any(Number), populationGroupCount: expect.any(Number), cityCount: 0 } },
         humanGeography: { diagnostics: { cityCount: expect.any(Number), corridorCount: expect.any(Number), redundantCorridorCount: expect.any(Number) } },
@@ -164,6 +184,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicCivilizationOrigins;
     delete map.cityExpansionHistory;
     delete map.publicCityExpansionDirectory;
+    delete map.strategicCapabilityHistory;
+    delete map.publicCapabilityHistory;
     delete map.pristineBeastEcology;
     delete map.preUrbanHumanity;
     delete map.publicPreUrbanOverview;
@@ -289,6 +311,7 @@ test('legacy resource worlds do not silently gain human geography', () => {
   expect(world.generatedData.strategicMap.humanReligiousKnowledge).toBeDefined();
   expect(world.generatedData.strategicMap.civilizationOrigins).toBeDefined();
   expect(world.generatedData.strategicMap.cityExpansionHistory).toBeDefined();
+  expect(world.generatedData.strategicMap.strategicCapabilityHistory).toBeDefined();
   expect(world.generatedData.strategicMap.publicPreUrbanOverview).toBeUndefined();
   expect(PreUrbanHumanity.publicPreUrbanOverview(world.generatedData.strategicMap)).toMatchObject({ peoples: expect.any(Array), groupSummaries: expect.any(Array), beastBaseline: expect.any(Array) });
   expect(world.generatedData.strategicMap.humanGeography).toBeUndefined();

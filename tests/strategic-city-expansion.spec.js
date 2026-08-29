@@ -64,7 +64,7 @@ test('public expansion history exposes consequences and connectivity without lea
   expect(directory.chronology.some((event) => event.kind === 'supportComponentBridge')).toBe(true);
   expect(publicJson).not.toMatch(/canonicalMotive|"foundingPopulation":|populationSourceRows|materialRows|failureCause|relativeConstructionCost/);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(world)))).toEqual(world);
-  expect(JSON.stringify(world).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(world).length).toBeLessThan(5_500_000);
   expect(Expansion.auditCityExpansionHistory(map)).toMatchObject({ failedProjectsRetainedOnlyWithConsequences: true, publicHistoryHidesCanonicalTruth: true });
 });
 

@@ -83,7 +83,7 @@ test('origin sites and founders remain authoritative in geography and settlement
 test('origin history survives compact save/load and rejects demographic over-allocation', () => {
   const world = originWorld('origin-roundtrip');
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(world)))).toEqual(world);
-  expect(JSON.stringify(world).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(world).length).toBeLessThan(5_500_000);
 
   const altered = JSON.parse(JSON.stringify(world.generatedData.strategicMap));
   altered.civilizationOrigins.attemptRows[0].sourcePopulationRows[0][1] = 10_000_000;

@@ -421,6 +421,20 @@
     const publicGods = StrategicReligions.createGods(seed, worldTheme);
     const allocation = allocatePopulationBackedWorship(seed, publicGods, map);
     const gods = publicGods.map((god) => createCanonicalGod(seed, god, allocation.sourcesByGod[god.id]));
+    const humanConnected = gods.filter((god) => god.worshipSources.some((source) => source.kind === "human") && god.power.reserve >= 180)
+      .sort((left, right) => seededNumber(seed, `urban-founding-candidate:${left.id}`) - seededNumber(seed, `urban-founding-candidate:${right.id}`) || left.id.localeCompare(right.id));
+    if (humanConnected.length < 2) throw new Error("Pre-civic divinity requires at least two human-connected gods capable of participating in urban history.");
+    const alreadyInterested = humanConnected.filter((god) => god.urbanInterest !== "opposed");
+    for (const god of humanConnected) {
+      if (alreadyInterested.length >= 2) break;
+      if (god.urbanInterest === "opposed") {
+        god.urbanInterest = alreadyInterested.length ? "conditional" : "interested";
+        alreadyInterested.push(god);
+      }
+    }
+    const foundingPatron = alreadyInterested.find((god) => URBAN_INTERESTS.indexOf(god.urbanInterest) >= URBAN_INTERESTS.indexOf("conditional") && god.investmentWillingness !== "none") || alreadyInterested[0];
+    if (URBAN_INTERESTS.indexOf(foundingPatron.urbanInterest) < URBAN_INTERESTS.indexOf("conditional")) foundingPatron.urbanInterest = "interested";
+    if (foundingPatron.investmentWillingness === "none") foundingPatron.investmentWillingness = "limited";
     const sourceGodRosterDigest = StrategicWorld.stableHash(gods.map((god) => [god.id, god.definitionId]));
     const knowledge = {
       sourcePristineBeastEcologyDigest: map.pristineBeastEcology.digest,

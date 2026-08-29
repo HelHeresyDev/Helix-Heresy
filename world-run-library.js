@@ -56,16 +56,19 @@
   const strategicCityExpansion = typeof module === "object" && module.exports
     ? require("./strategic-city-expansion")
     : root?.HelixStrategicCityExpansion;
+  const strategicCapabilityHistory = typeof module === "object" && module.exports
+    ? require("./strategic-capability-history")
+    : root?.HelixStrategicCapabilityHistory;
   const strategicNonStateNetworks = typeof module === "object" && module.exports
     ? require("./strategic-non-state-networks")
     : root?.HelixStrategicNonStateNetworks;
   const strategicSettlements = typeof module === "object" && module.exports
     ? require("./strategic-settlements")
     : root?.HelixStrategicSettlements;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicNonStateNetworks, strategicSettlements);
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicNonStateNetworks, StrategicSettlements) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -87,6 +90,7 @@
   if (!StrategicFaiths) throw new Error("HelixStrategicFaiths must load before world-run-library.js");
   if (!StrategicCivilizationOrigins) throw new Error("HelixStrategicCivilizationOrigins must load before world-run-library.js");
   if (!StrategicCityExpansion) throw new Error("HelixStrategicCityExpansion must load before world-run-library.js");
+  if (!StrategicCapabilityHistory) throw new Error("HelixStrategicCapabilityHistory must load before world-run-library.js");
   if (!StrategicNonStateNetworks) throw new Error("HelixStrategicNonStateNetworks must load before world-run-library.js");
   if (!StrategicSettlements) throw new Error("HelixStrategicSettlements must load before world-run-library.js");
 
@@ -251,6 +255,7 @@
         generatedStrategicMap = StrategicFaiths.attachPreCivicFaiths(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCivilizationOrigins.attachCivilizationOrigins(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCityExpansion.attachCityExpansionHistory(worldSeed, generatedStrategicMap, { historicalHorizonYear: playableYear });
+        generatedStrategicMap = StrategicCapabilityHistory.attachStrategicCapabilityHistory(worldSeed, generatedStrategicMap, { historicalHorizonYear: playableYear });
       }
       if (generationVersion >= 8) {
         generatedStrategicMap = StrategicHumanGeography.attachHumanGeography(worldSeed, generatedStrategicMap, options.creationSettings?.humanGeography);
@@ -316,6 +321,7 @@
     if (generatedData.strategicMap?.preCivicFaiths || generatedData.strategicMap?.publicPreCivicFaithDirectory) StrategicFaiths.validatePreCivicFaiths(generatedData.strategicMap);
     if (generatedData.strategicMap?.civilizationOrigins || generatedData.strategicMap?.publicCivilizationOrigins) StrategicCivilizationOrigins.validateCivilizationOrigins(generatedData.strategicMap);
     if (generatedData.strategicMap?.cityExpansionHistory || generatedData.strategicMap?.publicCityExpansionDirectory) StrategicCityExpansion.validateCityExpansionHistory(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicCapabilityHistory || generatedData.strategicMap?.publicCapabilityHistory) StrategicCapabilityHistory.validateStrategicCapabilityHistory(generatedData.strategicMap);
     if (generatedData.strategicMap?.pristineBeastEcology) StrategicBeastEcology.validatePristineBeastEcology(generatedData.strategicMap);
     if (generatedData.strategicMap?.preUrbanHumanity || generatedData.strategicMap?.publicPreUrbanOverview) StrategicPreUrbanHumanity.validatePreUrbanHumanity(generatedData.strategicMap);
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
@@ -489,6 +495,82 @@
     };
   }
 
+  const COMPRESSED_STORAGE_PREFIX = "lz16:";
+  const LZW_CLEAR_CODE = 256;
+  const LZW_FIRST_SEQUENCE_CODE = 257;
+  const LZW_MAX_CODE = 65535;
+
+  function compressStorageText(text) {
+    const input = new TextEncoder().encode(String(text || ""));
+    if (!input.length) return COMPRESSED_STORAGE_PREFIX;
+    const dictionary = new Map();
+    const output = [];
+    let nextCode = LZW_FIRST_SEQUENCE_CODE;
+    let phrase = String.fromCharCode(input[0]);
+    const phraseCode = (value) => value.length === 1 ? value.charCodeAt(0) : dictionary.get(value);
+    for (let index = 1; index < input.length; index += 1) {
+      const character = String.fromCharCode(input[index]);
+      const combined = phrase + character;
+      if (dictionary.has(combined)) {
+        phrase = combined;
+        continue;
+      }
+      output.push(phraseCode(phrase));
+      if (nextCode <= LZW_MAX_CODE) {
+        dictionary.set(combined, nextCode);
+        nextCode += 1;
+      } else {
+        output.push(LZW_CLEAR_CODE);
+        dictionary.clear();
+        nextCode = LZW_FIRST_SEQUENCE_CODE;
+      }
+      phrase = character;
+    }
+    output.push(phraseCode(phrase));
+    let packed = COMPRESSED_STORAGE_PREFIX;
+    const chunkSize = 8192;
+    for (let index = 0; index < output.length; index += chunkSize) packed += String.fromCharCode(...output.slice(index, index + chunkSize));
+    return packed;
+  }
+
+  function decompressStorageText(value) {
+    const packed = String(value || "");
+    if (!packed.startsWith(COMPRESSED_STORAGE_PREFIX)) return packed;
+    const codes = packed.slice(COMPRESSED_STORAGE_PREFIX.length);
+    if (!codes.length) return "";
+    let dictionary = new Map();
+    let nextCode = LZW_FIRST_SEQUENCE_CODE;
+    let phrase = "";
+    const byteChunks = [];
+    let byteCount = 0;
+    for (let index = 0; index < codes.length; index += 1) {
+      const code = codes.charCodeAt(index);
+      if (code === LZW_CLEAR_CODE) {
+        dictionary = new Map();
+        nextCode = LZW_FIRST_SEQUENCE_CODE;
+        phrase = "";
+        continue;
+      }
+      const entry = code < LZW_CLEAR_CODE
+        ? String.fromCharCode(code)
+        : (dictionary.get(code) || (code === nextCode && phrase ? phrase + phrase[0] : null));
+      if (entry === null) throw new Error("A compressed library record is corrupt.");
+      if (phrase) {
+        if (nextCode <= LZW_MAX_CODE) {
+          dictionary.set(nextCode, phrase + entry[0]);
+          nextCode += 1;
+        }
+      }
+      byteChunks.push(entry);
+      byteCount += entry.length;
+      phrase = entry;
+    }
+    const bytes = new Uint8Array(byteCount);
+    let cursor = 0;
+    for (const chunk of byteChunks) for (let index = 0; index < chunk.length; index += 1) bytes[cursor++] = chunk.charCodeAt(index);
+    return new TextDecoder().decode(bytes);
+  }
+
   function createRepository(storage) {
     if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
       throw new Error("A Web Storage-compatible adapter is required.");
@@ -497,7 +579,7 @@
     function readJson(key) {
       const raw = storage.getItem(key);
       if (!raw) return null;
-      return JSON.parse(raw);
+      return JSON.parse(decompressStorageText(raw));
     }
 
     function manifest() {
@@ -543,7 +625,7 @@
       }
       const next = manifest();
       if (!next.worldIds.includes(world.id)) next.worldIds.push(world.id);
-      storage.setItem(`${WORLD_KEY_PREFIX}${world.id}`, JSON.stringify(world));
+      storage.setItem(`${WORLD_KEY_PREFIX}${world.id}`, compressStorageText(JSON.stringify(world)));
       writeManifest(next);
       return clone(world);
     }
@@ -576,7 +658,7 @@
       } else if (next.activeRunId === run.id && run.status !== "active") {
         next.activeRunId = null;
       }
-      storage.setItem(`${RUN_KEY_PREFIX}${run.id}`, JSON.stringify(run));
+      storage.setItem(`${RUN_KEY_PREFIX}${run.id}`, compressStorageText(JSON.stringify(run)));
       writeManifest(next);
       return clone(run);
     }
@@ -675,6 +757,8 @@
     generatedWorldName,
     generatedPlayableYear,
     canonicalWorldDigest,
+    compressStorageText,
+    decompressStorageText,
     createWorld,
     normalizeWorld,
     createRun,

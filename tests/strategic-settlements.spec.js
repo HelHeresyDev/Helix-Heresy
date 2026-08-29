@@ -112,5 +112,5 @@ test('the settlement globe layer remains sparse and the complete saved map remai
   expect(featureCells.some((entry) => entry.endsWith(':a'))).toBe(true);
   expect(GlobeRenderer.availableLayers(map)).toContain('settlements');
   expect(GlobeRenderer.legendForLayer('settlements').map((entry) => entry.label)).toEqual(expect.arrayContaining(['Sovereign resource-anchor city', 'Joint route stronghold', 'Agricultural satellite']));
-  expect(JSON.stringify(map).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(map).length).toBeLessThan(5_500_000);
 });
