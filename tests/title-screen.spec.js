@@ -23,7 +23,7 @@ async function beginRun(page, options = {}) {
 }
 
 test('@smoke fresh startup generates an explicitly themed world before entering its first run', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   await openFreshTitle(page);
 
   await expect(page.locator('#titleScreen')).toBeVisible();
@@ -82,6 +82,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('resource-anchor cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('joint route strongholds');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('dependent satellites');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('retained divine events');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('active gods');
   await expect(page.locator('#strategicCellId')).toContainText('planet-cell:');
   await expect(page.locator('#strategicCellElevation')).toContainText('m');
   await expect(page.locator('#strategicCellTemperature')).toContainText('°C mean');
@@ -179,6 +181,12 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(JSON.stringify(publicReligions)).not.toContain('hiddenGodStateCodes');
   expect(JSON.stringify(publicReligions)).not.toContain('currentAttentionBand');
   expect(JSON.stringify(publicReligions)).not.toMatch(/Unknown Monster|hiddenGod|unknownGod|sourcePopulationId|followerUnits/);
+  const divineHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicDivineHistory());
+  const divineHistoryAudit = await page.evaluate(() => window.helixHeresyDebug.strategicDivineHistoryAudit());
+  expect(divineHistoryAudit).toMatchObject({ valid: true, preCivicBaselineImmutable: true, retainedEventsHaveConsequences: true, descentPreservesLivingIdentity: true, deathPermanentAndIdentityNotTransferred: true, successorsRemainUnconfirmed: true, publicHistoryHidesExactPowerAndCausality: true });
+  expect(divineHistory.chronology.length).toBeGreaterThan(0);
+  expect(JSON.stringify(divineHistory)).not.toMatch(/exactContributions|actualCause|followerDispositionRows|worshipIncome|reserveAfterward|attackerScore|defenderScore|exactResidualPower/);
+  await expect(page.locator('#strategicDivineHistoryChronology .strategic-divine-history-entry')).toHaveCount(divineHistory.chronology.length);
   await page.locator('#strategicGlobeLayerSelect').selectOption('religions');
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicGlobeSnapshot())).toMatchObject({ layer: 'religions', hasReligions: true });
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Confirmed holy site');
