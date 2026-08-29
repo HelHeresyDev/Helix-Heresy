@@ -265,6 +265,8 @@
     if (map.publicNonStateNetworkDirectory) core.publicNonStateNetworkDirectory = map.publicNonStateNetworkDirectory;
     if (map.strategicSettlements) core.strategicSettlements = map.strategicSettlements;
     if (map.publicSettlementDirectory) core.publicSettlementDirectory = map.publicSettlementDirectory;
+    if (map.strategicCrisisHistory) core.strategicCrisisHistory = map.strategicCrisisHistory;
+    if (map.publicCrisisHistoryDirectory) core.publicCrisisHistoryDirectory = map.publicCrisisHistoryDirectory;
     return core;
   }
 

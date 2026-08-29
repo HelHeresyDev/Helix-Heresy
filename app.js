@@ -30,8 +30,9 @@
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
+  const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12227,6 +12228,7 @@
       "strategicBeastBestiaryList",
       "strategicBeastPressureDirectory",
       "strategicBeastPressureList",
+      "strategicCrisisChronology",
       "startingScenarioList",
       "companyNameField",
       "companyNameInput",
@@ -12488,6 +12490,16 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicDivineHistoryDirectory ? StrategicDivineHistory.publicDivineHistory(map) : null;
+      },
+      strategicCrisisHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicCrisisHistory ? StrategicCrisisHistory.auditStrategicCrisisHistory(map) : null;
+      },
+      strategicPublicCrisisHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicCrisisHistoryDirectory ? StrategicCrisisHistory.publicCrisisHistory(map) : null;
       },
       strategicPublicDivinityDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
@@ -15161,6 +15173,7 @@
 
   function renderStrategicBeastPressureDirectory(map) {
     dom.strategicBeastPressureList.textContent = "";
+    dom.strategicCrisisChronology.textContent = "";
     const entries = map?.publicBeastAtlas ? StrategicBeastEcology.publicCityThreatDirectory(map) : [];
     dom.strategicBeastPressureDirectory.hidden = !entries.length;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
@@ -15184,6 +15197,36 @@
       facts.textContent = `${entry.polity?.name || "Independent city polity"} · feasible ${entry.attackAssessment.approachClasses.map(readable).join(", ")} approaches · ${entry.sharedThreats.length} shared warning handoff${entry.sharedThreats.length === 1 ? "" : "s"} · no standing coalition`;
       card.append(heading, migration, waves, facts);
       dom.strategicBeastPressureList.append(card);
+    }
+    const crisisHistory = map?.publicCrisisHistoryDirectory ? StrategicCrisisHistory.publicCrisisHistory(map) : null;
+    for (const event of crisisHistory?.chronology || []) {
+      const card = document.createElement("details");
+      card.className = "strategic-crisis-card";
+      const heading = document.createElement("summary");
+      const strong = document.createElement("strong");
+      strong.textContent = `Year ${event.year} · ${event.species.name}`;
+      heading.append(strong, ` · ${event.outcome}`);
+      const targets = document.createElement("p");
+      targets.textContent = `Threatened ${event.threatenedCities.map((city) => city.name).join(" and ")} · ${readable(event.reportedCause)} · ${readable(event.warningLeadBand)} warning.`;
+      const account = document.createElement("p");
+      account.className = "journal-meta";
+      account.textContent = `${event.account} Warning signs: ${event.warningSigns.join("; ")}. Exact path, population, readiness, and losses remain uncertain.`;
+      card.append(heading, targets, account);
+      const coalition = crisisHistory.coalitionRows.find((entry) => entry.id === event.coalitionId);
+      if (coalition) {
+        const response = document.createElement("p");
+        response.className = "journal-meta";
+        const members = coalition.memberCityIds.map((id) => map.humanGeography.cities.find((city) => city.id === id)?.name || id);
+        response.textContent = `Temporary coalition: ${members.join(" and ")} · ${readable(coalition.commandModel)} · contributions ${coalition.advertisedContributions.map((entry) => `${map.humanGeography.cities.find((city) => city.id === entry.cityId)?.name || entry.cityId}: ${entry.kinds.map(readable).join(", ")}`).join(" · ")} · dissolved Year ${coalition.dissolutionYear}${coalition.disputes.length ? ` · disputes: ${coalition.disputes.map(readable).join(", ")}` : ""}.`;
+        card.append(response);
+      }
+      dom.strategicCrisisChronology.append(card);
+    }
+    if (crisisHistory) {
+      const network = document.createElement("p");
+      network.className = "journal-meta";
+      network.textContent = `${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length} support corridor${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length === 1 ? "" : "s"} severed by retained crises · ${crisisHistory.currentSupportComponents.length} resulting physical support component${crisisHistory.currentSupportComponents.length === 1 ? "" : "s"}. Connectivity is not political unity; local gateway loss does not destroy the orbital constellation.`;
+      dom.strategicCrisisChronology.prepend(network);
     }
   }
 
@@ -15269,13 +15312,16 @@
     const divineHistorySummary = map.publicDivineHistoryDirectory
       ? ` · ${map.strategicDivineHistory.diagnostics.retainedEventCount} retained divine events · ${map.strategicDivineHistory.diagnostics.activeDivineCount} active gods · ${map.strategicDivineHistory.diagnostics.descendedCount} descended · ${map.strategicDivineHistory.diagnostics.deadCount} dead · ${map.strategicDivineHistory.diagnostics.ascendedGodCount} historical ascensions`
       : (map.publicSettlementDirectory ? " · Divine conflict and succession history unavailable in this saved world" : "");
+    const crisisHistorySummary = map.publicCrisisHistoryDirectory
+      ? ` · ${map.strategicCrisisHistory.diagnostics.retainedEventCount} retained ecological crises · ${map.strategicCrisisHistory.diagnostics.coalitionCount} temporary crisis coalition${map.strategicCrisisHistory.diagnostics.coalitionCount === 1 ? "" : "s"} · ${map.strategicCrisisHistory.diagnostics.severedRouteCount} severed support corridor${map.strategicCrisisHistory.diagnostics.severedRouteCount === 1 ? "" : "s"} · ${map.strategicCrisisHistory.diagnostics.finalSupportComponentCount} post-crisis physical components`
+      : (map.publicDivineHistoryDirectory ? " · Ecological crisis history unavailable in this saved world" : "");
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`
       : (map.publicReligionDirectory ? " · Non-state networks unavailable in this saved world" : "");
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
