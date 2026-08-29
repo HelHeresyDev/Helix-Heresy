@@ -2,15 +2,17 @@
   const themeContent = typeof module === "object" && module.exports ? require("./theme-content") : root?.HelixThemeContent;
   const strategicWorld = typeof module === "object" && module.exports ? require("./strategic-world") : root?.HelixStrategicWorld;
   const strategicReligions = typeof module === "object" && module.exports ? require("./strategic-religions") : root?.HelixStrategicReligions;
-  const api = factory(themeContent, strategicWorld, strategicReligions);
+  const strategicCapabilityHistory = typeof module === "object" && module.exports ? require("./strategic-capability-history") : root?.HelixStrategicCapabilityHistory;
+  const api = factory(themeContent, strategicWorld, strategicReligions, strategicCapabilityHistory);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicNonStateNetworks = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicNonStateNetworksApi(ThemeContent, StrategicWorld, StrategicReligions) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicNonStateNetworksApi(ThemeContent, StrategicWorld, StrategicReligions, StrategicCapabilityHistory) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before strategic-non-state-networks.js");
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before strategic-non-state-networks.js");
   if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before strategic-non-state-networks.js");
+  if (!StrategicCapabilityHistory) throw new Error("HelixStrategicCapabilityHistory must load before strategic-non-state-networks.js");
 
   const NETWORK_CATEGORIES = Object.freeze(["commercial", "research", "military", "transport", "media", "blackMarket", "standards"]);
   const CAPABILITY_KEYS = Object.freeze(["finance", "research", "transport", "armedForce", "mediaReach", "certification", "covertAccess"]);
@@ -32,23 +34,8 @@
     transport: [2, 1, 4, 2, 1, 2, 3], media: [2, 2, 1, 0, 4, 2, 2], blackMarket: [3, 1, 3, 2, 1, 0, 4], standards: [2, 3, 1, 0, 2, 4, 0]
   });
 
-  const INTERNET_BASELINE = Object.freeze({
-    architecture: "orbitalSatelliteConstellationWithArcaneRelayMesh",
-    globalAddressability: true,
-    orbitalSatellites: true,
-    arcaneRelayLinks: true,
-    localGatewaysAndPowerRequired: true,
-    disruptionPossible: true,
-    createsPhysicalAuthority: false
-  });
-  const SPACEFLIGHT_BASELINE = Object.freeze({
-    rocketSpaceflight: true,
-    individuallyPoweredSpaceflight: true,
-    orbitalInfrastructure: true,
-    routineSurfaceFreightBySpaceflight: false,
-    offWorldLogistics: "costlySpecializedAndCapacityLimited",
-    orbitalTravelSimulationDeferred: true
-  });
+  const INTERNET_BASELINE = StrategicCapabilityHistory.INTERNET_BASELINE;
+  const SPACEFLIGHT_BASELINE = StrategicCapabilityHistory.SPACEFLIGHT_BASELINE;
 
   function networkDefinition(category, compatibility, id, properties) {
     return Object.freeze({
@@ -308,7 +295,8 @@
   function networksCore(record) {
     return {
       sourceHumanGeographyDigest: record.sourceHumanGeographyDigest, sourceCityRecognitionDigest: record.sourceCityRecognitionDigest,
-      sourceReligionsDigest: record.sourceReligionsDigest, publicDirectoryDigest: record.publicDirectoryDigest,
+      sourceReligionsDigest: record.sourceReligionsDigest, sourceCapabilityHistoryDigest: record.sourceCapabilityHistoryDigest,
+      publicDirectoryDigest: record.publicDirectoryDigest,
       covertPresenceCodes: record.covertPresenceCodes, hiddenNetworkStateCodes: record.hiddenNetworkStateCodes,
       hiddenAffiliatePurposeCodes: record.hiddenAffiliatePurposeCodes, hiddenInfluenceCodes: record.hiddenInfluenceCodes, diagnostics: record.diagnostics
     };
@@ -319,13 +307,14 @@
     if (!seed) throw new Error("A world seed is required for non-state network generation.");
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     StrategicReligions.validateStrategicReligions(strategicMap);
+    StrategicCapabilityHistory.validateStrategicCapabilityHistory(strategicMap);
     const worldTheme = strategicMap.cityPolities.worldTheme;
     const networkRecords = createNetworkRecords(seed, strategicMap, worldTheme);
     const standingRows = createStandingRows(seed, strategicMap, networkRecords);
     const publicBranchCodes = createPublicBranchCodes(seed, strategicMap, networkRecords, standingRows);
     const affiliateCodes = createAffiliateCodes(seed, strategicMap, networkRecords);
     const publicDirectory = {
-      worldTheme, internetBaseline: clone(INTERNET_BASELINE), spaceflightBaseline: clone(SPACEFLIGHT_BASELINE), networkRecords,
+      worldTheme, internetBaseline: clone(strategicMap.publicCapabilityHistory.currentBaseline.internet), spaceflightBaseline: clone(strategicMap.publicCapabilityHistory.currentBaseline.spaceflight), networkRecords,
       networkOrder: networkRecords.map((record) => record.id), cityOrder: strategicMap.humanGeography.cities.map((city) => city.id),
       standingRows, publicBranchCodes, publicRelationCodes: createPublicRelationCodes(seed, networkRecords), affiliateCodes
     };
@@ -336,6 +325,7 @@
       sourceHumanGeographyDigest: strategicMap.humanGeography.digest,
       sourceCityRecognitionDigest: strategicMap.crossCityRecognition.digest,
       sourceReligionsDigest: strategicMap.strategicReligions.digest,
+      sourceCapabilityHistoryDigest: strategicMap.strategicCapabilityHistory.digest,
       publicDirectoryDigest: publicDirectory.digest,
       ...hidden,
       diagnostics: {
@@ -408,14 +398,15 @@
   function validateStrategicNonStateNetworks(map, record = map?.strategicNonStateNetworks, publicDirectory = map?.publicNonStateNetworkDirectory) {
     const strategicMap = StrategicWorld.validateStrategicMap(map);
     StrategicReligions.validateStrategicReligions(strategicMap);
-    if (!record || !publicDirectory || record.sourceHumanGeographyDigest !== strategicMap.humanGeography.digest || record.sourceCityRecognitionDigest !== strategicMap.crossCityRecognition.digest || record.sourceReligionsDigest !== strategicMap.strategicReligions.digest || record.publicDirectoryDigest !== publicDirectory.digest) throw new Error("Non-state network records are incomplete or do not match their source world.");
+    StrategicCapabilityHistory.validateStrategicCapabilityHistory(strategicMap);
+    if (!record || !publicDirectory || record.sourceHumanGeographyDigest !== strategicMap.humanGeography.digest || record.sourceCityRecognitionDigest !== strategicMap.crossCityRecognition.digest || record.sourceReligionsDigest !== strategicMap.strategicReligions.digest || record.sourceCapabilityHistoryDigest !== strategicMap.strategicCapabilityHistory.digest || record.publicDirectoryDigest !== publicDirectory.digest) throw new Error("Non-state network records are incomplete or do not match their source world.");
     const records = publicDirectory.networkRecords;
     if (!Array.isArray(records) || records.length !== 21 || new Set(records.map((entry) => entry.id)).size !== records.length || records.some((entry) => !DEFINITION_BY_ID.has(entry.definitionId) || !/^[0-4]{7}$/.test(entry.capabilityCodes) || !/^[0-4]$/.test(entry.reputationCode) || !strategicMap.humanGeography.cities[entry.originCityIndex])) throw new Error("Public network records are invalid.");
     const expanded = records.map((entry) => expandNetwork(entry, publicDirectory, strategicMap));
     if (NETWORK_CATEGORIES.some((category) => expanded.filter((network) => network.category === category).length !== 3) || expanded.some((network) => network.sovereignAuthority || network.automaticEnforcementAuthority || network.guaranteesLongRangeMaterialSupport || network.physicalAuthority !== "localSitesAndContractedAssetsOnly")) throw new Error("Every required non-state category needs three non-sovereign networks with bounded physical reach.");
     const allowedThemes = strategicMap.cityPolities.worldTheme === "unbound" ? ["shared", "madcap", "grim"] : ["shared", strategicMap.cityPolities.worldTheme];
     if (expanded.some((network) => !allowedThemes.includes(network.themeContent.sourceTheme))) throw new Error("Network theme content is incompatible with the world theme.");
-    if (JSON.stringify(publicDirectory.internetBaseline) !== JSON.stringify(INTERNET_BASELINE) || JSON.stringify(publicDirectory.spaceflightBaseline) !== JSON.stringify(SPACEFLIGHT_BASELINE)) throw new Error("Global internet or spaceflight capability is invalid.");
+    if (JSON.stringify(publicDirectory.internetBaseline) !== JSON.stringify(strategicMap.publicCapabilityHistory.currentBaseline.internet) || JSON.stringify(publicDirectory.spaceflightBaseline) !== JSON.stringify(strategicMap.publicCapabilityHistory.currentBaseline.spaceflight)) throw new Error("Global internet or spaceflight capability is not projected from capability history.");
     if (publicDirectory.cityOrder.length !== strategicMap.humanGeography.cities.length || JSON.stringify(publicDirectory.cityOrder) !== JSON.stringify(strategicMap.humanGeography.cities.map((city) => city.id)) || publicDirectory.networkOrder.length !== records.length || JSON.stringify(publicDirectory.networkOrder) !== JSON.stringify(records.map((entry) => entry.id))) throw new Error("Network directory order is invalid.");
     if (!Array.isArray(publicDirectory.standingRows) || publicDirectory.standingRows.length !== publicDirectory.cityOrder.length || publicDirectory.standingRows.some((row) => typeof row !== "string" || row.length !== records.length || /[^clrtxp]/.test(row))) throw new Error("Every city must publish a valid standing for every known network.");
     const branchCodes = publicDirectory.publicBranchCodes;

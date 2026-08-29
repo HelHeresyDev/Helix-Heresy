@@ -56,6 +56,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('pristine beast ecology preserved');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('Year 0 first enduring city');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('disconnected divine origin cities');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('6 magitech eras');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('12 causal capabilities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('fortified cities');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('strategic intercity corridors');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('sovereign city polities');
@@ -205,6 +207,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   const publicOrigins = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCivilizationOrigins());
   const expansionAudit = await page.evaluate(() => window.helixHeresyDebug.strategicCityExpansionAudit());
   const publicExpansion = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityExpansion());
+  const capabilityAudit = await page.evaluate(() => window.helixHeresyDebug.strategicCapabilityHistoryAudit());
+  const publicCapabilities = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCapabilityHistory());
   const publicSettlements = await page.evaluate(() => window.helixHeresyDebug.strategicPublicSettlementDirectory());
   expect(originsAudit).toMatchObject({ valid: true, firstCityFoundedAtYearZero: true, everyOriginPopulationBacked: true, everySuccessfulOriginMateriallyViable: true, divineAidFiniteAndMaterialLaborRequired: true, qualifiedMinorityAttempts: true, originCitiesInitiallyDisconnected: true, publicChronologyHidesPrivateTruth: true });
   expect(publicOrigins.chronology.length).toBeGreaterThan(1);
@@ -214,6 +218,11 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(publicExpansion.chronology.length).toBeGreaterThan(0);
   expect(JSON.stringify(publicExpansion)).not.toMatch(/canonicalMotive|"foundingPopulation":|populationSourceRows|materialRows|failureCause|relativeConstructionCost/);
   await expect(page.locator('.strategic-expansion-card')).toHaveCount(publicExpansion.chronology.length);
+  expect(capabilityAudit).toMatchObject({ valid: true, capabilitiesAreCausalSystems: true, prerequisitesAreChronological: true, knowledgeAndDeploymentSeparated: true, everyComponentHasOrbitalGateway: true, orbitalInternetCreatesNoAuthority: true, publicHistoryHidesCanonicalWeaknesses: true });
+  expect(publicCapabilities.eras).toHaveLength(6);
+  expect(publicCapabilities.milestones).toHaveLength(12);
+  expect(JSON.stringify(publicCapabilities)).not.toMatch(/actualCause|hiddenConditionBand|hiddenSinglePointOfFailure|resourceRequirementRows/);
+  await expect(page.locator('.strategic-capability-era-card')).toHaveCount(6);
   expect(publicSettlements.foundations).toHaveLength(cityCount);
   expect(publicSettlements.strongholds.length).toBeGreaterThan(0);
   expect(publicSettlements.satellites.length).toBeGreaterThan(cityCount);

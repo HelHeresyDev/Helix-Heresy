@@ -133,5 +133,5 @@ test('the public globe layer identifies real city hubs and the complete map stay
   }
   expect(GlobeRenderer.availableLayers(map)).toContain('networks');
   expect(GlobeRenderer.legendForLayer('networks').map((entry) => entry.label)).toEqual(expect.arrayContaining(['Orbital launch or relay hub', 'Dense institutional hub', 'Public network branches']));
-  expect(JSON.stringify(map).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(map).length).toBeLessThan(5_500_000);
 });

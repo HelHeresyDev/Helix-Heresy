@@ -98,5 +98,5 @@ test('playable-year beast ecology is explicitly derived from the preserved prist
   }
   expect(BeastEcology.publicBestiary(map).every((entry) => entry.exactPristinePopulationCountPublic === false && /^(few|scattered|numerous|widespread)$/.test(entry.pristinePopulationBand))).toBe(true);
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(world)))).toEqual(world);
-  expect(JSON.stringify(world).length).toBeLessThan(5_000_000);
+  expect(JSON.stringify(world).length).toBeLessThan(5_500_000);
 });
