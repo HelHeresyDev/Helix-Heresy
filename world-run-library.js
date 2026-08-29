@@ -68,10 +68,13 @@
   const strategicDivineHistory = typeof module === "object" && module.exports
     ? require("./strategic-divine-history")
     : root?.HelixStrategicDivineHistory;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory);
+  const strategicCrisisHistory = typeof module === "object" && module.exports
+    ? require("./strategic-crisis-history")
+    : root?.HelixStrategicCrisisHistory;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory, strategicCrisisHistory);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -97,6 +100,7 @@
   if (!StrategicNonStateNetworks) throw new Error("HelixStrategicNonStateNetworks must load before world-run-library.js");
   if (!StrategicSettlements) throw new Error("HelixStrategicSettlements must load before world-run-library.js");
   if (!StrategicDivineHistory) throw new Error("HelixStrategicDivineHistory must load before world-run-library.js");
+  if (!StrategicCrisisHistory) throw new Error("HelixStrategicCrisisHistory must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -274,6 +278,7 @@
         generatedStrategicMap = StrategicNonStateNetworks.attachStrategicNonStateNetworks(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicSettlements.attachStrategicSettlements(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicDivineHistory.attachStrategicDivineHistory(worldSeed, generatedStrategicMap, { historicalHorizonYear: playableYear });
+        generatedStrategicMap = StrategicCrisisHistory.attachStrategicCrisisHistory(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -339,6 +344,7 @@
     if (generatedData.strategicMap?.strategicNonStateNetworks || generatedData.strategicMap?.publicNonStateNetworkDirectory) StrategicNonStateNetworks.validateStrategicNonStateNetworks(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicSettlements || generatedData.strategicMap?.publicSettlementDirectory) StrategicSettlements.validateStrategicSettlements(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicDivineHistory || generatedData.strategicMap?.publicDivineHistoryDirectory) StrategicDivineHistory.validateStrategicDivineHistory(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicCrisisHistory || generatedData.strategicMap?.publicCrisisHistoryDirectory) StrategicCrisisHistory.validateStrategicCrisisHistory(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,

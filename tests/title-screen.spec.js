@@ -258,6 +258,12 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('.strategic-beast-card')).toHaveCount(24);
   await expect(page.locator('#strategicBeastPressureDirectory')).toBeVisible();
   await expect(page.locator('.strategic-beast-pressure-card')).toHaveCount(cityCount);
+  const crisisHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCrisisHistory());
+  const crisisAudit = await page.evaluate(() => window.helixHeresyDebug.strategicCrisisHistoryAudit());
+  expect(crisisAudit).toMatchObject({ valid: true, pristineEcologyImmutable: true, everyEventCausalAndConsequential: true, coalitionsTemporaryAndNonSovereign: true, contributionsCapabilityBacked: true, routeSplitsArePhysicalOnly: true, publicHistoryHidesExactCausality: true });
+  expect(crisisHistory.chronology.length).toBeGreaterThan(0);
+  expect(JSON.stringify(crisisHistory)).not.toMatch(/sourcePopulationId|exactCellPath|exactFactors|commitmentPoints|populationIndexDeltaPermille|startingPopulationIndex|resultingPopulationIndex|localReadinessPower|assaultPower|defensePower/);
+  await expect(page.locator('#strategicCrisisChronology .strategic-crisis-card')).toHaveCount(crisisHistory.chronology.length);
   const cityThreats = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCityThreatDirectory());
   expect(cityThreats.every((entry) => entry.attackAssessment.attackPossible)).toBe(true);
   expect(cityThreats.some((entry) => entry.migrations.length === 0)).toBe(true);

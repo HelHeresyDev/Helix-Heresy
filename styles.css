@@ -4841,7 +4841,8 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-beast-bestiary-list,
-.strategic-beast-pressure-list {
+.strategic-beast-pressure-list,
+.strategic-crisis-chronology {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 0.55rem;
@@ -4850,7 +4851,8 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-beast-card,
-.strategic-beast-pressure-card {
+.strategic-beast-pressure-card,
+.strategic-crisis-card {
   padding: 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 6px;
@@ -4858,13 +4860,15 @@ html[data-reduced-motion="true"] *::after {
 }
 
 .strategic-beast-card summary,
-.strategic-beast-pressure-card summary {
+.strategic-beast-pressure-card summary,
+.strategic-crisis-card summary {
   cursor: pointer;
   color: var(--text);
 }
 
 .strategic-beast-card p,
-.strategic-beast-pressure-card p {
+.strategic-beast-pressure-card p,
+.strategic-crisis-card p {
   margin-top: 0.55rem;
   line-height: 1.45;
 }
