@@ -115,6 +115,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicNonStateNetworkDirectory: { networkRecords: expect.any(Array), standingRows: expect.any(Array), publicBranchCodes: expect.any(Array), publicRelationCodes: expect.any(Array), affiliateCodes: expect.any(Array), cellFeatures: expect.any(Array) },
         strategicSettlements: { diagnostics: { resourceAnchorCount: expect.any(Number), independentRefugeCount: expect.any(Number), representedExploitationFamilyCount: 12, jointRouteStrongholdCount: expect.any(Number), satelliteSettlementCount: expect.any(Number) } },
         publicSettlementDirectory: { foundationRows: expect.any(Array), strongholdCodes: expect.any(Array), satelliteCodes: expect.any(Array), satelliteRoutePaths: expect.any(Array), cellFeatures: expect.any(Array) },
+        strategicDivineHistory: { diagnostics: { initialGodCount: expect.any(Number), currentGodCount: expect.any(Number), activeDivineCount: expect.any(Number), descendedCount: expect.any(Number), deadCount: expect.any(Number), ascendedGodCount: expect.any(Number), retainedEventCount: expect.any(Number) } },
+        publicDivineHistoryDirectory: { identityRows: expect.any(Array), currentGodRows: expect.any(Array), eventRows: expect.any(Array), successorRows: expect.any(Array), remainsRows: expect.any(Array), principles: expect.any(Object) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -193,6 +195,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicNonStateNetworkDirectory;
     delete map.strategicSettlements;
     delete map.publicSettlementDirectory;
+    delete map.strategicDivineHistory;
+    delete map.publicDivineHistoryDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;
@@ -202,6 +206,7 @@ test('natural strategic geography ignores World Theme while generated civilizati
   expect(physicalMaps[1]).toEqual(physicalMaps[2]);
   expect(worlds[0].generatedData.strategicMap.cityPolities).not.toEqual(worlds[1].generatedData.strategicMap.cityPolities);
   expect(worlds[0].generatedData.strategicMap.civilizationOrigins).not.toEqual(worlds[1].generatedData.strategicMap.civilizationOrigins);
+  expect(worlds[0].generatedData.strategicMap.strategicDivineHistory).not.toEqual(worlds[1].generatedData.strategicMap.strategicDivineHistory);
   expect(worlds[0].generatedData.strategicMap.pristineBeastEcology).toEqual(worlds[1].generatedData.strategicMap.pristineBeastEcology);
   expect(worlds[0].generatedData.strategicMap.beastEcology.populations).not.toEqual(worlds[1].generatedData.strategicMap.beastEcology.populations);
   expect(new Set(worlds.map((world) => world.canonicalDigest)).size).toBe(3);

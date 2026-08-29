@@ -29,8 +29,9 @@
   const StrategicCapabilityHistory = window.HelixStrategicCapabilityHistory;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
+  const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12203,6 +12204,8 @@
       "crossCityRecognitionProfile",
       "strategicReligionDirectory",
       "strategicGodList",
+      "strategicDivineHistoryChronology",
+      "strategicDivineSuccessionList",
       "religionCitySelect",
       "religionCityStandingList",
       "strategicHolySiteList",
@@ -12475,6 +12478,16 @@
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.strategicDivinity ? StrategicDivinity.auditPreCivicDivinity(map) : null;
+      },
+      strategicDivineHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicDivineHistory ? StrategicDivineHistory.auditStrategicDivineHistory(map) : null;
+      },
+      strategicPublicDivineHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicDivineHistoryDirectory ? StrategicDivineHistory.publicDivineHistory(map) : null;
       },
       strategicPublicDivinityDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
@@ -14751,17 +14764,21 @@
 
   function renderStrategicReligionDirectory(map) {
     dom.strategicGodList.textContent = "";
+    dom.strategicDivineHistoryChronology.textContent = "";
+    dom.strategicDivineSuccessionList.textContent = "";
     dom.religionCitySelect.textContent = "";
     dom.religionCityStandingList.textContent = "";
     dom.strategicHolySiteList.textContent = "";
     const directory = map?.publicReligionDirectory ? StrategicReligions.publicReligionDirectory(map) : null;
     const faithDirectory = map?.publicPreCivicFaithDirectory ? StrategicFaiths.publicFaithDirectory(map) : null;
     const divinityDirectory = map?.publicDivinityDirectory ? StrategicDivinity.publicDivinityDirectory(map) : null;
+    const divineHistory = map?.publicDivineHistoryDirectory ? StrategicDivineHistory.publicDivineHistory(map) : null;
     dom.strategicReligionDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
     for (const god of directory.gods) {
       const faith = faithDirectory?.faiths.find((entry) => entry.godId === god.id);
+      const currentStanding = divineHistory?.currentGods.find((entry) => entry.id === god.id) || god.divineStanding;
       const card = document.createElement("details");
       card.className = "strategic-god-card";
       const heading = document.createElement("summary");
@@ -14771,9 +14788,13 @@
       const summary = document.createElement("p");
       summary.textContent = `${god.publicSummary} Domains: ${god.domains.map(readable).join(", ")}.`;
       const divineStanding = document.createElement("p");
-      divineStanding.textContent = `${readable(god.divineStanding.rank)} god · ${readable(god.divineStanding.publicStatus)} · ${readable(god.divineStanding.powerCondition)} observable power · exact reserves and mortal origin are not public.`;
+      divineStanding.textContent = `${readable(currentStanding.rank)} god · ${readable(currentStanding.lifeState || "living")} · ${readable(currentStanding.divinityState || "divine")} · ${readable(currentStanding.publicStatus)}${currentStanding.powerCondition ? ` · ${readable(currentStanding.powerCondition)} observable power` : ""} · ${readable(currentStanding.confirmationState || "activelyConfirmed")} faith · exact reserves and mortal origin are not public.`;
       const communication = document.createElement("p");
-      communication.textContent = `Routine communication: ${god.communication.methods.join("; ")} · repeatable divine signature · faithful may receive direct replies.`;
+      communication.textContent = currentStanding.lifeState === "dead"
+        ? "Routine communication ended permanently with the confirmed death of this divine individual. Historical signatures remain valid evidence of the original faith."
+        : currentStanding.divinityState === "descended"
+          ? "Remote divine communication and miracles are absent. Any physical speech by the surviving former god does not count as divine confirmation."
+          : `Routine communication: ${god.communication.methods.join("; ")} · repeatable divine signature · faithful may receive direct replies.`;
       const avatar = document.createElement("p");
       avatar.textContent = `Finite avatars: ${god.avatarManifestation.forms.join("; ")} · ${readable(god.avatarManifestation.fullManifestationCost)} full-manifestation cost.`;
       const knownPractices = (divinityDirectory?.knownPractices || []).filter((entry) => entry.godId === god.id);
@@ -14803,6 +14824,47 @@
       relationSummary.textContent = `Divine relations: ${relations.join(" · ") || "none"}. One god, one confirmed faith; same-god heresy and doctrinal schism do not exist.`;
       card.append(heading, summary, divineStanding, communication, avatar, worship, doctrine, practice, socialTeaching, relationSummary);
       dom.strategicGodList.append(card);
+    }
+    for (const event of divineHistory?.chronology || []) {
+      const item = document.createElement("article");
+      item.className = "strategic-divine-history-entry";
+      const heading = document.createElement("strong");
+      heading.textContent = `Year ${event.year} · ${readable(event.kind)} · ${event.participantNames.join(" and ")}`;
+      const account = document.createElement("p");
+      account.textContent = event.account;
+      const evidence = document.createElement("p");
+      evidence.className = "journal-meta";
+      evidence.textContent = `${event.cellId}${event.cityId ? ` · city ${event.cityId}` : ""}${event.siteId ? ` · site ${event.siteId}` : ""} · ${readable(event.outcome)} · evidence: ${event.evidence.map(readable).join(", ")} · exact power and hidden causality are not public`;
+      item.append(heading, account, evidence);
+      dom.strategicDivineHistoryChronology.append(item);
+    }
+    if (divineHistory && !divineHistory.chronology.length) {
+      const quiet = document.createElement("p");
+      quiet.className = "journal-meta";
+      quiet.textContent = "No consequential divine event has enough public evidence for this chronology. That does not prove divine inactivity.";
+      dom.strategicDivineHistoryChronology.append(quiet);
+    }
+    for (const god of divineHistory?.currentGods || []) {
+      const item = document.createElement("p");
+      item.textContent = `${god.name} — ${readable(god.rank)} · ${readable(god.lifeState)} · ${readable(god.divinityState)} · ${readable(god.publicStatus)} · ${readable(god.confirmationState)} faith`;
+      dom.strategicDivineSuccessionList.append(item);
+    }
+    for (const successor of divineHistory?.successorTraditions || []) {
+      const item = document.createElement("p");
+      item.textContent = `${successor.name} — unconfirmed successor to ${successor.predecessorFaithId} · ${readable(successor.resolution)} · no automatic divine authority or sovereignty`;
+      dom.strategicDivineSuccessionList.append(item);
+    }
+    for (const remains of divineHistory?.remains || []) {
+      const formerGod = divineHistory.currentGods.find((god) => god.id === remains.formerGodId);
+      const item = document.createElement("p");
+      item.textContent = `${formerGod?.name || remains.formerGodId} remains — ${remains.cellId} · Year ${remains.createdYear} · identity preserved · religion not transferred · discoverable physical hook`;
+      dom.strategicDivineSuccessionList.append(item);
+    }
+    for (const consequence of divineHistory?.persistentConsequences || []) {
+      const god = divineHistory.currentGods.find((entry) => entry.id === consequence.godId);
+      const item = document.createElement("p");
+      item.textContent = `${readable(consequence.kind)} — created by ${god?.name || consequence.godId} in Year ${consequence.createdYear} at ${consequence.cellId} · maintained physical consequence at the playable year`;
+      dom.strategicDivineSuccessionList.append(item);
     }
     const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
     for (const cityId of directory.cityOrder) {
@@ -15204,13 +15266,16 @@
     const religionSummary = map.publicReligionDirectory
       ? ` · ${map.strategicReligions.diagnostics.godCount} human-authenticated communicating gods · ${map.strategicReligions.diagnostics.holySiteCount} supported pre-civic holy sites · population-backed human and beast worship · unsupported divine identities omitted`
       : (map.publicCrossCityRecognitionDirectory ? " · Religions and holy sites unavailable in this saved world" : "");
+    const divineHistorySummary = map.publicDivineHistoryDirectory
+      ? ` · ${map.strategicDivineHistory.diagnostics.retainedEventCount} retained divine events · ${map.strategicDivineHistory.diagnostics.activeDivineCount} active gods · ${map.strategicDivineHistory.diagnostics.descendedCount} descended · ${map.strategicDivineHistory.diagnostics.deadCount} dead · ${map.strategicDivineHistory.diagnostics.ascendedGodCount} historical ascensions`
+      : (map.publicSettlementDirectory ? " · Divine conflict and succession history unavailable in this saved world" : "");
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`
       : (map.publicReligionDirectory ? " · Non-state networks unavailable in this saved world" : "");
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

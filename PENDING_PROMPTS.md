@@ -18,23 +18,22 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Divine Conflict, Death, Descent, Ascension, and Religious Succession
-2. Monster Waves, Network Collapse, and Crisis Coalitions
-3. Political and Institutional History
-4. Playable-Year Settlement and Route State
-5. New-Run World Selection, Candidate Laboratory Sites, and Scenario Materialization
-6. Local Context Mechanics: Environment, Geology, and Travel
-7. Strategic Survey Operations and Resource Discovery
-8. Penal Flights and Beast-Territory Exile
-9. Penal Legions and Wilderness Service
-10. World Integration: Economy and Logistics
-11. World Integration: Investigations and Institutional Pressure
-12. Lazy Local Detail and World Discovery
-13. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-14. Campaign Roadmap: From Hidden Laboratory to World Domination
-15. New-Run Onboarding and Contextual Tutorial
-16. Sound, Notifications, and Accessibility Audit
-17. Production Art Pass Using the Sprite Pipeline
+1. Monster Waves, Network Collapse, and Crisis Coalitions
+2. Political and Institutional History
+3. Playable-Year Settlement and Route State
+4. New-Run World Selection, Candidate Laboratory Sites, and Scenario Materialization
+5. Local Context Mechanics: Environment, Geology, and Travel
+6. Strategic Survey Operations and Resource Discovery
+7. Penal Flights and Beast-Territory Exile
+8. Penal Legions and Wilderness Service
+9. World Integration: Economy and Logistics
+10. World Integration: Investigations and Institutional Pressure
+11. Lazy Local Detail and World Discovery
+12. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+13. Campaign Roadmap: From Hidden Laboratory to World Domination
+14. New-Run Onboarding and Contextual Tutorial
+15. Sound, Notifications, and Accessibility Audit
+16. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -60,7 +59,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 - The world must be finite and enumerable enough for territorial control and world domination to have a real, testable meaning.
 - The entire campaign world is a seamless geodesic globe. Strategic cells are mostly hexagons with exactly twelve pentagonal anchors; mechanics must use saved graph adjacency and spherical distance rather than assuming a flat axial grid or map-edge boundary.
 - New worlds use the current complete generator rather than numbered generator milestones. Do not give implementation passes artificial milestone numbers. Existing technical save-compatibility fields may remain until a dedicated cleanup, and older records may honestly lack newer world facts.
-- The current generator preserves causal layers: globe topology and surface, relief, climate, hydrology, biomes, geology, natural and magical hazards, arcane geography, hidden resources and public prospects, compact pristine beast ecology, named pre-urban peoples and aggregate human population groups, population-backed pre-civic canonical divinity, human religious knowledge, semantic confirmed-faith identities and causally placed holy sites, the Year 0 first city and bounded rival divine origin attempts, authoritative origin founders and disconnected support components, broad civilizational capability eras with causal institutions and uneven physical adoption, fortified cities, strategic intercity corridors, sovereign city polities, separately derived playable-year beast ecology, city governments, city law codes, directional cross-city recognition, later human-known faith networks and city religious standing, commercial, research, military, transport, media, black-market, and standards networks, city founding purposes and powerful founders, joint route strongholds, dependent satellites, local logistics, and evacuation plans with separate public directories.
+- The current generator preserves causal layers: globe topology and surface, relief, climate, hydrology, biomes, geology, natural and magical hazards, arcane geography, hidden resources and public prospects, compact pristine beast ecology, named pre-urban peoples and aggregate human population groups, population-backed pre-civic canonical divinity, human religious knowledge, semantic confirmed-faith identities and causally placed holy sites, the Year 0 first city and bounded rival divine origin attempts, authoritative origin founders and disconnected support components, broad civilizational capability eras with causal institutions and uneven physical adoption, fortified cities, strategic intercity corridors, sovereign city polities, separately derived playable-year beast ecology, city governments, city law codes, directional cross-city recognition, later human-known faith networks and city religious standing, commercial, research, military, transport, media, black-market, and standards networks, city founding purposes and powerful founders, joint route strongholds, dependent satellites, local logistics, evacuation plans, and bounded divine conflict, descent, death, reascension, ascension, remains, and religious-succession history with separate public directories.
 - Every city charter is supreme only within its own city jurisdiction. Core and controlled approaches may have continuous jurisdiction; corridor authority requires a specific facility, convoy, or agreement; wilderness has none; internet contact does not create extraterritorial police power.
 - Every city government covers the same essential civic responsibilities through stable semantic roles, even when its organization chart combines compatible offices. Temporary jail custody and long-term prison or corrections authority must always remain distinct.
 - Every city uses the shared semantic offense catalog but owns its legal status, authorization exceptions, public attitudes, procedure, and punishment policy. World Theme must not act as a legality, competence, or cruelty score.
@@ -96,15 +95,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Divine Conflict, Death, Descent, Ascension, and Religious Succession
-
-Simulate bounded divine history after mortal populations, faiths, cities, infrastructure, and capability eras exist. Gods may gain or lose worship, change between major and minor status, descend when worship vanishes, reascend after rebuilding their core and worship, contest holy sites, spend power through avatars or direct action, ally, fight, force rivals into descent, kill weaker gods, or be killed by extraordinary humans and beasts. Descent leaves the same extraordinarily powerful individual alive; only an actual killing causes permanent death. Resolve every conflict from saved reserves, income, innate capacity, domains, environmental affinity, sites, allies, preparation, surprise, and manifestation cost rather than a rank-only roll.
-
-Generate rare human or beast ascensions only from physical, arcane, worship, identity, and survival prerequisites. Track divine remains, relics, captured power, follower redistribution, lost communication, dead-faith continuity, unconfirmed successor traditions, and claims of inheritance without recreating a dead identity or granting a victor the victim's complete religion. Retain only events that change a saved divine, religious, ecological, settlement, or institutional fact or create a discoverable hook.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Monster Waves, Network Collapse, and Crisis Coalitions
+## 1. Monster Waves, Network Collapse, and Crisis Coalitions
 
 Simulate bounded historical monster waves and other concrete ecological crises from canonical populations, migrations, hazards, and pressure. Apply causal consequences to cities, satellites, corridors, strongholds, ruins, ecological pressure, and support-component connectivity. A destroyed bridge city or route may split a formerly connected component.
 
@@ -112,7 +103,7 @@ Neighboring threatened cities may form temporary crisis coalitions with explicit
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Political and Institutional History
+## 2. Political and Institutional History
 
 Advance city authorities, occupations, tribute arrangements, puppet rulers, revolts, religions, non-state networks, laws, public attitudes, and major institutions through the already generated physical and crisis history. Conquest never merges sovereign city identities into durable states. Founding lineage and support connectivity never determine allegiance, and same-god institutional conflict must not become a doctrinal heresy that the communicating god could simply correct.
 
@@ -120,7 +111,7 @@ Use aggregated institutions and strategically significant named actors rather th
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Playable-Year Settlement and Route State
+## 3. Playable-Year Settlement and Route State
 
 Resolve retained history into the canonical conditions the player encounters at the playable year: surviving and ruined cities, founding lineages, current support components, settlement population and crowding bands, defenses, infrastructure, damage, abandonment or occupation, corridor and stronghold condition, route loss, isolation, and public explanations. Preserve multiple disconnected physical networks when history never connected them or later severed their bridges.
 
@@ -128,25 +119,25 @@ This pass must consume saved historical outcomes rather than rolling unexplained
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run World Selection, Candidate Laboratory Sites, and Scenario Materialization
+## 4. New-Run World Selection, Candidate Laboratory Sites, and Scenario Materialization
 
 Design and implement starting a new independent run inside a selected reusable world. Derive a bounded list of strategic candidate laboratory cells from the playable-year settlement, route, jurisdiction, utilities, legal-cover, secrecy, land-availability, and regional conditions; do not pre-generate thousands of exact parcel maps. The player chooses an existing world or generates a new one, then chooses a starting scenario, biome, and city-distance band from compatible candidates. Each candidate must know straight-line distance and practical route access to its nearest relevant settlement. The chosen candidate and scenario materialize the exact physical site blueprint and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Local Context Mechanics: Environment, Geology, and Travel
+## 5. Local Context Mechanics: Environment, Geology, and Travel
 
 Design and implement the first mechanical consequences of selected world location: environmental baselines, exact geology inputs, water access, surface concealment, evidence persistence, waste risk, route reliability, legal-cover plausibility, visitor arrival windows, resource availability, and travel.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Strategic Survey Operations and Resource Discovery
+## 6. Strategic Survey Operations and Resource Discovery
 
 Design and implement run-owned strategic resource knowledge after site selection and local travel exist. Begin each run with the world's public prospectivity but none of another run's private findings. Add physical survey and prospecting methods, equipment, travel, samples, confidence changes, bounded uncertainty, false negatives, and saved evidence provenance. Survey results may refine strategic estimates and feed authoritative resource context into lazy local maps, but exact veins, pockets, quality, and quantity remain hidden until an appropriate local method exposes them. The overlay must merge public and run-specific knowledge without reading canonical hidden endowment directly.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Penal Flights and Beast-Territory Exile
+## 7. Penal Flights and Beast-Territory Exile
 
 Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, strategic intercity corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
 
@@ -158,55 +149,55 @@ Survivors remain playable and legally banished. Returning to protected human ter
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Penal Legions and Wilderness Service
+## 8. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. World Integration: Economy and Logistics
+## 9. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. World Integration: Investigations and Institutional Pressure
+## 10. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Lazy Local Detail and World Discovery
+## 11. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 12. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 14. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 13. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 15. New-Run Onboarding and Contextual Tutorial
+## 14. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 16. Sound, Notifications, and Accessibility Audit
+## 15. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 17. Production Art Pass Using the Sprite Pipeline
+## 16. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
