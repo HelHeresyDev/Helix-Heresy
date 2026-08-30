@@ -288,7 +288,10 @@
 
     eventRows.sort((a, b) => a.year - b.year || a.id.localeCompare(b.id));
     const currentControlRows = [...controlByCityId.values()].sort((a, b) => a.cityId.localeCompare(b.cityId));
-    const publicChronology = eventRows.map((event) => ({ id: event.id, kind: event.kind, year: event.year, location: clone(event.location), participantPolityIds: clone(event.participantPolityIds), outcome: event.outcome, publicAccount: event.publicAccount, supportedPhysicalBasis: event.physicalFeasibility ? { mode: event.physicalFeasibility.mode, corridorId: event.physicalFeasibility.corridorId, corridorState: event.physicalFeasibility.corridorState } : null, discoverableHooks: clone(event.discoverableHooks), exactForceComparisonPublic: false }));
+    const publicChronology = eventRows.map((event) => {
+      const covertPuppetSettlement = event.outcome === "puppetInstalled";
+      return { id: event.id, kind: event.kind, year: event.year, location: clone(event.location), participantPolityIds: clone(event.participantPolityIds), outcome: covertPuppetSettlement ? "publiclyUnresolvedSettlement" : event.outcome, publicAccount: covertPuppetSettlement ? `${source.polityByCityId.get(event.location.cityId).name} retained a publicly local authority after the campaign; allegations about foreign influence remain unverified.` : event.publicAccount, supportedPhysicalBasis: event.physicalFeasibility ? { mode: event.physicalFeasibility.mode, corridorId: event.physicalFeasibility.corridorId, corridorState: event.physicalFeasibility.corridorState } : null, discoverableHooks: clone(event.discoverableHooks), exactForceComparisonPublic: false };
+    });
     const publicControlRows = currentControlRows.map((row) => ({ cityId: row.cityId, sovereignPolityId: row.sovereignPolityId, recognizedAuthorityId: row.recognizedAuthorityId, publicControlStatus: row.controlStatus === "puppet" ? "sovereign" : row.controlStatus, publiclyNamedControllerPolityId: row.controlStatus === "occupied" ? row.effectiveControllerPolityId : row.sovereignPolityId, tributeToPolityId: row.tributeToPolityId, physicalJurisdictionExists: row.physicalJurisdictionExists, cityIdentityPreserved: true, covertControlMayExist: true }));
     const publicDirectory = {
       historicalHorizonYear: horizon,
@@ -353,7 +356,7 @@
       for (const member of compact.contributionRows) for (const contribution of member.contributions) if (!CONTRIBUTION_KINDS.includes(contribution.kind) || (contribution.capabilityId && !StrategicCapabilityHistory.cityHasCapability(strategicMap, member.cityId, contribution.capabilityId))) throw new Error("A war compact claims an unsupported contribution.");
     }
     const publicJson = JSON.stringify(directory);
-    if (/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport/.test(publicJson)) throw new Error("Public political history leaks exact force comparisons, routes, or covert control.");
+    if (/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport|puppetInstalled|covertly subordinated/.test(publicJson)) throw new Error("Public political history leaks exact force comparisons, routes, or covert control.");
     if (directory.knowledgePolicy !== "supportedPoliticalChronologyWithCovertControlRedacted" || !directory.principles?.conquestNeverCreatesStates || directory.currentControlRows.some((row) => row.publicControlStatus === "puppet" || !row.cityIdentityPreserved)) throw new Error("The public political directory violates sovereignty or secrecy boundaries.");
     if (directory.digest !== `public-political-history-${StrategicWorld.stableHash(coreWithoutDigest(directory))}` || record.digest !== `strategic-political-history-${StrategicWorld.stableHash(coreWithoutDigest(record))}`) throw new Error("Strategic political history does not match its digest.");
     const diagnostics = record.diagnostics;
@@ -391,7 +394,7 @@
       conquestNeverCreatesStates: record.eventRows.every((event) => !event.stateDelta.createsState && !event.stateDelta.annexation) && record.currentControlRows.every((row) => row.cityIdentityPreserved && !row.annexed),
       compactsTemporaryAndNonSovereign: record.warCompactRows.every((row) => row.dissolutionYear >= row.formationYear && !row.permanentAlliance && !row.createsSovereignty && !row.standingForceAfterDissolution),
       foreignHoldingsBounded: record.diagnostics.maximumForeignHoldings <= 2,
-      publicHistoryHidesExactForceAndCovertControl: !JSON.stringify(publicDirectory).match(/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport/),
+      publicHistoryHidesExactForceAndCovertControl: !JSON.stringify(publicDirectory).match(/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport|puppetInstalled|covertly subordinated/),
       diagnostics: clone(record.diagnostics)
     };
   }

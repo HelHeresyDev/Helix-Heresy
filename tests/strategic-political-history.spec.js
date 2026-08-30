@@ -77,7 +77,7 @@ test('public political history redacts exact force comparisons and covert puppet
 
   expect(publicHistory.chronology).toHaveLength(map.strategicPoliticalHistory.eventRows.length);
   expect(publicHistory.currentControlRows.every((row) => row.publicControlStatus !== 'puppet' && row.cityIdentityPreserved)).toBe(true);
-  expect(publicJson).not.toMatch(/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport/);
+  expect(publicJson).not.toMatch(/exactFactors|attackerPower|defenderPower|revoltPower|suppressPower|margin|exactCellPath|covertPuppetSponsorPolityId|mercenarySupport|puppetInstalled|covertly subordinated/);
   const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
   expect(normalized.generatedData.strategicMap.strategicPoliticalHistory).toEqual(map.strategicPoliticalHistory);
   expect(normalized.generatedData.strategicMap.publicPoliticalHistoryDirectory).toEqual(map.publicPoliticalHistoryDirectory);

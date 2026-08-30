@@ -337,7 +337,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political history is visible through its knowledge-safe public preview', async ({ page }) => {
+test('political and civic history are visible through knowledge-safe public previews', async ({ page }) => {
   test.setTimeout(180_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
@@ -350,6 +350,11 @@ test('political history is visible through its knowledge-safe public preview', a
   expect(politicalHistory.chronology.some((event) => event.kind === 'intercityCampaign')).toBe(true);
   expect(politicalHistory.currentControlRows.some((row) => row.publicControlStatus !== 'sovereign')).toBe(true);
   expect(JSON.stringify(politicalHistory)).not.toMatch(/exactFactors|attackerPower|defenderPower|exactCellPath|covertPuppetSponsorPolityId/);
+  await expect(page.locator('#strategicCivicHistoryChronology')).toContainText('Year');
+  const civicHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicCivicHistory());
+  expect(civicHistory.chronology.length).toBeGreaterThan(0);
+  expect(civicHistory.currentInstitutionRows.some((row) => row.publicControlStatus === 'overtOccupation')).toBe(true);
+  expect(JSON.stringify(civicHistory)).not.toMatch(/exactFactors|actualControlStatus|actualControllerPolityId|captureState|foreignSponsorControl|capacityShift|independenceShift/);
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
