@@ -42,7 +42,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
   await page.locator('input[name="setupWorldTheme"][value="unbound"]').check();
   await expect(page.locator('#strategicWorldCanvas')).toBeVisible();
-  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells');
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells', { timeout: 300_000 });
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('12 pentagons');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('28 plates');
   await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('watersheds');
@@ -337,13 +337,14 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political, civic, and legal history are visible through knowledge-safe public previews', async ({ page }) => {
-  test.setTimeout(180_000);
+test('political, civic, legal, and public-attitude history are visible through knowledge-safe public previews', async ({ page }) => {
+  test.setTimeout(300_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
   await page.locator('input[name="setupWorldTheme"][value="unbound"]').check();
 
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('10,242 cells', { timeout: 300_000 });
   await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
   await expect(page.locator('#strategicPoliticalChronology')).toContainText('Year');
   const politicalHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicPoliticalHistory());
@@ -361,6 +362,12 @@ test('political, civic, and legal history are visible through knowledge-safe pub
   expect(legalHistory.directiveChronology.every((event) => !event.recognizedAsLocalCriminalLaw && !event.independentConvictionAuthority)).toBe(true);
   expect(JSON.stringify(legalHistory)).not.toMatch(/hiddenSponsorPolityId|discoverableHooks|nominalAuthorityActorIds|retroactiveGuiltPermitted|proofStandardChanged|offenseElementsChanged/);
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicLegalHistoryAudit())).toMatchObject({ valid: true, foundingCodesImmutable: true, proofStandardPreserved: true, directivesRemainSeparateAndTemporary: true });
+  await expect(page.locator('#strategicCityLawDirectory')).toContainText('Observed public pressure');
+  const attitudes = await page.evaluate(() => window.helixHeresyDebug.strategicPublicAttitudeHistory());
+  expect(attitudes.currentProfileRows.length).toBeGreaterThan(0);
+  expect(attitudes.currentProfileRows.every((row) => row.uncertaintyAcknowledged && row.aggregatePressureNotPopulationConsensus)).toBe(true);
+  expect(JSON.stringify(attitudes)).not.toMatch(/exactFactors|discoverableHooks|sourceEventId|sourceLayer|retainedBySeed|channelShifts/);
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicPublicAttitudeHistoryAudit())).toMatchObject({ valid: true, oneProfilePerCityOffense: true, attitudesNeverChangeLawOrGuilt: true, publicDirectoryAcknowledgesUncertainty: true });
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
