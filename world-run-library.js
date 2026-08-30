@@ -80,10 +80,13 @@
   const strategicLegalHistory = typeof module === "object" && module.exports
     ? require("./strategic-legal-history")
     : root?.HelixStrategicLegalHistory;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory, strategicCrisisHistory, strategicPoliticalHistory, strategicCivicHistory, strategicLegalHistory);
+  const strategicPublicAttitudeHistory = typeof module === "object" && module.exports
+    ? require("./strategic-public-attitude-history")
+    : root?.HelixStrategicPublicAttitudeHistory;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory, strategicCrisisHistory, strategicPoliticalHistory, strategicCivicHistory, strategicLegalHistory, strategicPublicAttitudeHistory);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory, StrategicPoliticalHistory, StrategicCivicHistory, StrategicLegalHistory) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory, StrategicPoliticalHistory, StrategicCivicHistory, StrategicLegalHistory, StrategicPublicAttitudeHistory) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -113,6 +116,7 @@
   if (!StrategicPoliticalHistory) throw new Error("HelixStrategicPoliticalHistory must load before world-run-library.js");
   if (!StrategicCivicHistory) throw new Error("HelixStrategicCivicHistory must load before world-run-library.js");
   if (!StrategicLegalHistory) throw new Error("HelixStrategicLegalHistory must load before world-run-library.js");
+  if (!StrategicPublicAttitudeHistory) throw new Error("HelixStrategicPublicAttitudeHistory must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -294,6 +298,7 @@
         generatedStrategicMap = StrategicPoliticalHistory.attachStrategicPoliticalHistory(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicCivicHistory.attachStrategicCivicHistory(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicLegalHistory.attachStrategicLegalHistory(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicPublicAttitudeHistory.attachStrategicPublicAttitudeHistory(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -363,6 +368,7 @@
     if (generatedData.strategicMap?.strategicPoliticalHistory || generatedData.strategicMap?.publicPoliticalHistoryDirectory) StrategicPoliticalHistory.validateStrategicPoliticalHistory(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicCivicHistory || generatedData.strategicMap?.publicCivicHistoryDirectory) StrategicCivicHistory.validateStrategicCivicHistory(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicLegalHistory || generatedData.strategicMap?.publicLegalHistoryDirectory) StrategicLegalHistory.validateStrategicLegalHistory(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicPublicAttitudeHistory || generatedData.strategicMap?.publicAttitudeHistoryDirectory) StrategicPublicAttitudeHistory.validateStrategicPublicAttitudeHistory(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
