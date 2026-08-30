@@ -269,6 +269,8 @@
     if (map.publicCrisisHistoryDirectory) core.publicCrisisHistoryDirectory = map.publicCrisisHistoryDirectory;
     if (map.strategicPoliticalHistory) core.strategicPoliticalHistory = map.strategicPoliticalHistory;
     if (map.publicPoliticalHistoryDirectory) core.publicPoliticalHistoryDirectory = map.publicPoliticalHistoryDirectory;
+    if (map.strategicCivicHistory) core.strategicCivicHistory = map.strategicCivicHistory;
+    if (map.publicCivicHistoryDirectory) core.publicCivicHistoryDirectory = map.publicCivicHistoryDirectory;
     return core;
   }
 
