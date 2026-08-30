@@ -267,6 +267,8 @@
     if (map.publicSettlementDirectory) core.publicSettlementDirectory = map.publicSettlementDirectory;
     if (map.strategicCrisisHistory) core.strategicCrisisHistory = map.strategicCrisisHistory;
     if (map.publicCrisisHistoryDirectory) core.publicCrisisHistoryDirectory = map.publicCrisisHistoryDirectory;
+    if (map.strategicPoliticalHistory) core.strategicPoliticalHistory = map.strategicPoliticalHistory;
+    if (map.publicPoliticalHistoryDirectory) core.publicPoliticalHistoryDirectory = map.publicPoliticalHistoryDirectory;
     return core;
   }
 
