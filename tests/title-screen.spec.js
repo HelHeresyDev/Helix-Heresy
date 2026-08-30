@@ -337,7 +337,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political and civic history are visible through knowledge-safe public previews', async ({ page }) => {
+test('political, civic, and legal history are visible through knowledge-safe public previews', async ({ page }) => {
   test.setTimeout(180_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
@@ -355,6 +355,12 @@ test('political and civic history are visible through knowledge-safe public prev
   expect(civicHistory.chronology.length).toBeGreaterThan(0);
   expect(civicHistory.currentInstitutionRows.some((row) => row.publicControlStatus === 'overtOccupation')).toBe(true);
   expect(JSON.stringify(civicHistory)).not.toMatch(/exactFactors|actualControlStatus|actualControllerPolityId|captureState|foreignSponsorControl|capacityShift|independenceShift/);
+  await expect(page.locator('#strategicCityLawDirectory')).toContainText('prospective amendment');
+  const legalHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicLegalHistory());
+  expect(legalHistory.amendmentChronology.length).toBeGreaterThan(0);
+  expect(legalHistory.directiveChronology.every((event) => !event.recognizedAsLocalCriminalLaw && !event.independentConvictionAuthority)).toBe(true);
+  expect(JSON.stringify(legalHistory)).not.toMatch(/hiddenSponsorPolityId|discoverableHooks|nominalAuthorityActorIds|retroactiveGuiltPermitted|proofStandardChanged|offenseElementsChanged/);
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicLegalHistoryAudit())).toMatchObject({ valid: true, foundingCodesImmutable: true, proofStandardPreserved: true, directivesRemainSeparateAndTemporary: true });
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
