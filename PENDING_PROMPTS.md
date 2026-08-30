@@ -18,9 +18,9 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Enforcement Practice and Justice Throughput History
-2. Religious and Non-State Network History
-3. Playable-Year Settlement and Route State
+1. Religious and Non-State Network History
+2. Playable-Year Settlement and Route State
+3. Enforcement Practice and Justice Throughput History
 4. New-Run World Selection, Candidate Laboratory Sites, and Scenario Materialization
 5. Local Context Mechanics: Environment, Geology, and Travel
 6. Strategic Survey Operations and Resource Discovery
@@ -95,15 +95,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Enforcement Practice and Justice Throughput History
-
-Advance actual enforcement practice and procedural throughput through the generated legal, public-attitude, crisis, political, and civic-institutional history. Consume the playable-year recognized-law resolver and treat the existing hidden city-law enforcement settings as founding policy rather than a competing current system. Keep published law, temporary directives, enforcement priorities, report intake, investigation, prosecution screening, court throughput, selective tolerance, corruption, and institutional capture as distinct facts. Watch, prosecution, court, jail, and prison behavior must reflect their own saved capacity, independence, operational condition, and control rather than one citywide competence score.
-
-Public reporting cooperation may affect allegation volume and witness availability but never determine truth, evidence reliability, or guilt. Selective tolerance or corruption may suppress, delay, misroute, or decline a supported matter but cannot change the code, manufacture support, fabricate evidence, bypass a directive's limited scope, or lower the published proof standard. Active directives may produce bounded administrative stops or detention only within their saved scope and remain insufficient for criminal conviction. Every retained policy or throughput shift must consume a saved cause and produce an explicit playable-year enforcement or justice-pipeline fact with a separate knowledge-safe account. Public projections may show declared priorities and observable delays while withholding covert capture, corruption, selective tolerance, exact capacity calculations, and undiscovered misconduct.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Religious and Non-State Network History
+## 1. Religious and Non-State Network History
 
 Advance human-known faith institutions and major commercial, research, military, transport, media, black-market, and standards networks through the already generated divine, ecological-crisis, and political history. Track strategically significant branch founding, loss, relocation, sponsorship, proscription, collaboration, institutional conflict, and public standing without granting any network sovereignty, automatic enforcement power, or guaranteed long-range material support.
 
@@ -111,11 +103,23 @@ An actively communicating god prevents same-god doctrinal heresy from becoming a
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Playable-Year Settlement and Route State
+## 2. Playable-Year Settlement and Route State
 
 Resolve retained history into the canonical conditions the player encounters at the playable year: surviving and ruined cities, founding lineages, current support components, settlement population and crowding bands, defenses, infrastructure, damage, abandonment or occupation, corridor and stronghold condition, route loss, isolation, and public explanations. Preserve multiple disconnected physical networks when history never connected them or later severed their bridges.
 
 This pass must consume saved historical outcomes rather than rolling unexplained present-day conditions. It must produce at least one viable run-start region without erasing near-collapse worlds, must not begin simulating a run, and must never write later run consequences back into the reusable world.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Enforcement Practice and Justice Throughput History
+
+Advance actual enforcement practice and procedural throughput only after religious and non-state network history and playable-year settlement and route state exist. Consume those layers alongside recognized law, public attitudes, crises, political history, civic-institutional history, amendments, and directives. Treat the existing hidden city-law enforcement settings as founding policy rather than a competing current system.
+
+Produce offense-specific practice rows that keep declared priority, actual priority, resource commitment, report-intake posture, selective tolerance, and causal interference distinct. Produce separate pipeline rows for report intake, investigation, prosecution screening, courts, temporary jail, and long-term corrections. Each stage must derive its capacity, demand pressure, operational state, and qualitative delay band from the responsible institution, current population and crowding, surviving facilities, route access, public cooperation, and retained history rather than one citywide competence score. Exact case deadlines belong to later run-specific cases, not this aggregate world-history pass. Jail and prison must remain separate. Destroyed or displaced cities suspend unavailable local stages instead of receiving fictional poor-but-functional statistics.
+
+Do not generate crime totals, conviction rates, or invented historical cases. Reporting cooperation may affect allegation volume and witness availability but never determine truth, evidence reliability, or guilt. Corruption is optional and requires a saved cause such as captured appointments, occupation, institutional breakdown, or covert network influence. Selective tolerance or corruption may suppress, delay, misroute, selectively prioritize, or decline a supported matter but cannot change the code, manufacture support, fabricate evidence, bypass a directive's limited scope, or lower the published proof standard. Active directives may produce bounded administrative stops or detention only within their saved scope and remain insufficient for criminal conviction.
+
+Every retained policy or throughput shift must consume a saved cause and produce an explicit playable-year practice or justice-pipeline fact with a separate knowledge-safe account. Public projections may show declared priorities, observable closures and delays, broad backlog conditions, and confidence while withholding covert capture, corruption, selective tolerance, exact workload calculations, and undiscovered misconduct. Published law, temporary directives, declared practice, hidden actual practice, and observable throughput must remain visibly distinct.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
