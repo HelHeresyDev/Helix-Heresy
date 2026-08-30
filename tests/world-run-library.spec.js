@@ -123,6 +123,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicPoliticalHistoryDirectory: { chronology: expect.any(Array), currentAuthorityRows: expect.any(Array), currentControlRows: expect.any(Array), warCompactRows: expect.any(Array), principles: expect.any(Object) },
         strategicCivicHistory: { diagnostics: { cityCount: expect.any(Number), institutionCount: expect.any(Number), retainedEventCount: expect.any(Number), strainedOrDisruptedCount: expect.any(Number), overtOccupationInstitutionCount: expect.any(Number), capturedInstitutionCount: expect.any(Number) } },
         publicCivicHistoryDirectory: { chronology: expect.any(Array), currentInstitutionRows: expect.any(Array), principles: expect.any(Object) },
+        strategicLegalHistory: { diagnostics: { cityCount: expect.any(Number), amendmentCount: expect.any(Number), offenseStatusAmendmentCount: expect.any(Number), procedureAmendmentCount: expect.any(Number), sentencingPolicyAmendmentCount: expect.any(Number), directiveCount: expect.any(Number), activeDirectiveCount: expect.any(Number), occupationDirectiveCount: expect.any(Number) } },
+        publicLegalHistoryDirectory: { amendmentChronology: expect.any(Array), directiveChronology: expect.any(Array), activeDirectives: expect.any(Array), currentCodeRows: expect.any(Array), principles: expect.any(Object) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -209,6 +211,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicPoliticalHistoryDirectory;
     delete map.strategicCivicHistory;
     delete map.publicCivicHistoryDirectory;
+    delete map.strategicLegalHistory;
+    delete map.publicLegalHistoryDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;

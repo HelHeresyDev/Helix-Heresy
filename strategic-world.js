@@ -271,6 +271,8 @@
     if (map.publicPoliticalHistoryDirectory) core.publicPoliticalHistoryDirectory = map.publicPoliticalHistoryDirectory;
     if (map.strategicCivicHistory) core.strategicCivicHistory = map.strategicCivicHistory;
     if (map.publicCivicHistoryDirectory) core.publicCivicHistoryDirectory = map.publicCivicHistoryDirectory;
+    if (map.strategicLegalHistory) core.strategicLegalHistory = map.strategicLegalHistory;
+    if (map.publicLegalHistoryDirectory) core.publicLegalHistoryDirectory = map.publicLegalHistoryDirectory;
     return core;
   }
 

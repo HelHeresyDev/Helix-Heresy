@@ -33,8 +33,9 @@
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
   const StrategicPoliticalHistory = window.HelixStrategicPoliticalHistory;
   const StrategicCivicHistory = window.HelixStrategicCivicHistory;
+  const StrategicLegalHistory = window.HelixStrategicLegalHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12526,6 +12527,16 @@
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicCivicHistoryDirectory ? StrategicCivicHistory.publicCivicInstitutionalHistory(map) : null;
       },
+      strategicLegalHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicLegalHistory ? StrategicLegalHistory.auditStrategicLegalHistory(map) : null;
+      },
+      strategicPublicLegalHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicLegalHistoryDirectory ? StrategicLegalHistory.publicLegalHistory(map) : null;
+      },
       strategicPublicDivinityDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
@@ -14433,8 +14444,14 @@
     const civicInstitutionalProfile = cityGovernment && currentStrategicPreviewMap?.publicCivicHistoryDirectory
       ? StrategicCivicHistory.currentCityInstitutionalProfile(currentStrategicPreviewMap, cityGovernment.city.id)
       : null;
-    const cityLaw = cell && currentStrategicPreviewMap?.publicCityLawDirectory
+    const foundingCityLaw = cell && currentStrategicPreviewMap?.publicCityLawDirectory
       ? StrategicCityLaws.cellPublicCityLawSnapshot(currentStrategicPreviewMap, cell.index)
+      : null;
+    const cityLaw = foundingCityLaw && currentStrategicPreviewMap?.strategicLegalHistory
+      ? StrategicLegalHistory.currentRecognizedCityCode(currentStrategicPreviewMap, foundingCityLaw.city.id)
+      : foundingCityLaw;
+    const cityLegalHistory = cityLaw && currentStrategicPreviewMap?.publicLegalHistoryDirectory
+      ? StrategicLegalHistory.currentCityLegalHistory(currentStrategicPreviewMap, cityLaw.city.id)
       : null;
     const religion = cell && currentStrategicPreviewMap?.publicReligionDirectory
       ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
@@ -14594,7 +14611,7 @@
       const importantOffenses = ["geneticEngineering", "artificialCreatureCreation", "animancy", "prohibitedMagic", "corporateLicensing"]
         .map((offenseId) => cityLaw.offenseRules.find((rule) => rule.offenseId === offenseId))
         .filter(Boolean);
-      dom.strategicCellLawSummary.textContent = importantOffenses.map((rule) => `${rule.label}: ${readableGeographyLabel(rule.legalStatus)} · ${readableGeographyLabel(rule.publicAttitude)} public attitude`).join(" · ");
+      dom.strategicCellLawSummary.textContent = `${importantOffenses.map((rule) => `${rule.label}: ${readableGeographyLabel(rule.legalStatus)} · ${readableGeographyLabel(rule.publicAttitude)} founding public attitude`).join(" · ")}${cityLegalHistory ? ` · ${cityLegalHistory.amendments.length} enacted amendment${cityLegalHistory.amendments.length === 1 ? "" : "s"} · ${cityLegalHistory.activeDirectives.length} active temporary directive${cityLegalHistory.activeDirectives.length === 1 ? "" : "s"}` : ""}`;
       dom.strategicCellLawProcedure.textContent = `Criminal proof: beyond reasonable doubt, with every element proven separately · ${readableGeographyLabel(cityLaw.procedure.counselRule)} counsel · ${readableGeographyLabel(cityLaw.procedure.discoveryRule)} discovery · ${readableGeographyLabel(cityLaw.procedure.pretrialReleaseRule)} release policy`;
       const sanctions = cityLaw.punishmentPolicy.availableSanctions.map(readableGeographyLabel).join(", ");
       dom.strategicCellPunishmentPolicy.textContent = `${cityLaw.punishmentPolicy.finitePrisonMaximumMonths / 12}-year finite prison maximum · no life imprisonment · available sanctions: ${sanctions} · Public Enemy designation requires a separate reviewed finding`;
@@ -14747,7 +14764,8 @@
 
   function renderStrategicCityLawDirectory(map) {
     dom.strategicCityLawList.textContent = "";
-    const entries = map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
+    const entries = map?.strategicLegalHistory ? StrategicLegalHistory.currentRecognizedCityCodes(map) : (map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : []);
+    const legalHistory = map?.publicLegalHistoryDirectory ? StrategicLegalHistory.publicLegalHistory(map) : null;
     dom.strategicCityLawDirectory.hidden = !entries.length;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
     for (const entry of entries) {
@@ -14766,6 +14784,24 @@
       const procedure = document.createElement("p");
       procedure.className = "journal-meta";
       procedure.textContent = `Beyond reasonable doubt · each element proven separately · ${readable(entry.procedure.counselRule)} counsel · ${readable(entry.procedure.discoveryRule)} discovery · no life imprisonment · ${entry.punishmentPolicy.publicExecution.available ? "public beheading only after a separate Public Enemy finding" : "no public execution"} · ${entry.punishmentPolicy.penalFlight.available ? "Penal Flight authorized for eligible non-Public-Enemy condemnation" : "no Penal Flight"}`;
+      const history = document.createElement("div");
+      history.className = "strategic-city-law-history";
+      const amendments = legalHistory?.amendmentChronology.filter((event) => event.cityId === entry.city.id) || [];
+      const directives = legalHistory?.directiveChronology.filter((event) => event.cityId === entry.city.id) || [];
+      const historySummary = document.createElement("p");
+      historySummary.className = "journal-meta";
+      historySummary.textContent = `${amendments.length} prospective amendment${amendments.length === 1 ? "" : "s"} since the founding code · ${directives.filter((directive) => directive.status === "active").length} active temporary directive${directives.filter((directive) => directive.status === "active").length === 1 ? "" : "s"}. Directives do not amend offense elements or independently authorize conviction.`;
+      history.append(historySummary);
+      for (const event of amendments) {
+        const item = document.createElement("p");
+        item.textContent = `Year ${event.year} — ${event.account}`;
+        history.append(item);
+      }
+      for (const directive of directives.filter((event) => event.status === "active")) {
+        const item = document.createElement("p");
+        item.textContent = `Active through year ${directive.expiresYear} — ${directive.account}`;
+        history.append(item);
+      }
       const rules = document.createElement("div");
       rules.className = "strategic-city-law-rules";
       card.addEventListener("toggle", () => {
@@ -14777,7 +14813,7 @@
           rules.append(item);
         }
       });
-      card.append(heading, highlights, procedure, rules);
+      card.append(heading, highlights, procedure, history, rules);
       dom.strategicCityLawList.append(card);
     }
   }
@@ -15382,13 +15418,16 @@
     const civicHistorySummary = map.publicCivicHistoryDirectory
       ? ` · ${map.strategicCivicHistory.diagnostics.retainedEventCount} retained civic institutional events · ${map.strategicCivicHistory.diagnostics.strainedOrDisruptedCount} strained or disrupted institutions · ${map.strategicCivicHistory.diagnostics.overtOccupationInstitutionCount} institutions under overt occupation direction`
       : (map.publicPoliticalHistoryDirectory ? " · Civic institutional history unavailable in this saved world" : "");
+    const legalHistorySummary = map.publicLegalHistoryDirectory
+      ? ` · ${map.strategicLegalHistory.diagnostics.amendmentCount} prospective legal amendments · ${map.strategicLegalHistory.diagnostics.activeDirectiveCount} active temporary directives · founding offense elements preserved`
+      : (map.publicCivicHistoryDirectory ? " · Legal amendment and directive history unavailable in this saved world" : "");
     const nonStateNetworkSummary = map.publicNonStateNetworkDirectory
       ? ` · ${map.strategicNonStateNetworks.diagnostics.networkCount} major non-state networks · orbital arcane internet · rocket and individual spaceflight`
       : (map.publicReligionDirectory ? " · Non-state networks unavailable in this saved world" : "");
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}`;
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
