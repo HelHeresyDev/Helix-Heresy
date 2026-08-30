@@ -239,7 +239,8 @@
       if (coalitionResult.coalition) coalitionRows.push(coalitionResult.coalition);
       if (coalitionResult.decision) responseDecisionRows.push(coalitionResult.decision);
       const factors = defenseFactors(seed, strategicMap, profile, eventId, year, coalitionResult.supportPower);
-      const outcome = outcomeFor(seed, eventId, profile, factors.margin);
+      let outcome = outcomeFor(seed, eventId, profile, factors.margin);
+      if (outcome === "cityDestroyed" && destroyedCityIds.size >= cities.length - 1) outcome = "cityBreach";
       const targets = targetAssets(strategicMap, profile, year);
       const infrastructureDeltas = [];
       const setAsset = (asset, kind, state) => {
