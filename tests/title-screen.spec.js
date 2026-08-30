@@ -337,7 +337,7 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political, civic, legal, and public-attitude history are visible through knowledge-safe public previews', async ({ page }) => {
+test('political, civic, legal, public-attitude, and playable settlement history are visible through knowledge-safe public previews', async ({ page }) => {
   test.setTimeout(300_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
@@ -368,6 +368,14 @@ test('political, civic, legal, and public-attitude history are visible through k
   expect(attitudes.currentProfileRows.every((row) => row.uncertaintyAcknowledged && row.aggregatePressureNotPopulationConsensus)).toBe(true);
   expect(JSON.stringify(attitudes)).not.toMatch(/exactFactors|discoverableHooks|sourceEventId|sourceLayer|retainedBySeed|channelShifts/);
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicPublicAttitudeHistoryAudit())).toMatchObject({ valid: true, oneProfilePerCityOffense: true, attitudesNeverChangeLawOrGuilt: true, publicDirectoryAcknowledgesUncertainty: true });
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('authoritative current support components');
+  await expect(page.locator('.strategic-foundation-card').first()).toContainText('Playable year:');
+  const currentSettlements = await page.evaluate(() => window.helixHeresyDebug.strategicPublicPlayableSettlementState());
+  expect(currentSettlements.cityRows.length).toBeGreaterThan(0);
+  expect(currentSettlements.cityRows.every((row) => row.populationRange.minimum <= row.populationRange.maximum && !row.exactPopulationPublic && !row.exactCapacityPublic)).toBe(true);
+  expect(currentSettlements.routeRows.every((row) => !row.createsState && !row.createsAlliance)).toBe(true);
+  expect(JSON.stringify(currentSettlements)).not.toMatch(/populationLedger|protectedCapacity|currentPopulation|exactFactors|crisisFatalities|unresolvedDisplacedPopulation|admittedPopulation/);
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicPlayableSettlementStateAudit())).toMatchObject({ valid: true, everyPopulationLedgerBalanced: true, currentComponentsFollowUsableRoutes: true, connectivityCreatesNoPoliticalUnity: true, atLeastOneViableRunStartRegion: true, publicDirectoryHidesExactPopulationAndLosses: true });
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {

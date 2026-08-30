@@ -35,8 +35,9 @@
   const StrategicCivicHistory = window.HelixStrategicCivicHistory;
   const StrategicLegalHistory = window.HelixStrategicLegalHistory;
   const StrategicPublicAttitudeHistory = window.HelixStrategicPublicAttitudeHistory;
+  const StrategicPlayableSettlementState = window.HelixStrategicPlayableSettlementState;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12549,6 +12550,16 @@
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
         return map?.publicAttitudeHistoryDirectory ? StrategicPublicAttitudeHistory.publicAttitudeHistory(map) : null;
       },
+      strategicPlayableSettlementStateAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicPlayableSettlementState ? StrategicPlayableSettlementState.auditStrategicPlayableSettlementState(map) : null;
+      },
+      strategicPublicPlayableSettlementState: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicPlayableSettlementDirectory ? StrategicPlayableSettlementState.publicPlayableSettlementDirectory(map) : null;
+      },
       strategicPublicDivinityDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
@@ -14494,6 +14505,9 @@
     const settlement = cell && currentStrategicPreviewMap?.publicSettlementDirectory
       ? StrategicSettlements.cellPublicSettlementSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
+    const playableSettlement = cell && currentStrategicPreviewMap?.publicPlayableSettlementDirectory
+      ? StrategicPlayableSettlementState.cellPublicPlayableSettlementSnapshot(currentStrategicPreviewMap, cell.index)?.settlement
+      : null;
     if (!cell) {
       dom.strategicCellId.textContent = "None";
       dom.strategicCellCoordinates.textContent = "—";
@@ -14680,8 +14694,8 @@
       const foundation = settlement.foundation;
       const resources = [foundation.primaryExploitation?.label, foundation.secondaryExploitation?.label].filter(Boolean).join(" and ");
       dom.strategicCellFoundation.textContent = foundation.foundingPurpose === "independentRefuge"
-        ? `Rare independent refuge · ${foundation.foundingPower.exceptionalIndividualCount} self-powered founder · intentionally outside the mutual-support compact`
-        : `${resources} resource anchor · ${foundation.foundingPower.exceptionalIndividualCount} exceptional founding power${foundation.foundingPower.exceptionalIndividualCount === 1 ? "" : "s"} · ${readableGeographyLabel(foundation.foundingPower.affiliation)}${foundation.foundingPower.patronGod ? ` of ${foundation.foundingPower.patronGod.name}` : ""}`;
+        ? `Rare independent refuge · ${foundation.foundingPower.exceptionalIndividualCount} self-powered founder · intentionally outside the mutual-support compact${playableSettlement ? ` · currently ${readableGeographyLabel(playableSettlement.physicalCondition)}, ${readableGeographyLabel(playableSettlement.habitationStatus)}, ${readableGeographyLabel(playableSettlement.populationBand)} population, ${readableGeographyLabel(playableSettlement.crowdingBand)}` : ""}`
+        : `${resources} resource anchor · ${foundation.foundingPower.exceptionalIndividualCount} exceptional founding power${foundation.foundingPower.exceptionalIndividualCount === 1 ? "" : "s"} · ${readableGeographyLabel(foundation.foundingPower.affiliation)}${foundation.foundingPower.patronGod ? ` of ${foundation.foundingPower.patronGod.name}` : ""}${playableSettlement ? ` · currently ${readableGeographyLabel(playableSettlement.physicalCondition)}, ${readableGeographyLabel(playableSettlement.habitationStatus)}, ${readableGeographyLabel(playableSettlement.populationBand)} population, ${readableGeographyLabel(playableSettlement.crowdingBand)}` : ""}`;
     } else {
       dom.strategicCellFoundation.textContent = currentStrategicPreviewMap?.publicSettlementDirectory ? "No sovereign city foundation at this cell" : "Unavailable in this saved world";
     }
@@ -14689,12 +14703,12 @@
     if (settlement?.stronghold) {
       const stronghold = settlement.stronghold;
       const sponsorNames = stronghold.sponsorCityIds.map((id) => currentStrategicPreviewMap.humanGeography.cities.find((city) => city.id === id)?.name || id);
-      dom.strategicCellSettlement.textContent = `${stronghold.name} · jointly governed dependency of ${sponsorNames.join(" and ")} · locally administered, not politically sovereign`;
-      dom.strategicCellSettlementLogistics.textContent = `${stronghold.serviceMode.replace(/([a-z])([A-Z])/g, "$1 $2")} service · ${stronghold.populationCapacity.toLocaleString()} capacity · sponsors jointly staff and fund upkeep · evacuation divides between both sponsor cities`;
+      dom.strategicCellSettlement.textContent = `${stronghold.name} · jointly governed dependency of ${sponsorNames.join(" and ")} · locally administered, not politically sovereign${playableSettlement ? ` · currently ${readableGeographyLabel(playableSettlement.physicalCondition)} and ${readableGeographyLabel(playableSettlement.habitationStatus)}` : ""}`;
+      dom.strategicCellSettlementLogistics.textContent = `${stronghold.serviceMode.replace(/([a-z])([A-Z])/g, "$1 $2")} service · sponsors jointly staff and fund upkeep · evacuation divides between both sponsor cities${playableSettlement ? ` · ${readableGeographyLabel(playableSettlement.populationBand)} population · ${readableGeographyLabel(playableSettlement.services.transport)} transport` : ""}`;
     } else if (settlement?.satellite) {
       const satellite = settlement.satellite;
-      dom.strategicCellSettlement.textContent = `${satellite.name} · ${readableGeographyLabel(satellite.form)} · ${satellite.initialPopulation.toLocaleString()} of ${satellite.populationCapacity.toLocaleString()} supported population · ${readableGeographyLabel(satellite.arableLandBand)} arable land`;
-      dom.strategicCellSettlementLogistics.textContent = `${readableGeographyLabel(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days stored supplies · evacuation ${readableGeographyLabel(satellite.evacuation.advertisedReadiness)} · ${satellite.evacuation.singleLiftCapacity.toLocaleString()} single-lift capacity · refuge access and survival not guaranteed`;
+      dom.strategicCellSettlement.textContent = `${satellite.name} · ${readableGeographyLabel(satellite.form)} · ${readableGeographyLabel(satellite.arableLandBand)} arable land${playableSettlement ? ` · currently ${readableGeographyLabel(playableSettlement.physicalCondition)}, ${readableGeographyLabel(playableSettlement.habitationStatus)}, ${readableGeographyLabel(playableSettlement.populationBand)} population` : ""}`;
+      dom.strategicCellSettlementLogistics.textContent = `${readableGeographyLabel(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days stored supplies · evacuation ${readableGeographyLabel(satellite.evacuation.advertisedReadiness)} · refuge access and survival not guaranteed${playableSettlement ? ` · ${readableGeographyLabel(playableSettlement.services.provisioning)} provisioning · ${readableGeographyLabel(playableSettlement.observationConfidence)} confidence` : ""}`;
     } else {
       dom.strategicCellSettlement.textContent = currentStrategicPreviewMap?.publicSettlementDirectory ? "No major dependent settlement at this cell" : "Unavailable in this saved world";
       dom.strategicCellSettlementLogistics.textContent = dependentSettlement ? "See settlement record" : "—";
@@ -15144,6 +15158,7 @@
     dom.settlementParentSelect.textContent = "";
     dom.strategicSatelliteList.textContent = "";
     const directory = map?.publicSettlementDirectory ? StrategicSettlements.publicSettlementDirectory(map) : null;
+    const currentDirectory = map?.publicPlayableSettlementDirectory ? StrategicPlayableSettlementState.publicPlayableSettlementDirectory(map) : null;
     dom.strategicSettlementDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
@@ -15223,8 +15238,16 @@
     if (expansion) {
       const componentSummary = document.createElement("p");
       componentSummary.className = "journal-meta";
-      componentSummary.textContent = `${expansion.currentSupportComponents.length} current physical support component${expansion.currentSupportComponents.length === 1 ? "" : "s"}. Connectivity does not imply common government, religion, diplomacy, or allegiance.`;
+      componentSummary.textContent = currentDirectory
+        ? `${expansion.currentSupportComponents.length} historically constructed support component${expansion.currentSupportComponents.length === 1 ? "" : "s"} · ${currentDirectory.currentSupportComponents.length} authoritative playable-year component${currentDirectory.currentSupportComponents.length === 1 ? "" : "s"} after damage and repair · ${currentDirectory.routeRows.filter((row) => row.continuity === "closed").length} closed corridor${currentDirectory.routeRows.filter((row) => row.continuity === "closed").length === 1 ? "" : "s"}. Connectivity does not imply common government, religion, diplomacy, or allegiance.`
+        : `${expansion.currentSupportComponents.length} constructed physical support component${expansion.currentSupportComponents.length === 1 ? "" : "s"}; playable-year resolution is unavailable in this saved world.`;
       dom.strategicExpansionChronology.prepend(componentSummary);
+    }
+    for (const event of currentDirectory?.recoveryChronology || []) {
+      const item = document.createElement("p");
+      item.className = "journal-meta";
+      item.textContent = `Year ${event.year} · ${event.account}`;
+      dom.strategicExpansionChronology.append(item);
     }
     for (const foundation of directory.foundations) {
       const card = document.createElement("details");
@@ -15247,7 +15270,12 @@
         : foundation.foundationHistory
           ? `Founded Year ${foundation.foundationHistory.foundingYear} from ${foundation.foundationHistory.parentCity.name} · ${readable(foundation.foundationHistory.cause)} · ${readable(foundation.foundationHistory.relationshipAtFoundation)} · ${readable(foundation.foundationHistory.supportAtFoundation)} · recorded founders: ${foundation.foundationHistory.founders.map((founder) => founder.name).join(", ")}`
           : "Later foundation history unavailable in this saved world.";
-      card.append(heading, purpose, power, origin);
+      const current = currentDirectory?.cityRows.find((row) => row.cityId === foundation.city.id);
+      const currentState = document.createElement("p");
+      currentState.textContent = current
+        ? `Playable year: ${readable(current.physicalCondition)} · ${readable(current.habitationStatus)} · ${readable(current.populationBand)} reported population (${current.populationRange.minimum.toLocaleString()}–${current.populationRange.maximum.toLocaleString()}) · ${readable(current.crowdingBand)} · utilities ${readable(current.services.utilities)} · provisioning ${readable(current.services.provisioning)} · ${current.physicalJurisdictionExists ? "physical city jurisdiction present" : "no physical city jurisdiction"}.`
+        : "Playable-year condition unavailable in this saved world.";
+      card.append(heading, currentState, purpose, power, origin);
       dom.strategicFoundationList.append(card);
       const option = document.createElement("option");
       option.value = foundation.city.id;
@@ -15260,14 +15288,17 @@
       const heading = document.createElement("summary");
       const strong = document.createElement("strong");
       strong.textContent = stronghold.name;
-      heading.append(strong, ` · ${stronghold.initialPopulation.toLocaleString()} residents`);
+      const current = currentDirectory?.strongholdRows.find((row) => row.strongholdId === stronghold.id);
+      heading.append(strong, current ? ` · ${readable(current.physicalCondition)} · ${readable(current.habitationStatus)} · ${readable(current.populationBand)} population` : ` · ${stronghold.initialPopulation.toLocaleString()} founding residents`);
       const sponsorNames = stronghold.sponsorCityIds.map((id) => map.humanGeography.cities.find((city) => city.id === id)?.name || id);
       const governance = document.createElement("p");
       governance.textContent = `Joint dependency of ${sponsorNames.join(" and ")}. It runs local operations through ${readable(stronghold.administration)} but has no independent sovereignty or diplomacy.`;
       const shares = document.createElement("p");
       shares.className = "journal-meta";
       shares.textContent = `${stronghold.sponsorContributions.map((entry) => `${map.humanGeography.cities.find((city) => city.id === entry.cityId)?.name || entry.cityId}: ${entry.staffingPercent}% staffing and ${entry.upkeepPercent}% upkeep`).join(" · ")} · local joint code and custody process · ${readable(stronghold.serviceMode)} support · ${stronghold.populationCapacity.toLocaleString()} capacity`;
-      card.append(heading, governance, shares);
+      const currentState = document.createElement("p");
+      currentState.textContent = current ? `Playable year: ${current.populationRange.minimum.toLocaleString()}–${current.populationRange.maximum.toLocaleString()} reported residents · ${readable(current.crowdingBand)} · transport ${readable(current.services.transport)} · provisioning ${readable(current.services.provisioning)} · ${readable(current.observationConfidence)} confidence.` : "Playable-year condition unavailable in this saved world.";
+      card.append(heading, currentState, governance, shares);
       dom.strategicStrongholdList.append(card);
       const option = document.createElement("option");
       option.value = stronghold.id;
@@ -15290,10 +15321,13 @@
         const heading = document.createElement("strong");
         heading.textContent = `${satellite.name} · ${readable(satellite.function)}`;
         const population = document.createElement("p");
-        population.textContent = `${readable(satellite.sizeBand)} · ${satellite.initialPopulation.toLocaleString()} initial residents of ${satellite.populationCapacity.toLocaleString()} supported capacity · ${readable(satellite.arableLandBand)} arable land${satellite.exportResource ? ` · exports ${satellite.exportResource.label}` : ""}`;
+        const current = currentDirectory?.satelliteRows.find((row) => row.satelliteId === satellite.id);
+        population.textContent = current
+          ? `${readable(satellite.sizeBand)} · currently ${readable(current.physicalCondition)} and ${readable(current.habitationStatus)} · ${current.populationRange.minimum.toLocaleString()}–${current.populationRange.maximum.toLocaleString()} reported residents · ${readable(current.crowdingBand)} · ${readable(satellite.arableLandBand)} arable land${satellite.exportResource ? ` · exports ${satellite.exportResource.label}` : ""}`
+          : `${readable(satellite.sizeBand)} · ${satellite.initialPopulation.toLocaleString()} founding residents of ${satellite.populationCapacity.toLocaleString()} supported capacity · ${readable(satellite.arableLandBand)} arable land${satellite.exportResource ? ` · exports ${satellite.exportResource.label}` : ""}`;
         const logistics = document.createElement("p");
         logistics.className = "journal-meta";
-        logistics.textContent = `${readable(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days storage · ${satellite.localRouteCellIds.length - 1} local route legs · imports ${satellite.requiredImports.map(readable).join(", ")} · delivery not guaranteed`;
+        logistics.textContent = `${readable(satellite.logistics.vehicleMode)} · ${satellite.logistics.storageEnduranceDays} days storage · ${satellite.localRouteCellIds.length - 1} local route legs · imports ${satellite.requiredImports.map(readable).join(", ")} · delivery not guaranteed${current ? ` · current provisioning ${readable(current.services.provisioning)} · transport ${readable(current.services.transport)}` : ""}`;
         const evacuation = document.createElement("p");
         evacuation.className = "journal-meta";
         evacuation.textContent = `${readable(satellite.evacuation.warningSource)} warning · ${readable(satellite.evacuation.advertisedReadiness)} advertised evacuation readiness · ${satellite.evacuation.singleLiftCapacity.toLocaleString()} single-lift capacity · fallback: ${satellite.evacuation.fallbackCityIds.map((id) => map.humanGeography.cities.find((city) => city.id === id)?.name || id).join(", ")} · survival and gate access not guaranteed`;
@@ -15381,7 +15415,7 @@
     if (crisisHistory) {
       const network = document.createElement("p");
       network.className = "journal-meta";
-      network.textContent = `${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length} support corridor${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length === 1 ? "" : "s"} severed by retained crises · ${crisisHistory.currentSupportComponents.length} resulting physical support component${crisisHistory.currentSupportComponents.length === 1 ? "" : "s"}. Connectivity is not political unity; local gateway loss does not destroy the orbital constellation.`;
+      network.textContent = `${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length} support corridor${crisisHistory.routeConditionRows.filter((row) => row.state === "severed").length === 1 ? "" : "s"} severed by retained crises · ${crisisHistory.currentSupportComponents.length} post-crisis physical support component${crisisHistory.currentSupportComponents.length === 1 ? "" : "s"} before later repair resolution. Connectivity is not political unity; local gateway loss does not destroy the orbital constellation.`;
       dom.strategicCrisisChronology.prepend(network);
     }
   }
@@ -15489,7 +15523,10 @@
     const settlementSummary = map.publicSettlementDirectory
       ? ` · ${map.strategicSettlements.diagnostics.resourceAnchorCount} resource-anchor cities · ${map.strategicSettlements.diagnostics.jointRouteStrongholdCount} joint route strongholds · ${map.strategicSettlements.diagnostics.satelliteSettlementCount} dependent satellites`
       : (map.publicNonStateNetworkDirectory ? " · City foundations and dependent settlements unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}`;
+    const playableSettlementSummary = map.publicPlayableSettlementDirectory
+      ? ` · ${map.strategicPlayableSettlementState.diagnostics.viableCityCount} inhabited fortified cores · ${map.strategicPlayableSettlementState.diagnostics.supportComponentCount} authoritative current support components · ${map.strategicPlayableSettlementState.diagnostics.closedRouteCount} closed corridors · aggregate population and causal recovery resolved`
+      : (map.publicAttitudeHistoryDirectory ? " · Playable-year settlement and route state unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

@@ -127,6 +127,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicLegalHistoryDirectory: { amendmentChronology: expect.any(Array), directiveChronology: expect.any(Array), activeDirectives: expect.any(Array), currentCodeRows: expect.any(Array), principles: expect.any(Object) },
         strategicPublicAttitudeHistory: { diagnostics: { cityCount: expect.any(Number), offenseCount: expect.any(Number), profileCount: expect.any(Number), retainedEventCount: expect.any(Number), crisisReactionCount: expect.any(Number), occupationReactionCount: expect.any(Number), legalReactionCount: expect.any(Number) } },
         publicAttitudeHistoryDirectory: { pressureChannels: expect.any(Array), currentProfileRows: expect.any(Array), chronology: expect.any(Array), principles: expect.any(Object) },
+        strategicPlayableSettlementState: { diagnostics: { cityCount: expect.any(Number), viableCityCount: expect.any(Number), ruinedCityCount: expect.any(Number), strongholdCount: expect.any(Number), satelliteCount: expect.any(Number), closedRouteCount: expect.any(Number), supportComponentCount: expect.any(Number), recoveryEventCount: expect.any(Number), displacementCount: expect.any(Number), totalCurrentSettlementPopulation: expect.any(Number) } },
+        publicPlayableSettlementDirectory: { cityRows: expect.any(Array), strongholdRows: expect.any(Array), satelliteRows: expect.any(Array), routeRows: expect.any(Array), currentSupportComponents: expect.any(Array), recoveryChronology: expect.any(Array), principles: expect.any(Object) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -217,6 +219,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicLegalHistoryDirectory;
     delete map.strategicPublicAttitudeHistory;
     delete map.publicAttitudeHistoryDirectory;
+    delete map.strategicPlayableSettlementState;
+    delete map.publicPlayableSettlementDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;
