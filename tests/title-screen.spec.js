@@ -337,6 +337,21 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
+test('political history is visible through its knowledge-safe public preview', async ({ page }) => {
+  test.setTimeout(180_000);
+  await openFreshTitle(page);
+  await page.locator('#titleNewRunBtn').click();
+  await page.locator('#setupWorldSeedInput').fill('world-seed-one');
+  await page.locator('input[name="setupWorldTheme"][value="unbound"]').check();
+
+  await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
+  await expect(page.locator('#strategicPoliticalChronology')).toContainText('Year');
+  const politicalHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicPoliticalHistory());
+  expect(politicalHistory.chronology.some((event) => event.kind === 'intercityCampaign')).toBe(true);
+  expect(politicalHistory.currentControlRows.some((row) => row.publicControlStatus !== 'sovereign')).toBe(true);
+  expect(JSON.stringify(politicalHistory)).not.toMatch(/exactFactors|attackerPower|defenderPower|exactCellPath|covertPuppetSponsorPolityId/);
+});
+
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
   await openFreshTitle(page);
   await beginRun(page, { worldSeed: 'navigation-world', runSeed: 'navigation-run' });
