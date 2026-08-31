@@ -279,6 +279,8 @@
     if (map.publicPlayableSettlementDirectory) core.publicPlayableSettlementDirectory = map.publicPlayableSettlementDirectory;
     if (map.strategicReligiousInstitutionHistory) core.strategicReligiousInstitutionHistory = map.strategicReligiousInstitutionHistory;
     if (map.publicReligiousInstitutionHistoryDirectory) core.publicReligiousInstitutionHistoryDirectory = map.publicReligiousInstitutionHistoryDirectory;
+    if (map.strategicNonStateNetworkHistory) core.strategicNonStateNetworkHistory = map.strategicNonStateNetworkHistory;
+    if (map.publicNonStateNetworkHistoryDirectory) core.publicNonStateNetworkHistoryDirectory = map.publicNonStateNetworkHistoryDirectory;
     return core;
   }
 
