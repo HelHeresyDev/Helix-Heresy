@@ -281,6 +281,8 @@
     if (map.publicReligiousInstitutionHistoryDirectory) core.publicReligiousInstitutionHistoryDirectory = map.publicReligiousInstitutionHistoryDirectory;
     if (map.strategicNonStateNetworkHistory) core.strategicNonStateNetworkHistory = map.strategicNonStateNetworkHistory;
     if (map.publicNonStateNetworkHistoryDirectory) core.publicNonStateNetworkHistoryDirectory = map.publicNonStateNetworkHistoryDirectory;
+    if (map.strategicEnforcementPracticeHistory) core.strategicEnforcementPracticeHistory = map.strategicEnforcementPracticeHistory;
+    if (map.publicEnforcementPracticeDirectory) core.publicEnforcementPracticeDirectory = map.publicEnforcementPracticeDirectory;
     return core;
   }
 

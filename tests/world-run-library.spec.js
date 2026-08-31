@@ -133,6 +133,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicReligiousInstitutionHistoryDirectory: { traditionRows: expect.any(Array), currentBranchRows: expect.any(Array), cityStandingRows: expect.any(Array), chronology: expect.any(Array), holySiteCustodyRows: expect.any(Array), cellFeatures: expect.any(Array), principles: expect.any(Object) },
         strategicNonStateNetworkHistory: { diagnostics: { networkCount: 21, activeNetworkCount: expect.any(Number), diminishedNetworkCount: expect.any(Number), dormantNetworkCount: expect.any(Number), defunctNetworkCount: expect.any(Number), publicBranchCount: expect.any(Number), viablePublicBranchCount: expect.any(Number), covertCellCount: expect.any(Number), affiliateCount: 15, retainedEventCount: expect.any(Number), publicEventCount: expect.any(Number), relocatedOrConsolidatedCount: expect.any(Number) } },
         publicNonStateNetworkHistoryDirectory: { networkRows: expect.any(Array), currentBranchRows: expect.any(Array), cityStandingRows: expect.any(Array), affiliateRows: expect.any(Array), relationshipRows: expect.any(Array), chronology: expect.any(Array), cellFeatures: expect.any(Array), principles: expect.any(Object) },
+        strategicEnforcementPracticeHistory: { diagnostics: { cityCount: expect.any(Number), offenseCount: 21, practiceRowCount: expect.any(Number), pipelineStageCount: expect.any(Number), retainedEventCount: expect.any(Number), publicEventCount: expect.any(Number), suspendedStageCount: expect.any(Number), interferenceEventCount: expect.any(Number) } },
+        publicEnforcementPracticeDirectory: { practiceRows: expect.any(Array), pipelineRows: expect.any(Array), chronology: expect.any(Array), principles: expect.any(Object) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -229,6 +231,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicReligiousInstitutionHistoryDirectory;
     delete map.strategicNonStateNetworkHistory;
     delete map.publicNonStateNetworkHistoryDirectory;
+    delete map.strategicEnforcementPracticeHistory;
+    delete map.publicEnforcementPracticeDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;
