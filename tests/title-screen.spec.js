@@ -131,6 +131,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicCellLawSummary')).toContainText('Genetic Engineering');
   await expect(page.locator('#strategicCellLawProcedure')).toContainText('beyond reasonable doubt');
   await expect(page.locator('#strategicCellPunishmentPolicy')).toContainText('no life imprisonment');
+  await expect(page.locator('#strategicCellEnforcementPractice')).toContainText('declared priority');
+  await expect(page.locator('#strategicCellJusticeThroughput')).toContainText('Report intake');
   await expect(page.locator('#strategicCellAttackExposure')).toContainText('attack remains possible without a migration route');
   await expect(page.locator('#strategicCityPolityDirectory')).toBeVisible();
   await expect(page.locator('.strategic-city-polity-card')).not.toHaveCount(0);
@@ -192,13 +194,13 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   await expect(page.locator('#strategicGlobeLegend')).toContainText('Confirmed holy site');
   const firstHolySiteIndex = Number(publicReligions.holySites[0].cellId.split(':')[1]);
   await page.evaluate((index) => window.helixHeresyDebug.strategicSelectCell(index), firstHolySiteIndex);
-  await expect(page.locator('#strategicCellHolySites')).toContainText('divinely confirmed');
+  await expect(page.locator('#strategicCellHolySites')).toContainText('divine identity not transferred');
   await expect(page.locator('.strategic-beast-card').first()).toContainText('reconstructed pre-urban distribution');
   await expect(page.locator('.strategic-beast-card').first()).toContainText('exact pristine counts hidden');
   await expect(page.locator('#strategicNetworkDirectory')).toBeVisible();
   const publicNetworks = await page.evaluate(() => window.helixHeresyDebug.strategicPublicNonStateNetworkDirectory());
-  expect(publicNetworks.networks).toHaveLength(21);
-  expect(new Set(publicNetworks.networks.map((network) => network.category)).size).toBe(7);
+  expect(publicNetworks.networkRows).toHaveLength(21);
+  expect(new Set(publicNetworks.networkRows.map((network) => network.category)).size).toBe(7);
   expect(JSON.stringify(publicNetworks)).not.toContain('covertPresenceCodes');
   expect(JSON.stringify(publicNetworks)).not.toContain('actualCapacityBand');
   await expect(page.locator('.strategic-network-card')).toHaveCount(21);

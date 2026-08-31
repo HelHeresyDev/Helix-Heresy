@@ -38,8 +38,9 @@
   const StrategicPlayableSettlementState = window.HelixStrategicPlayableSettlementState;
   const StrategicReligiousInstitutionHistory = window.HelixStrategicReligiousInstitutionHistory;
   const StrategicNonStateNetworkHistory = window.HelixStrategicNonStateNetworkHistory;
+  const StrategicEnforcementPracticeHistory = window.HelixStrategicEnforcementPracticeHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12186,6 +12187,8 @@
       "strategicCellLawSummary",
       "strategicCellLawProcedure",
       "strategicCellPunishmentPolicy",
+      "strategicCellEnforcementPractice",
+      "strategicCellJusticeThroughput",
       "strategicCellReligiousPresence",
       "strategicCellHolySites",
       "strategicCellNetworkPresence",
@@ -12659,6 +12662,22 @@
           : world?.generatedData?.strategicMap?.publicNonStateNetworkDirectory
             ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(world.generatedData.strategicMap, Number(cellIndex))
             : null;
+      },
+      strategicEnforcementPracticeHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicEnforcementPracticeHistory ? StrategicEnforcementPracticeHistory.auditStrategicEnforcementPracticeHistory(map) : null;
+      },
+      strategicPublicEnforcementPracticeHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicEnforcementPracticeDirectory ? StrategicEnforcementPracticeHistory.publicEnforcementPracticeHistory(map) : null;
+      },
+      strategicPublicEnforcementPracticeSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldRepository.getWorld(worldId);
+        return world?.generatedData?.strategicMap?.publicEnforcementPracticeDirectory
+          ? StrategicEnforcementPracticeHistory.cellPublicEnforcementPracticeSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : null;
       },
       strategicSettlementsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
@@ -14528,6 +14547,9 @@
     const cityPublicAttitudes = cityLaw && currentStrategicPreviewMap?.publicAttitudeHistoryDirectory
       ? StrategicPublicAttitudeHistory.currentCityPublicAttitudes(currentStrategicPreviewMap, cityLaw.city.id)
       : null;
+    const cityEnforcementPractice = cityLaw && currentStrategicPreviewMap?.publicEnforcementPracticeDirectory
+      ? StrategicEnforcementPracticeHistory.currentCityEnforcementProfile(currentStrategicPreviewMap, cityLaw.city.id)
+      : null;
     const religion = cell && currentStrategicPreviewMap?.publicReligiousInstitutionHistoryDirectory
       ? StrategicReligiousInstitutionHistory.cellPublicReligiousInstitutionSnapshot(currentStrategicPreviewMap, cell.index)
       : cell && currentStrategicPreviewMap?.publicReligionDirectory
@@ -14587,6 +14609,8 @@
       dom.strategicCellLawSummary.textContent = "—";
       dom.strategicCellLawProcedure.textContent = "—";
       dom.strategicCellPunishmentPolicy.textContent = "—";
+      dom.strategicCellEnforcementPractice.textContent = "—";
+      dom.strategicCellJusticeThroughput.textContent = "—";
       dom.strategicCellReligiousPresence.textContent = "—";
       dom.strategicCellHolySites.textContent = "—";
       dom.strategicCellNetworkPresence.textContent = "—";
@@ -14700,10 +14724,19 @@
       dom.strategicCellLawProcedure.textContent = `Criminal proof: beyond reasonable doubt, with every element proven separately · ${readableGeographyLabel(cityLaw.procedure.counselRule)} counsel · ${readableGeographyLabel(cityLaw.procedure.discoveryRule)} discovery · ${readableGeographyLabel(cityLaw.procedure.pretrialReleaseRule)} release policy`;
       const sanctions = cityLaw.punishmentPolicy.availableSanctions.map(readableGeographyLabel).join(", ");
       dom.strategicCellPunishmentPolicy.textContent = `${cityLaw.punishmentPolicy.finitePrisonMaximumMonths / 12}-year finite prison maximum · no life imprisonment · available sanctions: ${sanctions} · Public Enemy designation requires a separate reviewed finding`;
+      const enforcementHighlights = cityEnforcementPractice?.practices.filter((practice) => importantOffenses.some((rule) => rule.offenseId === practice.offenseId)) || [];
+      dom.strategicCellEnforcementPractice.textContent = enforcementHighlights.length
+        ? `${enforcementHighlights.map((practice) => `${practice.offense.label}: ${readableGeographyLabel(practice.declaredPriority)} declared priority · ${readableGeographyLabel(practice.reportIntake)} intake`).join(" · ")} · active directives affect administrative focus only`
+        : "Enforcement-practice history unavailable in this saved world";
+      dom.strategicCellJusticeThroughput.textContent = cityEnforcementPractice?.pipeline.length
+        ? cityEnforcementPractice.pipeline.map((stage) => `${stage.stageLabel}: ${readableGeographyLabel(stage.operationalState)} · ${readableGeographyLabel(stage.backlogBand)} backlog · ${readableGeographyLabel(stage.delayBand)} delay · ${stage.responsibleInstitution.publicName}`).join(" · ")
+        : "Justice-throughput history unavailable in this saved world";
     } else {
       dom.strategicCellLawSummary.textContent = currentStrategicPreviewMap?.publicCityLawDirectory ? "No city code applies at this cell" : "Unavailable in this saved world";
       dom.strategicCellLawProcedure.textContent = "—";
       dom.strategicCellPunishmentPolicy.textContent = "—";
+      dom.strategicCellEnforcementPractice.textContent = "—";
+      dom.strategicCellJusticeThroughput.textContent = "—";
     }
     if (religion?.cityStanding) {
       const established = religion.cityStanding.standings.find((entry) => entry.standing === "established");
@@ -14857,6 +14890,7 @@
     const entries = map?.strategicLegalHistory ? StrategicLegalHistory.currentRecognizedCityCodes(map) : (map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : []);
     const legalHistory = map?.publicLegalHistoryDirectory ? StrategicLegalHistory.publicLegalHistory(map) : null;
     const attitudeHistory = map?.publicAttitudeHistoryDirectory ? StrategicPublicAttitudeHistory.publicAttitudeHistory(map) : null;
+    const enforcementHistory = map?.publicEnforcementPracticeDirectory ? StrategicEnforcementPracticeHistory.publicEnforcementPracticeHistory(map) : null;
     dom.strategicCityLawDirectory.hidden = !entries.length;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
     for (const entry of entries) {
@@ -14915,6 +14949,25 @@
         item.textContent = `Year ${event.year} — ${event.account}`;
         history.append(item);
       }
+      const enforcement = document.createElement("div");
+      enforcement.className = "strategic-city-enforcement-practice";
+      const practiceRows = enforcementHistory?.practiceRows.filter((row) => row.cityId === entry.city.id) || [];
+      const pipelineRows = enforcementHistory?.pipelineRows.filter((row) => row.cityId === entry.city.id) || [];
+      if (pipelineRows.length) {
+        const enforcementHeading = document.createElement("p");
+        enforcementHeading.className = "journal-meta";
+        enforcementHeading.textContent = "Declared enforcement priorities and observable justice throughput — exact workload, selective tolerance, and covert influence remain private.";
+        enforcement.append(enforcementHeading);
+        const priorities = document.createElement("p");
+        priorities.textContent = highlightedIds.map((offenseId) => {
+          const practice = practiceRows.find((row) => row.offenseId === offenseId);
+          return practice ? `${practice.offense.label}: ${readable(practice.declaredPriority)} priority · ${readable(practice.reportIntake)} intake` : "";
+        }).filter(Boolean).join(" · ");
+        enforcement.append(priorities);
+        const throughput = document.createElement("p");
+        throughput.textContent = pipelineRows.map((stage) => `${stage.stageLabel}: ${readable(stage.operationalState)} · ${readable(stage.capacityBand)} capacity · ${readable(stage.backlogBand)} backlog · ${readable(stage.delayBand)} delay · ${stage.responsibleInstitution.publicName}`).join(" · ");
+        enforcement.append(throughput);
+      }
       const rules = document.createElement("div");
       rules.className = "strategic-city-law-rules";
       card.addEventListener("toggle", () => {
@@ -14927,7 +14980,7 @@
           rules.append(item);
         }
       });
-      card.append(heading, highlights, procedure, publicPressure, history, rules);
+      card.append(heading, highlights, procedure, publicPressure, enforcement, history, rules);
       dom.strategicCityLawList.append(card);
     }
   }
@@ -15650,7 +15703,10 @@
     const nonStateNetworkHistorySummary = map.publicNonStateNetworkHistoryDirectory
       ? ` · ${map.strategicNonStateNetworkHistory.diagnostics.activeNetworkCount} active and ${map.strategicNonStateNetworkHistory.diagnostics.diminishedNetworkCount} diminished networks · ${map.strategicNonStateNetworkHistory.diagnostics.retainedEventCount} retained network events · dated branches, affiliates, standing, relocation, and collapse resolved`
       : (map.publicReligiousInstitutionHistoryDirectory ? " · Non-state network history unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}${nonStateNetworkHistorySummary}`;
+    const enforcementPracticeSummary = map.publicEnforcementPracticeDirectory
+      ? ` · ${map.strategicEnforcementPracticeHistory.diagnostics.practiceRowCount} offense-practice profiles · ${map.strategicEnforcementPracticeHistory.diagnostics.pipelineStageCount} qualitative justice stages · no cases or conviction rates invented`
+      : (map.publicNonStateNetworkHistoryDirectory ? " · Enforcement-practice history unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}${nonStateNetworkHistorySummary}${enforcementPracticeSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);

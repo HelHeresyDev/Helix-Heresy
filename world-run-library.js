@@ -92,10 +92,13 @@
   const strategicNonStateNetworkHistory = typeof module === "object" && module.exports
     ? require("./strategic-non-state-network-history")
     : root?.HelixStrategicNonStateNetworkHistory;
-  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory, strategicCrisisHistory, strategicPoliticalHistory, strategicCivicHistory, strategicLegalHistory, strategicPublicAttitudeHistory, strategicPlayableSettlementState, strategicReligiousInstitutionHistory, strategicNonStateNetworkHistory);
+  const strategicEnforcementPracticeHistory = typeof module === "object" && module.exports
+    ? require("./strategic-enforcement-practice-history")
+    : root?.HelixStrategicEnforcementPracticeHistory;
+  const api = factory(themeContent, strategicWorld, planetaryRelief, climateHydrologyBiomes, strategicGeology, strategicArcaneGeography, strategicResourcePotential, strategicHumanGeography, strategicCityPolities, strategicBeastEcology, strategicPreUrbanHumanity, strategicCityGovernments, strategicCityLaws, strategicCityRecognition, strategicReligions, strategicDivinity, strategicFaiths, strategicCivilizationOrigins, strategicCityExpansion, strategicCapabilityHistory, strategicNonStateNetworks, strategicSettlements, strategicDivineHistory, strategicCrisisHistory, strategicPoliticalHistory, strategicCivicHistory, strategicLegalHistory, strategicPublicAttitudeHistory, strategicPlayableSettlementState, strategicReligiousInstitutionHistory, strategicNonStateNetworkHistory, strategicEnforcementPracticeHistory);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWorldRunLibrary = api;
-})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory, StrategicPoliticalHistory, StrategicCivicHistory, StrategicLegalHistory, StrategicPublicAttitudeHistory, StrategicPlayableSettlementState, StrategicReligiousInstitutionHistory, StrategicNonStateNetworkHistory) {
+})(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory, StrategicPoliticalHistory, StrategicCivicHistory, StrategicLegalHistory, StrategicPublicAttitudeHistory, StrategicPlayableSettlementState, StrategicReligiousInstitutionHistory, StrategicNonStateNetworkHistory, StrategicEnforcementPracticeHistory) {
   "use strict";
 
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
@@ -129,6 +132,7 @@
   if (!StrategicPlayableSettlementState) throw new Error("HelixStrategicPlayableSettlementState must load before world-run-library.js");
   if (!StrategicReligiousInstitutionHistory) throw new Error("HelixStrategicReligiousInstitutionHistory must load before world-run-library.js");
   if (!StrategicNonStateNetworkHistory) throw new Error("HelixStrategicNonStateNetworkHistory must load before world-run-library.js");
+  if (!StrategicEnforcementPracticeHistory) throw new Error("HelixStrategicEnforcementPracticeHistory must load before world-run-library.js");
 
   const LIBRARY_VERSION = 2;
   const WORLD_RECORD_VERSION = 1;
@@ -314,6 +318,7 @@
         generatedStrategicMap = StrategicPlayableSettlementState.attachStrategicPlayableSettlementState(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicReligiousInstitutionHistory.attachStrategicReligiousInstitutionHistory(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicNonStateNetworkHistory.attachStrategicNonStateNetworkHistory(worldSeed, generatedStrategicMap);
+        generatedStrategicMap = StrategicEnforcementPracticeHistory.attachStrategicEnforcementPracticeHistory(worldSeed, generatedStrategicMap);
       }
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
@@ -387,6 +392,7 @@
     if (generatedData.strategicMap?.strategicPlayableSettlementState || generatedData.strategicMap?.publicPlayableSettlementDirectory) StrategicPlayableSettlementState.validateStrategicPlayableSettlementState(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicReligiousInstitutionHistory || generatedData.strategicMap?.publicReligiousInstitutionHistoryDirectory) StrategicReligiousInstitutionHistory.validateStrategicReligiousInstitutionHistory(generatedData.strategicMap);
     if (generatedData.strategicMap?.strategicNonStateNetworkHistory || generatedData.strategicMap?.publicNonStateNetworkHistoryDirectory) StrategicNonStateNetworkHistory.validateStrategicNonStateNetworkHistory(generatedData.strategicMap);
+    if (generatedData.strategicMap?.strategicEnforcementPracticeHistory || generatedData.strategicMap?.publicEnforcementPracticeDirectory) StrategicEnforcementPracticeHistory.validateStrategicEnforcementPracticeHistory(generatedData.strategicMap);
     const world = {
       recordVersion: WORLD_RECORD_VERSION,
       id,
