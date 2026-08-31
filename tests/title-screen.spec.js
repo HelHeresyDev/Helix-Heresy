@@ -337,8 +337,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political, civic, legal, public-attitude, settlement, and religious institution history are visible through knowledge-safe public previews', async ({ page }) => {
-  test.setTimeout(420_000);
+test('political, civic, legal, public-attitude, settlement, religious, and network history are visible through knowledge-safe public previews', async ({ page }) => {
+  test.setTimeout(480_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
@@ -386,6 +386,15 @@ test('political, civic, legal, public-attitude, settlement, and religious instit
   expect(religiousInstitutions.holySiteCustodyRows.every((row) => !row.divineIdentityTransferred && !row.religionTransferred && !row.createsSovereignty)).toBe(true);
   expect(JSON.stringify(religiousInstitutions)).not.toMatch(/integrityBand|concealedMisconduct|covertPersistence|exactFactors|sourceEventId|hiddenAttention|exposureRoll|sponsorPolityId/);
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicReligiousInstitutionHistoryAudit())).toMatchObject({ valid: true, oneAggregateBranchPerCityTradition: true, everyBranchFoundedAfterItsCity: true, activeGodCensureCreatesNoConfirmedSchism: true, successorsRemainUnconfirmed: true, publicHistoryHidesIntegrityMisconductAndCovertInfluence: true, divinePowerHistoryNotRecalculated: true });
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('retained network events');
+  await expect(page.locator('#strategicNetworkChronology')).toContainText('Year');
+  await expect(page.locator('#networkCityStandingList')).toContainText('founded Year');
+  const networkHistory = await page.evaluate(() => window.helixHeresyDebug.strategicPublicNonStateNetworkHistory());
+  expect(networkHistory.networkRows).toHaveLength(21);
+  expect(networkHistory.currentBranchRows.every((branch) => !branch.sovereignAuthority && !branch.enforcementAuthority && !branch.longRangeDeliveryGuaranteed)).toBe(true);
+  expect(networkHistory.cityStandingRows.every((row) => row.standings.length === 21)).toBe(true);
+  expect(JSON.stringify(networkHistory)).not.toMatch(/covertRows|actualCapacityBand|integrityBand|privatePriority|actualParentNetworkId|hiddenPurpose|exactFactors|sourceEventId|exposureRoll/);
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicNonStateNetworkHistoryAudit())).toMatchObject({ valid: true, everyNetworkFoundedAfterCityAndCapabilities: true, everyRetainedChangeCausallySourced: true, relocationRequiresPhysicalTransport: true, lifecycleAllowsDormancyAndDefunction: true, networksRemainNonSovereign: true, publicHistoryHidesCovertCapacityIntegrityAndOwnership: true, priorHistoryNotRecalculated: true });
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {

@@ -37,8 +37,9 @@
   const StrategicPublicAttitudeHistory = window.HelixStrategicPublicAttitudeHistory;
   const StrategicPlayableSettlementState = window.HelixStrategicPlayableSettlementState;
   const StrategicReligiousInstitutionHistory = window.HelixStrategicReligiousInstitutionHistory;
+  const StrategicNonStateNetworkHistory = window.HelixStrategicNonStateNetworkHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12223,6 +12224,7 @@
       "strategicHolySiteList",
       "strategicNetworkDirectory",
       "networkCategorySelect",
+      "strategicNetworkChronology",
       "strategicNetworkList",
       "networkCitySelect",
       "networkCityStandingList",
@@ -12634,13 +12636,29 @@
       strategicPublicNonStateNetworkDirectory: (worldId = "") => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
-        return map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map) : null;
+        return map?.publicNonStateNetworkHistoryDirectory
+          ? StrategicNonStateNetworkHistory.publicNonStateNetworkHistory(map)
+          : map?.publicNonStateNetworkDirectory
+            ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map)
+            : null;
+      },
+      strategicNonStateNetworkHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicNonStateNetworkHistory ? StrategicNonStateNetworkHistory.auditStrategicNonStateNetworkHistory(map) : null;
+      },
+      strategicPublicNonStateNetworkHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.publicNonStateNetworkHistory(map) : null;
       },
       strategicPublicNonStateNetworkSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
-        return world?.generatedData?.strategicMap?.publicNonStateNetworkDirectory
-          ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(world.generatedData.strategicMap, Number(cellIndex))
-          : null;
+        return world?.generatedData?.strategicMap?.publicNonStateNetworkHistoryDirectory
+          ? StrategicNonStateNetworkHistory.cellPublicNetworkHistorySnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : world?.generatedData?.strategicMap?.publicNonStateNetworkDirectory
+            ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+            : null;
       },
       strategicSettlementsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
@@ -14515,9 +14533,11 @@
       : cell && currentStrategicPreviewMap?.publicReligionDirectory
         ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
         : null;
-    const nonStateNetworks = cell && currentStrategicPreviewMap?.publicNonStateNetworkDirectory
-      ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(currentStrategicPreviewMap, cell.index)
-      : null;
+    const nonStateNetworks = cell && currentStrategicPreviewMap?.publicNonStateNetworkHistoryDirectory
+      ? StrategicNonStateNetworkHistory.cellPublicNetworkHistorySnapshot(currentStrategicPreviewMap, cell.index)
+      : cell && currentStrategicPreviewMap?.publicNonStateNetworkDirectory
+        ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(currentStrategicPreviewMap, cell.index)
+        : null;
     const settlement = cell && currentStrategicPreviewMap?.publicSettlementDirectory
       ? StrategicSettlements.cellPublicSettlementSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
@@ -14699,9 +14719,13 @@
     if (nonStateNetworks?.cityProfile) {
       const branches = nonStateNetworks.cityProfile.standings.filter((entry) => entry.branch);
       const categories = [...new Set(branches.map((entry) => entry.network.category))];
-      dom.strategicCellNetworkPresence.textContent = `${branches.length} public local branches · ${categories.map(readableGeographyLabel).join(", ")} · global contact does not guarantee delivery or enforcement`;
-      dom.strategicCellOrbitalInfrastructure.textContent = nonStateNetworks.cityProfile.orbitalInfrastructure.length
-        ? `${nonStateNetworks.cityProfile.orbitalInfrastructure.length} public launch or relay branch${nonStateNetworks.cityProfile.orbitalInfrastructure.length === 1 ? "" : "es"} · rockets and exceptional individual spaceflight exist`
+      const relocated = nonStateNetworks.cityProfile.hostedRelocatedBranchIds?.length || 0;
+      const orbitalInfrastructure = nonStateNetworks.branches
+        ? nonStateNetworks.branches.filter((branch) => ["launchOffice", "orbitalRelayGateway"].includes(branch.organizationForm) && branch.network.orbitalRoles.length)
+        : nonStateNetworks.cityProfile.orbitalInfrastructure;
+      dom.strategicCellNetworkPresence.textContent = `${branches.length} public local branches${relocated ? ` · hosts ${relocated} relocated operation${relocated === 1 ? "" : "s"}` : ""} · ${categories.map(readableGeographyLabel).join(", ")} · global contact does not guarantee delivery or enforcement`;
+      dom.strategicCellOrbitalInfrastructure.textContent = orbitalInfrastructure.length
+        ? `${orbitalInfrastructure.length} public launch or relay branch${orbitalInfrastructure.length === 1 ? "" : "es"} · rockets and exceptional individual spaceflight exist`
         : "No major public launch or orbital-relay branch in this city";
     } else {
       dom.strategicCellNetworkPresence.textContent = currentStrategicPreviewMap?.publicNonStateNetworkDirectory ? "No fortified-city network profile applies at this cell" : "Unavailable in this saved world";
@@ -15131,24 +15155,48 @@
   }
 
   function renderStrategicNetworkDirectory(map) {
+    dom.strategicNetworkChronology.textContent = "";
     dom.strategicNetworkList.textContent = "";
     dom.networkCitySelect.textContent = "";
     dom.networkCityStandingList.textContent = "";
     dom.strategicNetworkAffiliateList.textContent = "";
-    const directory = map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map) : null;
+    const history = map?.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.publicNonStateNetworkHistory(map) : null;
+    const directory = history || (map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.publicNonStateNetworkDirectory(map) : null);
     dom.strategicNetworkDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
+    const networks = history ? history.networkRows : directory.networks;
+    const relationships = history ? history.relationshipRows : directory.relationships;
+    for (const event of history?.chronology || []) {
+      const item = document.createElement("article");
+      item.className = "strategic-divine-history-entry";
+      const heading = document.createElement("strong");
+      heading.textContent = `Year ${event.year} · ${readable(event.kind)}`;
+      const account = document.createElement("p");
+      account.textContent = event.account;
+      const evidence = document.createElement("p");
+      evidence.className = "journal-meta";
+      evidence.textContent = `${event.cityId || event.cellId || "intercity record"} · ${readable(event.sourceLayer)} · ${readable(event.confidence)} confidence · evidence: ${event.evidence.map(readable).join(", ")} · covert cells and exact institutional state withheld`;
+      item.append(heading, account, evidence);
+      dom.strategicNetworkChronology.append(item);
+    }
+    if (history && !history.chronology.length) {
+      const quiet = document.createElement("p");
+      quiet.className = "journal-meta";
+      quiet.textContent = "No consequential network change has enough public evidence for this chronology; current public registrations remain available.";
+      dom.strategicNetworkChronology.append(quiet);
+    }
     const renderNetworkCards = () => {
       dom.strategicNetworkList.textContent = "";
       const category = dom.networkCategorySelect.value;
-      for (const network of directory.networks.filter((entry) => category === "all" || entry.category === category)) {
+      for (const network of networks.filter((entry) => category === "all" || entry.category === category)) {
         const card = document.createElement("details");
         card.className = "strategic-network-card";
         const heading = document.createElement("summary");
         const strong = document.createElement("strong");
         strong.textContent = network.name;
-        heading.append(strong, ` · ${readable(network.category)} · founded in ${network.originCity.name}`);
+        const originCity = network.originCity || network.originCityId && map.humanGeography.cities.find((city) => city.id === network.originCityId);
+        heading.append(strong, ` · ${readable(network.category)} · ${history ? `${readable(network.lifecycleStatus)} · founded Year ${network.foundingYear}` : "founding date unavailable"} in ${originCity?.name || network.originCityId}`);
         const purpose = document.createElement("p");
         purpose.textContent = network.publicPurpose;
         const capabilities = document.createElement("p");
@@ -15159,9 +15207,9 @@
         const physical = document.createElement("p");
         physical.className = "journal-meta";
         physical.textContent = `${readable(network.internetReach)} · physical authority limited to local sites and contracted assets · no guaranteed long-range material support · no sovereign or automatic enforcement authority${network.orbitalRoles.length ? ` · orbital roles: ${network.orbitalRoles.map(readable).join(", ")}` : ""}`;
-        const relations = directory.relationships.filter((relation) => relation.networkIds.includes(network.id)).map((relation) => {
+        const relations = relationships.filter((relation) => relation.networkIds.includes(network.id)).map((relation) => {
           const counterpartId = relation.networkIds.find((id) => id !== network.id);
-          return `${directory.networks.find((entry) => entry.id === counterpartId)?.name || counterpartId}: ${readable(relation.relation)}`;
+          return `${networks.find((entry) => entry.id === counterpartId)?.name || counterpartId}: ${readable(relation.relation)}${history ? ` since Year ${relation.establishedYear}` : ""}`;
         });
         const relationshipSummary = document.createElement("p");
         relationshipSummary.className = "journal-meta";
@@ -15175,7 +15223,8 @@
       renderCityStandings();
     };
     renderNetworkCards();
-    for (const city of map.humanGeography.cities) {
+    const selectableCities = history ? history.cityStandingRows.map((row) => row.city) : map.humanGeography.cities;
+    for (const city of selectableCities) {
       const option = document.createElement("option");
       option.value = city.id;
       option.textContent = city.name;
@@ -15184,21 +15233,36 @@
     function renderCityStandings() {
       dom.networkCityStandingList.textContent = "";
       const category = dom.networkCategorySelect.value;
-      const profile = StrategicNonStateNetworks.cityNetworkProfile(map, dom.networkCitySelect.value);
+      const profile = history
+        ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, dom.networkCitySelect.value)
+        : StrategicNonStateNetworks.cityNetworkProfile(map, dom.networkCitySelect.value);
       for (const entry of (profile?.standings || []).filter((standing) => category === "all" || standing.network.category === category)) {
         const item = document.createElement("p");
         item.className = "network-city-standing-entry";
-        item.textContent = `${entry.network.name} — ${readable(entry.standing)}${entry.branch ? ` · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.capacityBand)} capacity · ${readable(entry.branch.serviceReliability)} service` : " · no public physical branch"}`;
+        const branchSummary = entry.branch
+          ? history
+            ? ` · founded Year ${entry.branch.foundingYear} · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.capacityBand)} capacity · ${readable(entry.branch.serviceReliability)} service · ${readable(entry.branch.physicalCondition)} · ${readable(entry.branch.operationalStatus)}`
+            : ` · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.capacityBand)} capacity · ${readable(entry.branch.serviceReliability)} service`
+          : " · no public physical branch";
+        item.textContent = `${entry.network.name} — ${readable(entry.standing)}${branchSummary}`;
+        dom.networkCityStandingList.append(item);
+      }
+      for (const branchId of profile?.hostedRelocatedBranchIds || []) {
+        const branch = history.currentBranchRows.find((entry) => entry.id === branchId);
+        if (category !== "all" && branch?.network.category !== category) continue;
+        const item = document.createElement("p");
+        item.className = "network-city-standing-entry journal-meta";
+        item.textContent = `${branch?.publicName || branchId} — relocated operation · no host-city sovereignty or automatic local standing`;
         dom.networkCityStandingList.append(item);
       }
     }
     dom.networkCitySelect.onchange = renderCityStandings;
     renderCityStandings();
-    for (const affiliate of directory.affiliates) {
+    for (const affiliate of history ? history.affiliateRows : directory.affiliates) {
       const item = document.createElement("p");
       item.className = "strategic-network-affiliate-entry";
-      const city = map.humanGeography.cities.find((entry) => entry.id === affiliate.registrationCityId);
-      item.textContent = `${affiliate.registeredName} — ${city?.name || affiliate.registrationCityId} · ${readable(affiliate.declaredActivity)} · ${readable(affiliate.ownershipDisclosure)}${affiliate.disclosedParentNetworkId ? ` · disclosed parent: ${directory.networks.find((entry) => entry.id === affiliate.disclosedParentNetworkId)?.name || affiliate.disclosedParentNetworkId}` : " · beneficial owner not public"}`;
+      const city = affiliate.registrationCity || map.humanGeography.cities.find((entry) => entry.id === affiliate.registrationCityId);
+      item.textContent = `${affiliate.registeredName} — ${city?.name || affiliate.registrationCityId}${history ? ` · formed Year ${affiliate.formationYear} · ${readable(affiliate.lifecycleStatus)}` : ""} · ${readable(affiliate.declaredActivity)} · ${readable(affiliate.ownershipDisclosure)}${affiliate.disclosedParentNetworkId ? ` · disclosed parent: ${networks.find((entry) => entry.id === affiliate.disclosedParentNetworkId)?.name || affiliate.disclosedParentNetworkId}` : " · beneficial owner not public"}`;
       dom.strategicNetworkAffiliateList.append(item);
     }
   }
@@ -15583,7 +15647,10 @@
     const religiousInstitutionSummary = map.publicReligiousInstitutionHistoryDirectory
       ? ` · ${map.strategicReligiousInstitutionHistory.diagnostics.branchCount} authoritative religious institutions · ${map.strategicReligiousInstitutionHistory.diagnostics.retainedEventCount} retained institutional events · ${map.strategicReligiousInstitutionHistory.diagnostics.successorInstitutionCount} unconfirmed successor institutions · playable-year standing and holy-site custody resolved`
       : (map.publicPlayableSettlementDirectory ? " · Religious institution history unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}`;
+    const nonStateNetworkHistorySummary = map.publicNonStateNetworkHistoryDirectory
+      ? ` · ${map.strategicNonStateNetworkHistory.diagnostics.activeNetworkCount} active and ${map.strategicNonStateNetworkHistory.diagnostics.diminishedNetworkCount} diminished networks · ${map.strategicNonStateNetworkHistory.diagnostics.retainedEventCount} retained network events · dated branches, affiliates, standing, relocation, and collapse resolved`
+      : (map.publicReligiousInstitutionHistoryDirectory ? " · Non-state network history unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}${nonStateNetworkHistorySummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
