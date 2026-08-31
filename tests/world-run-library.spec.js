@@ -135,6 +135,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicNonStateNetworkHistoryDirectory: { networkRows: expect.any(Array), currentBranchRows: expect.any(Array), cityStandingRows: expect.any(Array), affiliateRows: expect.any(Array), relationshipRows: expect.any(Array), chronology: expect.any(Array), cellFeatures: expect.any(Array), principles: expect.any(Object) },
         strategicEnforcementPracticeHistory: { diagnostics: { cityCount: expect.any(Number), offenseCount: 21, practiceRowCount: expect.any(Number), pipelineStageCount: expect.any(Number), retainedEventCount: expect.any(Number), publicEventCount: expect.any(Number), suspendedStageCount: expect.any(Number), interferenceEventCount: expect.any(Number) } },
         publicEnforcementPracticeDirectory: { practiceRows: expect.any(Array), pipelineRows: expect.any(Array), chronology: expect.any(Array), principles: expect.any(Object) },
+        strategicStartingSites: { scenarioRows: expect.any(Array), digest: expect.any(String) },
+        publicStartingSiteDirectory: { scenarioRows: expect.any(Array), digest: expect.any(String) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -233,6 +235,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicNonStateNetworkHistoryDirectory;
     delete map.strategicEnforcementPracticeHistory;
     delete map.publicEnforcementPracticeDirectory;
+    delete map.strategicStartingSites;
+    delete map.publicStartingSiteDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;
