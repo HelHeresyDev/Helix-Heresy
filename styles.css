@@ -5057,6 +5057,64 @@ html[data-reduced-motion="true"] *::after {
   font-size: 0.78rem;
 }
 
+.starting-site-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.65rem;
+  margin: 0.65rem 0;
+}
+
+.starting-site-filters label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.starting-site-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 0.7rem;
+}
+
+.starting-site-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.starting-site-card:has(input:checked) {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(124, 205, 201, 0.13);
+}
+
+.starting-site-card input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+
+.starting-site-card-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.starting-site-tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .exact-transfer-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));

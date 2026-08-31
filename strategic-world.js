@@ -283,6 +283,8 @@
     if (map.publicNonStateNetworkHistoryDirectory) core.publicNonStateNetworkHistoryDirectory = map.publicNonStateNetworkHistoryDirectory;
     if (map.strategicEnforcementPracticeHistory) core.strategicEnforcementPracticeHistory = map.strategicEnforcementPracticeHistory;
     if (map.publicEnforcementPracticeDirectory) core.publicEnforcementPracticeDirectory = map.publicEnforcementPracticeDirectory;
+    if (map.strategicStartingSites) core.strategicStartingSites = map.strategicStartingSites;
+    if (map.publicStartingSiteDirectory) core.publicStartingSiteDirectory = map.publicStartingSiteDirectory;
     return core;
   }
 

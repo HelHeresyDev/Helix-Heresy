@@ -39,8 +39,9 @@
   const StrategicReligiousInstitutionHistory = window.HelixStrategicReligiousInstitutionHistory;
   const StrategicNonStateNetworkHistory = window.HelixStrategicNonStateNetworkHistory;
   const StrategicEnforcementPracticeHistory = window.HelixStrategicEnforcementPracticeHistory;
+  const StrategicStartingSites = window.HelixStrategicStartingSites;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -4496,8 +4497,10 @@
   let setupReturnView = "title";
   let strategicGlobeRenderer = null;
   let currentStrategicPreviewMap = null;
+  let currentStrategicPreviewWorldSeed = "";
   let configuredWorldPreviewTimer = null;
   let selectedStartingScenarioId = "";
+  let selectedStartingSiteId = "";
   let uiPreferences = null;
   let startupView = "title";
   let startupOverlayOpen = true;
@@ -12246,6 +12249,11 @@
       "strategicBeastPressureList",
       "strategicCrisisChronology",
       "startingScenarioList",
+      "startingSiteFieldset",
+      "startingSiteBiomeFilter",
+      "startingSiteDistanceFilter",
+      "startingSiteStatus",
+      "startingSiteList",
       "companyNameField",
       "companyNameInput",
       "randomCompanyNameBtn",
@@ -14438,6 +14446,7 @@
     selectedWorldId = world?.id || "";
     setupReturnView = world ? "worlds" : "title";
     selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
+    selectedStartingSiteId = "";
     const seed = makeSeed();
     dom.newWorldSetupFieldset.hidden = Boolean(world);
     dom.setupWorldSeedInput.value = makeSeed();
@@ -15598,6 +15607,7 @@
   function renderStrategicWorldPreview(world) {
     const map = world?.generatedData?.strategicMap;
     currentStrategicPreviewMap = map || null;
+    currentStrategicPreviewWorldSeed = world?.worldSeed || "";
     if (!map) {
       dom.strategicWorldCanvas.hidden = true;
       dom.strategicWorldInspector.hidden = true;
@@ -15616,6 +15626,7 @@
       renderStrategicSettlementDirectory(null);
       renderStrategicBeastBestiary(null);
       renderStrategicBeastPressureDirectory(null);
+      renderStartingSiteOptions();
       return;
     }
     dom.strategicWorldCanvas.hidden = false;
@@ -15706,7 +15717,10 @@
     const enforcementPracticeSummary = map.publicEnforcementPracticeDirectory
       ? ` · ${map.strategicEnforcementPracticeHistory.diagnostics.practiceRowCount} offense-practice profiles · ${map.strategicEnforcementPracticeHistory.diagnostics.pipelineStageCount} qualitative justice stages · no cases or conviction rates invented`
       : (map.publicNonStateNetworkHistoryDirectory ? " · Enforcement-practice history unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}${nonStateNetworkHistorySummary}${enforcementPracticeSummary}`;
+    const startingSiteSummary = map.publicStartingSiteDirectory
+      ? ` · ${StrategicStartingSites.scenarioStartingSites(map, "chemistryFront").length} reusable Chemistry Front candidate sites`
+      : (map.publicEnforcementPracticeDirectory ? " · Candidate sites derived on demand for this older immutable world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}${nonStateNetworkHistorySummary}${enforcementPracticeSummary}${startingSiteSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
@@ -15722,6 +15736,7 @@
     renderStrategicSettlementDirectory(map);
     renderStrategicBeastBestiary(map);
     renderStrategicBeastPressureDirectory(map);
+    renderStartingSiteOptions();
   }
 
   function renderStrategicGlobeLegend(layer) {
@@ -15936,6 +15951,13 @@
     const scenario = requestedScenario.debugOnly && !debugToolsEnabled()
       ? startingScenarioDef(DEFAULT_STARTING_SCENARIO_ID)
       : requestedScenario;
+    const worldMap = world.generatedData.strategicMap;
+    const selectedSiteSource = worldMap.publicStartingSiteDirectory
+      ? StrategicStartingSites.startingSiteCandidate(worldMap, scenario.id, selectedStartingSiteId)
+      : StrategicStartingSites.createStrategicStartingSites(world.worldSeed, worldMap).scenarioRows.find((row) => row.scenarioId === scenario.id)?.candidates.find((candidate) => candidate.id === selectedStartingSiteId);
+    const selectedSite = selectedSiteSource ? clonePlainObject(selectedSiteSource) : null;
+    if (!selectedSite) throw new Error("Choose a compatible laboratory site before beginning the run.");
+    const materializedSite = StrategicStartingSites.materializeStartingSite(world, scenario, selectedSite);
     const nextSeed = cleanSeed(dom.seedInput.value) || makeSeed();
     const next = createStartingScenarioState(scenario.id, {
       seed: nextSeed,
@@ -15957,6 +15979,7 @@
       generationVersion: world.generationVersion,
       canonicalDigest: world.canonicalDigest
     };
+    next.startingSite = clonePlainObject(materializedSite);
     const openingSelection = ThemeContent.selectRenderedContent({
       kind: "runOpening",
       worldTheme: world.worldTheme,
@@ -15988,14 +16011,7 @@
       canonicalWorldDigest: world.canonicalDigest,
       runSeed: nextSeed,
       scenario: clonePlainObject(next.startingScenario),
-      site: {
-        id: `starting-site:${scenario.id}`,
-        kind: "startingSite",
-        strategicLocation: null,
-        selectionStatus: "deferredWorldPlacement",
-        blueprintId: next.startingScenario.blueprintId,
-        blueprintVersion: next.startingScenario.blueprintVersion
-      },
+      site: clonePlainObject(materializedSite),
       worldState: {
         version: 1,
         canonicalWorldDigest: world.canonicalDigest,
@@ -16242,9 +16258,20 @@
       const scenario = startingScenarioDef(input.value);
       if (scenario.debugOnly && !debugToolsEnabled()) return;
       selectedStartingScenarioId = scenario.id;
-      syncStartingScenarioSubmit();
+      selectedStartingSiteId = "";
+      renderStartingSiteOptions();
       syncCompanyNameSetup();
     });
+
+    dom.startingSiteList?.addEventListener("change", (event) => {
+      const input = event.target instanceof HTMLInputElement ? event.target.closest("[data-starting-site-input]") : null;
+      if (!input) return;
+      selectedStartingSiteId = input.value;
+      syncStartingScenarioSubmit();
+    });
+
+    dom.startingSiteBiomeFilter?.addEventListener("change", renderStartingSiteOptions);
+    dom.startingSiteDistanceFilter?.addEventListener("change", renderStartingSiteOptions);
 
     dom.loadLastSaveBtn.addEventListener("click", () => {
       loadContinuation();
@@ -79074,7 +79101,90 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function syncStartingScenarioSubmit() {
     const scenario = startingScenarioDef(selectedStartingScenarioId);
-    if (dom.startRunSubmitBtn) dom.startRunSubmitBtn.textContent = `Begin ${scenario.label}`;
+    if (dom.startRunSubmitBtn) {
+      dom.startRunSubmitBtn.textContent = `Begin ${scenario.label}`;
+      dom.startRunSubmitBtn.disabled = !selectedStartingSiteId;
+      dom.startRunSubmitBtn.title = selectedStartingSiteId ? "" : "Choose a laboratory site first.";
+    }
+  }
+
+  function startingSiteCandidates() {
+    if (!currentStrategicPreviewMap) return [];
+    if (currentStrategicPreviewMap.publicStartingSiteDirectory) return StrategicStartingSites.scenarioStartingSites(currentStrategicPreviewMap, selectedStartingScenarioId);
+    if (!currentStrategicPreviewMap.publicEnforcementPracticeDirectory) return [];
+    const catalog = StrategicStartingSites.createStrategicStartingSites(currentStrategicPreviewWorldSeed, currentStrategicPreviewMap);
+    return clonePlainObject(catalog.scenarioRows.find((row) => row.scenarioId === selectedStartingScenarioId)?.candidates || []);
+  }
+
+  function startingSiteCard(candidate) {
+    const label = document.createElement("label");
+    label.className = "starting-site-card";
+    label.dataset.startingSite = candidate.id;
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "startingSiteId";
+    input.value = candidate.id;
+    input.checked = candidate.id === selectedStartingSiteId;
+    input.dataset.startingSiteInput = candidate.id;
+    const copy = document.createElement("span");
+    copy.className = "starting-site-card-copy";
+    const heading = document.createElement("span");
+    heading.className = "starting-scenario-title";
+    heading.append(textEl("strong", candidate.name), chip(candidate.distanceBandLabel));
+    const location = `${candidate.environment.biome} · ${candidate.distance.straightLineKm.toLocaleString()} km ${candidate.approximatePosition.bearingLabel} of ${candidate.nearestSettlement.name} · ${StrategicStartingSites.title(candidate.access.routeContinuity)}`;
+    const jurisdiction = candidate.jurisdiction.governingCityId
+      ? `${candidate.publicLaw.label}; ${StrategicStartingSites.title(candidate.publicEnforcement.declaredPriorityBand)} declared relevant enforcement`
+      : `${StrategicStartingSites.title(candidate.jurisdiction.kind)}; ${candidate.nearestSettlement.name} code shown only as a legal reference`;
+    const tradeoffs = document.createElement("ul");
+    tradeoffs.className = "starting-site-tradeoffs";
+    for (const [labelText, value] of [
+      ["Utilities", candidate.publicUtilities.availabilityBand],
+      ["Land", candidate.tradeoffs.landAvailability],
+      ["Legal cover", candidate.tradeoffs.legalCover],
+      ["Secrecy", candidate.tradeoffs.secrecy],
+      ["Authority exposure", candidate.tradeoffs.authorityExposure],
+      ["Beast danger", candidate.tradeoffs.beastDanger]
+    ]) tradeoffs.append(textEl("li", `${labelText}: ${StrategicStartingSites.title(value)}`));
+    copy.append(heading, textEl("span", candidate.tradeoffSummary), textEl("span", location), textEl("span", jurisdiction), tradeoffs);
+    label.append(input, copy);
+    return label;
+  }
+
+  function replaceStartingSiteFilter(select, entries, allLabel, selectedValue, availableFor) {
+    const options = [new Option(allLabel, "all")];
+    for (const entry of entries) {
+      const option = new Option(`${entry.label} (${entry.count})`, entry.value);
+      option.disabled = !availableFor(entry.value);
+      options.push(option);
+    }
+    select.replaceChildren(...options);
+    select.value = options.some((option) => option.value === selectedValue && !option.disabled) ? selectedValue : "all";
+  }
+
+  function renderStartingSiteOptions() {
+    if (!dom.startingSiteList) return;
+    const candidates = startingSiteCandidates();
+    dom.startingSiteFieldset.hidden = !currentStrategicPreviewMap?.publicEnforcementPracticeDirectory;
+    if (!candidates.length) {
+      selectedStartingSiteId = "";
+      dom.startingSiteStatus.textContent = currentStrategicPreviewMap ? "This saved world has no compatible candidate-site catalog." : "Generating candidate sites with the world preview…";
+      dom.startingSiteList.replaceChildren();
+      syncStartingScenarioSubmit();
+      return;
+    }
+    const priorBiome = dom.startingSiteBiomeFilter.value || "all";
+    const priorDistance = dom.startingSiteDistanceFilter.value || "all";
+    const biomeValues = [...new Set(candidates.map((candidate) => candidate.environment.biome))].sort().map((value) => ({ value, label: value, count: candidates.filter((candidate) => candidate.environment.biome === value).length }));
+    const distanceValues = [...new Set(candidates.map((candidate) => candidate.distanceBand))].map((value) => ({ value, label: candidates.find((candidate) => candidate.distanceBand === value).distanceBandLabel, count: candidates.filter((candidate) => candidate.distanceBand === value).length }));
+    replaceStartingSiteFilter(dom.startingSiteBiomeFilter, biomeValues, `All biomes (${candidates.length})`, priorBiome, (value) => priorDistance === "all" || candidates.some((candidate) => candidate.environment.biome === value && candidate.distanceBand === priorDistance));
+    const biome = dom.startingSiteBiomeFilter.value;
+    replaceStartingSiteFilter(dom.startingSiteDistanceFilter, distanceValues, `All distance bands (${candidates.length})`, priorDistance, (value) => biome === "all" || candidates.some((candidate) => candidate.distanceBand === value && candidate.environment.biome === biome));
+    const distance = dom.startingSiteDistanceFilter.value;
+    const filtered = candidates.filter((candidate) => (biome === "all" || candidate.environment.biome === biome) && (distance === "all" || candidate.distanceBand === distance));
+    if (!filtered.some((candidate) => candidate.id === selectedStartingSiteId)) selectedStartingSiteId = "";
+    dom.startingSiteStatus.textContent = `${filtered.length} of ${candidates.length} compatible sites shown. Select a card to make its provenance permanent for this run.`;
+    dom.startingSiteList.replaceChildren(...filtered.map(startingSiteCard));
+    syncStartingScenarioSubmit();
   }
 
   function syncCompanyNameSetup(options = {}) {
@@ -79100,6 +79210,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.startingScenarioList.replaceChildren(...visible.map(startingScenarioCard));
     syncStartingScenarioSubmit();
     syncCompanyNameSetup();
+    renderStartingSiteOptions();
   }
 
   function syncSetupForm() {

@@ -1014,6 +1014,21 @@
           <div id="startingScenarioList" class="starting-scenario-list"></div>
         </fieldset>
 
+        <fieldset id="startingSiteFieldset" class="starting-scenario-fieldset">
+          <legend>Laboratory Site</legend>
+          <p class="journal-meta">Choose one reusable world-seeded candidate. Cards report known tradeoffs, not a hidden overall score; previous runs never occupy these sites.</p>
+          <div class="starting-site-filters">
+            <label>Surrounding biome
+              <select id="startingSiteBiomeFilter"><option value="all">All biomes</option></select>
+            </label>
+            <label>City distance
+              <select id="startingSiteDistanceFilter"><option value="all">All distance bands</option></select>
+            </label>
+          </div>
+          <p id="startingSiteStatus" class="journal-meta"></p>
+          <div id="startingSiteList" class="starting-site-list"></div>
+        </fieldset>
+
         <div id="companyNameField">
           <label class="field-label" for="companyNameInput">Company Name</label>
           <p class="journal-meta">Use the seeded generated identity or enter a custom legal name for this run.</p>
@@ -1121,6 +1136,7 @@
     <script src="strategic-religious-institution-history.js"></script>
   <script src="strategic-non-state-network-history.js"></script>
   <script src="strategic-enforcement-practice-history.js"></script>
+  <script src="strategic-starting-sites.js"></script>
     <script src="world-run-library.js"></script>
     <script src="strategic-globe-renderer.js"></script>
     <script src="creature-spatial.js"></script>
