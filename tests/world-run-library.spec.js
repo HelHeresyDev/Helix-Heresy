@@ -129,6 +129,8 @@ test('world names, years, and canonical digests are deterministic and stable', (
         publicAttitudeHistoryDirectory: { pressureChannels: expect.any(Array), currentProfileRows: expect.any(Array), chronology: expect.any(Array), principles: expect.any(Object) },
         strategicPlayableSettlementState: { diagnostics: { cityCount: expect.any(Number), viableCityCount: expect.any(Number), ruinedCityCount: expect.any(Number), strongholdCount: expect.any(Number), satelliteCount: expect.any(Number), closedRouteCount: expect.any(Number), supportComponentCount: expect.any(Number), recoveryEventCount: expect.any(Number), displacementCount: expect.any(Number), totalCurrentSettlementPopulation: expect.any(Number) } },
         publicPlayableSettlementDirectory: { cityRows: expect.any(Array), strongholdRows: expect.any(Array), satelliteRows: expect.any(Array), routeRows: expect.any(Array), currentSupportComponents: expect.any(Array), recoveryChronology: expect.any(Array), principles: expect.any(Object) },
+        strategicReligiousInstitutionHistory: { diagnostics: { branchCount: expect.any(Number), foundingBaselineBranchCount: expect.any(Number), laterBranchCount: expect.any(Number), successorInstitutionCount: expect.any(Number), retainedEventCount: expect.any(Number), publicEventCount: expect.any(Number), displacedOrDestroyedCount: expect.any(Number), censuredOrEstrangedCount: expect.any(Number), survivingCityStandingCount: expect.any(Number), holySiteCustodyCount: expect.any(Number) } },
+        publicReligiousInstitutionHistoryDirectory: { traditionRows: expect.any(Array), currentBranchRows: expect.any(Array), cityStandingRows: expect.any(Array), chronology: expect.any(Array), holySiteCustodyRows: expect.any(Array), cellFeatures: expect.any(Array), principles: expect.any(Object) },
         routeGraph: { version: 1, nodes: expect.any(Array), routes: expect.any(Array) },
       },
       themeContent: {
@@ -221,6 +223,8 @@ test('natural strategic geography ignores World Theme while generated civilizati
     delete map.publicAttitudeHistoryDirectory;
     delete map.strategicPlayableSettlementState;
     delete map.publicPlayableSettlementDirectory;
+    delete map.strategicReligiousInstitutionHistory;
+    delete map.publicReligiousInstitutionHistoryDirectory;
     delete map.humanGeography;
     map.routeGraph = { version: 1, nodes: [], routes: [] };
     delete map.digest;

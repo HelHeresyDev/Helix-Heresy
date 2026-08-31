@@ -682,7 +682,7 @@
     function setMap(nextMap) {
       map = nextMap ? StrategicWorld.validateStrategicMap(nextMap) : null;
       topology = map ? StrategicWorld.topologyForMap(map) : null;
-      religionCellClasses = new Map((map?.publicReligionDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
+      religionCellClasses = new Map((map?.publicReligiousInstitutionHistoryDirectory?.cellFeatures || map?.publicReligionDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       networkCellClasses = new Map((map?.publicNonStateNetworkDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       settlementCellClasses = new Map((map?.publicSettlementDirectory?.cellFeatures || []).map((entry) => [parseInt(entry, 36), entry.split(":")[1]]));
       selectedCellIndex = -1;

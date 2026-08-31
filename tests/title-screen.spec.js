@@ -337,8 +337,8 @@ test('@smoke fresh startup generates an explicitly themed world before entering 
   expect(reloaded.world.generatedData.strategicMap.digest).toBe(snapshot.world.generatedData.strategicMap.digest);
 });
 
-test('political, civic, legal, public-attitude, and playable settlement history are visible through knowledge-safe public previews', async ({ page }) => {
-  test.setTimeout(300_000);
+test('political, civic, legal, public-attitude, settlement, and religious institution history are visible through knowledge-safe public previews', async ({ page }) => {
+  test.setTimeout(420_000);
   await openFreshTitle(page);
   await page.locator('#titleNewRunBtn').click();
   await page.locator('#setupWorldSeedInput').fill('world-seed-one');
@@ -376,6 +376,16 @@ test('political, civic, legal, public-attitude, and playable settlement history 
   expect(currentSettlements.routeRows.every((row) => !row.createsState && !row.createsAlliance)).toBe(true);
   expect(JSON.stringify(currentSettlements)).not.toMatch(/populationLedger|protectedCapacity|currentPopulation|exactFactors|crisisFatalities|unresolvedDisplacedPopulation|admittedPopulation/);
   expect(await page.evaluate(() => window.helixHeresyDebug.strategicPlayableSettlementStateAudit())).toMatchObject({ valid: true, everyPopulationLedgerBalanced: true, currentComponentsFollowUsableRoutes: true, connectivityCreatesNoPoliticalUnity: true, atLeastOneViableRunStartRegion: true, publicDirectoryHidesExactPopulationAndLosses: true });
+  await expect(page.locator('#strategicWorldPreviewSummary')).toContainText('authoritative religious institutions');
+  await expect(page.locator('#strategicReligiousInstitutionChronology')).toContainText('Year');
+  await expect(page.locator('#religionCityStandingList')).toContainText('founded Year');
+  const religiousInstitutions = await page.evaluate(() => window.helixHeresyDebug.strategicPublicReligiousInstitutionHistory());
+  expect(religiousInstitutions.currentBranchRows.length).toBeGreaterThan(0);
+  expect(religiousInstitutions.currentBranchRows.every((branch) => !branch.sovereignAuthority)).toBe(true);
+  expect(religiousInstitutions.cityStandingRows.every((row) => row.standings.filter((entry) => entry.standing === 'established').length <= 1)).toBe(true);
+  expect(religiousInstitutions.holySiteCustodyRows.every((row) => !row.divineIdentityTransferred && !row.religionTransferred && !row.createsSovereignty)).toBe(true);
+  expect(JSON.stringify(religiousInstitutions)).not.toMatch(/integrityBand|concealedMisconduct|covertPersistence|exactFactors|sourceEventId|hiddenAttention|exposureRoll|sponsorPolityId/);
+  expect(await page.evaluate(() => window.helixHeresyDebug.strategicReligiousInstitutionHistoryAudit())).toMatchObject({ valid: true, oneAggregateBranchPerCityTradition: true, everyBranchFoundedAfterItsCity: true, activeGodCensureCreatesNoConfirmedSchism: true, successorsRemainUnconfirmed: true, publicHistoryHidesIntegrityMisconductAndCovertInfluence: true, divinePowerHistoryNotRecalculated: true });
 });
 
 test('@smoke Continue shows world and run metadata and Return to Title suspends time', async ({ page }) => {
