@@ -36,8 +36,9 @@
   const StrategicLegalHistory = window.HelixStrategicLegalHistory;
   const StrategicPublicAttitudeHistory = window.HelixStrategicPublicAttitudeHistory;
   const StrategicPlayableSettlementState = window.HelixStrategicPlayableSettlementState;
+  const StrategicReligiousInstitutionHistory = window.HelixStrategicReligiousInstitutionHistory;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -12216,6 +12217,7 @@
       "strategicGodList",
       "strategicDivineHistoryChronology",
       "strategicDivineSuccessionList",
+      "strategicReligiousInstitutionChronology",
       "religionCitySelect",
       "religionCityStandingList",
       "strategicHolySiteList",
@@ -12478,6 +12480,16 @@
           ? StrategicReligions.auditStrategicReligions(world.generatedData.strategicMap)
           : null;
       },
+      strategicReligiousInstitutionHistoryAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.strategicReligiousInstitutionHistory ? StrategicReligiousInstitutionHistory.auditStrategicReligiousInstitutionHistory(map) : null;
+      },
+      strategicPublicReligiousInstitutionHistory: (worldId = "") => {
+        const world = worldId ? worldRepository.getWorld(worldId) : null;
+        const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
+        return map?.publicReligiousInstitutionHistoryDirectory ? StrategicReligiousInstitutionHistory.publicReligiousInstitutionHistory(map) : null;
+      },
       strategicPreCivicFaithsAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldId ? worldRepository.getWorld(worldId) : null;
         const map = world?.generatedData?.strategicMap || currentStrategicPreviewMap || activeWorldRecord?.generatedData?.strategicMap;
@@ -12607,8 +12619,10 @@
       },
       strategicPublicReligionSnapshot: (cellIndex = 0, worldId = activeWorldRecord?.id || selectedWorldId) => {
         const world = worldRepository.getWorld(worldId);
-        return world?.generatedData?.strategicMap?.publicReligionDirectory
-          ? StrategicReligions.cellPublicReligionSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+        return world?.generatedData?.strategicMap?.publicReligiousInstitutionHistoryDirectory
+          ? StrategicReligiousInstitutionHistory.cellPublicReligiousInstitutionSnapshot(world.generatedData.strategicMap, Number(cellIndex))
+          : world?.generatedData?.strategicMap?.publicReligionDirectory
+            ? StrategicReligions.cellPublicReligionSnapshot(world.generatedData.strategicMap, Number(cellIndex))
           : null;
       },
       strategicNonStateNetworksAudit: (worldId = activeWorldRecord?.id || selectedWorldId) => {
@@ -14496,9 +14510,11 @@
     const cityPublicAttitudes = cityLaw && currentStrategicPreviewMap?.publicAttitudeHistoryDirectory
       ? StrategicPublicAttitudeHistory.currentCityPublicAttitudes(currentStrategicPreviewMap, cityLaw.city.id)
       : null;
-    const religion = cell && currentStrategicPreviewMap?.publicReligionDirectory
-      ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
-      : null;
+    const religion = cell && currentStrategicPreviewMap?.publicReligiousInstitutionHistoryDirectory
+      ? StrategicReligiousInstitutionHistory.cellPublicReligiousInstitutionSnapshot(currentStrategicPreviewMap, cell.index)
+      : cell && currentStrategicPreviewMap?.publicReligionDirectory
+        ? StrategicReligions.cellPublicReligionSnapshot(currentStrategicPreviewMap, cell.index)
+        : null;
     const nonStateNetworks = cell && currentStrategicPreviewMap?.publicNonStateNetworkDirectory
       ? StrategicNonStateNetworks.cellPublicNetworkSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
@@ -14672,12 +14688,13 @@
     if (religion?.cityStanding) {
       const established = religion.cityStanding.standings.find((entry) => entry.standing === "established");
       const branches = religion.cityStanding.standings.filter((entry) => entry.branch);
-      dom.strategicCellReligiousPresence.textContent = `${established ? `${established.tradition.name} established` : "No established faith"} · ${branches.length} organized branch${branches.length === 1 ? "" : "es"} · every branch remains under city law`;
+      const displaced = religion.cityStanding.hostedDisplacedInstitutionIds?.length || 0;
+      dom.strategicCellReligiousPresence.textContent = `${established ? `${established.tradition.name} established` : "No established faith"} · ${branches.length} organized branch${branches.length === 1 ? "" : "es"}${displaced ? ` · hosts ${displaced} displaced institution${displaced === 1 ? "" : "s"}` : ""} · every branch remains under city law`;
     } else {
       dom.strategicCellReligiousPresence.textContent = currentStrategicPreviewMap?.publicReligionDirectory ? "No fortified-city religious standing applies at this cell" : "Unavailable in this saved world";
     }
     dom.strategicCellHolySites.textContent = religion?.holySites.length
-      ? religion.holySites.map((site) => `${site.name} · ${readableGeographyLabel(site.siteKind)} · ${readableGeographyLabel(site.accessClass)} · divinely confirmed`).join(" · ")
+      ? religion.holySites.map((site) => `${site.name} · ${readableGeographyLabel(site.siteKind || site.custodyStatus)} · ${readableGeographyLabel(site.accessClass)} · ${site.custodianInstitutionId ? "institutional custodian recorded" : "no current institutional custodian"} · divine identity not transferred`).join(" · ")
       : (currentStrategicPreviewMap?.publicReligionDirectory ? "No major confirmed holy site at this strategic cell" : "Unavailable in this saved world");
     if (nonStateNetworks?.cityProfile) {
       const branches = nonStateNetworks.cityProfile.standings.filter((entry) => entry.branch);
@@ -14948,6 +14965,7 @@
     dom.strategicGodList.textContent = "";
     dom.strategicDivineHistoryChronology.textContent = "";
     dom.strategicDivineSuccessionList.textContent = "";
+    dom.strategicReligiousInstitutionChronology.textContent = "";
     dom.religionCitySelect.textContent = "";
     dom.religionCityStandingList.textContent = "";
     dom.strategicHolySiteList.textContent = "";
@@ -14955,6 +14973,7 @@
     const faithDirectory = map?.publicPreCivicFaithDirectory ? StrategicFaiths.publicFaithDirectory(map) : null;
     const divinityDirectory = map?.publicDivinityDirectory ? StrategicDivinity.publicDivinityDirectory(map) : null;
     const divineHistory = map?.publicDivineHistoryDirectory ? StrategicDivineHistory.publicDivineHistory(map) : null;
+    const currentInstitutions = map?.publicReligiousInstitutionHistoryDirectory ? StrategicReligiousInstitutionHistory.publicReligiousInstitutionHistory(map) : null;
     dom.strategicReligionDirectory.hidden = !directory;
     if (!directory) return;
     const readable = (value) => String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
@@ -15048,8 +15067,28 @@
       item.textContent = `${readable(consequence.kind)} — created by ${god?.name || consequence.godId} in Year ${consequence.createdYear} at ${consequence.cellId} · maintained physical consequence at the playable year`;
       dom.strategicDivineSuccessionList.append(item);
     }
+    for (const event of currentInstitutions?.chronology || []) {
+      const item = document.createElement("article");
+      item.className = "strategic-divine-history-entry";
+      const heading = document.createElement("strong");
+      heading.textContent = `Year ${event.year} · ${readable(event.kind)}`;
+      const account = document.createElement("p");
+      account.textContent = event.account;
+      const evidence = document.createElement("p");
+      evidence.className = "journal-meta";
+      evidence.textContent = `${event.cityId || event.siteId || event.cellId} · ${readable(event.causeCategory)} · evidence: ${event.evidence.map(readable).join(", ") || "public condition only"} · hidden integrity and exact causality withheld`;
+      item.append(heading, account, evidence);
+      dom.strategicReligiousInstitutionChronology.append(item);
+    }
+    if (currentInstitutions && !currentInstitutions.chronology.length) {
+      const quiet = document.createElement("p");
+      quiet.className = "journal-meta";
+      quiet.textContent = "No consequential institutional change has enough public evidence for this chronology; founding baselines and current conditions remain recorded.";
+      dom.strategicReligiousInstitutionChronology.append(quiet);
+    }
     const cityById = new Map(map.humanGeography.cities.map((city) => [city.id, city]));
-    for (const cityId of directory.cityOrder) {
+    const currentCityIds = currentInstitutions ? currentInstitutions.cityStandingRows.map((row) => row.cityId) : directory.cityOrder;
+    for (const cityId of currentCityIds) {
       const option = document.createElement("option");
       option.value = cityId;
       option.textContent = cityById.get(cityId)?.name || cityId;
@@ -15057,11 +15096,25 @@
     }
     const renderCityStandings = () => {
       dom.religionCityStandingList.textContent = "";
-      const cityStanding = StrategicReligions.cityReligiousStanding(map, dom.religionCitySelect.value);
+      const cityStanding = currentInstitutions
+        ? StrategicReligiousInstitutionHistory.cityCurrentReligiousInstitutions(map, dom.religionCitySelect.value)
+        : StrategicReligions.cityReligiousStanding(map, dom.religionCitySelect.value);
       for (const entry of cityStanding?.standings || []) {
         const item = document.createElement("p");
         item.className = "religion-city-standing-entry";
-        item.textContent = `${entry.tradition.name} — ${readable(entry.standing)}${entry.branch ? ` · ${entry.branch.publicName} · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.adherentBand)} adherents · ${readable(entry.branch.capacityBand)} capacity` : " · no organized public branch"}`;
+        const branchSummary = entry.branch
+          ? currentInstitutions
+            ? ` · ${entry.branch.publicName} · founded Year ${entry.branch.foundingYear} · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.adherentBand)} adherents · ${readable(entry.branch.capacityBand)} capacity · ${readable(entry.branch.physicalCondition)} · ${readable(entry.branch.operationalStatus)} · ${readable(entry.branch.divineRelationship)}`
+            : ` · ${entry.branch.publicName} · ${readable(entry.branch.organizationForm)} · ${readable(entry.branch.adherentBand)} adherents · ${readable(entry.branch.capacityBand)} capacity`
+          : " · no organized public branch";
+        item.textContent = `${entry.tradition.name} — ${readable(entry.standing)}${branchSummary}`;
+        dom.religionCityStandingList.append(item);
+      }
+      for (const branchId of cityStanding?.hostedDisplacedInstitutionIds || []) {
+        const branch = currentInstitutions.currentBranchRows.find((entry) => entry.id === branchId);
+        const item = document.createElement("p");
+        item.className = "religion-city-standing-entry journal-meta";
+        item.textContent = `${branch?.publicName || branchId} — displaced guest institution · no host-city sovereignty or automatic local standing`;
         dom.religionCityStandingList.append(item);
       }
     };
@@ -15069,9 +15122,10 @@
     renderCityStandings();
     for (const site of directory.holySites) {
       const god = directory.gods.find((entry) => entry.id === site.godId);
+      const custody = currentInstitutions?.holySiteCustodyRows.find((entry) => entry.siteId === site.id);
       const item = document.createElement("p");
       item.className = "strategic-holy-site-entry";
-      item.textContent = `${site.name} — ${god?.name || site.godId} · ${site.cellId} · ${readable(site.siteKind)} · ${readable(site.significance)} significance · ${readable(site.accessClass)} · active and divinely confirmed · pre-civic physical or arcane origin · routine communication needs no holy site`;
+      item.textContent = `${site.name} — ${god?.name || site.godId} · ${site.cellId} · ${readable(site.siteKind)} · ${readable(site.significance)} significance · ${readable(custody?.accessClass || site.accessClass)} · ${custody ? `${readable(custody.custodyStatus)} custody${custody.custodian ? ` by ${custody.custodian.publicName}` : " with no institutional custodian"}` : "playable-year custody unavailable"} · divine identity, religion, and sovereignty never transfer with physical custody`;
       dom.strategicHolySiteList.append(item);
     }
   }
@@ -15526,7 +15580,10 @@
     const playableSettlementSummary = map.publicPlayableSettlementDirectory
       ? ` · ${map.strategicPlayableSettlementState.diagnostics.viableCityCount} inhabited fortified cores · ${map.strategicPlayableSettlementState.diagnostics.supportComponentCount} authoritative current support components · ${map.strategicPlayableSettlementState.diagnostics.closedRouteCount} closed corridors · aggregate population and causal recovery resolved`
       : (map.publicAttitudeHistoryDirectory ? " · Playable-year settlement and route state unavailable in this saved world" : "");
-    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}`;
+    const religiousInstitutionSummary = map.publicReligiousInstitutionHistoryDirectory
+      ? ` · ${map.strategicReligiousInstitutionHistory.diagnostics.branchCount} authoritative religious institutions · ${map.strategicReligiousInstitutionHistory.diagnostics.retainedEventCount} retained institutional events · ${map.strategicReligiousInstitutionHistory.diagnostics.successorInstitutionCount} unconfirmed successor institutions · playable-year standing and holy-site custody resolved`
+      : (map.publicPlayableSettlementDirectory ? " · Religious institution history unavailable in this saved world" : "");
+    dom.strategicWorldPreviewSummary.textContent = `${topology.cellCount.toLocaleString()} cells · ${topology.hexagonCount.toLocaleString()} hexagons · ${topology.pentagonCount} pentagons · ${topology.planetRadiusKm.toLocaleString()} km radius · ${landPercent}% land${reliefSummary}${environmentSummary}${geologySummary}${arcaneSummary}${resourceSummary}${preUrbanSummary}${originsSummary}${expansionSummary}${capabilitySummary}${humanGeographySummary}${cityPolitySummary}${beastEcologySummary}${cityGovernmentSummary}${cityLawSummary}${recognitionSummary}${religionSummary}${nonStateNetworkSummary}${settlementSummary}${divineHistorySummary}${crisisHistorySummary}${politicalHistorySummary}${civicHistorySummary}${legalHistorySummary}${publicAttitudeSummary}${playableSettlementSummary}${religiousInstitutionSummary}`;
     strategicGlobeRenderer.setMap(map);
     dom.strategicGlobeLayerSelect.value = "surface";
     const availableLayers = StrategicGlobeRenderer.availableLayers(map);
