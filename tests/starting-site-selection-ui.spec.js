@@ -44,6 +44,7 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
   await expect(page.locator('[data-site-context-row="knowledge"]')).toContainText('Exact deposits');
   await expect(page.locator('[data-site-conditions-row="weather"]')).toBeVisible();
   await expect(page.locator('[data-site-conditions-row="drainage"]')).toContainText('aquifer quality');
+  await expect(page.locator('[data-site-conditions-row="monitoring"]')).toContainText('No external environmental observation');
 
   const actualContext = await page.evaluate(() => window.helixHeresyDebug.localSiteContextSnapshot());
   expect(actualContext.runSite).toMatchObject({
@@ -75,4 +76,24 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
   expect(surfaceResult.known.weather.digest).toBeTruthy();
   expect(surfaceResult.known.aquiferStatement).toContain('unknown');
   expect(surfaceResult.conservation).toEqual([]);
+
+  const monitoringResult = await page.evaluate(() => {
+    const release = window.helixHeresyDebug.registerEnvironmentalReleaseForTest({
+      label: 'Soluble test catalyst', substanceId: 'solubleTestCatalyst', amount: 8,
+      phase: 'liquid', tags: ['chemical', 'hazardous', 'soluble']
+    });
+    return { release, monitoring: window.helixHeresyDebug.environmentalMonitoringSnapshot() };
+  });
+  expect(monitoringResult.release.id).toBeTruthy();
+  expect(monitoringResult.monitoring.state.milestones).toContainEqual(expect.objectContaining({
+    exposureRecordId: monitoringResult.release.id, mediumId: 'surface', knowledge: 'hidden'
+  }));
+  expect(monitoringResult.monitoring.evidence).toContainEqual(expect.objectContaining({
+    origin: expect.objectContaining({ kind: 'environmentalFate', id: monitoringResult.release.id })
+  }));
+  expect(monitoringResult.monitoring.external).toContainEqual(expect.objectContaining({
+    opportunityKey: expect.stringMatching(/^environmental:/), knowledge: 'hidden'
+  }));
+  expect(monitoringResult.monitoring.known.disclosed).toEqual([]);
+  await expect(page.locator('[data-site-conditions-row="monitoring"]')).toContainText('No external environmental observation');
 });

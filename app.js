@@ -42,8 +42,9 @@
   const StrategicStartingSites = window.HelixStrategicStartingSites;
   const LocalSiteContext = window.HelixLocalSiteContext;
   const SurfaceExposure = window.HelixSurfaceExposure;
+  const EnvironmentalMonitoring = window.HelixEnvironmentalMonitoring;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !EnvironmentalMonitoring || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -1932,7 +1933,7 @@
       material: "brass and glass field sensors",
       materialComposition: { primary: "steel", lining: "glass" },
       equipment: { slots: ["beltLeft"], coverage: [], protection: {} },
-      notes: ["temperature, humidity, light, and electrical sensors", "requires calibration for narrow readings"]
+      notes: ["temperature, humidity, light, and electrical sensors", "surface, runoff, and shallow-soil sampling", "requires calibration for narrow readings"]
     },
     thaumometer: {
       max: 70,
@@ -3791,7 +3792,7 @@
       label: "Environmental Survey Kit",
       category: "tools",
       initial: 1,
-      description: "A worn portable sensor kit for local temperature, humidity, light, and electrical readings. Calibration controls precision."
+      description: "A worn portable sensor and collection kit for local field readings plus sealed surface, runoff, and shallow-soil samples. Calibration controls precision."
     },
     {
       key: "thaumometer",
@@ -5119,6 +5120,7 @@
       startingSite: null,
       localSiteContext: null,
       surfaceExposure: null,
+      environmentalMonitoring: EnvironmentalMonitoring.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -5448,6 +5450,7 @@
     if (!next || !context) return next;
     next.localSiteContext = LocalSiteContext.validateLocalSiteContext(context);
     next.surfaceExposure = SurfaceExposure.createState(next.localSiteContext, next.seed, next.clock);
+    next.environmentalMonitoring = EnvironmentalMonitoring.defaultState(next.localSiteContext);
     const surface = LocalSiteContext.surfaceAmbient(context, 0);
     const underground = LocalSiteContext.undergroundAmbient(context);
     const undergroundOffsets = {
@@ -6962,6 +6965,10 @@
       const authorityCase = state.investigations.cases.find((entry) => entry.id === caseId);
       if (authorityCase) addEvent(`${externalInstitutionLabel(authorityCase.institutionId)} disclosed case ${authorityCase.docket}: ${authorityCase.publicConcern}.`);
     }
+    const disclosedReportIds = new Set(InvestigationCases.visibleCases(state.investigations).flatMap((entry) => entry.reportIds));
+    for (const milestone of ensureEnvironmentalMonitoring().milestones.filter((entry) => entry.reportId && disclosedReportIds.has(entry.reportId) && entry.knowledge === "hidden")) {
+      state.environmentalMonitoring = EnvironmentalMonitoring.updateMilestone(state.environmentalMonitoring, milestone.id, { knowledge: "inferred" }, state.localSiteContext).state;
+    }
     return result.openedCaseIds.length + result.disclosedCaseIds.length + result.changedCaseIds.length
       + updateInstitutionalResponses();
   }
@@ -7416,6 +7423,14 @@
     }
     changes += processed.createdReports.length + processed.createdCorrelations.length;
     changes += refreshSuspicionFromExternalDetection() ? 1 : 0;
+    if (state.environmentalMonitoring) {
+      state.environmentalMonitoring = EnvironmentalMonitoring.syncExternal(
+        state.environmentalMonitoring,
+        ensureExternalDetection().exposures,
+        ensureExternalDetection().reports,
+        state.localSiteContext
+      );
+    }
     return changes;
   }
 
@@ -13652,6 +13667,32 @@
         spills: exposedSurfaceSpills(),
         conservation: state.surfaceExposure.records.map((record) => ({ id: record.id, ...SurfaceExposure.recordConservation(record) }))
       } : null,
+      environmentalMonitoringSnapshot: () => ({
+        state: EnvironmentalMonitoring.clone(ensureEnvironmentalMonitoring()),
+        known: EnvironmentalMonitoring.knownProjection(ensureEnvironmentalMonitoring(), state.localSiteContext),
+        evidence: ensureInvestigativeEvidence().records.filter((entry) => entry.origin.kind === "environmentalFate" || entry.origin.kind === "surfaceExposure"),
+        external: ensureExternalDetection().exposures.filter((entry) => entry.opportunityKey.startsWith("environmental:"))
+      }),
+      registerEnvironmentalReleaseForTest: (options = {}) => {
+        const cell = cleanMapCell(options.cell) || exposedSurfaceSpills()[0]?.cell || ensureLabMap().terrain?.surfaceGround?.[0]?.cell;
+        if (!cell) return null;
+        const result = SurfaceExposure.registerRelease(ensureSurfaceExposure(), state.localSiteContext, {
+          seed: state.seed, clock: state.clock,
+          coalesceKey: options.coalesceKey || `debug-environmental:${state.clock}:${options.substanceId || "testTrace"}`,
+          source: { kind: "debugRelease", id: "debug-environmental-release", label: options.sourceLabel || "Debug environmental release" },
+          label: options.label || "Test environmental trace", substanceId: options.substanceId || "testTrace",
+          amount: Math.max(0, Number(options.amount) || 8), medium: options.medium || "surface", phase: options.phase || "liquid",
+          tags: options.tags || ["chemical", "hazardous", "soluble"], cell,
+          roomId: labMapCellRoomId(cell) || nearestDesignatedRoomIdForCell(cell), terrainId: surfaceExposureTerrainAtCell(cell),
+          exposureKind: surfaceEnvelopeAtCell(cell).kind, openSky: surfaceEnvelopeAtCell(cell).openSky !== false,
+          knowledge: { surfaceKnown: options.surfaceKnown !== false }
+        });
+        state.surfaceExposure = result.state;
+        updateEnvironmentalMonitoring();
+        persist(); render();
+        return result.record ? clonePlainObject(result.record) : null;
+      },
+      updateEnvironmentalMonitoring: () => { const changed = updateEnvironmentalMonitoring(); persist(); render(); return changed; },
       surfaceDaylightAtClock: (clock) => surfaceDaylightIntensity(clock),
       setMapLayer: (z) => {
         const current = mapViewportForUi().z;
@@ -14376,6 +14417,7 @@
       abandonExperiment: (experimentId) => abandonExperiment(experimentId),
       startFieldDiagnostic: (instrumentId, kind, id = "", cell = null) => startFieldDiagnostic(instrumentId, kind, id, cell),
       startSampleCollection: (methodId, kind, id = "", cell = null) => startSampleCollection(methodId, kind, id, cell),
+      startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
       startDiagnosticSampleAssay: (stackId) => startDiagnosticSampleAssay(stackId),
       startDiagnosticCalibration: (itemKey) => startDiagnosticCalibration(itemKey),
       setInstrumentCalibration: (itemKey, calibration) => {
@@ -19300,6 +19342,107 @@
     return state.surfaceExposure;
   }
 
+  function ensureEnvironmentalMonitoring() {
+    state.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(state.environmentalMonitoring, state.localSiteContext);
+    return state.environmentalMonitoring;
+  }
+
+  function environmentalMilestoneKnowledge(record, milestone) {
+    if (!record || !milestone) return "unknown";
+    if (milestone.mediumId === "surface" && record.knowledge?.surfaceKnown) return "known";
+    if (milestone.mediumId === "odor" && record.knowledge?.odorKnown) return "known";
+    if (milestone.mediumId === "drainage" && record.knowledge?.runoffKnown) return "known";
+    return "unknown";
+  }
+
+  function environmentalMilestoneEvidence(milestone) {
+    const record = ensureSurfaceExposure()?.records.find((entry) => entry.id === milestone?.exposureRecordId);
+    if (!record || !milestone) return null;
+    const existing = milestone.evidenceId
+      ? ensureInvestigativeEvidence().records.find((entry) => entry.id === milestone.evidenceId)
+      : ensureInvestigativeEvidence().records.find((entry) => entry.coalesceKey === `environmental-milestone:${milestone.id}`);
+    if (existing) return existing;
+    const definition = EnvironmentalMonitoring.MEDIA[milestone.mediumId];
+    const offsite = milestone.mediumId === "offsite";
+    const transient = ["odor", "airborne"].includes(milestone.mediumId);
+    const significance = milestone.hazardous && milestone.bandRank >= 3 ? "serious"
+      : milestone.hazardous || milestone.bandRank >= 2 ? "material" : "minor";
+    return recordInvestigativeEvidence(`environmental${titleCase(milestone.mediumId)}Trace`, {
+      category: "chemical",
+      label: `${titleCase(milestone.band)} ${definition?.label || "environmental trace"}`,
+      significance,
+      subject: { kind: "surfaceExposure", id: record.id },
+      origin: { kind: "environmentalFate", id: record.id, label: "A physical release reached a potentially observable environmental medium." },
+      locus: offsite
+        ? { kind: "environmentalReceptor", label: milestone.receiverLabel || "Unresolved off-site receptor" }
+        : { kind: "mapCell", roomId: record.roomId, cell: record.cell, label: milestone.receiverLabel || "Facility exterior" },
+      refs: { fixtureIds: record.source?.kind === "utilityDischarge" ? [record.source.id] : [] },
+      traits: [milestone.mediumId, milestone.method, milestone.hazardous ? "hazard-associated" : "process-associated", milestone.band],
+      magnitude: { band: milestone.band === "large" ? "large" : milestone.band === "moderate" ? "moderate" : "small", amount: milestone.bandRank, unit: "qualitative band" },
+      discoverability: {
+        level: milestone.mediumId === "surface" && milestone.bandRank >= 3 ? "obvious" : milestone.bandRank >= 2 ? "ordinary" : "subtle",
+        methods: [...new Set([milestone.method, milestone.mediumId === "surface" ? "visual" : "sampling", "inspection"])]
+      },
+      persistence: transient ? { kind: "transient", decaySeconds: SECONDS_PER_DAY * 2 } : { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 },
+      knowledge: {
+        state: environmentalMilestoneKnowledge(record, milestone),
+        source: environmentalMilestoneKnowledge(record, milestone) === "known" ? "observed" : "unobserved",
+        sourceIdentityKnown: false
+      },
+      lifecycle: offsite ? "externalized" : "present",
+      coalesceKey: `environmental-milestone:${milestone.id}`,
+      details: `${milestone.band} ${definition?.label || "environmental trace"} reached ${milestone.receiverLabel || "a receptor"}; the record contains no unsampled exact destination or amount.`
+    });
+  }
+
+  function environmentalMilestoneSummary(milestone) {
+    const label = EnvironmentalMonitoring.MEDIA[milestone.mediumId]?.label || "environmental trace";
+    const receiver = milestone.receiverLabel ? ` at ${milestone.receiverLabel}` : " near the facility";
+    return `${milestone.band} ${label}${receiver}`;
+  }
+
+  function updateEnvironmentalMonitoring() {
+    const exposure = ensureSurfaceExposure();
+    if (!exposure) return 0;
+    const scan = EnvironmentalMonitoring.scan(ensureEnvironmentalMonitoring(), exposure, state.localSiteContext, state.clock);
+    state.environmentalMonitoring = scan.state;
+    let changes = 0;
+    for (const milestone of scan.created) {
+      const evidence = environmentalMilestoneEvidence(milestone);
+      if (!evidence) continue;
+      const publicActivityFactor = milestone.sourceId === "nearby-observer" && !externalDetectionPublicTrafficEnabled() ? 0.65 : 1;
+      const external = registerExternalDetectionOpportunity(evidence, {
+        opportunityKey: `environmental:${milestone.key}`,
+        sourceId: milestone.sourceId,
+        institutionId: "environmental-health",
+        channel: milestone.channel,
+        opportunityAt: milestone.createdAt,
+        detectionChance: milestone.detectionChance * publicActivityFactor,
+        reportChance: milestone.reportChance,
+        reportDelaySeconds: milestone.reportDelaySeconds,
+        reliability: milestone.reliability,
+        specificity: milestone.specificity,
+        knowledge: "hidden",
+        summary: environmentalMilestoneSummary(milestone)
+      });
+      const updated = EnvironmentalMonitoring.updateMilestone(state.environmentalMonitoring, milestone.id, {
+        evidenceId: evidence.id,
+        externalExposureId: external?.id || "",
+        outcome: external?.observed ? "observed" : "missed",
+        knowledge: external?.knowledge || "hidden"
+      }, state.localSiteContext);
+      state.environmentalMonitoring = updated.state;
+      changes += 1;
+    }
+    state.environmentalMonitoring = EnvironmentalMonitoring.syncExternal(
+      state.environmentalMonitoring,
+      ensureExternalDetection().exposures,
+      ensureExternalDetection().reports,
+      state.localSiteContext
+    );
+    return changes;
+  }
+
   function surfaceExposureTerrainAtCell(cell, map = ensureLabMap()) {
     const floor = constructedFloorAtCell(cell, map);
     if (floor?.purpose === "roof") return "roof";
@@ -19379,6 +19522,7 @@
       physicalStateChanged: 0,
       suspicionChanged: 0,
       evidenceChanged: 0,
+      environmentalMonitoringChanged: 0,
       investigationChanged: 0,
       siteVisitChanged: 0,
       raidChanged: 0,
@@ -19541,6 +19685,7 @@
       changes.structuralChanged += updateStructuralFailures();
       changes.jobExpired += expireSlimes();
       changes.evidenceChanged += updateInvestigativeEvidence();
+      changes.environmentalMonitoringChanged += updateEnvironmentalMonitoring();
       changes.suspicionChanged += updateExternalDetection();
       changes.investigationChanged += updateInvestigationCases();
       changes.suspicionChanged += refreshSuspicionFromExternalDetection();
@@ -19583,6 +19728,7 @@
       + changes.infrastructureChanged
       + changes.envChanges
       + changes.surfaceExposureChanged
+      + changes.environmentalMonitoringChanged
       + changes.structuralChanged
       + changes.sensoryChanged
       + changes.habitatChanged
@@ -25534,34 +25680,11 @@
       }
     }
     fixture.utility.dischargedLoad += total;
-    let changes = 1;
-    const checks = Math.floor(fixture.utility.dischargedLoad / UTILITY_EXPOSURE_LOAD_STEP);
-    while (fixture.utility.exposureChecks < checks) {
-      fixture.utility.exposureChecks += 1;
-      const hazardous = Object.keys(loads).some((id) => /hazard|toxic|acid|poison|corpse|waste|sludge|contamin/.test(id));
-      const evidence = recordInvestigativeEvidence(kind === "drain" ? "exteriorDrainageTrace" : "exteriorExhaustTrace", {
-        category: "chemical", label: `${kind === "drain" ? "Exterior drainage" : "Exterior exhaust"} trace`, significance: hazardous ? "material" : "minor",
-        subject: { kind: "externalTrace", id: `${fixture.id}:${kind}` }, origin: { kind: "utilityDischarge", id: fixture.id, label: Object.keys(loads).join(", ") },
-        locus: { kind: "fixture", roomId: labMapCellRoomId(fixture.origin), cell: fixture.origin, fixtureId: fixture.id, label: fixture.name },
-        refs: { fixtureIds: [fixture.id] }, traits: [kind, ...Object.keys(loads), hazardous ? "hazardous" : "process emission"],
-        magnitude: { band: total >= UTILITY_EXPOSURE_LOAD_STEP * 4 ? "large" : "moderate", amount: total, unit: "load" },
-        discoverability: { level: "subtle", methods: ["sampling", "inspection"] },
-        persistence: { kind: "transient", decaySeconds: kind === "drain" ? SECONDS_PER_DAY * 7 : SECONDS_PER_DAY * 2 },
-        knowledge: { state: "known", source: "operated", sourceIdentityKnown: true }, lifecycle: "externalized",
-        coalesceKey: `utility-discharge:${fixture.id}:${kind}`
-      });
-      const chance = hazardous ? 0.35 : 0.08;
-      const exposure = registerExternalDetectionOpportunity(evidence, {
-        opportunityKey: `utility-discharge:${fixture.id}:${kind}:${fixture.utility.exposureChecks}`,
-        sourceId: "environmental-monitor", channel: kind === "drain" ? "drainage" : "exhaust",
-        detectionChance: chance, reportChance: hazardous ? 0.9 : 0.65,
-        reportDelaySeconds: hazardous ? SECONDS_PER_HOUR * 2 : SECONDS_PER_HOUR * 8,
-        reliability: hazardous ? "strong" : "credible", specificity: "siteLinked", knowledge: "inferred",
-        summary: `${kind === "drain" ? "an exterior drainage" : "an exterior exhaust"} anomaly near the facility`
-      });
-      if (exposure?.observed) changes += 1;
-    }
-    return changes;
+    fixture.utility.exposureChecks = Math.max(
+      Number(fixture.utility.exposureChecks) || 0,
+      Math.floor(fixture.utility.dischargedLoad / UTILITY_EXPOSURE_LOAD_STEP)
+    );
+    return 1;
   }
 
   function updateVentilationNetworks(elapsedHours, context) {
@@ -59133,6 +59256,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const projection = SurfaceExposure.knownProjection(state.surfaceExposure, state.clock);
     const weather = projection.weather;
     const nextWeather = projection.forecast?.find((entry) => entry.dayIndex > weather?.dayIndex);
+    const monitoring = EnvironmentalMonitoring.knownProjection(ensureEnvironmentalMonitoring(), state.localSiteContext);
     const section = storesSectionEl("Site Conditions", "Ordinary saved weather moves exposed material through visible surface, air, drainage, off-site, transformed, and potentially hidden subsurface media. The list reports only inherited or observed knowledge.", { economyCategory: "surfaceConditions" });
     section.append(storesRowEl(weather?.label || "Weather unavailable", weather ? `${formatDecimal(weather.temperatureOffsetC, 1)}°C weather offset · ${formatNumber(weather.windStrengthPercent)}% wind` : "No generated record", {
       subtitle: weather ? `${formatDecimal(weather.precipitationMm, 1)} mm precipitation · wind toward ${weather.windBearingDeg}° · ${nextWeather ? `next: ${nextWeather.label} (${nextWeather.forecastConfidence} forecast)` : "no next-day forecast"}` : "The site context has not produced weather.",
@@ -59146,6 +59270,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       subtitle: projection.records.length ? "Visible bands are qualitative. Off-site and subsurface amounts remain undisclosed unless separately learned." : "No persistent outdoor contamination is currently known.",
       dataset: { siteConditionsRow: "summary", surfaceConditionBand: projection.conditionBand }
     }));
+    section.append(storesRowEl("External monitoring", monitoring.summary, {
+      subtitle: monitoring.disclosed.length
+        ? "Only disclosed reports or signals the scientist can reasonably infer appear here. Samples, missed opportunities, and undisclosed monitoring remain hidden."
+        : "No conclusion can be drawn about unseen observers, missed opportunities, undisclosed reports, or institutional knowledge.",
+      dataset: { siteConditionsRow: "monitoring", disclosedEnvironmentalSignals: monitoring.disclosed.length }
+    }));
+    for (const signal of monitoring.disclosed) {
+      section.append(storesRowEl(`${titleCase(signal.mediumId)} signal`, titleCase(signal.outcome), {
+        subtitle: `${signal.sourceLabel}${signal.receiverLabel ? ` · ${signal.receiverLabel}` : ""} · ${titleCase(signal.band)} observed band`,
+        dataset: { environmentalSignal: signal.id, environmentalSignalKnowledge: signal.knowledge }
+      }));
+    }
     for (const record of projection.records) {
       const reason = surfaceRemediationStartBlockReason(record.id);
       const remediate = storesActionButton("Remediate", reason || record.remediation.label, () => {
@@ -59153,10 +59289,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       });
       remediate.disabled = Boolean(reason);
       if (reason) remediate.title = reason;
+      const sampleActions = [["surfaceSwab", "Swab"], ["runoffSample", "Runoff"], ["soilCore", "Soil Core"]].map(([methodId, label]) => {
+        const sampleReason = environmentalSampleBlockReason(methodId, record.id);
+        const button = storesActionButton(label, sampleReason || EnvironmentalMonitoring.SAMPLE_METHODS[methodId].label, () => {
+          if (startEnvironmentalSample(methodId, record.id)) { persist(); render(); }
+        });
+        button.disabled = Boolean(sampleReason);
+        if (sampleReason) button.title = sampleReason;
+        return button;
+      });
       section.append(storesRowEl(record.label, `${titleCase(record.visibleBand)} visible trace`, {
         subtitle: `${record.terrain} · odor ${titleCase(record.odorBand)} · ${record.runoffStatus} · ${record.subsurfaceStatus}`,
         dataset: { surfaceConditionRecord: record.id, surfaceConditionBand: record.visibleBand },
-        actions: [storesFocusCellButton(record.cell), remediate]
+        actions: [storesFocusCellButton(record.cell), ...sampleActions, remediate]
       }));
     }
     dom.economyCompanyList.append(section);
@@ -63687,6 +63832,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }));
   }
 
+  function surfaceSamplingContextCommands(cell) {
+    return knownSurfaceConditionsAtCell(cell).flatMap((record) => [
+      commandDef({
+        id: `surface.sample.swab.${record.id}`,
+        label: "Take Surface Residue Swab",
+        group: "Environmental Sampling",
+        disabledReason: environmentalSampleBlockReason("surfaceSwab", record.id),
+        description: "Collect a sealed physical swab from this exact tile. Bench analysis can identify only what this place-and-time sample contains.",
+        run: () => startEnvironmentalSample("surfaceSwab", record.id)
+      }),
+      commandDef({
+        id: `surface.sample.runoff.${record.id}`,
+        label: "Take Runoff Sample",
+        group: "Environmental Sampling",
+        disabledReason: environmentalSampleBlockReason("runoffSample", record.id),
+        description: "Collect at the known local drainage path. A negative result does not prove that no material previously moved off-site.",
+        run: () => startEnvironmentalSample("runoffSample", record.id)
+      }),
+      commandDef({
+        id: `surface.sample.soil.${record.id}`,
+        label: "Take Shallow Soil Core",
+        group: "Environmental Sampling",
+        disabledReason: environmentalSampleBlockReason("soilCore", record.id),
+        description: "Collect one shallow core at this tile. It cannot reveal the whole subsurface plume or aquifer condition.",
+        run: () => startEnvironmentalSample("soilCore", record.id)
+      })
+    ]);
+  }
+
   function tileContextCommands(selection) {
     const roomId = selection?.roomId || labMapCellRoomId(selection?.tile);
     if (!roomId) {
@@ -63717,6 +63891,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           }),
           ...baitPlacementContextCommands(cell),
           ...fieldDiagnosticContextCommands("tile", "", cell, { sampleMethods: ["airVial"] }),
+          ...surfaceSamplingContextCommands(cell),
           ...surfaceRemediationContextCommands(cell),
           ...tileLaborContextCommands(cell),
           ...roomDesignationContextCommands(cell),
@@ -63756,6 +63931,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }),
       ...baitPlacementContextCommands(selection.tile),
       ...fieldDiagnosticContextCommands("tile", "", selection.tile, { sampleMethods: ["airVial"] }),
+      ...surfaceSamplingContextCommands(selection.tile),
       ...surfaceRemediationContextCommands(selection.tile),
       ...tileLaborContextCommands(selection.tile),
       openWorkspaceCommand({
@@ -73946,6 +74122,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
       if (!stack || stack.reservedTaskId !== task.id) return "A reserved sample or assay reagent is no longer available.";
     }
+    if (task.data?.workflowId === "collectEnvironmentalSample") {
+      const record = surfaceExposureRecord(task.data?.exposureRecordId);
+      if (!record || !record.knowledge?.surfaceKnown) return "The environmental sampling target is no longer known or available.";
+    }
     if (task.data?.workflowId === "collectSample" || ["fieldSurvey", "thaumicSurvey"].includes(task.data?.workflowId)) {
       if (!diagnosticTargetInfo(task.data.targetKind, task.data.targetId, task.data.targetCell)) return "The diagnostic target is no longer available.";
     }
@@ -74061,6 +74241,43 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       staminaCost: cost,
       skillId: "medicine",
       data: { methodId }
+    }));
+  }
+
+  function environmentalSampleBlockReason(methodId, recordId) {
+    const base = diagnosticBaseBlockReason();
+    if (base) return base;
+    const method = EnvironmentalMonitoring.SAMPLE_METHODS[methodId];
+    const record = surfaceExposureRecord(recordId);
+    if (!method || !Diagnostics.SAMPLE_METHOD_BY_ID[methodId]) return "That environmental sampling method is unavailable.";
+    if (!record || !record.knowledge?.surfaceKnown) return "The environmental condition is not presently known at this tile.";
+    const toolPlan = diagnosticToolPlan("environmentalSurveyKit", scientistMapCell());
+    if (!toolPlan.ok) return toolPlan.reason;
+    const target = diagnosticTargetInfo("tile", "", record.cell);
+    if (!target || !diagnosticAccessPlan(toolPlan.endpoint, target)) return "No physical route reaches the sampling point.";
+    return staminaBlockReason(adjustedStaminaCost(methodId === "soilCore" ? 4 : 2, ["analysis", "alchemy"]));
+  }
+
+  function startEnvironmentalSample(methodId, recordId) {
+    const reason = environmentalSampleBlockReason(methodId, recordId);
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const record = surfaceExposureRecord(recordId);
+    const method = Diagnostics.SAMPLE_METHOD_BY_ID[methodId];
+    const target = diagnosticTargetInfo("tile", "", record.cell);
+    const toolPlan = diagnosticToolPlan("environmentalSurveyKit", scientistMapCell());
+    const access = diagnosticAccessPlan(toolPlan.endpoint, target);
+    const cost = adjustedStaminaCost(methodId === "soilCore" ? 4 : 2, ["analysis", "alchemy"]);
+    if (!spendStamina(cost)) return false;
+    return Boolean(queueInstrumentDiagnostic({
+      workflowId: "collectEnvironmentalSample",
+      label: `${method.label}: ${record.label}`,
+      instrumentId: "environmentalSurveyKit",
+      target: { ...target, id: record.id, label: `${record.label} at ${record.cell.x},${record.cell.y}` },
+      path: appendMapPath(toolPlan.path, access.path),
+      workSeconds: method.collectionSeconds,
+      staminaCost: cost,
+      skillId: "analysis",
+      data: { methodId, exposureRecordId: record.id }
     }));
   }
 
@@ -74399,12 +74616,55 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       addEvent(`${method.label} collected from ${target.label}. The sealed physical sample is now in the scientist's inventory.`);
       awardActionXp("medicine", 8, emptyRevealSummary(), method.label);
+    } else if (workflowId === "collectEnvironmentalSample") {
+      const record = surfaceExposureRecord(task.data.exposureRecordId);
+      const captured = EnvironmentalMonitoring.captureSample(record, task.data.methodId, state.clock);
+      if (!record || !captured) {
+        releaseConstructionTaskTools(task, { retain: false });
+        return false;
+      }
+      const diagnostics = ensureDiagnosticState();
+      const stack = createPhysicalItemStack("inventory", "diagnosticSample", 1, {
+        roomId: scientistRoomId(), cell: scientistMapCell()
+      }, {
+        carriedBy: "scientist",
+        dimensionsM: { width: 0.08, length: 0.08, height: 0.14 },
+        tags: ["environmental-sample", task.data.methodId, ...record.tags]
+      });
+      const sample = Diagnostics.normalizeSample({
+        id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`,
+        stackId: stack.id,
+        methodId: task.data.methodId,
+        targetKind: "surfaceExposure",
+        targetId: record.id,
+        targetLabel: `${record.label} ${EnvironmentalMonitoring.SAMPLE_METHODS[task.data.methodId].label.toLowerCase()}`,
+        cell: record.cell,
+        collectedAt: state.clock,
+        collectorInstrumentInstanceId: task.data.instrumentInstanceId,
+        captured: { environmentalExposure: captured }
+      }, diagnostics.samples.length);
+      diagnostics.samples.push(sample);
+      recordInvestigativeEvidence("environmentalFieldSample", {
+        category: "chemical", label: `Sealed ${EnvironmentalMonitoring.SAMPLE_METHODS[task.data.methodId].label.toLowerCase()}`,
+        significance: captured.hazardous ? "material" : "minor",
+        subject: { kind: "physicalStack", id: stack.id },
+        origin: { kind: "surfaceExposure", id: record.id, label: `Collected at ${record.cell.x},${record.cell.y}, Z ${record.cell.z}` },
+        locus: { kind: "actorInventory", roomId: scientistRoomId(), cell: scientistMapCell(), label: "Scientist inventory" },
+        refs: { stackIds: [stack.id] }, traits: ["environmental sample", task.data.methodId, captured.mediumId],
+        magnitude: { band: "small", amount: 1, unit: "sealed sample" },
+        discoverability: { level: "ordinary", methods: ["visual", "inspection", "sampling"] },
+        persistence: { kind: "subject" }, knowledge: { state: "known", source: "collected", sourceIdentityKnown: false },
+        coalesceKey: `environmental-sample:${sample.id}`
+      });
+      addEvent(`${EnvironmentalMonitoring.SAMPLE_METHODS[task.data.methodId].label} collected at ${record.cell.x},${record.cell.y}. It remains a sealed physical sample until bench analysis.`);
+      awardActionXp("analysis", 8, emptyRevealSummary(), "Environmental sample collection");
     } else {
       const sample = workflowId === "assaySample"
         ? ensureDiagnosticState().samples.find((entry) => entry.id === task.data.sampleId)
         : null;
       const confidence = instrumentDiagnosticConfidence(task, sample);
       let readings = [];
+      let environmentalAssay = null;
       if (workflowId === "fieldSurvey" || workflowId === "thaumicSurvey") {
         const target = diagnosticTargetInfo(task.data.targetKind, task.data.targetId, task.data.targetCell);
         const captured = diagnosticCapturedState(target);
@@ -74412,7 +74672,39 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         readings = keys.map((key) => instrumentDiagnosticReading(key, captured.attributes[key]?.current || 0, confidence.score));
       } else if (sample) {
         const captured = sample.captured || {};
-        if (sample.methodId === "airVial") {
+        if (captured.environmentalExposure) {
+          environmentalAssay = EnvironmentalMonitoring.assaySample(captured.environmentalExposure, confidence.score);
+          const method = EnvironmentalMonitoring.SAMPLE_METHODS[environmentalAssay.methodId];
+          readings.push({
+            key: "environmentalBurden",
+            label: `${titleCase(environmentalAssay.mediumId)} result`,
+            value: !environmentalAssay.detected ? "No material detected in this sample"
+              : environmentalAssay.burden === "presenceOnly" ? "Material detected; burden indeterminate"
+                : `${titleCase(environmentalAssay.burden)} sampled burden`,
+            band: Diagnostics.confidenceBand(confidence.score).label
+          });
+          readings.push({
+            key: "environmentalIdentity",
+            label: "Sample identity",
+            value: environmentalAssay.identity === "noneDetected" ? "No identity available"
+              : environmentalAssay.identity === "substance" ? airborneSubstanceLabel(environmentalAssay.substanceId)
+                : environmentalAssay.identity === "family" ? environmentalAssay.family
+                  : "Material family indeterminate",
+            band: environmentalAssay.hazardous ? "Hazard-associated" : "Process-associated"
+          });
+          const exposureRecord = surfaceExposureRecord(environmentalAssay.exposureRecordId);
+          if (exposureRecord) {
+            state.surfaceExposure = SurfaceExposure.recordSampleObservation(state.surfaceExposure, state.localSiteContext, exposureRecord.id, {
+              mediumId: environmentalAssay.mediumId,
+              methodId: method.id,
+              sampledAt: sample.collectedAt,
+              analyzedAt: state.clock,
+              detected: environmentalAssay.detected,
+              band: environmentalAssay.burden,
+              confidence: Diagnostics.confidenceBand(confidence.score).id
+            }, state.seed, state.clock);
+          }
+        } else if (sample.methodId === "airVial") {
           const environment = captured.environment || {};
           const attributes = captured.attributes || tileEnvironmentAttributes(environment);
           readings.push(instrumentDiagnosticReading("contamination", attributes.contamination?.current || airborneLoadTotal(environment.airborne), confidence.score));
@@ -74470,6 +74762,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         factors: confidence.factors,
         sampleCollectedAt: sample?.collectedAt ?? null
       });
+      if (environmentalAssay && sample) {
+        const sourceEvidence = ensureInvestigativeEvidence().records.find((entry) => entry.refs.stackIds.includes(sample.stackId) && entry.type === "environmentalFieldSample");
+        const exposureRecord = surfaceExposureRecord(environmentalAssay.exposureRecordId);
+        const successor = recordInvestigativeEvidence("environmentalSampleResult", {
+          category: "chemical", label: `Environmental assay: ${sample.targetLabel}`,
+          significance: environmentalAssay.hazardous && environmentalAssay.detected ? "material" : "minor",
+          subject: { kind: "diagnosticResult", id: result.id },
+          origin: { kind: "surfaceExposure", id: environmentalAssay.exposureRecordId, label: `Sample collected ${formatClock(sample.collectedAt)}` },
+          locus: { kind: "companyBooks", roomId: taskTargetRoomId(task), cell: task.data.targetCell, label: "Saved diagnostic results" },
+          refs: { predecessorEvidenceIds: sourceEvidence ? [sourceEvidence.id] : [] },
+          traits: ["environmental assay", environmentalAssay.methodId, environmentalAssay.mediumId, environmentalAssay.detected ? "detected" : "negative sample"],
+          magnitude: { band: environmentalAssay.detected ? (environmentalAssay.burden === "large" ? "large" : environmentalAssay.burden === "moderate" ? "moderate" : "small") : "trace", amount: environmentalAssay.detected ? 1 : 0, unit: "sample result" },
+          discoverability: { level: "ordinary", methods: ["recordReview", "inspection"] },
+          persistence: { kind: "permanent" }, knowledge: { state: "known", source: "assay", sourceIdentityKnown: environmentalAssay.identity === "substance" },
+          coalesceKey: `environmental-assay:${result.id}`,
+          details: `The result describes only the sample collected at ${sample.cell?.x},${sample.cell?.y}; it does not establish an exact plume, aquifer condition, or off-site destination.`
+        });
+        if (sourceEvidence) {
+          sourceEvidence.lifecycle = "transformed";
+          sourceEvidence.updatedAt = state.clock;
+          sourceEvidence.refs.successorEvidenceIds = [...new Set([...sourceEvidence.refs.successorEvidenceIds, successor?.id].filter(Boolean))];
+          sourceEvidence.provenance.push({ at: state.clock, action: "assayed", actorId: "scientist", from: sourceEvidence.locus, to: successor?.locus || {}, details: "The sealed sample was consumed by bench analysis; its saved result preserves provenance." });
+        }
+        if (exposureRecord) addEvent(`${EnvironmentalMonitoring.SAMPLE_METHODS[environmentalAssay.methodId].label} result saved for ${exposureRecord.label}; it describes one sampled place and time.`);
+      }
       awardActionXp(task.data.skillId || "analysis", task.data.baseXp || 12, emptyRevealSummary(), task.label, { outcome: diagnosticXpOutcome(confidence.score) });
       addEvent(`${task.label} complete. ${result.summary} Confidence: ${result.confidence}.`);
       ensureDiagnosticState().instruments[task.data.instrumentInstanceId] = Diagnostics.useInstrument(confidence.record, task.data.instrumentId, state.clock);
@@ -79812,6 +80129,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surfaceExposure = next.localSiteContext
       ? SurfaceExposure.normalizeState(candidate?.surfaceExposure, next.localSiteContext, next.seed, next.clock)
       : null;
+    next.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(candidate?.environmentalMonitoring, next.localSiteContext);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
