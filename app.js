@@ -41,8 +41,9 @@
   const StrategicEnforcementPracticeHistory = window.HelixStrategicEnforcementPracticeHistory;
   const StrategicStartingSites = window.HelixStrategicStartingSites;
   const LocalSiteContext = window.HelixLocalSiteContext;
+  const SurfaceExposure = window.HelixSurfaceExposure;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -960,9 +961,12 @@
   const SURFACE_OUTSIDE_HUMIDITY = 45;
   const SURFACE_OUTSIDE_MANA_DENSITY = 24;
   function surfaceOutsideAmbient(clock = state?.clock || 0) {
-    return state?.localSiteContext
+    const ambient = state?.localSiteContext
       ? LocalSiteContext.surfaceAmbient(state.localSiteContext, clock)
       : { temperatureC: SURFACE_OUTSIDE_TEMPERATURE_C, humidity: SURFACE_OUTSIDE_HUMIDITY, manaDensity: SURFACE_OUTSIDE_MANA_DENSITY, phase: { id: "unknown", label: "Unknown", day: 1 } };
+    return state?.surfaceExposure
+      ? SurfaceExposure.applyWeatherAmbient(ambient, SurfaceExposure.weatherAt(state.surfaceExposure, clock))
+      : ambient;
   }
   const SURFACE_DAY_START_HOUR = 8;
   const SURFACE_AMBIENT_RELAXATION_PER_HOUR = 0.65;
@@ -4869,6 +4873,7 @@
     "placeBait",
     "collectionBayTransfer",
     "spillCleanup",
+    "surfaceRemediation",
     "evidenceHandling",
     "blackMarketTrade",
     "commodityFreight",
@@ -5113,6 +5118,7 @@
       worldReference: null,
       startingSite: null,
       localSiteContext: null,
+      surfaceExposure: null,
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -5441,6 +5447,7 @@
   function applyLocalSiteContext(next, context) {
     if (!next || !context) return next;
     next.localSiteContext = LocalSiteContext.validateLocalSiteContext(context);
+    next.surfaceExposure = SurfaceExposure.createState(next.localSiteContext, next.seed, next.clock);
     const surface = LocalSiteContext.surfaceAmbient(context, 0);
     const underground = LocalSiteContext.undergroundAmbient(context);
     const undergroundOffsets = {
@@ -10524,10 +10531,12 @@
     const surfaceContamination = SURFACE_ROOM_IDS.filter((roomId) => roomById(roomId)).map((roomId) => Number(roomEnvironmentAttributes(roomId)?.contamination?.current) || 0);
     const averageContamination = surfaceContamination.length ? surfaceContamination.reduce((total, value) => total + value, 0) / surfaceContamination.length : 100;
     const surfaceFaults = chemistryFixtures.filter((fixture) => normalizeUtilityFault(fixture.utility?.fault)).length;
-    const safetyScore = clamp(96 - surfaceSpills.length * 18 - hazardousSurfaceWaste.length * 4 - averageContamination * 1.2 - surfaceFaults * 8, 0, 100);
+    const knownSurfaceCondition = state.surfaceExposure ? SurfaceExposure.knownProjection(state.surfaceExposure, state.clock) : { records: [], knownSurfaceBurden: 0 };
+    const safetyScore = clamp(96 - surfaceSpills.length * 18 - hazardousSurfaceWaste.length * 4 - averageContamination * 1.2 - surfaceFaults * 8 - knownSurfaceCondition.knownSurfaceBurden * 1.5, 0, 100);
     const safetyReasons = [
       surfaceSpills.length ? `${surfaceSpills.length} uncontained surface spill${surfaceSpills.length === 1 ? "" : "s"}.` : "No uncontained surface spills.",
-      `${hazardousSurfaceWaste.length} hazardous surface stock${hazardousSurfaceWaste.length === 1 ? "" : "s"}; average airborne contamination ${formatDecimal(averageContamination, 1)}.`
+      `${hazardousSurfaceWaste.length} hazardous surface stock${hazardousSurfaceWaste.length === 1 ? "" : "s"}; average airborne contamination ${formatDecimal(averageContamination, 1)}.`,
+      knownSurfaceCondition.records.length ? `${knownSurfaceCondition.records.length} known outdoor contamination condition${knownSurfaceCondition.records.length === 1 ? "" : "s"}; hidden unsampled conditions do not affect this assessment.` : "No known outdoor contamination condition."
     ];
 
     const reception = roomById(SURFACE_RECEPTION_ROOM_ID);
@@ -13637,6 +13646,12 @@
           basementStair: (map.terrain?.verticalConnectors || []).find((entry) => entry.id === "stairs-basement-surface") || null
         };
       },
+      surfaceExposureSnapshot: () => state.surfaceExposure ? {
+        known: SurfaceExposure.knownProjection(state.surfaceExposure, state.clock),
+        state: SurfaceExposure.clone(state.surfaceExposure),
+        spills: exposedSurfaceSpills(),
+        conservation: state.surfaceExposure.records.map((record) => ({ id: record.id, ...SurfaceExposure.recordConservation(record) }))
+      } : null,
       surfaceDaylightAtClock: (clock) => surfaceDaylightIntensity(clock),
       setMapLayer: (z) => {
         const current = mapViewportForUi().z;
@@ -14227,8 +14242,8 @@
       },
       addPhysicalSpill: (cell, quantity = 1, key = "hazardousSludge", tags = ["debug-spill"]) => {
         const clean = cleanMapCell(cell);
-        const roomId = labMapCellRoomId(clean);
-        if (!clean || !roomId) return null;
+        const roomId = labMapCellRoomId(clean) || nearestDesignatedRoomIdForCell(clean);
+        if (!clean || !roomId || !labMapCellHasFloor(clean)) return null;
         const stack = createPhysicalItemStack("residue", key, Math.max(0.01, Number(quantity) || 1), {
           roomId,
           cell: clean,
@@ -19279,6 +19294,85 @@
     return [reportEvent, caseEvent, responseEvent, visitEvent, raidEvent, pretrialEvent, trialEvent, prisonEvent, capitalEvent, appealEvent, commutationEvent, escapeEvent].filter(Boolean).sort((a, b) => a.time - b.time || a.label.localeCompare(b.label))[0] || null;
   }
 
+  function ensureSurfaceExposure() {
+    if (!state.localSiteContext) return null;
+    state.surfaceExposure = SurfaceExposure.normalizeState(state.surfaceExposure, state.localSiteContext, state.seed, state.clock);
+    return state.surfaceExposure;
+  }
+
+  function surfaceExposureTerrainAtCell(cell, map = ensureLabMap()) {
+    const floor = constructedFloorAtCell(cell, map);
+    if (floor?.purpose === "roof") return "roof";
+    if (floor) return "paved";
+    return surfaceGroundAtCell(cell, map)?.terrainId || "paved";
+  }
+
+  function exposedSurfaceSpills() {
+    const map = ensureLabMap();
+    return ensurePhysicalItemStacks().filter((stack) => {
+      if (stack.section !== "residue" || stack.form !== "spill" || stack.containerId || stack.quantity <= 0) return false;
+      return ["outdoor", "coveredExterior", "roof", "openAir"].includes(surfaceEnvelopeAtCell(stack.cell, map).kind);
+    }).map((stack) => {
+      const envelope = surfaceEnvelopeAtCell(stack.cell, map);
+      return {
+        stackId: stack.id,
+        coalesceKey: `physical-spill:${stack.id}`,
+        source: { kind: "physicalStack", id: stack.id, label: feedingResidueLabel(stack.key) },
+        label: feedingResidueLabel(stack.key),
+        substanceId: stack.key,
+        key: stack.key,
+        amount: stack.quantity,
+        createdAt: stack.createdAt,
+        phase: stack.phase,
+        tags: stack.tags,
+        knowledge: { surfaceKnown: stack.knownQuantity > 0 },
+        cell: stack.cell,
+        roomId: stack.roomId,
+        terrainId: surfaceExposureTerrainAtCell(stack.cell, map),
+        exposureKind: envelope.kind,
+        openSky: envelope.openSky !== false
+      };
+    });
+  }
+
+  function updateSurfaceExposure(seconds) {
+    const exposure = ensureSurfaceExposure();
+    if (!exposure || seconds <= 0) return 0;
+    if (state.clock - exposure.lastAdvancedAt < SurfaceExposure.FATE_STEP_SECONDS) return 0;
+    const result = SurfaceExposure.advance(exposure, state.localSiteContext, {
+      seed: state.seed,
+      fromClock: exposure.lastAdvancedAt,
+      toClock: state.clock,
+      spills: exposedSurfaceSpills()
+    });
+    state.surfaceExposure = result.state;
+    let changes = result.effects.changedRecordIds.length;
+    for (const [stackId, rawLoss] of Object.entries(result.effects.stackLosses)) {
+      const stack = physicalSpillStackById(stackId);
+      if (!stack) continue;
+      const loss = Math.min(stack.quantity, Math.max(0, Number(rawLoss) || 0));
+      if (loss <= 0) continue;
+      stack.quantity = Math.max(0, roundOutputValue(stack.quantity - loss));
+      stack.knownQuantity = Math.min(stack.quantity, Math.max(0, roundOutputValue(stack.knownQuantity - loss)));
+      stack.updatedAt = state.clock;
+      if (stack.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
+      changes += 1;
+    }
+    for (const effect of result.effects.tileEffects) {
+      if (effect.airborne > 0) {
+        changes += Number(adjustTileEnvironmentAtCell(effect.cell, "contamination", effect.airborne, { substanceId: `surface:${effect.substanceId}` }));
+      }
+      if (effect.trace > 0) {
+        const environment = tileEnvironmentAtCell(effect.cell);
+        const hazardous = result.state.records.find((record) => record.substanceId === effect.substanceId)?.tags
+          .some((tag) => ["hazard", "hazardous", "toxic", "corrosive", "chemical"].includes(tag));
+        changes += Number(addChemicalTrace(environment, hazardous ? "hazard" : "waste", effect.trace));
+      }
+    }
+    if (Object.keys(result.effects.stackLosses).length) syncPhysicalReadModels();
+    return changes;
+  }
+
   function emptySimulationChanges() {
     return {
       vitalsChanged: 0,
@@ -19292,6 +19386,7 @@
       roomPropagationChanges: 0,
       infrastructureChanged: 0,
       envChanges: 0,
+      surfaceExposureChanged: 0,
       structuralChanged: 0,
       sensoryChanged: 0,
       habitatChanged: 0,
@@ -19363,6 +19458,7 @@
   function runSimulationSystem(id, elapsed, changes, options = {}) {
     const fromClock = state.clock - elapsed;
     if (id === "environment") {
+      changes.surfaceExposureChanged += updateSurfaceExposure(elapsed);
       changes.roomPropagationChanges += propagateRoomEnvironmentAttributes(elapsed);
       changes.infrastructureChanged += updateInfrastructure(elapsed);
       changes.envChanges += exchangeContainerEnvironments(elapsed);
@@ -19486,6 +19582,7 @@
       + changes.roomPropagationChanges
       + changes.infrastructureChanged
       + changes.envChanges
+      + changes.surfaceExposureChanged
       + changes.structuralChanged
       + changes.sensoryChanged
       + changes.habitatChanged
@@ -19770,6 +19867,10 @@
 
     if (task.type === "spillCleanup") {
       completeSpillCleanup(task);
+      return;
+    }
+    if (task.type === "surfaceRemediation") {
+      completeSurfaceRemediation(task);
       return;
     }
 
@@ -20161,6 +20262,7 @@
       stockpileHaul: { category: "hauling", kind: "stockpileHaul" },
       collectionBayTransfer: { category: "servicing", kind: "collectionTransfer" },
       spillCleanup: { category: "cleaning", kind: "spillCleanup" },
+      surfaceRemediation: { category: "cleaning", kind: "surfaceRemediation" },
       toolMaintenance: { category: task.data?.action === "repair" ? "repair" : "maintenance", kind: "toolMaintenance" }
     }[task.type];
     if (!definition) return null;
@@ -25404,6 +25506,33 @@
   function registerExteriorDischarge(fixture, loads, kind) {
     const total = Object.values(loads || {}).reduce((sum, amount) => sum + Math.max(0, Number(amount) || 0), 0);
     if (!fixture || total <= TILE_ENVIRONMENT_EPSILON) return 0;
+    const exposure = ensureSurfaceExposure();
+    if (exposure) {
+      for (const [substanceId, rawAmount] of Object.entries(loads || {})) {
+        const amount = Math.max(0, Number(rawAmount) || 0);
+        if (amount <= TILE_ENVIRONMENT_EPSILON) continue;
+        const hazardous = /hazard|toxic|acid|poison|corpse|waste|sludge|contamin/.test(substanceId);
+        const registered = SurfaceExposure.registerRelease(state.surfaceExposure, state.localSiteContext, {
+          seed: state.seed,
+          clock: state.clock,
+          coalesceKey: `utility-release:${fixture.id}:${kind}:${substanceId}`,
+          source: { kind: "utilityDischarge", id: fixture.id, label: fixture.name },
+          label: airborneSubstanceLabel(substanceId),
+          substanceId,
+          amount,
+          medium: kind === "drain" ? "drainage" : "airborne",
+          phase: kind === "drain" ? "liquid" : "vapor",
+          tags: ["process", hazardous ? "hazardous" : "routine"],
+          cell: fixture.origin,
+          roomId: labMapCellRoomId(fixture.origin),
+          terrainId: surfaceExposureTerrainAtCell(fixture.origin),
+          exposureKind: surfaceEnvelopeAtCell(fixture.origin).kind,
+          openSky: surfaceEnvelopeAtCell(fixture.origin).openSky !== false,
+          knowledge: { surfaceKnown: true }
+        });
+        state.surfaceExposure = registered.state;
+      }
+    }
     fixture.utility.dischargedLoad += total;
     let changes = 1;
     const checks = Math.floor(fixture.utility.dischargedLoad / UTILITY_EXPOSURE_LOAD_STEP);
@@ -58361,6 +58490,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
   }
 
+  function storesFocusCellButton(cell, label = "Focus Tile") {
+    return storesActionButton(label, `Focus tile ${cell.x},${cell.y} on the map.`, () => {
+      focusMapTarget({ kind: "tile", tile: cell });
+    });
+  }
+
   function storesSectionEl(title, description = "", dataset = {}) {
     const section = document.createElement("section");
     section.className = "inventory-section stores-section";
@@ -58967,7 +59102,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dataset: { siteContextRow: "location" }
     }));
     section.append(storesRowEl(`${ambient.phase.label}, day ${ambient.phase.day}`, `${ambient.temperatureC.toFixed(1)}°C · ${ambient.humidity.toFixed(0)}% humidity`, {
-      subtitle: `${context.environment.meanTemperatureC.toFixed(1)}°C annual mean · ${context.environment.seasonalRangeC.toFixed(1)}°C seasonal range · ${Math.round(context.environment.precipitationMm).toLocaleString()} mm annual precipitation · deterministic seasonal and day/night baseline; no generated weather event`,
+      subtitle: `${context.environment.meanTemperatureC.toFixed(1)}°C annual mean · ${context.environment.seasonalRangeC.toFixed(1)}°C seasonal range · ${Math.round(context.environment.precipitationMm).toLocaleString()} mm annual precipitation · deterministic seasonal, day/night, and ordinary saved weather`,
       dataset: { siteContextRow: "climate", siteClimatePhase: ambient.phase.id }
     }));
     section.append(storesRowEl(context.water.label, `${siteContextValueLabel(context.water.reliabilityBand)} reliability`, {
@@ -58993,9 +59128,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyCompanyList.append(section);
   }
 
+  function renderSurfaceConditions() {
+    if (!state.surfaceExposure || !dom.economyCompanyList) return;
+    const projection = SurfaceExposure.knownProjection(state.surfaceExposure, state.clock);
+    const weather = projection.weather;
+    const nextWeather = projection.forecast?.find((entry) => entry.dayIndex > weather?.dayIndex);
+    const section = storesSectionEl("Site Conditions", "Ordinary saved weather moves exposed material through visible surface, air, drainage, off-site, transformed, and potentially hidden subsurface media. The list reports only inherited or observed knowledge.", { economyCategory: "surfaceConditions" });
+    section.append(storesRowEl(weather?.label || "Weather unavailable", weather ? `${formatDecimal(weather.temperatureOffsetC, 1)}°C weather offset · ${formatNumber(weather.windStrengthPercent)}% wind` : "No generated record", {
+      subtitle: weather ? `${formatDecimal(weather.precipitationMm, 1)} mm precipitation · wind toward ${weather.windBearingDeg}° · ${nextWeather ? `next: ${nextWeather.label} (${nextWeather.forecastConfidence} forecast)` : "no next-day forecast"}` : "The site context has not produced weather.",
+      dataset: { siteConditionsRow: "weather", weatherKind: weather?.kind || "none" }
+    }));
+    section.append(storesRowEl(`Drainage falls ${projection.drainage.directionLabel}`, projection.drainage.outletLabel, {
+      subtitle: `${projection.drainage.publicBasis}. ${projection.aquiferStatement}; runoff direction does not reveal exact aquifer quality.`,
+      dataset: { siteConditionsRow: "drainage", drainageOutlet: projection.drainage.outletKind }
+    }));
+    section.append(storesRowEl(`${titleCase(projection.conditionBand)} known surface condition`, `${projection.records.length} active record${projection.records.length === 1 ? "" : "s"}`, {
+      subtitle: projection.records.length ? "Visible bands are qualitative. Off-site and subsurface amounts remain undisclosed unless separately learned." : "No persistent outdoor contamination is currently known.",
+      dataset: { siteConditionsRow: "summary", surfaceConditionBand: projection.conditionBand }
+    }));
+    for (const record of projection.records) {
+      const reason = surfaceRemediationStartBlockReason(record.id);
+      const remediate = storesActionButton("Remediate", reason || record.remediation.label, () => {
+        if (startSurfaceRemediation(record.id)) { persist(); render(); }
+      });
+      remediate.disabled = Boolean(reason);
+      if (reason) remediate.title = reason;
+      section.append(storesRowEl(record.label, `${titleCase(record.visibleBand)} visible trace`, {
+        subtitle: `${record.terrain} · odor ${titleCase(record.odorBand)} · ${record.runoffStatus} · ${record.subsurfaceStatus}`,
+        dataset: { surfaceConditionRecord: record.id, surfaceConditionBand: record.visibleBand },
+        actions: [storesFocusCellButton(record.cell), remediate]
+      }));
+    }
+    dom.economyCompanyList.append(section);
+  }
+
   function renderCompany() {
     if (!dom.economyCompanyList) return;
     renderLocalSiteContext();
+    renderSurfaceConditions();
     const company = ensureCompany();
     if (!company.enabled) {
       const section = storesSectionEl("No Registered Front", "This starting scenario has no public company identity or above-ground business operation.", { economyCategory: "company" });
@@ -61744,6 +61914,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "spillCleanup") {
       return spillCleanupTaskBlockReason(task);
     }
+    if (task.type === "surfaceRemediation") {
+      return surfaceRemediationTaskBlockReason(task);
+    }
     if (task.type === "scientistMove" && !roomById(task.data?.toRoomId)) {
       return "The destination room no longer exists.";
     }
@@ -61997,6 +62170,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         order.interruption = "Cleanup canceled before collection completed.";
         order.completedAt = state.clock;
       }
+    }
+    if (task.type === "surfaceRemediation") {
+      const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : null;
+      if (scraper?.reservedTaskId === task.id) scraper.reservedTaskId = "";
+      const wash = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.washStackId);
+      if (wash?.reservedTaskId === task.id) wash.reservedTaskId = "";
     }
     if (task.type === "evidenceHandling") {
       const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
@@ -63491,6 +63670,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return [...rubbleLaborCommands(cell), ...repairLaborCommands(target)];
   }
 
+  function knownSurfaceConditionsAtCell(cell) {
+    if (!state.surfaceExposure) return [];
+    return SurfaceExposure.knownProjection(state.surfaceExposure, state.clock).records
+      .filter((record) => mapCellKey(record.cell) === mapCellKey(cell));
+  }
+
+  function surfaceRemediationContextCommands(cell) {
+    return knownSurfaceConditionsAtCell(cell).map((record) => commandDef({
+      id: `surface.remediate.${record.id}`,
+      label: record.remediation.label,
+      group: "Environmental Cleanup",
+      disabledReason: surfaceRemediationStartBlockReason(record.id),
+      description: `${record.visibleBand} visible trace on ${record.terrain.toLowerCase()}. Cleanup produces physical successor waste and does not erase remaining or off-site contamination.`,
+      run: () => startSurfaceRemediation(record.id)
+    }));
+  }
+
   function tileContextCommands(selection) {
     const roomId = selection?.roomId || labMapCellRoomId(selection?.tile);
     if (!roomId) {
@@ -63521,12 +63717,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           }),
           ...baitPlacementContextCommands(cell),
           ...fieldDiagnosticContextCommands("tile", "", cell, { sampleMethods: ["airVial"] }),
+          ...surfaceRemediationContextCommands(cell),
           ...tileLaborContextCommands(cell),
           ...roomDesignationContextCommands(cell),
           ...constructionContextCommands(cell)
         ];
       }
       return [
+        ...surfaceRemediationContextCommands(cell),
         ...constructionContextCommands(cell),
         commandDef({
           id: `tile.showConstruction.${cell.x}.${cell.y}`,
@@ -63558,6 +63756,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }),
       ...baitPlacementContextCommands(selection.tile),
       ...fieldDiagnosticContextCommands("tile", "", selection.tile, { sampleMethods: ["airVial"] }),
+      ...surfaceRemediationContextCommands(selection.tile),
       ...tileLaborContextCommands(selection.tile),
       openWorkspaceCommand({
         id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
@@ -65659,6 +65858,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Loose rubble", rubbleAtCell(selection.tile).length ? rubbleAtCell(selection.tile).flatMap((pile) => pile.materials).map((material) => `${formatNumber(material.amount)} ${material.label}`).join(", ") : "None"],
         ["Walkability", labMapCellIsWalkable(selection.tile) ? "Walkable if not blocked" : labMapCellHasFloor(selection.tile) ? "Blocked by structure" : "Solid"]
       ];
+      for (const condition of knownSurfaceConditionsAtCell(selection.tile)) {
+        rows.push(
+          ["Known surface condition", `${condition.label}; ${condition.visibleBand} visible trace`],
+          ["Observed drainage", condition.runoffStatus],
+          ["Subsurface", condition.subsurfaceStatus],
+          ["Remediation", condition.remediation.label]
+        );
+      }
       const environment = tileEnvironmentAtCell(selection.tile);
       const environmentKnown = Boolean(environment && (mapDebugOverlayActive() || (roomId && scientistObservesRoom(roomId))));
       if (environmentKnown) {
@@ -70660,6 +70867,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "spillCleanup") {
       return "Cleanup";
+    }
+    if (task.type === "surfaceRemediation") {
+      return "Environmental Cleanup";
     }
     if (task.type === "evidenceHandling") {
       return task.data?.action === "amend" ? "Company Records" : "Evidence Handling";
@@ -77359,6 +77569,148 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+  function surfaceExposureRecord(recordId) {
+    return state.surfaceExposure?.records.find((record) => record.id === recordId) || null;
+  }
+
+  function surfaceRemediationTask(recordId = "") {
+    return scientistQueueTasks().find((task) => task.type === "surfaceRemediation" && (!recordId || task.data?.recordId === recordId)) || null;
+  }
+
+  function surfaceRemediationTaskBlockReason(task) {
+    const record = surfaceExposureRecord(task.data?.recordId);
+    if (!record || SurfaceExposure.activeMediaTotal(record) <= 0.01) return "The recorded contamination is no longer active.";
+    if (record.media.surface <= 0.000001 && !(record.knowledge.subsurfaceKnown && record.media.subsurface > 0.000001)) return "No locally remediable surface or confirmed subsurface contamination remains.";
+    const existing = surfaceRemediationTask(record.id);
+    if (existing && existing.id !== task.id) return "This surface condition is already assigned to other remediation work.";
+    const exposedSpill = exposedSurfaceSpills().find((spill) => mapCellKey(spill.cell) === mapCellKey(record.cell));
+    if (exposedSpill) return "Collect the exposed physical spill before treating contamination already absorbed by the surface.";
+    const plan = SurfaceExposure.remediationPlan(record);
+    if (availableEmptyReceptacleCount(plan.receptacleItemKey) < 1) return `Remediation requires one empty ${inventoryItemLabel(plan.receptacleItemKey)}.`;
+    const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : bestToolInstance("scraper", true);
+    if (plan.scraperRequired && (!scraper || scraper.current <= 0)) return "Surface remediation requires a usable scraper.";
+    if (scraper?.reservedTaskId && scraper.reservedTaskId !== task.id) return "The remediation scraper is reserved for other work.";
+    if (plan.washRequired) {
+      const wash = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.washStackId && entry.quantity > 0 && (!entry.reservedTaskId || entry.reservedTaskId === task.id));
+      if (!wash) return "Constructed-surface remediation requires one Neutralizing Wash.";
+    }
+    const path = labMapPathBetweenCells(scientistMapCell(), record.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    return path.length ? "" : "The scientist cannot reach the contaminated surface.";
+  }
+
+  function surfaceRemediationStartBlockReason(recordId) {
+    const existing = surfaceRemediationTask(recordId);
+    if (existing) return "Remediation is already queued for this condition.";
+    const staminaReason = staminaBlockReason(SPILL_CLEANUP_STAMINA);
+    if (staminaReason) return staminaReason;
+    const record = surfaceExposureRecord(recordId);
+    if (!record) return "The recorded contamination is no longer active.";
+    const plan = SurfaceExposure.remediationPlan(record);
+    const scraper = bestToolInstance("scraper", true);
+    const wash = plan.washRequired ? spillCleanupWashStack() : null;
+    return surfaceRemediationTaskBlockReason({ id: "surface-remediation-check", type: "surfaceRemediation", data: { recordId, toolInstanceId: scraper?.id || "", washStackId: wash?.id || "" } });
+  }
+
+  function startSurfaceRemediation(recordId) {
+    const record = surfaceExposureRecord(recordId);
+    if (!record || surfaceRemediationTask(recordId)) return null;
+    const plan = SurfaceExposure.remediationPlan(record);
+    const scraper = bestToolInstance("scraper", true);
+    const wash = plan.washRequired ? spillCleanupWashStack() : null;
+    const path = labMapPathBetweenCells(scientistMapCell(), record.cell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist });
+    const task = {
+      id: `task-${state.nextTaskNumber++}`,
+      type: "surfaceRemediation",
+      label: plan.label,
+      createdAt: state.clock,
+      dueAt: scientistQueueTasks().reduce((latest, entry) => Math.max(latest, entry.dueAt), state.clock)
+        + SPILL_CLEANUP_BASE_SECONDS * 2 + mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps(),
+      data: {
+        recordId,
+        roomId: record.roomId,
+        targetCell: cleanMapCell(record.cell),
+        mapPath: path,
+        replacementItemKey: plan.receptacleItemKey,
+        toolInstanceId: scraper?.id || "",
+        washStackId: wash?.id || "",
+        washCount: wash ? 1 : 0,
+        staminaCost: SPILL_CLEANUP_STAMINA
+      }
+    };
+    const reason = surfaceRemediationTaskBlockReason(task);
+    if (reason || !spendStamina(SPILL_CLEANUP_STAMINA)) {
+      if (reason) addEvent(`Remediation blocked: ${reason}`);
+      return null;
+    }
+    if (scraper) scraper.reservedTaskId = task.id;
+    if (wash) wash.reservedTaskId = task.id;
+    state.tasks.push(task);
+    addEvent(`Remediation queued: ${record.label} at ${record.cell.x},${record.cell.y}.`);
+    return task;
+  }
+
+  function completeSurfaceRemediation(task) {
+    const record = surfaceExposureRecord(task.data?.recordId);
+    if (!record) return false;
+    const plan = SurfaceExposure.remediationPlan(record);
+    const capacity = Math.max(1, Number(receptacleDefByItemKey(plan.receptacleItemKey)?.capacity) || 1);
+    if (!consumeEmptyReceptacles(plan.receptacleItemKey, 1)) return false;
+    const result = SurfaceExposure.remediate(state.surfaceExposure, state.localSiteContext, record.id, {
+      seed: state.seed,
+      clock: state.clock,
+      maxAmount: capacity
+    });
+    if (!result.removedAmount) {
+      addPhysicalItemQuantity("inventory", plan.receptacleItemKey, 1, record.roomId || STORAGE_ROOM_ID);
+      return false;
+    }
+    const successor = createFilledReceptacle(plan.receptacleItemKey, [{
+      kind: "waste",
+      key: "contaminatedResidue",
+      label: "Contaminated surface material",
+      amount: result.removedAmount,
+      phase: plan.id === "excavate" ? "solid" : "sludge",
+      tags: ["waste", "contaminated", ...record.tags]
+    }], {
+      roomId: record.roomId || nearestDesignatedRoomIdForCell(record.cell) || STORAGE_ROOM_ID,
+      cell: record.cell,
+      fixtureId: "",
+      stockpileId: ""
+    }, { tags: ["waste", "contaminated", ...record.tags], sourceLabels: [record.source.label] });
+    if (!successor) {
+      addPhysicalItemQuantity("inventory", plan.receptacleItemKey, 1, record.roomId || STORAGE_ROOM_ID);
+      return false;
+    }
+    state.surfaceExposure = result.state;
+    const environment = tileEnvironmentAtCell(record.cell);
+    if (environment) {
+      const hazardous = record.tags.some((tag) => ["hazard", "hazardous", "toxic", "corrosive", "chemical"].includes(tag));
+      const traceKind = hazardous ? "hazard" : "waste";
+      environment.chemicalTraces[traceKind] = Math.max(0, (Number(environment.chemicalTraces[traceKind]) || 0) - result.removedAmount);
+      environment.chemicalTraces = normalizeChemicalTraces(environment.chemicalTraces);
+      environment.updatedAt = state.clock;
+    }
+    const wash = task.data?.washStackId ? ensurePhysicalItemStacks().find((entry) => entry.id === task.data.washStackId && entry.quantity > 0) : null;
+    if (wash) {
+      wash.quantity -= 1;
+      wash.knownQuantity = Math.min(wash.knownQuantity, wash.quantity);
+      wash.reservedTaskId = "";
+      if (wash.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== wash.id);
+    }
+    const scraper = task.data?.toolInstanceId ? toolInstanceById(task.data.toolInstanceId)?.instance : null;
+    if (scraper) {
+      scraper.current = Math.max(0, scraper.current - 1);
+      scraper.contaminationLoad = Math.max(0, Number(scraper.contaminationLoad) || 0) + result.removedAmount;
+      scraper.reservedTaskId = "";
+    }
+    state.scientist.roomId = record.roomId || nearestDesignatedRoomIdForCell(record.cell) || state.scientist.roomId;
+    state.scientist.mapCell = cleanMapCell(record.cell);
+    syncPhysicalReadModels();
+    recordCompanyEvent("wasteContained", `${formatDecimal(result.removedAmount, 2)} units of contaminated surface material were physically contained.`, { category: "waste", quantity: result.removedAmount, roomId: state.scientist.roomId });
+    addEvent(`Remediation complete: ${formatDecimal(result.removedAmount, 2)} units captured in ${inventoryItemLabel(plan.receptacleItemKey)}; remaining contamination persists.`);
+    return true;
+  }
+
   function resourceAmount(key) {
     if (Array.isArray(state.physicalItemStacks)) return Math.max(0, Math.floor(physicalKnownAmount("resources", key)));
     return ensureResources()[key] || 0;
@@ -79456,6 +79808,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.startingSite = candidate?.startingSite && typeof candidate.startingSite === "object" ? clonePlainObject(candidate.startingSite) : null;
     next.localSiteContext = candidate?.localSiteContext && typeof candidate.localSiteContext === "object"
       ? LocalSiteContext.validateLocalSiteContext(candidate.localSiteContext)
+      : null;
+    next.surfaceExposure = next.localSiteContext
+      ? SurfaceExposure.normalizeState(candidate?.surfaceExposure, next.localSiteContext, next.seed, next.clock)
       : null;
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
