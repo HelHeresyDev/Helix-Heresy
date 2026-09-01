@@ -40,8 +40,9 @@
   const StrategicNonStateNetworkHistory = window.HelixStrategicNonStateNetworkHistory;
   const StrategicEnforcementPracticeHistory = window.HelixStrategicEnforcementPracticeHistory;
   const StrategicStartingSites = window.HelixStrategicStartingSites;
+  const LocalSiteContext = window.HelixLocalSiteContext;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -228,8 +229,6 @@
   const UTILITY_CLIMATE_SETTING_BY_ID = Object.fromEntries(UTILITY_CLIMATE_SETTING_DEFS.map((setting) => [setting.id, setting]));
   const UTILITY_AIRFLOW_MODES = new Set(["exhaust", "supply", "closed"]);
   const UTILITY_MANA_SOURCE_MODES = new Set(["rock", "feedstock"]);
-  const UTILITY_OUTSIDE_TEMPERATURE_C = 12;
-  const UTILITY_OUTSIDE_HUMIDITY = 45;
   const UTILITY_EXPOSURE_LOAD_STEP = 10;
   const UTILITY_MAX_STEP_SECONDS = 60 * 60;
   const UTILITY_FILTER_CAPACITY = 80;
@@ -960,6 +959,11 @@
   const SURFACE_OUTSIDE_TEMPERATURE_C = 12;
   const SURFACE_OUTSIDE_HUMIDITY = 45;
   const SURFACE_OUTSIDE_MANA_DENSITY = 24;
+  function surfaceOutsideAmbient(clock = state?.clock || 0) {
+    return state?.localSiteContext
+      ? LocalSiteContext.surfaceAmbient(state.localSiteContext, clock)
+      : { temperatureC: SURFACE_OUTSIDE_TEMPERATURE_C, humidity: SURFACE_OUTSIDE_HUMIDITY, manaDensity: SURFACE_OUTSIDE_MANA_DENSITY, phase: { id: "unknown", label: "Unknown", day: 1 } };
+  }
   const SURFACE_DAY_START_HOUR = 8;
   const SURFACE_AMBIENT_RELAXATION_PER_HOUR = 0.65;
   const SURFACE_AIRBORNE_DISPERSAL_PER_HOUR = 0.5;
@@ -5107,6 +5111,8 @@
       seed,
       runIdentity: null,
       worldReference: null,
+      startingSite: null,
+      localSiteContext: null,
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -5429,6 +5435,50 @@
     next.siteAccessPoints = normalizeSiteAccessPoints(next.siteAccessPoints, next);
     next.company = defaultCompanyState(options.seed || next.seed, next.siteIdentity);
     seedStartingInvestigativeEvidence(next);
+    return next;
+  }
+
+  function applyLocalSiteContext(next, context) {
+    if (!next || !context) return next;
+    next.localSiteContext = LocalSiteContext.validateLocalSiteContext(context);
+    const surface = LocalSiteContext.surfaceAmbient(context, 0);
+    const underground = LocalSiteContext.undergroundAmbient(context);
+    const undergroundOffsets = {
+      [MAIN_ROOM_ID]: { temperature: 0, humidity: 0, mana: 0 },
+      [MENAGERIE_ROOM_ID]: { temperature: 0, humidity: 2, mana: 8 },
+      [PITS_ROOM_ID]: { temperature: -1, humidity: 18, mana: 0 },
+      [BEDROOM_ROOM_ID]: { temperature: 3, humidity: -5, mana: -2 },
+      [STORAGE_ROOM_ID]: { temperature: -1, humidity: -5, mana: -3 },
+      [COLLECTION_BAY_ROOM_ID]: { temperature: 0, humidity: 12, mana: 6 },
+      [CONCEALED_EXIT_ROOM_ID]: { temperature: -1, humidity: -3, mana: -5 }
+    };
+    for (const room of next.rooms || []) {
+      const attributes = room.attributes;
+      if (!attributes) continue;
+      if (SURFACE_ROOM_IDS.includes(room.id)) {
+        const enclosedTemperature = roundOutputValue(surface.temperatureC * 0.72 + 15 * 0.28);
+        const enclosedHumidity = clamp(surface.humidity * 0.78 + 45 * 0.22, 0, 100);
+        const basementBlend = room.id === SURFACE_BASEMENT_ROOM_ID ? 0.45 : 0;
+        const temperature = enclosedTemperature * (1 - basementBlend) + underground.temperatureC * basementBlend;
+        const humidity = enclosedHumidity * (1 - basementBlend) + underground.humidity * basementBlend;
+        attributes.temperature.current = attributes.temperature.baseline = roundOutputValue(temperature);
+        attributes.humidity.current = attributes.humidity.baseline = roundOutputValue(humidity);
+        attributes.ambientMana.current = attributes.ambientMana.baseline = roundOutputValue(surface.manaDensity * (1 - basementBlend) + underground.manaDensity * basementBlend);
+      } else {
+        const offset = undergroundOffsets[room.id] || { temperature: 0, humidity: 0, mana: 0 };
+        attributes.temperature.current = attributes.temperature.baseline = roundOutputValue(underground.temperatureC + offset.temperature);
+        attributes.humidity.current = attributes.humidity.baseline = roundOutputValue(clamp(underground.humidity + offset.humidity, 0, 100));
+        attributes.ambientMana.current = attributes.ambientMana.baseline = roundOutputValue(clamp(underground.manaDensity + offset.mana, 0, 100));
+      }
+    }
+    const cistern = (next.fixtures || []).find((fixture) => fixture.typeId === "waterCisternPump");
+    if (cistern?.utility) {
+      cistern.utility.contents ||= {};
+      cistern.utility.contents.cleanWater = context.water.initialCisternUnits;
+      cistern.utility.waterQuality = context.water.startingQuality;
+    }
+    next.tileEnvironments = {};
+    next.compartmentEnvironments = {};
     return next;
   }
 
@@ -12822,6 +12872,22 @@
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
+      localSiteContextSnapshot: () => {
+        const serviceHead = (state.fixtures || []).find((fixture) => fixture.typeId === "utilityServiceHead") || null;
+        return clonePlainObject({
+          startingSite: state.startingSite,
+          runSite: activeRunRecord?.site || null,
+          worldReference: state.worldReference,
+          context: state.localSiteContext,
+          ambient: surfaceOutsideAmbient(),
+          underground: LocalSiteContext.undergroundAmbient(state.localSiteContext),
+          sampleGeology: localGeologyProfile({ x: 0, y: 0, z: 0 }),
+          cistern: (state.fixtures || []).find((fixture) => fixture.typeId === "waterCisternPump") || null,
+          serviceCapacities: serviceHead
+            ? Object.fromEntries(["air", "drain", "electricity", "mana"].map((medium) => [medium, utilityFixtureSourceCapacityPerHour(serviceHead, medium)]))
+            : null
+        });
+      },
       investigativeEvidenceSnapshot: () => clonePlainObject({
         ...ensureInvestigativeEvidence(),
         records: ensureInvestigativeEvidence().records.map((record) => ({ ...record, currentIntegrity: investigativeEvidenceIntegrity(record) })),
@@ -13334,7 +13400,7 @@
       },
       geologyCellSnapshot: (cell) => {
         const clean = cleanMapCell(cell);
-        const profile = Geology.profileForCell(state.seed, clean);
+        const profile = localGeologyProfile(clean);
         const observation = normalizeMapCellObservations(state.mapCellObservations)[mapCellKey(clean)] || null;
         const encounter = (ensureLabMap().terrain?.geologyEncounters || []).find((entry) => sameMapCell(entry.cell, clean)) || null;
         return profile ? {
@@ -13349,7 +13415,8 @@
       findGeologyFeature: (feature, origin = scientistMapCell(), options = {}) => Geology.findNearestFeature(state.seed, origin, feature, {
         maxRadius: options.maxRadius,
         width: ensureLabMap().width,
-        height: ensureLabMap().height
+        height: ensureLabMap().height,
+        geologyContext: strategicLocalGeologyContext()
       }),
       geologyEncounterSnapshot: () => normalizeGeologyEncounters(ensureLabMap().terrain?.geologyEncounters),
       roomExpansionReadiness: (roomId) => roomExpansionReadiness(roomId),
@@ -15979,7 +16046,11 @@
       generationVersion: world.generationVersion,
       canonicalDigest: world.canonicalDigest
     };
+    const localContext = LocalSiteContext.createLocalSiteContext(world, materializedSite, nextSeed);
+    materializedSite.materialization.exactLocalContextDeferred = false;
+    materializedSite.materialization.localContextDigest = localContext.digest;
     next.startingSite = clonePlainObject(materializedSite);
+    applyLocalSiteContext(next, localContext);
     const openingSelection = ThemeContent.selectRenderedContent({
       kind: "runOpening",
       worldTheme: world.worldTheme,
@@ -20936,7 +21007,7 @@
 
   function constructionGeologyProfiles(order, tile) {
     return constructionGeologyCells(order, tile)
-      .map((cell) => Geology.profileForCell(state.seed, cell))
+      .map(localGeologyProfile)
       .filter(Boolean);
   }
 
@@ -21649,8 +21720,24 @@
     ]);
   }
 
+  function strategicLocalGeologyContext() {
+    const context = state?.localSiteContext;
+    if (!context) return null;
+    return {
+      bedrockClass: context.geologyInputs?.bedrockClass?.id || context.geologyInputs?.bedrockClass || null,
+      hazardPermille: clonePlainObject(context.geologyInputs?.hazardPermille || {}),
+      magicalHazardPermille: clonePlainObject(context.arcaneInputs?.magicalHazardPermille || {}),
+      manaPermille: Number(context.arcaneInputs?.manaPermille),
+      nullPermille: Number(context.arcaneInputs?.nullPermille)
+    };
+  }
+
+  function localGeologyProfile(cell) {
+    return Geology.profileForCell(state?.seed || "helix-heresy", cleanMapCell(cell), strategicLocalGeologyContext());
+  }
+
   function geologyExcavationProfile(cell) {
-    return Geology.profileForCell(state.seed, cleanMapCell(cell));
+    return localGeologyProfile(cell);
   }
 
   function recordGeologyEncounter(profile, map = ensureLabMap()) {
@@ -24539,14 +24626,15 @@
     const contamination = Math.max(0, Number(attributes.contamination.current) || 0);
     const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
     const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
+    const outside = surfaceOutsideAmbient();
     return {
       cell: cleanMapCell(cell),
-      temperatureC: exterior ? SURFACE_OUTSIDE_TEMPERATURE_C : Number(attributes.temperature.current),
-      rockTemperatureC: exterior ? SURFACE_OUTSIDE_TEMPERATURE_C : Number(attributes.temperature.baseline),
+      temperatureC: exterior ? outside.temperatureC : Number(attributes.temperature.current),
+      rockTemperatureC: exterior ? outside.temperatureC : Number(attributes.temperature.baseline),
       lightLevel: Number(attributes.light.current),
-      humidity: exterior ? SURFACE_OUTSIDE_HUMIDITY : Number(attributes.humidity.current),
-      manaDensity: exterior ? SURFACE_OUTSIDE_MANA_DENSITY : Number(attributes.ambientMana.current),
-      rockManaDensity: exterior ? SURFACE_OUTSIDE_MANA_DENSITY : Number(attributes.ambientMana.baseline),
+      humidity: exterior ? outside.humidity : Number(attributes.humidity.current),
+      manaDensity: exterior ? outside.manaDensity : Number(attributes.ambientMana.current),
+      rockManaDensity: exterior ? outside.manaDensity : Number(attributes.ambientMana.baseline),
       airborne: contamination >= TILE_ENVIRONMENT_EPSILON
         ? { [TILE_ENVIRONMENT_LEGACY_SUBSTANCE_ID]: contamination }
         : {},
@@ -24759,9 +24847,10 @@
       const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
       if (exterior) {
         const ambientFraction = 1 - Math.exp(-SURFACE_AMBIENT_RELAXATION_PER_HOUR * elapsedHours);
-        delta.temperatureC += (SURFACE_OUTSIDE_TEMPERATURE_C - record.temperatureC) * ambientFraction;
-        delta.humidity += (SURFACE_OUTSIDE_HUMIDITY - record.humidity) * ambientFraction;
-        delta.manaDensity += (SURFACE_OUTSIDE_MANA_DENSITY - record.manaDensity) * ambientFraction;
+        const outside = surfaceOutsideAmbient();
+        delta.temperatureC += (outside.temperatureC - record.temperatureC) * ambientFraction;
+        delta.humidity += (outside.humidity - record.humidity) * ambientFraction;
+        delta.manaDensity += (outside.manaDensity - record.manaDensity) * ambientFraction;
       }
       const before = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}|${JSON.stringify(record.chemicalTraces)}`;
       record.temperatureC = clamp(record.temperatureC + delta.temperatureC, -100, 500);
@@ -24873,7 +24962,12 @@
     const infrastructure = fixtureInfrastructureDef(fixture);
     if (!infrastructure || !utilityFixtureEnabled(fixture)) return 0;
     const declaredCapacity = Math.max(0, Number(infrastructure.sourceCapacities?.[medium]) || 0);
-    if (declaredCapacity > 0) return declaredCapacity * utilityFaultPerformance(fixture);
+    if (declaredCapacity > 0) {
+      const siteMultiplier = fixture.typeId === "utilityServiceHead" && state.localSiteContext
+        ? clamp(Number(state.localSiteContext.utilities?.multipliers?.[medium]) || 1, 0, 2)
+        : 1;
+      return declaredCapacity * siteMultiplier * utilityFaultPerformance(fixture);
+    }
     if (medium === "electricity" && infrastructure.role === "electricSource" && fixture.utility.fuel > 0) {
       return Math.max(0, Number(infrastructure.outputPerHour) || 0) * utilityFaultPerformance(fixture);
     }
@@ -25379,8 +25473,9 @@
             changes += utilitySetStatus(terminal, "blocked", "No exterior air terminal is connected.");
             continue;
           }
-          tile.temperatureC += (UTILITY_OUTSIDE_TEMPERATURE_C - tile.temperatureC) * fraction;
-          tile.humidity += (UTILITY_OUTSIDE_HUMIDITY - tile.humidity) * fraction;
+          const outside = surfaceOutsideAmbient();
+          tile.temperatureC += (outside.temperatureC - tile.temperatureC) * fraction;
+          tile.humidity += (outside.humidity - tile.humidity) * fraction;
           changes += utilitySetStatus(terminal, "operating", "Supplying exterior air to this tile.") + 1;
           continue;
         }
@@ -25396,8 +25491,9 @@
         }
         tile.airborne = normalizeAirborneLoads(tile.airborne);
         if (exterior) {
-          tile.temperatureC += (UTILITY_OUTSIDE_TEMPERATURE_C - tile.temperatureC) * fraction;
-          tile.humidity += (UTILITY_OUTSIDE_HUMIDITY - tile.humidity) * fraction;
+          const outside = surfaceOutsideAmbient();
+          tile.temperatureC += (outside.temperatureC - tile.temperatureC) * fraction;
+          tile.humidity += (outside.humidity - tile.humidity) * fraction;
           changes += registerExteriorDischarge(exterior, dischargedLoads, "air");
         }
         const moved = Object.values(capturedLoads).some((amount) => amount > 0) || Object.values(dischargedLoads).some((amount) => amount > 0);
@@ -25630,6 +25726,14 @@
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
     state.fixtures = normalizeFixtures(state.fixtures);
+    const water = state.localSiteContext?.water;
+    if (water && Number(water.replenishmentPerHour) > 0) {
+      const cistern = state.fixtures.find((fixture) => fixture.typeId === "waterCisternPump");
+      const capacity = Math.max(0, Number(fixtureInfrastructureDef(cistern)?.capacity) || 0);
+      if (cistern?.utility?.contents && capacity > 0) {
+        cistern.utility.contents.cleanWater = Math.min(capacity, (Number(cistern.utility.contents.cleanWater) || 0) + Number(water.replenishmentPerHour) * elapsedHours);
+      }
+    }
     const context = utilityNetworkContext();
     let changes = 0;
     changes += updateManaInfrastructure(elapsedHours, context);
@@ -28062,7 +28166,7 @@
     const key = mapCellKey(clean);
     const explicit = (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
     if (explicit) return explicit;
-    const profile = Geology.profileForCell(state?.seed || "helix-heresy", clean);
+    const profile = localGeologyProfile(clean);
     return profile ? {
       cell: clean,
       stoneId: profile.stratum.materialId,
@@ -58848,8 +58952,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyOverviewList.append(grid);
   }
 
+  function siteContextValueLabel(value) {
+    return String(value?.label || value?.name || StrategicStartingSites.title(value || "unknown"));
+  }
+
+  function renderLocalSiteContext() {
+    const context = state.localSiteContext;
+    if (!context || !dom.economyCompanyList) return;
+    const ambient = surfaceOutsideAmbient();
+    const underground = LocalSiteContext.undergroundAmbient(context);
+    const section = storesSectionEl("Site Context", "These saved conditions come from the selected world cell plus run-owned parcel variation. They drive the laboratory environment, local geology, cistern supply, and physical utility capacity.", { economyCategory: "siteContext" });
+    section.append(storesRowEl(`${siteContextValueLabel(context.environment.biome)} · ${context.location.elevationM.toLocaleString()} m`, StrategicStartingSites.DISTANCE_BANDS[context.location.distanceBand]?.label || siteContextValueLabel(context.location.distanceBand), {
+      subtitle: `${context.location.slopePercent.toFixed(1)}% strategic slope · ${context.location.nearestSettlement.name} is the nearest relevant settlement · ${siteContextValueLabel(context.location.routeContinuity)} route access`,
+      dataset: { siteContextRow: "location" }
+    }));
+    section.append(storesRowEl(`${ambient.phase.label}, day ${ambient.phase.day}`, `${ambient.temperatureC.toFixed(1)}°C · ${ambient.humidity.toFixed(0)}% humidity`, {
+      subtitle: `${context.environment.meanTemperatureC.toFixed(1)}°C annual mean · ${context.environment.seasonalRangeC.toFixed(1)}°C seasonal range · ${Math.round(context.environment.precipitationMm).toLocaleString()} mm annual precipitation · deterministic seasonal and day/night baseline; no generated weather event`,
+      dataset: { siteContextRow: "climate", siteClimatePhase: ambient.phase.id }
+    }));
+    section.append(storesRowEl(context.water.label, `${siteContextValueLabel(context.water.reliabilityBand)} reliability`, {
+      subtitle: `${context.water.initialCisternUnits} inherited units at ${context.water.startingQuality}% recorded quality · ${context.water.replenishmentPerHour > 0 ? `${formatNumber(context.water.replenishmentPerHour)} units/hour physical replenishment` : "physical hauled-water replenishment required"} · viable at run start`,
+      dataset: { siteContextRow: "water", siteWaterAccess: context.water.kind }
+    }));
+    section.append(storesRowEl(`${siteContextValueLabel(context.publicGeology.bedrockClass)} bedrock`, `${siteContextValueLabel(context.publicGeology.stabilityBand)} stability`, {
+      subtitle: `${siteContextValueLabel(context.publicGeology.surfaceDeposit)} surface deposit · ${siteContextValueLabel(context.publicGeology.permeabilityBand)} permeability · ${siteContextValueLabel(context.publicGeology.geothermalBand)} geothermal tendency · local soil survey ${context.localVariation.soilDepthM.toFixed(1)} m`,
+      dataset: { siteContextRow: "geology", siteBedrock: context.publicGeology.bedrockClass?.id || "unknown" }
+    }));
+    section.append(storesRowEl(`${siteContextValueLabel(context.publicArcane.primaryAspect)} arcane aspect`, `${ambient.manaDensity.toFixed(0)} surface mana`, {
+      subtitle: `${underground.manaDensity.toFixed(0)} underground baseline · ${siteContextValueLabel(context.publicArcane.leyStructure)} · ${siteContextValueLabel(context.publicArcane.arcaneStabilityBand)} arcane stability`,
+      dataset: { siteContextRow: "arcane" }
+    }));
+    section.append(storesRowEl(siteContextValueLabel(context.utilities.accessKind), `${siteContextValueLabel(context.utilities.reliabilityBand)} service reliability`, {
+      subtitle: "Electricity, drainage, air, and mana capacities are physically limited by this connection. Orbital internet access creates no utility capacity.",
+      dataset: { siteContextRow: "utilities", siteUtilityAccess: context.utilities.accessKind }
+    }));
+    section.append(storesRowEl("Knowledge boundary", "Public and inherited facts only", {
+      subtitle: "Exact deposits, concealed hazards, and hidden aquifer quality remain unknown until appropriate local work or strategic surveying reveals them.",
+      dataset: { siteContextRow: "knowledge" }
+    }));
+    dom.economyCompanyList.append(section);
+  }
+
   function renderCompany() {
     if (!dom.economyCompanyList) return;
+    renderLocalSiteContext();
     const company = ensureCompany();
     if (!company.enabled) {
       const section = storesSectionEl("No Registered Front", "This starting scenario has no public company identity or above-ground business operation.", { economyCategory: "company" });
@@ -59510,7 +59656,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if ((map.terrain?.smoothedWalls || []).some((entry) => mapCellKey(entry) === key)) parts.push("smoothed natural rock wall");
     if (!labMapCellHasFloor(cell, map, excavatedKeys) && (map.surfaceZ === null || cell.z < map.surfaceZ)) {
       const naturalCondition = naturalDamageAtCell(cell, map)?.condition ?? 100;
-      const face = Geology.faceKnowledge(Geology.profileForCell(state.seed, cell));
+      const face = Geology.faceKnowledge(localGeologyProfile(cell));
       parts.push(`${face?.label || MATERIAL_BY_ID[naturalWallMaterialId(cell, map)]?.label || "Common Stone"}; ${face?.hardnessBand || "hardness unknown"}; ${face?.stabilityBand || "stability unknown"}; ${structureConditionBand(naturalCondition)}`);
     } else {
       const encounter = (map.terrain?.geologyEncounters || []).find((entry) => mapCellKey(entry.cell) === key);
@@ -65493,7 +65639,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : (ensureLabMap().terrain?.smoothedWalls || []).some((cell) => mapCellKey(cell) === key)
           ? "Smoothed natural wall"
           : surfaceGround ? `${titleCase(surfaceGround.terrainId)} ground; ${titleCase(envelope.kind)}` : excavated ? "Rough floor" : "Natural rock";
-      const geologyFace = !excavated && !surfaceGround && !constructedFloor ? Geology.faceKnowledge(Geology.profileForCell(state.seed, selection.tile)) : null;
+      const geologyFace = !excavated && !surfaceGround && !constructedFloor ? Geology.faceKnowledge(localGeologyProfile(selection.tile)) : null;
       const rows = [
         ["Coordinates", `${selection.tile.x},${selection.tile.y}`],
         ["Room", roomId ? roomName(roomId) : surfaceGround ? "Outdoor site" : excavated ? "Unassigned floor" : "Solid earth"],
@@ -66752,6 +66898,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return {
       map,
       geologySeed: state.seed,
+      geologyContext: strategicLocalGeologyContext(),
       fullReveal: Boolean(options.fullReveal),
       knownCellKeys: options.knownCellKeys ?? null,
       excavatedKeys: options.excavatedKeys || labMapExcavatedCellKeys(map),
@@ -66812,7 +66959,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!excavated && !surfaceGround && !constructedFloor) {
       const deposit = context.naturalDepositsByCell.get(key);
       const damage = context.naturalDamageByCell.get(key);
-      const procedural = Geology.profileForCell(context.geologySeed, clean);
+      const procedural = Geology.profileForCell(context.geologySeed, clean, context.geologyContext);
       return {
         known: true,
         kind: "naturalRock",
@@ -69503,7 +69650,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const rubble = (map.terrain?.rubble || []).filter((pile) => keys.has(mapCellKey(pile.cell)));
     const failures = (map.terrain?.structuralFailures || []).filter((failure) => keys.has(mapCellKey(failure.cell)));
     const weakUnreinforced = cells.filter((cell) => {
-      const profile = Geology.profileForCell(state.seed, cell);
+      const profile = localGeologyProfile(cell);
       if (!profile || profile.stratum.stability >= 40) return false;
       return !constructedFloorAtCell(cell, map)
         && !cardinalMapCells(cell).some((neighbor) => constructedWallAtCell(neighbor, map));
@@ -69546,7 +69693,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       commissioned,
       stages,
       geology: {
-        strata: [...new Set(cells.map((cell) => Geology.profileForCell(state.seed, cell)?.stratum.label).filter(Boolean))],
+        strata: [...new Set(cells.map((cell) => localGeologyProfile(cell)?.stratum.label).filter(Boolean))],
         weakUnreinforcedCells: weakUnreinforced.map((cell) => ({ ...cell }))
       }
     };
@@ -79306,6 +79453,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       generationVersion: Math.max(1, Math.floor(Number(candidate?.worldReference?.generationVersion || activeWorldRecord?.generationVersion) || 1)),
       canonicalDigest: String(candidate?.worldReference?.canonicalDigest || activeWorldRecord?.canonicalDigest || "")
     };
+    next.startingSite = candidate?.startingSite && typeof candidate.startingSite === "object" ? clonePlainObject(candidate.startingSite) : null;
+    next.localSiteContext = candidate?.localSiteContext && typeof candidate.localSiteContext === "object"
+      ? LocalSiteContext.validateLocalSiteContext(candidate.localSiteContext)
+      : null;
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),

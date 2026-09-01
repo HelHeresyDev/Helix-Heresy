@@ -7,12 +7,13 @@ const Library = require('../world-run-library');
 const appUrl = pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 
 test('New Run filters explicit candidate cards and saves the chosen strategic site with the run', async ({ page }) => {
-  test.setTimeout(1_200_000);
+  test.setTimeout(1_800_000);
   const world = Library.createWorld({ id: 'site-ui-world', worldSeed: 'site-ui-world-seed', worldTheme: 'madcap', createdAt: 'test' });
   const manifest = { version: 2, worldIds: [world.id], runIds: [], activeRunId: null };
   await page.addInitScript(({ manifest, worldKey, worldPayload }) => {
     window.localStorage.setItem('helix-heresy-v2-library', JSON.stringify(manifest));
     window.localStorage.setItem(worldKey, worldPayload);
+    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
   }, {
     manifest,
     worldKey: `${Library.WORLD_KEY_PREFIX}${world.id}`,
@@ -36,8 +37,14 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
   await expect(page.locator('#startRunSubmitBtn')).toBeEnabled();
   await page.locator('#startRunSubmitBtn').click();
 
-  const snapshot = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot());
-  expect(snapshot.run.site).toMatchObject({
+  await page.keyboard.press('B');
+  await page.locator('[data-economy-menu-tab="company"]').click();
+  await expect(page.locator('[data-site-context-row="location"]')).toBeVisible();
+  await expect(page.locator('[data-site-context-row="water"]')).toContainText('viable at run start');
+  await expect(page.locator('[data-site-context-row="knowledge"]')).toContainText('Exact deposits');
+
+  const actualContext = await page.evaluate(() => window.helixHeresyDebug.localSiteContextSnapshot());
+  expect(actualContext.runSite).toMatchObject({
     selectionStatus: 'selectedAndMaterialized',
     candidateId,
     worldId: world.id,
@@ -46,7 +53,19 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
       distanceBand: 'corridorFringe',
       jurisdiction: { kind: 'facilityConvoyOrAgreementOnly', governingCityId: null },
     },
-    materialization: { preservesCanonicalWorld: true, priorRunOccupancyIgnored: true },
+    materialization: { preservesCanonicalWorld: true, priorRunOccupancyIgnored: true, exactLocalContextDeferred: false },
   });
-  expect(snapshot.run.state.startingSite).toEqual(snapshot.run.site);
+  expect(actualContext.startingSite).toEqual(actualContext.runSite);
+  expect(actualContext.runSite.materialization.localContextDigest).toBe(actualContext.context.digest);
+  expect(actualContext.context).toMatchObject({
+    worldId: world.id,
+    canonicalWorldDigest: world.canonicalDigest,
+    candidateId,
+    water: { viableAtRunStart: true },
+    knowledge: { exactDepositLocationsKnown: false, hiddenAquiferQualityKnown: false, concealedHazardsKnown: false },
+  });
+  expect(actualContext.cistern.utility.contents.cleanWater).toBe(actualContext.context.water.initialCisternUnits);
+  expect(actualContext.cistern.utility.waterQuality).toBe(actualContext.context.water.startingQuality);
+  expect(actualContext.serviceCapacities.electricity).toBeCloseTo(24 * actualContext.context.utilities.multipliers.electricity, 5);
+  expect(actualContext.sampleGeology.stratum.id).toBeTruthy();
 });
